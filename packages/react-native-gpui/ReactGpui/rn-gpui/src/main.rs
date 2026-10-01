@@ -16,8 +16,21 @@
 //!   RN_GPUI_RUN_MS      how long to stay alive; 0 (default) = until killed
 
 use rn_gpui::host::Host;
-use rn_gpui_sys::ffi::MountBatch;
+use rn_gpui_sys::ffi::{MountBatch, MountKind};
 use std::time::Duration;
+
+// cxx models a shared enum as a struct with a `repr` field, so the match is
+// intentionally not exhaustive (invalid discriminants are possible in theory).
+fn kind_name(kind: MountKind) -> &'static str {
+    match kind {
+        MountKind::Create => "Create",
+        MountKind::Delete => "Delete",
+        MountKind::Insert => "Insert",
+        MountKind::Remove => "Remove",
+        MountKind::Update => "Update",
+        _ => "Unknown",
+    }
+}
 
 fn env_string(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
@@ -40,14 +53,28 @@ fn env_u32(key: &str, default: u32) -> u32 {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // C++ (JS/Fabric thread) -> Rust. TODO 1.8 prints every operation; until
-    // then just count them so a batch is visible proof the path works.
+    // C++ (JS/Fabric thread) -> Rust. TODO 1.8 prints every operation.
     let _ = rn_gpui_sys::MOUNT_HANDLER.set(Box::new(|batch: MountBatch| {
         log::info!(
-            "[mount] surface {}: {} ops (per-op printing lands in TODO 1.8)",
+            "[mount] surface {}: {} ops",
             batch.surface_id,
             batch.ops.len()
         );
+        for op in &batch.ops {
+            log::info!(
+                "[mount]   {:<6} tag={} parent={} index={} {:<10} frame=({:.1},{:.1} {:.1}x{:.1}) props_changed={}",
+                kind_name(op.kind),
+                op.tag,
+                op.parent_tag,
+                op.index,
+                op.component,
+                op.frame.x,
+                op.frame.y,
+                op.frame.w,
+                op.frame.h,
+                op.props_changed,
+            );
+        }
     }));
 
     let bundle = env_string("RN_GPUI_BUNDLE", "tester/build/index.gpui.bundle");
