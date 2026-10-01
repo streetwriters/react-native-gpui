@@ -15,6 +15,8 @@ use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 pub struct RNNodeView {
     /// Fabric tag.
     pub tag: i32,
+    /// Render count used by TODO 3.1 to audit gpui-fast entity invalidation.
+    render_count: u64,
     /// TODO 2.6 — the surface this node was mounted for. `ViewStore` uses it to
     /// drop exactly one surface's nodes when that surface is torn down (a
     /// reload drops every surface at once).
@@ -69,6 +71,7 @@ impl RNNodeView {
     pub fn from_op(op: &MountOp, surface_id: i32) -> Self {
         let mut view = Self {
             tag: op.tag,
+            render_count: 0,
             surface_id,
             component: op.component.clone(),
             frame: op.frame,
@@ -190,6 +193,15 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_count += 1;
+        if std::env::var_os("RN_GPUI_DEBUG_RENDER_COUNTS").is_some() {
+            log::info!(
+                "[retention] RNNodeView::render tag={} component={} count={}",
+                self.tag,
+                self.component,
+                self.render_count
+            );
+        }
         let frame = self.frame;
         // Yoga's child frames already include the parent's border inset.
         // GPUI/Taffy positions absolute children inside that border as well;
