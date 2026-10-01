@@ -60,6 +60,23 @@ fn env_opt_f32(key: &str) -> Option<f32> {
     std::env::var(key).ok().and_then(|value| value.parse().ok())
 }
 
+/// `RN_GPUI_CLICK="400,150;400,200"` — synthetic clicks at window coordinates,
+/// for the headless "Done when" checks (TODO 2.4: the Pressable counter).
+fn env_points(key: &str) -> Vec<(f32, f32)> {
+    std::env::var(key)
+        .ok()
+        .map(|value| {
+            value
+                .split(';')
+                .filter_map(|pair| {
+                    let (x, y) = pair.split_once(',')?;
+                    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -80,6 +97,10 @@ fn main() {
     let resize_ms = env_u32("RN_GPUI_RESIZE_MS", 0);
     let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
     let resize_height = env_f32("RN_GPUI_RESIZE_HEIGHT", 400.0);
+    // TODO 2.4 — synthetic clicks, spaced `RN_GPUI_CLICK_MS` apart, starting
+    // after the first batch is on screen.
+    let clicks = env_points("RN_GPUI_CLICK");
+    let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
 
@@ -178,6 +199,48 @@ fn main() {
             store.register_root(1, root);
             cx.notify();
         });
+
+        // TODO 2.4 — headless input: `RN_GPUI_CLICK` dispatches real mouse
+        // events through GPUI's own input path (`Window::dispatch_event`), the
+        // same way the accesskit click fallback does. The app runs off-screen in
+        // this environment, so this is how the Pressable counter is exercised.
+        if !clicks.is_empty() {
+            let frame_hook = frame_hook.clone();
+            cx.spawn(async move |cx| {
+                for (x, y) in clicks {
+                    let timer = cx
+                        .background_executor()
+                        .timer(Duration::from_millis(u64::from(click_ms)));
+                    timer.await;
+                    let position = gpui::point(px(x), px(y));
+                    log::info!("clicking at {x},{y}");
+                    let hook = frame_hook.clone();
+                    let clicked = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let down = gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                button: gpui::MouseButton::Left,
+                                position,
+                                ..Default::default()
+                            });
+                            window.dispatch_event(down, cx);
+                            let up = gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                button: gpui::MouseButton::Left,
+                                position,
+                                ..Default::default()
+                            });
+                            window.dispatch_event(up, cx);
+                            // A click is native -> JS work (TODO 2.3).
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = clicked {
+                        log::error!("click at {x},{y} failed: {error}");
+                    }
+                }
+            })
+            .detach();
+        }
 
         // TODO 1.12 — window resizes drive Fabric. gpui calls the bounds
         // observers from the platform's `on_resize` hook (the same path a mouse

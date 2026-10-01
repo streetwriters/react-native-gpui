@@ -5,7 +5,10 @@
 //! every frame comes from RN's Yoga pass.
 
 use crate::style;
-use gpui::{div, prelude::*, px, Context, Entity, IntoElement, Position, StyleRefinement, Window};
+use gpui::{
+    div, point, prelude::*, px, App, Context, Entity, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Position, StyleRefinement, WeakEntity, Window,
+};
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 
 pub struct RNNodeView {
@@ -23,6 +26,11 @@ pub struct RNNodeView {
     pub image_uri: Option<String>,
     /// Children in RN order: (Fabric tag, entity).
     pub children: Vec<(i32, Entity<RNNodeView>)>,
+    /// The parent node, or `None` when this node hangs directly off the surface
+    /// root. TODO 2.4 — events need the chain: every `div` is positioned
+    /// relative to its parent, so the node's window origin is the sum of its own
+    /// frame and all its ancestors' (`absolute_origin`).
+    pub parent: Option<WeakEntity<RNNodeView>>,
     /// `style::to_refinement(view)`, recomputed only when props change.
     cached_style: StyleRefinement,
 }
@@ -37,6 +45,7 @@ impl RNNodeView {
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             image_uri: (!op.image_uri.is_empty()).then(|| op.image_uri.clone()),
             children: Vec::new(),
+            parent: None,
             cached_style: StyleRefinement::default(),
         };
         view.cached_style = style::to_refinement(&view.view);
@@ -66,10 +75,26 @@ impl RNNodeView {
     pub fn remove_child(&mut self, tag: i32) {
         self.children.retain(|(child_tag, _)| *child_tag != tag);
     }
+
+    /// This node's origin in window coordinates (TODO 2.4).
+    ///
+    /// Frames are parent-relative, so the origin is the sum along the ancestor
+    /// chain; the surface root itself sits at the window origin (`store.rs`).
+    pub fn absolute_origin(&self, cx: &App) -> Point<Pixels> {
+        let mut origin = point(px(self.frame.x), px(self.frame.y));
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let Some(node) = weak.upgrade() else { break };
+            let node = node.read(cx);
+            origin += point(px(node.frame.x), px(node.frame.y));
+            parent = node.parent.clone();
+        }
+        origin
+    }
 }
 
 impl Render for RNNodeView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.frame;
         let mut element = div();
         // Replace the whole style: cached paint fields + the absolute Yoga
@@ -83,6 +108,32 @@ impl Render for RNNodeView {
             style.size.height = Some(px(frame.h).into());
             style
         };
+        // TODO 2.4 — GPUI hit-tests these divs, so the innermost node under the
+        // pointer runs its handler first; stopping propagation there is what
+        // makes it RN's single touch target (see `events.rs`). Move events only
+        // count while a button is down: RN touch moves need an active touch, and
+        // hover belongs to TODO 2.5.
+        element = element
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                    crate::events::send(cx, this, event.position, crate::events::Phase::Start);
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if event.pressed_button.is_some() {
+                    crate::events::send(cx, this, event.position, crate::events::Phase::Move);
+                }
+                cx.stop_propagation();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                    crate::events::send(cx, this, event.position, crate::events::Phase::End);
+                    cx.stop_propagation();
+                }),
+            );
         // Text is painted by GPUI (§18.14); the Yoga frame still comes from the
         // Rust measure handler, so both sides describe the same paragraph.
         if let Some(paragraph) = &self.paragraph {

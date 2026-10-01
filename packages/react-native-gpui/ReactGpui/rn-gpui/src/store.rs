@@ -95,15 +95,21 @@ impl ViewStore {
                     };
                     let index = op.index.max(0) as usize;
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
+                        let parent_ref = parent.downgrade();
                         parent.update(cx, |parent, cx| {
-                            parent.insert_child(index, op.tag, child);
+                            parent.insert_child(index, op.tag, child.clone());
                             cx.notify();
                         });
+                        // TODO 2.4 — remember the chain so `locationX/Y` can be
+                        // computed relative to the node that was hit.
+                        child.update(cx, |child, _cx| child.parent = Some(parent_ref));
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
                         root.update(cx, |root, cx| {
-                            root.insert_child(index, op.tag, child);
+                            root.insert_child(index, op.tag, child.clone());
                             cx.notify();
                         });
+                        // A root child has no parent node to offset against.
+                        child.update(cx, |child, _cx| child.parent = None);
                     } else {
                         log::warn!("[store] insert with no root for surface {}", surface_id);
                     }
