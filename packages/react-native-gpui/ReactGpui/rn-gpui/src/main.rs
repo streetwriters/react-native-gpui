@@ -13,9 +13,17 @@
 //!   RN_GPUI_MODULE      registered component name to start (default App)
 //!   RN_GPUI_WIDTH/HEIGHT/SCALE  surface constraints (default 800/600/2.0)
 //!   RN_GPUI_RUN_MS      close the window after N ms; 0 (default) = stay open
+//!   RN_GPUI_RESIZE_MS   after N ms resize the window to
+//!                       RN_GPUI_RESIZE_WIDTH x RN_GPUI_RESIZE_HEIGHT
+//!                       (defaults 1200x400); 0 (default) = never. This is the
+//!                       verification hook for TODO 1.12 — it drives the same
+//!                       `on_resize` path a mouse drag does.
 //!   RN_GPUI_SCREENSHOT  with `--features visual-capture`: render the window's
 //!                       scene to this PNG path after the first mount batch,
 //!                       then quit (see the feature docs in Cargo.toml)
+//!   RN_GPUI_SCREENSHOT_DELAY_MS  how long to wait after that first batch
+//!                       before capturing (default 500). Raise it past
+//!                       RN_GPUI_RESIZE_MS to capture the resized scene.
 
 use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
 use rn_gpui::host::Host;
@@ -55,7 +63,11 @@ fn main() {
     let height = env_f32("RN_GPUI_HEIGHT", 600.0);
     let scale = env_f32("RN_GPUI_SCALE", 2.0);
     let run_ms = env_u32("RN_GPUI_RUN_MS", 0);
+    let resize_ms = env_u32("RN_GPUI_RESIZE_MS", 0);
+    let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
+    let resize_height = env_f32("RN_GPUI_RESIZE_HEIGHT", 400.0);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
+    let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
 
     if !std::path::Path::new(&bundle).exists() {
         log::error!("bundle not found: {bundle}");
@@ -113,6 +125,10 @@ fn main() {
             .unwrap_or_else(|error| format!("<unavailable: {error}>"));
         log::info!("window {window_id:?} open at {window_bounds}");
 
+        // `ViewStore::new` consumes the typed handle; keep the type-erased
+        // copy (`AnyWindowHandle` is `Copy`) for the resize hook below.
+        let any_window = *window;
+
         let host = Host::new(&app_id, &dev_host, dev_port);
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");
@@ -130,6 +146,49 @@ fn main() {
             cx.notify();
         });
 
+        // TODO 1.12 — window resizes drive Fabric. gpui calls the bounds
+        // observers from the platform's `on_resize` hook (the same path a mouse
+        // drag takes), and `viewport_size()` is the content area, which is what
+        // the React surface covers.
+        // The subscription unsubscribes the moment it drops, so it is handed to
+        // the store (this closure returns right after setup).
+        let bounds_subscription = window
+            .update(cx, |_root, window, cx| {
+                let store = cx.global::<StoreGlobal>().0.clone();
+                cx.observe_window_bounds(window, move |_root, window, cx| {
+                    let size = window.viewport_size();
+                    let scale = window.scale_factor();
+                    let (width, height) = (f32::from(size.width), f32::from(size.height));
+                    log::info!("window resized to {width}x{height}@{scale}x");
+                    store.update(cx, |store, _cx| store.resize(width, height, scale));
+                })
+            })
+            .expect("failed to observe the window's bounds");
+        store.update(cx, |store, _cx| {
+            store.window_bounds_subscription = Some(bounds_subscription);
+        });
+
+        if resize_ms > 0 {
+            let target = size(px(resize_width), px(resize_height));
+            let timer = cx
+                .background_executor()
+                .timer(Duration::from_millis(u64::from(resize_ms)));
+            cx.spawn(async move |cx| {
+                timer.await;
+                log::info!("resizing the window to {resize_width}x{resize_height}");
+                let resized = cx.update_window(
+                    any_window,
+                    move |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut App| {
+                        window.resize(target)
+                    },
+                );
+                if let Err(error) = resized {
+                    log::error!("window resize failed: {error}");
+                }
+            })
+            .detach();
+        }
+
         if run_ms > 0 {
             let timer = cx
                 .background_executor()
@@ -143,12 +202,20 @@ fn main() {
         }
 
         // Drain Fabric mount batches on the main thread and apply them.
+        // The capture is scheduled once but the drain keeps running, so a
+        // capture delayed past a resize sees the re-laid-out tree.
         cx.spawn(async move |cx| {
+            let mut capture_scheduled = false;
             while let Ok(batch) = rx.recv().await {
                 store.update(cx, |store, cx| store.apply_batch(batch, cx));
-                if screenshot.is_some() {
-                    capture_and_quit(cx, &store, &mut screenshot).await;
-                    break;
+                if !capture_scheduled && screenshot.is_some() {
+                    capture_scheduled = true;
+                    let store = store.clone();
+                    let mut path = screenshot.take();
+                    cx.spawn(async move |cx| {
+                        capture_and_quit(cx, &store, &mut path, screenshot_delay_ms).await;
+                    })
+                    .detach();
                 }
             }
             log::info!("mount channel closed");
@@ -172,9 +239,12 @@ async fn capture_and_quit(
     cx: &mut gpui::AsyncApp,
     store: &gpui::Entity<ViewStore>,
     path: &mut Option<String>,
+    delay_ms: u32,
 ) {
     // Let gpui draw at least one frame with the new tree before reading back.
-    let timer = cx.background_executor().timer(Duration::from_millis(500));
+    let timer = cx
+        .background_executor()
+        .timer(Duration::from_millis(u64::from(delay_ms)));
     timer.await;
 
     let Some(path) = path.take() else { return };
@@ -199,6 +269,7 @@ async fn capture_and_quit(
     _cx: &mut gpui::AsyncApp,
     _store: &gpui::Entity<ViewStore>,
     path: &mut Option<String>,
+    _delay_ms: u32,
 ) {
     if let Some(path) = path.take() {
         log::warn!("RN_GPUI_SCREENSHOT={path} ignored: rebuild with --features visual-capture");

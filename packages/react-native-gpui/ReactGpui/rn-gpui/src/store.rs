@@ -9,7 +9,10 @@
 
 use crate::host::Host;
 use crate::node_view::RNNodeView;
-use gpui::{div, prelude::*, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Window};
+use gpui::{
+    div, prelude::*, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Subscription,
+    Window,
+};
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::collections::HashMap;
 
@@ -24,6 +27,10 @@ pub struct ViewStore {
     pub nodes: HashMap<i32, Entity<RNNodeView>>,
     /// Surface id -> the window's root view for that surface.
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
+    /// TODO 1.12 — the window-bounds observer. A dropped `Subscription`
+    /// unsubscribes, and the setup closure in `main` returns right after
+    /// wiring, so the store owns it for the lifetime of the window.
+    pub window_bounds_subscription: Option<Subscription>,
 }
 
 impl ViewStore {
@@ -33,11 +40,28 @@ impl ViewStore {
             window: window.into(),
             nodes: HashMap::new(),
             roots: HashMap::new(),
+            window_bounds_subscription: None,
         }
     }
 
     pub fn register_root(&mut self, surface_id: i32, root: Entity<SurfaceRootView>) {
         self.roots.insert(surface_id, root);
+    }
+
+    /// TODO 1.12 — the window changed size: hand Fabric the new surface
+    /// constraints so it re-lays out and emits a fresh mount batch (which the
+    /// drain task in `main` applies like any other transaction).
+    ///
+    /// `width`/`height` are the window's viewport (content) size in logical
+    /// pixels — the title bar is not part of the React surface — and `scale` is
+    /// the display scale factor (TODO 2.2 feeds the same value to
+    /// `start_surface`).
+    pub fn resize(&mut self, width: f32, height: f32, scale: f32) {
+        let surfaces: Vec<i32> = self.roots.keys().copied().collect();
+        for surface_id in surfaces {
+            log::info!("[store] surface {surface_id} resized to {width}x{height}@{scale}x");
+            self.host.set_surface_size(surface_id, width, height, scale);
+        }
     }
 
     /// Apply one Fabric transaction.
