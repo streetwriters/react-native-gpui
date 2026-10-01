@@ -15,7 +15,10 @@
 //!                       (default index). The prebuilt bundle at RN_GPUI_BUNDLE
 //!                       is the fallback when the dev server is unreachable.
 //!   RN_GPUI_MODULE      registered component name to start (default App)
-//!   RN_GPUI_WIDTH/HEIGHT/SCALE  surface constraints (default 800/600/2.0)
+//!   RN_GPUI_WIDTH/HEIGHT  surface constraints (default 800/600)
+//!   RN_GPUI_SCALE       overrides the display scale handed to Fabric; by
+//!                       default the window's `scale_factor()` is used, so a
+//!                       Retina display gets `@2x` and a 1x display `@1x`
 //!   RN_GPUI_RUN_MS      close the window after N ms; 0 (default) = stay open
 //!   RN_GPUI_RESIZE_MS   after N ms resize the window to
 //!                       RN_GPUI_RESIZE_WIDTH x RN_GPUI_RESIZE_HEIGHT
@@ -53,6 +56,10 @@ fn env_u32(key: &str, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+fn env_opt_f32(key: &str) -> Option<f32> {
+    std::env::var(key).ok().and_then(|value| value.parse().ok())
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -66,7 +73,9 @@ fn main() {
     let module = env_string("RN_GPUI_MODULE", "App");
     let width = env_f32("RN_GPUI_WIDTH", 800.0);
     let height = env_f32("RN_GPUI_HEIGHT", 600.0);
-    let scale = env_f32("RN_GPUI_SCALE", 2.0);
+    // TODO 2.2: the display scale comes from the window (see below); the env
+    // var is an escape hatch for tests on a machine with a different display.
+    let scale_override = env_opt_f32("RN_GPUI_SCALE");
     let run_ms = env_u32("RN_GPUI_RUN_MS", 0);
     let resize_ms = env_u32("RN_GPUI_RESIZE_MS", 0);
     let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
@@ -134,6 +143,15 @@ fn main() {
         // copy (`AnyWindowHandle` is `Copy`) for the resize hook below.
         let any_window = *window;
 
+        // TODO 2.2 — the surface is laid out in DIPs and Fabric rounds to device
+        // pixels with this factor, so it has to be the display's real scale:
+        // `window.scale_factor()` reads it from the platform window (and is
+        // refreshed on every bounds change, which `ViewStore::resize` picks up).
+        let window_scale = window
+            .update(cx, |_root, window, _cx| window.scale_factor())
+            .unwrap_or(2.0);
+        let scale = scale_override.unwrap_or(window_scale);
+
         let host = Host::new(&app_id, &dev_host, dev_port);
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");
@@ -142,7 +160,9 @@ fn main() {
         log::info!("loaded {bundle}");
 
         host.start_surface(1, &module, width, height, scale);
-        log::info!("started surface 1 ({module}) at {width}x{height}@{scale}x");
+        log::info!(
+            "started surface 1 ({module}) at {width}x{height}@{scale}x (window scale {window_scale})"
+        );
 
         let store = cx.new(|_| ViewStore::new(host, window));
         cx.set_global(StoreGlobal(store.clone()));
