@@ -31,3 +31,8 @@ function App() {
 }
 
 AppRegistry.registerComponent('App', () => App);
+
+// Export the root component so Metro can treat this module as a Fast Refresh
+// boundary. AppRegistry keeps the initial component type, and React Refresh
+// updates that type in place when this module changes.
+export default App;
