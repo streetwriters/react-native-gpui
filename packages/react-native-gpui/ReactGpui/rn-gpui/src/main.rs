@@ -13,6 +13,9 @@
 //!   RN_GPUI_MODULE      registered component name to start (default App)
 //!   RN_GPUI_WIDTH/HEIGHT/SCALE  surface constraints (default 800/600/2.0)
 //!   RN_GPUI_RUN_MS      close the window after N ms; 0 (default) = stay open
+//!   RN_GPUI_SCREENSHOT  with `--features visual-capture`: render the window's
+//!                       scene to this PNG path after the first mount batch,
+//!                       then quit (see the feature docs in Cargo.toml)
 
 use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
 use rn_gpui::host::Host;
@@ -42,8 +45,8 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let bundle = env_string("RN_GPUI_BUNDLE", "tester/build/index.gpui.bundle");
-    let source_url = std::env::var("RN_GPUI_SOURCE_URL")
-        .unwrap_or_else(|_| format!("file://{}", bundle));
+    let source_url =
+        std::env::var("RN_GPUI_SOURCE_URL").unwrap_or_else(|_| format!("file://{}", bundle));
     let app_id = env_string("RN_GPUI_APP_ID", "com.example.rngpui");
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
@@ -52,6 +55,7 @@ fn main() {
     let height = env_f32("RN_GPUI_HEIGHT", 600.0);
     let scale = env_f32("RN_GPUI_SCALE", 2.0);
     let run_ms = env_u32("RN_GPUI_RUN_MS", 0);
+    let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
 
     if !std::path::Path::new(&bundle).exists() {
         log::error!("bundle not found: {bundle}");
@@ -96,7 +100,12 @@ fn main() {
                     f32::from(bounds.size.height),
                 )
             })
-            .map(|bounds| format!("({:.0},{:.0} {:.0}x{:.0})", bounds.0, bounds.1, bounds.2, bounds.3))
+            .map(|bounds| {
+                format!(
+                    "({:.0},{:.0} {:.0}x{:.0})",
+                    bounds.0, bounds.1, bounds.2, bounds.3
+                )
+            })
             .unwrap_or_else(|error| format!("<unavailable: {error}>"));
         log::info!("window {window_id:?} open at {window_bounds}");
 
@@ -133,6 +142,10 @@ fn main() {
         cx.spawn(async move |cx| {
             while let Ok(batch) = rx.recv().await {
                 store.update(cx, |store, cx| store.apply_batch(batch, cx));
+                if screenshot.is_some() {
+                    capture_and_quit(cx, &store, &mut screenshot).await;
+                    break;
+                }
             }
             log::info!("mount channel closed");
         })
@@ -141,4 +154,49 @@ fn main() {
         cx.activate(true);
         log::info!("waiting for mount batches");
     });
+}
+
+/// Render the window's own scene to a PNG and close the app.
+///
+/// This exists because the §19 "Done when" checks are visual and this
+/// environment cannot use `screencapture` (no Screen Recording permission).
+/// Rendering the scene off-screen through gpui's own Metal renderer verifies
+/// the same paint output without screen access. Requires
+/// `--features visual-capture`; see the feature docs in `Cargo.toml`.
+#[cfg(feature = "visual-capture")]
+async fn capture_and_quit(
+    cx: &mut gpui::AsyncApp,
+    store: &gpui::Entity<ViewStore>,
+    path: &mut Option<String>,
+) {
+    // Let gpui draw at least one frame with the new tree before reading back.
+    let timer = cx.background_executor().timer(Duration::from_millis(500));
+    timer.await;
+
+    let Some(path) = path.take() else { return };
+    let window = store.read_with(cx, |store, _| store.window);
+    let captured = cx.update_window(
+        window,
+        |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut App| window.render_to_image(),
+    );
+    match captured {
+        Ok(Ok(image)) => match image.save(&path) {
+            Ok(()) => log::info!("screenshot saved to {path}"),
+            Err(error) => log::error!("could not save {path}: {error}"),
+        },
+        Ok(Err(error)) => log::error!("render_to_image failed: {error}"),
+        Err(error) => log::error!("update_window failed: {error}"),
+    }
+    cx.update(|cx| cx.quit());
+}
+
+#[cfg(not(feature = "visual-capture"))]
+async fn capture_and_quit(
+    _cx: &mut gpui::AsyncApp,
+    _store: &gpui::Entity<ViewStore>,
+    path: &mut Option<String>,
+) {
+    if let Some(path) = path.take() {
+        log::warn!("RN_GPUI_SCREENSHOT={path} ignored: rebuild with --features visual-capture");
+    }
 }

@@ -1,14 +1,15 @@
-//! TODO 1.9 — the window-side view store (design doc §18.12).
+//! The window-side view store (design doc §18.12).
 //!
 //! `ViewStore` owns the per-surface view trees and the React host. Fabric's
 //! mount batches arrive on the JS thread and are forwarded to this store on the
 //! main thread, where they are applied to GPUI entities.
 //!
-//! TODO 1.9 only logs the batches and owns the empty `SurfaceRootView` for
-//! surface 1; TODO 1.10 turns the ops into `RNNodeView`s.
+//! TODO 1.10 turns the ops into `RNNodeView`s and splices them into the
+//! `SurfaceRootView` of each surface.
 
 use crate::host::Host;
-use gpui::{prelude::*, div, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Window};
+use crate::node_view::RNNodeView;
+use gpui::{div, prelude::*, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Window};
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::collections::HashMap;
 
@@ -18,6 +19,9 @@ impl Global for StoreGlobal {}
 pub struct ViewStore {
     pub host: Host,
     pub window: AnyWindowHandle,
+    /// Fabric tag -> node view. One map per window: Fabric tags are unique
+    /// across surfaces of the same React instance.
+    pub nodes: HashMap<i32, Entity<RNNodeView>>,
     /// Surface id -> the window's root view for that surface.
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
 }
@@ -27,6 +31,7 @@ impl ViewStore {
         Self {
             host,
             window: window.into(),
+            nodes: HashMap::new(),
             roots: HashMap::new(),
         }
     }
@@ -37,18 +42,65 @@ impl ViewStore {
 
     /// Apply one Fabric transaction.
     ///
-    /// TODO 1.10 replaces the logging with the actual node tree; for 1.9 this
-    /// keeps the per-op trace alive after the mount channel moved off the
-    /// C++ -> Rust callback. Notify only entities that changed (gpui-fast
-    /// retention) — with no nodes yet there is nothing to notify.
-    pub fn apply_batch(&mut self, batch: MountBatch, _cx: &mut Context<Self>) {
-        log::info!(
-            "[store] surface {}: {} ops",
-            batch.surface_id,
-            batch.ops.len()
-        );
-        for op in &batch.ops {
+    /// Ops are always applied in order: Fabric emits `Create`/`Update` before
+    /// the `Insert` that splices the node into the tree, so a parent always
+    /// exists by the time its children arrive.
+    pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
+        let surface_id = batch.surface_id;
+        log::info!("[store] surface {}: {} ops", surface_id, batch.ops.len());
+        for op in batch.ops.iter() {
             log_mount_op(op);
+            match op.kind {
+                MountKind::Create => {
+                    let node = cx.new(|_| RNNodeView::from_op(op));
+                    self.nodes.insert(op.tag, node);
+                }
+                MountKind::Delete => {
+                    self.nodes.remove(&op.tag);
+                }
+                MountKind::Insert => {
+                    let Some(child) = self.nodes.get(&op.tag).cloned() else {
+                        log::warn!("[store] insert of unknown tag {}", op.tag);
+                        continue;
+                    };
+                    let index = op.index.max(0) as usize;
+                    if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
+                        parent.update(cx, |parent, cx| {
+                            parent.insert_child(index, op.tag, child);
+                            cx.notify();
+                        });
+                    } else if let Some(root) = self.roots.get(&surface_id).cloned() {
+                        root.update(cx, |root, cx| {
+                            root.insert_child(index, op.tag, child);
+                            cx.notify();
+                        });
+                    } else {
+                        log::warn!("[store] insert with no root for surface {}", surface_id);
+                    }
+                }
+                MountKind::Remove => {
+                    if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
+                        parent.update(cx, |parent, cx| {
+                            parent.remove_child(op.tag);
+                            cx.notify();
+                        });
+                    } else if let Some(root) = self.roots.get(&surface_id).cloned() {
+                        root.update(cx, |root, cx| {
+                            root.remove_child(op.tag);
+                            cx.notify();
+                        });
+                    }
+                }
+                MountKind::Update => {
+                    if let Some(node) = self.nodes.get(&op.tag).cloned() {
+                        node.update(cx, |node, cx| {
+                            node.update_from_op(op);
+                            cx.notify();
+                        });
+                    }
+                }
+                _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
+            }
         }
         // Tell RN a frame happened (drives EventBeat / effects).
         self.host.on_render();
@@ -87,7 +139,7 @@ fn kind_name(kind: MountKind) -> &'static str {
 /// The window's root view. One per React Native surface.
 pub struct SurfaceRootView {
     pub surface_id: i32,
-    pub children: Vec<(i32, Entity<crate::node_view::RNNodeView>)>,
+    pub children: Vec<(i32, Entity<RNNodeView>)>,
 }
 
 impl SurfaceRootView {
@@ -97,19 +149,30 @@ impl SurfaceRootView {
             children: Vec::new(),
         }
     }
+
+    /// Splice in a root child (a Fabric node whose parent is the surface's
+    /// `RootView`), keeping RN's ordering.
+    pub fn insert_child(&mut self, index: usize, tag: i32, child: Entity<RNNodeView>) {
+        let index = index.min(self.children.len());
+        self.children.insert(index, (tag, child));
+    }
+
+    pub fn remove_child(&mut self, tag: i32) {
+        self.children.retain(|(child_tag, _)| *child_tag != tag);
+    }
 }
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().relative().children(
-            self.children
-                .iter()
-                .map(|(_, child)| child.clone()),
-        )
+        div()
+            .size_full()
+            .relative()
+            .children(self.children.iter().map(|(_, child)| child.clone()))
     }
 }
 
 /// Keeps `App` in scope for callers that only need the store's helpers.
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {
-    cx.try_global::<StoreGlobal>().map(|global| global.0.clone())
+    cx.try_global::<StoreGlobal>()
+        .map(|global| global.0.clone())
 }
