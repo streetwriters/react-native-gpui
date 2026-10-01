@@ -180,3 +180,109 @@ target_link_libraries(hermes_runtime_test PRIVATE hermes-engine::hermesvm jsi)
 set_target_properties(hermes_runtime_test PROPERTIES
   BUILD_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx"
   INSTALL_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx")
+
+# --- rn_gpui_core: the gpui platform glue (TODO 1.5, design doc §18.5) ------
+
+# GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
+# transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
+add_library(rn_gpui_core STATIC
+  GpuiHost.cpp
+  GpuiMountingManager.cpp
+  MountBatchBuilder.cpp)
+target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The glue includes headers from many RN libraries, so give it the union of
+# their interface include directories. OBJECT libraries forward those to
+# consumers, and their objects reach the final link through the consuming
+# binary — which is exactly how the Rust cdylib will consume this static
+# library (TODO 1.6). Targets listed in Fantom's tester build that do not
+# exist here are guard-skipped with a warning rather than dropped silently.
+set(RN_GPUI_CORE_DEPS
+  # ReactCommon runtime + JSI
+  jsi
+  jserrorhandler
+  logger
+  react_bridging
+  react_codegen_rncore
+  react_cxxreact
+  react_debug
+  react_featureflags
+  react_nativemodule_core
+  react_nativemodule_defaults
+  react_nativemodule_dom
+  react_nativemodule_featureflags
+  react_nativemodule_idlecallbacks
+  react_nativemodule_intersectionobserver
+  react_nativemodule_microtasks
+  react_nativemodule_mutationobserver
+  react_nativemodule_viewtransition
+  react_nativemodule_webperformance
+  react_networking
+  react_performance_cdpmetrics
+  react_performance_timeline
+  react_utils
+  reactperflogger
+  bridgeless
+  bridgelesshermes
+  # renderer
+  react_renderer_animated
+  react_renderer_animationbackend
+  react_renderer_animations
+  react_renderer_attributedstring
+  react_renderer_componentregistry
+  react_renderer_consistency
+  react_renderer_core
+  react_renderer_css
+  react_renderer_debug
+  react_renderer_dom
+  react_renderer_element
+  react_renderer_graphics
+  react_renderer_imagemanager
+  react_renderer_leakchecker
+  react_renderer_mapbuffer
+  react_renderer_mounting
+  react_renderer_observers_events
+  react_renderer_observers_intersection
+  react_renderer_observers_mutation
+  react_renderer_runtimescheduler
+  react_renderer_scheduler
+  react_renderer_telemetry
+  react_renderer_textlayoutmanager
+  react_renderer_uimanager
+  react_renderer_uimanager_consistency
+  react_renderer_viewtransition
+  # host components
+  rrc_image
+  rrc_legacyviewmanagerinterop
+  rrc_modal
+  rrc_native
+  rrc_root
+  rrc_safeareaview
+  rrc_scrollview
+  rrc_text
+  rrc_unimplementedview
+  rrc_view
+  yoga
+  # vendored ReactCxxPlatform
+  react_cxx_platform_react_coremodules
+  react_cxx_platform_react_devsupport
+  react_cxx_platform_react_http
+  react_cxx_platform_react_io
+  react_cxx_platform_react_logging
+  react_cxx_platform_react_nativemodule
+  react_cxx_platform_react_profiling
+  react_cxx_platform_react_renderer_scheduler
+  react_cxx_platform_react_renderer_uimanager
+  react_cxx_platform_react_runtime
+  react_cxx_platform_react_threading
+  react_cxx_platform_react_utils)
+foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
+  if(TARGET ${dep})
+    target_link_libraries(rn_gpui_core PUBLIC ${dep})
+  else()
+    message(WARNING "rn_gpui_core: target '${dep}' does not exist in this build")
+  endif()
+endforeach()
+
+# TODO 1.6: write the transitive archive/dylib names to link_libs.txt so
+# build.rs can emit the matching cargo:rustc-link-lib directives (§18.4).
