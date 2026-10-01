@@ -1,7 +1,7 @@
 // TODO 1.5 — design doc §18.7.
 #include "GpuiHost.h"
 
-#include "GpuiBridge.h" // TODO 1.6: replace with "rn-gpui-sys/src/lib.rs.h"
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "GpuiMountingManager.h"
 
 #include <folly/json.h>
@@ -17,24 +17,15 @@ using namespace facebook::react;
 
 namespace rngpui {
 
-// TODO 1.6: the cxx bridge provides rn_gpui_log (forwarding to the Rust `log`
-// crate) — delete this definition then. Until the Rust side exists, logging to
-// stderr is what makes the mount traffic observable.
-void rn_gpui_log(int32_t level, const std::string& message) {
-  static const char* const kLevels[] = {"debug", "info", "warn", "error"};
-  const char* name = (level >= 0 && level < 4) ? kLevels[level] : "log";
-  std::fprintf(stderr, "[rn-gpui][%s] %s\n", name, message.c_str());
-}
-
-std::unique_ptr<GpuiHost> new_gpui_host(const std::string& appId, const std::string& devHost, uint32_t devPort) {
+std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   return std::make_unique<GpuiHost>(appId, devHost, devPort);
 }
 
-GpuiHost::GpuiHost(const std::string& appId, const std::string& devHost, uint32_t devPort) {
+GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   ReactInstanceConfig config;
-  config.appId = appId;
+  config.appId = std::string(appId);
   config.deviceName = "rn-gpui";
-  config.devServerHost = devHost;
+  config.devServerHost = std::string(devHost);
   config.devServerPort = devPort;
 
   mountingManager_ = std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
@@ -69,17 +60,17 @@ GpuiHost::~GpuiHost() {
   reactHost_->stopAllSurfaces();
 }
 
-bool GpuiHost::load_script(const std::string& bundlePath, const std::string& sourceUrl) {
-  return reactHost_->loadScript(bundlePath, sourceUrl);
+bool GpuiHost::load_script(rust::Str bundlePath, rust::Str sourceUrl) {
+  return reactHost_->loadScript(std::string(bundlePath), std::string(sourceUrl));
 }
 
-void GpuiHost::start_surface(int32_t id, const std::string& module, float w, float h, float scale) {
+void GpuiHost::start_surface(int32_t id, rust::Str module, float w, float h, float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
   LayoutContext context;
   context.pointScaleFactor = scale;
-  reactHost_->startSurface(id, module, folly::dynamic::object(), constraints, context);
+  reactHost_->startSurface(id, std::string(module), folly::dynamic::object(), constraints, context);
 }
 
 void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
@@ -99,8 +90,8 @@ void GpuiHost::on_render() const {
   runLoopObserverManager_->onRender();
 }
 
-void GpuiHost::dispatch_event(int32_t tag, const std::string& type, const std::string& payloadJson) const {
-  mountingManager_->dispatchEvent(tag, type, folly::parseJson(payloadJson));
+void GpuiHost::dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const {
+  mountingManager_->dispatchEvent(tag, std::string(type), folly::parseJson(std::string(payloadJson)));
 }
 
 void GpuiHost::reload() {

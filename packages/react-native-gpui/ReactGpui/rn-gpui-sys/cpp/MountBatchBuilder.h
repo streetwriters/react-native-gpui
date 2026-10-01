@@ -1,7 +1,7 @@
 // TODO 1.5 — design doc §18.8.
 #pragma once
 
-#include "GpuiBridge.h"
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 
 #include <react/renderer/attributedstring/TextAttributes.h>
 #include <react/renderer/graphics/Color.h>

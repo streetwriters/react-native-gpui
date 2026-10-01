@@ -191,6 +191,36 @@ add_library(rn_gpui_core STATIC
   MountBatchBuilder.cpp)
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# The cxx-generated bridge header (TODO 1.6, design doc §18.6) carries the flat
+# structs and the `rn_gpui_*` entry point declarations. build.rs runs
+# `cxx_build::bridge` *before* configuring CMake and passes the directory here.
+# When CMake is driven by hand (the 1.3 workflow) the variable is unset, so fall
+# back to the include directory of the most recent cargo build.
+if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
+  file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../target/*/build/rn-gpui-sys-*/out/cxxbridge/include/rust/cxx.h")
+  set(_newest_stamp "")
+  foreach(_candidate IN LISTS RN_GPUI_CXXBRIDGE_CANDIDATES)
+    file(TIMESTAMP "${_candidate}" _stamp "%Y%m%d%H%M%S")
+    if(_stamp STRGREATER _newest_stamp)
+      set(_newest_stamp "${_stamp}")
+      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${_candidate}" DIRECTORY)
+      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" DIRECTORY)
+    endif()
+  endforeach()
+  if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
+    message(STATUS "rn_gpui_core: cxx bridge headers found at ${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  endif()
+endif()
+
+if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
+  target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+else()
+  message(WARNING
+    "rn_gpui_core: cxx bridge headers not found — run `cargo build -p rn-gpui-sys` first, "
+    "or pass -DRN_GPUI_CXXBRIDGE_INCLUDE_DIR=<.../out/cxxbridge/include>")
+endif()
+
 # The glue includes headers from many RN libraries, so give it the union of
 # their interface include directories. OBJECT libraries forward those to
 # consumers, and their objects reach the final link through the consuming
@@ -284,5 +314,68 @@ foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
   endif()
 endforeach()
 
-# TODO 1.6: write the transitive archive/dylib names to link_libs.txt so
-# build.rs can emit the matching cargo:rustc-link-lib directives (§18.4).
+# --- link_libs.txt for build.rs (TODO 1.6, design doc §18.4) -----------------
+#
+# Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script
+# that declares `links = "..."` to every dependent crate, whereas
+# `cargo:rustc-link-arg` would not leave an rlib. The list is therefore written
+# as library file *names* plus their directories, never as absolute paths.
+#
+# The objects of every OBJECT library linked into rn_gpui_core are already
+# archived inside librn_gpui_core.a, so only real archives and dylibs are listed.
+
+function(rn_gpui_collect_link_targets root out_var)
+  set(_queue "${root}")
+  set(_seen "")
+  while(_queue)
+    list(POP_FRONT _queue _entry)
+    if(_entry IN_LIST _seen)
+      continue()
+    endif()
+    if(NOT TARGET "${_entry}")
+      continue()
+    endif()
+    get_target_property(_type "${_entry}" TYPE)
+    if(NOT _type MATCHES "LIBRARY$")
+      continue()
+    endif()
+    list(APPEND _seen "${_entry}")
+    get_target_property(_links "${_entry}" LINK_LIBRARIES)
+    get_target_property(_interface_links "${_entry}" INTERFACE_LINK_LIBRARIES)
+    foreach(_more IN LISTS _links _interface_links)
+      if(TARGET "${_more}" AND NOT _more IN_LIST _seen)
+        list(APPEND _queue "${_more}")
+      endif()
+    endforeach()
+  endwhile()
+  set(${out_var} "${_seen}" PARENT_SCOPE)
+endfunction()
+
+rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
+
+set(RN_GPUI_LINK_LIBS "")
+
+# hermesvm is a framework binary (`hermesvm.framework/Versions/1/hermesvm`), so
+# it has no `lib` prefix and `-l` cannot name it. A symlink with a linkable name
+# is created once and the ordinary search + name pair is used from then on.
+set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
+if(TARGET hermes-engine::hermesvm)
+  get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
+  if(_hermes_location AND NOT EXISTS "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
+    file(MAKE_DIRECTORY "${RN_GPUI_SHIM_LIB_DIR}")
+    file(CREATE_LINK "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib" SYMBOLIC)
+  endif()
+  string(APPEND RN_GPUI_LINK_LIBS "search:${RN_GPUI_SHIM_LIB_DIR}\nname:libhermesvm.dylib\n")
+endif()
+
+foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
+  if(_target STREQUAL "hermes-engine::hermesvm")
+    continue()
+  endif()
+  get_target_property(_type "${_target}" TYPE)
+  if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "SHARED_LIBRARY")
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_FILE_DIR:${_target}>\nname:$<TARGET_FILE_NAME:${_target}>\n")
+  endif()
+endforeach()
+
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")

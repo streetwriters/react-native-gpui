@@ -7,7 +7,7 @@
 // thread and returns immediately, keeping Fabric's mounting thread free.
 #include "GpuiMountingManager.h"
 
-#include "GpuiBridge.h"
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -43,7 +43,8 @@ const char* kindName(MountKind kind) {
 
 std::string describeOp(const MountOp& op) {
   std::string out = std::string("  ") + kindName(op.kind) + " tag=" + std::to_string(op.tag) +
-      " parent=" + std::to_string(op.parent_tag) + " index=" + std::to_string(op.index) + " " + op.component;
+      " parent=" + std::to_string(op.parent_tag) + " index=" + std::to_string(op.index) + " " +
+      std::string(op.component);
   if (!op.frame.w && !op.frame.h && !op.frame.x && !op.frame.y) {
     return out;
   }
@@ -53,7 +54,7 @@ std::string describeOp(const MountOp& op) {
     out += " fragments=" + std::to_string(op.paragraph.fragments.size());
   }
   if (!op.image_uri.empty()) {
-    out += " uri=" + op.image_uri;
+    out += " uri=" + std::string(op.image_uri);
   }
   return out;
 }
@@ -76,13 +77,16 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
     }
   }
 
-  // TODO 1.6: replace with rn_gpui_on_mount(std::move(batch));
+  // Hand the batch to Rust. `rn_gpui_on_mount` only queues it (the `rn-gpui`
+  // crate owns the queue); GPUI rendering happens later on the main thread.
   rn_gpui_log(
       0,
       "executeMount surface=" + std::to_string(surfaceId) + " ops=" + std::to_string(batch.ops.size()));
   for (const auto& op : batch.ops) {
     rn_gpui_log(0, describeOp(op));
   }
+
+  rn_gpui_on_mount(std::move(batch));
 
   if (onAfterMount_) {
     onAfterMount_(surfaceId);
