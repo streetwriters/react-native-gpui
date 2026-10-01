@@ -41,6 +41,18 @@ fn main() {
     let react_native_dir = repo_root.join("node_modules").join("react-native");
     let react_common_dir = react_native_dir.join("ReactCommon");
     let react_cxx_platform_dir = package_dir.join("ReactCxxPlatform");
+    for changed_platform_source in [
+        "react/io/ImageLoaderModule.cpp",
+        "react/io/ImageLoaderModule.h",
+        "react/runtime/ReactCxxTurboModuleProvider.cpp",
+        "react/runtime/ReactCxxTurboModuleProvider.h",
+        "react/runtime/ReactHost.cpp",
+    ] {
+        println!(
+            "cargo:rerun-if-changed={}",
+            react_cxx_platform_dir.join(changed_platform_source).display()
+        );
+    }
     let overrides_dir = package_dir.join("ReactCommonOverrides");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));

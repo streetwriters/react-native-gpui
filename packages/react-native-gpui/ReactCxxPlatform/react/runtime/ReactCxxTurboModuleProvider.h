@@ -16,6 +16,7 @@
 namespace facebook::react {
 
 class CallInvoker;
+class IImageLoader;
 class DevServerHelper;
 class NativeAnimatedNodesManagerProvider;
 class SurfaceDelegate;
@@ -34,7 +35,8 @@ class ReactCxxTurboModuleProvider final {
       HttpClientFactory httpClientFactory = nullptr,
       WebSocketClientFactory webSocketClientFactory = nullptr,
       std::function<void()> liveReloadCallback = nullptr,
-      std::shared_ptr<std::string> sourceURL = nullptr);
+      std::shared_ptr<std::string> sourceURL = nullptr,
+      std::weak_ptr<IImageLoader> imageLoader = {});
 
   std::shared_ptr<TurboModule> operator()(const std::string &name) const;
 
@@ -50,6 +52,7 @@ class ReactCxxTurboModuleProvider final {
   WebSocketClientFactory webSocketClientFactory_;
   std::function<void()> liveReloadCallback_;
   std::shared_ptr<std::string> sourceURL_;
+  std::weak_ptr<IImageLoader> imageLoader_;
 };
 
 } // namespace facebook::react

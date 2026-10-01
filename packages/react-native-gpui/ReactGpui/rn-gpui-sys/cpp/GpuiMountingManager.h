@@ -2,15 +2,30 @@
 #pragma once
 
 #include <folly/dynamic.h>
+#include <react/io/IImageLoader.h>
 #include <react/renderer/uimanager/IMountingManager.h>
+#include "GpuiImageLoader.h"
 
 #include <functional>
 #include <mutex>
 #include <unordered_map>
+#include <atomic>
 
 namespace rngpui {
 
 using namespace facebook::react;
+
+class GpuiImageLoader final : public IImageLoader {
+ public:
+  void loadImage(const std::string& uri, const IImageLoaderOnLoadCallback&& onLoad) override;
+  CacheStatus getCacheStatus(const std::string& uri) override;
+  static void completeRequest(std::uint64_t, double, double, const std::string&);
+
+ private:
+  inline static std::atomic<std::uint64_t> nextRequestId_{1};
+  inline static std::mutex mutex_;
+  inline static std::unordered_map<std::uint64_t, IImageLoaderOnLoadCallback> callbacks_;
+};
 
 class GpuiMountingManager : public IMountingManager {
  public:
@@ -20,6 +35,7 @@ class GpuiMountingManager : public IMountingManager {
   void executeMount(SurfaceId surfaceId, MountingTransaction&& tx) override;
   void dispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override;
   ComponentRegistryFactory getComponentRegistryFactory() override;
+  std::shared_ptr<IImageLoader> getImageLoader() noexcept override { return imageLoader_; }
 
   // TODO 2.6 — ReactHost calls this with a real executor once a fresh instance
   // is up (`ReactHost.cpp`, createReactInstance) and with `nullptr` when it
@@ -35,6 +51,7 @@ class GpuiMountingManager : public IMountingManager {
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
+  std::shared_ptr<GpuiImageLoader> imageLoader_ = std::make_shared<GpuiImageLoader>();
   std::mutex emittersMutex_;
   std::unordered_map<Tag, SharedEventEmitter> emitters_; // written on JS thread, read on main
 };

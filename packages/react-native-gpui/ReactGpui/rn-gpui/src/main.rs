@@ -164,7 +164,10 @@ fn main() {
         let _ = tx.send_blocking(MainEvent::SurfaceStopped(surface_id));
     }));
 
-    gpui_platform::application().run(move |cx: &mut App| {
+    gpui_platform::application()
+        .with_http_client(std::sync::Arc::new(rn_gpui::http_client::GpuiHttpClient::default()))
+        .run(move |cx: &mut App| {
+        rn_gpui::image_loader::install(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
         rn_gpui::text::install_measure_handler(cx);

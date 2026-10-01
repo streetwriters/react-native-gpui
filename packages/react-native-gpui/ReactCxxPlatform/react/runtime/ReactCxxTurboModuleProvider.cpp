@@ -39,7 +39,8 @@ ReactCxxTurboModuleProvider::ReactCxxTurboModuleProvider(
     HttpClientFactory httpClientFactory,
     WebSocketClientFactory webSocketClientFactory,
     std::function<void()> liveReloadCallback,
-    std::shared_ptr<std::string> sourceURL)
+    std::shared_ptr<std::string> sourceURL,
+    std::weak_ptr<IImageLoader> imageLoader)
     : turboModuleProviders_(std::move(turboModuleProviders)),
       jsInvoker_(std::move(jsInvoker)),
       onJsError_(std::move(onJsError)),
@@ -50,7 +51,8 @@ ReactCxxTurboModuleProvider::ReactCxxTurboModuleProvider(
       httpClientFactory_(std::move(httpClientFactory)),
       webSocketClientFactory_(std::move(webSocketClientFactory)),
       liveReloadCallback_(std::move(liveReloadCallback)),
-      sourceURL_(std::move(sourceURL)) {}
+      sourceURL_(std::move(sourceURL)),
+      imageLoader_(std::move(imageLoader)) {}
 
 std::shared_ptr<TurboModule> ReactCxxTurboModuleProvider::operator()(
     const std::string& name) const {
@@ -82,7 +84,7 @@ std::shared_ptr<TurboModule> ReactCxxTurboModuleProvider::operator()(
   } else if (name == PlatformConstantsModule::kModuleName) {
     return std::make_shared<PlatformConstantsModule>(jsInvoker_);
   } else if (name == ImageLoaderModule::kModuleName) {
-    return std::make_shared<ImageLoaderModule>(jsInvoker_);
+    return std::make_shared<ImageLoaderModule>(jsInvoker_, imageLoader_);
   } else if (name == SourceCodeModule::kModuleName) {
     return std::make_shared<SourceCodeModule>(
         jsInvoker_, sourceURL_ ? *sourceURL_ : "");

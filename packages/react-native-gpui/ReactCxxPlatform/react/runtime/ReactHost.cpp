@@ -267,7 +267,8 @@ void ReactHost::createReactInstance() {
       httpClientFactory,
       webSocketClientFactory,
       std::move(liveReloadCallback),
-      sourceURL_);
+      sourceURL_,
+      reactInstanceData_->mountingManager->getImageLoader());
 
   reactInstance_->initializeRuntime(
       {

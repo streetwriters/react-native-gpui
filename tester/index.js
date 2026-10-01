@@ -12,3 +12,4 @@ require('./App');
 require('./probes/TextProbe');
 
 console.log('[rn-gpui] App registered');
+require('./probes/ImageProbe');

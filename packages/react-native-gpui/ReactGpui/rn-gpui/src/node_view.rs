@@ -28,6 +28,7 @@ pub struct RNNodeView {
     pub paragraph: Option<ParagraphFlat>,
     /// `Image` source, only present for image nodes (TODO 2.6).
     pub image_uri: Option<String>,
+    pub image_resize_mode: u8,
     /// Children in RN order: (Fabric tag, entity).
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// The parent node, or `None` when this node hangs directly off the surface
@@ -49,6 +50,7 @@ impl RNNodeView {
             view: op.view.clone(),
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             image_uri: (!op.image_uri.is_empty()).then(|| op.image_uri.clone()),
+            image_resize_mode: op.image_resize_mode,
             children: Vec::new(),
             parent: None,
             cached_style: StyleRefinement::default(),
@@ -69,6 +71,9 @@ impl RNNodeView {
         }
         if !op.image_uri.is_empty() {
             self.image_uri = Some(op.image_uri.clone());
+            self.image_resize_mode = op.image_resize_mode;
+        } else if op.props_changed && self.component == "Image" {
+            self.image_uri = None;
         }
     }
 
@@ -179,6 +184,54 @@ impl Render for RNNodeView {
         if let Some(paragraph) = &self.paragraph {
             element = element.child(crate::text::paragraph_element(paragraph, frame.w, frame.h));
         }
+        if self.component == "Image" {
+            if let Some(uri) = &self.image_uri {
+                let fit = match self.image_resize_mode {
+                    1 => gpui::ObjectFit::Contain,
+                    2 => gpui::ObjectFit::Cover,
+                    // RN's `center` keeps the source at its natural size,
+                    // centers it, and only scales down if it would overflow.
+                    3 => gpui::ObjectFit::ScaleDown,
+                    _ => gpui::ObjectFit::Fill,
+                };
+                let source = if let Some(data) = uri.strip_prefix("data:") {
+                    decode_data_image(data).map(|image| gpui::img(std::sync::Arc::new(image)))
+                } else if let Some(path) = crate::image_loader::file_uri_path(uri) {
+                    Some(gpui::img(path))
+                } else {
+                    Some(gpui::img(uri.clone()))
+                };
+                if let Some(source) = source {
+                    element = element.child(source.size_full().object_fit(fit));
+                }
+            }
+        }
         element.children(self.children.iter().map(|(_, child)| child.clone()))
     }
+}
+
+/// Build a GPUI image asset from an inline data URI. GPUI still performs image
+/// decoding and painting through its asynchronous asset pipeline.
+fn decode_data_image(data: &str) -> Option<gpui::Image> {
+    use base64::Engine;
+    let (metadata, payload) = data.split_once(',')?;
+    if !metadata.ends_with(";base64") {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()?;
+    let mime = metadata.strip_prefix("image/")?.trim_end_matches(";base64");
+    let format = match mime {
+        "png" => gpui::ImageFormat::Png,
+        "jpeg" | "jpg" => gpui::ImageFormat::Jpeg,
+        "webp" => gpui::ImageFormat::Webp,
+        "gif" => gpui::ImageFormat::Gif,
+        "svg+xml" | "svg" => gpui::ImageFormat::Svg,
+        "bmp" => gpui::ImageFormat::Bmp,
+        "tiff" | "tif" => gpui::ImageFormat::Tiff,
+        "ico" => gpui::ImageFormat::Ico,
+        _ => return None,
+    };
+    Some(gpui::Image::from_bytes(format, bytes))
 }

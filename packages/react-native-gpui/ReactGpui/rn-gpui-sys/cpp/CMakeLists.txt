@@ -90,6 +90,12 @@ if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   endif()
 endif()
 
+# The cargo build script always places the active bridge under the current
+# CMake build's sibling `cxxbridge/include`. Prefer it explicitly: the fallback
+# glob above can pick an older fingerprint when Cargo has multiple feature
+# builds in `target/debug/build`.
+include_directories(BEFORE "${CMAKE_BINARY_DIR}/../cxxbridge/include")
+
 # Shared glue headers (MountBatchBuilder.h) and the bridge header, for every
 # ReactCommon subdirectory: the TextLayoutManager override includes both.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

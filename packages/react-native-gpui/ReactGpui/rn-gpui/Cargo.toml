@@ -9,7 +9,7 @@ edition = "2021"
 # window's own scene to a PNG off-screen: `RN_GPUI_SCREENSHOT=<path>`.
 # gpui's `Window::render_to_image` is gated on `test-support` in gpui, gpui_macos
 # and gpui_apple, so the feature has to be enabled at the platform crate too.
-visual-capture = ["dep:image", "gpui_platform/test-support"]
+visual-capture = ["gpui_platform/test-support"]
 
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }
@@ -23,4 +23,8 @@ anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 serde_json = { workspace = true }
-image = { version = "0.25.1", optional = true }
+http_client = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+image = { version = "0.25.1" }
+base64 = "0.22"

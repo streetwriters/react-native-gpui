@@ -11,6 +11,15 @@
 
 #[cxx::bridge(namespace = "rngpui")]
 pub mod ffi {
+    unsafe extern "C++" {
+        include!("GpuiImageLoader.h");
+        fn rn_gpui_on_image_load_result(
+            request_id: u64,
+            width: f64,
+            height: f64,
+            error: String,
+        );
+    }
     // ---------- shared, flat data ----------
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -111,6 +120,7 @@ pub mod ffi {
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub image_uri: String,        // filled for "Image"
+        pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
     }
 
     #[derive(Clone, Debug)]
@@ -127,6 +137,8 @@ pub mod ffi {
 
     // ---------- Rust functions callable from C++ ----------
     extern "Rust" {
+        fn rn_gpui_load_image(uri: String, request_id: u64);
+        fn rn_gpui_image_is_cached(uri: &str) -> bool;
         /// Called on the JS/Fabric thread. Must not block, must not touch GPUI.
         fn rn_gpui_on_mount(batch: MountBatch);
         /// Called on the JS/Fabric thread during layout. Thread-safe.
@@ -192,6 +204,25 @@ pub type SurfaceStoppedHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
+pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
+pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
+pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
+pub static IMAGE_CACHE_QUERY_HANDLER: OnceLock<ImageCacheQueryHandler> = OnceLock::new();
+
+fn rn_gpui_load_image(uri: String, request_id: u64) {
+    if let Some(handler) = IMAGE_HANDLER.get() {
+        handler(uri, request_id);
+    } else {
+        ffi::rn_gpui_on_image_load_result(request_id, 0.0, 0.0, "image loader is not initialized".into());
+    }
+}
+
+fn rn_gpui_image_is_cached(uri: &str) -> bool {
+    IMAGE_CACHE_QUERY_HANDLER
+        .get()
+        .map(|handler| handler(uri))
+        .unwrap_or(false)
+}
 
 /// Sentinel surface id meaning "every surface": C++ passes it when React tears
 /// the whole instance down (a reload), which is when the platform has to forget

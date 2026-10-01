@@ -184,6 +184,12 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       if (auto imageProps = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
           imageProps && !imageProps->sources.empty()) {
         op.image_uri = imageProps->sources[0].uri;
+        switch (imageProps->resizeMode) {
+          case ImageResizeMode::Contain: op.image_resize_mode = 1; break;
+          case ImageResizeMode::Cover: op.image_resize_mode = 2; break;
+          case ImageResizeMode::Center: op.image_resize_mode = 3; break;
+          default: op.image_resize_mode = 0; break;
+        }
       }
     }
   }

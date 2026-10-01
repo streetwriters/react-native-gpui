@@ -24,6 +24,46 @@
 
 namespace rngpui {
 
+void GpuiImageLoader::loadImage(
+    const std::string& uri,
+    const IImageLoaderOnLoadCallback&& onLoad) {
+  const auto requestId = nextRequestId_.fetch_add(1);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    callbacks_.emplace(requestId, std::move(onLoad));
+  }
+  rn_gpui_load_image(uri, requestId);
+}
+
+IImageLoader::CacheStatus GpuiImageLoader::getCacheStatus(const std::string& uri) {
+  return rn_gpui_image_is_cached(uri) ? CacheStatus::Memory : CacheStatus::None;
+}
+
+void GpuiImageLoader::completeRequest(
+    std::uint64_t requestId,
+    double width,
+    double height,
+    const std::string& error) {
+  IImageLoaderOnLoadCallback callback;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = callbacks_.find(requestId);
+    if (found == callbacks_.end()) return;
+    callback = std::move(found->second);
+    callbacks_.erase(found);
+  }
+  callback(width, height, error.empty() ? nullptr : error.c_str());
+}
+
+void rn_gpui_on_image_load_result(
+    std::uint64_t requestId,
+    double width,
+    double height,
+    rust::String error) {
+  GpuiImageLoader::completeRequest(
+      requestId, width, height, std::string(error.data(), error.size()));
+}
+
 namespace {
 
 const char* kindName(MountKind kind) {
