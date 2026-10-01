@@ -186,4 +186,8 @@ void GpuiHost::dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson
   mountingManager_->dispatchEvent(tag, std::string(type), folly::parseJson(std::string(payloadJson)));
 }
 
+void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {
+  mountingManager_->setScrollOffset(tag, x, y);
+}
+
 } // namespace rngpui

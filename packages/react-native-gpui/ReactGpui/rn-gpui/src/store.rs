@@ -249,6 +249,25 @@ impl ViewStore {
                 }
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
             }
+            // ScrollView's JS implementation installs `onLayout` callbacks on
+            // both its viewport and content container. Fabric's native event
+            // subscription is not reflected in BaseViewProps::onLayout here,
+            // so emit layout for mounted views; nodes without a JS listener
+            // simply discard it in their EventEmitter.
+            if op.layout_changed && matches!(op.component.as_str(), "View" | "ScrollView") {
+                self.host.dispatch_event(
+                    op.tag,
+                    "topLayout",
+                    &serde_json::json!({
+                        "layout": {
+                            "x": op.frame.x,
+                            "y": op.frame.y,
+                            "width": op.frame.w,
+                            "height": op.frame.h
+                        }
+                    }),
+                );
+            }
         }
         // A batch means RN just committed, so tick its `EventBeat` right away
         // instead of waiting for the next frame (TODO 2.3, see `frame.rs`).

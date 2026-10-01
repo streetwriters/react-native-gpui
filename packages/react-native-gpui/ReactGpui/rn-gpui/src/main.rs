@@ -89,6 +89,24 @@ fn env_points(key: &str) -> Vec<(f32, f32)> {
         .unwrap_or_default()
 }
 
+fn env_scrolls(key: &str) -> Vec<(f32, f32, f32, f32)> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let mut values = entry
+                .split(',')
+                .filter_map(|v| v.trim().parse::<f32>().ok());
+            Some((
+                values.next()?,
+                values.next()?,
+                values.next()?,
+                values.next()?,
+            ))
+        })
+        .collect()
+}
+
 /// Flushes React Native's queued JS work the way a frame tick does.
 ///
 /// `Host::on_render` drives the run-loop observer `RuntimeScheduler` runs its
@@ -145,6 +163,8 @@ fn main() {
     // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
     let hovers = env_points("RN_GPUI_HOVER");
     let hover_ms = env_u32("RN_GPUI_HOVER_MS", 800);
+    let scrolls = env_scrolls("RN_GPUI_SCROLL");
+    let scroll_ms = env_u32("RN_GPUI_SCROLL_MS", 1500);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
 
@@ -344,6 +364,42 @@ fn main() {
                     );
                     if let Err(error) = hovered {
                         log::error!("hover at {x},{y} failed: {error}");
+                    }
+                    flush_js(&host, cx).await;
+                }
+            })
+            .detach();
+        }
+
+        if !scrolls.is_empty() {
+            let frame_hook = frame_hook.clone();
+            let host = host_for_input.clone();
+            cx.spawn(async move |cx| {
+                for (x, y, dx, dy) in scrolls {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(scroll_ms)))
+                        .await;
+                    let position = gpui::point(px(x), px(y));
+                    log::info!("scrolling at {x},{y} by {dx},{dy}");
+                    let hook = frame_hook.clone();
+                    let scrolled = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                                    position,
+                                    delta: gpui::ScrollDelta::Pixels(gpui::point(px(dx), px(dy))),
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = scrolled {
+                        log::error!("scroll at {x},{y} failed: {error}");
                     }
                     flush_js(&host, cx).await;
                 }

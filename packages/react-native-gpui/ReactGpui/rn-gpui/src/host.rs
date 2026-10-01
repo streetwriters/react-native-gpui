@@ -50,4 +50,8 @@ impl Host {
             .unwrap()
             .dispatch_event(tag, ty, &payload.to_string())
     }
+
+    pub fn set_scroll_offset(&self, tag: i32, x: f32, y: f32) {
+        self.0.lock().unwrap().set_scroll_offset(tag, x, y)
+    }
 }

@@ -29,6 +29,10 @@ pub struct RNNodeView {
     /// `Image` source, only present for image nodes (TODO 2.6).
     pub image_uri: Option<String>,
     pub image_resize_mode: u8,
+    pub scroll_offset: Point<f32>,
+    pub content_size: (f32, f32),
+    pub scroll_horizontal: bool,
+    pub scroll_enabled: bool,
     /// Children in RN order: (Fabric tag, entity).
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// The parent node, or `None` when this node hangs directly off the surface
@@ -51,6 +55,10 @@ impl RNNodeView {
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             image_uri: (!op.image_uri.is_empty()).then(|| op.image_uri.clone()),
             image_resize_mode: op.image_resize_mode,
+            scroll_offset: point(op.scroll_x, op.scroll_y),
+            content_size: (op.content_width, op.content_height),
+            scroll_horizontal: op.scroll_horizontal,
+            scroll_enabled: op.scroll_enabled,
             children: Vec::new(),
             parent: None,
             cached_style: StyleRefinement::default(),
@@ -68,6 +76,12 @@ impl RNNodeView {
         }
         if op.has_paragraph {
             self.paragraph = Some(op.paragraph.clone());
+        }
+        if self.component == "ScrollView" {
+            self.scroll_offset = point(op.scroll_x, op.scroll_y);
+            self.content_size = (op.content_width, op.content_height);
+            self.scroll_horizontal = op.scroll_horizontal;
+            self.scroll_enabled = op.scroll_enabled;
         }
         if !op.image_uri.is_empty() {
             self.image_uri = Some(op.image_uri.clone());
@@ -97,6 +111,9 @@ impl RNNodeView {
             let Some(node) = weak.upgrade() else { break };
             let node = node.read(cx);
             origin += point(px(node.frame.x), px(node.frame.y));
+            if node.component == "ScrollView" {
+                origin -= point(px(node.scroll_offset.x), px(node.scroll_offset.y));
+            }
             parent = node.parent.clone();
         }
         origin
@@ -106,6 +123,7 @@ impl RNNodeView {
 impl Render for RNNodeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.frame;
+        let is_scroll = self.component == "ScrollView";
         let mut element = div();
         // Replace the whole style: cached paint fields + the absolute Yoga
         // frame. Nothing flex-related is ever set (see the module docs).
@@ -206,7 +224,68 @@ impl Render for RNNodeView {
                 }
             }
         }
-        element.children(self.children.iter().map(|(_, child)| child.clone()))
+        if is_scroll {
+            let (content_width, content_height) = self.content_size;
+            let mut content = div()
+                .relative()
+                .left(px(-self.scroll_offset.x))
+                .top(px(-self.scroll_offset.y))
+                .w(px(content_width.max(frame.w)))
+                .h(px(content_height.max(frame.h)));
+            content = content.children(self.children.iter().map(|(_, child)| child.clone()));
+            element = element.overflow_hidden().child(content);
+            if self.scroll_enabled {
+                element = element.on_scroll_wheel(cx.listener(
+                    |this, event: &gpui::ScrollWheelEvent, _window, cx| {
+                        // GPUI's native adapters normally provide pixel deltas;
+                        // line deltas are 40 DIP per line for deterministic mice.
+                        let (dx, dy) = match &event.delta {
+                            gpui::ScrollDelta::Pixels(delta) => {
+                                (f32::from(delta.x), f32::from(delta.y))
+                            }
+                            gpui::ScrollDelta::Lines(lines) => (lines.x * 40.0, lines.y * 40.0),
+                        };
+                        if this.scroll_by(-dx, -dy, cx) {
+                            cx.notify();
+                        }
+                        cx.stop_propagation();
+                    },
+                ));
+            }
+            element
+        } else {
+            element.children(self.children.iter().map(|(_, child)| child.clone()))
+        }
+    }
+}
+
+impl RNNodeView {
+    fn scroll_by(&mut self, dx: f32, dy: f32, cx: &mut Context<Self>) -> bool {
+        let (max_x, max_y) = (
+            (self.content_size.0 - self.frame.w).max(0.0),
+            (self.content_size.1 - self.frame.h).max(0.0),
+        );
+        let old = self.scroll_offset;
+        if self.scroll_horizontal {
+            self.scroll_offset.x = (old.x + dx).clamp(0.0, max_x);
+        } else {
+            self.scroll_offset.y = (old.y + dy).clamp(0.0, max_y);
+        }
+        if self.scroll_offset == old {
+            return false;
+        }
+        if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+            let host = store.0.read(cx).host.clone();
+            let payload = serde_json::json!({
+                "contentOffset": {"x": self.scroll_offset.x, "y": self.scroll_offset.y},
+                "contentSize": {"width": self.content_size.0, "height": self.content_size.1},
+                "layoutMeasurement": {"width": self.frame.w, "height": self.frame.h},
+                "zoomScale": 1
+            });
+            host.dispatch_event(self.tag, "topScroll", &payload);
+            host.set_scroll_offset(self.tag, self.scroll_offset.x, self.scroll_offset.y);
+        }
+        true
     }
 }
 

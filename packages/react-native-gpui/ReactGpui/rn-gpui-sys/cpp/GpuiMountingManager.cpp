@@ -15,6 +15,7 @@
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
+#include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
@@ -97,6 +98,10 @@ std::string describeOp(const MountOp& op) {
   if (!op.image_uri.empty()) {
     out += " uri=" + std::string(op.image_uri);
   }
+  if (op.component == "ScrollView") {
+    out += " offset=(" + std::to_string(op.scroll_x) + "," + std::to_string(op.scroll_y) + ") content=" +
+        std::to_string(op.content_width) + "x" + std::to_string(op.content_height);
+  }
   return out;
 }
 
@@ -112,8 +117,15 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
       // Keep event emitters so the main thread can send events by tag.
       if (mutation.type == ShadowViewMutation::Create || mutation.type == ShadowViewMutation::Update) {
         emitters_[mutation.newChildShadowView.tag] = mutation.newChildShadowView.eventEmitter;
+        const auto componentName = std::string(mutation.newChildShadowView.componentName);
+        if (componentName == "ScrollView") {
+          auto state = std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(
+              mutation.newChildShadowView.state);
+          if (state) scrollStates_[mutation.newChildShadowView.tag] = std::move(state);
+        }
       } else if (mutation.type == ShadowViewMutation::Delete) {
         emitters_.erase(mutation.oldChildShadowView.tag);
+        scrollStates_.erase(mutation.oldChildShadowView.tag);
       }
     }
   }
@@ -132,6 +144,18 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
   if (onAfterMount_) {
     onAfterMount_(surfaceId);
   }
+}
+
+void GpuiMountingManager::setScrollOffset(Tag tag, float x, float y) {
+  std::shared_ptr<const ConcreteState<ScrollViewState>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = scrollStates_.find(tag);
+    if (it == scrollStates_.end()) return;
+    state = it->second;
+  }
+  const auto& data = state->getData();
+  state->updateState(ScrollViewState({x, y}, data.contentBoundingRect, data.scrollAwayPaddingTop));
 }
 
 void GpuiMountingManager::dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload) {

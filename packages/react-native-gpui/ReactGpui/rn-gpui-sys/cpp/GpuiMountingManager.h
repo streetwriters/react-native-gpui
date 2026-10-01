@@ -4,6 +4,8 @@
 #include <folly/dynamic.h>
 #include <react/io/IImageLoader.h>
 #include <react/renderer/uimanager/IMountingManager.h>
+#include <react/renderer/components/scrollview/ScrollViewState.h>
+#include <react/renderer/core/ConcreteState.h>
 #include "GpuiImageLoader.h"
 
 #include <functional>
@@ -48,12 +50,14 @@ class GpuiMountingManager : public IMountingManager {
 
   // Called from the GPUI main thread via GpuiHost::dispatch_event.
   void dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
+  void setScrollOffset(Tag tag, float x, float y);
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ = std::make_shared<GpuiImageLoader>();
   std::mutex emittersMutex_;
   std::unordered_map<Tag, SharedEventEmitter> emitters_; // written on JS thread, read on main
+  std::unordered_map<Tag, std::shared_ptr<const ConcreteState<ScrollViewState>>> scrollStates_;
 };
 
 } // namespace rngpui

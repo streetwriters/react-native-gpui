@@ -121,6 +121,13 @@ pub mod ffi {
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub image_uri: String,        // filled for "Image"
         pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
+        pub scroll_x: f32,
+        pub scroll_y: f32,
+        pub content_width: f32,
+        pub content_height: f32,
+        pub scroll_horizontal: bool,
+        pub scroll_enabled: bool,
+        pub layout_changed: bool,
     }
 
     #[derive(Clone, Debug)]
@@ -185,6 +192,7 @@ pub mod ffi {
         fn on_render(self: &GpuiHost);
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
+        fn set_scroll_offset(self: &GpuiHost, tag: i32, x: f32, y: f32);
     }
 }
 

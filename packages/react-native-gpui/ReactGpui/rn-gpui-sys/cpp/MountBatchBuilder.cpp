@@ -3,6 +3,8 @@
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/components/image/ImageProps.h>
+#include <react/renderer/components/scrollview/ScrollViewProps.h>
+#include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -171,10 +173,14 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 
   const auto& frame = shadowView.layoutMetrics.frame;
   op.frame = {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height};
+  op.layout_changed = mutation.type == ShadowViewMutation::Create ||
+      (mutation.type == ShadowViewMutation::Update &&
+       mutation.oldChildShadowView.layoutMetrics.frame != mutation.newChildShadowView.layoutMetrics.frame);
 
   if (mutation.type == ShadowViewMutation::Create || mutation.type == ShadowViewMutation::Update) {
     op.props_changed = mutation.type == ShadowViewMutation::Create ||
-        mutation.oldChildShadowView.props != mutation.newChildShadowView.props;
+        mutation.oldChildShadowView.props != mutation.newChildShadowView.props ||
+        mutation.oldChildShadowView.state != mutation.newChildShadowView.state;
     op.view = flattenView(shadowView);
     if (op.component == "Paragraph") {
       op.has_paragraph = true;
@@ -190,6 +196,20 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
           case ImageResizeMode::Center: op.image_resize_mode = 3; break;
           default: op.image_resize_mode = 0; break;
         }
+      }
+    }
+    if (op.component == "ScrollView") {
+      if (auto props = std::dynamic_pointer_cast<const ScrollViewProps>(shadowView.props)) {
+        op.scroll_horizontal = props->horizontal;
+        op.scroll_enabled = props->scrollEnabled;
+      }
+      if (auto state = std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(shadowView.state)) {
+        const auto& data = state->getData();
+        op.scroll_x = data.contentOffset.x;
+        op.scroll_y = data.contentOffset.y;
+        const auto content = data.getContentSize();
+        op.content_width = content.width;
+        op.content_height = content.height;
       }
     }
   }

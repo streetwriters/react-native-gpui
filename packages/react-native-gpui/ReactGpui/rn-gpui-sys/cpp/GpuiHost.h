@@ -42,6 +42,7 @@ class GpuiHost {
   void stop_surface(int32_t surfaceId);
   void on_render() const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
+  void set_scroll_offset(int32_t tag, float x, float y) const;
 
   // TODO 2.6 — driven by `GpuiLogBoxSurfaceDelegate`. There is no reload entry
   // point here on purpose: both reload triggers (Metro's websocket `reload`
