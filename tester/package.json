@@ -1,0 +1,6 @@
+{
+  "name": "tester",
+  "private": true,
+  "version": "0.0.1",
+  "description": "RNTester-style test app for react-native-gpui."
+}

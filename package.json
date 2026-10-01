@@ -1,0 +1,23 @@
+{
+  "name": "react-native-gpui",
+  "private": true,
+  "version": "0.0.1",
+  "description": "React Native on GPUI — a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
+  "workspaces": [
+    "packages/react-native-gpui",
+    "packages/@rn-gpui/cli",
+    "packages/@rn-gpui/codegen",
+    "template",
+    "tester"
+  ],
+  "dependencies": {
+    "react": "19.2.3",
+    "react-native": "0.87.1"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "react-native-platform-override": "^0.84.0"
+  }
+}

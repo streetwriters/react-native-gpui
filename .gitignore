@@ -1,0 +1,19 @@
+# Dependency / build artifacts
+node_modules/
+target/
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.framework
+
+# Editors / OS
+.DS_Store
+*.iml
+.idea/
+.vscode/
+
+# Gradle (Android tooling present in node_modules)
+.gradle/
+local.properties

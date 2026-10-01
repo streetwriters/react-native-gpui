@@ -1,0 +1,7 @@
+{
+  "name": "@rn-gpui/codegen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rust code generator for react-native-gpui, plugged into @react-native/codegen.",
+  "dependencies": {}
+}

@@ -1,0 +1,14 @@
+[package]
+name = "rn-gpui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rn-gpui-sys = { path = "../rn-gpui-sys" }
+gpui = { workspace = true }
+cxx = { workspace = true }
+async-channel = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+serde_json = { workspace = true }

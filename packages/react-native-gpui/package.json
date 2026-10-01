@@ -1,0 +1,34 @@
+{
+  "name": "react-native-gpui",
+  "version": "0.1.0",
+  "description": "React Native platform powered by GPUI. Desktop React Native for macOS, Windows and Linux with one GPU-accelerated renderer.",
+  "main": "index.gpui.js",
+  "files": [
+    "index.gpui.js",
+    "src-gpui",
+    "ReactCommonOverrides",
+    "react-native.config.js",
+    "overrides.json"
+  ],
+  "peerDependencies": {
+    "react": "19.2.3",
+    "react-native": "0.87.1"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": false },
+    "react-native": { "optional": false }
+  },
+  "keywords": [
+    "react-native",
+    "gpui",
+    "desktop",
+    "macos",
+    "windows",
+    "linux"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ammarahmed/react-native-gpui"
+  }
+}

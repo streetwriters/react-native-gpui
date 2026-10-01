@@ -1,0 +1,6 @@
+{
+  "name": "template",
+  "private": true,
+  "version": "0.0.1",
+  "description": "App template for react-native-gpui (TODO 4.5)."
+}
