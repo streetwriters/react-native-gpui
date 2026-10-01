@@ -18,6 +18,8 @@
     "node": ">=22.13.0"
   },
   "devDependencies": {
+    "@react-native-community/cli": "^20.2.0",
+    "@react-native/metro-config": "^0.87.1",
     "react-native-platform-override": "^0.84.0"
   }
 }

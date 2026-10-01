@@ -1,5 +1,6 @@
 //! react-native-gpui: GPUI-backed React Native host.
 //!
-//! The host/store/node_view/style/text/events modules land in Phase 2 — this
-//! placeholder only makes the crate a valid cargo target for `cargo metadata`
-//! (TODO 1.1).
+//! `main.rs` is the headless phase-1 binary (TODO 1.7) — the GPUI window, the
+//! `ViewStore` and the node tree land in TODO 1.9+ (design doc §18.10-§18.14).
+
+pub mod host;

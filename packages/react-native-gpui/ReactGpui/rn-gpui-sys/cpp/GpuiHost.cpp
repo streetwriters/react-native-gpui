@@ -2,26 +2,53 @@
 #include "GpuiHost.h"
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
+#include "GpuiHttpClient.h"
 #include "GpuiMountingManager.h"
 
 #include <folly/json.h>
+#include <react/featureflags/ReactNativeFeatureFlags.h>
+#include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
+#include <react/http/IHttpClient.h>
+#include <react/http/IWebSocketClient.h>
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/ReactHost.h>
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
 
 #include <cstdio>
+#include <mutex>
 #include <utility>
 
 using namespace facebook::react;
 
 namespace rngpui {
 
+namespace {
+
+// Installs the OSS stable feature flags, which is what an OSS app on the new
+// (bridgeless) architecture does. `enableBridgelessArchitecture` is load
+// bearing for us: ReactHost here IS the bridgeless host, and the flag is what
+// makes the Hermes runtime turn on its microtask queue
+// (ReactCommon/react/runtime/hermes/HermesInstance.cpp:73); without it, React's
+// rendering path fails with "Could not enqueue microtask because they are
+// disabled in this runtime".
+void install_feature_flags() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    ReactNativeFeatureFlags::override(
+        std::make_unique<ReactNativeFeatureFlagsOverridesOSSStable>());
+  });
+}
+
+} // namespace
+
 std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   return std::make_unique<GpuiHost>(appId, devHost, devPort);
 }
 
 GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
+  install_feature_flags();
+
   ReactInstanceConfig config;
   config.appId = std::string(appId);
   config.deviceName = "rn-gpui";
@@ -34,12 +61,15 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
     });
   });
 
-  // TODO 2.x: insert the real HttpClientFactory / WebSocketClientFactory from
-  // ReactCxxPlatform/react/http here (as TesterAppDelegate does). ReactHost's
-  // constructor throws std::runtime_error("No HttpClientFactory provided") /
-  // ("No WebSocketClientFactory provided") without them, so a runnable host
-  // needs those inserts before this point.
+  // ReactHost's constructor throws std::runtime_error("No HttpClientFactory
+  // provided") / ("No WebSocketClientFactory provided") unless both factories
+  // are in the ContextContainer. The WebSocket one comes from the vendored
+  // ReactCxxPlatform cxx client; the HTTP one is our placeholder until TODO 2.1
+  // brings Metro in (ContextContainer::insert is const, so the container can
+  // stay shared_ptr<const>).
   auto contextContainer = std::make_shared<const ContextContainer>();
+  contextContainer->insert(HttpClientFactoryKey, gpui_http_client_factory());
+  contextContainer->insert(WebSocketClientFactoryKey, getWebSocketClientFactory());
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
@@ -68,6 +98,9 @@ void GpuiHost::start_surface(int32_t id, rust::Str module, float w, float h, flo
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
+  // SurfaceHandler asserts on Undefined; GPUI surfaces are LTR for now (an RTL
+  // flag would come from the GPUI window's text direction).
+  constraints.layoutDirection = LayoutDirection::LeftToRight;
   LayoutContext context;
   context.pointScaleFactor = scale;
   reactHost_->startSurface(id, std::string(module), folly::dynamic::object(), constraints, context);
@@ -77,6 +110,9 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
+  // SurfaceHandler asserts on Undefined; GPUI surfaces are LTR for now (an RTL
+  // flag would come from the GPUI window's text direction).
+  constraints.layoutDirection = LayoutDirection::LeftToRight;
   LayoutContext context;
   context.pointScaleFactor = scale;
   reactHost_->setSurfaceConstraints(id, constraints, context);

@@ -76,6 +76,13 @@ fn main() {
 
     emit_link_libs(&cmake_build_dir.join("link_libs.txt"));
 
+    // Libraries with an `@rpath/...` install name cannot be found from
+    // `rustc-link-search` alone, and `cargo:rustc-link-arg` from this package
+    // would not reach the dependent binary. The directories are therefore
+    // exported as `links` metadata (DEP_RN_GPUI_CORE_RPATHS) for the rn-gpui
+    // package's build script, which turns them into linker rpath flags.
+    emit_rpaths(&cmake_build_dir.join("rpath_dirs.txt"));
+
     // C++ runtime + the macOS frameworks the platform code references.
     println!("cargo:rustc-link-lib=c++");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
@@ -90,6 +97,36 @@ fn main() {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
     }
+}
+
+/// Exports the rpath directories (written by CMake) as `links` metadata.
+///
+/// A `links = "..."` package's `cargo:KEY=VALUE` lines become
+/// `DEP_<LINKS>_<KEY>` environment variables in every dependent package, which
+/// is the only way a build script can hand data to another package's build
+/// script. Directories are joined with `|` because the key is emitted once.
+fn emit_rpaths(path: &Path) {
+    println!("cargo:rerun-if-changed={}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => {
+            println!(
+                "cargo:warning=rn-gpui-sys: could not read {}: {error}",
+                path.display()
+            );
+            return;
+        }
+    };
+
+    let dirs: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if dirs.is_empty() {
+        return;
+    }
+    println!("cargo:rpaths={}", dirs.join("|"));
 }
 
 /// Translates `link_libs.txt` (written by CMake) into cargo directives.

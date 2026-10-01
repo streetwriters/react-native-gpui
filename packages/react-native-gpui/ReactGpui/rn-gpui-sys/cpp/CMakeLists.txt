@@ -187,6 +187,7 @@ set_target_properties(hermes_runtime_test PROPERTIES
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
+  GpuiHttpClient.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -231,6 +232,16 @@ set(RN_GPUI_CORE_DEPS
   # ReactCommon runtime + JSI
   jsi
   jserrorhandler
+  jsitooling
+  oscompat
+  jsinspector
+  # jsinspector and hermes_inspector_modern are OBJECT libraries; a dependency
+  # on the parent does not archive the children's objects, so they are named
+  # explicitly (otherwise cdp::jsonRequest/NetworkHandler stay undefined).
+  jsinspector_cdp
+  jsinspector_network
+  jsinspector_tracing
+  hermes_inspector_modern
   logger
   react_bridging
   react_codegen_rncore
@@ -354,6 +365,14 @@ endfunction()
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
 
 set(RN_GPUI_LINK_LIBS "")
+# Directories that must end up on the executable's rpath: some linked libraries
+# (libjsi.dylib, the hermesvm framework binary) have `@rpath/...` install names
+# and Rust does not turn `rustc-link-search` into an rpath. build.rs forwards
+# this list to the rn-gpui package, whose build script emits the linker flags.
+set(RN_GPUI_RPATH_DIRS "")
+if(DEFINED RN_GPUI_HERMES_FRAMEWORKS_DIR)
+  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_HERMES_FRAMEWORKS_DIR}\n")
+endif()
 
 # hermesvm is a framework binary (`hermesvm.framework/Versions/1/hermesvm`), so
 # it has no `lib` prefix and `-l` cannot name it. A symlink with a linkable name
@@ -361,11 +380,18 @@ set(RN_GPUI_LINK_LIBS "")
 set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
 if(TARGET hermes-engine::hermesvm)
   get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
-  if(_hermes_location AND NOT EXISTS "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
+  if(_hermes_location)
     file(MAKE_DIRECTORY "${RN_GPUI_SHIM_LIB_DIR}")
+    # Recreated unconditionally: the hermes variant can change between
+    # configures (release vs debug framework), and a stale symlink would make
+    # the link silently use the wrong library.
+    if(EXISTS "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
+      file(REMOVE "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
+    endif()
     file(CREATE_LINK "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib" SYMBOLIC)
   endif()
   string(APPEND RN_GPUI_LINK_LIBS "search:${RN_GPUI_SHIM_LIB_DIR}\nname:libhermesvm.dylib\n")
+  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_SHIM_LIB_DIR}\n")
 endif()
 
 foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
@@ -373,9 +399,15 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
     continue()
   endif()
   get_target_property(_type "${_target}" TYPE)
-  if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "SHARED_LIBRARY")
+  # UNKNOWN_LIBRARY covers imported libraries found by find_package() (e.g.
+  # OpenSSL::Crypto from FindOpenSSL); they still have a usable TARGET_FILE.
+  if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "UNKNOWN_LIBRARY")
     string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_FILE_DIR:${_target}>\nname:$<TARGET_FILE_NAME:${_target}>\n")
+    if(_type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "UNKNOWN_LIBRARY")
+      string(APPEND RN_GPUI_RPATH_DIRS "$<TARGET_FILE_DIR:${_target}>\n")
+    endif()
   endif()
 endforeach()
 
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
