@@ -8,6 +8,7 @@
 #include "GpuiMountingManager.h"
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
+#include "GpuiHost.h"               // TODO 2.6 — kAllSurfacesStopped
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -115,6 +116,18 @@ void GpuiMountingManager::dispatchCommand(const ShadowView&, const std::string& 
   // TODO 3.x: forward ScrollView scrollTo, TextInput focus/blur to Rust.
   (void)name;
   (void)args;
+}
+
+void GpuiMountingManager::setSchedulerTaskExecutor(SchedulerTaskExecutor&& executor) noexcept {
+  // TODO 2.6 — ReactHost calls this with a real executor when an instance is up
+  // (`ReactHost.cpp` createReactInstance) and with `nullptr` when it tears the
+  // instance down (destroyReactInstance, which every reload runs through
+  // `reloadReactInstance`). Teardown is the only signal the C++ platform gets:
+  // `SurfaceManager::stopSurface` → `Scheduler::unregisterSurface` emits no
+  // Delete mutations, so the Rust store is told to drop the whole tree itself.
+  if (!executor) {
+    rn_gpui_on_surface_stopped(kAllSurfacesStopped);
+  }
 }
 
 ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {

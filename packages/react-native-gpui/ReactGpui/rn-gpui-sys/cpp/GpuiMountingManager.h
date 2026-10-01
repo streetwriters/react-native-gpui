@@ -21,6 +21,15 @@ class GpuiMountingManager : public IMountingManager {
   void dispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override;
   ComponentRegistryFactory getComponentRegistryFactory() override;
 
+  // TODO 2.6 — ReactHost calls this with a real executor once a fresh instance
+  // is up (`ReactHost.cpp`, createReactInstance) and with `nullptr` when it
+  // tears the instance down (destroyReactInstance, i.e. every reload). The
+  // teardown call is the only surface-lifecycle signal the C++ platform gets:
+  // stopping a surface emits no Delete mutations (`SurfaceManager::stopSurface`
+  // → `Scheduler::unregisterSurface`), so it is where the Rust store is told to
+  // drop the whole tree before the reloaded instance mounts over it.
+  void setSchedulerTaskExecutor(SchedulerTaskExecutor&& executor) noexcept override;
+
   // Called from the GPUI main thread via GpuiHost::dispatch_event.
   void dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
 

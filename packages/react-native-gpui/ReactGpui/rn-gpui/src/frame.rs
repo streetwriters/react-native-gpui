@@ -44,6 +44,14 @@ struct State {
     active_until_ms: Cell<u64>,
     /// Whether a frame callback is currently outstanding.
     armed: Cell<bool>,
+    /// Identifies the newest scheduled callback. A callback whose generation
+    /// was superseded (because `arm` had to re-schedule a stalled chain) stops
+    /// instead of re-arming, so at most one chain is ever ticking.
+    generation: Cell<u64>,
+    /// When the outstanding callback was last run, in milliseconds since
+    /// `epoch`. Used to detect a chain the platform never delivered a frame
+    /// for.
+    last_tick_ms: Cell<u64>,
 }
 
 impl FrameHook {
@@ -54,6 +62,8 @@ impl FrameHook {
                 epoch: Instant::now(),
                 active_until_ms: Cell::new(0),
                 armed: Cell::new(false),
+                generation: Cell::new(0),
+                last_tick_ms: Cell::new(0),
             }),
         }
     }
@@ -66,9 +76,18 @@ impl FrameHook {
     }
 
     /// Arms the chain if it is not already running, and notes RN activity.
+    ///
+    /// `armed` alone is not enough to decide that the chain is running: GPUI
+    /// can decline to deliver the frame a callback asked for (observed in this
+    /// project's headless capture runs), and then the outstanding callback
+    /// would never run, never clear `armed`, and silently block every later
+    /// `arm`. If nothing has ticked for a whole activity window, re-schedule;
+    /// the superseded callback stops when it eventually runs.
     pub fn arm(&self, window: &mut Window) {
         self.note_activity();
-        if self.state.armed.replace(true) {
+        let stalled = self.now_ms().saturating_sub(self.state.last_tick_ms.get())
+            >= ACTIVITY_WINDOW.as_millis() as u64;
+        if self.state.armed.get() && !stalled {
             return;
         }
         self.schedule(window);
@@ -76,7 +95,14 @@ impl FrameHook {
 
     fn schedule(&self, window: &mut Window) {
         let hook = self.clone();
+        let generation = self.state.generation.get().wrapping_add(1);
+        self.state.generation.set(generation);
+        self.state.armed.set(true);
         window.on_next_frame(move |window, _cx| {
+            if hook.state.generation.get() != generation {
+                return;
+            }
+            hook.state.last_tick_ms.set(hook.now_ms());
             hook.host.on_render();
             if hook.is_active() {
                 hook.schedule(window);

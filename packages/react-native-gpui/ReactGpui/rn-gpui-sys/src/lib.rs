@@ -137,6 +137,9 @@ pub mod ffi {
         ) -> MeasureResult;
         /// Log output from C++.
         fn rn_gpui_log(level: i32, message: &str);
+        /// TODO 2.6 — a surface (or, with `ALL_SURFACES`, the whole React
+        /// instance) was torn down. Called on the JS/Fabric thread.
+        fn rn_gpui_on_surface_stopped(surface_id: i32);
     }
 
     // ---------- C++ functions callable from Rust ----------
@@ -170,7 +173,6 @@ pub mod ffi {
         fn on_render(self: &GpuiHost);
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
-        fn reload(self: Pin<&mut GpuiHost>);
     }
 }
 
@@ -185,8 +187,28 @@ pub use ffi::{
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
 pub type MeasureHandler =
     Box<dyn Fn(&ffi::ParagraphFlat, f32, f32) -> ffi::MeasureResult + Send + Sync>;
+/// TODO 2.6 — `surface_id`, or [`ALL_SURFACES`] when the whole instance is gone.
+pub type SurfaceStoppedHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
+pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
+
+/// Sentinel surface id meaning "every surface": C++ passes it when React tears
+/// the whole instance down (a reload), which is when the platform has to forget
+/// every tree at once. Mirror of `rngpui::kAllSurfacesStopped` in `GpuiHost.h`.
+pub const ALL_SURFACES: i32 = -1;
+
+/// TODO 2.6 — called by C++ when a surface (or the whole instance) is torn
+/// down. Fabric emits no Delete mutations for a dying surface, so this is the
+/// only cleanup signal the view store gets.
+fn rn_gpui_on_surface_stopped(surface_id: i32) {
+    match SURFACE_STOPPED_HANDLER.get() {
+        Some(handler) => handler(surface_id),
+        None => log::debug!(
+            "rn_gpui_on_surface_stopped({surface_id}): no handler registered yet — dropped"
+        ),
+    }
+}
 
 /// Called by the C++ mounting manager on the Fabric thread. Queues the batch
 /// for the GPUI main thread and returns at once, so mounting never blocks on

@@ -31,10 +31,22 @@
 //!   RN_GPUI_SCREENSHOT_DELAY_MS  how long to wait after that first batch
 //!                       before capturing (default 500). Raise it past
 //!                       RN_GPUI_RESIZE_MS to capture the resized scene.
+//!   RN_GPUI_CLICK       `"x,y;x,y"` synthetic left clicks at window
+//!                       coordinates, dispatched as real GPUI mouse events
+//!                       (TODO 2.4)
+//!   RN_GPUI_CLICK_MS    delay before each click (default 1500)
+//!   RN_GPUI_HOVER       `"x,y;x,y"` synthetic pointer moves, dispatched as real
+//!                       GPUI mouse-move events (TODO 2.5)
+//!   RN_GPUI_HOVER_MS    delay before each move (default 1500)
+//!
+//! Both synthetic-input knobs force a draw before dispatching (hit testing uses
+//! the last drawn frame's hitboxes) and flush RN's queued JS work afterwards
+//! (`flush_js`), so a headless run does not depend on the display staying awake
+//! to deliver frames.
 
 use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
 use rn_gpui::host::Host;
-use rn_gpui::store::{StoreGlobal, SurfaceRootView, ViewStore};
+use rn_gpui::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
 use rn_gpui_sys::ffi::MountBatch;
 use std::time::Duration;
 
@@ -77,6 +89,34 @@ fn env_points(key: &str) -> Vec<(f32, f32)> {
         .unwrap_or_default()
 }
 
+/// Flushes React Native's queued JS work the way a frame tick does.
+///
+/// `Host::on_render` drives the run-loop observer `RuntimeScheduler` runs its
+/// work from; the app calls it once per GPUI frame through `FrameHook`. macOS
+/// stops delivering frames while the display is asleep, and the JS work a
+/// synthetic click or hover queued then never runs — observed as `Pressed 0
+/// times` in a capture whose forced draw still painted correctly. Verification
+/// must not depend on the display being awake, so the synthetic input loops in
+/// `main` call this after each dispatch.
+async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
+    for _ in 0..6 {
+        host.on_render();
+        cx.background_executor()
+            .timer(Duration::from_millis(16))
+            .await;
+    }
+}
+
+/// Everything C++ (JS/Fabric thread) sends to the GPUI main thread over one
+/// channel, so the drain task applies it in the order it happened.
+enum MainEvent {
+    /// A Fabric transaction (TODO 1.6). `apply_batch` mounts it.
+    Mount(MountBatch),
+    /// TODO 2.6 — a surface went away (or, with `rn_gpui_sys::ALL_SURFACES`, the
+    /// whole instance: a reload). The store drops that tree.
+    SurfaceStopped(i32),
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -115,9 +155,13 @@ fn main() {
 
     // C++ (JS/Fabric thread) -> main thread. Installed before any surface
     // starts, otherwise the first mount batch would be dropped.
-    let (tx, rx) = async_channel::unbounded::<MountBatch>();
+    let (tx, rx) = async_channel::unbounded::<MainEvent>();
+    let mount_tx = tx.clone();
     let _ = rn_gpui_sys::MOUNT_HANDLER.set(Box::new(move |batch: MountBatch| {
-        let _ = tx.send_blocking(batch);
+        let _ = mount_tx.send_blocking(MainEvent::Mount(batch));
+    }));
+    let _ = rn_gpui_sys::SURFACE_STOPPED_HANDLER.set(Box::new(move |surface_id: i32| {
+        let _ = tx.send_blocking(MainEvent::SurfaceStopped(surface_id));
     }));
 
     gpui_platform::application().run(move |cx: &mut App| {
@@ -127,7 +171,12 @@ fn main() {
 
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).
-        let root = cx.new(|_| SurfaceRootView::new(1));
+        // TODO 2.6 — the overlay slot (LogBox) has to exist in the app root's
+        // element tree from the first frame too: GPUI only re-renders entities
+        // the window tracked while drawing, and the root view itself is not
+        // invalidated after that first frame.
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let root = cx.new(|_| SurfaceRootView::new(1).with_overlay_host(overlay_host.clone()));
         let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let window = cx
             .open_window(
@@ -197,7 +246,10 @@ fn main() {
             .update(cx, |_root, window, _cx| frame_hook.arm(window))
             .expect("failed to arm the per-frame hook");
 
-        let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone()));
+        // Kept for the synthetic input loops below: `ViewStore::new` consumes
+        // the host handle.
+        let host_for_input = host.clone();
+        let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone(), overlay_host));
         cx.set_global(StoreGlobal(store.clone()));
         store.update(cx, |store, cx| {
             store.register_root(1, root);
@@ -210,6 +262,7 @@ fn main() {
         // this environment, so this is how the Pressable counter is exercised.
         if !clicks.is_empty() {
             let frame_hook = frame_hook.clone();
+            let host = host_for_input.clone();
             cx.spawn(async move |cx| {
                 for (x, y) in clicks {
                     let timer = cx
@@ -222,6 +275,10 @@ fn main() {
                     let clicked = cx.update_window(
                         any_window,
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            // Draw first so hit testing sees the mounted tree
+                            // (see the hover loop below for why).
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
                             let down = gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                 button: gpui::MouseButton::Left,
                                 position,
@@ -241,6 +298,7 @@ fn main() {
                     if let Err(error) = clicked {
                         log::error!("click at {x},{y} failed: {error}");
                     }
+                    flush_js(&host, cx).await;
                 }
             })
             .detach();
@@ -251,6 +309,7 @@ fn main() {
         // `pointerEvents`, `cursor` and enter/leave are exercised off-screen.
         if !hovers.is_empty() {
             let frame_hook = frame_hook.clone();
+            let host = host_for_input.clone();
             cx.spawn(async move |cx| {
                 for (x, y) in hovers {
                     let timer = cx
@@ -263,6 +322,14 @@ fn main() {
                     let hovered = cx.update_window(
                         any_window,
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            // Hit testing uses the last drawn frame, and this
+                            // headless setup cannot rely on the platform asking
+                            // for a frame after a mount batch (see
+                            // `capture_and_quit`), so draw first: otherwise the
+                            // pointer is tested against the empty first frame and
+                            // no React mouse listener is ever reached.
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
                             let input = gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                                 position,
                                 pressed_button: None,
@@ -275,6 +342,7 @@ fn main() {
                     if let Err(error) = hovered {
                         log::error!("hover at {x},{y} failed: {error}");
                     }
+                    flush_js(&host, cx).await;
                 }
             })
             .detach();
@@ -344,8 +412,15 @@ fn main() {
         // capture delayed past a resize sees the re-laid-out tree.
         cx.spawn(async move |cx| {
             let mut capture_scheduled = false;
-            while let Ok(batch) = rx.recv().await {
-                store.update(cx, |store, cx| store.apply_batch(batch, cx));
+            while let Ok(event) = rx.recv().await {
+                match event {
+                    MainEvent::Mount(batch) => {
+                        store.update(cx, |store, cx| store.apply_batch(batch, cx));
+                    }
+                    MainEvent::SurfaceStopped(surface_id) => {
+                        store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
+                    }
+                }
                 if !capture_scheduled && screenshot.is_some() {
                     capture_scheduled = true;
                     let store = store.clone();
@@ -379,7 +454,7 @@ async fn capture_and_quit(
     path: &mut Option<String>,
     delay_ms: u32,
 ) {
-    // Let gpui draw at least one frame with the new tree before reading back.
+    // Give the tree time to settle (mount batches, LogBox surface, reloads).
     let timer = cx
         .background_executor()
         .timer(Duration::from_millis(u64::from(delay_ms)));
@@ -389,7 +464,16 @@ async fn capture_and_quit(
     let window = store.read_with(cx, |store, _| store.window);
     let captured = cx.update_window(
         window,
-        |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut App| window.render_to_image(),
+        |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+            // `render_to_image` only replays the last drawn scene, and frame
+            // demand is unreliable in this headless setup (the platform can go
+            // idle after the first frame, after which `FrameHook`'s `armed`
+            // latch blocks re-arming). Draw synchronously so the capture always
+            // reflects the current element tree.
+            let arena_clear_needed = window.draw(cx);
+            arena_clear_needed.clear(cx);
+            window.render_to_image()
+        },
     );
     match captured {
         Ok(Ok(image)) => match image.save(&path) {

@@ -305,6 +305,7 @@ set_target_properties(hermes_runtime_test PROPERTIES
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
+  GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

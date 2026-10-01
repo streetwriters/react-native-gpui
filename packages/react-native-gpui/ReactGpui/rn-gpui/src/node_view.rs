@@ -14,6 +14,10 @@ use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 pub struct RNNodeView {
     /// Fabric tag.
     pub tag: i32,
+    /// TODO 2.6 — the surface this node was mounted for. `ViewStore` uses it to
+    /// drop exactly one surface's nodes when that surface is torn down (a
+    /// reload drops every surface at once).
+    pub surface_id: i32,
     /// Fabric component name ("View", "Paragraph", "Image", ...).
     pub component: String,
     /// Layout frame relative to the parent, already in DIPs.
@@ -36,9 +40,10 @@ pub struct RNNodeView {
 }
 
 impl RNNodeView {
-    pub fn from_op(op: &MountOp) -> Self {
+    pub fn from_op(op: &MountOp, surface_id: i32) -> Self {
         let mut view = Self {
             tag: op.tag,
+            surface_id,
             component: op.component.clone(),
             frame: op.frame,
             view: op.view.clone(),

@@ -3,6 +3,7 @@
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "GpuiHttpClient.h"
+#include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
 
 #include <folly/json.h>
@@ -10,6 +11,7 @@
 #include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
 #include <react/http/IHttpClient.h>
 #include <react/http/IWebSocketClient.h>
+#include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/ReactHost.h>
 #include <react/utils/ContextContainer.h>
@@ -73,6 +75,22 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
+  // TODO 2.6 — the LogBox inspector animates its loading indicator, and
+  // `Libraries/Animated/NativeAnimatedHelper.js` throws "Native animated module
+  // is not available" when `NativeAnimatedModule` cannot be loaded — which
+  // aborts the whole LogBox render, so no red box. Supplying the provider is
+  // what makes `ReactCxxTurboModuleProvider` build `AnimatedModule`. The frame
+  // callbacks stay null: driving animation frames is the animation TODO
+  // (Phase 4), so a native-driver animation keeps its initial value for now
+  // instead of advancing.
+  animatedNodesManagerProvider_ = std::make_shared<NativeAnimatedNodesManagerProvider>();
+
+  // TODO 2.6 — the LogBox surface. ReactHost hands this to
+  // `ReactCxxTurboModuleProvider`, which builds `LogBoxModule` only when the
+  // delegate is set (`ReactCxxTurboModuleProvider.cpp`); without it the JS side
+  // logs "Failed to load TurboModule: LogBox" and no red box appears.
+  logBoxDelegate_ = std::make_shared<GpuiLogBoxSurfaceDelegate>(*this);
+
   reactHost_ = std::make_unique<ReactHost>(
       config,
       mountingManager_,
@@ -83,7 +101,11 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
       },
       /* logger */ [](const std::string& message, unsigned int level) {
         rn_gpui_log(static_cast<int32_t>(level), message);
-      });
+      },
+      /* devUIDelegate */ nullptr,
+      /* turboModuleProviders */ TurboModuleProviders{},
+      /* logBoxSurfaceDelegate */ logBoxDelegate_,
+      /* animatedNodesManagerProvider */ animatedNodesManagerProvider_);
 }
 
 GpuiHost::~GpuiHost() {
@@ -103,6 +125,12 @@ void GpuiHost::start_surface(int32_t id, rust::Str module, float w, float h, flo
   constraints.layoutDirection = LayoutDirection::LeftToRight;
   LayoutContext context;
   context.pointScaleFactor = scale;
+  if (id == kAppSurfaceId) {
+    // Remembered for the LogBox overlay surface (TODO 2.6).
+    surfaceWidth_ = w;
+    surfaceHeight_ = h;
+    surfaceScale_ = scale;
+  }
   reactHost_->startSurface(id, std::string(module), folly::dynamic::object(), constraints, context);
 }
 
@@ -115,11 +143,39 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   constraints.layoutDirection = LayoutDirection::LeftToRight;
   LayoutContext context;
   context.pointScaleFactor = scale;
+  if (id == kAppSurfaceId) {
+    // Remembered for the LogBox overlay surface (TODO 2.6).
+    surfaceWidth_ = w;
+    surfaceHeight_ = h;
+    surfaceScale_ = scale;
+  }
   reactHost_->setSurfaceConstraints(id, constraints, context);
 }
 
 void GpuiHost::stop_surface(int32_t id) {
   reactHost_->stopSurface(id);
+  // Fabric emits no Delete mutations for a surface that is torn down, so the
+  // store has to drop it explicitly (TODO 2.6).
+  rn_gpui_on_surface_stopped(id);
+}
+
+/// TODO 2.6 — start the LogBox surface (see `GpuiLogBoxSurfaceDelegate`).
+void GpuiHost::start_log_box_surface() {
+  LayoutConstraints constraints;
+  constraints.minimumSize = {surfaceWidth_, surfaceHeight_};
+  constraints.maximumSize = {surfaceWidth_, surfaceHeight_};
+  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  LayoutContext context;
+  context.pointScaleFactor = surfaceScale_;
+  reactHost_->startSurface(
+      kLogBoxSurfaceId, "LogBox", folly::dynamic::object(), constraints, context);
+}
+
+/// TODO 2.6 — stop the LogBox surface again: `hide()` is what keeps a closed
+/// LogBox from covering the app surface with an empty full-size overlay.
+void GpuiHost::stop_log_box_surface() {
+  reactHost_->stopSurface(kLogBoxSurfaceId);
+  rn_gpui_on_surface_stopped(kLogBoxSurfaceId);
 }
 
 void GpuiHost::on_render() const {
@@ -128,11 +184,6 @@ void GpuiHost::on_render() const {
 
 void GpuiHost::dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const {
   mountingManager_->dispatchEvent(tag, std::string(type), folly::parseJson(std::string(payloadJson)));
-}
-
-void GpuiHost::reload() {
-  // TODO 2.6: ReactHost::reload is private; reload must go through the
-  // DevSupport path instead.
 }
 
 } // namespace rngpui
