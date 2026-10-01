@@ -6,11 +6,10 @@
 # platform (no Android/JNI-only targets).
 #
 # Third-party dependencies come from Homebrew (folly, glog, boost,
-# nlohmann-json, openssl) plus a vendored copy of fast_float.
-#
-# Hermes-dependent targets (hermes/executor, hermes/inspector-modern,
-# react/runtime/hermes, ReactCxxPlatform/react/runtime) are deferred to
-# TODO 1.4, which builds libhermesvm.
+# nlohmann-json, openssl), a vendored copy of fast_float, and the
+# prebuilt hermesvm downloaded from the hermes-engine Maven
+# artifacts (version pinned by node_modules/react-native,
+# fetched by cmake/modules/ThirdParty.cmake).
 
 cmake_minimum_required(VERSION 3.13)
 project(rn_gpui_core CXX C)
@@ -82,8 +81,8 @@ add_react_common_subdir(jsinspector-modern)
 add_react_common_subdir(jsinspector-modern/cdp)
 add_react_common_subdir(jsinspector-modern/network)
 add_react_common_subdir(jsinspector-modern/tracing)
-# TODO 1.4: add_react_common_subdir(hermes/executor)          # needs hermes-engine::hermesvm
-# TODO 1.4: add_react_common_subdir(hermes/inspector-modern)  # needs hermes-engine::hermesvm
+add_react_common_subdir(hermes/executor)
+add_react_common_subdir(hermes/inspector-modern)
 add_react_common_subdir(react/cxxstableapi)
 add_react_common_subdir(react/renderer/runtimescheduler)
 add_react_common_subdir(react/debug)
@@ -150,7 +149,7 @@ add_react_common_subdir(react/nativemodule/webperformance)
 add_react_common_subdir(react/networking)
 add_react_common_subdir(jserrorhandler)
 add_react_common_subdir(react/runtime)
-# TODO 1.4: add_react_common_subdir(react/runtime/hermes)     # bridgelesshermes, needs hermes-engine::hermesvm
+add_react_common_subdir(react/runtime/hermes)
 add_react_common_subdir(react/runtime/nativeviewconfig)
 add_react_common_subdir(react/timing)
 
@@ -167,4 +166,17 @@ add_react_cxx_platform_subdir(react/renderer/scheduler)
 add_react_cxx_platform_subdir(react/renderer/uimanager)
 add_react_cxx_platform_subdir(react/threading)
 add_react_cxx_platform_subdir(react/utils)
-# TODO 1.4: add_react_cxx_platform_subdir(react/runtime)      # links bridgelesshermes
+add_react_cxx_platform_subdir(react/runtime)
+
+# --- hermes runtime smoke test (TODO 1.4 done-when) ---------------
+
+# Links libhermesvm and creates a Hermes runtime to prove the
+# prebuilt VM is usable from this build.
+add_executable(hermes_runtime_test test/hermes_runtime_test.cpp)
+target_link_libraries(hermes_runtime_test PRIVATE hermes-engine::hermesvm jsi)
+# hermesvm.framework's install name is
+# @rpath/hermesvm.framework/Versions/1/hermesvm, so the test
+# needs the framework directory on its runpath.
+set_target_properties(hermes_runtime_test PROPERTIES
+  BUILD_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx"
+  INSTALL_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx")
