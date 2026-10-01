@@ -5,7 +5,7 @@
 //! there and keeps the paintable result in a bounded cache for the UI thread.
 
 use gpui::{
-    canvas, font, point, prelude::*, px, App, Bounds, ContentMask, Font, FontStyle, FontWeight,
+    canvas, font, point, prelude::*, px, App, ContentMask, Font, FontStyle, FontWeight,
     IntoElement, SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, WrappedLine,
 };
 use rn_gpui_sys::ffi::{MeasureResult, ParagraphFlat, TextFragmentFlat};

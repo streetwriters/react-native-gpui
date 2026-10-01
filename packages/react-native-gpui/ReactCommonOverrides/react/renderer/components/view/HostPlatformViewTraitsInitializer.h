@@ -41,9 +41,9 @@ inline bool formsView(const ViewProps & /*props*/)
   return false;
 }
 
-inline bool isKeyboardFocusable(const ViewProps & /*props*/)
+inline bool isKeyboardFocusable(const ViewProps &props)
 {
-  return false;
+  return props.focusable;
 }
 
 } // namespace facebook::react::HostPlatformViewTraitsInitializer

@@ -31,10 +31,9 @@
 //! JSON payload *is* the JS `nativeEvent`, with `UIManagerBinding` mixing the
 //! emitter's tag in as `target` and adding `timeStamp`.
 
-use crate::host::Host;
 use crate::node_view::RNNodeView;
 use crate::store::{store_from, StoreGlobal};
-use gpui::{point, px, App, Pixels, Point, WeakEntity};
+use gpui::{point, px, App, Pixels, Point, WeakEntity, Window};
 use serde_json::{json, Map, Value};
 
 /// The one mouse pointer this platform reports.
@@ -67,11 +66,6 @@ pub fn now_ms() -> f64 {
         .elapsed()
         .as_secs_f64()
         * 1000.0
-}
-
-fn host(cx: &App) -> Option<Host> {
-    let store = cx.try_global::<StoreGlobal>()?.0.clone();
-    Some(store.read(cx).host.clone())
 }
 
 /// What a GPUI hit resolves to after `pointerEvents` (TODO 2.5).
@@ -250,10 +244,21 @@ fn pointer_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, butto
 /// `locationX/Y` (the offset RN reports for the target) is computed from the
 /// precomputed `Target::origin`, so the target entity is never read: the hit
 /// node is mid-update while its listener runs.
-pub fn send(cx: &App, target: &Target, position: Point<Pixels>, phase: Phase) {
-    let Some(host) = host(cx) else {
+pub fn send(
+    window: &mut Window,
+    cx: &mut App,
+    target: &Target,
+    position: Point<Pixels>,
+    phase: Phase,
+) {
+    let Some(store_global) = cx.try_global::<StoreGlobal>() else {
         log::warn!("[events] no store global yet; dropping {phase:?}");
         return;
+    };
+    let store = store_global.0.clone();
+    let (host, frame_hook) = {
+        let store = store.read(cx);
+        (store.host.clone(), store.frame_hook.clone())
     };
     let tag = target.tag;
     let location = position - target.origin;
@@ -302,6 +307,9 @@ pub fn send(cx: &App, target: &Target, position: Point<Pixels>, phase: Phase) {
             );
         }
     }
+    // dispatchEvent queues React work; the frame hook is what calls RN's
+    // RunLoopObserverManager::onRender and lets the JS scheduler consume it.
+    frame_hook.arm(window);
 }
 
 /// How many nodes the two chains share at the root end.
@@ -327,7 +335,7 @@ fn shared_root_len(previous: &[i32], next: &[i32]) -> usize {
 /// made untouchable: the pointer is then over nothing React can see, so the
 /// previous chain is left. (RN's native hit test would fall through to whatever
 /// is *behind* an untouchable view instead; that node is not resolved here.)
-pub fn hover(cx: &mut App, target: Option<&Target>, position: Point<Pixels>) {
+pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, position: Point<Pixels>) {
     let Some(store) = store_from(cx) else {
         return;
     };
@@ -379,6 +387,9 @@ pub fn hover(cx: &mut App, target: Option<&Target>, position: Point<Pixels>) {
             &pointer_payload(*tag, position, location, 0),
         );
     }
+    if previous != next {
+        store.read(cx).frame_hook.arm(window);
+    }
 }
 
 /// The pointer left the window: leave every node on the hover chain.
@@ -386,7 +397,7 @@ pub fn hover(cx: &mut App, target: Option<&Target>, position: Point<Pixels>) {
 /// RN gets this as a platform `topPointerLeave` on the root, which makes the
 /// processor run its hover pass with a null target; there is no root node here
 /// that owns the window, so the chain is left directly.
-pub fn leave_root(cx: &mut App) {
+pub fn leave_root(window: &mut Window, cx: &mut App) {
     let Some(store) = store_from(cx) else {
         return;
     };
@@ -416,5 +427,8 @@ pub fn leave_root(cx: &mut App) {
             "topPointerLeave",
             &pointer_payload(*tag, position, location, 0),
         );
+    }
+    if !previous.is_empty() {
+        store.read(cx).frame_hook.arm(window);
     }
 }

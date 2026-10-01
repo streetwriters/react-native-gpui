@@ -24,6 +24,16 @@ function TextProbe() {
       <WidthCase width={100} />
       <WidthCase width={300} />
       <WidthCase width={600} />
+      <Text style={{fontSize: 20, color: '#111'}}>
+        ÁÉÅ accents; gjpqy descenders; café naïve
+      </Text>
+      <Text style={{fontSize: 16, lineHeight: 24, color: '#111'}}>
+        First line: gjpqy ÁÉÅ{'\n'}Second line: café naïve
+      </Text>
+      <Text style={{fontSize: 16, lineHeight: 24, color: '#111'}}>
+        Normal <Text style={{fontWeight: '700', color: '#2563eb'}}>bold blue</Text>
+        {' '}<Text style={{fontStyle: 'italic'}}>italic gjpqy</Text>
+      </Text>
     </View>
   );
 }

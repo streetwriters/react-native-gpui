@@ -60,7 +60,10 @@ TextFragmentFlat flattenTextFragment(const TextAttributes& attributes, const std
 
 static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   ViewPropsFlat out{};
-  auto props = std::dynamic_pointer_cast<const ViewProps>(shadowView.props);
+  // Non-view components must remain opaque; a value-initialized flat struct
+  // otherwise silently turns an unrecognized props type fully transparent.
+  out.opacity = 1.f;
+  auto props = std::dynamic_pointer_cast<const BaseViewProps>(shadowView.props);
   if (!props) {
     return out;
   }
@@ -110,6 +113,9 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   }
   if (!props->accessibilityRole.empty()) {
     out.accessibility_role = props->accessibilityRole;
+  }
+  if (auto platformProps = std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
+    out.focusable = platformProps->focusable;
   }
 
   // TODO 2.x: props->transform -> out.transform (column-major) + has_transform.

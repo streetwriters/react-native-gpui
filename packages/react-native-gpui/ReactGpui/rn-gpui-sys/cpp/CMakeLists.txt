@@ -110,6 +110,15 @@ endif()
 # directory-level include dirs are emitted ahead of a target's own ones.
 include_directories(${RN_GPUI_OVERRIDES_DIR})
 
+# Adding a replacement header changes include resolution without changing the
+# upstream header already recorded in compiler dependencies. Recompile every
+# target when the override inventory changes to keep RN prop classes ABI-safe.
+file(GLOB_RECURSE RN_GPUI_OVERRIDE_HEADERS CONFIGURE_DEPENDS
+  RELATIVE "${RN_GPUI_OVERRIDES_DIR}" "${RN_GPUI_OVERRIDES_DIR}/*.h")
+list(SORT RN_GPUI_OVERRIDE_HEADERS)
+string(SHA256 RN_GPUI_OVERRIDE_HEADER_SET "${RN_GPUI_OVERRIDE_HEADERS}")
+add_compile_definitions("RN_GPUI_HEADER_OVERRIDES_${RN_GPUI_OVERRIDE_HEADER_SET}=1")
+
 # --- generated code (react_codegen_rncore, FBReactNativeSpec) ---------------
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/jni react_codegen_rncore)

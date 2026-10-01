@@ -54,6 +54,7 @@ fn main() {
         );
     }
     let overrides_dir = package_dir.join("ReactCommonOverrides");
+    println!("cargo:rerun-if-changed={}", overrides_dir.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));
 

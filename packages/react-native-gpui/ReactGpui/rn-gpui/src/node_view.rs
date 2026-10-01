@@ -6,8 +6,9 @@
 
 use crate::style;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Entity, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Position, StyleRefinement, WeakEntity, Window,
+    div, point, prelude::*, px, App, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
+    KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Position,
+    StyleRefinement, Subscription, WeakEntity, Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 
@@ -33,6 +34,7 @@ pub struct RNNodeView {
     pub content_size: (f32, f32),
     pub scroll_horizontal: bool,
     pub scroll_enabled: bool,
+    pub focusable: bool,
     /// Children in RN order: (Fabric tag, entity).
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// The parent node, or `None` when this node hangs directly off the surface
@@ -42,9 +44,28 @@ pub struct RNNodeView {
     pub parent: Option<WeakEntity<RNNodeView>>,
     /// `style::to_refinement(view)`, recomputed only when props change.
     cached_style: StyleRefinement,
+    focus_handle: Option<FocusHandle>,
+    focus_subscriptions: Vec<Subscription>,
 }
 
 impl RNNodeView {
+    /// Text and images receive the innermost mouse hit, but keyboard focus
+    /// belongs to the closest focusable view containing that hit.
+    fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
+        if let Some(handle) = &self.focus_handle {
+            return Some(handle.clone());
+        }
+        let mut parent = self.parent.clone();
+        while let Some(node) = parent.and_then(|node| node.upgrade()) {
+            let node = node.read(cx);
+            if let Some(handle) = &node.focus_handle {
+                return Some(handle.clone());
+            }
+            parent = node.parent.clone();
+        }
+        None
+    }
+
     pub fn from_op(op: &MountOp, surface_id: i32) -> Self {
         let mut view = Self {
             tag: op.tag,
@@ -59,9 +80,12 @@ impl RNNodeView {
             content_size: (op.content_width, op.content_height),
             scroll_horizontal: op.scroll_horizontal,
             scroll_enabled: op.scroll_enabled,
+            focusable: op.view.focusable,
             children: Vec::new(),
             parent: None,
             cached_style: StyleRefinement::default(),
+            focus_handle: None,
+            focus_subscriptions: Vec::new(),
         };
         view.cached_style = style::to_refinement(&view.view);
         view
@@ -71,6 +95,11 @@ impl RNNodeView {
         self.frame = op.frame;
         if op.props_changed {
             self.view = op.view.clone();
+            self.focusable = op.view.focusable;
+            if !self.focusable {
+                self.focus_handle = None;
+                self.focus_subscriptions.clear();
+            }
             // Once per prop change, not per frame.
             self.cached_style = style::to_refinement(&self.view);
         }
@@ -120,11 +149,111 @@ impl RNNodeView {
     }
 }
 
+fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool, cx: &App) {
+    let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+        return;
+    };
+    let host = store.0.read(cx).host.clone();
+    let code = match key.key.as_str() {
+        "tab" => "Tab",
+        "enter" => "Enter",
+        "escape" => "Escape",
+        "space" => "Space",
+        "backspace" => "Backspace",
+        "delete" => "Delete",
+        other => other,
+    };
+    let key_code = match key.key.as_str() {
+        "tab" => 9,
+        "enter" => 13,
+        "escape" => 27,
+        "space" => 32,
+        "backspace" => 8,
+        "delete" => 46,
+        _ => 0,
+    };
+    host.dispatch_event(
+        tag,
+        event_type,
+        &serde_json::json!({
+            "key": if key.key == "space" { " " } else { key.key.as_str() },
+            "code": code,
+            "keyCode": key_code,
+            "repeat": repeat,
+            "shiftKey": key.modifiers.shift,
+            "ctrlKey": key.modifiers.control,
+            "altKey": key.modifiers.alt,
+            "metaKey": key.modifiers.platform,
+        }),
+    );
+}
+
 impl Render for RNNodeView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.frame;
         let is_scroll = self.component == "ScrollView";
         let mut element = div();
+        if self.focusable {
+            if self.focus_handle.is_none() {
+                // GPUI excludes handles from traversal unless they are marked
+                // as tab stops. RN's `focusable` prop opts into the same role;
+                // the Fabric tag keeps order stable across rerenders.
+                let handle = cx
+                    .focus_handle()
+                    .tab_stop(true)
+                    .tab_index(self.tag as isize);
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    let host = store.0.read(cx).host.clone();
+                    let tag = self.tag;
+                    let focused_host = host.clone();
+                    self.focus_subscriptions.push(cx.on_focus(
+                        &handle,
+                        window,
+                        move |_this, window, cx| {
+                            focused_host.dispatch_event(tag, "focus", &serde_json::json!({}));
+                            if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                                store.0.read(cx).frame_hook.arm(window);
+                            }
+                        },
+                    ));
+                    self.focus_subscriptions.push(cx.on_blur(
+                        &handle,
+                        window,
+                        move |_this, window, cx| {
+                            host.dispatch_event(tag, "blur", &serde_json::json!({}));
+                            if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                                store.0.read(cx).frame_hook.arm(window);
+                            }
+                        },
+                    ));
+                }
+                self.focus_handle = Some(handle);
+            }
+            if let Some(handle) = &self.focus_handle {
+                element = element.track_focus(handle);
+            }
+            element = element
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                        store.0.read(cx).frame_hook.arm(window);
+                    }
+                    if event.keystroke.key == "tab" {
+                        if event.keystroke.modifiers.shift {
+                            window.focus_prev(cx);
+                        } else {
+                            window.focus_next(cx);
+                        }
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_key_up(cx.listener(|this, event: &KeyUpEvent, window, cx| {
+                    dispatch_key(this.tag, "topKeyUp", &event.keystroke, false, cx);
+                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                        store.0.read(cx).frame_hook.arm(window);
+                    }
+                }));
+        }
         // Replace the whole style: cached paint fields + the absolute Yoga
         // frame. Nothing flex-related is ever set (see the module docs).
         *element.style() = {
@@ -148,11 +277,15 @@ impl Render for RNNodeView {
             element = element
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
                         // `this` is the hit node and is mid-update, so it is
                         // passed by reference instead of read from the map.
+                        if let Some(handle) = this.nearest_focus_handle(cx) {
+                            window.focus(&handle, cx);
+                        }
                         if let Some(target) = crate::events::target(cx, this) {
                             crate::events::send(
+                                window,
                                 cx,
                                 &target,
                                 event.position,
@@ -162,12 +295,13 @@ impl Render for RNNodeView {
                         cx.stop_propagation();
                     }),
                 )
-                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                     let target = crate::events::target(cx, this);
                     if event.pressed_button.is_some() {
                         // A drag: RN touch moves need an active touch.
                         if let Some(target) = target.as_ref() {
                             crate::events::send(
+                                window,
                                 cx,
                                 target,
                                 event.position,
@@ -178,15 +312,16 @@ impl Render for RNNodeView {
                         // TODO 2.5 — a hover: enter/leave for the chain. The
                         // target is `None` when `pointerEvents` made the hit
                         // subtree untouchable, which leaves the old chain.
-                        crate::events::hover(cx, target.as_ref(), event.position);
+                        crate::events::hover(window, cx, target.as_ref(), event.position);
                     }
                     cx.stop_propagation();
                 }))
                 .on_mouse_up(
                     MouseButton::Left,
-                    cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                    cx.listener(|this, event: &MouseUpEvent, window, cx| {
                         if let Some(target) = crate::events::target(cx, this) {
                             crate::events::send(
+                                window,
                                 cx,
                                 &target,
                                 event.position,
@@ -236,7 +371,7 @@ impl Render for RNNodeView {
             element = element.overflow_hidden().child(content);
             if self.scroll_enabled {
                 element = element.on_scroll_wheel(cx.listener(
-                    |this, event: &gpui::ScrollWheelEvent, _window, cx| {
+                    |this, event: &gpui::ScrollWheelEvent, window, cx| {
                         // GPUI's native adapters normally provide pixel deltas;
                         // line deltas are 40 DIP per line for deterministic mice.
                         let (dx, dy) = match &event.delta {
@@ -245,7 +380,7 @@ impl Render for RNNodeView {
                             }
                             gpui::ScrollDelta::Lines(lines) => (lines.x * 40.0, lines.y * 40.0),
                         };
-                        if this.scroll_by(-dx, -dy, cx) {
+                        if this.scroll_by(-dx, -dy, window, cx) {
                             cx.notify();
                         }
                         cx.stop_propagation();
@@ -260,7 +395,7 @@ impl Render for RNNodeView {
 }
 
 impl RNNodeView {
-    fn scroll_by(&mut self, dx: f32, dy: f32, cx: &mut Context<Self>) -> bool {
+    fn scroll_by(&mut self, dx: f32, dy: f32, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let (max_x, max_y) = (
             (self.content_size.0 - self.frame.w).max(0.0),
             (self.content_size.1 - self.frame.h).max(0.0),
@@ -284,6 +419,7 @@ impl RNNodeView {
             });
             host.dispatch_event(self.tag, "topScroll", &payload);
             host.set_scroll_offset(self.tag, self.scroll_offset.x, self.scroll_offset.y);
+            store.0.read(cx).frame_hook.arm(window);
         }
         true
     }

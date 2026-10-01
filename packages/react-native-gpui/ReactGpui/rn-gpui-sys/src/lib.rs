@@ -73,6 +73,7 @@ pub mod ffi {
         pub test_id: String,
         pub accessibility_label: String,
         pub accessibility_role: String,
+        pub focusable: bool,
     }
 
     #[derive(Clone, Debug, Default)]

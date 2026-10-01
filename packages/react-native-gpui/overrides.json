@@ -34,6 +34,13 @@
     },
     {
       "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/components/view/HostPlatformViewProps.h",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/HostPlatformViewProps.h",
+      "baseHash": "9c378b43b42022f3769b9fa788a353bf387ab391",
+      "issue": 0
+    },
+    {
+      "type": "patch",
       "file": "ReactCommonOverrides/react/renderer/components/view/HostPlatformViewTraitsInitializer.h",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/HostPlatformViewTraitsInitializer.h",
       "baseHash": "6176ff1061b41ade659d2e7f83fa48eb273ae60e",

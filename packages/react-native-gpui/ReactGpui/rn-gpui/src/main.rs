@@ -44,7 +44,7 @@
 //! (`flush_js`), so a headless run does not depend on the display staying awake
 //! to deliver frames.
 
-use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
+use gpui::{point, px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
 use rn_gpui::host::Host;
 use rn_gpui::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
 use rn_gpui_sys::ffi::MountBatch;
@@ -52,6 +52,79 @@ use std::time::Duration;
 
 fn env_string(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn window_state_path(app_id: &str) -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("RN_GPUI_WINDOW_STATE") {
+        return path.into();
+    }
+    let safe_id = app_id.replace(
+        |c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_',
+        "_",
+    );
+    #[cfg(target_os = "macos")]
+    let base = std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join("Library/Application Support"));
+    #[cfg(target_os = "windows")]
+    let base = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+        });
+    base.unwrap_or_else(std::env::temp_dir)
+        .join("rn-gpui")
+        .join(format!("{safe_id}-window.json"))
+}
+
+fn load_window_bounds(path: &std::path::Path) -> Option<(f32, f32, f32, f32)> {
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let number = |key| value.get(key)?.as_f64().map(|value| value as f32);
+    let (x, y, width, height) = (
+        number("x")?,
+        number("y")?,
+        number("width")?,
+        number("height")?,
+    );
+    (x.is_finite()
+        && y.is_finite()
+        && width.is_finite()
+        && height.is_finite()
+        && width >= 320.0
+        && height >= 240.0)
+        .then_some((x, y, width, height))
+}
+
+fn save_window_bounds(
+    path: &std::path::Path,
+    bounds: Bounds<gpui::Pixels>,
+    viewport: gpui::Size<gpui::Pixels>,
+) {
+    let value = serde_json::json!({
+        "x": f32::from(bounds.origin.x),
+        "y": f32::from(bounds.origin.y),
+        // Persist the content size used in `WindowBounds`; GPUI adds the
+        // platform title-bar inset to `window.bounds()` on restore.
+        "width": f32::from(viewport.width),
+        "height": f32::from(viewport.height),
+    });
+    let result = (|| -> std::io::Result<()> {
+        let parent = path.parent().expect("window state path has a parent");
+        std::fs::create_dir_all(parent)?;
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec(&value).expect("serializable window bounds"),
+        )?;
+        std::fs::rename(temporary, path)
+    })();
+    if let Err(error) = result {
+        log::warn!(
+            "could not save window bounds to {}: {error}",
+            path.display()
+        );
+    }
 }
 
 fn env_f32(key: &str, default: f32) -> f32 {
@@ -65,6 +138,13 @@ fn env_u32(key: &str, default: u32) -> u32 {
     std::env::var(key)
         .ok()
         .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
         .unwrap_or(default)
 }
 
@@ -136,7 +216,9 @@ enum MainEvent {
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .init();
 
     let bundle = env_string("RN_GPUI_BUNDLE", "tester/build/index.gpui.bundle");
     // TODO 2.1: this is the dev server's bundle path, not a URL — the cxx
@@ -148,6 +230,7 @@ fn main() {
     let module = env_string("RN_GPUI_MODULE", "App");
     let width = env_f32("RN_GPUI_WIDTH", 800.0);
     let height = env_f32("RN_GPUI_HEIGHT", 600.0);
+    let window_state_path = window_state_path(&app_id);
     // TODO 2.2: the display scale comes from the window (see below); the env
     // var is an escape hatch for tests on a machine with a different display.
     let scale_override = env_opt_f32("RN_GPUI_SCALE");
@@ -159,12 +242,21 @@ fn main() {
     // after the first batch is on screen.
     let clicks = env_points("RN_GPUI_CLICK");
     let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
+    let skip_synthetic_input_flush = env_bool("RN_GPUI_SKIP_INPUT_FLUSH", false);
     // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
     // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
     let hovers = env_points("RN_GPUI_HOVER");
     let hover_ms = env_u32("RN_GPUI_HOVER_MS", 800);
     let scrolls = env_scrolls("RN_GPUI_SCROLL");
     let scroll_ms = env_u32("RN_GPUI_SCROLL_MS", 1500);
+    let keys: Vec<String> = std::env::var("RN_GPUI_KEY")
+        .unwrap_or_default()
+        .split(';')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let key_ms = env_u32("RN_GPUI_KEY_MS", 1500);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
 
@@ -200,7 +292,14 @@ fn main() {
         // invalidated after that first frame.
         let overlay_host = cx.new(|_| OverlayHost::new());
         let root = cx.new(|_| SurfaceRootView::new(1).with_overlay_host(overlay_host.clone()));
-        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
+        let restored_bounds = load_window_bounds(&window_state_path);
+        let bounds = restored_bounds
+            .map(|(x, y, width, height)| Bounds::new(point(px(x), px(y)), size(px(width), px(height))))
+            .unwrap_or_else(|| Bounds::centered(None, size(px(width), px(height)), cx));
+        let (width, height) = restored_bounds.map_or((width, height), |(_, _, width, height)| (width, height));
+        if let Some((x, y, restored_width, restored_height)) = restored_bounds {
+            log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
+        }
         let window = cx
             .open_window(
                 WindowOptions {
@@ -284,7 +383,6 @@ fn main() {
         // same way the accesskit click fallback does. The app runs off-screen in
         // this environment, so this is how the Pressable counter is exercised.
         if !clicks.is_empty() {
-            let frame_hook = frame_hook.clone();
             let host = host_for_input.clone();
             cx.spawn(async move |cx| {
                 for (x, y) in clicks {
@@ -294,7 +392,6 @@ fn main() {
                     timer.await;
                     let position = gpui::point(px(x), px(y));
                     log::info!("clicking at {x},{y}");
-                    let hook = frame_hook.clone();
                     let clicked = cx.update_window(
                         any_window,
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
@@ -314,14 +411,14 @@ fn main() {
                                 ..Default::default()
                             });
                             window.dispatch_event(up, cx);
-                            // A click is native -> JS work (TODO 2.3).
-                            hook.arm(window);
                         },
                     );
                     if let Err(error) = clicked {
                         log::error!("click at {x},{y} failed: {error}");
                     }
-                    flush_js(&host, cx).await;
+                    if !skip_synthetic_input_flush {
+                        flush_js(&host, cx).await;
+                    }
                 }
             })
             .detach();
@@ -407,6 +504,49 @@ fn main() {
             .detach();
         }
 
+        if !keys.is_empty() {
+            let frame_hook = frame_hook.clone();
+            let host = host_for_input.clone();
+            cx.spawn(async move |cx| {
+                for key in keys {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(key_ms)))
+                        .await;
+                    let Ok(keystroke) = gpui::Keystroke::parse(&key) else {
+                        log::warn!("invalid synthetic keystroke: {key}");
+                        continue;
+                    };
+                    log::info!("pressing key {key}");
+                    let hook = frame_hook.clone();
+                    let pressed = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::KeyDown(gpui::KeyDownEvent {
+                                    keystroke: keystroke.clone(),
+                                    is_held: false,
+                                    prefer_character_input: false,
+                                }),
+                                cx,
+                            );
+                            window.dispatch_event(
+                                gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }),
+                                cx,
+                            );
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = pressed {
+                        log::error!("key {key} failed: {error}");
+                    }
+                    flush_js(&host, cx).await;
+                }
+            })
+            .detach();
+        }
+
         // TODO 1.12 — window resizes drive Fabric. gpui calls the bounds
         // observers from the platform's `on_resize` hook (the same path a mouse
         // drag takes), and `viewport_size()` is the content area, which is what
@@ -417,8 +557,10 @@ fn main() {
             .update(cx, |_root, window, cx| {
                 let store = cx.global::<StoreGlobal>().0.clone();
                 let frame_hook = frame_hook.clone();
+                let window_state_path = window_state_path.clone();
                 cx.observe_window_bounds(window, move |_root, window, cx| {
                     let size = window.viewport_size();
+                    save_window_bounds(&window_state_path, window.bounds(), size);
                     let scale = window.scale_factor();
                     let (width, height) = (f32::from(size.width), f32::from(size.height));
                     log::info!("window resized to {width}x{height}@{scale}x");
@@ -542,7 +684,11 @@ async fn capture_and_quit(
         Ok(Err(error)) => log::error!("render_to_image failed: {error}"),
         Err(error) => log::error!("update_window failed: {error}"),
     }
-    cx.update(|cx| cx.quit());
+    if env_bool("RN_GPUI_KEEP_ALIVE", false) {
+        log::info!("screenshot saved; keeping the GPUI window open");
+    } else {
+        cx.update(|cx| cx.quit());
+    }
 }
 
 #[cfg(not(feature = "visual-capture"))]

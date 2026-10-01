@@ -412,8 +412,8 @@ impl Render for SurfaceRootView {
             // root" case, which leaves every node on the hover chain. The root
             // stays hovered while any descendant is hit, so this only fires when
             // the cursor really is gone.
-            .on_mouse_exit(cx.listener(|_this, _event, _window, cx| {
-                crate::events::leave_root(cx);
+            .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
+                crate::events::leave_root(window, cx);
             }))
             .children(self.children.iter().map(|(_, child)| child.clone()));
         // TODO 2.6 — LogBox (surface 2) paints after the app surface.
