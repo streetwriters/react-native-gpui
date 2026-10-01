@@ -11,8 +11,8 @@ use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::RNNodeView;
 use gpui::{
-    div, prelude::*, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Subscription,
-    Window,
+    div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Pixels,
+    Point, Subscription, Window,
 };
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::collections::HashMap;
@@ -32,6 +32,13 @@ pub struct ViewStore {
     pub nodes: HashMap<i32, Entity<RNNodeView>>,
     /// Surface id -> the window's root view for that surface.
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
+    /// TODO 2.5 — the tags of the current hover chain, innermost node first
+    /// (RN's `PointerHoverTracker` path). Empty when the pointer is not over any
+    /// RN node; `events::hover` diffs it to emit enter/leave.
+    pub hovered: Vec<i32>,
+    /// TODO 2.5 — the last pointer position, so a leave that is not caused by a
+    /// move (the pointer left the window) still reports where it came from.
+    pub pointer: Point<Pixels>,
     /// TODO 1.12 — the window-bounds observer. A dropped `Subscription`
     /// unsubscribes, and the setup closure in `main` returns right after
     /// wiring, so the store owns it for the lifetime of the window.
@@ -46,6 +53,8 @@ impl ViewStore {
             window: window.into(),
             nodes: HashMap::new(),
             roots: HashMap::new(),
+            hovered: Vec::new(),
+            pointer: point(px(0.), px(0.)),
             window_bounds_subscription: None,
         }
     }
@@ -205,10 +214,17 @@ impl SurfaceRootView {
 }
 
 impl Render for SurfaceRootView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .relative()
+            // TODO 2.5 — the pointer left the window: RN's "pointer left the
+            // root" case, which leaves every node on the hover chain. The root
+            // stays hovered while any descendant is hit, so this only fires when
+            // the cursor really is gone.
+            .on_mouse_exit(cx.listener(|_this, _event, _window, cx| {
+                crate::events::leave_root(cx);
+            }))
             .children(self.children.iter().map(|(_, child)| child.clone()))
     }
 }

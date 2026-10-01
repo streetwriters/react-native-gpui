@@ -1,4 +1,4 @@
-//! Pointer + touch events (design doc §18.15, TODO 2.4).
+//! Pointer + touch + hover events (design doc §18.15, TODOs 2.4 and 2.5).
 //!
 //! GPUI hit-tests the pointer against the absolute-positioned `RNNodeView`
 //! divs, so the innermost node under the cursor runs its handler first. Every
@@ -13,18 +13,38 @@
 //! first changed touch's `identifier`/`pageX`/`pageY`. Pointer events are sent
 //! alongside so user `onPointerDown`/`onPointerUp` handlers see them too.
 //!
+//! **Hover is synthesized here** (TODO 2.5). RN's own hover synthesis lives in
+//! `PointerEventsProcessor::handleIncomingPointerEventOnNode`, which diffs the
+//! ancestor chain of the hovered node (`PointerHoverTracker`) and emits
+//! `topPointerOut`/`topPointerLeave` deepest-first and `topPointerOver`/
+//! `topPointerEnter` root-first. That processor only runs for *typed*
+//! `PointerEvent` payloads (`UIManagerBinding::dispatchEvent`), so the same
+//! diff is done in Rust and sent as plain JSON — the JS side only keys on the
+//! `top*` type name (`BaseViewConfig`'s `bubblingEventTypes`), and
+//! `skipBubbling: true` is what stops enter/leave from bubbling in JS.
+//!
+//! **`pointerEvents` has to be implemented here too**: neither
+//! `PointerHoverTracker` nor the processor reads the prop (on iOS/Android the
+//! platform view's `hitTest` does). `target()` encodes the four modes.
+//!
 //! Everything goes through the generic bridge (`GpuiHost::dispatch_event`): the
 //! JSON payload *is* the JS `nativeEvent`, with `UIManagerBinding` mixing the
 //! emitter's tag in as `target` and adding `timeStamp`.
 
 use crate::host::Host;
 use crate::node_view::RNNodeView;
-use crate::store::StoreGlobal;
-use gpui::{App, Context, Pixels, Point};
+use crate::store::{store_from, StoreGlobal};
+use gpui::{point, px, App, Pixels, Point, WeakEntity};
 use serde_json::{json, Map, Value};
 
 /// The one mouse pointer this platform reports.
 const POINTER_ID: i32 = 1;
+
+/// `pointerEvents` values as they arrive from `BaseViewProps` (TODO 2.5).
+pub const POINTER_EVENTS_AUTO: u8 = 0;
+pub const POINTER_EVENTS_NONE: u8 = 1;
+pub const POINTER_EVENTS_BOX_NONE: u8 = 2;
+pub const POINTER_EVENTS_BOX_ONLY: u8 = 3;
 
 /// What the pointer did; both the touch and the pointer event follow from it.
 #[derive(Clone, Copy, Debug)]
@@ -52,6 +72,110 @@ pub fn now_ms() -> f64 {
 fn host(cx: &App) -> Option<Host> {
     let store = cx.try_global::<StoreGlobal>()?.0.clone();
     Some(store.read(cx).host.clone())
+}
+
+/// What a GPUI hit resolves to after `pointerEvents` (TODO 2.5).
+///
+/// Everything a dispatch needs is precomputed here, because the node whose
+/// handler is running is *being updated* by GPUI: reading it from the entity map
+/// panics ("cannot read `RNNodeView` while it is already being updated"), so its
+/// tag, frame and parent must come from the `&RNNodeView` the listener was
+/// handed. Only the ancestors — never the hit node — are read from the map.
+#[derive(Clone, Debug)]
+pub struct Target {
+    /// The Fabric tag RN should receive the event.
+    pub tag: i32,
+    /// The target's origin in window coordinates (`absolute_origin`).
+    pub origin: Point<Pixels>,
+    /// The target and its ancestors, innermost first: RN's hover path
+    /// (`PointerHoverTracker::getEventPathTargets`), the surface root excluded.
+    pub chain: Vec<i32>,
+}
+
+/// One node on the way from the hit node out to the surface root.
+struct Step {
+    tag: i32,
+    pointer_events: u8,
+    x: f32,
+    y: f32,
+    parent: Option<WeakEntity<RNNodeView>>,
+}
+
+/// Resolve the RN target for a node GPUI hit-tested (TODO 2.5).
+///
+/// `pointerEvents` is the only thing that can move the target away from the
+/// deepest hit node, and the walk mirrors RN's native `hitTest`:
+///
+///  * `auto` — a candidate; the deepest one wins.
+///  * `box-none` — never a target itself, but its children are.
+///  * `box-only` — its children are never targets, so it *overrides* any
+///    deeper candidate.
+///  * `none` — the node and its whole subtree are dead: no target at all.
+///
+/// Returns `None` for an event that must be dropped (an untouchable subtree).
+pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
+    let mut steps = vec![Step {
+        tag: hit_node.tag,
+        pointer_events: hit_node.view.pointer_events,
+        x: hit_node.frame.x,
+        y: hit_node.frame.y,
+        parent: hit_node.parent.clone(),
+    }];
+    loop {
+        let Some(parent) = steps.last().and_then(|step| step.parent.clone()) else {
+            break;
+        };
+        let Some(node) = parent.upgrade() else { break };
+        let (tag, pointer_events, frame, parent) = {
+            let node = node.read(cx);
+            (
+                node.tag,
+                node.view.pointer_events,
+                node.frame,
+                node.parent.clone(),
+            )
+        };
+        steps.push(Step {
+            tag,
+            pointer_events,
+            x: frame.x,
+            y: frame.y,
+            parent,
+        });
+    }
+    let mut chosen: Option<usize> = None;
+    for (index, step) in steps.iter().enumerate() {
+        match step.pointer_events {
+            POINTER_EVENTS_NONE => return None,
+            POINTER_EVENTS_AUTO => {
+                if chosen.is_none() {
+                    chosen = Some(index);
+                }
+            }
+            POINTER_EVENTS_BOX_NONE => {}
+            POINTER_EVENTS_BOX_ONLY => chosen = Some(index),
+            other => {
+                log::warn!("[events] unknown pointerEvents {other}; treating it as auto");
+                if chosen.is_none() {
+                    chosen = Some(index);
+                }
+            }
+        }
+    }
+    // Frames are parent-relative, so the target's origin is the sum over itself
+    // and its ancestors — i.e. every step from the chosen one outward.
+    let index = chosen?;
+    let mut origin = point(px(0.), px(0.));
+    let mut chain = Vec::with_capacity(steps.len() - index);
+    for step in &steps[index..] {
+        origin += point(px(step.x), px(step.y));
+        chain.push(step.tag);
+    }
+    Some(Target {
+        tag: steps[index].tag,
+        origin,
+        chain,
+    })
 }
 
 /// One touch object: exactly the keys `setTouchPayloadOnObject` writes
@@ -90,8 +214,8 @@ fn touch_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, active:
 
 /// The `nativeEvent` of a pointer: the keys `PointerEvent::asJSIValue` writes.
 ///
-/// `buttons` is 1 while the button is held and 0 after release; `button` is -1
-/// when no button changed (a move).
+/// `buttons` is 1 while the button is held and 0 for moves without a button and
+/// after release; `button` is -1 when no button changed (a move).
 fn pointer_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, buttons: i32) -> Value {
     let (x, y) = (f32::from(page.x), f32::from(page.y));
     json!({
@@ -121,24 +245,18 @@ fn pointer_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, butto
     })
 }
 
-/// Send one pointer phase to Fabric for `node`.
+/// Send one pointer phase to Fabric for `target`.
 ///
-/// `node` is the innermost node GPUI hit-tested, so `locationX/Y` (the offset
-/// RN reports for the target) is the pointer position minus the node's absolute
-/// origin — the sum of its frame and its ancestors', since every `div` is
-/// positioned relative to its parent.
-pub fn send(
-    cx: &mut Context<RNNodeView>,
-    node: &RNNodeView,
-    position: Point<Pixels>,
-    phase: Phase,
-) {
+/// `locationX/Y` (the offset RN reports for the target) is computed from the
+/// precomputed `Target::origin`, so the target entity is never read: the hit
+/// node is mid-update while its listener runs.
+pub fn send(cx: &App, target: &Target, position: Point<Pixels>, phase: Phase) {
     let Some(host) = host(cx) else {
         log::warn!("[events] no store global yet; dropping {phase:?}");
         return;
     };
-    let tag = node.tag;
-    let location = position - node.absolute_origin(cx);
+    let tag = target.tag;
+    let location = position - target.origin;
     log::debug!(
         "[events] {phase:?} tag={tag} position=({:.1},{:.1}) location=({:.1},{:.1})",
         f32::from(position.x),
@@ -183,5 +301,120 @@ pub fn send(
                 &pointer_payload(tag, position, location, 0),
             );
         }
+    }
+}
+
+/// How many nodes the two chains share at the root end.
+///
+/// Both chains end at the surface root, so the nodes that have to change are
+/// the ones before the shared tail (`PointerEventsProcessor` compares the same
+/// way).
+fn shared_root_len(previous: &[i32], next: &[i32]) -> usize {
+    let mut shared = 0;
+    while shared < previous.len()
+        && shared < next.len()
+        && previous[previous.len() - 1 - shared] == next[next.len() - 1 - shared]
+    {
+        shared += 1;
+    }
+    shared
+}
+
+/// The hover chain changed: emit the leave/enter pairs for the difference.
+///
+/// Called for every move of the pointer (with or without a button held).
+/// `target` is `None` when the pointer is over a subtree that `pointerEvents`
+/// made untouchable: the pointer is then over nothing React can see, so the
+/// previous chain is left. (RN's native hit test would fall through to whatever
+/// is *behind* an untouchable view instead; that node is not resolved here.)
+pub fn hover(cx: &mut App, target: Option<&Target>, position: Point<Pixels>) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let next = target
+        .map(|target| target.chain.clone())
+        .unwrap_or_default();
+    // RN reuses the *target's* offset for every node in the hover path
+    // (`handleIncomingPointerEventOnNode` re-dispatches the same PointerEvent),
+    // so `offsetX/Y` of an ancestor's enter/leave is the target-relative offset.
+    let location = target
+        .map(|target| position - target.origin)
+        .unwrap_or_else(|| point(px(0.), px(0.)));
+    let (host, previous) = store.update(cx, |store, _cx| {
+        store.pointer = position;
+        (
+            store.host.clone(),
+            std::mem::replace(&mut store.hovered, next.clone()),
+        )
+    });
+    let shared = shared_root_len(&previous, &next);
+    log::debug!(
+        "[events] hover at ({:.1},{:.1}) chain={next:?} was={previous:?}",
+        f32::from(position.x),
+        f32::from(position.y),
+    );
+    // Leave, deepest first, then enter, root first: the order
+    // `PointerEventsProcessor` uses, so JS sees the same sequence.
+    for tag in previous.iter().take(previous.len() - shared) {
+        host.dispatch_event(
+            *tag,
+            "topPointerOut",
+            &pointer_payload(*tag, position, location, 0),
+        );
+        host.dispatch_event(
+            *tag,
+            "topPointerLeave",
+            &pointer_payload(*tag, position, location, 0),
+        );
+    }
+    for tag in next[..next.len() - shared].iter().rev() {
+        host.dispatch_event(
+            *tag,
+            "topPointerOver",
+            &pointer_payload(*tag, position, location, 0),
+        );
+        host.dispatch_event(
+            *tag,
+            "topPointerEnter",
+            &pointer_payload(*tag, position, location, 0),
+        );
+    }
+}
+
+/// The pointer left the window: leave every node on the hover chain.
+///
+/// RN gets this as a platform `topPointerLeave` on the root, which makes the
+/// processor run its hover pass with a null target; there is no root node here
+/// that owns the window, so the chain is left directly.
+pub fn leave_root(cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let (host, previous, position) = store.update(cx, |store, _cx| {
+        (
+            store.host.clone(),
+            std::mem::take(&mut store.hovered),
+            store.pointer,
+        )
+    });
+    for tag in previous.iter() {
+        // No target is left, so each node reports the offset of its own origin
+        // against the last known pointer position.
+        let location = store
+            .read(cx)
+            .nodes
+            .get(tag)
+            .map(|node| position - node.read(cx).absolute_origin(cx))
+            .unwrap_or_else(|| point(px(0.), px(0.)));
+        host.dispatch_event(
+            *tag,
+            "topPointerOut",
+            &pointer_payload(*tag, position, location, 0),
+        );
+        host.dispatch_event(
+            *tag,
+            "topPointerLeave",
+            &pointer_payload(*tag, position, location, 0),
+        );
     }
 }

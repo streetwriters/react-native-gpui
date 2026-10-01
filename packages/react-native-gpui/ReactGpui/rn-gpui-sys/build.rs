@@ -24,7 +24,8 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp");
     println!("cargo:rerun-if-changed=build.rs");
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
     // .../packages/react-native-gpui/ReactGpui/rn-gpui-sys
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
@@ -69,7 +70,10 @@ fn main() {
         .build();
 
     let cmake_build_dir = dst.join("build");
-    println!("cargo:rustc-link-search=native={}", cmake_build_dir.display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        cmake_build_dir.display()
+    );
     println!("cargo:rustc-link-lib=static=rn_gpui_core");
 
     // --- 3. the libraries rn_gpui_core needs at final link time -------------

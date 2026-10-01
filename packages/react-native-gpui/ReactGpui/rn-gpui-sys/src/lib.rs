@@ -57,6 +57,7 @@ pub mod ffi {
         pub border_radii: CornersF,
         pub overflow_hidden: bool,
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
+        pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto (TODO 2.5)
         pub shadows: Vec<ShadowF>,
         pub transform: [f32; 16], // column-major 4x4, resolved with layout
         pub has_transform: bool,
@@ -101,10 +102,10 @@ pub mod ffi {
     pub struct MountOp {
         pub kind: MountKind,
         pub tag: i32,
-        pub parent_tag: i32, // Insert/Remove/Update, else -1
-        pub index: i32,      // Insert/Remove, else -1
+        pub parent_tag: i32,   // Insert/Remove/Update, else -1
+        pub index: i32,        // Insert/Remove, else -1
         pub component: String, // "View", "Paragraph", "Image", "ScrollView", ...
-        pub frame: RectF,    // layoutMetrics.frame, relative to parent, DIPs
+        pub frame: RectF,      // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub has_paragraph: bool,
@@ -129,7 +130,11 @@ pub mod ffi {
         /// Called on the JS/Fabric thread. Must not block, must not touch GPUI.
         fn rn_gpui_on_mount(batch: MountBatch);
         /// Called on the JS/Fabric thread during layout. Thread-safe.
-        fn rn_gpui_measure_text(p: &ParagraphFlat, max_width: f32, max_height: f32) -> MeasureResult;
+        fn rn_gpui_measure_text(
+            p: &ParagraphFlat,
+            max_width: f32,
+            max_height: f32,
+        ) -> MeasureResult;
         /// Log output from C++.
         fn rn_gpui_log(level: i32, message: &str);
     }
@@ -139,7 +144,11 @@ pub mod ffi {
         include!("GpuiHost.h");
         type GpuiHost;
 
-        fn new_gpui_host(app_id: &str, dev_server_host: &str, dev_server_port: u32) -> UniquePtr<GpuiHost>;
+        fn new_gpui_host(
+            app_id: &str,
+            dev_server_host: &str,
+            dev_server_port: u32,
+        ) -> UniquePtr<GpuiHost>;
         fn load_script(self: Pin<&mut GpuiHost>, bundle_path: &str, source_url: &str) -> bool;
         fn start_surface(
             self: Pin<&mut GpuiHost>,
@@ -174,7 +183,8 @@ pub use ffi::{
 
 /// The `rn-gpui` crate installs its handlers here at startup.
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
-pub type MeasureHandler = Box<dyn Fn(&ffi::ParagraphFlat, f32, f32) -> ffi::MeasureResult + Send + Sync>;
+pub type MeasureHandler =
+    Box<dyn Fn(&ffi::ParagraphFlat, f32, f32) -> ffi::MeasureResult + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 
@@ -195,7 +205,11 @@ fn rn_gpui_on_mount(batch: ffi::MountBatch) {
     }
 }
 
-fn rn_gpui_measure_text(p: &ffi::ParagraphFlat, max_width: f32, max_height: f32) -> ffi::MeasureResult {
+fn rn_gpui_measure_text(
+    p: &ffi::ParagraphFlat,
+    max_width: f32,
+    max_height: f32,
+) -> ffi::MeasureResult {
     match MEASURE_HANDLER.get() {
         Some(handler) => handler(p, max_width, max_height),
         None => ffi::MeasureResult::default(),

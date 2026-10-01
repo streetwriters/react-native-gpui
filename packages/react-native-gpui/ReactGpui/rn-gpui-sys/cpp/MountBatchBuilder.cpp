@@ -88,6 +88,9 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
 
   out.overflow_hidden = props->getClipsContentToBounds();
   out.pointer_events = static_cast<uint8_t>(props->pointerEvents);
+  // `Cursor` is `enum class Cursor : uint8_t` in this exact order, starting at
+  // Auto = 0; `style::cursor_style` in `rn-gpui` spells the same ordinals out.
+  out.cursor = static_cast<uint8_t>(props->cursor);
 
   for (const auto& shadow : props->boxShadow) {
     out.shadows.push_back(

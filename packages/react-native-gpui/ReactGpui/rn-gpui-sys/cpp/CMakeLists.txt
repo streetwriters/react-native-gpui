@@ -97,6 +97,13 @@ if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   include_directories(${RN_GPUI_CXXBRIDGE_INCLUDE_DIR})
 endif()
 
+# Header overrides (TODO 2.5). Must come before the ReactCommon subdirectories
+# below: this directory holds a replacement for
+# <react/renderer/components/view/HostPlatformViewTraitsInitializer.h> (a
+# platform header that RN finds through the platform include directory), and
+# directory-level include dirs are emitted ahead of a target's own ones.
+include_directories(${RN_GPUI_OVERRIDES_DIR})
+
 # --- generated code (react_codegen_rncore, FBReactNativeSpec) ---------------
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/jni react_codegen_rncore)

@@ -108,32 +108,67 @@ impl Render for RNNodeView {
             style.size.height = Some(px(frame.h).into());
             style
         };
-        // TODO 2.4 — GPUI hit-tests these divs, so the innermost node under the
-        // pointer runs its handler first; stopping propagation there is what
-        // makes it RN's single touch target (see `events.rs`). Move events only
-        // count while a button is down: RN touch moves need an active touch, and
-        // hover belongs to TODO 2.5.
-        element = element
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _window, cx| {
-                    crate::events::send(cx, this, event.position, crate::events::Phase::Start);
+        // TODO 2.4/2.5 — GPUI hit-tests these divs, so the innermost node under
+        // the pointer runs its handler first; stopping propagation there is what
+        // makes it RN's single touch target (see `events.rs`). A node with
+        // `pointerEvents: none` gets no listeners at all, and `events::target`
+        // walks up from the hit node returning `None` as soon as it finds a
+        // `none` ancestor, so the whole subtree stays untouchable; the other
+        // modes are resolved there too, because a `box-only` ancestor overrides
+        // the hit node.
+        if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
+            element = element
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                        // `this` is the hit node and is mid-update, so it is
+                        // passed by reference instead of read from the map.
+                        if let Some(target) = crate::events::target(cx, this) {
+                            crate::events::send(
+                                cx,
+                                &target,
+                                event.position,
+                                crate::events::Phase::Start,
+                            );
+                        }
+                        cx.stop_propagation();
+                    }),
+                )
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                    let target = crate::events::target(cx, this);
+                    if event.pressed_button.is_some() {
+                        // A drag: RN touch moves need an active touch.
+                        if let Some(target) = target.as_ref() {
+                            crate::events::send(
+                                cx,
+                                target,
+                                event.position,
+                                crate::events::Phase::Move,
+                            );
+                        }
+                    } else {
+                        // TODO 2.5 — a hover: enter/leave for the chain. The
+                        // target is `None` when `pointerEvents` made the hit
+                        // subtree untouchable, which leaves the old chain.
+                        crate::events::hover(cx, target.as_ref(), event.position);
+                    }
                     cx.stop_propagation();
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                if event.pressed_button.is_some() {
-                    crate::events::send(cx, this, event.position, crate::events::Phase::Move);
-                }
-                cx.stop_propagation();
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseUpEvent, _window, cx| {
-                    crate::events::send(cx, this, event.position, crate::events::Phase::End);
-                    cx.stop_propagation();
-                }),
-            );
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                        if let Some(target) = crate::events::target(cx, this) {
+                            crate::events::send(
+                                cx,
+                                &target,
+                                event.position,
+                                crate::events::Phase::End,
+                            );
+                        }
+                        cx.stop_propagation();
+                    }),
+                );
+        }
         // Text is painted by GPUI (§18.14); the Yoga frame still comes from the
         // Rust measure handler, so both sides describe the same paragraph.
         if let Some(paragraph) = &self.paragraph {

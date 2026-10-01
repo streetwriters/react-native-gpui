@@ -101,6 +101,10 @@ fn main() {
     // after the first batch is on screen.
     let clicks = env_points("RN_GPUI_CLICK");
     let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
+    // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
+    // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
+    let hovers = env_points("RN_GPUI_HOVER");
+    let hover_ms = env_u32("RN_GPUI_HOVER_MS", 800);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
 
@@ -236,6 +240,40 @@ fn main() {
                     );
                     if let Err(error) = clicked {
                         log::error!("click at {x},{y} failed: {error}");
+                    }
+                }
+            })
+            .detach();
+        }
+
+        // TODO 2.5 — headless hover: `RN_GPUI_HOVER` moves the pointer through
+        // the same GPUI input path as a real one (`Window::dispatch_event`), so
+        // `pointerEvents`, `cursor` and enter/leave are exercised off-screen.
+        if !hovers.is_empty() {
+            let frame_hook = frame_hook.clone();
+            cx.spawn(async move |cx| {
+                for (x, y) in hovers {
+                    let timer = cx
+                        .background_executor()
+                        .timer(Duration::from_millis(u64::from(hover_ms)));
+                    timer.await;
+                    let position = gpui::point(px(x), px(y));
+                    log::info!("hovering at {x},{y}");
+                    let hook = frame_hook.clone();
+                    let hovered = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let input = gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                position,
+                                pressed_button: None,
+                                ..Default::default()
+                            });
+                            window.dispatch_event(input, cx);
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = hovered {
+                        log::error!("hover at {x},{y} failed: {error}");
                     }
                 }
             })
