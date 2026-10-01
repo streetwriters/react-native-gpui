@@ -9,5 +9,6 @@
 console.log('[rn-gpui] JS bundle evaluated');
 
 require('./App');
+require('./probes/TextProbe');
 
 console.log('[rn-gpui] App registered');

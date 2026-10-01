@@ -177,7 +177,7 @@ impl Render for RNNodeView {
         // Text is painted by GPUI (§18.14); the Yoga frame still comes from the
         // Rust measure handler, so both sides describe the same paragraph.
         if let Some(paragraph) = &self.paragraph {
-            element = element.child(crate::text::paragraph_element(paragraph, frame.w));
+            element = element.child(crate::text::paragraph_element(paragraph, frame.w, frame.h));
         }
         element.children(self.children.iter().map(|(_, child)| child.clone()))
     }
