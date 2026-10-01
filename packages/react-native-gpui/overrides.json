@@ -1,28 +1,24 @@
 {
-  "$schema": "https://raw.githubusercontent.com/microsoft/react-native-windows/main/packages/react-native-platform-override/schemas/overrides.schema.json",
+  "includePatterns": [
+    "ReactCxxPlatform/**",
+    "ReactCommonOverrides/**",
+    "index.gpui.js",
+    "src-gpui/**"
+  ],
+  "baseVersion": "0.87.1",
   "overrides": [
-    {
-      "type": "copy",
-      "file": "ReactCxxPlatform/",
-      "baseFile": "ReactCxxPlatform/",
-      "baseVersion": "0.87.1",
-      "baseHash": "e74576c94a021a79bc37cf0577c83bbb444d9f6e",
-      "issue": 0
-    },
     {
       "type": "derived",
       "file": "index.gpui.js",
-      "baseFile": "index.js",
-      "baseVersion": "0.87.1",
-      "baseHash": "e74576c94a021a79bc37cf0577c83bbb444d9f6e",
+      "baseFile": "packages/react-native/index.js",
+      "baseHash": "5aa61d7bd7be95533271f158851e8398cdec478a",
       "issue": 0
     },
     {
-      "type": "patch",
-      "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
-      "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
-      "baseVersion": "0.87.1",
-      "baseHash": "e74576c94a021a79bc37cf0577c83bbb444d9f6e",
+      "type": "copy",
+      "directory": "ReactCxxPlatform",
+      "baseDirectory": "packages/react-native/ReactCxxPlatform",
+      "baseHash": "1ccfa0a8780ab2c866948891dbdf0f1261d2f05a",
       "issue": 0
     }
   ]
