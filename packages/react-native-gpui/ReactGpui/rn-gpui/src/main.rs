@@ -9,7 +9,11 @@
 //!   RN_GPUI_DEV_HOST    dev server host (default localhost)
 //!   RN_GPUI_DEV_PORT    dev server port (default 8081)
 //!   RN_GPUI_BUNDLE      path to the JS bundle file
-//!   RN_GPUI_SOURCE_URL  source URL handed to JS (default file://<bundle>)
+//!   RN_GPUI_SOURCE_URL  source path handed to `ReactHost::loadScript`, i.e. the
+//!                       dev server bundle to fetch as
+//!                       `http://<host>:<port>/<source path>.bundle?platform=gpui`
+//!                       (default index). The prebuilt bundle at RN_GPUI_BUNDLE
+//!                       is the fallback when the dev server is unreachable.
 //!   RN_GPUI_MODULE      registered component name to start (default App)
 //!   RN_GPUI_WIDTH/HEIGHT/SCALE  surface constraints (default 800/600/2.0)
 //!   RN_GPUI_RUN_MS      close the window after N ms; 0 (default) = stay open
@@ -53,8 +57,9 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let bundle = env_string("RN_GPUI_BUNDLE", "tester/build/index.gpui.bundle");
-    let source_url =
-        std::env::var("RN_GPUI_SOURCE_URL").unwrap_or_else(|_| format!("file://{}", bundle));
+    // TODO 2.1: this is the dev server's bundle path, not a URL — the cxx
+    // `DevServerHelper` composes `http://<host>:<port>/<source path>.bundle`.
+    let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = env_string("RN_GPUI_APP_ID", "com.example.rngpui");
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);

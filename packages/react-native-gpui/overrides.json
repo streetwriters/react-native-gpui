@@ -15,6 +15,17 @@
       "issue": 0
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Utilities/Platform.gpui.js"
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/devsupport/DevServerHelper.cpp",
+      "baseFile": "packages/react-native/ReactCxxPlatform/react/devsupport/DevServerHelper.cpp",
+      "baseHash": "f5af9cc2a109d29a6c479782f7753e5410effe3a",
+      "issue": 0
+    },
+    {
       "type": "patch",
       "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",

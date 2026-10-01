@@ -5,6 +5,7 @@
   "main": "index.gpui.js",
   "files": [
     "index.gpui.js",
+    "setup-env.js",
     "src-gpui",
     "ReactCommonOverrides",
     "react-native.config.js",

@@ -40,6 +40,10 @@ set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 # brew openssl@3 is keg-only; make find_package(OpenSSL) see it.
 list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/openssl@3")
 
+# libcurl backs GpuiHttpClient (TODO 2.1, design doc §18.7); macOS ships it in
+# the SDK, Linux distributions as libcurl.so.
+find_package(CURL REQUIRED)
+
 # --- third-party imported targets -------------------------------------------
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ThirdParty.cmake)
@@ -225,6 +229,31 @@ add_react_common_subdir(react/timing)
 
 add_react_cxx_platform_subdir(react/coremodules)
 add_react_cxx_platform_subdir(react/devsupport)
+
+# --- DevServerHelper patch override (TODO 2.1, design doc §19 2.1) ----------
+#
+# Upstream hardcodes the Android platform string, so Metro would be asked for
+# the Android JS surface. Compile the copy override that passes
+# `platform=gpui` in place of the vendored source; overrides.json tracks it so
+# upstream drift is caught by `react-native-platform-override validate`.
+set(RN_GPUI_DEV_SERVER_HELPER_OVERRIDE
+    "${RN_GPUI_OVERRIDES_DIR}/react/devsupport/DevServerHelper.cpp")
+if(TARGET react_cxx_platform_react_devsupport AND EXISTS "${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}")
+  get_target_property(_rn_gpui_dsh_sources react_cxx_platform_react_devsupport SOURCES)
+  # The upstream glob is CONFIGURE_DEPENDS, so the vendored entry is re-added on
+  # every reconfigure and has to be filtered out again.
+  list(FILTER _rn_gpui_dsh_sources EXCLUDE
+       REGEX "devsupport/DevServerHelper\\.cpp$")
+  list(APPEND _rn_gpui_dsh_sources "${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}")
+  set_property(TARGET react_cxx_platform_react_devsupport
+               PROPERTY SOURCES "${_rn_gpui_dsh_sources}")
+  message(STATUS "rn_gpui_core: DevServerHelper override: ${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}")
+else()
+  message(WARNING
+    "rn_gpui_core: DevServerHelper override not found (${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}); "
+    "the dev server will be asked for the Android bundle")
+endif()
+
 add_react_cxx_platform_subdir(react/http)
 
 # Upstream's ReactCxxPlatform/react/http/CMakeLists.txt globs only *.cpp, so it
@@ -290,6 +319,8 @@ endif()
 # library (TODO 1.6). Targets listed in Fantom's tester build that do not
 # exist here are guard-skipped with a warning rather than dropped silently.
 set(RN_GPUI_CORE_DEPS
+  # third-party
+  CURL::libcurl
   # ReactCommon runtime + JSI
   jsi
   jserrorhandler
