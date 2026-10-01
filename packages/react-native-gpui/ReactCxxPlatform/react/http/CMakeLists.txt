@@ -8,10 +8,16 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 
 include(${REACT_COMMON_DIR}/cmake-utils/react-native-flags.cmake)
 
-file(GLOB react_cxx_platform_react_http_SRC CONFIGURE_DEPENDS *.cpp)
+# platform/cxx holds the cross-platform WebSocket client
+# (boost.beast); upstream's glob misses it, the gpui build
+# compiles it here.
+file(GLOB react_cxx_platform_react_http_SRC CONFIGURE_DEPENDS *.cpp platform/cxx/*.cpp)
 add_library(react_cxx_platform_react_http OBJECT ${react_cxx_platform_react_http_SRC})
 
-target_include_directories(react_cxx_platform_react_http PUBLIC ${REACT_CXX_PLATFORM_DIR})
+# platform/cxx/WebSocketClient.cpp includes ReactCommon
+# headers (react/debug/react_native_assert.h), so both
+# roots are on the include path.
+target_include_directories(react_cxx_platform_react_http PUBLIC ${REACT_CXX_PLATFORM_DIR} ${REACT_COMMON_DIR})
 
 target_link_libraries(react_cxx_platform_react_http
       folly_runtime
