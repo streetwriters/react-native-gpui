@@ -7,6 +7,7 @@
 //! TODO 1.10 turns the ops into `RNNodeView`s and splices them into the
 //! `SurfaceRootView` of each surface.
 
+use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::RNNodeView;
 use gpui::{
@@ -21,6 +22,10 @@ impl Global for StoreGlobal {}
 
 pub struct ViewStore {
     pub host: Host,
+    /// TODO 2.3 — the per-frame `on_render()` chain (see `frame.rs`). Kept by
+    /// the store so mount batches and native events can extend its activity
+    /// window while the chain itself lives in the window's frame callbacks.
+    pub frame_hook: FrameHook,
     pub window: AnyWindowHandle,
     /// Fabric tag -> node view. One map per window: Fabric tags are unique
     /// across surfaces of the same React instance.
@@ -34,9 +39,10 @@ pub struct ViewStore {
 }
 
 impl ViewStore {
-    pub fn new(host: Host, window: impl Into<AnyWindowHandle>) -> Self {
+    pub fn new(host: Host, window: impl Into<AnyWindowHandle>, frame_hook: FrameHook) -> Self {
         Self {
             host,
+            frame_hook,
             window: window.into(),
             nodes: HashMap::new(),
             roots: HashMap::new(),
@@ -126,8 +132,14 @@ impl ViewStore {
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
             }
         }
-        // Tell RN a frame happened (drives EventBeat / effects).
+        // A batch means RN just committed, so tick its `EventBeat` right away
+        // instead of waiting for the next frame (TODO 2.3, see `frame.rs`).
         self.host.on_render();
+        // ...and keep the per-frame chain alive for the frames this commit
+        // triggers (a timer or animation that keeps committing does not need a
+        // native event to keep it going).
+        let hook = self.frame_hook.clone();
+        let _ = cx.update_window(self.window, |_root, window, _cx| hook.arm(window));
     }
 }
 

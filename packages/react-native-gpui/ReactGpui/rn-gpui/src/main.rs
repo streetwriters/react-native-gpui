@@ -164,7 +164,15 @@ fn main() {
             "started surface 1 ({module}) at {width}x{height}@{scale}x (window scale {window_scale})"
         );
 
-        let store = cx.new(|_| ViewStore::new(host, window));
+        // TODO 2.3 — tick RN's `EventBeat` once per GPUI frame. The hook is
+        // shared with the store (mount batches extend its activity window) and
+        // the bounds observer below (resizes are native -> JS work too).
+        let frame_hook = rn_gpui::frame::FrameHook::new(host.clone());
+        window
+            .update(cx, |_root, window, _cx| frame_hook.arm(window))
+            .expect("failed to arm the per-frame hook");
+
+        let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone()));
         cx.set_global(StoreGlobal(store.clone()));
         store.update(cx, |store, cx| {
             store.register_root(1, root);
@@ -180,12 +188,16 @@ fn main() {
         let bounds_subscription = window
             .update(cx, |_root, window, cx| {
                 let store = cx.global::<StoreGlobal>().0.clone();
+                let frame_hook = frame_hook.clone();
                 cx.observe_window_bounds(window, move |_root, window, cx| {
                     let size = window.viewport_size();
                     let scale = window.scale_factor();
                     let (width, height) = (f32::from(size.width), f32::from(size.height));
                     log::info!("window resized to {width}x{height}@{scale}x");
                     store.update(cx, |store, _cx| store.resize(width, height, scale));
+                    // A resize is native -> JS work: keep the per-frame hook
+                    // ticking while Fabric re-lays out (TODO 2.3).
+                    frame_hook.arm(window);
                 })
             })
             .expect("failed to observe the window's bounds");
