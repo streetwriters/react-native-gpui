@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }
 gpui = { workspace = true }
+gpui_platform = { workspace = true }
 cxx = { workspace = true }
 async-channel = { workspace = true }
 anyhow = { workspace = true }

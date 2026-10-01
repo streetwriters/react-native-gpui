@@ -4,6 +4,7 @@ members = ["rn-gpui-sys", "rn-gpui"]
 
 [workspace.dependencies]
 gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }   # pinned in TODO 1.2, see GPUI_PIN.md
+gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }   # needed by TODO 1.9 (gpui_platform::application)
 cxx = "1"
 cxx-build = "1"
 cmake = "0.1"

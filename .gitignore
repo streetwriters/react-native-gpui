@@ -17,3 +17,4 @@ build/
 # Gradle (Android tooling present in node_modules)
 .gradle/
 local.properties
+.local/
