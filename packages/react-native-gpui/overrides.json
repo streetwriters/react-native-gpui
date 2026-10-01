@@ -15,6 +15,13 @@
       "issue": 0
     },
     {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
+      "baseHash": "f52700da0048f7dce129267d9edbe8e9f724f955",
+      "issue": 0
+    },
+    {
       "type": "copy",
       "directory": "ReactCxxPlatform",
       "baseDirectory": "packages/react-native/ReactCxxPlatform",

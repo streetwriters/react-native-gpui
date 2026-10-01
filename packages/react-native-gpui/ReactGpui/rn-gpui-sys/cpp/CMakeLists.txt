@@ -25,6 +25,13 @@ set(REACT_COMMON_DIR
 set(REACT_CXX_PLATFORM_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
 
+# The ReactCommon copy overrides (design doc §18.5). build.rs passes this in;
+# default it so a hand-driven cmake build uses the same sources.
+if(NOT RN_GPUI_OVERRIDES_DIR)
+  set(RN_GPUI_OVERRIDES_DIR
+      "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCommonOverrides")
+endif()
+
 # The jsinspector-modern CMakeLists include SoMerging-utils.cmake from
 # the Android tree; its target_merge_so() is a no-op on non-Android.
 # Point REACT_ANDROID_DIR at a local copy of that one file.
@@ -50,6 +57,41 @@ function(add_react_cxx_platform_subdir relative_path)
   add_subdirectory(${REACT_CXX_PLATFORM_DIR}/${relative_path}
                    ReactCxxPlatform/${relative_path})
 endfunction()
+
+# --- cxx bridge include directory -------------------------------------------
+
+# The cxx-generated bridge header (TODO 1.6, design doc §18.6) carries the flat
+# structs and the `rn_gpui_*` entry point declarations. build.rs runs
+# `cxx_build::bridge` *before* configuring CMake and passes the directory here.
+# When CMake is driven by hand (the 1.3 workflow) the variable is unset, so fall
+# back to the include directory of the most recent cargo build.
+#
+# This has to happen before the ReactCommon subdirectories are added: the
+# TextLayoutManager copy override (TODO 1.11) is compiled inside one of them and
+# needs the bridge header, which it reaches through MountBatchBuilder.h.
+if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
+  file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../target/*/build/rn-gpui-sys-*/out/cxxbridge/include/rust/cxx.h")
+  set(_newest_stamp "")
+  foreach(_candidate IN LISTS RN_GPUI_CXXBRIDGE_CANDIDATES)
+    file(TIMESTAMP "${_candidate}" _stamp "%Y%m%d%H%M%S")
+    if(_stamp STRGREATER _newest_stamp)
+      set(_newest_stamp "${_stamp}")
+      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${_candidate}" DIRECTORY)
+      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" DIRECTORY)
+    endif()
+  endforeach()
+  if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
+    message(STATUS "rn_gpui_core: cxx bridge headers found at ${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  endif()
+endif()
+
+# Shared glue headers (MountBatchBuilder.h) and the bridge header, for every
+# ReactCommon subdirectory: the TextLayoutManager override includes both.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
+  include_directories(${RN_GPUI_CXXBRIDGE_INCLUDE_DIR})
+endif()
 
 # --- generated code (react_codegen_rncore, FBReactNativeSpec) ---------------
 
@@ -133,6 +175,32 @@ add_react_common_subdir(react/renderer/observers/events)
 add_react_common_subdir(react/renderer/observers/intersection)
 add_react_common_subdir(react/renderer/observers/mutation)
 add_react_common_subdir(react/renderer/textlayoutmanager)
+
+# --- TextLayoutManager copy override (TODO 1.11, design doc §18.9) ----------
+
+# Upstream's cxx `TextLayoutManager::measure` returns the Yoga minimum size, so
+# every paragraph collapses to zero height. Compile our copy override
+# (ReactCommonOverrides/.../TextLayoutManager.cpp) in place of the upstream
+# platform/cxx source; overrides.json tracks it so upstream drift is caught by
+# `react-native-platform-override validate`.
+set(RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE
+    "${RN_GPUI_OVERRIDES_DIR}/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp")
+if(TARGET react_renderer_textlayoutmanager AND EXISTS "${RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE}")
+  get_target_property(_rn_gpui_tlm_sources react_renderer_textlayoutmanager SOURCES)
+  # The platform selector resolves to absolute paths, the fallback to relative
+  # ones: match either. CONFIGURE_DEPENDS re-globs on reconfigure, so the
+  # upstream entry is re-added and has to be filtered out again every time.
+  list(FILTER _rn_gpui_tlm_sources EXCLUDE
+       REGEX "textlayoutmanager/platform/cxx/.*TextLayoutManager\\.cpp$")
+  list(APPEND _rn_gpui_tlm_sources "${RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE}")
+  set_property(TARGET react_renderer_textlayoutmanager
+               PROPERTY SOURCES "${_rn_gpui_tlm_sources}")
+  message(STATUS "rn_gpui_core: TextLayoutManager override: ${RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE}")
+else()
+  message(WARNING
+    "rn_gpui_core: TextLayoutManager override not found (${RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE}); "
+    "paragraphs will measure to zero height")
+endif()
 add_react_common_subdir(react/utils)
 add_react_common_subdir(react/bridging)
 add_react_common_subdir(react/renderer/mapbuffer)
@@ -158,6 +226,19 @@ add_react_common_subdir(react/timing)
 add_react_cxx_platform_subdir(react/coremodules)
 add_react_cxx_platform_subdir(react/devsupport)
 add_react_cxx_platform_subdir(react/http)
+
+# Upstream's ReactCxxPlatform/react/http/CMakeLists.txt globs only *.cpp, so it
+# misses platform/cxx/WebSocketClient.cpp (the boost.beast cross-platform
+# WebSocket client, which also needs ReactCommon headers). Patch the target from
+# here rather than editing the vendored tree: ReactCxxPlatform is a byte-for-byte
+# copy override, so a local edit would fail
+# `react-native-platform-override validate`.
+if(TARGET react_cxx_platform_react_http)
+  file(GLOB _rn_gpui_http_platform_cxx_SRC CONFIGURE_DEPENDS
+       "${REACT_CXX_PLATFORM_DIR}/react/http/platform/cxx/*.cpp")
+  target_sources(react_cxx_platform_react_http PRIVATE ${_rn_gpui_http_platform_cxx_SRC})
+  target_include_directories(react_cxx_platform_react_http PUBLIC ${REACT_COMMON_DIR})
+endif()
 add_react_cxx_platform_subdir(react/io)
 add_react_cxx_platform_subdir(react/logging)
 add_react_cxx_platform_subdir(react/nativemodule)
@@ -192,28 +273,8 @@ add_library(rn_gpui_core STATIC
   MountBatchBuilder.cpp)
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# The cxx-generated bridge header (TODO 1.6, design doc §18.6) carries the flat
-# structs and the `rn_gpui_*` entry point declarations. build.rs runs
-# `cxx_build::bridge` *before* configuring CMake and passes the directory here.
-# When CMake is driven by hand (the 1.3 workflow) the variable is unset, so fall
-# back to the include directory of the most recent cargo build.
-if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
-  file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../target/*/build/rn-gpui-sys-*/out/cxxbridge/include/rust/cxx.h")
-  set(_newest_stamp "")
-  foreach(_candidate IN LISTS RN_GPUI_CXXBRIDGE_CANDIDATES)
-    file(TIMESTAMP "${_candidate}" _stamp "%Y%m%d%H%M%S")
-    if(_stamp STRGREATER _newest_stamp)
-      set(_newest_stamp "${_stamp}")
-      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${_candidate}" DIRECTORY)
-      get_filename_component(RN_GPUI_CXXBRIDGE_INCLUDE_DIR "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" DIRECTORY)
-    endif()
-  endforeach()
-  if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
-    message(STATUS "rn_gpui_core: cxx bridge headers found at ${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
-  endif()
-endif()
-
+# The cxx-generated bridge header (TODO 1.6, design doc §18.6) is located above,
+# before the ReactCommon subdirectories. rn_gpui_core consumes it directly.
 if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
   target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
 else()

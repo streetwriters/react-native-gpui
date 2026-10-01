@@ -70,6 +70,10 @@ fn main() {
     }));
 
     gpui_platform::application().run(move |cx: &mut App| {
+        // Installed before the host starts a surface: Fabric measures paragraphs
+        // from the JS thread and would otherwise fall back to a zero-size stub.
+        rn_gpui::text::install_measure_handler(cx);
+
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).
         let root = cx.new(|_| SurfaceRootView::new(1));

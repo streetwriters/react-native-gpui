@@ -7,3 +7,4 @@ pub mod host;
 pub mod node_view;
 pub mod store;
 pub mod style;
+pub mod text;

@@ -14,7 +14,9 @@ visual-capture = ["dep:image", "gpui_platform/test-support"]
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }
 gpui = { workspace = true }
-gpui_platform = { workspace = true }
+# `font-kit` is what makes gpui_macos build a real (CoreText) text system;
+# without it every glyph paints as nothing (TODO 1.11).
+gpui_platform = { workspace = true, features = ["font-kit"] }
 cxx = { workspace = true }
 async-channel = { workspace = true }
 anyhow = { workspace = true }
