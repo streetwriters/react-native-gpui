@@ -242,6 +242,7 @@ fn main() {
     // after the first batch is on screen.
     let clicks = env_points("RN_GPUI_CLICK");
     let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
+    let click_hold_ms = env_u32("RN_GPUI_CLICK_HOLD_MS", 0);
     let skip_synthetic_input_flush = env_bool("RN_GPUI_SKIP_INPUT_FLUSH", false);
     // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
     // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
@@ -259,6 +260,15 @@ fn main() {
     let key_ms = env_u32("RN_GPUI_KEY_MS", 1500);
     let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
+    // Capture interaction phases in one persistent run: "delay:path;delay:path".
+    let screenshots: Vec<(u32, String)> = std::env::var("RN_GPUI_SCREENSHOTS")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let (delay, path) = entry.split_once(':')?;
+            Some((delay.parse().ok()?, path.to_owned()))
+        })
+        .collect();
 
     if !std::path::Path::new(&bundle).exists() {
         log::error!("bundle not found: {bundle}");
@@ -405,17 +415,29 @@ fn main() {
                                 ..Default::default()
                             });
                             window.dispatch_event(down, cx);
-                            let up = gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
-                                button: gpui::MouseButton::Left,
-                                position,
-                                ..Default::default()
-                            });
-                            window.dispatch_event(up, cx);
                         },
                     );
                     if let Err(error) = clicked {
                         log::error!("click at {x},{y} failed: {error}");
                     }
+                    if click_hold_ms > 0 {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(u64::from(click_hold_ms)))
+                            .await;
+                    }
+                    let _ = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                        },
+                    );
                     if !skip_synthetic_input_flush {
                         flush_js(&host, cx).await;
                     }
@@ -622,8 +644,17 @@ fn main() {
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
                     }
                 }
-                if !capture_scheduled && screenshot.is_some() {
+                if !capture_scheduled && (screenshot.is_some() || !screenshots.is_empty()) {
                     capture_scheduled = true;
+                    for (delay_ms, path) in &screenshots {
+                        let store = store.clone();
+                        let mut path = Some(path.clone());
+                        let delay_ms = *delay_ms;
+                        cx.spawn(async move |cx| {
+                            capture_and_quit(cx, &store, &mut path, delay_ms).await;
+                        })
+                        .detach();
+                    }
                     let store = store.clone();
                     let mut path = screenshot.take();
                     cx.spawn(async move |cx| {

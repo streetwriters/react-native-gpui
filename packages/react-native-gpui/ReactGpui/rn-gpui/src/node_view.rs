@@ -191,6 +191,19 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.frame;
+        // Yoga's child frames already include the parent's border inset.
+        // GPUI/Taffy positions absolute children inside that border as well;
+        // compensate once so a pressed/focused RN border does not move content
+        // twice (and keep native hit coordinates aligned with the pixels).
+        let (parent_border_left, parent_border_top) = self
+            .parent
+            .as_ref()
+            .and_then(|parent| parent.upgrade())
+            .map(|parent| {
+                let parent = parent.read(cx);
+                (parent.view.border_widths.left, parent.view.border_widths.top)
+            })
+            .unwrap_or_default();
         let is_scroll = self.component == "ScrollView";
         let mut element = div();
         if self.focusable {
@@ -210,7 +223,13 @@ impl Render for RNNodeView {
                         &handle,
                         window,
                         move |_this, window, cx| {
-                            focused_host.dispatch_event(tag, "focus", &serde_json::json!({}));
+                            focused_host.dispatch_event(
+                                tag,
+                                "focus",
+                                &serde_json::json!({
+                                    "focusVisible": window.last_input_was_keyboard(),
+                                }),
+                            );
                             if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                                 store.0.read(cx).frame_hook.arm(window);
                             }
@@ -259,8 +278,8 @@ impl Render for RNNodeView {
         *element.style() = {
             let mut style = self.cached_style.clone();
             style.position = Some(Position::Absolute);
-            style.inset.left = Some(px(frame.x).into());
-            style.inset.top = Some(px(frame.y).into());
+            style.inset.left = Some(px(frame.x - parent_border_left).into());
+            style.inset.top = Some(px(frame.y - parent_border_top).into());
             style.size.width = Some(px(frame.w).into());
             style.size.height = Some(px(frame.h).into());
             style

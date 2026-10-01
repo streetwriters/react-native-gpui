@@ -235,6 +235,21 @@ function preferVariantOverShim(resolution, platform) {
 // resolver. The CLI's own out-of-tree platform resolver (which rewrites
 // `react-native` imports) is deliberately bypassed: this function replaces it.
 function resolveModule(context, moduleName, platform) {
+  // A patched RN module keeps upstream-relative imports. Resolve those from
+  // its upstream location, then apply the normal GPUI override table below.
+  if (
+    moduleName.startsWith('.') &&
+    context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep)
+  ) {
+    context = {
+      ...context,
+      originModulePath: path.join(
+        UPSTREAM_RN_DIR,
+        path.relative(GPUI_RN_SRC_DIR, context.originModulePath)
+          .replace(/\.gpui\.js$/, '.js'),
+      ),
+    };
+  }
   const isGpuiEntry =
     moduleName === 'react-native' || moduleName === GPUI_PACKAGE_NAME;
 
