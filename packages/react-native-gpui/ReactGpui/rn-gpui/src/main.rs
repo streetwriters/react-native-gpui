@@ -48,6 +48,8 @@ use gpui::{point, px, size, App, AppContext, Bounds, WindowBounds, WindowOptions
 use rn_gpui::host::Host;
 use rn_gpui::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
 use rn_gpui_sys::ffi::MountBatch;
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 fn env_string(key: &str, default: &str) -> String {
@@ -235,6 +237,10 @@ fn main() {
     // var is an escape hatch for tests on a machine with a different display.
     let scale_override = env_opt_f32("RN_GPUI_SCALE");
     let run_ms = env_u32("RN_GPUI_RUN_MS", 0);
+    #[cfg(feature = "perf-timing")]
+    let benchmark_ms = env_u32("RN_GPUI_BENCHMARK_MS", 0);
+    #[cfg(feature = "perf-timing")]
+    let benchmark_mode = env_string("RN_GPUI_BENCH_MODE", "unspecified");
     let resize_ms = env_u32("RN_GPUI_RESIZE_MS", 0);
     let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
     let resize_height = env_f32("RN_GPUI_RESIZE_HEIGHT", 400.0);
@@ -250,6 +256,7 @@ fn main() {
     let hover_ms = env_u32("RN_GPUI_HOVER_MS", 800);
     let scrolls = env_scrolls("RN_GPUI_SCROLL");
     let scroll_ms = env_u32("RN_GPUI_SCROLL_MS", 1500);
+    let scroll_start_ms = env_u32("RN_GPUI_SCROLL_START_MS", scroll_ms);
     let keys: Vec<String> = std::env::var("RN_GPUI_KEY")
         .unwrap_or_default()
         .split(';')
@@ -494,9 +501,10 @@ fn main() {
             let frame_hook = frame_hook.clone();
             let host = host_for_input.clone();
             cx.spawn(async move |cx| {
-                for (x, y, dx, dy) in scrolls {
+                for (index, (x, y, dx, dy)) in scrolls.into_iter().enumerate() {
+                    let delay = if index == 0 { scroll_start_ms } else { scroll_ms };
                     cx.background_executor()
-                        .timer(Duration::from_millis(u64::from(scroll_ms)))
+                        .timer(Duration::from_millis(u64::from(delay)))
                         .await;
                     let position = gpui::point(px(x), px(y));
                     log::info!("scrolling at {x},{y} by {dx},{dy}");
@@ -575,21 +583,30 @@ fn main() {
         // the React surface covers.
         // The subscription unsubscribes the moment it drops, so it is handed to
         // the store (this closure returns right after setup).
+        let last_surface_size = Rc::new(Cell::new((width, height, scale)));
         let bounds_subscription = window
             .update(cx, |_root, window, cx| {
                 let store = cx.global::<StoreGlobal>().0.clone();
                 let frame_hook = frame_hook.clone();
                 let window_state_path = window_state_path.clone();
+                let last_surface_size = last_surface_size.clone();
                 cx.observe_window_bounds(window, move |_root, window, cx| {
                     let size = window.viewport_size();
                     save_window_bounds(&window_state_path, window.bounds(), size);
-                    let scale = window.scale_factor();
+                    let scale = scale_override.unwrap_or_else(|| window.scale_factor());
                     let (width, height) = (f32::from(size.width), f32::from(size.height));
-                    log::info!("window resized to {width}x{height}@{scale}x");
-                    store.update(cx, |store, _cx| store.resize(width, height, scale));
-                    // A resize is native -> JS work: keep the per-frame hook
-                    // ticking while Fabric re-lays out (TODO 2.3).
-                    frame_hook.arm(window);
+                    let old = last_surface_size.get();
+                    let changed = (old.0 - width).abs() > 0.01
+                        || (old.1 - height).abs() > 0.01
+                        || (old.2 - scale).abs() > 0.001;
+                    if changed {
+                        last_surface_size.set((width, height, scale));
+                        log::info!("window resized to {width}x{height}@{scale}x");
+                        store.update(cx, |store, _cx| store.resize(width, height, scale));
+                        // A resize is native -> JS work: keep the per-frame hook
+                        // ticking while Fabric re-lays out (TODO 2.3).
+                        frame_hook.arm(window);
+                    }
                 })
             })
             .expect("failed to observe the window's bounds");
@@ -626,6 +643,40 @@ fn main() {
                 timer.await;
                 log::info!("staying alive for {run_ms} ms — closing");
                 cx.update(|cx| cx.quit());
+            })
+            .detach();
+        }
+
+        #[cfg(feature = "perf-timing")]
+        if benchmark_ms > 0 {
+            let timer = cx
+                .background_executor()
+                .timer(Duration::from_millis(u64::from(benchmark_ms)));
+            cx.spawn(async move |cx| {
+                timer.await;
+                let result = cx.update_window(
+                    any_window,
+                    move |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut App| {
+                        let snapshot = window.frame_duration_snapshot();
+                        let draw = &snapshot.draw_duration_histogram;
+                        let interval = &snapshot.present_interval_histogram;
+                        log::info!(
+                            "[bench] mode={benchmark_mode} draw_frames={} draw_mean_ms={:.3} draw_p50_ms={:.3} draw_p95_ms={:.3} draw_p99_ms={:.3} draw_max_ms={:.3} present_intervals={} present_mean_ms={:.3} present_p95_ms={:.3}",
+                            draw.len(),
+                            draw.mean() / 1_000_000.0,
+                            draw.value_at_quantile(0.50) as f64 / 1_000_000.0,
+                            draw.value_at_quantile(0.95) as f64 / 1_000_000.0,
+                            draw.value_at_quantile(0.99) as f64 / 1_000_000.0,
+                            draw.max() as f64 / 1_000_000.0,
+                            interval.len(),
+                            interval.mean() / 1_000_000.0,
+                            interval.value_at_quantile(0.95) as f64 / 1_000_000.0,
+                        );
+                    },
+                );
+                if let Err(error) = result {
+                    log::error!("benchmark snapshot failed: {error}");
+                }
             })
             .detach();
         }

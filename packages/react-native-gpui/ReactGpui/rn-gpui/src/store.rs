@@ -51,6 +51,8 @@ pub struct ViewStore {
     /// TODO 2.5 — the last pointer position, so a leave that is not caused by a
     /// move (the pointer left the window) still reports where it came from.
     pub pointer: Point<Pixels>,
+    /// Suppress per-mutation logging during the 10k-node performance probe.
+    log_mount_ops: bool,
     /// TODO 1.12 — the window-bounds observer. A dropped `Subscription`
     /// unsubscribes, and the setup closure in `main` returns right after
     /// wiring, so the store owns it for the lifetime of the window.
@@ -74,6 +76,7 @@ impl ViewStore {
             overlay_host,
             hovered: Vec::new(),
             pointer: point(px(0.), px(0.)),
+            log_mount_ops: std::env::var_os("RN_GPUI_BENCH_MODE").is_none(),
             window_bounds_subscription: None,
         }
     }
@@ -189,7 +192,9 @@ impl ViewStore {
         let surface_id = batch.surface_id;
         log::info!("[store] surface {}: {} ops", surface_id, batch.ops.len());
         for op in batch.ops.iter() {
-            log_mount_op(op);
+            if self.log_mount_ops {
+                log_mount_op(op);
+            }
             match op.kind {
                 MountKind::Create => {
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));

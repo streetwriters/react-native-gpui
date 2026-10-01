@@ -10,6 +10,8 @@ edition = "2021"
 # gpui's `Window::render_to_image` is gated on `test-support` in gpui, gpui_macos
 # and gpui_apple, so the feature has to be enabled at the platform crate too.
 visual-capture = ["gpui_platform/test-support"]
+# Enables Window's draw/present histograms for the 10k-node benchmark.
+perf-timing = ["gpui/profiler"]
 
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }

@@ -11,7 +11,8 @@
     "tester"
   ],
   "scripts": {
-    "test:retention": "bash tester/scripts/verify-retention.sh"
+    "test:retention": "bash tester/scripts/verify-retention.sh",
+    "bench:10k": "bash tester/scripts/run-10k-benchmark.sh"
   },
   "dependencies": {
     "react": "19.2.3",
