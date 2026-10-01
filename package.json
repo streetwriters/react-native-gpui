@@ -10,6 +10,9 @@
     "template",
     "tester"
   ],
+  "scripts": {
+    "test:retention": "bash tester/scripts/verify-retention.sh"
+  },
   "dependencies": {
     "react": "19.2.3",
     "react-native": "0.87.1"
