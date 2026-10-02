@@ -20,6 +20,25 @@ export default function Phase3AcceptanceProbe() {
   const windowDimensions = useWindowDimensions();
 
   useEffect(() => {
+    console.log(`[phase3] appearance=${scheme ?? 'unknown'}`);
+  }, [scheme]);
+  useEffect(() => {
+    console.log(`[phase3] dimensions-event=${Math.round(dimensions.width)}x${Math.round(dimensions.height)}`);
+  }, [dimensions]);
+  useEffect(() => {
+    console.log(`[phase3] clipboard=${clipboardResult}`);
+  }, [clipboardResult]);
+  useEffect(() => {
+    console.log(`[phase3] linking=${linkingResult}`);
+  }, [linkingResult]);
+  useEffect(() => {
+    console.log(`[phase3] modal=${modalResult}`);
+  }, [modalResult]);
+  useEffect(() => {
+    console.log(`[phase3] alert=${alertResult}`);
+  }, [alertResult]);
+
+  useEffect(() => {
     const animation = Animated.loop(Animated.sequence([
       Animated.timing(opacity, {toValue: 1, duration: 450, useNativeDriver: true}),
       Animated.timing(opacity, {toValue: 0.15, duration: 450, useNativeDriver: true}),
@@ -52,6 +71,20 @@ export default function Phase3AcceptanceProbe() {
       .catch(error => setLinkingResult(`fail: ${String(error)}`));
     const openModal = setTimeout(() => setModalVisible(true), 1100);
     const closeModal = setTimeout(() => setModalVisible(false), 2100);
+    const showAlert = setTimeout(() => {
+      console.log(
+        `[phase3] Alert APIs alert=${typeof Alert?.alert} prompt=${typeof Alert?.prompt}`,
+      );
+      try {
+        Alert.alert('GPUI alert probe', 'Choose OK to verify the callback.', [
+          {text: 'OK', onPress: () => setAlertResult('callback fired')},
+        ]);
+      } catch (error) {
+        console.log(
+          `[phase3] alert-error=${error?.stack ?? String(error)}`,
+        );
+      }
+    }, 2700);
     const dimensionListener = Dimensions.addEventListener('change', next => setDimensions(next.window));
     return () => {
       animation.stop();
@@ -59,6 +92,7 @@ export default function Phase3AcceptanceProbe() {
       clearTimeout(changeScheme);
       clearTimeout(openModal);
       clearTimeout(closeModal);
+      clearTimeout(showAlert);
       dimensionListener.remove();
       void clipboardCheck;
       void linkingCheck;

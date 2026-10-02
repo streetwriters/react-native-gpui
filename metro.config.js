@@ -169,6 +169,7 @@ function applySourceOverride(resolution) {
 // implementation that must be left alone.
 const RE_EXPORT_SHIM =
   /^import ([A-Za-z_$][\w$]*) from '\.\/([A-Za-z_$][\w$]*)'; ?export default ([A-Za-z_$][\w$]*);?$/;
+const RE_EXPORT_ALL_SHIM = /^export \* from '\.\/[A-Za-z_$][\w$]*';?$/;
 
 const shimSourceCache = new Map();
 
@@ -193,7 +194,8 @@ function isReExportShim(filePath) {
 
   const match = RE_EXPORT_SHIM.exec(code);
   return (
-    match != null && match[1] === match[2] && match[2] === match[3]
+    (match != null && match[1] === match[2] && match[2] === match[3]) ||
+    RE_EXPORT_ALL_SHIM.test(code)
   );
 }
 
