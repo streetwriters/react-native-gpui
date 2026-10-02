@@ -485,7 +485,9 @@ endforeach()
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script
 # that declares `links = "..."` to every dependent crate, whereas
 # `cargo:rustc-link-arg` would not leave an rlib. The list is therefore written
-# as library file *names* plus their directories, never as absolute paths.
+# as linker file *names* plus their directories, never as absolute paths. On
+# Windows the linker file for a shared target is its import library, while its
+# runtime target file is the DLL; TARGET_LINKER_FILE selects the right artifact.
 #
 # The objects of every OBJECT library linked into rn_gpui_core are already
 # archived inside librn_gpui_core.a, so only real archives and dylibs are listed.
@@ -557,7 +559,7 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   # UNKNOWN_LIBRARY covers imported libraries found by find_package() (e.g.
   # OpenSSL::Crypto from FindOpenSSL); they still have a usable TARGET_FILE.
   if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "UNKNOWN_LIBRARY")
-    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_FILE_DIR:${_target}>\nname:$<TARGET_FILE_NAME:${_target}>\n")
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:${_target}>\nname:$<TARGET_LINKER_FILE_NAME:${_target}>\n")
     if(_type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "UNKNOWN_LIBRARY")
       string(APPEND RN_GPUI_RPATH_DIRS "$<TARGET_FILE_DIR:${_target}>\n")
     endif()
