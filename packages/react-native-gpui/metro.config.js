@@ -306,21 +306,32 @@ function resolveWithGpuiPlatform() {
     );
 }
 
-const defaultConfig = getDefaultConfig(process.cwd());
+function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
+  const defaultConfig = getDefaultConfig(projectRoot);
+  const nodeModulesPaths = [];
+  for (let directory = projectRoot; ; directory = path.dirname(directory)) {
+    const candidate = path.join(directory, "node_modules");
+    if (fs.existsSync(candidate)) nodeModulesPaths.push(candidate);
+    if (path.dirname(directory) === directory) break;
+  }
+  const watchFolders = [
+    ...new Set([GPUI_PACKAGE_DIR, UPSTREAM_RN_DIR, ...nodeModulesPaths]),
+  ];
 
-module.exports = mergeConfig(defaultConfig, {
-  // These can be symlinked workspace packages; registering their real paths
-  // keeps Metro's file map aware of the platform and upstream RN sources.
-  watchFolders: [GPUI_PACKAGE_DIR, UPSTREAM_RN_DIR],
-  resolver: {
-    // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than the
-    // `ios`/`android` variants) is the fallback, which is what a desktop
-    // platform wants.
-    platforms: ["gpui", "native"],
-    nodeModulesPaths: [
-      path.join(process.cwd(), "node_modules"),
-      path.join(__dirname, "node_modules"),
-    ],
-    resolveRequest: resolveWithGpuiPlatform(defaultConfig),
-  },
-});
+  return mergeConfig(defaultConfig, {
+    // These can be symlinked workspace packages; registering their real paths
+    // keeps Metro's file map aware of the platform and upstream RN sources.
+    watchFolders,
+    resolver: {
+      // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than
+      // the `ios`/`android` variants) is the fallback for desktop.
+      platforms: ["gpui", "native"],
+      nodeModulesPaths,
+      resolveRequest: resolveWithGpuiPlatform(defaultConfig),
+    },
+  });
+}
+
+const config = makeMetroConfig();
+Object.defineProperty(config, "makeMetroConfig", { value: makeMetroConfig });
+module.exports = config;
