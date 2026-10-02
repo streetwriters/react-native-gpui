@@ -955,7 +955,17 @@ impl Render for RNNodeView {
                             window.focus(&handle, cx);
                         }
                         if this.component == "TextInput" {
-                            crate::input::select_at_point(this, event.position, false, window, cx);
+                            if event.click_count >= 2 {
+                                crate::input::select_all(this, window, cx);
+                            } else {
+                                crate::input::select_at_point(
+                                    this,
+                                    event.position,
+                                    false,
+                                    window,
+                                    cx,
+                                );
+                            }
                         }
                         if let Some(target) = crate::events::target(cx, this) {
                             crate::events::send(

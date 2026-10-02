@@ -173,6 +173,15 @@ pub(crate) fn select_at_point(
     emit_selection(this, window, cx);
 }
 
+pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    if this.component != "TextInput" || !this.input_editable {
+        return;
+    }
+    this.input_selection = 0..this.input_text.len();
+    this.input_selection_anchor = None;
+    emit_selection(this, window, cx);
+}
+
 pub(crate) fn byte_at_utf16(text: &str, offset: usize) -> usize {
     let mut units = 0;
     for (byte, ch) in text.char_indices() {
