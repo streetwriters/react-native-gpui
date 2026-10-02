@@ -22,7 +22,8 @@
     "probe:appearance": "RN_GPUI_PHASE3_PROBE=AppearanceProbe bash tester/scripts/run-phase3-probe.sh",
     "probe:borders": "RN_GPUI_PHASE3_PROBE=BorderProbe bash tester/scripts/run-phase3-probe.sh",
     "probe:modal": "RN_GPUI_PHASE3_PROBE=ModalProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:phase3-acceptance": "RN_GPUI_PHASE3_PROBE=Phase3AcceptanceProbe bash tester/scripts/run-phase3-probe.sh"
+    "probe:phase3-acceptance": "RN_GPUI_PHASE3_PROBE=Phase3AcceptanceProbe bash tester/scripts/run-phase3-probe.sh",
+    "probe:phase4-composition": "bash tester/scripts/run-phase4-composition-probe.sh"
   },
   "dependencies": {
     "react": "19.2.3",

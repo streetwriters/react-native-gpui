@@ -395,7 +395,14 @@ fn main() {
         // the window tracked while drawing, and the root view itself is not
         // invalidated after that first frame.
         let overlay_host = cx.new(|_| OverlayHost::new());
-        let root = cx.new(|_| SurfaceRootView::new(1).with_overlay_host(overlay_host.clone()));
+        let mut root_view = SurfaceRootView::new(1).with_overlay_host(overlay_host.clone());
+        #[cfg(target_os = "macos")]
+        if env_bool("RN_GPUI_NATIVE_COMPOSITION_PROBE", false) {
+            root_view = root_view.with_native_view_probe(
+                rn_gpui::native_view_probe::create_probe_entity(cx),
+            );
+        }
+        let root = cx.new(|_| root_view);
         let restored_bounds = load_window_bounds(&window_state_path);
         startup_trace("window state loaded");
         let bounds = restored_bounds

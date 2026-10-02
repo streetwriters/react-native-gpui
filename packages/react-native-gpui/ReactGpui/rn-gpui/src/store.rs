@@ -11,8 +11,8 @@ use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::RNNodeView;
 use gpui::{
-    div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Pixels,
-    Point, Subscription, Window,
+    deferred, div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global,
+    IntoElement, Pixels, Point, Subscription, Window,
 };
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::collections::{HashMap, HashSet};
@@ -433,6 +433,8 @@ pub struct SurfaceRootView {
     /// TODO 2.6 — set on the app surface only: the tracked child that paints
     /// LogBox (see [`OverlayHost`]) above this surface's children.
     pub overlay_host: Option<Entity<OverlayHost>>,
+    #[cfg(target_os = "macos")]
+    native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
 }
 
 impl SurfaceRootView {
@@ -441,6 +443,8 @@ impl SurfaceRootView {
             surface_id,
             children: Vec::new(),
             overlay_host: None,
+            #[cfg(target_os = "macos")]
+            native_view_probe: None,
         }
     }
 
@@ -448,6 +452,15 @@ impl SurfaceRootView {
     /// the window opened (see [`OverlayHost`] for why it has to exist up front).
     pub fn with_overlay_host(mut self, overlay_host: Entity<OverlayHost>) -> Self {
         self.overlay_host = Some(overlay_host);
+        self
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn with_native_view_probe(
+        mut self,
+        native_view_probe: Entity<crate::native_view_probe::NativeViewCompositionProbeView>,
+    ) -> Self {
+        self.native_view_probe = Some(native_view_probe);
         self
     }
 
@@ -476,9 +489,24 @@ impl Render for SurfaceRootView {
                 crate::events::leave_root(window, cx);
             }))
             .children(self.children.iter().map(|(_, child)| child.clone()));
+        #[cfg(target_os = "macos")]
+        if let Some(native_view_probe) = &self.native_view_probe {
+            root = root.child(native_view_probe.clone());
+        }
         // TODO 2.6 — LogBox (surface 2) paints after the app surface.
         if let Some(overlay_host) = &self.overlay_host {
-            root = root.child(overlay_host.clone());
+            #[cfg(target_os = "macos")]
+            if self.native_view_probe.is_some() {
+                // GPUI's deferred pass targets the window composition overlay
+                // surface, above the native test view.
+                root = root.child(deferred(overlay_host.clone()).priority(100));
+            } else {
+                root = root.child(overlay_host.clone());
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                root = root.child(overlay_host.clone());
+            }
         }
         root
     }
