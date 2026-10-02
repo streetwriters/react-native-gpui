@@ -349,7 +349,6 @@ set_target_properties(hermes_runtime_test PROPERTIES
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
-  GpuiCppExampleTurboModule.cpp
   GpuiHttpClient.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp

@@ -10,7 +10,7 @@ npx react-native run-desktop
 
 The Metro config, Rust app crate, generated bundle, Cargo build output, and autolinking cache are kept in this directory.
 
-The starter app also demonstrates the built-in C++ TurboModule
-`NativeCppExample`. Its `greet("GPUI")` call is implemented in the shared GPUI
-host and displayed by the sample app, so `npx react-native run-desktop` builds
-and exercises it automatically.
+The starter app depends on the Rust and C++ fixtures under `tester/`. Normal
+React Native autolinking discovers both packages and compiles them into the
+app-owned native module archive; the app calls the C++ module through its
+package entry point.

@@ -4,4 +4,4 @@ export interface Spec extends TurboModule {
   greet(name: string): string;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>("RustGreeting");
+export default TurboModuleRegistry.getEnforcing<Spec>("NativeCppExample");

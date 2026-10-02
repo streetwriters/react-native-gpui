@@ -66,7 +66,6 @@ fn main() {
     // Generate the C++ TurboModule registry from the RN-style TS spec before
     // CMake compiles the provider. Rust method wrappers themselves come from
     // #[rn_module] in rn-gpui-macros.
-    let module_spec = package_dir.join("src-gpui/NativeGreeting.d.ts");
     let module_codegen =
         repo_root.join("node_modules/@react-native-gpui/codegen/src/generate-rust-turbomodules.js");
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
@@ -86,10 +85,9 @@ fn main() {
     let generated_module_dir = out_dir.join("generated");
     fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
     let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
-    println!("cargo:rerun-if-changed={}", module_spec.display());
     println!("cargo:rerun-if-changed={}", module_codegen.display());
     println!("cargo:rerun-if-changed={}", autolink_manifest.display());
-    let mut module_specs = vec![module_spec.clone()];
+    let mut module_specs = Vec::new();
     if let Ok(manifest) = fs::read_to_string(&autolink_manifest) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest) {
             if let Some(specs) = manifest
@@ -140,8 +138,7 @@ fn main() {
         .expect("run @react-native-gpui/codegen; Node.js must be installed");
     assert!(
         status.success(),
-        "@react-native-gpui/codegen failed for {}",
-        module_spec.display()
+        "@react-native-gpui/codegen failed while parsing app TurboModule specs"
     );
 
     // --- 1. the cxx bridge ---------------------------------------------------

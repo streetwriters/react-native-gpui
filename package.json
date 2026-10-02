@@ -9,7 +9,8 @@
     "packages/@react-native-gpui/codegen",
     "template",
     "tester",
-    "tester/gpui-native-module"
+    "tester/gpui-native-module",
+    "tester/gpui-cpp-native-module"
   ],
   "scripts": {
     "test:retention": "bash tester/scripts/verify-retention.sh",

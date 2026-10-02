@@ -1,0 +1,17 @@
+{
+  "name": "@react-native-gpui/cpp-module-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "gpui",
+    "react-native.config.js",
+    "README.md"
+  ],
+  "codegenConfig": {
+    "name": "NativeCppExampleSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  }
+}

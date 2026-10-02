@@ -1,15 +1,13 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace facebook::react {
 class CallInvoker;
 class TurboModule;
 }
 
-namespace rngpui {
-
-std::shared_ptr<facebook::react::TurboModule> make_cpp_example_turbo_module(
+std::shared_ptr<facebook::react::TurboModule> create_cpp_example_module(
+    const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
-
-} // namespace rngpui
