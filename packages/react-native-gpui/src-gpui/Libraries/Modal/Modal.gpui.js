@@ -8,14 +8,14 @@
  * @format
  */
 
-import type {HostInstance} from '../../src/private/types/HostInstance';
-import type {ViewProps} from '../Components/View/ViewPropTypes';
-import type {RootTag} from '../ReactNative/RootTag';
-import type {DirectEventHandler} from '../Types/CodegenTypes';
+import type { HostInstance } from '../../src/private/types/HostInstance';
+import type { ViewProps } from '../Components/View/ViewPropTypes';
+import type { RootTag } from '../ReactNative/RootTag';
+import type { DirectEventHandler } from '../Types/CodegenTypes';
 
 import NativeEventEmitter from '../EventEmitter/NativeEventEmitter';
-import {type ColorValue} from '../StyleSheet/StyleSheet';
-import {type EventSubscription} from '../vendor/emitter/EventEmitter';
+import { type ColorValue } from '../StyleSheet/StyleSheet';
+import { type EventSubscription } from '../vendor/emitter/EventEmitter';
 import NativeModalManager from './NativeModalManager';
 import RCTModalHostView from './RCTModalHostViewNativeComponent';
 import VirtualizedLists from '@react-native/virtualized-lists';
@@ -25,7 +25,7 @@ const ScrollView = require('../Components/ScrollView/ScrollView').default;
 const View = require('../Components/View/View').default;
 const AppContainer = require('../ReactNative/AppContainer').default;
 const I18nManager = require('../ReactNative/I18nManager').default;
-const {RootTagContext} = require('../ReactNative/RootTag');
+const { RootTagContext } = require('../ReactNative/RootTag');
 const StyleSheet = require('../StyleSheet/StyleSheet').default;
 const Platform = require('../Utilities/Platform').default;
 
@@ -33,7 +33,7 @@ const VirtualizedListContextResetter =
   VirtualizedLists.VirtualizedListContextResetter;
 
 type ModalEventDefinitions = {
-  modalDismissed: [{modalID: number}],
+  modalDismissed: [{ modalID: number }],
 };
 
 export type ModalInstance = HostInstance;
@@ -117,10 +117,7 @@ export type ModalPropsIOS = {
    * @platform ios
    */
   presentationStyle?: ?(
-    | 'fullScreen'
-    | 'pageSheet'
-    | 'formSheet'
-    | 'overFullScreen'
+    'fullScreen' | 'pageSheet' | 'formSheet' | 'overFullScreen'
   ),
 
   /**
@@ -252,7 +249,7 @@ type ModalState = {
  * @see https://reactnative.dev/docs/modal
  */
 class Modal extends React.Component<ModalProps, ModalState> {
-  static defaultProps: {hardwareAccelerated: boolean, visible: boolean} = {
+  static defaultProps: { hardwareAccelerated: boolean, visible: boolean } = {
     visible: true,
     hardwareAccelerated: false,
   };
@@ -278,8 +275,8 @@ class Modal extends React.Component<ModalProps, ModalState> {
     if (ModalEventEmitter) {
       this._eventSubscription = ModalEventEmitter.addListener(
         'modalDismissed',
-        event => {
-          this.setState({isRendered: false}, () => {
+        (event) => {
+          this.setState({ isRendered: false }, () => {
             if (event.modalID === this._identifier && this.props.onDismiss) {
               this.props.onDismiss();
             }
@@ -291,7 +288,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
 
   componentWillUnmount() {
     if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
-      this.setState({isRendered: false});
+      this.setState({ isRendered: false });
     }
     if (this._eventSubscription) {
       this._eventSubscription.remove();
@@ -300,7 +297,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
 
   componentDidUpdate(prevProps: ModalProps) {
     if (prevProps.visible === false && this.props.visible === true) {
-      this.setState({isRendered: true});
+      this.setState({ isRendered: true });
     }
 
     if (__DEV__) {
@@ -326,7 +323,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
     // explicitly set, so that these Modal-specific props take precedence
     // over the generic style prop. The default backgroundColor ('white')
     // is defined in styles.container below.
-    const containerStyles: {backgroundColor?: ColorValue} = {};
+    const containerStyles: { backgroundColor?: ColorValue } = {};
     if (this.props.transparent === true) {
       containerStyles.backgroundColor = 'transparent';
     } else if (this.props.backdropColor != null) {
@@ -353,7 +350,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
       // GPUI keeps the host mounted until its native visibility transition emits
       // dismiss, matching iOS so the Fabric event retains its JS instance.
       if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
-        this.setState({isRendered: false}, () => {
+        this.setState({ isRendered: false }, () => {
           if (this.props.onDismiss) {
             this.props.onDismiss();
           }
@@ -383,13 +380,15 @@ class Modal extends React.Component<ModalProps, ModalState> {
         supportedOrientations={this.props.supportedOrientations}
         onOrientationChange={this.props.onOrientationChange}
         allowSwipeDismissal={this.props.allowSwipeDismissal}
-        testID={this.props.testID}>
+        testID={this.props.testID}
+      >
         <VirtualizedListContextResetter>
           <ScrollView.Context.Provider value={null}>
             <View
               // $FlowFixMe[incompatible-type]
               style={[styles.container, this.props.style, containerStyles]}
-              collapsable={false}>
+              collapsable={false}
+            >
               {innerChildren}
             </View>
           </ScrollView.Context.Provider>

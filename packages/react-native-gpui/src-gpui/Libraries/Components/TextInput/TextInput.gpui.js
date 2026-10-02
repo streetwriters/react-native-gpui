@@ -8,10 +8,10 @@ import * as NativeComponentRegistry from '../../NativeComponent/NativeComponentR
 import codegenNativeCommands from '../../Utilities/codegenNativeCommands';
 import RCTTextInputViewConfig from './RCTTextInputViewConfig';
 
-const NativeTextInput = NativeComponentRegistry.get(
-  'TextInput',
-  () => ({...RCTTextInputViewConfig, uiViewClassName: 'TextInput'}),
-);
+const NativeTextInput = NativeComponentRegistry.get('TextInput', () => ({
+  ...RCTTextInputViewConfig,
+  uiViewClassName: 'TextInput',
+}));
 const Commands = codegenNativeCommands({
   supportedCommands: ['focus', 'blur', 'clear'],
 });
@@ -43,7 +43,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
   }, [autoFocus]);
 
   const handleChange = React.useCallback(
-    event => {
+    (event) => {
       const nextText = event.nativeEvent.text;
       if (value == null) setUncontrolledValue(nextText);
       onChangeText?.(nextText);
@@ -52,47 +52,43 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
     [onChange, onChangeText, value],
   );
   const handleFocus = React.useCallback(
-    event => {
+    (event) => {
       focusedRef.current = true;
       onFocus?.(event);
     },
     [onFocus],
   );
   const handleBlur = React.useCallback(
-    event => {
+    (event) => {
       focusedRef.current = false;
       onBlur?.(event);
     },
     [onBlur],
   );
-  React.useImperativeHandle(
-    ref,
-    () => {
-      const instance = nativeRef.current;
-      if (instance == null) return null;
-      // Preserve the native host instance (and its measure/setNativeProps
-      // methods) while matching RN TextInput's imperative ref API.
-      Object.assign(instance, {
-        focus() {
-          Commands.focus(instance);
-        },
-        blur() {
-          Commands.blur(instance);
-        },
-        clear() {
-          Commands.clear(instance);
-        },
-        isFocused() {
-          return focusedRef.current;
-        },
-        getNativeRef() {
-          return instance;
-        },
-      });
-      return instance;
-    },
-    [],
-  );
+  React.useImperativeHandle(ref, () => {
+    const instance = nativeRef.current;
+    if (instance == null) return null;
+    // Preserve the native host instance (and its measure/setNativeProps
+    // methods) while matching RN TextInput's imperative ref API.
+    Object.assign(instance, {
+      focus() {
+        Commands.focus(instance);
+      },
+      blur() {
+        Commands.blur(instance);
+      },
+      clear() {
+        Commands.clear(instance);
+      },
+      isFocused() {
+        return focusedRef.current;
+      },
+      getNativeRef() {
+        return instance;
+      },
+    });
+    return instance;
+  }, []);
 
   return (
     <NativeTextInput

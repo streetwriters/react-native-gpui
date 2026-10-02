@@ -1,4 +1,4 @@
-import { codegenNativeComponent, type ViewProps } from "react-native";
+import { codegenNativeComponent, type ViewProps } from 'react-native';
 
 export interface NativeViewHostNativeProps extends ViewProps {
   viewName: string;
@@ -6,5 +6,5 @@ export interface NativeViewHostNativeProps extends ViewProps {
 }
 
 export default codegenNativeComponent<NativeViewHostNativeProps>(
-  "NativeViewHost",
+  'NativeViewHost',
 );

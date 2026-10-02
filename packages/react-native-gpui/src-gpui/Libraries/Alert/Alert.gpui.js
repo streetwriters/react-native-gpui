@@ -8,19 +8,16 @@
  * @format
  */
 
-import type {DialogOptions} from '../NativeModules/specs/NativeDialogManagerAndroid';
+import type { DialogOptions } from '../NativeModules/specs/NativeDialogManagerAndroid';
 
 import Platform from '../Utilities/Platform';
-import {alertWithArgs} from './RCTAlertManager';
+import { alertWithArgs } from './RCTAlertManager';
 
 /**
  * @platform ios
  */
 export type AlertType =
-  | 'default'
-  | 'plain-text'
-  | 'secure-text'
-  | 'login-password';
+  'default' | 'plain-text' | 'secure-text' | 'login-password';
 
 /**
  * @platform ios
@@ -132,7 +129,7 @@ class Alert {
       const defaultPositiveText = 'OK';
       const validButtons: AlertButtons = buttons
         ? buttons.slice(0, 3)
-        : [{text: defaultPositiveText}];
+        : [{ text: defaultPositiveText }];
       const buttonPositive = validButtons.pop();
       const buttonNegative = validButtons.pop();
       const buttonNeutral = validButtons.pop();
@@ -208,7 +205,7 @@ class Alert {
             preferredButtonKey = String(index);
           }
           if (btn.text || index < (callbackOrButtons || []).length - 1) {
-            const btnDef: {[number]: string} = {};
+            const btnDef: { [number]: string } = {};
             btnDef[index] = btn.text || '';
             buttons.push(btnDef);
           }

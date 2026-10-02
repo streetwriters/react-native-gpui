@@ -1,7 +1,7 @@
-import React from "react";
-import type { ViewProps } from "react-native";
+import React from 'react';
+import type { ViewProps } from 'react-native';
 
-import NativeViewHostNativeComponent from "./NativeViewHostNativeComponent";
+import NativeViewHostNativeComponent from './NativeViewHostNativeComponent';
 
 export type NativeViewHostProps = ViewProps & {
   /** Name passed to the matching Rust NativeViewFactory registration. */

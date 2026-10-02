@@ -8,16 +8,16 @@
  * @format
  */
 
-import type {EdgeInsetsProp} from '../../StyleSheet/EdgeInsetsPropType';
-import type {ViewStyleProp} from '../../StyleSheet/StyleSheet';
-import type {GestureResponderEvent} from '../../Types/CoreEventTypes';
+import type { EdgeInsetsProp } from '../../StyleSheet/EdgeInsetsPropType';
+import type { ViewStyleProp } from '../../StyleSheet/StyleSheet';
+import type { GestureResponderEvent } from '../../Types/CoreEventTypes';
 
 import Pressable from '../../Components/Pressable/Pressable';
 import View from '../../Components/View/View';
 import StyleSheet from '../../StyleSheet/StyleSheet';
 import * as LogBoxStyle from './LogBoxStyle';
 import * as React from 'react';
-import {useState} from 'react';
+import { useState } from 'react';
 
 component LogBoxButton(
   id?: string,
@@ -46,9 +46,10 @@ component LogBoxButton(
       <View
         id={id}
         style={StyleSheet.compose(
-          {backgroundColor: resolvedBackgroundColor.default},
+          { backgroundColor: resolvedBackgroundColor.default },
           style,
-        )}>
+        )}
+      >
         {children}
       </View>
     );
@@ -60,7 +61,7 @@ component LogBoxButton(
       focusable={true}
       hitSlop={hitSlop}
       onPress={onPress}
-      onFocus={event => {
+      onFocus={(event) => {
         // Desktop pointer focus must not add a layout-changing focus border
         // during a press. The host supplies its keyboard input modality.
         setFocused(event.nativeEvent.focusVisible === true);
@@ -72,7 +73,7 @@ component LogBoxButton(
         setFocused(false);
         onFocusChange?.(false);
       }}
-      style={({pressed}) =>
+      style={({ pressed }) =>
         StyleSheet.compose(
           {
             backgroundColor: pressed
@@ -81,7 +82,8 @@ component LogBoxButton(
           },
           focused ? StyleSheet.compose(style, styles.focusRing) : style,
         )
-      }>
+      }
+    >
       {children}
     </Pressable>
   );

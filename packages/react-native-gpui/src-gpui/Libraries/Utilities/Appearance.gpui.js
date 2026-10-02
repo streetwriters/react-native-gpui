@@ -8,7 +8,7 @@
  * @format
  */
 
-import type {EventSubscription} from '../vendor/emitter/EventEmitter';
+import type { EventSubscription } from '../vendor/emitter/EventEmitter';
 import type {
   AppearancePreferences as NativeAppearancePreferences,
   ColorSchemeName,
@@ -19,7 +19,7 @@ import typeof INativeAppearance from './NativeAppearance';
 import NativeEventEmitter from '../EventEmitter/NativeEventEmitter';
 import EventEmitter from '../vendor/emitter/EventEmitter';
 
-export type {ColorSchemeName, ColorSchemeOverride};
+export type { ColorSchemeName, ColorSchemeOverride };
 
 export type AppearancePreferences = {
   colorScheme: ColorSchemeName | null,
@@ -37,7 +37,7 @@ let lazyState: ?{
   // NOTE: This is non-nullable to make it easier for `onChangedListener` to
   // return a non-nullable `EventSubscription` value. This is not the common
   // path, so we do not have to over-optimize it.
-  readonly eventEmitter: EventEmitter<{change: [Appearance]}>,
+  readonly eventEmitter: EventEmitter<{ change: [Appearance] }>,
 };
 
 /**
@@ -47,7 +47,7 @@ function getState(): NonNullable<typeof lazyState> {
   if (lazyState != null) {
     return lazyState;
   }
-  const eventEmitter = new EventEmitter<{change: [Appearance]}>();
+  const eventEmitter = new EventEmitter<{ change: [Appearance] }>();
   // NOTE: Avoid initializing `NativeAppearance` until it is actually used.
   const NativeAppearance = require('./NativeAppearance').default;
   if (NativeAppearance == null) {
@@ -65,7 +65,7 @@ function getState(): NonNullable<typeof lazyState> {
     };
     new NativeEventEmitter<{
       appearanceChanged: [NativeAppearancePreferences],
-    }>(NativeAppearance).addListener('appearanceChanged', newAppearance => {
+    }>(NativeAppearance).addListener('appearanceChanged', (newAppearance) => {
       state.appearance = {
         colorScheme: newAppearance.colorScheme,
       };
@@ -91,7 +91,7 @@ function getState(): NonNullable<typeof lazyState> {
 export function getColorScheme(): ColorSchemeName | null {
   let colorScheme = null;
   const state = getState();
-  const {NativeAppearance} = state;
+  const { NativeAppearance } = state;
   if (NativeAppearance != null) {
     if (state.appearance == null) {
       // Lazily initialize `state.appearance`. This should only
@@ -112,7 +112,7 @@ export function getColorScheme(): ColorSchemeName | null {
  */
 export function setColorScheme(colorScheme: ColorSchemeOverride): void {
   const state = getState();
-  const {NativeAppearance} = state;
+  const { NativeAppearance } = state;
   if (NativeAppearance != null) {
     NativeAppearance.setColorScheme(colorScheme);
     state.appearance = {
@@ -133,6 +133,6 @@ export function setColorScheme(colorScheme: ColorSchemeOverride): void {
 export function addChangeListener(
   listener: (preferences: AppearancePreferences) => void,
 ): EventSubscription {
-  const {eventEmitter} = getState();
+  const { eventEmitter } = getState();
   return eventEmitter.addListener('change', listener);
 }
