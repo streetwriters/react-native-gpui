@@ -8,8 +8,17 @@ module.exports = {
     {
       name: 'run-desktop',
       description: 'Build and launch the GPUI desktop target',
-      func: async (argv) => {
-        execFileSync(process.execPath, [bin, 'run', ...argv], {stdio: 'inherit'});
+      func: async (_argv, _config, options) => {
+        const args = ['run'];
+        for (const [key, flag] of [
+          ['entryFile', '--entry-file'],
+          ['module', '--module'],
+          ['appId', '--app-id'],
+          ['bundle', '--bundle'],
+        ]) {
+          if (options[key] !== undefined) args.push(flag, String(options[key]));
+        }
+        execFileSync(process.execPath, [bin, ...args], {stdio: 'inherit'});
       },
       options: [
         {name: '--entry-file <path>', description: 'Application entry file'},

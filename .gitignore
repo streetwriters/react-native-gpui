@@ -18,6 +18,6 @@ build/
 .gradle/
 local.properties
 .local/
-.rn-gpui/
-desktop/.rn-gpui/
 desktop/build/
+desktop/.cache/
+examples/DesktopTemplateSmoke/node_modules

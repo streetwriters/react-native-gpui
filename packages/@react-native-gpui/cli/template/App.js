@@ -1,7 +1,7 @@
 import React from 'react';
-import {AppRegistry, StyleSheet, Text, View} from 'react-native';
+import {StyleSheet, Text, View} from 'react-native';
 
-function App() {
+export default function App() {
   return (
     <View style={styles.page}>
       <Text style={styles.eyebrow}>REACT NATIVE + GPUI</Text>
@@ -19,5 +19,3 @@ const styles = StyleSheet.create({
   title: {color: '#f5f7fa', fontSize: 34, fontWeight: '700', marginTop: 16},
   body: {color: '#bac3cf', fontSize: 17, lineHeight: 25, marginTop: 12, maxWidth: 520},
 });
-
-AppRegistry.registerComponent('App', () => App);

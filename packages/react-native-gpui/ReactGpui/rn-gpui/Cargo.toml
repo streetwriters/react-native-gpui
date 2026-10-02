@@ -2,6 +2,7 @@
 name = "rn-gpui"
 version = "0.1.0"
 edition = "2021"
+links = "rn_gpui_runtime"
 
 [features]
 # Frame capture for the §19 "Done when" checks. Screen capture is unavailable in

@@ -1,7 +1,7 @@
-//! react-native-gpui: GPUI-backed React Native host.
+//! react-native-gpui: GPUI-backed React Native runtime.
 //!
-//! `main.rs` opens the GPUI window (TODO 1.9); the node tree and styles land in
-//! TODO 1.10, text in TODO 1.11 (design doc §18.10-§18.14).
+//! `run` boots the shared platform runtime; per-app launch logic lives under
+//! the consuming app's `desktop/src/`.
 
 pub mod autolink;
 pub mod events;
@@ -17,3 +17,20 @@ pub mod sample_turbo_module;
 pub mod store;
 pub mod style;
 pub mod text;
+
+mod bootstrap;
+pub use bootstrap::{run, run_with, DesktopAppConfig};
+pub use rn_gpui_macros::rn_module;
+
+/// Keep a locally declared `#[rn_module]`'s exported C ABI symbols linked into
+/// the desktop executable so the generated C++ TurboModule provider can call
+/// them. Pass the generated `*_RN_GPUI_MODULES` constant from the module.
+#[macro_export]
+macro_rules! register_turbo_module {
+    ($modules:path) => {
+        const _: () = {
+            #[used]
+            static MODULES: &[&str] = $modules;
+        };
+    };
+}
