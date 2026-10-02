@@ -9,6 +9,7 @@
 
 #include <FBReactNativeSpec/FBReactNativeSpecJSI.h>
 #include <optional>
+#include <react/renderer/graphics/Size.h>
 
 namespace facebook::react {
 
@@ -40,6 +41,9 @@ struct Bridging<DeviceInfoConstants> : NativeDeviceInfoDeviceInfoConstantsBridgi
 class DeviceInfoModule : public NativeDeviceInfoCxxSpec<DeviceInfoModule> {
  public:
   explicit DeviceInfoModule(std::shared_ptr<CallInvoker> jsInvoker) : NativeDeviceInfoCxxSpec(jsInvoker) {}
+
+  static bool setWindowMetrics(double width, double height, double scale);
+  static Size windowSize();
 
   DeviceInfoConstants getConstants(jsi::Runtime &rt);
 };

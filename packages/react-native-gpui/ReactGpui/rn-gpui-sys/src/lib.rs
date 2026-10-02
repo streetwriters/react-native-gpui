@@ -13,12 +13,7 @@
 pub mod ffi {
     unsafe extern "C++" {
         include!("GpuiImageLoader.h");
-        fn rn_gpui_on_image_load_result(
-            request_id: u64,
-            width: f64,
-            height: f64,
-            error: String,
-        );
+        fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
     }
     // ---------- shared, flat data ----------
 
@@ -63,7 +58,12 @@ pub mod ffi {
         pub background_color: u32,
         pub border_widths: EdgesF,
         pub border_colors: [u32; 4], // left, top, right, bottom
+        pub border_styles: [u8; 4],  // 0 solid, 1 dotted, 2 dashed
         pub border_radii: CornersF,
+        pub outline_color: u32,
+        pub outline_width: f32,
+        pub outline_offset: f32,
+        pub outline_style: u8,
         pub overflow_hidden: bool,
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
         pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto (TODO 2.5)
@@ -73,6 +73,11 @@ pub mod ffi {
         pub test_id: String,
         pub accessibility_label: String,
         pub accessibility_role: String,
+        pub accessible: bool,
+        pub accessibility_disabled: bool,
+        pub accessibility_selected: bool,
+        pub accessibility_checked: u8, // 0 absent, 1 unchecked, 2 checked, 3 mixed
+        pub accessibility_expanded: i8, // -1 absent, 0 false, 1 true
         pub focusable: bool,
     }
 
@@ -122,6 +127,15 @@ pub mod ffi {
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub image_uri: String,        // filled for "Image"
         pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
+        pub text_input_text: String,
+        pub text_input_placeholder: String,
+        pub text_input_multiline: bool,
+        pub text_input_editable: bool,
+        pub text_input_most_recent_event_count: i32,
+        pub text_input_selection_set: bool,
+        pub text_input_selection_start: i32,
+        pub text_input_selection_end: i32,
+        pub modal_visible: bool,
         pub scroll_x: f32,
         pub scroll_y: f32,
         pub content_width: f32,
@@ -138,6 +152,13 @@ pub mod ffi {
     }
 
     #[derive(Clone, Copy, Debug, Default)]
+    pub struct AnimatedPropsFlat {
+        pub tag: i32,
+        pub opacity: f32,
+        pub has_opacity: bool,
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
     pub struct MeasureResult {
         pub width: f32,
         pub height: f32,
@@ -149,6 +170,17 @@ pub mod ffi {
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
         /// Called on the JS/Fabric thread. Must not block, must not touch GPUI.
         fn rn_gpui_on_mount(batch: MountBatch);
+        /// Called by RN's synchronous native animated props path.
+        fn rn_gpui_on_animated_props(props: AnimatedPropsFlat);
+        /// Called by Fabric when RN's TextInput JS wrapper issues focus/blur.
+        fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
+        /// Called by Fabric when the TextInput ref's clear command is issued.
+        fn rn_gpui_on_text_input_clear(tag: i32);
+        fn rn_gpui_set_animated_active(active: bool);
+        fn rn_gpui_open_url(url: String);
+        fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>);
+        fn rn_gpui_read_clipboard(id: i32);
+        fn rn_gpui_write_clipboard(text: String);
         /// Called on the JS/Fabric thread during layout. Thread-safe.
         fn rn_gpui_measure_text(
             p: &ParagraphFlat,
@@ -188,6 +220,10 @@ pub mod ffi {
             height: f32,
             scale: f32,
         );
+        fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
+        fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
+        fn rn_gpui_alert_result(id: i32, button_index: i32);
+        fn rn_gpui_clipboard_result(id: i32, text: String);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
         /// Call once per GPUI frame on the main thread (drives RN's EventBeat).
         fn on_render(self: &GpuiHost);
@@ -210,9 +246,25 @@ pub type MeasureHandler =
     Box<dyn Fn(&ffi::ParagraphFlat, f32, f32) -> ffi::MeasureResult + Send + Sync>;
 /// TODO 2.6 — `surface_id`, or [`ALL_SURFACES`] when the whole instance is gone.
 pub type SurfaceStoppedHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync>;
+pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
+pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
+pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type OpenUrlHandler = Box<dyn Fn(String) + Send + Sync>;
+pub type AlertHandler = Box<dyn Fn(i32, String, String, Vec<String>) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
+pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::new();
+pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
+pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
+pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static OPEN_URL_HANDLER: OnceLock<OpenUrlHandler> = OnceLock::new();
+pub static ALERT_HANDLER: OnceLock<AlertHandler> = OnceLock::new();
+pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
+pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
+pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
@@ -222,7 +274,12 @@ fn rn_gpui_load_image(uri: String, request_id: u64) {
     if let Some(handler) = IMAGE_HANDLER.get() {
         handler(uri, request_id);
     } else {
-        ffi::rn_gpui_on_image_load_result(request_id, 0.0, 0.0, "image loader is not initialized".into());
+        ffi::rn_gpui_on_image_load_result(
+            request_id,
+            0.0,
+            0.0,
+            "image loader is not initialized".into(),
+        );
     }
 }
 
@@ -264,6 +321,54 @@ fn rn_gpui_on_mount(batch: ffi::MountBatch) {
                 batch.ops.len()
             );
         }
+    }
+}
+
+fn rn_gpui_on_animated_props(props: ffi::AnimatedPropsFlat) {
+    if let Some(handler) = ANIMATED_PROPS_HANDLER.get() {
+        handler(props);
+    }
+}
+
+fn rn_gpui_set_animated_active(active: bool) {
+    if let Some(handler) = ANIMATED_ACTIVE_HANDLER.get() {
+        handler(active);
+    }
+}
+
+fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
+    if let Some(handler) = TEXT_INPUT_COMMAND_HANDLER.get() {
+        handler(tag, focus);
+    }
+}
+
+fn rn_gpui_on_text_input_clear(tag: i32) {
+    if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
+        handler(tag);
+    }
+}
+
+fn rn_gpui_open_url(url: String) {
+    if let Some(handler) = OPEN_URL_HANDLER.get() {
+        handler(url);
+    }
+}
+
+fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>) {
+    if let Some(handler) = ALERT_HANDLER.get() {
+        handler(id, title, message, buttons);
+    }
+}
+
+fn rn_gpui_read_clipboard(id: i32) {
+    if let Some(handler) = CLIPBOARD_READ_HANDLER.get() {
+        handler(id);
+    }
+}
+
+fn rn_gpui_write_clipboard(text: String) {
+    if let Some(handler) = CLIPBOARD_WRITE_HANDLER.get() {
+        handler(text);
     }
 }
 

@@ -44,7 +44,7 @@
 //! (`flush_js`), so a headless run does not depend on the display staying awake
 //! to deliver frames.
 
-use gpui::{point, px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
+use gpui::{point, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
 use rn_gpui::host::Host;
 use rn_gpui::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
 use rn_gpui_sys::ffi::MountBatch;
@@ -54,6 +54,12 @@ use std::time::Duration;
 
 fn env_string(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn startup_trace(stage: &str) {
+    if std::env::var_os("RN_GPUI_STARTUP_TRACE").is_some() {
+        eprintln!("[rn-gpui startup] {stage}");
+    }
 }
 
 fn window_state_path(app_id: &str) -> std::path::PathBuf {
@@ -215,9 +221,30 @@ enum MainEvent {
     /// TODO 2.6 — a surface went away (or, with `rn_gpui_sys::ALL_SURFACES`, the
     /// whole instance: a reload). The store drops that tree.
     SurfaceStopped(i32),
+    /// A direct native animated props update (currently opacity only).
+    AnimatedProps(rn_gpui_sys::ffi::AnimatedPropsFlat),
+    /// Keep GPUI's one-shot frame chain running while RN has active animation.
+    AnimatedActivity(bool),
+    /// RN TextInput commands are dispatched from Fabric and applied on GPUI's
+    /// main thread, where the target entity's focus handle is owned.
+    TextInputCommand {
+        tag: i32,
+        focus: bool,
+    },
+    TextInputClear(i32),
+    OpenUrl(String),
+    AlertRequest {
+        id: i32,
+        title: String,
+        message: String,
+        buttons: Vec<String>,
+    },
+    ClipboardRead(i32),
+    ClipboardWrite(String),
 }
 
 fn main() {
+    startup_trace("main entered");
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -265,7 +292,7 @@ fn main() {
         .map(str::to_owned)
         .collect();
     let key_ms = env_u32("RN_GPUI_KEY_MS", 1500);
-    let mut screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
+    let screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
     // Capture interaction phases in one persistent run: "delay:path;delay:path".
     let screenshots: Vec<(u32, String)> = std::env::var("RN_GPUI_SCREENSHOTS")
@@ -289,13 +316,73 @@ fn main() {
     let _ = rn_gpui_sys::MOUNT_HANDLER.set(Box::new(move |batch: MountBatch| {
         let _ = mount_tx.send_blocking(MainEvent::Mount(batch));
     }));
+    let surface_tx = tx.clone();
     let _ = rn_gpui_sys::SURFACE_STOPPED_HANDLER.set(Box::new(move |surface_id: i32| {
-        let _ = tx.send_blocking(MainEvent::SurfaceStopped(surface_id));
+        let _ = surface_tx.send_blocking(MainEvent::SurfaceStopped(surface_id));
+    }));
+    let animated_tx = tx.clone();
+    let _ = rn_gpui_sys::ANIMATED_PROPS_HANDLER.set(Box::new(move |props| {
+        let _ = animated_tx.send_blocking(MainEvent::AnimatedProps(props));
+    }));
+    let activity_tx = tx.clone();
+    let _ = rn_gpui_sys::ANIMATED_ACTIVE_HANDLER.set(Box::new(move |active| {
+        let _ = activity_tx.send_blocking(MainEvent::AnimatedActivity(active));
+    }));
+    let text_input_command_tx = tx.clone();
+    let _ = rn_gpui_sys::TEXT_INPUT_COMMAND_HANDLER.set(Box::new(move |tag, focus| {
+        let _ = text_input_command_tx.send_blocking(MainEvent::TextInputCommand { tag, focus });
+    }));
+    let text_input_clear_tx = tx.clone();
+    let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
+        let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
+    }));
+    let open_url_tx = tx.clone();
+    let _ = rn_gpui_sys::OPEN_URL_HANDLER.set(Box::new(move |url| {
+        let _ = open_url_tx.send_blocking(MainEvent::OpenUrl(url));
+    }));
+    let alert_tx = tx.clone();
+    let _ = rn_gpui_sys::ALERT_HANDLER.set(Box::new(move |id, title, message, buttons| {
+        let _ = alert_tx.send_blocking(MainEvent::AlertRequest {
+            id,
+            title,
+            message,
+            buttons,
+        });
+    }));
+    let clipboard_read_tx = tx.clone();
+    let _ = rn_gpui_sys::CLIPBOARD_READ_HANDLER.set(Box::new(move |id| {
+        let _ = clipboard_read_tx.send_blocking(MainEvent::ClipboardRead(id));
+    }));
+    let clipboard_write_tx = tx.clone();
+    let _ = rn_gpui_sys::CLIPBOARD_WRITE_HANDLER.set(Box::new(move |text| {
+        let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
     }));
 
-    gpui_platform::application()
+    let headless = env_bool("RN_GPUI_HEADLESS", false);
+    startup_trace(if headless {
+        "using GPUI headless platform"
+    } else {
+        "using GPUI AppKit platform"
+    });
+    let platform = gpui_platform::current_platform(headless);
+    let mut waited_for_display = 0u64;
+    while platform.displays().is_empty() {
+        if waited_for_display == 0 {
+            log::warn!("no active macOS display; waiting before entering AppKit launch");
+            startup_trace("waiting for an active display");
+        }
+        std::thread::sleep(Duration::from_secs(2));
+        waited_for_display += 2;
+        if waited_for_display % 30 == 0 {
+            log::warn!("still waiting for an active macOS display ({waited_for_display}s)");
+        }
+    }
+    startup_trace("active display detected");
+    let application = Application::with_platform(platform);
+    application
         .with_http_client(std::sync::Arc::new(rn_gpui::http_client::GpuiHttpClient::default()))
         .run(move |cx: &mut App| {
+        startup_trace("GPUI application callback entered");
         rn_gpui::image_loader::install(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
@@ -310,6 +397,7 @@ fn main() {
         let overlay_host = cx.new(|_| OverlayHost::new());
         let root = cx.new(|_| SurfaceRootView::new(1).with_overlay_host(overlay_host.clone()));
         let restored_bounds = load_window_bounds(&window_state_path);
+        startup_trace("window state loaded");
         let bounds = restored_bounds
             .map(|(x, y, width, height)| Bounds::new(point(px(x), px(y)), size(px(width), px(height))))
             .unwrap_or_else(|| Bounds::centered(None, size(px(width), px(height)), cx));
@@ -317,6 +405,7 @@ fn main() {
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
             log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
         }
+        startup_trace("opening GPUI window");
         let window = cx
             .open_window(
                 WindowOptions {
@@ -329,6 +418,7 @@ fn main() {
                 },
             )
             .expect("failed to open the GPUI window");
+        startup_trace("GPUI window opened");
 
         // Proves the window really exists: `update` reads the live root view
         // and `bounds()` the OS window's frame.
@@ -366,13 +456,24 @@ fn main() {
         let scale = scale_override.unwrap_or(window_scale);
 
         let host = Host::new(&app_id, &dev_host, dev_port);
+        startup_trace("React host created");
+        // NativeDeviceInfo is queried during JS module initialization; publish
+        // the actual viewport before loading the bundle that imports Dimensions.
+        host.set_window_metrics(width, height, scale);
+        let appearance = match cx.window_appearance() {
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
+            _ => "light",
+        };
+        host.set_system_appearance(appearance);
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");
             std::process::exit(1);
         }
+        startup_trace("React bundle loaded");
         log::info!("loaded {bundle}");
 
         host.start_surface(1, &module, width, height, scale);
+        startup_trace("React surface started");
         log::info!(
             "started surface 1 ({module}) at {width}x{height}@{scale}x (window scale {window_scale})"
         );
@@ -384,6 +485,18 @@ fn main() {
         window
             .update(cx, |_root, window, _cx| frame_hook.arm(window))
             .expect("failed to arm the per-frame hook");
+        let appearance_host = host.clone();
+        let appearance_subscription = window
+            .update(cx, |_root, window, _cx| {
+                window.observe_window_appearance(move |window, _cx| {
+                    let appearance = match window.appearance() {
+                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
+                        _ => "light",
+                    };
+                    appearance_host.set_system_appearance(appearance);
+                })
+            })
+            .expect("failed to observe window appearance");
 
         // Kept for the synthetic input loops below: `ViewStore::new` consumes
         // the host handle.
@@ -392,6 +505,7 @@ fn main() {
         cx.set_global(StoreGlobal(store.clone()));
         store.update(cx, |store, cx| {
             store.register_root(1, root);
+            store.window_appearance_subscription = Some(appearance_subscription);
             cx.notify();
         });
 
@@ -682,10 +796,26 @@ fn main() {
         }
 
         // Drain Fabric mount batches on the main thread and apply them.
-        // The capture is scheduled once but the drain keeps running, so a
-        // capture delayed past a resize sees the re-laid-out tree.
+        // Capture timers start independently of the mount stream. If RN fails
+        // before its first Fabric transaction, the image still distinguishes
+        // a blank host from a mounted surface; later captures see resize updates.
         cx.spawn(async move |cx| {
-            let mut capture_scheduled = false;
+            for (delay_ms, path) in screenshots {
+                let store = store.clone();
+                let mut path = Some(path);
+                cx.spawn(async move |cx| {
+                    capture_and_quit(cx, &store, &mut path, delay_ms).await;
+                })
+                .detach();
+            }
+            if let Some(path) = screenshot {
+                let store = store.clone();
+                let mut path = Some(path);
+                cx.spawn(async move |cx| {
+                    capture_and_quit(cx, &store, &mut path, screenshot_delay_ms).await;
+                })
+                .detach();
+            }
             while let Ok(event) = rx.recv().await {
                 match event {
                     MainEvent::Mount(batch) => {
@@ -694,24 +824,110 @@ fn main() {
                     MainEvent::SurfaceStopped(surface_id) => {
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
                     }
-                }
-                if !capture_scheduled && (screenshot.is_some() || !screenshots.is_empty()) {
-                    capture_scheduled = true;
-                    for (delay_ms, path) in &screenshots {
-                        let store = store.clone();
-                        let mut path = Some(path.clone());
-                        let delay_ms = *delay_ms;
-                        cx.spawn(async move |cx| {
-                            capture_and_quit(cx, &store, &mut path, delay_ms).await;
-                        })
-                        .detach();
+                    MainEvent::AnimatedProps(props) => {
+                        if props.has_opacity {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&props.tag).cloned();
+                            });
+                            if let Some(node) = target {
+                                node.update(cx, |node, cx| {
+                                    node.set_animated_opacity(props.opacity);
+                                    cx.notify();
+                                });
+                            }
+                        }
                     }
-                    let store = store.clone();
-                    let mut path = screenshot.take();
-                    cx.spawn(async move |cx| {
-                        capture_and_quit(cx, &store, &mut path, screenshot_delay_ms).await;
-                    })
-                    .detach();
+                    MainEvent::AnimatedActivity(active) => {
+                        let mut target = None;
+                        store.update(cx, |store, _cx| {
+                            target = Some((store.window, store.frame_hook.clone()));
+                        });
+                        if let Some((window, frame_hook)) = target {
+                            let _ = cx.update_window(window, move |_root, window, _cx| {
+                                frame_hook.set_animation_active(active, window);
+                            });
+                        }
+                    }
+                    MainEvent::TextInputCommand { tag, focus } => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        if let Some((window_handle, node)) = target {
+                            let _ = cx.update_window(window_handle, move |_root, window, cx| {
+                                node.update(cx, |node, cx| {
+                                    node.apply_text_input_focus_command(focus, window, cx);
+                                });
+                            });
+                        }
+                    }
+                    MainEvent::TextInputClear(tag) => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        if let Some((window_handle, node)) = target {
+                            let _ = cx.update_window(window_handle, move |_root, window, cx| {
+                                node.update(cx, |node, cx| {
+                                    rn_gpui::input::clear_text_input(node, window, cx);
+                                });
+                            });
+                        }
+                    }
+                    MainEvent::OpenUrl(url) => {
+                        let _ = cx.update(|cx| cx.open_url(&url));
+                    }
+                    MainEvent::ClipboardRead(id) => {
+                        let mut text = String::new();
+                        let _ = cx.update(|cx| {
+                            text = cx
+                                .read_from_clipboard()
+                                .and_then(|item| item.text())
+                                .unwrap_or_default();
+                        });
+                        rn_gpui_sys::ffi::rn_gpui_clipboard_result(id, text);
+                    }
+                    MainEvent::ClipboardWrite(text) => {
+                        let _ = cx.update(|cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                        });
+                    }
+                    MainEvent::AlertRequest { id, title, message, buttons } => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| target = Some(store.window));
+                            target
+                        };
+                        if let Some(window) = target {
+                            let answers: Vec<gpui::PromptButton> = buttons
+                                .iter()
+                                .map(|button| gpui::PromptButton::new(button.clone()))
+                                .collect();
+                            let receiver = cx.update_window(window, move |_root, window, cx| {
+                                window.prompt(
+                                    gpui::PromptLevel::Info,
+                                    &title,
+                                    (!message.is_empty()).then_some(message.as_str()),
+                                    &answers,
+                                    cx,
+                                )
+                            });
+                            if let Ok(receiver) = receiver {
+                                cx.spawn(async move |_cx| {
+                                    let index = receiver.await.unwrap_or(0) as i32;
+                                    rn_gpui_sys::ffi::rn_gpui_alert_result(id, index);
+                                })
+                                .detach();
+                            }
+                        }
+                    }
                 }
             }
             log::info!("mount channel closed");

@@ -50,7 +50,9 @@ fn main() {
     ] {
         println!(
             "cargo:rerun-if-changed={}",
-            react_cxx_platform_dir.join(changed_platform_source).display()
+            react_cxx_platform_dir
+                .join(changed_platform_source)
+                .display()
         );
     }
     let overrides_dir = package_dir.join("ReactCommonOverrides");

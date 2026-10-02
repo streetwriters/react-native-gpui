@@ -11,6 +11,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <functional>
+#include <mutex>
 #include <string>
 
 namespace facebook::react {
@@ -39,6 +41,8 @@ class GpuiHost {
   bool load_script(rust::Str bundlePath, rust::Str sourceUrl);
   void start_surface(int32_t surfaceId, rust::Str moduleName, float w, float h, float scale);
   void set_surface_size(int32_t surfaceId, float w, float h, float scale);
+  void set_window_metrics(float w, float h, float scale);
+  void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);
   void on_render() const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
@@ -62,13 +66,18 @@ class GpuiHost {
   /// "Native animated module is not available" and no red box renders.
   std::shared_ptr<facebook::react::NativeAnimatedNodesManagerProvider>
       animatedNodesManagerProvider_;
+  mutable std::mutex animatedFrameMutex_;
+  mutable std::function<void()> animatedFrameCallback_;
   std::unique_ptr<facebook::react::ReactHost> reactHost_;
   /// The app surface's constraints, reused for the LogBox overlay surface.
   float surfaceWidth_{0.};
   float surfaceHeight_{0.};
   float surfaceScale_{1.};
+  bool scriptLoaded_{false};
 };
 
 std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort);
+void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
+void rn_gpui_clipboard_result(int32_t id, rust::String text);
 
 } // namespace rngpui

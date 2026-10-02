@@ -178,6 +178,36 @@ add_react_common_subdir(react/renderer/debug)
 add_react_common_subdir(react/renderer/graphics)
 add_react_common_subdir(react/renderer/imagemanager)
 add_react_common_subdir(react/renderer/components/view)
+# GPUI uses RN's shared text-input state/event implementation with the
+# platform-neutral TextInput shadow node props. Do not build React Native's
+# Android target here: that target glob includes JNI-only sources.
+set(RN_GPUI_TEXTINPUT_DIR
+    "${REACT_COMMON_DIR}/react/renderer/components/textinput")
+set(RN_GPUI_IOS_TEXTINPUT_DIR
+    "${RN_GPUI_TEXTINPUT_DIR}/platform/ios/react/renderer/components/iostextinput")
+add_library(rrc_textinput_gpui OBJECT
+  "${RN_GPUI_TEXTINPUT_DIR}/BaseTextInputProps.cpp"
+  "${RN_GPUI_TEXTINPUT_DIR}/TextInputEventEmitter.cpp"
+  "${RN_GPUI_IOS_TEXTINPUT_DIR}/TextInputProps.cpp"
+  "${RN_GPUI_IOS_TEXTINPUT_DIR}/TextInputShadowNode.cpp")
+target_include_directories(rrc_textinput_gpui PUBLIC
+  "${RN_GPUI_TEXTINPUT_DIR}"
+  "${RN_GPUI_TEXTINPUT_DIR}/platform/ios"
+  "${RN_GPUI_IOS_TEXTINPUT_DIR}")
+target_link_libraries(rrc_textinput_gpui PUBLIC
+  react_renderer_attributedstring
+  react_renderer_componentregistry
+  react_renderer_core
+  react_renderer_graphics
+  react_renderer_mounting
+  react_renderer_textlayoutmanager
+  react_renderer_uimanager
+  react_utils
+  rrc_text
+  rrc_view
+  yoga)
+target_compile_reactnative_options(rrc_textinput_gpui PRIVATE)
+target_compile_options(rrc_textinput_gpui PRIVATE -Wpedantic)
 # react/renderer/components/switch is Android-only (its sole
 # source is the fbjni-based AndroidSwitchMeasurementsManager;
 # nothing links rrc_switch and the generated FBReactNativeSpec
@@ -416,6 +446,7 @@ set(RN_GPUI_CORE_DEPS
   rrc_safeareaview
   rrc_scrollview
   rrc_text
+  rrc_textinput_gpui
   rrc_unimplementedview
   rrc_view
   yoga

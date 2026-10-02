@@ -81,11 +81,8 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
     s.border_widths.top = Some(px(v.border_widths.top).into());
     s.border_widths.right = Some(px(v.border_widths.right).into());
     s.border_widths.bottom = Some(px(v.border_widths.bottom).into());
-    // GPUI has one border color per element: use the top edge's for v1
-    // (per-side colors -> TODO 3.8).
-    if v.border_colors[1] != 0 {
-        s.border_color = Some(color(v.border_colors[1]));
-    }
+    // Border paint is emitted as four independent RN edge rules by
+    // `node_view`; GPUI's single border color would incorrectly unify them.
     s.corner_radii.top_left = Some(px(v.border_radii.tl).into());
     s.corner_radii.top_right = Some(px(v.border_radii.tr).into());
     s.corner_radii.bottom_right = Some(px(v.border_radii.br).into());

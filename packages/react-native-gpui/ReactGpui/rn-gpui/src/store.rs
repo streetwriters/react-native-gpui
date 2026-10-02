@@ -57,6 +57,8 @@ pub struct ViewStore {
     /// unsubscribes, and the setup closure in `main` returns right after
     /// wiring, so the store owns it for the lifetime of the window.
     pub window_bounds_subscription: Option<Subscription>,
+    /// Tracks native light/dark changes for RN's Appearance event emitter.
+    pub window_appearance_subscription: Option<Subscription>,
 }
 
 impl ViewStore {
@@ -78,6 +80,7 @@ impl ViewStore {
             pointer: point(px(0.), px(0.)),
             log_mount_ops: std::env::var_os("RN_GPUI_BENCH_MODE").is_none(),
             window_bounds_subscription: None,
+            window_appearance_subscription: None,
         }
     }
 
@@ -150,6 +153,10 @@ impl ViewStore {
         let dropped = stale.len();
         for tag in stale {
             self.nodes.remove(&tag);
+            self.overlay_host.update(cx, |host, cx| {
+                host.remove_modal(tag);
+                cx.notify();
+            });
         }
         let live: HashSet<i32> = self.nodes.keys().copied().collect();
         self.hovered.retain(|tag| live.contains(tag));
@@ -201,6 +208,12 @@ impl ViewStore {
                     self.nodes.insert(op.tag, node);
                 }
                 MountKind::Delete => {
+                    if op.component == "ModalHostView" {
+                        self.overlay_host.update(cx, |host, cx| {
+                            host.remove_modal(op.tag);
+                            cx.notify();
+                        });
+                    }
                     self.nodes.remove(&op.tag);
                 }
                 MountKind::Insert => {
@@ -208,6 +221,16 @@ impl ViewStore {
                         log::warn!("[store] insert of unknown tag {}", op.tag);
                         continue;
                     };
+                    if op.component == "ModalHostView" {
+                        child.update(cx, |child, _cx| child.parent = None);
+                        if child.read(cx).modal_visible {
+                            self.overlay_host.update(cx, |host, cx| {
+                                host.insert_modal(op.tag, child.clone());
+                                cx.notify();
+                            });
+                        }
+                        continue;
+                    }
                     let index = op.index.max(0) as usize;
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
                         let parent_ref = parent.downgrade();
@@ -232,6 +255,13 @@ impl ViewStore {
                     }
                 }
                 MountKind::Remove => {
+                    if op.component == "ModalHostView" {
+                        self.overlay_host.update(cx, |host, cx| {
+                            host.remove_modal(op.tag);
+                            cx.notify();
+                        });
+                        continue;
+                    }
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
                         parent.update(cx, |parent, cx| {
                             parent.remove_child(op.tag);
@@ -250,6 +280,17 @@ impl ViewStore {
                             node.update_from_op(op);
                             cx.notify();
                         });
+                        if op.component == "ModalHostView" {
+                            let visible = node.read(cx).modal_visible;
+                            self.overlay_host.update(cx, |host, cx| {
+                                if visible {
+                                    host.insert_modal(op.tag, node.clone());
+                                } else {
+                                    host.remove_modal(op.tag);
+                                }
+                                cx.notify();
+                            });
+                        }
                     }
                 }
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
@@ -329,12 +370,14 @@ fn kind_name(kind: MountKind) -> &'static str {
 /// window opens and only ever toggles its own contents.
 pub struct OverlayHost {
     overlays: Vec<(i32, Entity<SurfaceRootView>)>,
+    modals: Vec<(i32, Entity<RNNodeView>)>,
 }
 
 impl OverlayHost {
     pub fn new() -> Self {
         Self {
             overlays: Vec::new(),
+            modals: Vec::new(),
         }
     }
 
@@ -350,10 +393,21 @@ impl OverlayHost {
 
     pub fn clear(&mut self) {
         self.overlays.clear();
+        self.modals.clear();
+    }
+
+    pub fn insert_modal(&mut self, tag: i32, modal: Entity<RNNodeView>) {
+        if !self.modals.iter().any(|(existing, _)| *existing == tag) {
+            self.modals.push((tag, modal));
+        }
+    }
+
+    pub fn remove_modal(&mut self, tag: i32) {
+        self.modals.retain(|(existing, _)| *existing != tag);
     }
 
     pub fn len(&self) -> usize {
-        self.overlays.len()
+        self.overlays.len() + self.modals.len()
     }
 }
 
@@ -362,11 +416,12 @@ impl Render for OverlayHost {
         // Kept absolute so the empty host is exactly 0x0: a full-size empty div
         // would swallow every hover and click meant for the app behind it.
         let host = div().absolute().top_0().left_0();
-        if self.overlays.is_empty() {
+        if self.overlays.is_empty() && self.modals.is_empty() {
             host
         } else {
             host.size_full()
                 .children(self.overlays.iter().map(|(_, overlay)| overlay.clone()))
+                .children(self.modals.iter().map(|(_, modal)| modal.clone()))
         }
     }
 }

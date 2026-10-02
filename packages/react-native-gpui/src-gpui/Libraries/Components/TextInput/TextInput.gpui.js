@@ -1,0 +1,114 @@
+/**
+ * GPUI's TextInput host uses the shared Fabric `TextInput` component. RN 0.87's
+ * upstream wrapper only initializes native controls for iOS and Android, so
+ * this desktop wrapper adapts the same event/value contract to GPUI.
+ */
+import * as React from 'react';
+import * as NativeComponentRegistry from '../../NativeComponent/NativeComponentRegistry';
+import codegenNativeCommands from '../../Utilities/codegenNativeCommands';
+import RCTTextInputViewConfig from './RCTTextInputViewConfig';
+
+const NativeTextInput = NativeComponentRegistry.get(
+  'TextInput',
+  () => ({...RCTTextInputViewConfig, uiViewClassName: 'TextInput'}),
+);
+const Commands = codegenNativeCommands({
+  supportedCommands: ['focus', 'blur', 'clear'],
+});
+
+const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
+  const {
+    value,
+    defaultValue,
+    onChange,
+    onChangeText,
+    onSelectionChange,
+    onFocus,
+    onBlur,
+    selection,
+    multiline = false,
+    editable = true,
+    autoFocus = false,
+    ...nativeProps
+  } = props;
+  const [uncontrolledValue, setUncontrolledValue] = React.useState(
+    defaultValue == null ? '' : String(defaultValue),
+  );
+  const text = value == null ? uncontrolledValue : String(value);
+  const nativeRef = React.useRef(null);
+  const focusedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (autoFocus && nativeRef.current) Commands.focus(nativeRef.current);
+  }, [autoFocus]);
+
+  const handleChange = React.useCallback(
+    event => {
+      const nextText = event.nativeEvent.text;
+      if (value == null) setUncontrolledValue(nextText);
+      onChangeText?.(nextText);
+      onChange?.(event);
+    },
+    [onChange, onChangeText, value],
+  );
+  const handleFocus = React.useCallback(
+    event => {
+      focusedRef.current = true;
+      onFocus?.(event);
+    },
+    [onFocus],
+  );
+  const handleBlur = React.useCallback(
+    event => {
+      focusedRef.current = false;
+      onBlur?.(event);
+    },
+    [onBlur],
+  );
+  React.useImperativeHandle(
+    ref,
+    () => {
+      const instance = nativeRef.current;
+      if (instance == null) return null;
+      // Preserve the native host instance (and its measure/setNativeProps
+      // methods) while matching RN TextInput's imperative ref API.
+      Object.assign(instance, {
+        focus() {
+          Commands.focus(instance);
+        },
+        blur() {
+          Commands.blur(instance);
+        },
+        clear() {
+          Commands.clear(instance);
+        },
+        isFocused() {
+          return focusedRef.current;
+        },
+        getNativeRef() {
+          return instance;
+        },
+      });
+      return instance;
+    },
+    [],
+  );
+
+  return (
+    <NativeTextInput
+      {...nativeProps}
+      ref={nativeRef}
+      text={text}
+      selection={selection}
+      multiline={multiline}
+      editable={editable}
+      onChange={handleChange}
+      onSelectionChange={onSelectionChange}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+  );
+});
+
+TextInput.displayName = 'TextInput';
+export default TextInput;

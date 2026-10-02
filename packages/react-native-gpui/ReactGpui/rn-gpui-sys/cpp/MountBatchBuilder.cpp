@@ -5,6 +5,9 @@
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
+#include <react/renderer/components/iostextinput/TextInputProps.h>
+#include <react/renderer/components/textinput/TextInputState.h>
+#include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -82,6 +85,16 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
 
   auto colors = props->borderColors.resolve(/*isRTL*/ false, SharedColor{});
   out.border_colors = {argb(colors.left), argb(colors.top), argb(colors.right), argb(colors.bottom)};
+  auto borderStyles = props->borderStyles.resolve(false, BorderStyle::Solid);
+  out.border_styles = {
+      static_cast<uint8_t>(borderStyles.left),
+      static_cast<uint8_t>(borderStyles.top),
+      static_cast<uint8_t>(borderStyles.right),
+      static_cast<uint8_t>(borderStyles.bottom)};
+  out.outline_color = argb(props->outlineColor);
+  out.outline_width = props->outlineWidth;
+  out.outline_offset = props->outlineOffset;
+  out.outline_style = static_cast<uint8_t>(props->outlineStyle);
 
   // BorderRadii is RectangleCorners<ValueUnit>; each corner resolves to px
   // against the frame's smaller side (percentage radii).
@@ -108,17 +121,45 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   }
 
   out.test_id = props->testId;
+  out.accessible = props->accessible;
   if (!props->accessibilityLabel.empty()) {
     out.accessibility_label = props->accessibilityLabel;
   }
   if (!props->accessibilityRole.empty()) {
     out.accessibility_role = props->accessibilityRole;
   }
+  if (props->accessibilityState) {
+    const auto& state = *props->accessibilityState;
+    out.accessibility_disabled = state.disabled;
+    out.accessibility_selected = state.selected;
+    switch (state.checked) {
+      case AccessibilityState::Unchecked:
+        out.accessibility_checked = 1;
+        break;
+      case AccessibilityState::Checked:
+        out.accessibility_checked = 2;
+        break;
+      case AccessibilityState::Mixed:
+        out.accessibility_checked = 3;
+        break;
+      case AccessibilityState::None:
+        break;
+    }
+    if (state.expanded) {
+      out.accessibility_expanded = *state.expanded ? 1 : 0;
+    } else {
+      out.accessibility_expanded = -1;
+    }
+  } else {
+    out.accessibility_expanded = -1;
+  }
   if (auto platformProps = std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
     out.focusable = platformProps->focusable;
   }
 
-  // TODO 2.x: props->transform -> out.transform (column-major) + has_transform.
+  const auto transform = props->resolveTransform(layoutMetrics);
+  out.transform = transform.matrix;
+  out.has_transform = !(transform == Transform::Identity());
   return out;
 }
 
@@ -163,6 +204,14 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   return out;
 }
 
+static ParagraphFlat flattenInputText(const AttributedString& attributedString) {
+  ParagraphFlat out{};
+  for (const auto& fragment : attributedString.getFragments()) {
+    out.fragments.push_back(flattenTextFragment(fragment.textAttributes, fragment.string));
+  }
+  return out;
+}
+
 MountOp buildMountOp(const ShadowViewMutation& mutation) {
   MountOp op{};
   op.kind = static_cast<MountKind>(mutation.type);
@@ -176,6 +225,10 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
+  if (op.component == "ModalHostView") {
+    auto modal = std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
+    op.modal_visible = modal && modal->visible;
+  }
 
   const auto& frame = shadowView.layoutMetrics.frame;
   op.frame = {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height};
@@ -191,6 +244,34 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
     if (op.component == "Paragraph") {
       op.has_paragraph = true;
       op.paragraph = flattenParagraph(shadowView);
+    }
+    if (op.component == "TextInput") {
+      if (auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props)) {
+        op.text_input_text = props->text;
+        op.text_input_placeholder = props->placeholder;
+        op.text_input_multiline = props->multiline;
+        op.text_input_editable = props->editable && !props->readOnly;
+        op.text_input_most_recent_event_count = props->mostRecentEventCount;
+        op.text_input_selection_set = props->selection.has_value();
+        if (props->selection) {
+          op.text_input_selection_start = props->selection->start;
+          op.text_input_selection_end = props->selection->end;
+        } else {
+          int32_t cursor = 0;
+          for (const auto byte : op.text_input_text) {
+            const auto value = static_cast<unsigned char>(byte);
+            if ((value & 0xC0) != 0x80) {
+              cursor += value >= 0xF0 ? 2 : 1;
+            }
+          }
+          op.text_input_selection_start = cursor;
+          op.text_input_selection_end = cursor;
+        }
+      }
+      if (auto state = std::dynamic_pointer_cast<const ConcreteState<TextInputState>>(shadowView.state)) {
+        op.has_paragraph = true;
+        op.paragraph = flattenInputText(state->getData().attributedStringBox.getValue());
+      }
     }
     if (op.component == "Image") {
       if (auto imageProps = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);

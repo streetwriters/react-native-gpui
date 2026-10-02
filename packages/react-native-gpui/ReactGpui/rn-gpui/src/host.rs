@@ -40,6 +40,22 @@ impl Host {
             .set_surface_size(id, w, h, scale)
     }
 
+    pub fn set_window_metrics(&self, w: f32, h: f32, scale: f32) {
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .set_window_metrics(w, h, scale)
+    }
+
+    pub fn set_system_appearance(&self, appearance: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .set_system_appearance(appearance)
+    }
+
     pub fn on_render(&self) {
         self.0.lock().unwrap().on_render()
     }

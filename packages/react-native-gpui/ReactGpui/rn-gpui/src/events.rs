@@ -81,17 +81,47 @@ pub struct Target {
     pub tag: i32,
     /// The target's origin in window coordinates (`absolute_origin`).
     pub origin: Point<Pixels>,
+    scale_x: f32,
+    scale_y: f32,
     /// The target and its ancestors, innermost first: RN's hover path
     /// (`PointerHoverTracker::getEventPathTargets`), the surface root excluded.
     pub chain: Vec<i32>,
+}
+
+impl Target {
+    fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
+        point(
+            px(f32::from(position.x - self.origin.x) / self.scale_x.max(0.0001)),
+            px(f32::from(position.y - self.origin.y) / self.scale_y.max(0.0001)),
+        )
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::Target;
+    use gpui::{point, px};
+
+    #[test]
+    fn pointer_location_is_reported_in_untransformed_target_coordinates() {
+        let target = Target {
+            tag: 7,
+            origin: point(px(30.0), px(40.0)),
+            scale_x: 2.0,
+            scale_y: 0.5,
+            chain: vec![7],
+        };
+        let local = target.local_position(point(px(70.0), px(60.0)));
+        assert_eq!(f32::from(local.x), 20.0);
+        assert_eq!(f32::from(local.y), 40.0);
+    }
 }
 
 /// One node on the way from the hit node out to the surface root.
 struct Step {
     tag: i32,
     pointer_events: u8,
-    x: f32,
-    y: f32,
+    entity: Option<WeakEntity<RNNodeView>>,
     parent: Option<WeakEntity<RNNodeView>>,
 }
 
@@ -111,29 +141,24 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
     let mut steps = vec![Step {
         tag: hit_node.tag,
         pointer_events: hit_node.view.pointer_events,
-        x: hit_node.frame.x,
-        y: hit_node.frame.y,
+        entity: None,
         parent: hit_node.parent.clone(),
     }];
     loop {
-        let Some(parent) = steps.last().and_then(|step| step.parent.clone()) else {
+        let Some(ancestor) = steps.last().and_then(|step| step.parent.clone()) else {
             break;
         };
-        let Some(node) = parent.upgrade() else { break };
-        let (tag, pointer_events, frame, parent) = {
+        let Some(node) = ancestor.upgrade() else {
+            break;
+        };
+        let (tag, pointer_events, parent) = {
             let node = node.read(cx);
-            (
-                node.tag,
-                node.view.pointer_events,
-                node.frame,
-                node.parent.clone(),
-            )
+            (node.tag, node.view.pointer_events, node.parent.clone())
         };
         steps.push(Step {
             tag,
             pointer_events,
-            x: frame.x,
-            y: frame.y,
+            entity: Some(ancestor),
             parent,
         });
     }
@@ -156,18 +181,22 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
             }
         }
     }
-    // Frames are parent-relative, so the target's origin is the sum over itself
-    // and its ancestors — i.e. every step from the chosen one outward.
     let index = chosen?;
-    let mut origin = point(px(0.), px(0.));
-    let mut chain = Vec::with_capacity(steps.len() - index);
-    for step in &steps[index..] {
-        origin += point(px(step.x), px(step.y));
-        chain.push(step.tag);
-    }
+    let (origin, scale_x, scale_y) = if index == 0 {
+        let (scale_x, scale_y) = hit_node.cumulative_scale(cx);
+        (hit_node.absolute_origin(cx), scale_x, scale_y)
+    } else {
+        let node = steps[index].entity.as_ref()?.upgrade()?;
+        let node = node.read(cx);
+        let (scale_x, scale_y) = node.cumulative_scale(cx);
+        (node.absolute_origin(cx), scale_x, scale_y)
+    };
+    let chain = steps[index..].iter().map(|step| step.tag).collect();
     Some(Target {
         tag: steps[index].tag,
         origin,
+        scale_x,
+        scale_y,
         chain,
     })
 }
@@ -261,7 +290,7 @@ pub fn send(
         (store.host.clone(), store.frame_hook.clone())
     };
     let tag = target.tag;
-    let location = position - target.origin;
+    let location = target.local_position(position);
     log::debug!(
         "[events] {phase:?} tag={tag} position=({:.1},{:.1}) location=({:.1},{:.1})",
         f32::from(position.x),
@@ -346,7 +375,7 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     // (`handleIncomingPointerEventOnNode` re-dispatches the same PointerEvent),
     // so `offsetX/Y` of an ancestor's enter/leave is the target-relative offset.
     let location = target
-        .map(|target| position - target.origin)
+        .map(|target| target.local_position(position))
         .unwrap_or_else(|| point(px(0.), px(0.)));
     let (host, previous) = store.update(cx, |store, _cx| {
         store.pointer = position;
@@ -356,7 +385,9 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
         )
     });
     let shared = shared_root_len(&previous, &next);
-    log::debug!(
+    // Mouse motion can arrive at display refresh rate. Keep the hot path quiet
+    // unless verbose event tracing is explicitly enabled.
+    log::trace!(
         "[events] hover at ({:.1},{:.1}) chain={next:?} was={previous:?}",
         f32::from(position.x),
         f32::from(position.y),
@@ -415,7 +446,17 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
             .read(cx)
             .nodes
             .get(tag)
-            .map(|node| position - node.read(cx).absolute_origin(cx))
+            .map(|node| {
+                let node = node.read(cx);
+                Target {
+                    tag: *tag,
+                    origin: node.absolute_origin(cx),
+                    scale_x: node.cumulative_scale(cx).0,
+                    scale_y: node.cumulative_scale(cx).1,
+                    chain: Vec::new(),
+                }
+                .local_position(position)
+            })
             .unwrap_or_else(|| point(px(0.), px(0.)));
         host.dispatch_event(
             *tag,

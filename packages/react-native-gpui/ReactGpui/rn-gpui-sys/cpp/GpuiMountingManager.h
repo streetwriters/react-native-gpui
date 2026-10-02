@@ -5,6 +5,7 @@
 #include <react/io/IImageLoader.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
+#include <react/renderer/components/modal/ModalHostViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 #include "GpuiImageLoader.h"
 
@@ -35,6 +36,7 @@ class GpuiMountingManager : public IMountingManager {
       : onAfterMount_(std::move(onAfterMount)) {}
 
   void executeMount(SurfaceId surfaceId, MountingTransaction&& tx) override;
+  void synchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props) override;
   void dispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override;
   ComponentRegistryFactory getComponentRegistryFactory() override;
   std::shared_ptr<IImageLoader> getImageLoader() noexcept override { return imageLoader_; }
@@ -51,6 +53,7 @@ class GpuiMountingManager : public IMountingManager {
   // Called from the GPUI main thread via GpuiHost::dispatch_event.
   void dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
+  void setWindowSize(float width, float height);
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
@@ -58,6 +61,7 @@ class GpuiMountingManager : public IMountingManager {
   std::mutex emittersMutex_;
   std::unordered_map<Tag, SharedEventEmitter> emitters_; // written on JS thread, read on main
   std::unordered_map<Tag, std::shared_ptr<const ConcreteState<ScrollViewState>>> scrollStates_;
+  std::unordered_map<Tag, std::shared_ptr<const ConcreteState<ModalHostViewState>>> modalStates_;
 };
 
 } // namespace rngpui

@@ -48,6 +48,8 @@ struct State {
     /// was superseded (because `arm` had to re-schedule a stalled chain) stops
     /// instead of re-arming, so at most one chain is ever ticking.
     generation: Cell<u64>,
+    /// Native Animated owns a real frame callback until RN reports it stopped.
+    animation_active: Cell<bool>,
     /// When the outstanding callback was last run, in milliseconds since
     /// `epoch`. Used to detect a chain the platform never delivered a frame
     /// for.
@@ -63,6 +65,7 @@ impl FrameHook {
                 active_until_ms: Cell::new(0),
                 armed: Cell::new(false),
                 generation: Cell::new(0),
+                animation_active: Cell::new(false),
                 last_tick_ms: Cell::new(0),
             }),
         }
@@ -93,6 +96,13 @@ impl FrameHook {
         self.schedule(window);
     }
 
+    pub fn set_animation_active(&self, active: bool, window: &mut Window) {
+        self.state.animation_active.set(active);
+        if active {
+            self.arm(window);
+        }
+    }
+
     fn schedule(&self, window: &mut Window) {
         let hook = self.clone();
         let generation = self.state.generation.get().wrapping_add(1);
@@ -113,7 +123,7 @@ impl FrameHook {
     }
 
     fn is_active(&self) -> bool {
-        self.now_ms() < self.state.active_until_ms.get()
+        self.state.animation_active.get() || self.now_ms() < self.state.active_until_ms.get()
     }
 
     fn now_ms(&self) -> u64 {

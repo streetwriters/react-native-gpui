@@ -8,6 +8,7 @@ pub mod frame;
 pub mod host;
 pub mod http_client;
 pub mod image_loader;
+pub mod input;
 pub mod node_view;
 pub mod store;
 pub mod style;
