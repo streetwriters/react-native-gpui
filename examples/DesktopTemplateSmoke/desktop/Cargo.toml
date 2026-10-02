@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 rn-gpui-autolink = { path = "autolink" }
-react-native-gpui = { path = "../node_modules/react-native-gpui/ReactGpui/rn-gpui" }
+react-native-gpui = { path = "../../../packages/react-native-gpui/ReactGpui/rn-gpui" }

@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const requestedCommand = process.argv[2];
@@ -84,7 +85,7 @@ if (command === "init-desktop") {
       const cargoName = `react-native-gpui-${appName.toLowerCase().replaceAll(/[^a-z0-9-]/gu, "-")}`;
       write(
         cargoPath,
-        `[package]\nname = ${JSON.stringify(cargoName)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nreact-native-gpui = { path = "../node_modules/react-native-gpui/ReactGpui/rn-gpui" }\n`,
+        `[package]\nname = ${JSON.stringify(cargoName)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n`,
       );
     }
     const nextPackageJson = { ...packageJson };
@@ -323,7 +324,7 @@ if (command === "init") {
     .replaceAll(/[^a-z0-9-]/gu, "-")}`;
   fs.writeFileSync(
     path.join(destination, "desktop/Cargo.toml"),
-    `[package]\nname = ${JSON.stringify(desktopPackageName)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nreact-native-gpui = { path = "../node_modules/react-native-gpui/ReactGpui/rn-gpui" }\n`,
+    `[package]\nname = ${JSON.stringify(desktopPackageName)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n`,
   );
   fs.copyFileSync(
     path.join(cliDir, "../templates/app/App.tsx"),
@@ -387,9 +388,7 @@ if (command === "bundle" || command === "run") {
     path.join(cliDir, "react-native-gpui.js"),
     "autolink",
   ]);
-  const gpuiPackage = path.resolve(cliDir, "../../../react-native-gpui");
   const appCargoManifest = path.join(desktopRoot, "Cargo.toml");
-  const cargoManifest = path.join(gpuiPackage, "ReactGpui/Cargo.toml");
   const appConfig = path.join(projectRoot, "app.json");
   const defaultModule = fs.existsSync(appConfig)
     ? JSON.parse(fs.readFileSync(appConfig, "utf8")).name
@@ -401,16 +400,10 @@ if (command === "bundle" || command === "run") {
       .basename(projectRoot)
       .toLowerCase()
       .replaceAll(/[^a-z0-9-]/gu, "-")}`;
-  const cargoArgs = fs.existsSync(appCargoManifest)
-    ? ["run", "--release", "--manifest-path", appCargoManifest]
-    : [
-        "run",
-        "--release",
-        "--manifest-path",
-        cargoManifest,
-        "-p",
-        "react-native-gpui",
-      ];
+  if (!fs.existsSync(appCargoManifest)) {
+    throw new Error(`missing desktop Cargo manifest: ${appCargoManifest}`);
+  }
+  const cargoArgs = ["run", "--release", "--manifest-path", appCargoManifest];
   run("cargo", cargoArgs, {
     env: {
       ...process.env,
@@ -436,27 +429,20 @@ const config = JSON.parse(
         encoding: "utf8",
       }),
 );
-const projectAncestors = [];
-for (let directory = projectRoot; ; directory = path.dirname(directory)) {
-  projectAncestors.push(directory);
-  if (path.dirname(directory) === directory) break;
+const appRequire = createRequire(path.join(projectRoot, "package.json"));
+let platformPackageJson;
+try {
+  platformPackageJson = appRequire.resolve("react-native-gpui/package.json");
+} catch (error) {
+  throw new Error(
+    `could not resolve react-native-gpui from ${projectRoot}: ${error.message}`,
+  );
 }
-const cargoRoot = [
-  process.env.RN_GPUI_CARGO_ROOT,
-  path.join(projectRoot, "ReactGpui"),
-  path.join(projectRoot, "packages/react-native-gpui/ReactGpui"),
-  ...projectAncestors.map((directory) =>
-    path.join(directory, "node_modules/react-native-gpui/ReactGpui"),
-  ),
-]
-  .filter(Boolean)
-  .map((candidate) => path.resolve(candidate))
-  .filter((candidate) => fs.existsSync(path.join(candidate, "Cargo.toml")))
-  .map((candidate) => fs.realpathSync(candidate))
-  .find(Boolean);
-if (!cargoRoot)
-  throw new Error(`could not find ReactGpui/Cargo.toml under ${projectRoot}`);
-
+const platformRoot = fs.realpathSync(path.dirname(platformPackageJson));
+const runtimeCrate = path.join(platformRoot, "ReactGpui/rn-gpui");
+if (!fs.existsSync(path.join(runtimeCrate, "Cargo.toml"))) {
+  throw new Error(`react-native-gpui has no Rust crate at ${runtimeCrate}`);
+}
 const rustCrates = [];
 const turboModuleSpecs = [];
 const cmakeProjects = [];
@@ -636,6 +622,33 @@ if (!fs.existsSync(appCargoManifest)) {
   throw new Error(`missing desktop Cargo manifest: ${appCargoManifest}`);
 }
 let appCargo = fs.readFileSync(appCargoManifest, "utf8");
+const runtimeCrateRelativePath = path
+  .relative(desktopRoot, runtimeCrate)
+  .split(path.sep)
+  .join("/");
+const runtimeCrateTomlPath = escapeToml(runtimeCrateRelativePath);
+const runtimeDependencyPattern = /^(react-native-gpui\s*=\s*)\{([^\n]*)\}$/mu;
+if (runtimeDependencyPattern.test(appCargo)) {
+  appCargo = appCargo.replace(
+    runtimeDependencyPattern,
+    (_line, prefix, properties) => {
+      const withoutOldPath = properties
+        .replace(/(?:^|,)\s*path\s*=\s*"[^"]*"\s*/gu, "")
+        .trim()
+        .replace(/^,\s*|\s*,\s*$/gu, "");
+      return `${prefix}{ path = ${runtimeCrateTomlPath}${withoutOldPath ? `, ${withoutOldPath}` : ""} }`;
+    },
+  );
+} else {
+  appCargo = appCargo.replace(
+    /^\[dependencies\]\s*$/mu,
+    (section) =>
+      `${section}\nreact-native-gpui = { path = ${runtimeCrateTomlPath} }`,
+  );
+}
+if (!/^react-native-gpui\s*=/mu.test(appCargo)) {
+  throw new Error(`could not add react-native-gpui to ${appCargoManifest}`);
+}
 if (!/^rn-gpui-autolink\s*=/mu.test(appCargo)) {
   appCargo = appCargo.replace(
     /^\[dependencies\]\s*$/mu,
@@ -644,8 +657,8 @@ if (!/^rn-gpui-autolink\s*=/mu.test(appCargo)) {
   if (!/^rn-gpui-autolink\s*=/mu.test(appCargo)) {
     appCargo += `\n[dependencies]\nrn-gpui-autolink = { path = "autolink" }\n`;
   }
-  fs.writeFileSync(appCargoManifest, appCargo);
 }
+fs.writeFileSync(appCargoManifest, appCargo);
 const appMain = path.join(desktopRoot, "src/main.rs");
 if (fs.existsSync(appMain)) {
   let source = fs.readFileSync(appMain, "utf8");
