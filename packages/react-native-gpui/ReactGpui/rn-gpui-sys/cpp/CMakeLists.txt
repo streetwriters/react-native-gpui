@@ -580,6 +580,13 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
       string(APPEND RN_GPUI_RPATH_DIRS "$<TARGET_FILE_DIR:${_target}>\n")
     endif()
   endif()
+  # Static libraries hide their link-only dependencies behind generator
+  # expressions, so rn_gpui_collect_link_targets cannot discover this archive
+  # by walking rn_gpui_core's interface links. Put it directly after the core
+  # archive and before the ReactCommon archives it depends on.
+  if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_app_turbo_modules)
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_app_turbo_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_app_turbo_modules>\n")
+  endif()
 endforeach()
 
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")

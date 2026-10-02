@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 const inputs = process.argv.slice(2);
 const outputPath = inputs.pop();
@@ -10,34 +11,48 @@ if (inputs.length === 0 || !outputPath) {
   );
 }
 
+const require = createRequire(import.meta.url);
+const {
+  TypeScriptParser,
+} = require("@react-native/codegen/lib/parsers/typescript/parser");
+const parser = new TypeScriptParser();
 const declarations = [];
 const rows = [];
 const moduleNames = new Set();
+
 for (const specPath of inputs) {
-  const source = fs.readFileSync(specPath, "utf8");
-  const moduleName = source.match(
-    /TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"]([^'"]+)['"]\s*\)/u,
-  )?.[1];
-  if (!moduleName) {
-    throw new Error(`${specPath} must use TurboModuleRegistry.getEnforcing()`);
+  const schema = parser.parseFile(specPath);
+  const modules = Object.values(schema.modules ?? {});
+  if (modules.length !== 1 || modules[0].type !== "NativeModule") {
+    throw new Error(`${specPath} must define exactly one TurboModule`);
   }
-  const rustType = moduleName;
-  if (moduleNames.has(moduleName))
+
+  const { moduleName, spec } = modules[0];
+  if (moduleNames.has(moduleName)) {
     throw new Error(`duplicate TurboModule name: ${moduleName}`);
+  }
   moduleNames.add(moduleName);
 
-  const methods = [
-    ...source.matchAll(
-      /^\s{2}([A-Za-z_][A-Za-z0-9_]*)\(\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*string\s*\)\s*:\s*string\s*;/gmu,
-    ),
-  ].map((match) => match[1]);
-  if (methods.length !== 1) {
-    throw new Error(
-      `${specPath} must have exactly one supported sync (string) => string method`,
-    );
+  const methods = spec.methods.map(({ name, optional, typeAnnotation }) => {
+    const [argument] = typeAnnotation.params;
+    if (
+      optional ||
+      typeAnnotation.params.length !== 1 ||
+      argument.optional ||
+      argument.typeAnnotation.type !== "StringTypeAnnotation" ||
+      typeAnnotation.returnTypeAnnotation.type !== "StringTypeAnnotation"
+    ) {
+      throw new Error(
+        `${specPath}: ${name} must be a required sync (string) => string method`,
+      );
+    }
+    return name;
+  });
+  if (methods.length === 0) {
+    throw new Error(`${specPath} must declare at least one supported method`);
   }
 
-  const prefix = rustType.toLowerCase();
+  const prefix = moduleName.toLowerCase();
   declarations.push(`extern "C" const char* rn_gpui_${prefix}_module_name();`);
   for (const method of methods) {
     declarations.push(

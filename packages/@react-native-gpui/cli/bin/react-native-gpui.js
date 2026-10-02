@@ -247,9 +247,17 @@ if (command === "create-library") {
     `module.exports = ${JSON.stringify({ dependency: { platforms: { gpui: gpuiPlatform } } }, null, 2)};\n`,
   );
   if (type === "rust") {
+    const appRequire = createRequire(path.join(process.cwd(), "package.json"));
+    const platformPackageJson = appRequire.resolve(
+      "react-native-gpui/package.json",
+    );
+    const macrosPath = path.relative(
+      path.join(destination, "gpui"),
+      path.join(path.dirname(platformPackageJson), "ReactGpui/rn-gpui-macros"),
+    );
     fs.writeFileSync(
       path.join(destination, "gpui/Cargo.toml"),
-      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n`,
+      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-macros = { path = ${JSON.stringify(macrosPath)} }\n`,
     );
   } else {
     fs.writeFileSync(
