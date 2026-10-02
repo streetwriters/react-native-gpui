@@ -9,7 +9,7 @@ pub(crate) mod host;
 pub(crate) mod http_client;
 pub(crate) mod image_loader;
 pub(crate) mod input;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "visual-capture"))]
 pub(crate) mod native_view_probe;
 pub(crate) mod node_view;
 pub(crate) mod store;

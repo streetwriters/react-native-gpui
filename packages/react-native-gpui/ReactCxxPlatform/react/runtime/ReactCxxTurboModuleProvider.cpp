@@ -6,6 +6,7 @@
  */
 
 #include "ReactCxxTurboModuleProvider.h"
+#include "GpuiDebug.h"
 
 #include <react/coremodules/AppStateModule.h>
 #include <react/coremodules/DeviceInfoModule.h>
@@ -70,7 +71,7 @@ std::shared_ptr<TurboModule> ReactCxxTurboModuleProvider::operator()(
 
   if (animatedNodesManagerProvider_ != nullptr &&
       name == AnimatedModule::kModuleName) {
-    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+    if (gpuiDebugAnimationEnabled()) {
       LOG(INFO) << "[native-animated] NativeAnimatedModule requested";
     }
     // when animatedNodesManagerProvider_ is null, defer to default

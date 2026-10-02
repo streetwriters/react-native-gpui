@@ -16,11 +16,11 @@
 //!                       is the fallback when the dev server is unreachable.
 //!   RN_GPUI_MODULE      registered component name to start (default App)
 //!   RN_GPUI_WIDTH/HEIGHT  surface constraints (default 800/600)
-//!   RN_GPUI_SCALE       overrides the display scale handed to Fabric; by
+//!   (visual-capture) RN_GPUI_SCALE       overrides the Fabric display scale;
 //!                       default the window's `scale_factor()` is used, so a
 //!                       Retina display gets `@2x` and a 1x display `@1x`
-//!   RN_GPUI_RUN_MS      close the window after N ms; 0 (default) = stay open
-//!   RN_GPUI_RESIZE_MS   after N ms resize the window to
+//!   (visual-capture) RN_GPUI_RUN_MS      close the window after N ms
+//!   (visual-capture) RN_GPUI_RESIZE_MS   after N ms resize the window to
 //!                       RN_GPUI_RESIZE_WIDTH x RN_GPUI_RESIZE_HEIGHT
 //!                       (defaults 1200x400); 0 (default) = never. This is the
 //!                       verification hook for TODO 1.12 — it drives the same
@@ -28,21 +28,21 @@
 //!   RN_GPUI_SCREENSHOT  with `--features visual-capture`: render the window's
 //!                       scene to this PNG path after the first mount batch,
 //!                       then quit (see the feature docs in Cargo.toml)
-//!   RN_GPUI_SCREENSHOT_DELAY_MS  how long to wait after that first batch
+//!   (visual-capture) RN_GPUI_WINDOW_STATE override the persisted window-state path
+//!   RN_GPUI_STARTUP_TRACE (visual-capture) print startup stages to stderr
+//!   (visual-capture) RN_GPUI_SCREENSHOT_DELAY_MS  wait after the first batch
 //!                       before capturing (default 500). Raise it past
 //!                       RN_GPUI_RESIZE_MS to capture the resized scene.
-//!   RN_GPUI_CLICK       `"x,y;x,y"` synthetic left clicks at window
+//!   (visual-capture) RN_GPUI_CLICK       `"x,y;x,y"` synthetic left clicks
 //!                       coordinates, dispatched as real GPUI mouse events
 //!                       (TODO 2.4)
-//!   RN_GPUI_CLICK_MS    delay before each click (default 1500)
-//!   RN_GPUI_HOVER       `"x,y;x,y"` synthetic pointer moves, dispatched as real
+//!   (visual-capture) RN_GPUI_CLICK_MS    delay before each click (default 1500)
+//!   (visual-capture) RN_GPUI_HOVER       `"x,y;x,y"` synthetic pointer moves
 //!                       GPUI mouse-move events (TODO 2.5)
-//!   RN_GPUI_HOVER_MS    delay before each move (default 1500)
+//!   (visual-capture) RN_GPUI_HOVER_MS    delay before each move (default 1500)
 //!
-//! Both synthetic-input knobs force a draw before dispatching (hit testing uses
-//! the last drawn frame's hitboxes) and flush RN's queued JS work afterwards
-//! (`flush_js`), so a headless run does not depend on the display staying awake
-//! to deliver frames.
+//! Synthetic input and visual capture settings are only read when built with
+//! `--features visual-capture`; normal app builds do not include those hooks.
 
 use crate::host::Host;
 use crate::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
@@ -57,12 +57,19 @@ fn env_string(key: &str, default: &str) -> String {
 }
 
 fn startup_trace(stage: &str) {
-    if std::env::var_os("RN_GPUI_STARTUP_TRACE").is_some() {
-        eprintln!("[rn-gpui startup] {stage}");
+    #[cfg(feature = "visual-capture")]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_STARTUP_TRACE").is_some()) {
+            eprintln!("[rn-gpui startup] {stage}");
+        }
     }
+    #[cfg(not(feature = "visual-capture"))]
+    let _ = stage;
 }
 
 fn window_state_path(app_id: &str) -> std::path::PathBuf {
+    #[cfg(feature = "visual-capture")]
     if let Some(path) = std::env::var_os("RN_GPUI_WINDOW_STATE") {
         return path.into();
     }
@@ -149,6 +156,7 @@ fn env_u32(key: &str, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+#[cfg(feature = "visual-capture")]
 fn env_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
         .ok()
@@ -156,12 +164,14 @@ fn env_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+#[cfg(feature = "visual-capture")]
 fn env_opt_f32(key: &str) -> Option<f32> {
     std::env::var(key).ok().and_then(|value| value.parse().ok())
 }
 
 /// `RN_GPUI_CLICK="400,150;400,200"` — synthetic clicks at window coordinates,
 /// for the headless "Done when" checks (TODO 2.4: the Pressable counter).
+#[cfg(feature = "visual-capture")]
 fn env_points(key: &str) -> Vec<(f32, f32)> {
     std::env::var(key)
         .ok()
@@ -177,6 +187,7 @@ fn env_points(key: &str) -> Vec<(f32, f32)> {
         .unwrap_or_default()
 }
 
+#[cfg(feature = "visual-capture")]
 fn env_scrolls(key: &str) -> Vec<(f32, f32, f32, f32)> {
     std::env::var(key)
         .unwrap_or_default()
@@ -204,6 +215,7 @@ fn env_scrolls(key: &str) -> Vec<(f32, f32, f32, f32)> {
 /// times` in a capture whose forced draw still painted correctly. Verification
 /// must not depend on the display being awake, so the synthetic input loops in
 /// `main` call this after each dispatch.
+#[cfg(feature = "visual-capture")]
 async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
     for _ in 0..6 {
         host.on_render();
@@ -363,28 +375,47 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let window_state_path = window_state_path(&app_id);
     // TODO 2.2: the display scale comes from the window (see below); the env
     // var is an escape hatch for tests on a machine with a different display.
+    #[cfg(feature = "visual-capture")]
     let scale_override = env_opt_f32("RN_GPUI_SCALE");
+    #[cfg(not(feature = "visual-capture"))]
+    let scale_override: Option<f32> = None;
+    #[cfg(feature = "visual-capture")]
     let run_ms = env_u32("RN_GPUI_RUN_MS", 0);
     #[cfg(feature = "perf-timing")]
     let benchmark_ms = env_u32("RN_GPUI_BENCHMARK_MS", 0);
     #[cfg(feature = "perf-timing")]
-    let benchmark_mode = env_string("RN_GPUI_BENCH_MODE", "unspecified");
+    let benchmark_mode = crate::store::benchmark_mode()
+        .unwrap_or("unspecified")
+        .to_owned();
+    #[cfg(feature = "visual-capture")]
     let resize_ms = env_u32("RN_GPUI_RESIZE_MS", 0);
+    #[cfg(feature = "visual-capture")]
     let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
+    #[cfg(feature = "visual-capture")]
     let resize_height = env_f32("RN_GPUI_RESIZE_HEIGHT", 400.0);
     // TODO 2.4 — synthetic clicks, spaced `RN_GPUI_CLICK_MS` apart, starting
     // after the first batch is on screen.
+    #[cfg(feature = "visual-capture")]
     let clicks = env_points("RN_GPUI_CLICK");
+    #[cfg(feature = "visual-capture")]
     let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
+    #[cfg(feature = "visual-capture")]
     let click_hold_ms = env_u32("RN_GPUI_CLICK_HOLD_MS", 0);
+    #[cfg(feature = "visual-capture")]
     let skip_synthetic_input_flush = env_bool("RN_GPUI_SKIP_INPUT_FLUSH", false);
     // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
     // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
+    #[cfg(feature = "visual-capture")]
     let hovers = env_points("RN_GPUI_HOVER");
+    #[cfg(feature = "visual-capture")]
     let hover_ms = env_u32("RN_GPUI_HOVER_MS", 800);
+    #[cfg(feature = "visual-capture")]
     let scrolls = env_scrolls("RN_GPUI_SCROLL");
+    #[cfg(feature = "visual-capture")]
     let scroll_ms = env_u32("RN_GPUI_SCROLL_MS", 1500);
+    #[cfg(feature = "visual-capture")]
     let scroll_start_ms = env_u32("RN_GPUI_SCROLL_START_MS", scroll_ms);
+    #[cfg(feature = "visual-capture")]
     let keys: Vec<String> = std::env::var("RN_GPUI_KEY")
         .unwrap_or_default()
         .split(';')
@@ -392,10 +423,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         .filter(|key| !key.is_empty())
         .map(str::to_owned)
         .collect();
+    #[cfg(feature = "visual-capture")]
     let key_ms = env_u32("RN_GPUI_KEY_MS", 1500);
+    #[cfg(feature = "visual-capture")]
     let screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
+    #[cfg(feature = "visual-capture")]
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
     // Capture interaction phases in one persistent run: "delay:path;delay:path".
+    #[cfg(feature = "visual-capture")]
     let screenshots: Vec<(u32, String)> = std::env::var("RN_GPUI_SCREENSHOTS")
         .unwrap_or_default()
         .split(';')
@@ -459,7 +494,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
     }));
 
+    #[cfg(feature = "visual-capture")]
     let headless = env_bool("RN_GPUI_HEADLESS", false);
+    #[cfg(not(feature = "visual-capture"))]
+    let headless = false;
     startup_trace(if headless {
         "using GPUI headless platform"
     } else {
@@ -499,17 +537,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // the window tracked while drawing, and the root view itself is not
         // invalidated after that first frame.
         let overlay_host = cx.new(|_| OverlayHost::new());
-        let mut root_view = SurfaceRootView::new().with_overlay_host(overlay_host.clone());
-        #[cfg(target_os = "macos")]
-        if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
-            root_view = root_view.with_native_view_probe(
+        let root_view = SurfaceRootView::new().with_overlay_host(overlay_host.clone());
+        #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+        let root_view = if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
+            root_view.with_native_view_probe(
                 crate::native_view_probe::create_webview_probe_entity(cx),
-            );
+            )
         } else if env_bool("RN_GPUI_NATIVE_COMPOSITION_PROBE", false) {
-            root_view = root_view.with_native_view_probe(
+            root_view.with_native_view_probe(
                 crate::native_view_probe::create_probe_entity(cx),
-            );
-        }
+            )
+        } else {
+            root_view
+        };
         let root = cx.new(|_| root_view);
         let restored_bounds = config
             .restore_window_state
@@ -588,6 +628,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
         // `ViewStore::new` consumes the typed handle; keep the type-erased
         // copy (`AnyWindowHandle` is `Copy`) for the resize hook below.
+        #[cfg(any(feature = "visual-capture", feature = "perf-timing"))]
         let any_window = *window;
 
         // TODO 2.2 — the surface is laid out in DIPs and Fabric rounds to device
@@ -644,6 +685,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
         // Kept for the synthetic input loops below: `ViewStore::new` consumes
         // the host handle.
+        #[cfg(feature = "visual-capture")]
         let host_for_input = host.clone();
         let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone(), overlay_host));
         cx.set_global(StoreGlobal(store.clone()));
@@ -657,6 +699,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // events through GPUI's own input path (`Window::dispatch_event`), the
         // same way the accesskit click fallback does. The app runs off-screen in
         // this environment, so this is how the Pressable counter is exercised.
+        #[cfg(feature = "visual-capture")]
         if !clicks.is_empty() {
             let host = host_for_input.clone();
             cx.spawn(async move |cx| {
@@ -714,6 +757,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // TODO 2.5 — headless hover: `RN_GPUI_HOVER` moves the pointer through
         // the same GPUI input path as a real one (`Window::dispatch_event`), so
         // `pointerEvents`, `cursor` and enter/leave are exercised off-screen.
+        #[cfg(feature = "visual-capture")]
         if !hovers.is_empty() {
             let frame_hook = frame_hook.clone();
             let host = host_for_input.clone();
@@ -755,6 +799,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
+        #[cfg(feature = "visual-capture")]
         if !scrolls.is_empty() {
             let frame_hook = frame_hook.clone();
             let host = host_for_input.clone();
@@ -792,6 +837,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
+        #[cfg(feature = "visual-capture")]
         if !keys.is_empty() {
             let frame_hook = frame_hook.clone();
             let host = host_for_input.clone();
@@ -872,6 +918,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             store.window_bounds_subscription = Some(bounds_subscription);
         });
 
+        #[cfg(feature = "visual-capture")]
         if resize_ms > 0 {
             let target = size(px(resize_width), px(resize_height));
             let timer = cx
@@ -893,6 +940,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
+        #[cfg(feature = "visual-capture")]
         if run_ms > 0 {
             let timer = cx
                 .background_executor()
@@ -944,6 +992,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // before its first Fabric transaction, the image still distinguishes
         // a blank host from a mounted surface; later captures see resize updates.
         cx.spawn(async move |cx| {
+            #[cfg(feature = "visual-capture")]
             for (delay_ms, path) in screenshots {
                 let store = store.clone();
                 let mut path = Some(path);
@@ -952,6 +1001,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 })
                 .detach();
             }
+            #[cfg(feature = "visual-capture")]
             if let Some(path) = screenshot {
                 let store = store.clone();
                 let mut path = Some(path);
@@ -1137,17 +1187,5 @@ async fn capture_and_quit(
         log::info!("screenshot saved; keeping the GPUI window open");
     } else {
         cx.update(|cx| cx.quit());
-    }
-}
-
-#[cfg(not(feature = "visual-capture"))]
-async fn capture_and_quit(
-    _cx: &mut gpui::AsyncApp,
-    _store: &gpui::Entity<ViewStore>,
-    path: &mut Option<String>,
-    _delay_ms: u32,
-) {
-    if let Some(path) = path.take() {
-        log::warn!("RN_GPUI_SCREENSHOT={path} ignored: rebuild with --features visual-capture");
     }
 }

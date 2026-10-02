@@ -5,9 +5,9 @@ edition = "2021"
 links = "rn_gpui_runtime"
 
 [features]
-# Frame capture for the §19 "Done when" checks. Screen capture is unavailable in
-# this environment (no Screen Recording permission), so instead we render the
-# window's own scene to a PNG off-screen: `RN_GPUI_SCREENSHOT=<path>`.
+# Test/probe controls: synthetic input, resize/scale/headless overrides, custom
+# window-state paths, startup tracing, native-view probes, and frame capture.
+# `RN_GPUI_SCREENSHOT` renders the window's own scene to a PNG off-screen.
 # gpui's `Window::render_to_image` is gated on `test-support` in gpui, gpui_macos
 # and gpui_apple, so the feature has to be enabled at the platform crate too.
 visual-capture = ["gpui_platform/test-support"]

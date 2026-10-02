@@ -38,7 +38,7 @@ curl --silent --show-error --fail \
 cargo build \
   --release \
   --manifest-path "${REPO_ROOT}/packages/react-native-gpui/ReactGpui/Cargo.toml" \
-  --features perf-timing
+  --features perf-timing,visual-capture
 
 args=(
   "RN_GPUI_BENCH_MODE=${MODE}"

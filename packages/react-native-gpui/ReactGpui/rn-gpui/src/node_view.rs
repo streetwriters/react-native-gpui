@@ -11,7 +11,13 @@ use gpui::{
     Role, StyleRefinement, Subscription, Task, WeakEntity, Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
+use std::sync::OnceLock;
 use std::time::Duration;
+
+fn debug_render_counts_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_DEBUG_RENDER_COUNTS").is_some())
+}
 
 fn elapsed_since_first_render_ms() -> u128 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -725,7 +731,7 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.render_count += 1;
-        if std::env::var_os("RN_GPUI_DEBUG_RENDER_COUNTS").is_some() {
+        if debug_render_counts_enabled() {
             log::info!(
                 "[retention] RNNodeView::render elapsed_ms={} tag={} component={} count={}",
                 elapsed_since_first_render_ms(),

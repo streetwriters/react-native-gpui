@@ -1,5 +1,6 @@
 // TODO 1.5 — design doc §18.7.
 #include "GpuiHost.h"
+#include <react/runtime/GpuiDebug.h>
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "GpuiHttpClient.h"
@@ -394,7 +395,7 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   // resulting prop patch to its retained node.
   animatedNodesManagerProvider_ = std::make_shared<NativeAnimatedNodesManagerProvider>(
       [this](std::function<void()>&& callback, bool /*isAsync*/) {
-        if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+        if (gpuiDebugAnimationEnabled()) {
           LOG(INFO) << "[native-animated] frame callback started";
         }
         {
@@ -404,7 +405,7 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
         rn_gpui_set_animated_active(true);
       },
       [this](bool /*isAsync*/) {
-        if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+        if (gpuiDebugAnimationEnabled()) {
           LOG(INFO) << "[native-animated] frame callback stopped";
         }
         {
@@ -552,7 +553,7 @@ void GpuiHost::on_render() const {
     animationFrame = animatedFrameCallback_;
   }
   if (animationFrame) {
-    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+    if (gpuiDebugAnimationEnabled()) {
       static std::atomic<uint64_t> frames{0};
       const auto frame = ++frames;
       if (frame % 60 == 0) {

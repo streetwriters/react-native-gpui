@@ -6,6 +6,7 @@
 // `rn_gpui_on_mount(std::move(batch))` — which queues it for the GPUI main
 // thread and returns immediately, keeping Fabric's mounting thread free.
 #include "GpuiMountingManager.h"
+#include <react/runtime/GpuiDebug.h>
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "GpuiHost.h"               // TODO 2.6 — kAllSurfacesStopped
@@ -217,7 +218,7 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
 void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
     Tag tag,
     const folly::dynamic& props) {
-  if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+  if (gpuiDebugAnimationEnabled()) {
     static std::atomic<uint64_t> calls{0};
     const auto call = ++calls;
     if (call <= 5 || call % 60 == 0) {
@@ -260,7 +261,7 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
     }
   }
   if (update.has_opacity || update.has_transform || update.reset_transform) {
-    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+    if (gpuiDebugAnimationEnabled()) {
       static std::atomic<uint64_t> updates{0};
       const auto updateNumber = ++updates;
       if (updateNumber % 60 == 0) {

@@ -10,12 +10,21 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::RNNodeView;
+#[cfg(all(target_os = "macos", feature = "visual-capture"))]
+use gpui::deferred;
 use gpui::{
-    deferred, div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global,
-    IntoElement, Pixels, Point, Subscription, Window,
+    div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Pixels,
+    Point, Subscription, Window,
 };
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
+pub(crate) fn benchmark_mode() -> Option<&'static str> {
+    static MODE: OnceLock<Option<String>> = OnceLock::new();
+    MODE.get_or_init(|| std::env::var("RN_GPUI_BENCH_MODE").ok())
+        .as_deref()
+}
 
 /// Surface id of the app surface the window shows (TODO 2.6: every other
 /// surface — currently only LogBox — is painted as an overlay above it).
@@ -78,7 +87,7 @@ impl ViewStore {
             overlay_host,
             hovered: Vec::new(),
             pointer: point(px(0.), px(0.)),
-            log_mount_ops: std::env::var_os("RN_GPUI_BENCH_MODE").is_none(),
+            log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
             window_appearance_subscription: None,
         }
@@ -428,7 +437,7 @@ pub struct SurfaceRootView {
     /// TODO 2.6 — set on the app surface only: the tracked child that paints
     /// LogBox (see [`OverlayHost`]) above this surface's children.
     pub overlay_host: Option<Entity<OverlayHost>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
 }
 
@@ -437,7 +446,7 @@ impl SurfaceRootView {
         Self {
             children: Vec::new(),
             overlay_host: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
     }
@@ -449,7 +458,7 @@ impl SurfaceRootView {
         self
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     pub fn with_native_view_probe(
         mut self,
         native_view_probe: Entity<crate::native_view_probe::NativeViewCompositionProbeView>,
@@ -483,13 +492,13 @@ impl Render for SurfaceRootView {
                 crate::events::leave_root(window, cx);
             }))
             .children(self.children.iter().map(|(_, child)| child.clone()));
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         if let Some(native_view_probe) = &self.native_view_probe {
             root = root.child(native_view_probe.clone());
         }
         // TODO 2.6 — LogBox (surface 2) paints after the app surface.
         if let Some(overlay_host) = &self.overlay_host {
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             if self.native_view_probe.is_some() {
                 // GPUI's deferred pass targets the window composition overlay
                 // surface, above the native test view.
@@ -497,7 +506,7 @@ impl Render for SurfaceRootView {
             } else {
                 root = root.child(overlay_host.clone());
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(all(target_os = "macos", feature = "visual-capture")))]
             {
                 root = root.child(overlay_host.clone());
             }
