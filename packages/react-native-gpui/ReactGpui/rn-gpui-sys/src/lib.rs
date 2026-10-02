@@ -57,6 +57,7 @@ pub mod ffi {
         pub opacity: f32,
         pub background_color: u32,
         pub border_widths: EdgesF,
+        pub content_insets: EdgesF,  // RN layout border + padding insets
         pub border_colors: [u32; 4], // left, top, right, bottom
         pub border_styles: [u8; 4],  // 0 solid, 1 dotted, 2 dashed
         pub border_radii: CornersF,

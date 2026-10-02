@@ -105,6 +105,64 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
     font
 }
 
+/// Measure the insertion point with the same font shaping GPUI uses to paint
+/// the input text, so proportional fonts and Unicode land the caret correctly.
+pub(crate) fn input_caret_x(
+    text_system: &gpui::WindowTextSystem,
+    paragraph: &ParagraphFlat,
+    line: &str,
+    byte_index: usize,
+) -> f32 {
+    if line.is_empty() {
+        return 0.0;
+    }
+    let Some(fragment) = paragraph.fragments.first() else {
+        return 0.0;
+    };
+    let font = font_of(fragment);
+    let text = SharedString::from(line.to_owned());
+    let run = TextRun {
+        len: text.len(),
+        font,
+        color: crate::style::color(fragment.color),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    f32::from(
+        text_system
+            .shape_line(text, px(font_size_of(fragment.font_size)), &[run], None)
+            .x_for_index(byte_index.min(line.len())),
+    )
+}
+
+pub(crate) fn input_index_for_x(
+    text_system: &gpui::WindowTextSystem,
+    paragraph: &ParagraphFlat,
+    line: &str,
+    x: f32,
+) -> usize {
+    if line.is_empty() {
+        return 0;
+    }
+    let Some(fragment) = paragraph.fragments.first() else {
+        return 0;
+    };
+    let font = font_of(fragment);
+    let text = SharedString::from(line.to_owned());
+    let run = TextRun {
+        len: text.len(),
+        font,
+        color: crate::style::color(fragment.color),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    text_system
+        .shape_line(text, px(font_size_of(fragment.font_size)), &[run], None)
+        .closest_index_for_x(px(x.max(0.0)))
+}
+
 fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
     let mut text = String::new();
     let mut runs = Vec::with_capacity(paragraph.fragments.len());

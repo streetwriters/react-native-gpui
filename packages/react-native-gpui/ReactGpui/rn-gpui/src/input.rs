@@ -8,6 +8,171 @@ use gpui::{
 };
 use std::ops::Range;
 
+pub(crate) fn handle_key(
+    this: &mut RNNodeView,
+    key: &str,
+    extend_selection: bool,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) -> bool {
+    if !this.input_editable {
+        return false;
+    }
+    match key {
+        "backspace" | "delete" => {
+            let mut range = selected_range(this);
+            if range.is_empty() {
+                if key == "backspace" {
+                    range.start = this.input_text[..range.start]
+                        .char_indices()
+                        .next_back()
+                        .map(|(index, _)| index)
+                        .unwrap_or(0);
+                } else if range.end < this.input_text.len() {
+                    range.end += this.input_text[range.end..]
+                        .chars()
+                        .next()
+                        .map(char::len_utf8)
+                        .unwrap_or(0);
+                }
+            }
+            if !range.is_empty() {
+                this.input_text.replace_range(range.clone(), "");
+                this.input_selection = range.start..range.start;
+                this.input_selection_anchor = None;
+                this.input_marked = None;
+                this.sync_input_paragraph();
+                emit_change(this, window, cx);
+            }
+            true
+        }
+        "enter" => {
+            if this.input_multiline {
+                replace_plain_text(
+                    &mut this.input_text,
+                    &mut this.input_selection,
+                    &mut this.input_marked,
+                    None,
+                    "\n",
+                );
+                this.sync_input_paragraph();
+                emit_change(this, window, cx);
+            } else if let Some(store) = store_from(cx) {
+                store.read(cx).host.dispatch_event(
+                    this.tag,
+                    "topSubmitEditing",
+                    &serde_json::json!({
+                        "text": this.input_text, "eventCount": this.input_event_count,
+                    }),
+                );
+            }
+            true
+        }
+        "left" | "right" | "home" | "end" => {
+            let text = this.input_text.as_str();
+            let selection = selected_range(this);
+            let (anchor, focus) = if extend_selection {
+                let anchor = *this.input_selection_anchor.get_or_insert(selection.start);
+                let active = if selection.is_empty() {
+                    selection.end
+                } else if anchor == selection.start {
+                    selection.end
+                } else {
+                    selection.start
+                };
+                let next = match key {
+                    "left" => text[..active]
+                        .char_indices()
+                        .next_back()
+                        .map(|(index, _)| index)
+                        .unwrap_or(0),
+                    "right" => {
+                        active
+                            + text[active..]
+                                .chars()
+                                .next()
+                                .map(char::len_utf8)
+                                .unwrap_or(0)
+                    }
+                    "home" => text[..active]
+                        .rfind('\n')
+                        .map(|index| index + 1)
+                        .unwrap_or(0),
+                    "end" => active + text[active..].find('\n').unwrap_or(text.len() - active),
+                    _ => active,
+                };
+                (anchor, next)
+            } else if !selection.is_empty() {
+                this.input_selection_anchor = None;
+                let cursor = if key == "left" || key == "home" {
+                    selection.start
+                } else {
+                    selection.end
+                };
+                (cursor, cursor)
+            } else {
+                this.input_selection_anchor = None;
+                let cursor = selection.end;
+                let next = match key {
+                    "left" => text[..cursor]
+                        .char_indices()
+                        .next_back()
+                        .map(|(index, _)| index)
+                        .unwrap_or(0),
+                    "right" => {
+                        cursor
+                            + text[cursor..]
+                                .chars()
+                                .next()
+                                .map(char::len_utf8)
+                                .unwrap_or(0)
+                    }
+                    "home" => text[..cursor]
+                        .rfind('\n')
+                        .map(|index| index + 1)
+                        .unwrap_or(0),
+                    "end" => cursor + text[cursor..].find('\n').unwrap_or(text.len() - cursor),
+                    _ => cursor,
+                };
+                (next, next)
+            };
+            this.input_selection = anchor.min(focus)..anchor.max(focus);
+            this.input_marked = None;
+            emit_selection(this, window, cx);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Place or extend the native text selection from a pointer position. GPUI's
+/// input handler supplies the shaped-text hit test, while RN receives the
+/// resulting UTF-16 selection event through the same path as keyboard moves.
+pub(crate) fn select_at_point(
+    this: &mut RNNodeView,
+    point: Point<Pixels>,
+    extend: bool,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) {
+    if this.component != "TextInput" || !this.input_editable {
+        return;
+    }
+    let index = this
+        .character_index_for_point(point, window, cx)
+        .map(|index| byte_at_utf16(&this.input_text, index))
+        .unwrap_or(this.input_text.len());
+    let anchor = if extend {
+        this.input_selection_anchor
+            .unwrap_or(this.input_selection.start)
+    } else {
+        index
+    };
+    this.input_selection_anchor = Some(anchor);
+    this.input_selection = anchor.min(index)..anchor.max(index);
+    emit_selection(this, window, cx);
+}
+
 pub(crate) fn byte_at_utf16(text: &str, offset: usize) -> usize {
     let mut units = 0;
     for (byte, ch) in text.char_indices() {
@@ -127,6 +292,7 @@ fn clear_text_state(
 
 fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     this.input_event_count += 1;
+    this.input_selection_anchor = None;
     let text = this.input_text.clone();
     let selection = utf16_range(&text, selected_range(this));
     if let Some(store) = store_from(cx) {
@@ -146,10 +312,11 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
         );
         store.read(cx).frame_hook.arm(window);
     }
+    this.reset_text_input_caret(cx);
     cx.notify();
 }
 
-fn emit_selection(this: &RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     let selection = utf16_range(&this.input_text, selected_range(this));
     if let Some(store) = store_from(cx) {
         let host = store.read(cx).host.clone();
@@ -160,6 +327,7 @@ fn emit_selection(this: &RNNodeView, window: &mut Window, cx: &mut Context<RNNod
         );
         store.read(cx).frame_hook.arm(window);
     }
+    this.reset_text_input_caret(cx);
     cx.notify();
 }
 
@@ -282,9 +450,8 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        // GPUI's IME needs a stable rectangle for the active input. Text shaping
-        // supplies finer glyph bounds in the renderer; until then the input
-        // surface is the conservative composition rectangle.
+        // The input frame is the stable composition rectangle. The native view
+        // bounds remain available here until GPUI exposes per-glyph IME bounds.
         let _ = range_utf16;
         Some(element_bounds)
     }
@@ -292,7 +459,7 @@ impl EntityInputHandler for RNNodeView {
     fn character_index_for_point(
         &mut self,
         point: Point<Pixels>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<usize> {
         let origin = self.absolute_origin(cx);
@@ -315,8 +482,12 @@ impl EntityInputHandler for RNNodeView {
                 }
             })
             .unwrap_or(font_size * 1.2);
-        let local_x = (f32::from(point.x - origin.x) / scale_x.max(0.0001) - 4.0).max(0.0);
-        let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)).max(0.0);
+        let local_x = (f32::from(point.x - origin.x) / scale_x.max(0.0001)
+            - self.view.content_insets.left)
+            .max(0.0);
+        let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)
+            - self.view.content_insets.top)
+            .max(0.0);
         let target_line = if self.input_multiline {
             (local_y / line_height.max(1.0)).floor() as usize
         } else {
@@ -334,11 +505,12 @@ impl EntityInputHandler for RNNodeView {
                 line_text = "";
             }
         }
-        let column = (local_x / (font_size * 0.5).max(1.0)).round() as usize;
-        let byte_in_line = line_text
-            .char_indices()
-            .nth(column)
-            .map(|(byte, _)| byte)
+        let byte_in_line = self
+            .paragraph
+            .as_ref()
+            .map(|paragraph| {
+                crate::text::input_index_for_x(window.text_system(), paragraph, line_text, local_x)
+            })
             .unwrap_or(line_text.len());
         Some(utf16_at_byte(&self.input_text, byte_start + byte_in_line))
     }
@@ -350,6 +522,7 @@ impl EntityInputHandler for RNNodeView {
         cx: &mut Context<Self>,
     ) {
         self.input_selection = byte_range(&self.input_text, range_utf16);
+        self.input_selection_anchor = None;
         emit_selection(self, _window, cx);
     }
 

@@ -8,9 +8,10 @@ use crate::style;
 use gpui::{
     div, point, prelude::*, px, App, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
     KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Position,
-    Role, StyleRefinement, Subscription, WeakEntity, Window,
+    Role, StyleRefinement, Subscription, Task, WeakEntity, Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
+use std::time::Duration;
 
 fn elapsed_since_first_render_ms() -> u128 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -48,8 +49,11 @@ pub struct RNNodeView {
     pub input_multiline: bool,
     pub input_editable: bool,
     pub input_selection: std::ops::Range<usize>,
+    pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
     pub input_event_count: i32,
+    caret_visible: bool,
+    caret_blink_task: Task<()>,
     pub modal_visible: bool,
     /// `Image` source, only present for image nodes (TODO 2.6).
     pub image_uri: Option<String>,
@@ -109,6 +113,36 @@ impl RNNodeView {
         self.animated_transform = transform;
     }
 
+    fn start_caret_blink(&mut self, cx: &mut Context<Self>) {
+        if self.component != "TextInput" {
+            return;
+        }
+        self.caret_visible = true;
+        self.caret_blink_task = cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(530))
+                .await;
+            if this
+                .update(cx, |view, cx| {
+                    view.caret_visible = !view.caret_visible;
+                    cx.notify();
+                })
+                .is_err()
+            {
+                break;
+            }
+        });
+    }
+
+    fn stop_caret_blink(&mut self) {
+        self.caret_visible = false;
+        self.caret_blink_task = Task::ready(());
+    }
+
+    pub(crate) fn reset_text_input_caret(&mut self, cx: &mut Context<Self>) {
+        self.start_caret_blink(cx);
+    }
+
     fn accessibility_role(&self) -> Option<Role> {
         role_for_accessibility_role(&self.view.accessibility_role, self.view.accessible)
     }
@@ -161,8 +195,11 @@ impl RNNodeView {
             input_multiline: op.text_input_multiline,
             input_editable: op.text_input_editable,
             input_selection: 0..0,
+            input_selection_anchor: None,
             input_marked: None,
             input_event_count: 0,
+            caret_visible: false,
+            caret_blink_task: Task::ready(()),
             modal_visible: op.modal_visible,
             image_uri: (!op.image_uri.is_empty()).then(|| op.image_uri.clone()),
             image_resize_mode: op.image_resize_mode,
@@ -765,7 +802,10 @@ impl Render for RNNodeView {
                     self.focus_subscriptions.push(cx.on_focus(
                         &handle,
                         window,
-                        move |_this, window, cx| {
+                        move |this, window, cx| {
+                            if is_text_input {
+                                this.start_caret_blink(cx);
+                            }
                             focused_host.dispatch_event(
                                 tag,
                                 if is_text_input { "topFocus" } else { "focus" },
@@ -781,7 +821,11 @@ impl Render for RNNodeView {
                     self.focus_subscriptions.push(cx.on_blur(
                         &handle,
                         window,
-                        move |_this, window, cx| {
+                        move |this, window, cx| {
+                            if is_text_input {
+                                this.stop_caret_blink();
+                                cx.notify();
+                            }
                             host.dispatch_event(
                                 tag,
                                 if is_text_input { "topBlur" } else { "blur" },
@@ -801,6 +845,17 @@ impl Render for RNNodeView {
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                    if this.component == "TextInput"
+                        && crate::input::handle_key(
+                            this,
+                            &event.keystroke.key,
+                            event.keystroke.modifiers.shift,
+                            window,
+                            cx,
+                        )
+                    {
+                        cx.stop_propagation();
+                    }
                     if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                         store.0.read(cx).frame_hook.arm(window);
                     }
@@ -849,10 +904,6 @@ impl Render for RNNodeView {
         // frame. Nothing flex-related is ever set (see the module docs).
         *element.style() = {
             let mut style = self.cached_style.clone();
-            style.border_widths.left = Some(px(self.view.border_widths.left * scale_x).into());
-            style.border_widths.right = Some(px(self.view.border_widths.right * scale_x).into());
-            style.border_widths.top = Some(px(self.view.border_widths.top * scale_y).into());
-            style.border_widths.bottom = Some(px(self.view.border_widths.bottom * scale_y).into());
             let radius_scale = scale_x.min(scale_y);
             style.corner_radii.top_left = Some(px(self.view.border_radii.tl * radius_scale).into());
             style.corner_radii.top_right =
@@ -903,6 +954,9 @@ impl Render for RNNodeView {
                         if let Some(handle) = this.nearest_focus_handle(cx) {
                             window.focus(&handle, cx);
                         }
+                        if this.component == "TextInput" {
+                            crate::input::select_at_point(this, event.position, false, window, cx);
+                        }
                         if let Some(target) = crate::events::target(cx, this) {
                             crate::events::send(
                                 window,
@@ -918,6 +972,9 @@ impl Render for RNNodeView {
                 .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                     let target = crate::events::target(cx, this);
                     if event.pressed_button.is_some() {
+                        if this.component == "TextInput" && this.input_selection_anchor.is_some() {
+                            crate::input::select_at_point(this, event.position, true, window, cx);
+                        }
                         // A drag: RN touch moves need an active touch.
                         if let Some(target) = target.as_ref() {
                             crate::events::send(
@@ -961,17 +1018,41 @@ impl Render for RNNodeView {
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
             }
-            element = element.child(crate::text::paragraph_element(
-                &scaled_paragraph,
-                frame.w * scale_x,
-                frame.h * scale_y,
-            ));
+            if self.component == "TextInput" {
+                let left = self.view.content_insets.left * scale_x;
+                let top = self.view.content_insets.top * scale_y;
+                let right = self.view.content_insets.right * scale_x;
+                let bottom = self.view.content_insets.bottom * scale_y;
+                element = element.child(
+                    div()
+                        .absolute()
+                        .left(px(left))
+                        .top(px(top))
+                        .w(px((frame.w * scale_x - left - right).max(0.0)))
+                        .h(px((frame.h * scale_y - top - bottom).max(0.0)))
+                        .child(crate::text::paragraph_element(
+                            &scaled_paragraph,
+                            (frame.w * scale_x - left - right).max(0.0),
+                            (frame.h * scale_y - top - bottom).max(0.0),
+                        )),
+                );
+            } else {
+                element = element.child(crate::text::paragraph_element(
+                    &scaled_paragraph,
+                    frame.w * scale_x,
+                    frame.h * scale_y,
+                ));
+            }
         }
         if self.component == "TextInput" {
             let input = cx.entity();
             let focus = self.focus_handle.clone();
             let caret_text = self.input_text.clone();
             let caret_offset = self.input_selection.end.min(self.input_text.len());
+            let caret_paragraph = self.paragraph.clone().unwrap_or_default();
+            let input_selection = self.input_selection.clone();
+            let content_insets = self.view.content_insets;
+            let caret_visible = self.caret_visible;
             let caret_height = self
                 .paragraph
                 .as_ref()
@@ -989,20 +1070,85 @@ impl Render for RNNodeView {
                     gpui::canvas(
                         |_bounds, _window, _cx| (),
                         move |bounds, _state, window, cx| {
-                            if let Some(focus) = focus.as_ref() {
-                                if focus.is_focused(window) {
-                                    let prefix = &caret_text[..caret_offset];
+                            if focus.as_ref().is_some_and(|f| f.is_focused(window)) {
+                                if !input_selection.is_empty() {
+                                    let start = input_selection.start.min(caret_text.len());
+                                    let end = input_selection.end.min(caret_text.len());
+                                    let content_width = f32::from(bounds.size.width)
+                                        - (content_insets.left + content_insets.right) * scale_x;
+                                    let mut line_start = 0;
+                                    for (line_number, raw_line) in
+                                        caret_text.split_inclusive('\n').enumerate()
+                                    {
+                                        let line = raw_line.trim_end_matches('\n');
+                                        let line_end = line_start + line.len();
+                                        let selected_start = start.max(line_start).min(line_end);
+                                        let selected_end = end.min(line_end).max(selected_start);
+                                        let includes_newline = end > line_end
+                                            && start <= line_end
+                                            && raw_line.ends_with('\n');
+                                        if selected_end > selected_start || includes_newline {
+                                            let prefix = &line[..selected_start - line_start];
+                                            let through_selection =
+                                                &line[..selected_end - line_start];
+                                            let x0 = crate::text::input_caret_x(
+                                                window.text_system(),
+                                                &caret_paragraph,
+                                                prefix,
+                                                prefix.len(),
+                                            );
+                                            let x1 = crate::text::input_caret_x(
+                                                window.text_system(),
+                                                &caret_paragraph,
+                                                through_selection,
+                                                through_selection.len(),
+                                            );
+                                            let width = if includes_newline {
+                                                (content_width - x0).max(1.0)
+                                            } else {
+                                                (x1 - x0).max(1.0)
+                                            };
+                                            let selection = gpui::Bounds {
+                                                origin: point(
+                                                    bounds.origin.x
+                                                        + px(content_insets.left * scale_x + x0),
+                                                    bounds.origin.y
+                                                        + px(content_insets.top * scale_y
+                                                            + line_number as f32 * caret_height),
+                                                ),
+                                                size: gpui::size(px(width), px(caret_height)),
+                                            };
+                                            window.paint_quad(gpui::fill(
+                                                selection,
+                                                gpui::rgba(0x3875d788),
+                                            ));
+                                        }
+                                        line_start += raw_line.len();
+                                    }
+                                }
+                                if caret_visible {
+                                    let offset = caret_offset.min(caret_text.len());
+                                    let safe_offset = (0..=offset)
+                                        .rev()
+                                        .find(|index| caret_text.is_char_boundary(*index))
+                                        .unwrap_or(0);
+                                    let prefix = &caret_text[..safe_offset];
                                     let line = prefix.rsplit('\n').next().unwrap_or(prefix);
                                     let line_number =
                                         prefix.bytes().filter(|byte| *byte == b'\n').count();
-                                    let char_width = caret_height * 0.5 * scale_x;
-                                    let x = bounds.origin.x
-                                        + px(4.0 * scale_x
-                                            + line.chars().count() as f32 * char_width);
-                                    let y = bounds.origin.y + px(line_number as f32 * caret_height);
+                                    let x = crate::text::input_caret_x(
+                                        window.text_system(),
+                                        &caret_paragraph,
+                                        line,
+                                        line.len(),
+                                    );
+                                    let x = bounds.origin.x + px(content_insets.left * scale_x + x);
+                                    let y = bounds.origin.y
+                                        + px(content_insets.top * scale_y
+                                            + line_number as f32 * caret_height);
                                     let caret = gpui::Bounds {
                                         origin: point(x, y),
-                                        size: gpui::size(px(scale_x.max(0.0)), px(caret_height)),
+                                        size: gpui::size(px(scale_x.max(1.0)), px(caret_height)),
                                     };
                                     window.paint_quad(gpui::fill(caret, gpui::black()));
                                 }

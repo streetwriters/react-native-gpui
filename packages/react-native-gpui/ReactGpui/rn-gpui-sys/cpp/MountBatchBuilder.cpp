@@ -82,6 +82,11 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
       layoutMetrics.borderWidth.top,
       layoutMetrics.borderWidth.right,
       layoutMetrics.borderWidth.bottom};
+  out.content_insets = {
+      layoutMetrics.contentInsets.left,
+      layoutMetrics.contentInsets.top,
+      layoutMetrics.contentInsets.right,
+      layoutMetrics.contentInsets.bottom};
 
   auto colors = props->borderColors.resolve(/*isRTL*/ false, SharedColor{});
   out.border_colors = {argb(colors.left), argb(colors.top), argb(colors.right), argb(colors.bottom)};

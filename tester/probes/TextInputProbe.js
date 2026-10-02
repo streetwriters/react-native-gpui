@@ -11,6 +11,12 @@ export default function TextInputProbe() {
   useEffect(() => {
     console.log(`[textinput-probe] single-line JS value=${JSON.stringify(single)}`);
   }, [single]);
+  useEffect(() => {
+    console.log(`[textinput-probe] selection=${selection.start}-${selection.end}`);
+  }, [selection]);
+  useEffect(() => {
+    console.log(`[textinput-probe] multiline JS value=${JSON.stringify(multi)}`);
+  }, [multi]);
 
   return (
     <View style={{flex: 1, padding: 24, gap: 16, backgroundColor: '#fff'}}>
