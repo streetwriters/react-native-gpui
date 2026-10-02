@@ -397,7 +397,11 @@ fn main() {
         let overlay_host = cx.new(|_| OverlayHost::new());
         let mut root_view = SurfaceRootView::new(1).with_overlay_host(overlay_host.clone());
         #[cfg(target_os = "macos")]
-        if env_bool("RN_GPUI_NATIVE_COMPOSITION_PROBE", false) {
+        if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
+            root_view = root_view.with_native_view_probe(
+                rn_gpui::native_view_probe::create_webview_probe_entity(cx),
+            );
+        } else if env_bool("RN_GPUI_NATIVE_COMPOSITION_PROBE", false) {
             root_view = root_view.with_native_view_probe(
                 rn_gpui::native_view_probe::create_probe_entity(cx),
             );

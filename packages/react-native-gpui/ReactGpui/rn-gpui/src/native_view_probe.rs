@@ -1,12 +1,12 @@
-//! macOS composition fixture for Phase 4.1. A plain layer-backed NSView is
-//! attached to a GPUI native composition surface; GPUI updates its bounds from
-//! the element layout while deferred RN content paints on the overlay surface.
+//! macOS composition fixtures for Phase 4.1/4.2. An AppKit NSView or WKWebView
+//! is attached to a GPUI native composition surface while deferred GPUI content
+//! paints on the overlay surface.
 
 use anyhow::{Context as _, Result};
 use cocoa::{
     appkit::{NSView, NSViewHeightSizable, NSViewWidthSizable},
-    base::{id, YES},
-    foundation::{NSPoint, NSRect, NSSize},
+    base::{id, nil, YES},
+    foundation::{NSPoint, NSRect, NSSize, NSString},
 };
 use gpui::{
     deferred, div, px, relative, rgb, App, AppContext, Bounds, Context, Element, ElementId, Entity,
@@ -16,6 +16,20 @@ use gpui::{
 use objc::{class, msg_send, sel, sel_impl};
 use std::{cell::Cell, rc::Rc};
 
+#[link(name = "WebKit", kind = "framework")]
+unsafe extern "C" {}
+
+#[derive(Clone, Copy)]
+pub enum NativeContentKind {
+    AppKitView,
+    WebView,
+}
+
+const WEBVIEW_HTML: &str = r#"<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+html,body{margin:0;width:100%;height:100%;font:16px -apple-system,BlinkMacSystemFont,sans-serif;color:#102033;background:linear-gradient(135deg,#e5f4fa,#c2e1ef)}
+main{box-sizing:border-box;padding:28px;height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px}h1{font-size:22px;margin:0}p{margin:0;line-height:1.45}
+</style></head><body><main><h1>WKWebView native surface</h1><p>This page is rendered by WebKit in an AppKit view attached to the GPUI composition surface.</p><p>Resize the window and use the GPUI overlay control above this area.</p></main></body></html>"#;
+
 pub struct NativeViewCompositionProbe {
     surface: WindowCompositionSurface,
     view: id,
@@ -23,7 +37,7 @@ pub struct NativeViewCompositionProbe {
 }
 
 impl NativeViewCompositionProbe {
-    pub fn new(window: &Window) -> Result<Self> {
+    pub fn new(window: &Window, kind: NativeContentKind) -> Result<Self> {
         let composition = window.enable_window_composition()?;
         let surface = composition.create_native_surface()?;
         let container = surface
@@ -34,12 +48,22 @@ impl NativeViewCompositionProbe {
             .map_err(|_| anyhow::anyhow!("native composition surface is not an AppKit view"))?;
 
         unsafe {
-            let view: id = msg_send![class!(NSView), alloc];
-            let view: id = msg_send![
-                view,
-                initWithFrame: NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.))
-            ];
-            anyhow::ensure!(!view.is_null(), "failed to create native test NSView");
+            let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
+            let view: id = match kind {
+                NativeContentKind::AppKitView => {
+                    let view: id = msg_send![class!(NSView), alloc];
+                    msg_send![view, initWithFrame: frame]
+                }
+                NativeContentKind::WebView => {
+                    let configuration: id = msg_send![class!(WKWebViewConfiguration), new];
+                    let allocated: id = msg_send![class!(WKWebView), alloc];
+                    let view: id =
+                        msg_send![allocated, initWithFrame: frame configuration: configuration];
+                    let _: () = msg_send![configuration, release];
+                    view
+                }
+            };
+            anyhow::ensure!(!view.is_null(), "failed to create native composition view");
 
             let _: () = msg_send![view, setWantsLayer: YES];
             let _: () = msg_send![
@@ -47,20 +71,36 @@ impl NativeViewCompositionProbe {
                 setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable
             ];
             let layer: id = msg_send![view, layer];
-            let color: id = msg_send![
-                class!(NSColor),
-                colorWithSRGBRed: 0.08
-                green: 0.48
-                blue: 0.68
-                alpha: 1.0
-            ];
-            let color: id = msg_send![color, CGColor];
-            let _: () = msg_send![layer, setBackgroundColor: color];
             let _: () = msg_send![layer, setCornerRadius: 12.0];
             let _: () = msg_send![layer, setMasksToBounds: YES];
+            if matches!(kind, NativeContentKind::AppKitView) {
+                let color: id = msg_send![
+                    class!(NSColor),
+                    colorWithSRGBRed: 0.08
+                    green: 0.48
+                    blue: 0.68
+                    alpha: 1.0
+                ];
+                let color: id = msg_send![color, CGColor];
+                let _: () = msg_send![layer, setBackgroundColor: color];
+            } else {
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "NSString is released after WebKit copies the HTML"
+                )]
+                let html = NSString::alloc(nil).init_str(WEBVIEW_HTML);
+                let _: id = msg_send![view, loadHTMLString: html baseURL: nil];
+                let _: () = msg_send![html, release];
+            }
             let _: () = msg_send![container, addSubview: view];
 
-            log::info!("[native-view-probe] attached AppKit NSView to composition surface");
+            log::info!(
+                "[native-view-probe] attached {:?} to composition surface",
+                match kind {
+                    NativeContentKind::AppKitView => "AppKit NSView",
+                    NativeContentKind::WebView => "WKWebView",
+                }
+            );
             Ok(Self {
                 surface,
                 view,
@@ -95,13 +135,15 @@ impl Drop for NativeViewCompositionProbe {
 pub struct NativeViewCompositionProbeView {
     fixture: Option<Rc<NativeViewCompositionProbe>>,
     overlay_visible: bool,
+    kind: NativeContentKind,
 }
 
 impl NativeViewCompositionProbeView {
-    pub fn new() -> Self {
+    pub fn new(kind: NativeContentKind) -> Self {
         Self {
             fixture: None,
             overlay_visible: false,
+            kind,
         }
     }
 }
@@ -109,7 +151,7 @@ impl NativeViewCompositionProbeView {
 impl Render for NativeViewCompositionProbeView {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         if self.fixture.is_none() {
-            match NativeViewCompositionProbe::new(window) {
+            match NativeViewCompositionProbe::new(window, self.kind) {
                 Ok(fixture) => self.fixture = Some(Rc::new(fixture)),
                 Err(error) => log::error!("[native-view-probe] initialization failed: {error:#}"),
             }
@@ -177,8 +219,13 @@ impl Render for NativeViewCompositionProbeView {
                         .border_color(rgb(0xffffff))
                         .bg(rgb(0xffffff).opacity(0.82))
                         .text_color(rgb(0x18212f))
-                        .child("GPUI overlay above the blue AppKit NSView")
-                        .child("The blue should remain visible through this panel."),
+                        .child(match self.kind {
+                            NativeContentKind::AppKitView => {
+                                "GPUI overlay above the blue AppKit NSView"
+                            }
+                            NativeContentKind::WebView => "GPUI overlay above the WKWebView",
+                        })
+                        .child("Native content should remain visible through this panel."),
                 )
                 .priority(100),
             );
@@ -252,5 +299,9 @@ impl Element for NativeViewSurfaceElement {
 }
 
 pub fn create_probe_entity(cx: &mut App) -> Entity<NativeViewCompositionProbeView> {
-    cx.new(|_| NativeViewCompositionProbeView::new())
+    cx.new(|_| NativeViewCompositionProbeView::new(NativeContentKind::AppKitView))
+}
+
+pub fn create_webview_probe_entity(cx: &mut App) -> Entity<NativeViewCompositionProbeView> {
+    cx.new(|_| NativeViewCompositionProbeView::new(NativeContentKind::WebView))
 }

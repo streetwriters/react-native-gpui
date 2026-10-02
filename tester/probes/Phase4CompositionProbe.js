@@ -1,18 +1,18 @@
 import React, {useEffect} from 'react';
 import {AppRegistry, Text, View} from 'react-native';
 
-/** First isolate native/GPUI z-ordering; the GPUI probe control owns toggling. */
+/** Verify native/GPUI z-ordering; the GPUI probe control owns toggling. */
 export default function Phase4CompositionProbe() {
   useEffect(() => {
-    console.log('[phase4-composition] AppKit native surface probe mounted');
+    console.log('[phase4-composition] native composition probe mounted');
   }, []);
 
   return (
     <View style={{flex: 1, padding: 24, gap: 10, backgroundColor: '#f3f4f6'}}>
-      <Text style={{fontSize: 22}}>Phase 4.1: native layer composition</Text>
+      <Text style={{fontSize: 22}}>Phase 4: native layer composition</Text>
       <Text>
-        A blue AppKit NSView occupies the lower region. Use the GPUI control
-        below this text to show or hide an overlay above the native surface.
+        A native view occupies the lower region. Use the GPUI control below
+        this text to show or hide an overlay above the native surface.
       </Text>
       <Text>
         Resize the window: the native surface should stay below this text and
