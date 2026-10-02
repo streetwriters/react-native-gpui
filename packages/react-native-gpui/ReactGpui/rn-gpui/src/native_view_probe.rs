@@ -9,16 +9,17 @@ use cocoa::{
     foundation::{NSPoint, NSRect, NSSize},
 };
 use gpui::{
-    div, px, relative, App, AppContext, Bounds, Context, Element, ElementId, Entity,
-    GlobalElementId, IntoElement, LayoutId, ParentElement, Render, Style, Styled, Window,
-    WindowCompositionSurface,
+    deferred, div, px, relative, rgb, App, AppContext, Bounds, Context, Element, ElementId, Entity,
+    GlobalElementId, InteractiveElement, IntoElement, LayoutId, MouseButton, ParentElement, Render,
+    Style, Styled, Window, WindowCompositionSurface,
 };
 use objc::{class, msg_send, sel, sel_impl};
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 pub struct NativeViewCompositionProbe {
     surface: WindowCompositionSurface,
     view: id,
+    last_bounds: Cell<Option<Bounds<gpui::DevicePixels>>>,
 }
 
 impl NativeViewCompositionProbe {
@@ -60,14 +61,23 @@ impl NativeViewCompositionProbe {
             let _: () = msg_send![container, addSubview: view];
 
             log::info!("[native-view-probe] attached AppKit NSView to composition surface");
-            Ok(Self { surface, view })
+            Ok(Self {
+                surface,
+                view,
+                last_bounds: Cell::new(None),
+            })
         }
     }
 
     fn set_bounds(&self, bounds: Bounds<gpui::Pixels>, scale_factor: f32) -> Result<()> {
+        let device_bounds = bounds.to_device_pixels(scale_factor);
+        if self.last_bounds.get() != Some(device_bounds) {
+            log::info!("[native-view-probe] device bounds={device_bounds:?}");
+            self.last_bounds.set(Some(device_bounds));
+        }
         self.surface
             .platform_surface()?
-            .set_bounds(bounds.to_device_pixels(scale_factor))
+            .set_bounds(device_bounds)
             .context("setting AppKit test surface bounds")
     }
 }
@@ -84,11 +94,15 @@ impl Drop for NativeViewCompositionProbe {
 /// GPUI entity that creates the test surface only after its window is live.
 pub struct NativeViewCompositionProbeView {
     fixture: Option<Rc<NativeViewCompositionProbe>>,
+    overlay_visible: bool,
 }
 
 impl NativeViewCompositionProbeView {
     pub fn new() -> Self {
-        Self { fixture: None }
+        Self {
+            fixture: None,
+            overlay_visible: false,
+        }
     }
 }
 
@@ -101,17 +115,75 @@ impl Render for NativeViewCompositionProbeView {
             }
         }
 
+        let mut root = div().absolute().inset_0().size_full();
         if let Some(fixture) = self.fixture.clone() {
+            root = root.child(
+                div()
+                    .absolute()
+                    .left(px(32.))
+                    .right(px(32.))
+                    .top(px(260.))
+                    .bottom(px(24.))
+                    .child(NativeViewSurfaceElement { fixture }),
+            );
+        }
+
+        let label = if self.overlay_visible {
+            "Hide composition overlay"
+        } else {
+            "Show composition overlay"
+        };
+        root = root.child(
             div()
                 .absolute()
-                .left(px(92.))
-                .top(px(180.))
-                .w(px(470.))
-                .h(px(270.))
-                .child(NativeViewSurfaceElement { fixture })
-        } else {
-            div().size_0()
+                .left(px(32.))
+                .top(px(190.))
+                .px_4()
+                .py_2()
+                .rounded_md()
+                .bg(rgb(0x26384a))
+                .text_color(rgb(0xffffff))
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    _cx.listener(|this, _, _, cx| {
+                        this.overlay_visible = !this.overlay_visible;
+                        log::info!(
+                            "[native-view-probe] overlay visible={}",
+                            this.overlay_visible
+                        );
+                        cx.notify();
+                    }),
+                )
+                .child(label),
+        );
+
+        if self.overlay_visible {
+            root = root.child(
+                deferred(
+                    div()
+                        .absolute()
+                        .left(px(92.))
+                        .top(px(316.))
+                        .w(px(420.))
+                        .h(px(116.))
+                        .flex()
+                        .flex_col()
+                        .justify_center()
+                        .gap_2()
+                        .px_5()
+                        .rounded_lg()
+                        .border_2()
+                        .border_color(rgb(0xffffff))
+                        .bg(rgb(0xffffff).opacity(0.82))
+                        .text_color(rgb(0x18212f))
+                        .child("GPUI overlay above the blue AppKit NSView")
+                        .child("The blue should remain visible through this panel."),
+                )
+                .priority(100),
+            );
         }
+        root
     }
 }
 
