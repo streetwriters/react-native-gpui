@@ -154,8 +154,18 @@ fn main() {
     // package's build script, which turns them into linker rpath flags.
     emit_rpaths(&cmake_build_dir.join("rpath_dirs.txt"));
 
-    // C++ runtime + the macOS frameworks the platform code references.
-    println!("cargo:rustc-link-lib=c++");
+    // C++ runtime. Apple Clang uses libc++, Linux and MinGW use libstdc++, and
+    // MSVC supplies the runtime through its linker configuration.
+    match (
+        env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        env::var("CARGO_CFG_TARGET_ENV").as_deref(),
+    ) {
+        (Ok("macos"), _) => println!("cargo:rustc-link-lib=c++"),
+        (Ok("linux"), _) | (Ok("windows"), Ok("gnu")) => {
+            println!("cargo:rustc-link-lib=stdc++")
+        }
+        _ => {}
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         for framework in [
             "Foundation",
