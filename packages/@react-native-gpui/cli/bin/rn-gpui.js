@@ -5,12 +5,13 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const requestedCommand = process.argv[2];
-const command = requestedCommand === "run-gpui" ? "run" : requestedCommand;
+const command = requestedCommand === "run-desktop" ? "run" : requestedCommand;
 const option = (name) => {
   const index = process.argv.indexOf(name);
   return index < 0 ? undefined : process.argv[index + 1];
 };
 const projectRoot = path.resolve(option("--project-root") ?? process.cwd());
+const desktopRoot = path.join(projectRoot, "desktop");
 const run = (bin, args, options = {}) =>
   execFileSync(bin, args, {
     cwd: options.cwd ?? projectRoot,
@@ -28,44 +29,36 @@ if (command === "init") {
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) {
     throw new Error(`destination is not empty: ${destination}`);
   }
-  fs.mkdirSync(destination, { recursive: true });
-  const templateRoot = path.join(cliDir, "../template");
-  fs.cpSync(templateRoot, destination, {
-    recursive: true,
-    filter: (source) => !source.endsWith("package.json"),
-  });
-  const packageJson = {
-    name: appName.toLowerCase().replaceAll(/[^a-z0-9-]/gu, "-"),
-    version: "0.1.0",
-    private: true,
-    scripts: {
-      start: "rn-gpui run",
-      bundle: "rn-gpui bundle",
-    },
-    dependencies: {
-      react: "19.2.3",
-      "react-native": "0.87.1",
-      "react-native-gpui": "^0.1.0",
-    },
-    devDependencies: {
-      "@react-native/metro-config": "^0.87.1",
-      "@rn-gpui/cli": "^0.1.0",
-    },
-  };
-  fs.writeFileSync(path.join(destination, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
-  console.log(`Created ${appName} in ${destination}. Run npm install, then npx rn-gpui run.`);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  const initOptions = process.argv.slice(4);
+  for (let index = 0; index < initOptions.length; index += 1) {
+    if (initOptions[index] === "--directory" || initOptions[index] === "--project-root") {
+      initOptions.splice(index, 2);
+      index -= 1;
+    }
+  }
+  run("npx", ["--yes", "@react-native-community/cli@^20.2.0", "init", appName, "--version", "0.87.1", "--skip-install", "--directory", destination, ...initOptions], { cwd: path.dirname(destination) });
+  const packagePath = path.join(destination, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+  packageJson.dependencies = { ...packageJson.dependencies, "react-native-gpui": "^0.1.0" };
+  packageJson.devDependencies = { ...packageJson.devDependencies, "@react-native-gpui/cli": "^0.1.0" };
+  fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+  fs.copyFileSync(path.join(cliDir, "../template/metro.config.js"), path.join(destination, "metro.config.js"));
+  fs.mkdirSync(path.join(destination, "desktop"), { recursive: true });
+  fs.copyFileSync(path.join(cliDir, "../template/desktop/README.md"), path.join(destination, "desktop/README.md"));
+  console.log(`Created standard React Native project ${appName} (iOS, Android, and GPUI desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`);
   process.exit(0);
 }
 
 if (!["autolink", "bundle", "run"].includes(command)) {
-  console.error("usage: rn-gpui <init|autolink|bundle|run|run-gpui> [options]");
+  console.error("usage: rn-gpui <init|autolink|bundle|run> [options]");
   process.exit(2);
 }
 
 if (command === "bundle" || command === "run") {
   const entryFile = option("--entry-file") ?? "index.js";
   const bundlePath = path.resolve(
-    option("--bundle") ?? path.join(projectRoot, "build/index.gpui.bundle"),
+    option("--bundle") ?? path.join(desktopRoot, "build/index.bundle"),
   );
   fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
   const bundleArgs = [
@@ -99,13 +92,13 @@ if (command === "bundle" || command === "run") {
     env: {
       ...process.env,
       CARGO_TARGET_DIR:
-        process.env.CARGO_TARGET_DIR ?? path.join(projectRoot, ".rn-gpui/target"),
+        process.env.CARGO_TARGET_DIR ?? path.join(desktopRoot, "build/target"),
       RN_GPUI_BUNDLE: bundlePath,
       RN_GPUI_MODULE: moduleName,
       RN_GPUI_APP_ID: appId,
       RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
-      RN_GPUI_AUTOLINK_MANIFEST: path.join(projectRoot, ".rn-gpui/autolink.json"),
-      RN_GPUI_AUTOLINK_CMAKE: path.join(projectRoot, ".rn-gpui/autolink.cmake"),
+      RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, ".rn-gpui/autolink.json"),
+      RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, ".rn-gpui/autolink.cmake"),
     },
   });
   process.exit(0);
@@ -196,7 +189,7 @@ for (const [dependencyName, dependency] of Object.entries(
   if (gpui.cmake) cmakeProjects.push(path.resolve(root, gpui.cmake));
 }
 
-const generatedDir = path.join(projectRoot, ".rn-gpui");
+const generatedDir = path.join(desktopRoot, ".rn-gpui");
 fs.mkdirSync(generatedDir, { recursive: true });
 const manifest = { rustCrates, turboModuleSpecs, cmakeProjects };
 fs.writeFileSync(
@@ -225,7 +218,7 @@ const ensureLinked = rustCrates
   .join("\n");
 fs.writeFileSync(
   path.join(autolinkCrate, "src/lib.rs"),
-  `// Generated by @rn-gpui/cli autolink; do not edit.\npub fn ensure_linked() {\n${ensureLinked}\n}\n`,
+  `// Generated by @react-native-gpui/cli autolink; do not edit.\npub fn ensure_linked() {\n${ensureLinked}\n}\n`,
 );
 
 const dependencyPath = path.join(cargoRoot, "rn-gpui/Cargo.toml");
@@ -264,7 +257,7 @@ fs.writeFileSync(workspacePath, workspace);
 
 fs.writeFileSync(
   path.join(cargoRoot, "rn-gpui/src/autolink.rs"),
-  `// Generated by @rn-gpui/cli autolink; do not edit.\npub fn ensure_linked() {\n    rn_gpui_autolink::ensure_linked();\n}\n`,
+  `// Generated by @react-native-gpui/cli autolink; do not edit.\npub fn ensure_linked() {\n    rn_gpui_autolink::ensure_linked();\n}\n`,
 );
 const cmake = cmakeProjects
   .map(
@@ -274,7 +267,7 @@ const cmake = cmakeProjects
   .join("\n");
 fs.writeFileSync(
   path.join(generatedDir, "autolink.cmake"),
-  `# Generated by @rn-gpui/cli autolink.\n${cmake}\n`,
+  `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
 );
 console.log(
   `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${turboModuleSpecs.length} TurboModule spec(s), and ${cmakeProjects.length} CMake project(s).`,

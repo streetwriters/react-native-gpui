@@ -22,14 +22,15 @@ See `.local/react-native-gpui.md` for the full design doc.
 | Ninja | 1.12.1 |
 | clang | Apple clang 21.0.0 |
 
-## Status
-
-Phase 0–1 in progress: C++ core (ReactCommon + vendored ReactCxxPlatform + Hermes)
-building into a Cargo workspace, then the GPUI window + mount pipeline.
-
-## Build
+## Create an app
 
 ```sh
+npx rn-gpui init MyApp
+cd MyApp
 npm install
-# TODO 1.3+: cargo build from packages/react-native-gpui/ReactGpui
+npx react-native run-desktop
 ```
+
+The initializer creates a standard React Native project with `ios/` and
+`android/` directories, then adds a `desktop/` GPUI target. All three platforms
+use the same React Native app entry and dependencies. Use `npx react-native run-ios` and `npx react-native run-android` for the standard mobile workflows.

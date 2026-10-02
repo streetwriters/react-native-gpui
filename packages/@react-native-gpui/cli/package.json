@@ -1,0 +1,11 @@
+{
+  "name": "@react-native-gpui/cli",
+  "version": "0.1.0",
+  "description": "React Native CLI integration and project scaffolding for the GPUI desktop platform.",
+  "files": ["bin", "template", "react-native.config.cjs"],
+  "bin": {
+    "rn-gpui": "./bin/rn-gpui.js"
+  },
+  "type": "module",
+  "dependencies": {}
+}

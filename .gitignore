@@ -19,3 +19,5 @@ build/
 local.properties
 .local/
 .rn-gpui/
+desktop/.rn-gpui/
+desktop/build/

@@ -2,5 +2,5 @@
   "name": "template",
   "private": true,
   "version": "0.0.1",
-  "description": "React Native GPUI starter template copied by @rn-gpui/cli init."
+  "description": "Shared React Native starter source for iOS, Android, and GPUI desktop."
 }

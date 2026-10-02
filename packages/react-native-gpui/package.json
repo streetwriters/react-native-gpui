@@ -23,7 +23,7 @@
     "react-native": { "optional": false }
   },
   "dependencies": {
-    "@rn-gpui/codegen": "0.1.0"
+    "@react-native-gpui/codegen": "0.1.0"
   },
   "keywords": [
     "react-native",

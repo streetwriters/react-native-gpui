@@ -7,7 +7,7 @@ function App() {
       <Text style={styles.eyebrow}>REACT NATIVE + GPUI</Text>
       <Text style={styles.title}>Your desktop app is ready.</Text>
       <Text style={styles.body}>
-        Edit App.js and run `npx rn-gpui run` to rebuild and launch it.
+        Edit App.js and run `npx react-native run-desktop` to launch the GPUI desktop target.
       </Text>
     </View>
   );

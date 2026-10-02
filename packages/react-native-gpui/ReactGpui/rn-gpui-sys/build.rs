@@ -68,7 +68,7 @@ fn main() {
     // #[rn_module] in rn-gpui-macros.
     let module_spec = package_dir.join("src-gpui/NativeGreeting.d.ts");
     let module_codegen =
-        repo_root.join("node_modules/@rn-gpui/codegen/src/generate-rust-turbomodules.js");
+        repo_root.join("node_modules/@react-native-gpui/codegen/src/generate-rust-turbomodules.js");
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join(".rn-gpui/autolink.json"));
@@ -103,10 +103,10 @@ fn main() {
         .arg(&generated_modules);
     let status = codegen
         .status()
-        .expect("run @rn-gpui/codegen; Node.js must be installed");
+        .expect("run @react-native-gpui/codegen; Node.js must be installed");
     assert!(
         status.success(),
-        "@rn-gpui/codegen failed for {}",
+        "@react-native-gpui/codegen failed for {}",
         module_spec.display()
     );
 

@@ -5,8 +5,8 @@
   "description": "React Native on GPUI — a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
   "workspaces": [
     "packages/react-native-gpui",
-    "packages/@rn-gpui/cli",
-    "packages/@rn-gpui/codegen",
+    "packages/@react-native-gpui/cli",
+    "packages/@react-native-gpui/codegen",
     "template",
     "tester",
     "tester/gpui-native-module"
@@ -39,6 +39,7 @@
     "@react-native-community/cli": "^20.2.0",
     "@react-native/metro-config": "^0.87.1",
     "react-native-platform-override": "^0.84.0",
-    "@rn-gpui/native-module-fixture": "0.1.0"
+    "@react-native-gpui/native-module-fixture": "0.1.0",
+    "@react-native-gpui/cli": "0.1.0"
   }
 }
