@@ -35,6 +35,9 @@ The initializer creates a standard React Native project with `ios/` and
 `android/` directories, then adds a `desktop/` GPUI target. All three platforms
 use the same React Native app entry and dependencies. Use `npx react-native run-ios` and `npx react-native run-android` for the standard mobile workflows.
 
+GPUI builds its own Hermes VM with Node-API enabled; see [the Hermes build
+notes](docs/hermes.md) for the external source checkout setup.
+
 To add GPUI support to an existing React Native project, run
 `npx react-native init-desktop`. Create a native TurboModule package with
 `npx react-native create-library mmkv` (Rust) or

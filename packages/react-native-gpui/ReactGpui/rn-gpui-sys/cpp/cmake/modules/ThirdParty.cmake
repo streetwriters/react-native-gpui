@@ -64,75 +64,42 @@ set_target_properties(nlohmann_json PROPERTIES
 find_package(OpenSSL REQUIRED)
 
 # --- hermes-engine -------------------------------------------------------
+# Desktop Hermes is built from source with Node-API enabled. Keep the checkout
+# and its build output outside this repository; CI will eventually download a
+# platform-specific artifact built from the same pinned source revision.
 #
-# The hermes-engine SDK inside the react-native package ships
-# no binaries, only build scripts and a version pin
-# (sdks/hermes-engine/version.properties; the matching git
-# tag on facebook/hermes is hermes-v<version>, recorded in
-# sdks/.hermesv1version). We use the published prebuilt VM
-# instead of building Hermes from source: the CocoaPods team
-# publishes tarballs on Maven Central, each containing a macOS
-# hermesvm.framework (universal: arm64 + x86_64) and the
-# hermes/ + jsi/ headers. ReactCommon's hermes targets link it
-# as hermes-engine::hermesvm, so define that imported target
-# here.
-#
-# Two variants are published: ...-release and ...-debug. The
-# *debug* one is required: ReactCommon's HermesInstance.cpp
-# (bridgelesshermes) unconditionally references
-# jsinspector_modern::HermesRuntimeTargetDelegate, whose
-# implementation calls facebook::hermes::cdp::CDPAgent /
-# CDPDebugAPI and facebook::hermes::debugger::Debugger::
-# captureStackTrace. The release framework exports none of
-# those symbols (checked with nm: 0 CDPDebugAPI/CDPAgent in
-# release, 13/9 in debug), so linking against it fails with
-# "symbol(s) not found for architecture arm64". The debug
-# framework is otherwise the same VM, only built with
-# HERMES_ENABLE_DEBUGGER=1.
-
-# <repo>/node_modules/react-native
-get_filename_component(REACT_NATIVE_DIR "${REACT_COMMON_DIR}" DIRECTORY)
-
-# HERMES_VERSION_NAME=<version>
-file(STRINGS "${REACT_NATIVE_DIR}/sdks/hermes-engine/version.properties"
-     RN_GPUI_HERMES_VERSION_LINE REGEX "^HERMES_VERSION_NAME=")
-string(REGEX REPLACE "^HERMES_VERSION_NAME=" ""
-       RN_GPUI_HERMES_VERSION "${RN_GPUI_HERMES_VERSION_LINE}")
-
-# Downloaded/extracted under the build dir, so the 32 MB
-# tarball stays out of the source tree and git.
-set(RN_GPUI_HERMES_DIR "${CMAKE_BINARY_DIR}/third_party/hermes-debug")
-set(RN_GPUI_HERMES_VARIANT "hermes-ios-debug")
-set(RN_GPUI_HERMES_TARBALL
-    "${CMAKE_BINARY_DIR}/third_party/hermes-ios-${RN_GPUI_HERMES_VERSION}-${RN_GPUI_HERMES_VARIANT}.tar.gz")
-set(RN_GPUI_HERMES_URL
-    "https://repo1.maven.org/maven2/com/facebook/hermes/hermes-ios/${RN_GPUI_HERMES_VERSION}/hermes-ios-${RN_GPUI_HERMES_VERSION}-${RN_GPUI_HERMES_VARIANT}.tar.gz")
-
-if(NOT EXISTS "${RN_GPUI_HERMES_DIR}/destroot")
-  if(NOT EXISTS "${RN_GPUI_HERMES_TARBALL}")
-    message(STATUS "Downloading hermes-engine ${RN_GPUI_HERMES_VERSION} (${RN_GPUI_HERMES_VARIANT}) prebuilt VM from Maven Central...")
-    file(DOWNLOAD "${RN_GPUI_HERMES_URL}" "${RN_GPUI_HERMES_TARBALL}" SHOW_PROGRESS)
+# RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BUILD_DIR may be passed by the
+# Cargo build script (or supplied as environment variables for direct CMake
+# use). For this workspace, default to the sibling Work/hermes checkout.
+if(NOT RN_GPUI_HERMES_SOURCE_DIR)
+  if(DEFINED ENV{RN_GPUI_HERMES_SOURCE_DIR})
+    set(RN_GPUI_HERMES_SOURCE_DIR "$ENV{RN_GPUI_HERMES_SOURCE_DIR}")
+  elseif(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../../hermes/hermes/CMakeLists.txt")
+    get_filename_component(RN_GPUI_HERMES_SOURCE_DIR
+      "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../../hermes/hermes" ABSOLUTE)
   endif()
-  message(STATUS "Extracting hermes-engine tarball to ${RN_GPUI_HERMES_DIR}...")
-  file(MAKE_DIRECTORY "${RN_GPUI_HERMES_DIR}")
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E tar xzf "${RN_GPUI_HERMES_TARBALL}"
-    WORKING_DIRECTORY "${RN_GPUI_HERMES_DIR}"
-    RESULT_VARIABLE RN_GPUI_HERMES_EXTRACT_RESULT)
-  if(NOT RN_GPUI_HERMES_EXTRACT_RESULT EQUAL 0)
-    message(FATAL_ERROR
-      "Failed to extract hermes-engine tarball (error ${RN_GPUI_HERMES_EXTRACT_RESULT})")
-  endif()
+endif()
+if(NOT RN_GPUI_HERMES_BUILD_DIR AND DEFINED ENV{RN_GPUI_HERMES_BUILD_DIR})
+  set(RN_GPUI_HERMES_BUILD_DIR "$ENV{RN_GPUI_HERMES_BUILD_DIR}")
+endif()
+if(NOT RN_GPUI_HERMES_BUILD_DIR AND RN_GPUI_HERMES_SOURCE_DIR)
+  get_filename_component(_hermes_workspace "${RN_GPUI_HERMES_SOURCE_DIR}" DIRECTORY)
+  set(RN_GPUI_HERMES_BUILD_DIR "${_hermes_workspace}/build-gpui-release")
+endif()
+if(NOT RN_GPUI_HERMES_SOURCE_DIR OR NOT RN_GPUI_HERMES_BUILD_DIR)
+  message(FATAL_ERROR
+    "Build Hermes from source with Node-API, then set RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BUILD_DIR. See docs/hermes.md.")
+endif()
+
+set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_BUILD_DIR}/lib/libhermesvm.dylib")
+if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
+  message(FATAL_ERROR
+    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; build the hermesvm target with HERMES_ENABLE_NAPI=ON.")
 endif()
 
 add_library(hermes-engine::hermesvm SHARED IMPORTED)
 set_target_properties(hermes-engine::hermesvm PROPERTIES
-  IMPORTED_LOCATION
-    "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx/hermesvm.framework/Versions/1/hermesvm"
-  INTERFACE_INCLUDE_DIRECTORIES "${RN_GPUI_HERMES_DIR}/destroot/include")
-
-# The framework binary's install name is
-# `@rpath/hermesvm.framework/Versions/1/hermesvm`, so an executable that links
-# it needs this directory (the parent of hermesvm.framework) on its rpath.
-set(RN_GPUI_HERMES_FRAMEWORKS_DIR
-    "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx")
+  IMPORTED_LOCATION "${RN_GPUI_HERMES_LIBRARY}"
+  INTERFACE_INCLUDE_DIRECTORIES
+    "${RN_GPUI_HERMES_SOURCE_DIR}/include;${RN_GPUI_HERMES_SOURCE_DIR}/public;${RN_GPUI_HERMES_SOURCE_DIR}/API")
+set(RN_GPUI_HERMES_LIBRARY_DIR "${RN_GPUI_HERMES_BUILD_DIR}/lib")

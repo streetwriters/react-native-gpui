@@ -25,6 +25,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cpp");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BUILD_DIR");
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
@@ -190,16 +192,22 @@ fn main() {
 
     // --- 2. rn_gpui_core via CMake ------------------------------------------
 
-    let dst = cmake::Config::new("cpp")
+    let mut cmake_config = cmake::Config::new("cpp");
+    cmake_config
         .define("REACT_COMMON_DIR", &react_common_dir)
         .define("REACT_CXX_PLATFORM_DIR", &react_cxx_platform_dir)
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
         .define("RN_GPUI_GENERATED_RNCORE_DIR", &generated_rncore)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
-        .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake)
-        .build_target("rn_gpui_core")
-        .build();
+        .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake);
+    if let Some(source_dir) = env::var_os("RN_GPUI_HERMES_SOURCE_DIR") {
+        cmake_config.define("RN_GPUI_HERMES_SOURCE_DIR", source_dir);
+    }
+    if let Some(build_dir) = env::var_os("RN_GPUI_HERMES_BUILD_DIR") {
+        cmake_config.define("RN_GPUI_HERMES_BUILD_DIR", build_dir);
+    }
+    let dst = cmake_config.build_target("rn_gpui_core").build();
 
     let cmake_build_dir = dst.join("build");
     println!(

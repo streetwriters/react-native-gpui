@@ -1,8 +1,7 @@
-// The prebuilt libhermesvm (from
-// the hermes-engine Maven artifact, fetched by
-// cmake/modules/ThirdParty.cmake) links into this test
-// executable, which creates a Hermes runtime and evaluates
-// a script through JSI.
+// The source-built libhermesvm (from the external Hermes
+// checkout, configured in cmake/modules/ThirdParty.cmake)
+// links into this test executable, which creates a Hermes
+// runtime and evaluates a script through JSI.
 
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>

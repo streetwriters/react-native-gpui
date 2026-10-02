@@ -6,10 +6,8 @@
 # platform (no Android/JNI-only targets).
 #
 # Third-party dependencies come from Homebrew (folly, glog, boost,
-# nlohmann-json, openssl), a vendored copy of fast_float, and the
-# prebuilt hermesvm downloaded from the hermes-engine Maven
-# artifacts (version pinned by node_modules/react-native,
-# fetched by cmake/modules/ThirdParty.cmake).
+# nlohmann-json, openssl), a vendored copy of fast_float, and a Hermes VM
+# built from the external source checkout with Node-API enabled.
 
 cmake_minimum_required(VERSION 3.13)
 project(rn_gpui_core CXX C)
@@ -338,15 +336,13 @@ add_react_cxx_platform_subdir(react/runtime)
 # --- Hermes runtime smoke test ------------------------------------
 
 # Links libhermesvm and creates a Hermes runtime to prove the
-# prebuilt VM is usable from this build.
+# source-built VM is usable from this build.
 add_executable(hermes_runtime_test test/hermes_runtime_test.cpp)
 target_link_libraries(hermes_runtime_test PRIVATE hermes-engine::hermesvm jsi)
-# hermesvm.framework's install name is
-# @rpath/hermesvm.framework/Versions/1/hermesvm, so the test
-# needs the framework directory on its runpath.
+# The test needs the source-built dylib directory on its runpath.
 set_target_properties(hermes_runtime_test PROPERTIES
-  BUILD_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx"
-  INSTALL_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx")
+  BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
+  INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
 
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
@@ -550,21 +546,19 @@ set(RN_GPUI_LINK_LIBS "")
 # and Rust does not turn `rustc-link-search` into an rpath. build.rs forwards
 # this list to the rn-gpui package, whose build script emits the linker flags.
 set(RN_GPUI_RPATH_DIRS "")
-if(DEFINED RN_GPUI_HERMES_FRAMEWORKS_DIR)
-  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_HERMES_FRAMEWORKS_DIR}\n")
+if(DEFINED RN_GPUI_HERMES_LIBRARY_DIR)
+  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_HERMES_LIBRARY_DIR}\n")
 endif()
 
-# hermesvm is a framework binary (`hermesvm.framework/Versions/1/hermesvm`), so
-# it has no `lib` prefix and `-l` cannot name it. A symlink with a linkable name
-# is created once and the ordinary search + name pair is used from then on.
+# Use a symlink with a stable linkable name so Cargo's linker directives remain
+# independent of the source build's concrete library filename.
 set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
 if(TARGET hermes-engine::hermesvm)
   get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
   if(_hermes_location)
     file(MAKE_DIRECTORY "${RN_GPUI_SHIM_LIB_DIR}")
-    # Recreated unconditionally: the hermes variant can change between
-    # configures (release vs debug framework), and a stale symlink would make
-    # the link silently use the wrong library.
+    # Recreate unconditionally so switching Hermes build directories cannot
+    # leave a stale link behind.
     if(EXISTS "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
       file(REMOVE "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
     endif()
