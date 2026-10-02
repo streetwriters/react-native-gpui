@@ -3,18 +3,18 @@
 //! `run` boots the shared platform runtime; per-app launch logic lives under
 //! the consuming app's `desktop/src/`.
 
-pub mod events;
-pub mod frame;
-pub mod host;
-pub mod http_client;
-pub mod image_loader;
-pub mod input;
+pub(crate) mod events;
+pub(crate) mod frame;
+pub(crate) mod host;
+pub(crate) mod http_client;
+pub(crate) mod image_loader;
+pub(crate) mod input;
 #[cfg(target_os = "macos")]
-pub mod native_view_probe;
-pub mod node_view;
-pub mod store;
-pub mod style;
-pub mod text;
+pub(crate) mod native_view_probe;
+pub(crate) mod node_view;
+pub(crate) mod store;
+pub(crate) mod style;
+pub(crate) mod text;
 
 mod bootstrap;
 pub use bootstrap::{run, run_with, DesktopAppConfig};

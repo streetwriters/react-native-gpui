@@ -1,7 +1,7 @@
 //! Project-owned desktop launch configuration.
 //!
 //! Add `mod my_turbo_module;` here for local Rust TurboModules. Put matching
-//! `Native*.d.ts` specs beside this file; `run-desktop` discovers and codegens
+//! `Native*.ts` specs beside this file; `run-desktop` discovers and codegens
 //! those specs automatically. See `desktop/README.md` for the full example.
 //!
 //! To manually include one in this app, add e.g.:

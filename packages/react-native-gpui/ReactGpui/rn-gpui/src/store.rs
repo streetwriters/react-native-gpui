@@ -99,7 +99,7 @@ impl ViewStore {
         if let Some(root) = self.roots.get(&surface_id) {
             return root.clone();
         }
-        let root = cx.new(|_| SurfaceRootView::new(surface_id));
+        let root = cx.new(|_| SurfaceRootView::new());
         self.roots.insert(surface_id, root.clone());
         if surface_id != self.primary_surface_id {
             log::info!("[store] surface {surface_id} registered as an overlay");
@@ -405,10 +405,6 @@ impl OverlayHost {
     pub fn remove_modal(&mut self, tag: i32) {
         self.modals.retain(|(existing, _)| *existing != tag);
     }
-
-    pub fn len(&self) -> usize {
-        self.overlays.len() + self.modals.len()
-    }
 }
 
 impl Render for OverlayHost {
@@ -428,7 +424,6 @@ impl Render for OverlayHost {
 
 /// The window's root view. One per React Native surface.
 pub struct SurfaceRootView {
-    pub surface_id: i32,
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// TODO 2.6 — set on the app surface only: the tracked child that paints
     /// LogBox (see [`OverlayHost`]) above this surface's children.
@@ -438,9 +433,8 @@ pub struct SurfaceRootView {
 }
 
 impl SurfaceRootView {
-    pub fn new(surface_id: i32) -> Self {
+    pub fn new() -> Self {
         Self {
-            surface_id,
             children: Vec::new(),
             overlay_host: None,
             #[cfg(target_os = "macos")]

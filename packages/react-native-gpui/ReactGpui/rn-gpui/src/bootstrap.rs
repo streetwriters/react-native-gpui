@@ -499,7 +499,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // the window tracked while drawing, and the root view itself is not
         // invalidated after that first frame.
         let overlay_host = cx.new(|_| OverlayHost::new());
-        let mut root_view = SurfaceRootView::new(1).with_overlay_host(overlay_host.clone());
+        let mut root_view = SurfaceRootView::new().with_overlay_host(overlay_host.clone());
         #[cfg(target_os = "macos")]
         if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
             root_view = root_view.with_native_view_probe(
