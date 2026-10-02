@@ -8,6 +8,47 @@
 //!   mod greeting;
 //!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
 
+#[cfg(target_os = "macos")]
+struct BlueNativeProbe;
+
+#[cfg(target_os = "macos")]
+impl react_native_gpui::native_view::NativeViewFactory for BlueNativeProbe {
+    fn create_view(
+        &self,
+        context: &react_native_gpui::native_view::NativeViewContext,
+    ) -> react_native_gpui::native_view::Result<react_native_gpui::native_view::NativeViewHandle>
+    {
+        use react_native_gpui::native_view::{
+            appkit::{
+                base::{id, YES},
+                foundation::{NSPoint, NSRect, NSSize},
+            },
+            objective_c::{class, msg_send, sel, sel_impl},
+        };
+
+        let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
+        unsafe {
+            let allocated: id = msg_send![class!(NSView), alloc];
+            let view: id = msg_send![allocated, initWithFrame: frame];
+            let _: () = msg_send![view, setWantsLayer: YES];
+            let layer: id = msg_send![view, layer];
+            let color: id = msg_send![
+                class!(NSColor),
+                colorWithSRGBRed: 0.08
+                green: 0.48
+                blue: 0.68
+                alpha: 1.0
+            ];
+            let cg_color: id = msg_send![color, CGColor];
+            let _: () = msg_send![layer, setBackgroundColor: cg_color];
+            let _: () = msg_send![layer, setCornerRadius: 12.0];
+            let _: () = msg_send![layer, setMasksToBounds: YES];
+            let _ = context.native_props.get("label");
+            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view))
+        }
+    }
+}
+
 fn main() {
     rn_gpui_autolink::ensure_linked();
     let config = react_native_gpui::DesktopAppConfig::from_env()
@@ -20,6 +61,14 @@ fn main() {
             // GPUI window options are public: titlebar, resizability, display,
             // decorations, min size, and other native window behavior.
             options.is_resizable = true;
+        })
+        .on_app_ready(|cx| {
+            #[cfg(target_os = "macos")]
+            react_native_gpui::native_view::register_native_view_factory(
+                cx,
+                "BlueNativeProbe",
+                BlueNativeProbe,
+            );
         })
         .on_window_opened(|_window_id, window, _cx| {
             // Use the underlying live GPUI window directly when needed.

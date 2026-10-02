@@ -10,7 +10,7 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::RNNodeView;
-#[cfg(all(target_os = "macos", feature = "visual-capture"))]
+#[cfg(target_os = "macos")]
 use gpui::deferred;
 use gpui::{
     div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement, Pixels,
@@ -213,6 +213,14 @@ impl ViewStore {
             }
             match op.kind {
                 MountKind::Create => {
+                    if op.component == "NativeViewHost" {
+                        log::info!(
+                            "[native-view] Fabric created tag={} factory='{}' props={}",
+                            op.tag,
+                            op.native_view_name,
+                            op.native_view_props
+                        );
+                    }
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
                     self.nodes.insert(op.tag, node);
                 }
@@ -481,6 +489,11 @@ impl SurfaceRootView {
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "macos")]
+        let has_fabric_native_view = self
+            .children
+            .iter()
+            .any(|(_, child)| node_tree_contains_native_view(child, cx));
         let mut root = div()
             .size_full()
             .relative()
@@ -498,21 +511,43 @@ impl Render for SurfaceRootView {
         }
         // TODO 2.6 — LogBox (surface 2) paints after the app surface.
         if let Some(overlay_host) = &self.overlay_host {
-            #[cfg(all(target_os = "macos", feature = "visual-capture"))]
-            if self.native_view_probe.is_some() {
-                // GPUI's deferred pass targets the window composition overlay
-                // surface, above the native test view.
-                root = root.child(deferred(overlay_host.clone()).priority(100));
-            } else {
-                root = root.child(overlay_host.clone());
+            #[cfg(target_os = "macos")]
+            {
+                let has_native_composition = has_fabric_native_view || {
+                    #[cfg(feature = "visual-capture")]
+                    {
+                        self.native_view_probe.is_some()
+                    }
+                    #[cfg(not(feature = "visual-capture"))]
+                    {
+                        false
+                    }
+                };
+                if has_native_composition {
+                    // GPUI's deferred pass targets the window composition overlay
+                    // surface, above native views.
+                    root = root.child(deferred(overlay_host.clone()).priority(100));
+                } else {
+                    root = root.child(overlay_host.clone());
+                }
             }
-            #[cfg(not(all(target_os = "macos", feature = "visual-capture")))]
+            #[cfg(not(target_os = "macos"))]
             {
                 root = root.child(overlay_host.clone());
             }
         }
         root
     }
+}
+
+#[cfg(target_os = "macos")]
+fn node_tree_contains_native_view(node: &Entity<RNNodeView>, cx: &App) -> bool {
+    let node = node.read(cx);
+    node.component == "NativeViewHost"
+        || node
+            .children
+            .iter()
+            .any(|(_, child)| node_tree_contains_native_view(child, cx))
 }
 
 /// Keeps `App` in scope for callers that only need the store's helpers.

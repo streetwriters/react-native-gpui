@@ -7,6 +7,7 @@
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 #include "GpuiHost.h"               // TODO 2.6 — kAllSurfacesStopped
 #include "MountBatchBuilder.h"
+#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include "react/coremodules/DeviceInfoModule.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -359,6 +360,7 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
       result->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<GpuiModalHostViewComponentDescriptor>());
+      result->add(concreteComponentDescriptorProvider<NativeViewHostComponentDescriptor>());
       return result;
     }();
     return registry->createComponentDescriptorRegistry({eventDispatcher, contextContainer, nullptr});

@@ -7,9 +7,10 @@
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/textinput/TextInputState.h>
-#include <react/renderer/components/FBReactNativeSpec/Props.h>
+#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/core/ConcreteState.h>
 
 #include <algorithm>
@@ -230,6 +231,12 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
+  if (op.component == "NativeViewHost") {
+    if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(shadowView.props)) {
+      op.native_view_name = props->viewName;
+      op.native_view_props = props->nativePropsJson;
+    }
+  }
   if (op.component == "ModalHostView") {
     auto modal = std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
     op.modal_visible = modal && modal->visible;

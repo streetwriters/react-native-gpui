@@ -19,22 +19,22 @@
 //
 // Everything not rewritten is handed to Metro's own resolver, never back to
 // this function, so there is no recursion.
-const path = require('path');
+const path = require("path");
 
-const fs = require('fs');
+const fs = require("fs");
 
-const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
+const { getDefaultConfig, mergeConfig } = require("@react-native/metro-config");
 
-const GPUI_PACKAGE_NAME = 'react-native-gpui';
+const GPUI_PACKAGE_NAME = "react-native-gpui";
 const GPUI_PACKAGE_DIR = path.dirname(
-  require.resolve(GPUI_PACKAGE_NAME + '/package.json'),
+  require.resolve(GPUI_PACKAGE_NAME + "/package.json"),
 );
-const GPUI_ENTRY = path.join(GPUI_PACKAGE_DIR, 'index.gpui.js');
+const GPUI_ENTRY = path.join(GPUI_PACKAGE_DIR, "index.gpui.js");
 // Absolute paths, so the rewrite the CLI installed can never send them back
 // into this package (which is what would close the cycle).
-const UPSTREAM_RN_ENTRY = require.resolve('react-native');
+const UPSTREAM_RN_ENTRY = require.resolve("react-native");
 const UPSTREAM_RN_DIR = path.dirname(UPSTREAM_RN_ENTRY);
-const GPUI_RN_SRC_DIR = path.join(GPUI_PACKAGE_DIR, 'src-gpui');
+const GPUI_RN_SRC_DIR = path.join(GPUI_PACKAGE_DIR, "src-gpui");
 
 // Platform variants gpui falls back to. A handful of React Native modules only
 // ship as `Foo.ios.js` / `Foo.android.js` (there is no platform-neutral `Foo.js`
@@ -45,7 +45,7 @@ const GPUI_RN_SRC_DIR = path.join(GPUI_PACKAGE_DIR, 'src-gpui');
 // where we need them (ReactDevToolsSettingsManager.ios.js goes through the
 // generic `Settings.js`, whose `Platform.OS === 'ios'` branch is dead here
 // because the gpui `Platform.OS` is `'gpui'`).
-const PLATFORM_FALLBACKS = {gpui: ['ios']};
+const PLATFORM_FALLBACKS = { gpui: ["ios"] };
 
 function resolveWithPlatformFallback(context, moduleName, platform) {
   try {
@@ -53,7 +53,11 @@ function resolveWithPlatformFallback(context, moduleName, platform) {
   } catch (error) {
     for (const fallback of PLATFORM_FALLBACKS[platform] ?? []) {
       try {
-        const resolution = context.resolveRequest(context, moduleName, fallback);
+        const resolution = context.resolveRequest(
+          context,
+          moduleName,
+          fallback,
+        );
         console.log(
           `[rn-gpui] '${moduleName}' has no '${platform}' variant; using the '${fallback}' implementation`,
         );
@@ -80,25 +84,25 @@ function resolveWithPlatformFallback(context, moduleName, platform) {
 function collectSourceOverrides() {
   const overrides = new Map();
 
-  const walk = relativeDir => {
+  const walk = (relativeDir) => {
     const absoluteDir = path.join(GPUI_RN_SRC_DIR, relativeDir);
-    for (const entry of fs.readdirSync(absoluteDir, {withFileTypes: true})) {
+    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
       const relative = path.join(relativeDir, entry.name);
       if (entry.isDirectory()) {
         walk(relative);
         continue;
       }
-      if (!entry.name.endsWith('.gpui.js')) {
+      if (!entry.name.endsWith(".gpui.js")) {
         continue;
       }
 
       const upstreamBase = path.join(
         UPSTREAM_RN_DIR,
         path.dirname(relative),
-        entry.name.slice(0, -'.gpui.js'.length),
+        entry.name.slice(0, -".gpui.js".length),
       );
       const override = path.join(GPUI_RN_SRC_DIR, relative);
-      for (const variant of ['.js', '.native.js', '.ios.js', '.android.js']) {
+      for (const variant of [".js", ".native.js", ".ios.js", ".android.js"]) {
         if (fs.existsSync(upstreamBase + variant)) {
           overrides.set(upstreamBase + variant, override);
         }
@@ -107,7 +111,7 @@ function collectSourceOverrides() {
   };
 
   if (fs.existsSync(GPUI_RN_SRC_DIR)) {
-    walk('.');
+    walk(".");
   }
   return overrides;
 }
@@ -117,14 +121,14 @@ if (GPUI_SOURCE_OVERRIDES.size > 0) {
   const files = [...new Set(GPUI_SOURCE_OVERRIDES.values())];
   console.log(
     `[rn-gpui] ${files.length} src-gpui override(s): ${files
-      .map(file => path.relative(GPUI_PACKAGE_DIR, file))
-      .join(', ')}`,
+      .map((file) => path.relative(GPUI_PACKAGE_DIR, file))
+      .join(", ")}`,
   );
 }
 
 function applySourceOverride(resolution) {
   const filePath =
-    typeof resolution === 'string' ? resolution : resolution?.filePath;
+    typeof resolution === "string" ? resolution : resolution?.filePath;
   if (filePath == null) {
     return resolution;
   }
@@ -134,9 +138,9 @@ function applySourceOverride(resolution) {
     return resolution;
   }
 
-  return typeof resolution === 'string'
+  return typeof resolution === "string"
     ? override
-    : {...resolution, filePath: override};
+    : { ...resolution, filePath: override };
 }
 
 // React Native ships a set of `.js` files that exist only so deep imports with
@@ -178,10 +182,10 @@ function isReExportShim(filePath) {
   if (code === undefined) {
     try {
       code = fs
-        .readFileSync(filePath, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/\s+/g, ' ')
+        .readFileSync(filePath, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "")
+        .replace(/\s+/g, " ")
         .trim();
     } catch {
       code = null;
@@ -205,7 +209,7 @@ function isReExportShim(filePath) {
 // per shim-shaped file.
 function preferVariantOverShim(resolution, platform) {
   const filePath =
-    typeof resolution === 'string' ? resolution : resolution?.filePath;
+    typeof resolution === "string" ? resolution : resolution?.filePath;
   if (filePath == null || !filePath.startsWith(UPSTREAM_RN_DIR + path.sep)) {
     return resolution;
   }
@@ -225,9 +229,9 @@ function preferVariantOverShim(resolution, platform) {
         variant,
       )}`,
     );
-    return typeof resolution === 'string'
+    return typeof resolution === "string"
       ? variant
-      : {...resolution, filePath: variant};
+      : { ...resolution, filePath: variant };
   }
 
   return resolution;
@@ -240,25 +244,26 @@ function resolveModule(context, moduleName, platform) {
   // A patched RN module keeps upstream-relative imports. Resolve those from
   // its upstream location, then apply the normal GPUI override table below.
   if (
-    moduleName.startsWith('.') &&
+    moduleName.startsWith(".") &&
     context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep)
   ) {
     context = {
       ...context,
       originModulePath: path.join(
         UPSTREAM_RN_DIR,
-        path.relative(GPUI_RN_SRC_DIR, context.originModulePath)
-          .replace(/\.gpui\.js$/, '.js'),
+        path
+          .relative(GPUI_RN_SRC_DIR, context.originModulePath)
+          .replace(/\.gpui\.js$/, ".js"),
       ),
     };
   }
   const isGpuiEntry =
-    moduleName === 'react-native' || moduleName === GPUI_PACKAGE_NAME;
+    moduleName === "react-native" || moduleName === GPUI_PACKAGE_NAME;
 
   if (isGpuiEntry) {
     // Inside the package itself (index.gpui.js and friends) the import means
     // the upstream package; everywhere else it means the gpui entry point.
-    const origin = context.originModulePath ?? '';
+    const origin = context.originModulePath ?? "";
     const insideGpuiPackage =
       origin === GPUI_PACKAGE_DIR ||
       origin.startsWith(GPUI_PACKAGE_DIR + path.sep);
@@ -270,13 +275,20 @@ function resolveModule(context, moduleName, platform) {
     );
   }
 
-  if (moduleName.startsWith(GPUI_PACKAGE_NAME + '/')) {
+  if (moduleName.startsWith(GPUI_PACKAGE_NAME + "/")) {
+    if (moduleName === `${GPUI_PACKAGE_NAME}/NativeViewHost`) {
+      return resolveWithPlatformFallback(
+        context,
+        path.join(GPUI_PACKAGE_DIR, "NativeViewHost.tsx"),
+        platform,
+      );
+    }
     // `react-native-gpui/<subpath>` -> upstream `react-native/<subpath>`,
     // for the deep `Libraries/...` imports the CLI's bundle preamble uses,
     // and for `react-native-gpui/setup-env`.
     return resolveWithPlatformFallback(
       context,
-      'react-native/' + moduleName.slice(GPUI_PACKAGE_NAME.length + 1),
+      "react-native/" + moduleName.slice(GPUI_PACKAGE_NAME.length + 1),
       platform,
     );
   }
@@ -287,7 +299,10 @@ function resolveModule(context, moduleName, platform) {
 function resolveWithGpuiPlatform() {
   return (context, moduleName, platform) =>
     applySourceOverride(
-      preferVariantOverShim(resolveModule(context, moduleName, platform), platform),
+      preferVariantOverShim(
+        resolveModule(context, moduleName, platform),
+        platform,
+      ),
     );
 }
 
@@ -301,8 +316,11 @@ module.exports = mergeConfig(defaultConfig, {
     // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than the
     // `ios`/`android` variants) is the fallback, which is what a desktop
     // platform wants.
-    platforms: ['gpui', 'native'],
-    nodeModulesPaths: [path.join(process.cwd(), 'node_modules'), path.join(__dirname, 'node_modules')],
+    platforms: ["gpui", "native"],
+    nodeModulesPaths: [
+      path.join(process.cwd(), "node_modules"),
+      path.join(__dirname, "node_modules"),
+    ],
     resolveRequest: resolveWithGpuiPlatform(defaultConfig),
   },
 });

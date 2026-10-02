@@ -5,6 +5,8 @@
   "main": "index.gpui.js",
   "files": [
     "index.gpui.js",
+    "NativeViewHost.tsx",
+    "NativeViewHostNativeComponent.ts",
     "metro.config.js",
     "setup-env.js",
     "src-gpui",

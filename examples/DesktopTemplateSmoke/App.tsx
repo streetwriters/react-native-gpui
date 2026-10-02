@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import NativeCppExample from '@react-native-gpui/cpp-module-fixture';
 import NativeFixture from '@react-native-gpui/native-module-fixture';
+import NativeViewHost from 'react-native-gpui/NativeViewHost';
 
 function App(): React.JSX.Element {
   const [cppGreeting, setCppGreeting] = useState(
@@ -31,6 +32,11 @@ function App(): React.JSX.Element {
       </Text>
       <Text style={styles.module}>C++ TurboModule: {cppGreeting}</Text>
       <Text style={styles.module}>Rust TurboModule: {rustGreeting}</Text>
+      <NativeViewHost
+        viewName="BlueNativeProbe"
+        style={styles.nativeView}
+        nativeProps={{ label: 'NativeViewFactory' }}
+      />
     </View>
   );
 }
@@ -51,6 +57,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   module: { color: '#93c5fd', fontSize: 16, marginTop: 20 },
+  nativeView: { width: 320, height: 112, marginTop: 24 },
 });
 
 export default App;

@@ -38,6 +38,12 @@ pub struct RNNodeView {
     pub surface_id: i32,
     /// Fabric component name ("View", "Paragraph", "Image", ...).
     pub component: String,
+    /// Name looked up in the app's NativeViewFactory registry.
+    pub native_view_name: String,
+    /// JSON props forwarded to the registered native view factory.
+    pub native_view_props: String,
+    #[cfg(target_os = "macos")]
+    native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
     /// Layout frame relative to the parent, already in DIPs.
     pub frame: RectF,
     /// Paint props (flattened from `BaseViewProps`).
@@ -177,6 +183,10 @@ impl RNNodeView {
             render_count: 0,
             surface_id,
             component: op.component.clone(),
+            native_view_name: op.native_view_name.clone(),
+            native_view_props: op.native_view_props.clone(),
+            #[cfg(target_os = "macos")]
+            native_view_host: None,
             frame: if op.component == "ModalHostView" {
                 rn_gpui_sys::ffi::RectF {
                     x: 0.0,
@@ -240,6 +250,13 @@ impl RNNodeView {
     }
 
     pub fn update_from_op(&mut self, op: &MountOp) {
+        if self.native_view_name != op.native_view_name
+            || self.native_view_props != op.native_view_props
+        {
+            self.native_view_name = op.native_view_name.clone();
+            self.native_view_props = op.native_view_props.clone();
+            self.native_view_host = None;
+        }
         self.frame = if self.component == "ModalHostView" {
             rn_gpui_sys::ffi::RectF {
                 x: 0.0,
@@ -743,6 +760,24 @@ impl Render for RNNodeView {
         if self.component == "ModalHostView" && !self.modal_visible {
             return div().id(self.tag).size_0();
         }
+        #[cfg(target_os = "macos")]
+        if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
+            if self.native_view_host.is_none() {
+                match crate::native_view::NativeViewSurface::create(
+                    &self.native_view_name,
+                    &self.native_view_props,
+                    window,
+                    cx,
+                ) {
+                    Ok(host) => self.native_view_host = Some(std::rc::Rc::new(host)),
+                    Err(error) => log::error!(
+                        "[native-view] tag {} ({}) initialization failed: {error:#}",
+                        self.tag,
+                        self.native_view_name
+                    ),
+                }
+            }
+        }
         let frame = self.frame;
         let (scale_x, scale_y) = self.cumulative_scale(cx);
         // Yoga's child frames already include the parent's border inset.
@@ -945,6 +980,12 @@ impl Render for RNNodeView {
             style.size.height = Some(px(frame.h * scale_y).into());
             style
         };
+        #[cfg(target_os = "macos")]
+        if let Some(native_view_host) = &self.native_view_host {
+            element = element.child(crate::native_view::NativeViewSurfaceElement {
+                surface: native_view_host.clone(),
+            });
+        }
         // TODO 2.4/2.5 — GPUI hit-tests these divs, so the innermost node under
         // the pointer runs its handler first; stopping propagation there is what
         // makes it RN's single touch target (see `events.rs`). A node with

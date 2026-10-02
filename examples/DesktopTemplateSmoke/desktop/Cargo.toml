@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../../packages/react-native-gpui/ReactGpui/rn-gpui" }
+
+[lints.rust]
+unexpected_cfgs = "allow"

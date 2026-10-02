@@ -8,6 +8,8 @@ pub(crate) mod frame;
 pub(crate) mod host;
 pub(crate) mod image_loader;
 pub(crate) mod input;
+#[cfg(target_os = "macos")]
+pub mod native_view;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]
 pub(crate) mod native_view_probe;
 pub(crate) mod node_view;
