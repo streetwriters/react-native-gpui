@@ -19,14 +19,19 @@ function ModalProbe() {
         visible={visible}
         transparent
         onShow={() => {
+          console.log('[modal-probe] onShow');
           setStatus('open');
           setShowCount(count => count + 1);
         }}
         onDismiss={() => {
+          console.log('[modal-probe] onDismiss');
           setStatus('dismissed');
           setDismissCount(count => count + 1);
         }}
-        onRequestClose={() => setVisible(false)}>
+        onRequestClose={() => {
+          console.log('[modal-probe] onRequestClose');
+          setVisible(false);
+        }}>
         <View style={{flex: 1, padding: 48, backgroundColor: 'rgba(0,0,0,0.35)'}}>
           <View style={{padding: 24, gap: 16, backgroundColor: '#fff', borderRadius: 12}}>
             <Text style={{fontSize: 18, color: '#111'}}>GPUI modal content</Text>
