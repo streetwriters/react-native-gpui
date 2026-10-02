@@ -4,13 +4,12 @@ import {Animated, AppRegistry, Text, View} from 'react-native';
 export default function NativeAnimatedProbe() {
   const opacity = useRef(new Animated.Value(0.1)).current;
   useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {toValue: 1, duration: 800, useNativeDriver: true}),
-        Animated.timing(opacity, {toValue: 0.1, duration: 800, useNativeDriver: true}),
-      ]),
-    );
-    animation.start();
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(opacity, {toValue: 1, duration: 800, useNativeDriver: true}),
+      Animated.timing(opacity, {toValue: 0.1, duration: 800, useNativeDriver: true}),
+    ]));
+    console.log('[native-animated-probe] starting native opacity timing');
+    animation.start(({finished}) => console.log(`[native-animated-probe] timing finished=${finished}`));
     return () => animation.stop();
   }, [opacity]);
 

@@ -25,9 +25,14 @@
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
+#include <react/renderer/components/view/conversions.h>
 
 #include <string>
 #include <string_view>
+#include <atomic>
+#include <folly/json.h>
+#include <cstdlib>
+#include <glog/logging.h>
 
 namespace rngpui {
 
@@ -172,6 +177,7 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
       }
       // Keep event emitters so the main thread can send events by tag.
       if (mutation.type == ShadowViewMutation::Create || mutation.type == ShadowViewMutation::Update) {
+        animatedViews_[mutation.newChildShadowView.tag] = mutation.newChildShadowView;
         emitters_[mutation.newChildShadowView.tag] = mutation.newChildShadowView.eventEmitter;
         const auto componentName = std::string(mutation.newChildShadowView.componentName);
         if (componentName == "ScrollView") {
@@ -184,6 +190,7 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
           if (state) modalStates_[mutation.newChildShadowView.tag] = std::move(state);
         }
       } else if (mutation.type == ShadowViewMutation::Delete) {
+        animatedViews_.erase(mutation.oldChildShadowView.tag);
         emitters_.erase(mutation.oldChildShadowView.tag);
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
@@ -210,6 +217,14 @@ void GpuiMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction&
 void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
     Tag tag,
     const folly::dynamic& props) {
+  if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+    static std::atomic<uint64_t> calls{0};
+    const auto call = ++calls;
+    if (call <= 5 || call % 60 == 0) {
+      LOG(INFO) << "[animated-props] sync tag=" << tag << " call=" << call
+                << " props=" << folly::toJson(props);
+    }
+  }
   AnimatedPropsFlat update{};
   update.tag = tag;
   if (props.isObject()) {
@@ -218,8 +233,44 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
       update.opacity = static_cast<float>(opacity->asDouble());
       update.has_opacity = true;
     }
+    const auto* transform = props.get_ptr("transform");
+    if (transform != nullptr && transform->isArray()) {
+      // Use RN's parser and matrix composition, including operation order,
+      // layout-dependent translations and transformOrigin. Extracting scalar
+      // operations independently loses repeated operations and scale/translate order.
+      ShadowView view;
+      {
+        std::lock_guard<std::mutex> lock(emittersMutex_);
+        auto it = animatedViews_.find(tag);
+        if (it == animatedViews_.end()) return;
+        view = it->second;
+      }
+      auto baseProps = std::dynamic_pointer_cast<const BaseViewProps>(view.props);
+      if (!baseProps) return;
+      ContextContainer contextContainer;
+      PropsParserContext context(view.surfaceId, contextContainer);
+      Transform parsed;
+      fromRawValue(context, RawValue(*transform), parsed);
+      update.transform = BaseViewProps::resolveTransform(
+          view.layoutMetrics.frame.size, parsed, baseProps->transformOrigin).matrix;
+      update.has_transform = true;
+    } else if (props.empty()) {
+      // Native Animated restores the original view after disconnecting.
+      update.reset_transform = true;
+    }
   }
-  if (update.has_opacity) {
+  if (update.has_opacity || update.has_transform || update.reset_transform) {
+    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+      static std::atomic<uint64_t> updates{0};
+      const auto updateNumber = ++updates;
+      if (updateNumber % 60 == 0) {
+        LOG(INFO) << "[native-animated] applied animated props through Fabric: tag=" << tag
+                  << " count=" << updateNumber << " opacity=" << update.opacity
+                  << " transform=" << update.has_transform << " scale=(" << update.transform[0]
+                  << ',' << update.transform[5] << ") translate=(" << update.transform[12] << ','
+                  << update.transform[13] << ')';
+      }
+    }
     rn_gpui_on_animated_props(std::move(update));
   }
 }
@@ -291,6 +342,7 @@ void GpuiMountingManager::setSchedulerTaskExecutor(SchedulerTaskExecutor&& execu
   if (!executor) {
     {
       std::lock_guard<std::mutex> lock(emittersMutex_);
+      animatedViews_.clear();
       modalStates_.clear();
     }
     rn_gpui_on_surface_stopped(kAllSurfacesStopped);

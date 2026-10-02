@@ -21,8 +21,11 @@
 #include <react/utils/RunLoopObserverManager.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <glog/logging.h>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -33,6 +36,15 @@ using namespace facebook::react;
 namespace rngpui {
 
 namespace {
+class GpuiFeatureFlagsOverrides final
+    : public ReactNativeFeatureFlagsOverridesOSSStable {
+ public:
+  // React Native's C++ AnimatedModule queues operations until
+  // finishOperationBatch(). GPUI is neither Android nor iOS, so RN's JS helper
+  // only sends those batch boundaries when this flag is enabled.
+  bool cxxNativeAnimatedEnabled() override { return true; }
+};
+
 std::mutex appearanceMutex;
 std::string systemAppearance{"light"};
 std::optional<std::string> appearanceOverride;
@@ -242,7 +254,7 @@ void install_feature_flags() {
   static std::once_flag once;
   std::call_once(once, [] {
     ReactNativeFeatureFlags::override(
-        std::make_unique<ReactNativeFeatureFlagsOverridesOSSStable>());
+        std::make_unique<GpuiFeatureFlagsOverrides>());
   });
 }
 
@@ -318,6 +330,9 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   // resulting prop patch to its retained node.
   animatedNodesManagerProvider_ = std::make_shared<NativeAnimatedNodesManagerProvider>(
       [this](std::function<void()>&& callback, bool /*isAsync*/) {
+        if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+          LOG(INFO) << "[native-animated] frame callback started";
+        }
         {
           std::lock_guard<std::mutex> lock(animatedFrameMutex_);
           animatedFrameCallback_ = std::move(callback);
@@ -325,6 +340,9 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
         rn_gpui_set_animated_active(true);
       },
       [this](bool /*isAsync*/) {
+        if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+          LOG(INFO) << "[native-animated] frame callback stopped";
+        }
         {
           std::lock_guard<std::mutex> lock(animatedFrameMutex_);
           animatedFrameCallback_ = nullptr;
@@ -470,6 +488,13 @@ void GpuiHost::on_render() const {
     animationFrame = animatedFrameCallback_;
   }
   if (animationFrame) {
+    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+      static std::atomic<uint64_t> frames{0};
+      const auto frame = ++frames;
+      if (frame % 60 == 0) {
+        LOG(INFO) << "[native-animated] GPUI delivered frame " << frame;
+      }
+    }
     animationFrame();
   }
 }

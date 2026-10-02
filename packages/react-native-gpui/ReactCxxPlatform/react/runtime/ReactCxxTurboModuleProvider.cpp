@@ -24,6 +24,8 @@
 #include <react/nativemodule/mutationobserver/NativeMutationObserver.h>
 #include <react/nativemodule/webperformance/NativePerformance.h>
 #include <react/renderer/animated/AnimatedModule.h>
+#include <glog/logging.h>
+#include <cstdlib>
 
 using namespace facebook::react;
 
@@ -68,6 +70,9 @@ std::shared_ptr<TurboModule> ReactCxxTurboModuleProvider::operator()(
 
   if (animatedNodesManagerProvider_ != nullptr &&
       name == AnimatedModule::kModuleName) {
+    if (std::getenv("RN_GPUI_DEBUG_ANIMATION")) {
+      LOG(INFO) << "[native-animated] NativeAnimatedModule requested";
+    }
     // when animatedNodesManagerProvider_ is null, defer to default
     return std::make_shared<AnimatedModule>(
         jsInvoker_, animatedNodesManagerProvider_);

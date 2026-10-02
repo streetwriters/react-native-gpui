@@ -825,14 +825,21 @@ fn main() {
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
                     }
                     MainEvent::AnimatedProps(props) => {
-                        if props.has_opacity {
+                        if props.has_opacity || props.has_transform || props.reset_transform {
                             let mut target = None;
                             store.update(cx, |store, _cx| {
                                 target = store.nodes.get(&props.tag).cloned();
                             });
                             if let Some(node) = target {
                                 node.update(cx, |node, cx| {
-                                    node.set_animated_opacity(props.opacity);
+                                    if props.has_opacity {
+                                        node.set_animated_opacity(props.opacity);
+                                    }
+                                    if props.has_transform {
+                                        node.set_animated_transform(Some(props.transform));
+                                    } else if props.reset_transform {
+                                        node.set_animated_transform(None);
+                                    }
                                     cx.notify();
                                 });
                             }

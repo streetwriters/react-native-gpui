@@ -24,8 +24,12 @@ export RN_GPUI_SOURCE_URL=tester/probes/NativeAnimatedProbe
 export RN_GPUI_BUNDLE="${BUNDLE}"
 export RN_GPUI_DEV_PORT="${RN_GPUI_DEV_PORT:-8082}"
 export RN_GPUI_KEEP_ALIVE=1
-export RN_GPUI_DEBUG_RENDER_COUNTS=1
-export RUST_LOG="${RUST_LOG:-info,rn_gpui=debug}"
+if [[ "${RN_GPUI_DEBUG_RENDER_COUNTS:-1}" == "1" ]]; then
+  export RN_GPUI_DEBUG_RENDER_COUNTS=1
+else
+  unset RN_GPUI_DEBUG_RENDER_COUNTS
+fi
+export RUST_LOG="${RUST_LOG:-info}"
 export RN_GPUI_SCREENSHOTS="${RN_GPUI_SCREENSHOTS:-3000:/tmp/rn-gpui-native-animated-probe.png}"
 
 printf 'Launching NativeAnimated probe. The app remains open after capture.\n'

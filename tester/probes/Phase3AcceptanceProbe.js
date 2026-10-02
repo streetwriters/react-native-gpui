@@ -13,8 +13,8 @@ export default function Phase3AcceptanceProbe() {
   const [modalResult, setModalResult] = useState('hidden');
   const scheme = useColorScheme();
   const opacity = useRef(new Animated.Value(0.15)).current;
-  const transformStep = useRef(0);
-  const [transform, setTransform] = useState({translateX: 0, scale: 0.8});
+  const transformTranslate = useRef(new Animated.Value(0)).current;
+  const transformScale = useRef(new Animated.Value(0.8)).current;
   const background = scheme === 'dark' ? '#1c1c1e' : '#fff';
   const foreground = scheme === 'dark' ? '#f5f5f7' : '#18212f';
   const windowDimensions = useWindowDimensions();
@@ -25,10 +25,17 @@ export default function Phase3AcceptanceProbe() {
       Animated.timing(opacity, {toValue: 0.15, duration: 450, useNativeDriver: true}),
     ]));
     animation.start();
-    const transformTimer = setInterval(() => {
-      transformStep.current = (transformStep.current + 1) % 5;
-      setTransform({translateX: transformStep.current * 7, scale: 0.8 + transformStep.current * 0.08});
-    }, 250);
+    const transformAnimation = Animated.loop(Animated.sequence([
+      Animated.parallel([
+        Animated.timing(transformTranslate, {toValue: 28, duration: 700, useNativeDriver: false}),
+        Animated.timing(transformScale, {toValue: 1.12, duration: 700, useNativeDriver: false}),
+      ]),
+      Animated.parallel([
+        Animated.timing(transformTranslate, {toValue: 0, duration: 700, useNativeDriver: false}),
+        Animated.timing(transformScale, {toValue: 0.8, duration: 700, useNativeDriver: false}),
+      ]),
+    ]));
+    transformAnimation.start();
     const changeScheme = setTimeout(() => Appearance.setColorScheme('dark'), 300);
     const clipboardCheck = (async () => {
       try {
@@ -48,7 +55,7 @@ export default function Phase3AcceptanceProbe() {
     const dimensionListener = Dimensions.addEventListener('change', next => setDimensions(next.window));
     return () => {
       animation.stop();
-      clearInterval(transformTimer);
+      transformAnimation.stop();
       clearTimeout(changeScheme);
       clearTimeout(openModal);
       clearTimeout(closeModal);
@@ -73,7 +80,7 @@ export default function Phase3AcceptanceProbe() {
       <View style={cardStyle}>
         <Text style={lineStyle}>3.5 transform / 3.6 native Animated</Text>
         <View style={{width: 220, height: 70, borderWidth: 1, borderColor: '#64748b'}}>
-          <View testID="phase3-transform" style={{width: 90, height: 42, backgroundColor: '#3b82f6', transform: [{translateX: transform.translateX}, {scale: transform.scale}]}} />
+          <Animated.View testID="phase3-transform" style={{width: 90, height: 42, backgroundColor: '#3b82f6', transform: [{translateX: transformTranslate}, {scale: transformScale}]}} />
         </View>
         <Animated.View testID="phase3-native-opacity" accessibilityLabel="Native animated opacity" style={{width: 120, height: 36, opacity, backgroundColor: '#10b981'}} />
         <Text style={lineStyle}>Rotate spike is recorded in §19.</Text>

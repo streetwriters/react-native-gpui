@@ -59,6 +59,7 @@ class GpuiMountingManager : public IMountingManager {
   std::function<void(SurfaceId)> onAfterMount_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ = std::make_shared<GpuiImageLoader>();
   std::mutex emittersMutex_;
+  std::unordered_map<Tag, ShadowView> animatedViews_;
   std::unordered_map<Tag, SharedEventEmitter> emitters_; // written on JS thread, read on main
   std::unordered_map<Tag, std::shared_ptr<const ConcreteState<ScrollViewState>>> scrollStates_;
   std::unordered_map<Tag, std::shared_ptr<const ConcreteState<ModalHostViewState>>> modalStates_;

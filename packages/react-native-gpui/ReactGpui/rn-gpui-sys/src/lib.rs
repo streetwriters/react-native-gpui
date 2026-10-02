@@ -156,6 +156,9 @@ pub mod ffi {
         pub tag: i32,
         pub opacity: f32,
         pub has_opacity: bool,
+        pub transform: [f32; 16],
+        pub has_transform: bool,
+        pub reset_transform: bool,
     }
 
     #[derive(Clone, Copy, Debug, Default)]

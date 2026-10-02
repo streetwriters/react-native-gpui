@@ -35,6 +35,10 @@ pub struct RNNodeView {
     pub frame: RectF,
     /// Paint props (flattened from `BaseViewProps`).
     pub view: ViewPropsFlat,
+    /// Native Animated updates transforms outside normal Fabric mount batches.
+    /// outside normal mount batches. Keep that frame value separate so RN's
+    /// original transform remains available when the animation detaches.
+    animated_transform: Option<[f32; 16]>,
     /// Text payload, only present for `Paragraph` nodes.
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
@@ -101,6 +105,10 @@ impl RNNodeView {
         self.cached_style = style::to_refinement(&self.view);
     }
 
+    pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
+        self.animated_transform = transform;
+    }
+
     fn accessibility_role(&self) -> Option<Role> {
         role_for_accessibility_role(&self.view.accessibility_role, self.view.accessible)
     }
@@ -138,6 +146,7 @@ impl RNNodeView {
                 op.frame
             },
             view: op.view.clone(),
+            animated_transform: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             input_text: op.text_input_text.clone(),
             input_placeholder: op.text_input_placeholder.clone(),
@@ -267,13 +276,16 @@ impl RNNodeView {
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {
-        if !self.view.has_transform {
+        if self.animated_transform.is_none() && !self.view.has_transform {
             return (1.0, 1.0, 0.0, 0.0);
         }
-        let m = self.view.transform;
+        let m = self.animated_transform.unwrap_or(self.view.transform);
         let (scale_x, scale_y, translate_x, translate_y) = axis_aligned_transform(&m);
         if has_unsupported_subtree_transform(&m) {
-            log::warn!(
+            // Transforms can update on every animation frame. Keep unsupported
+            // matrix diagnostics off the normal hot path and emit them only
+            // when verbose transform tracing is requested.
+            log::trace!(
                 "[transform] tag={} has rotation/skew/perspective; GPUI subtree transform spike is not supported",
                 self.tag
             );

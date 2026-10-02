@@ -23,8 +23,9 @@ export RN_GPUI_MODULE=TransformProbe
 export RN_GPUI_SOURCE_URL=tester/probes/TransformProbe
 export RN_GPUI_BUNDLE="${BUNDLE}"
 export RN_GPUI_KEEP_ALIVE=1
-export RUST_LOG="${RUST_LOG:-info,rn_gpui=debug}"
-export RN_GPUI_SCREENSHOTS="${RN_GPUI_SCREENSHOTS:-3000:/tmp/rn-gpui-transform-probe.png}"
+export RUST_LOG="${RUST_LOG:-info}"
+# Visual acceptance is performed by the user; leave the app running.
+unset RN_GPUI_SCREENSHOTS
 
 printf 'Launching Transform probe. The app remains open after capture.\n'
 if command -v caffeinate >/dev/null 2>&1; then
