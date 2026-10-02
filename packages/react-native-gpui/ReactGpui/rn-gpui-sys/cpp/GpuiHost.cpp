@@ -1,6 +1,7 @@
 // TODO 1.5 — design doc §18.7.
 #include "GpuiHost.h"
 
+#include "GpuiCppExampleTurboModule.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
@@ -271,6 +272,9 @@ class GpuiClipboardModule final
 TurboModuleProviders gpui_turbo_module_providers() {
   return {[](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
               -> std::shared_ptr<TurboModule> {
+    if (name == "NativeCppExample") {
+      return make_cpp_example_turbo_module(jsInvoker);
+    }
 #define RN_GPUI_REGISTER_RUST_STRING_MODULE(module_name_fn, method_name_fn, method_fn, free_fn) \
     if (name == module_name_fn()) { \
       return std::make_shared<RustStringTurboModule>( \
