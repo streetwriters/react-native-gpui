@@ -1,8 +1,8 @@
 {
   "name": "@rn-gpui/cli",
   "version": "0.1.0",
-  "private": true,
   "description": "CLI for react-native-gpui: init, run-gpui, bundle, package.",
+  "files": ["bin", "template"],
   "bin": {
     "rn-gpui": "./bin/rn-gpui.js"
   },

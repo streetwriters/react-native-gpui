@@ -68,8 +68,13 @@ fn main() {
     // #[rn_module] in rn-gpui-macros.
     let module_spec = package_dir.join("src-gpui/NativeGreeting.d.ts");
     let module_codegen =
-        repo_root.join("packages/@rn-gpui/codegen/src/generate-rust-turbomodules.js");
-    let autolink_manifest = repo_root.join(".rn-gpui/autolink.json");
+        repo_root.join("node_modules/@rn-gpui/codegen/src/generate-rust-turbomodules.js");
+    let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join(".rn-gpui/autolink.json"));
+    let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join(".rn-gpui/autolink.cmake"));
     let generated_module_dir = out_dir.join("generated");
     fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
     let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
@@ -127,10 +132,7 @@ fn main() {
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
-        .define(
-            "RN_GPUI_AUTOLINK_CMAKE",
-            repo_root.join(".rn-gpui/autolink.cmake"),
-        )
+        .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake)
         .build_target("rn_gpui_core")
         .build();
 

@@ -2,19 +2,115 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-const command = process.argv[2];
-if (command !== "autolink") {
-  console.error(
-    "usage: rn-gpui autolink [--project-root path] [--config-json path]",
-  );
-  process.exit(2);
-}
-
+import { fileURLToPath } from "node:url";
+const cliDir = path.dirname(fileURLToPath(import.meta.url));
+const requestedCommand = process.argv[2];
+const command = requestedCommand === "run-gpui" ? "run" : requestedCommand;
 const option = (name) => {
   const index = process.argv.indexOf(name);
   return index < 0 ? undefined : process.argv[index + 1];
 };
 const projectRoot = path.resolve(option("--project-root") ?? process.cwd());
+const run = (bin, args, options = {}) =>
+  execFileSync(bin, args, {
+    cwd: options.cwd ?? projectRoot,
+    stdio: options.stdio ?? "inherit",
+    env: options.env ?? process.env,
+  });
+
+if (command === "init") {
+  const appName = process.argv[3];
+  if (!appName || !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(appName)) {
+    console.error("usage: rn-gpui init <AppName> [--directory path]");
+    process.exit(2);
+  }
+  const destination = path.resolve(option("--directory") ?? appName);
+  if (fs.existsSync(destination) && fs.readdirSync(destination).length) {
+    throw new Error(`destination is not empty: ${destination}`);
+  }
+  fs.mkdirSync(destination, { recursive: true });
+  const templateRoot = path.join(cliDir, "../template");
+  fs.cpSync(templateRoot, destination, {
+    recursive: true,
+    filter: (source) => !source.endsWith("package.json"),
+  });
+  const packageJson = {
+    name: appName.toLowerCase().replaceAll(/[^a-z0-9-]/gu, "-"),
+    version: "0.1.0",
+    private: true,
+    scripts: {
+      start: "rn-gpui run",
+      bundle: "rn-gpui bundle",
+    },
+    dependencies: {
+      react: "19.2.3",
+      "react-native": "0.87.1",
+      "react-native-gpui": "^0.1.0",
+    },
+    devDependencies: {
+      "@react-native/metro-config": "^0.87.1",
+      "@rn-gpui/cli": "^0.1.0",
+    },
+  };
+  fs.writeFileSync(path.join(destination, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
+  console.log(`Created ${appName} in ${destination}. Run npm install, then npx rn-gpui run.`);
+  process.exit(0);
+}
+
+if (!["autolink", "bundle", "run"].includes(command)) {
+  console.error("usage: rn-gpui <init|autolink|bundle|run|run-gpui> [options]");
+  process.exit(2);
+}
+
+if (command === "bundle" || command === "run") {
+  const entryFile = option("--entry-file") ?? "index.js";
+  const bundlePath = path.resolve(
+    option("--bundle") ?? path.join(projectRoot, "build/index.gpui.bundle"),
+  );
+  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
+  const bundleArgs = [
+    "react-native",
+    "bundle",
+    "--platform",
+    "gpui",
+    "--entry-file",
+    entryFile,
+    "--bundle-output",
+    bundlePath,
+    "--assets-dest",
+    path.join(path.dirname(bundlePath), "assets"),
+    "--dev",
+    "false",
+  ];
+  if (option("--config")) bundleArgs.push("--config", option("--config"));
+  run("npx", bundleArgs);
+  if (command === "bundle") process.exit(0);
+  run("npx", ["rn-gpui", "autolink"]);
+  const gpuiPackage = path.resolve(cliDir, "../../../react-native-gpui");
+  const cargoManifest = path.join(gpuiPackage, "ReactGpui/Cargo.toml");
+  const moduleName = option("--module") ?? "App";
+  const appId =
+    option("--app-id") ??
+    `com.example.${path
+      .basename(projectRoot)
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9-]/gu, "-")}`;
+  run("cargo", ["run", "--release", "--manifest-path", cargoManifest, "-p", "rn-gpui"], {
+    env: {
+      ...process.env,
+      CARGO_TARGET_DIR:
+        process.env.CARGO_TARGET_DIR ?? path.join(projectRoot, ".rn-gpui/target"),
+      RN_GPUI_BUNDLE: bundlePath,
+      RN_GPUI_MODULE: moduleName,
+      RN_GPUI_APP_ID: appId,
+      RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
+      RN_GPUI_AUTOLINK_MANIFEST: path.join(projectRoot, ".rn-gpui/autolink.json"),
+      RN_GPUI_AUTOLINK_CMAKE: path.join(projectRoot, ".rn-gpui/autolink.cmake"),
+    },
+  });
+  process.exit(0);
+}
+
 const configFile = option("--config-json");
 const config = JSON.parse(
   configFile
@@ -24,10 +120,18 @@ const config = JSON.parse(
         encoding: "utf8",
       }),
 );
+const projectAncestors = [];
+for (let directory = projectRoot; ; directory = path.dirname(directory)) {
+  projectAncestors.push(directory);
+  if (path.dirname(directory) === directory) break;
+}
 const cargoRoot = [
   process.env.RN_GPUI_CARGO_ROOT,
   path.join(projectRoot, "ReactGpui"),
   path.join(projectRoot, "packages/react-native-gpui/ReactGpui"),
+  ...projectAncestors.map((directory) =>
+    path.join(directory, "node_modules/react-native-gpui/ReactGpui"),
+  ),
 ]
   .filter(Boolean)
   .map((candidate) => path.resolve(candidate))
@@ -114,7 +218,7 @@ const generatedDeps = rustCrates
   .join("\n");
 fs.writeFileSync(
   path.join(autolinkCrate, "Cargo.toml"),
-  `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n${generatedDeps}\n`,
+  `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ""}`,
 );
 const ensureLinked = rustCrates
   .flatMap(({ alias, moduleTypes }) => moduleTypes.map((type) => `    let _ = ${alias}::${type.toUpperCase()}_RN_GPUI_MODULES;`))

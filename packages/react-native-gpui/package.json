@@ -5,9 +5,12 @@
   "main": "index.gpui.js",
   "files": [
     "index.gpui.js",
+    "metro.config.js",
     "setup-env.js",
     "src-gpui",
     "ReactCommonOverrides",
+    "ReactCxxPlatform",
+    "ReactGpui",
     "react-native.config.js",
     "overrides.json"
   ],
@@ -18,6 +21,9 @@
   "peerDependenciesMeta": {
     "react": { "optional": false },
     "react-native": { "optional": false }
+  },
+  "dependencies": {
+    "@rn-gpui/codegen": "0.1.0"
   },
   "keywords": [
     "react-native",

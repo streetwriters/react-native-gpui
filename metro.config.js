@@ -294,6 +294,9 @@ function resolveWithGpuiPlatform() {
 const defaultConfig = getDefaultConfig(__dirname);
 
 module.exports = mergeConfig(defaultConfig, {
+  // These can be symlinked workspace packages; registering their real paths
+  // keeps Metro's file map aware of the platform and upstream RN sources.
+  watchFolders: [GPUI_PACKAGE_DIR, UPSTREAM_RN_DIR],
   resolver: {
     // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than the
     // `ios`/`android` variants) is the fallback, which is what a desktop

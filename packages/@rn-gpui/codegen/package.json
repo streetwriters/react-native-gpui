@@ -1,8 +1,8 @@
 {
   "name": "@rn-gpui/codegen",
   "version": "0.1.0",
-  "private": true,
   "description": "Rust code generator for react-native-gpui, plugged into @react-native/codegen.",
+  "files": ["src"],
   "type": "module",
   "exports": {
     "./generate-rust-turbomodules": "./src/generate-rust-turbomodules.js"
