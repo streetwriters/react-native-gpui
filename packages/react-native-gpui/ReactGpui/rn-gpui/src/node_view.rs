@@ -1062,6 +1062,7 @@ impl Render for RNNodeView {
             let caret_paragraph = self.paragraph.clone().unwrap_or_default();
             let input_selection = self.input_selection.clone();
             let content_insets = self.view.content_insets;
+            let input_text_color = self.input_text_color;
             let caret_visible = self.caret_visible;
             let caret_height = self
                 .paragraph
@@ -1160,7 +1161,14 @@ impl Render for RNNodeView {
                                         origin: point(x, y),
                                         size: gpui::size(px(scale_x.max(1.0)), px(caret_height)),
                                     };
-                                    window.paint_quad(gpui::fill(caret, gpui::black()));
+                                    // Match the insertion caret to the actual
+                                    // TextInput foreground. A fixed black caret
+                                    // disappears when the input uses a light
+                                    // foreground on a dark surface.
+                                    window.paint_quad(gpui::fill(
+                                        caret,
+                                        crate::style::color(input_text_color),
+                                    ));
                                 }
                             }
                             if let Some(focus) = focus.as_ref() {
