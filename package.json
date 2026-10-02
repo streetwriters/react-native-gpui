@@ -7,7 +7,6 @@
     "packages/react-native-gpui",
     "packages/@react-native-gpui/cli",
     "packages/@react-native-gpui/codegen",
-    "template",
     "tester",
     "tester/gpui-native-module",
     "tester/gpui-cpp-native-module"

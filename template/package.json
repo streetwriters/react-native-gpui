@@ -1,6 +1,0 @@
-{
-  "name": "template",
-  "private": true,
-  "version": "0.0.1",
-  "description": "Shared React Native starter source for iOS, Android, and GPUI desktop."
-}
