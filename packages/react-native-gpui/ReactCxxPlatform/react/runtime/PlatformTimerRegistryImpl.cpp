@@ -8,6 +8,7 @@
 #include "PlatformTimerRegistryImpl.h"
 
 #include <glog/logging.h>
+#include <algorithm>
 #include <chrono>
 
 namespace facebook::react {
@@ -53,6 +54,14 @@ void PlatformTimerRegistryImpl::createTimerInternal(
 }
 
 void PlatformTimerRegistryImpl::startTimer(uint32_t timerId, double delayMs) {
+  // RN's generic TimerManager currently implements requestAnimationFrame as
+  // setTimeout(0). Re-arming that timer with a zero delay spins this worker and
+  // floods the JS runtime (observed at >70k Animated.Value updates/second),
+  // starving input and making transforms visibly janky. Pace sub-frame timers
+  // at 60 Hz; JS still receives the normal timer callback, but at a useful
+  // desktop frame cadence instead of an unbounded tight loop.
+  constexpr double kMinimumFrameTimerMs = 1000.0 / 60.0;
+  const auto scheduledDelayMs = std::max(delayMs, kMinimumFrameTimerMs);
   taskDispatchThread_.runAsync(
       [this, timerId, delayMs]() {
         bool isRecurring = true;
@@ -78,7 +87,7 @@ void PlatformTimerRegistryImpl::startTimer(uint32_t timerId, double delayMs) {
           startTimer(timerId, delayMs);
         }
       },
-      std::chrono::milliseconds(static_cast<int32_t>(delayMs)));
+      std::chrono::milliseconds(static_cast<int32_t>(scheduledDelayMs)));
 }
 
 void PlatformTimerRegistryImpl::setTimerManager(

@@ -47,6 +47,7 @@ fn main() {
         "react/runtime/ReactCxxTurboModuleProvider.cpp",
         "react/runtime/ReactCxxTurboModuleProvider.h",
         "react/runtime/ReactHost.cpp",
+        "react/runtime/PlatformTimerRegistryImpl.cpp",
     ] {
         println!(
             "cargo:rerun-if-changed={}",

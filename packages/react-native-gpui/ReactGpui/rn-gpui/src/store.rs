@@ -197,7 +197,7 @@ impl ViewStore {
     /// exists by the time its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
-        log::info!("[store] surface {}: {} ops", surface_id, batch.ops.len());
+        log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
         for op in batch.ops.iter() {
             if self.log_mount_ops {
                 log_mount_op(op);
@@ -327,7 +327,7 @@ impl ViewStore {
 }
 
 fn log_mount_op(op: &MountOp) {
-    log::info!(
+    log::debug!(
         "[store]   {:<6} tag={} parent={} index={} {:<10} frame=({:.1},{:.1} {:.1}x{:.1}) props_changed={}",
         kind_name(op.kind),
         op.tag,
