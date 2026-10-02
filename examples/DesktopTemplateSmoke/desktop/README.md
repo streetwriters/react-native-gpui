@@ -9,6 +9,8 @@ npx react-native run-desktop
 ```
 
 The Metro config, Rust app crate, generated bundle, Cargo build output, and autolinking cache are kept in this directory.
+`Cargo.lock` is committed so this smoke app stays reproducible against the
+dependency set used by template and runtime checks.
 
 The starter app depends on the Rust and C++ fixtures under `tester/`. Normal
 React Native autolinking discovers both packages and compiles them into the

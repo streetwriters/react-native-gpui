@@ -21,6 +21,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # <repo>/node_modules/react-native/ReactCommon
 set(REACT_COMMON_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules/react-native/ReactCommon")
+if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
+  message(FATAL_ERROR
+    "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the Cargo OUT_DIR")
+endif()
 # The vendored ReactCxxPlatform copy override (TODO 0.3).
 set(REACT_CXX_PLATFORM_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
@@ -32,9 +36,10 @@ if(NOT RN_GPUI_OVERRIDES_DIR)
       "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCommonOverrides")
 endif()
 
-# The jsinspector-modern CMakeLists include SoMerging-utils.cmake from
-# the Android tree; its target_merge_so() is a no-op on non-Android.
-# Point REACT_ANDROID_DIR at a local copy of that one file.
+# The jsinspector-modern CMakeLists includes SoMerging-utils.cmake from the
+# Android tree. That helper defines target_merge_so(), which is a no-op on
+# non-Android platforms; the shim contains only that CMake helper, not Android
+# runtime code. See android-shim/README.md.
 set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 
 # brew openssl@3 is keg-only; make find_package(OpenSSL) see it.

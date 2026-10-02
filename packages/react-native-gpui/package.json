@@ -21,6 +21,7 @@
     "ReactGpui/rn-gpui-sys/build.rs",
     "ReactGpui/rn-gpui-sys/src",
     "ReactGpui/rn-gpui-sys/cpp",
+    "ReactGpui/rn-gpui-sys/scripts",
     "ReactGpui/rn-gpui-macros/Cargo.toml",
     "ReactGpui/rn-gpui-macros/src",
     "ReactGpui/rn-gpui-macros/tests",

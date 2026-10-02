@@ -63,6 +63,39 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));
 
+    // Generate RN core Fabric props/events and C++ TurboModule specs into the
+    // Cargo build directory. These are version-specific @react-native/codegen
+    // outputs and must never be sourced from checked-in generated snapshots.
+    let fb_spec_codegen = manifest_dir.join("scripts/generate-fbreactnativespec.cjs");
+    println!("cargo:rerun-if-changed={}", fb_spec_codegen.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        package_dir.join("package.json").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        react_native_dir.join("package.json").display()
+    );
+    watch_tree(&react_native_dir.join("src"));
+    watch_tree(&react_native_dir.join("scripts/codegen"));
+    let codegen_package = repo_root.join("node_modules/@react-native/codegen");
+    println!(
+        "cargo:rerun-if-changed={}",
+        codegen_package.join("package.json").display()
+    );
+    watch_tree(&codegen_package.join("lib"));
+    let generated_rncore = out_dir.join("fbreactnativespec");
+    let status = Command::new("node")
+        .arg(&fb_spec_codegen)
+        .arg(&react_native_dir)
+        .arg(&generated_rncore)
+        .status()
+        .expect("run React Native core Codegen; Node.js must be installed");
+    assert!(
+        status.success(),
+        "React Native FBReactNativeSpec Codegen failed"
+    );
+
     // Generate the C++ TurboModule registry from the RN-style TS spec before
     // CMake compiles the provider. Rust method wrappers themselves come from
     // #[rn_module] in rn-gpui-macros.
@@ -162,6 +195,7 @@ fn main() {
         .define("REACT_CXX_PLATFORM_DIR", &react_cxx_platform_dir)
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
+        .define("RN_GPUI_GENERATED_RNCORE_DIR", &generated_rncore)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
         .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake)
         .build_target("rn_gpui_core")
@@ -207,6 +241,21 @@ fn main() {
             "QuartzCore",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
+}
+
+fn watch_tree(root: &Path) {
+    if !root.is_dir() {
+        return;
+    }
+    println!("cargo:rerun-if-changed={}", root.display());
+    for entry in fs::read_dir(root).expect("read codegen input directory") {
+        let path = entry.expect("read codegen input entry").path();
+        if path.is_dir() {
+            watch_tree(&path);
+        } else {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
 }
