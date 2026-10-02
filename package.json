@@ -14,18 +14,7 @@
   "scripts": {
     "test:retention": "bash tester/scripts/verify-retention.sh",
     "bench:10k": "bash tester/scripts/run-10k-benchmark.sh",
-    "probe:textinput": "bash tester/scripts/run-textinput-probe.sh",
-    "probe:transform": "bash tester/scripts/run-transform-probe.sh",
-    "probe:native-animated": "bash tester/scripts/run-native-animated-probe.sh",
-    "probe:core-modules": "bash tester/scripts/run-core-modules-probe.sh",
-    "probe:dimensions": "bash tester/scripts/run-dimensions-probe.sh",
-    "probe:accessibility": "RN_GPUI_PHASE3_PROBE=AccessibilityProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:appearance": "RN_GPUI_PHASE3_PROBE=AppearanceProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:borders": "RN_GPUI_PHASE3_PROBE=BorderProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:modal": "RN_GPUI_PHASE3_PROBE=ModalProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:phase3-acceptance": "RN_GPUI_PHASE3_PROBE=Phase3AcceptanceProbe bash tester/scripts/run-phase3-probe.sh",
-    "probe:phase4-composition": "bash tester/scripts/run-phase4-composition-probe.sh",
-    "probe:phase4-webview": "bash tester/scripts/run-phase4-webview-probe.sh",
+    "probe": "bash tester/scripts/probe.sh",
     "autolink": "react-native-gpui autolink"
   },
   "dependencies": {
