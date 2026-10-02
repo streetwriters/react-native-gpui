@@ -1,24 +1,17 @@
-const { execFileSync } = require("node:child_process");
-const path = require("node:path");
-
-const bin = path.join(__dirname, "bin/react-native-gpui.js");
-
 module.exports = {
   commands: [
     {
       name: "run-desktop",
       description: "Build and launch the GPUI desktop target",
       func: async (_argv, _config, options) => {
-        const args = ["run"];
-        for (const [key, flag] of [
-          ["entryFile", "--entry-file"],
-          ["module", "--module"],
-          ["appId", "--app-id"],
-          ["bundle", "--bundle"],
-        ]) {
-          if (options[key] !== undefined) args.push(flag, String(options[key]));
-        }
-        execFileSync(process.execPath, [bin, ...args], { stdio: "inherit" });
+        const { runDesktop } = await import("./src/commands.js");
+        runDesktop({
+          projectRoot: options.projectRoot,
+          entryFile: options.entryFile,
+          module: options.module,
+          appId: options.appId,
+          bundle: options.bundle,
+        });
       },
       options: [
         { name: "--entry-file <path>", description: "Application entry file" },
@@ -40,11 +33,11 @@ module.exports = {
       name: "init-desktop",
       description: "Add GPUI desktop support to an existing React Native app",
       func: async (_argv, _config, options) => {
-        const args = ["init-desktop"];
-        if (options.projectRoot)
-          args.push("--project-root", options.projectRoot);
-        if (options.skipInstall) args.push("--skip-install");
-        execFileSync(process.execPath, [bin, ...args], { stdio: "inherit" });
+        const { initDesktop } = await import("./src/commands.js");
+        initDesktop({
+          projectRoot: options.projectRoot,
+          skipInstall: options.skipInstall,
+        });
       },
       options: [
         {
@@ -67,13 +60,14 @@ module.exports = {
       name: "create-library <name>",
       description: "Create a GPUI TurboModule library in a new directory",
       func: async (argv, _config, options) => {
-        const args = ["create-library", ...argv];
-        if (options.type) args.push("--type", options.type);
-        if (options.directory) args.push("--directory", options.directory);
-        if (options.moduleName) args.push("--module-name", options.moduleName);
-        if (options.packageName)
-          args.push("--package-name", options.packageName);
-        execFileSync(process.execPath, [bin, ...args], { stdio: "inherit" });
+        const { createLibrary } = await import("./src/commands.js");
+        createLibrary({
+          libraryName: argv[0],
+          type: options.type,
+          destination: options.directory,
+          moduleName: options.moduleName,
+          packageName: options.packageName,
+        });
       },
       options: [
         {

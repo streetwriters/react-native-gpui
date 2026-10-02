@@ -4,6 +4,7 @@
   "description": "React Native CLI integration and project scaffolding for the GPUI desktop platform.",
   "files": [
     "bin",
+    "src",
     "templates",
     "react-native.config.cjs"
   ],
