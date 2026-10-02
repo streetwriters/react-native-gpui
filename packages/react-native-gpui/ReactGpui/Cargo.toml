@@ -1,10 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-  "rn-gpui-sys", "rn-gpui", "rn-gpui-macros",
-  # BEGIN RN-GPUI AUTOLINK MEMBERS
-"rn-gpui-autolink"
-# END RN-GPUI AUTOLINK MEMBERS
+  "rn-gpui-sys", "rn-gpui", "rn-gpui-macros"
 ]
 
 [workspace.dependencies]

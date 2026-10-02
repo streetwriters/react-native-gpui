@@ -3,7 +3,6 @@
 //! `run` boots the shared platform runtime; per-app launch logic lives under
 //! the consuming app's `desktop/src/`.
 
-pub mod autolink;
 pub mod events;
 pub mod frame;
 pub mod host;

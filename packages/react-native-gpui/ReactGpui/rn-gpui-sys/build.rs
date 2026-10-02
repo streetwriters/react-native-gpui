@@ -71,10 +71,10 @@ fn main() {
         repo_root.join("node_modules/@react-native-gpui/codegen/src/generate-rust-turbomodules.js");
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
         .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("desktop/.cache/react-native-gpui/autolink.json"));
+        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.json"));
     let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("desktop/.cache/react-native-gpui/autolink.cmake"));
+        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.cmake"));
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
     println!("cargo:rerun-if-changed={}", autolink_cmake.display());

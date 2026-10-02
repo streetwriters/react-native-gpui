@@ -15,9 +15,6 @@ visual-capture = ["gpui_platform/test-support"]
 perf-timing = ["gpui/profiler"]
 
 [dependencies]
-# BEGIN RN-GPUI AUTOLINK DEPENDENCIES
-rn-gpui-autolink = { path = "../rn-gpui-autolink" }
-# END RN-GPUI AUTOLINK DEPENDENCIES
 rn-gpui-sys = { path = "../rn-gpui-sys" }
 gpui = { workspace = true }
 # `font-kit` is what makes gpui_macos build a real (CoreText) text system;

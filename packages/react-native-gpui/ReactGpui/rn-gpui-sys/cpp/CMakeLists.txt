@@ -481,6 +481,19 @@ foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
   endif()
 endforeach()
 
+# App TurboModules are generated under desktop/autolink and linked as a
+# separate archive. The platform runtime only owns the registration hook.
+if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}")
+  add_library(rn_gpui_app_turbo_modules STATIC
+    "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}"
+    ${RN_GPUI_APP_CPP_SOURCES})
+  target_include_directories(rn_gpui_app_turbo_modules PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${RN_GPUI_GENERATED_MODULES_DIR}")
+  target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
+  target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+endif()
+
 # --- link_libs.txt for build.rs (TODO 1.6, design doc §18.4) -----------------
 #
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script

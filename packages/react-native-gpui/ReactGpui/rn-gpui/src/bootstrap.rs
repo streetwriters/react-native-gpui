@@ -483,7 +483,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     application
         .with_http_client(std::sync::Arc::new(crate::http_client::GpuiHttpClient::default()))
         .run(move |cx: &mut App| {
-        crate::autolink::ensure_linked();
         startup_trace("GPUI application callback entered");
         crate::image_loader::install(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs

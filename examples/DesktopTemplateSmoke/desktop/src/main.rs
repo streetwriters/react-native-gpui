@@ -9,6 +9,7 @@
 //!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
 
 fn main() {
+    rn_gpui_autolink::ensure_linked();
     let config = react_native_gpui::DesktopAppConfig::from_env()
         .window_title("My React Native App")
         .window_size(1024.0, 768.0)

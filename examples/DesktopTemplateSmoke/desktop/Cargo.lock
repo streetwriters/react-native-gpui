@@ -4714,7 +4714,6 @@ dependencies = [
  "log",
  "objc",
  "reqwest",
- "rn-gpui-autolink",
  "rn-gpui-macros",
  "rn-gpui-sys",
  "serde_json",
@@ -4919,6 +4918,7 @@ name = "rn-gpui-desktoptemplatesmoke"
 version = "0.1.0"
 dependencies = [
  "react-native-gpui",
+ "rn-gpui-autolink",
 ]
 
 [[package]]

@@ -37,14 +37,11 @@ using namespace facebook::react;
 
 namespace rngpui {
 
-#ifdef RN_GPUI_HAS_APP_CPP_TURBO_MODULE_PROVIDER
-std::shared_ptr<TurboModule> rn_gpui_app_cpp_turbo_module(
-    const std::string& name,
-    const std::shared_ptr<CallInvoker>& jsInvoker);
-#endif
-
 namespace {
 namespace jsi = facebook::jsi;
+using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (
+    *)(const std::string&, std::shared_ptr<CallInvoker>);
+std::atomic<AppCppTurboModuleProvider> appCppTurboModuleProvider{nullptr};
 
 class RustStringTurboModule final : public TurboModule {
  public:
@@ -275,14 +272,19 @@ class GpuiClipboardModule final
   std::shared_ptr<CallInvoker> jsInvoker_;
 };
 
+extern "C" void rn_gpui_set_app_cpp_turbo_module_provider(
+    AppCppTurboModuleProvider provider) {
+  appCppTurboModuleProvider.store(provider, std::memory_order_release);
+}
+
 TurboModuleProviders gpui_turbo_module_providers() {
   return {[](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
               -> std::shared_ptr<TurboModule> {
-#ifdef RN_GPUI_HAS_APP_CPP_TURBO_MODULE_PROVIDER
-    if (auto appModule = rn_gpui_app_cpp_turbo_module(name, jsInvoker)) {
-      return appModule;
+    if (auto provider = appCppTurboModuleProvider.load(std::memory_order_acquire)) {
+      if (auto appModule = provider(name, jsInvoker)) {
+        return appModule;
+      }
     }
-#endif
     if (name == "NativeCppExample") {
       return make_cpp_example_turbo_module(jsInvoker);
     }
