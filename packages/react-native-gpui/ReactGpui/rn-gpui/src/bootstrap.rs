@@ -5,7 +5,7 @@
 //! `Application::new()`).
 //!
 //! Environment:
-//!   RN_GPUI_APP_ID      app id reported to React (default com.example.rngpui)
+//!   RN_GPUI_APP_ID      optional app id override; generated apps default from app.json
 //!   RN_GPUI_DEV_HOST    dev server host (default localhost)
 //!   RN_GPUI_DEV_PORT    dev server port (default 8081)
 //!   RN_GPUI_BUNDLE      path to the JS bundle file
@@ -14,7 +14,7 @@
 //!                       `http://<host>:<port>/<source path>.bundle?platform=gpui`
 //!                       (default index). The prebuilt bundle at RN_GPUI_BUNDLE
 //!                       is the fallback when the dev server is unreachable.
-//!   RN_GPUI_MODULE      registered component name to start (default App)
+//!   RN_GPUI_MODULE      optional registered component name override; apps default from app.json
 //!   RN_GPUI_WIDTH/HEIGHT  surface constraints (default 800/600)
 //!   (visual-capture) RN_GPUI_SCALE       overrides the Fabric display scale;
 //!                       default the window's `scale_factor()` is used, so a
@@ -278,12 +278,19 @@ pub struct DesktopAppConfig {
 }
 
 impl DesktopAppConfig {
-    /// Read app identity and initial surface dimensions from the environment,
-    /// as supplied by `npx react-native run-desktop`.
+    /// Read app identity and initial surface dimensions from environment
+    /// overrides, using generic defaults for applications that do not provide
+    /// build-time app metadata.
     pub fn from_env() -> Self {
+        Self::from_env_with_defaults("App", "com.example.rngpui")
+    }
+
+    /// Read runtime overrides while using the app name and identifier parsed
+    /// from the consuming project's `app.json` by its desktop build script.
+    pub fn from_env_with_defaults(module: &str, app_id: &str) -> Self {
         Self {
-            app_id: env_string("RN_GPUI_APP_ID", "com.example.rngpui"),
-            module: env_string("RN_GPUI_MODULE", "App"),
+            app_id: env_string("RN_GPUI_APP_ID", app_id),
+            module: env_string("RN_GPUI_MODULE", module),
             width: env_f32("RN_GPUI_WIDTH", 800.0),
             height: env_f32("RN_GPUI_HEIGHT", 600.0),
             title: None,

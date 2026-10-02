@@ -75,8 +75,6 @@ async function ensureMetro({ projectRoot, desktopRoot, host, port, config }) {
 export async function runDesktop({
   projectRoot = process.cwd(),
   entryFile = "index.js",
-  module,
-  appId,
   bundle,
   config,
   release = false,
@@ -135,16 +133,6 @@ export async function runDesktop({
   if (!fs.existsSync(appCargoManifest)) {
     throw new Error(`missing desktop Cargo manifest: ${appCargoManifest}`);
   }
-  const appConfig = path.join(projectRoot, "app.json");
-  const defaultModule = fs.existsSync(appConfig)
-    ? JSON.parse(fs.readFileSync(appConfig, "utf8")).name
-    : "App";
-  const resolvedAppId =
-    appId ??
-    `com.example.${path
-      .basename(projectRoot)
-      .toLowerCase()
-      .replaceAll(/[^a-z0-9-]/gu, "-")}`;
   const cargoArgs = ["run"];
   if (release) cargoArgs.push("--release");
   cargoArgs.push("--manifest-path", appCargoManifest);
@@ -155,8 +143,6 @@ export async function runDesktop({
       CARGO_TARGET_DIR:
         process.env.CARGO_TARGET_DIR ?? path.join(desktopRoot, "build/target"),
       RN_GPUI_BUNDLE: bundlePath,
-      RN_GPUI_MODULE: module ?? defaultModule ?? "App",
-      RN_GPUI_APP_ID: resolvedAppId,
       RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
       RN_GPUI_DEV_HOST: host,
       RN_GPUI_DEV_PORT: String(port),
@@ -173,6 +159,40 @@ const appPackageName = (projectRoot, packageJson) =>
   `react-native-gpui-${(packageJson.name ?? path.basename(projectRoot))
     .toLowerCase()
     .replaceAll(/[^a-z0-9-]/gu, "-")}`;
+
+const appIdFromName = (name) =>
+  `com.example.${name.toLowerCase().replaceAll(/[^a-z0-9-]/gu, "-")}`;
+
+function snapshotTree(root, track, rememberDirectory, existingDirectories) {
+  if (!fs.existsSync(root)) {
+    rememberDirectory(root);
+    return;
+  }
+  existingDirectories.add(root);
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      snapshotTree(target, track, rememberDirectory, existingDirectories);
+    } else track(target);
+  }
+}
+
+function removeNewFiles(root, snapshots, existingDirectories) {
+  if (!fs.existsSync(root)) return;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory())
+      removeNewFiles(target, snapshots, existingDirectories);
+    else if (!snapshots.has(target)) {
+      fs.rmSync(target, { force: true, recursive: true });
+    }
+  }
+  if (!existingDirectories.has(root)) {
+    try {
+      fs.rmdirSync(root);
+    } catch {}
+  }
+}
 
 const desktopFiles = (directory) =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -205,8 +225,40 @@ function scaffoldDesktop(
     beforeWrite(cargoPath);
     fs.writeFileSync(
       cargoPath,
-      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n`,
+      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
+  }
+
+  const appConfigPath = path.join(projectRoot, "app.json");
+  if (!fs.existsSync(appConfigPath)) {
+    throw new Error(`missing React Native app config: ${appConfigPath}`);
+  }
+  const appConfig = JSON.parse(fs.readFileSync(appConfigPath, "utf8"));
+  if (typeof appConfig.name !== "string" || appConfig.name.length === 0) {
+    throw new Error(`app.json must define a nonempty name: ${appConfigPath}`);
+  }
+  if (
+    appConfig.desktop !== undefined &&
+    (typeof appConfig.desktop !== "object" ||
+      appConfig.desktop === null ||
+      Array.isArray(appConfig.desktop))
+  ) {
+    throw new Error(`app.json desktop must be an object: ${appConfigPath}`);
+  }
+  const appId = appConfig.desktop?.appId ?? appIdFromName(appConfig.name);
+  if (typeof appId !== "string" || appId.length === 0) {
+    throw new Error(
+      `app.json desktop.appId must be a nonempty string: ${appConfigPath}`,
+    );
+  }
+  const updatedAppConfig = {
+    ...appConfig,
+    desktop: { ...appConfig.desktop, appId },
+  };
+  const serializedAppConfig = `${JSON.stringify(updatedAppConfig, null, 2)}\n`;
+  if (fs.readFileSync(appConfigPath, "utf8") !== serializedAppConfig) {
+    beforeWrite(appConfigPath);
+    fs.writeFileSync(appConfigPath, serializedAppConfig);
   }
 
   const updatedPackageJson = {
@@ -232,6 +284,7 @@ export function initDesktop({
   projectRoot = path.resolve(projectRoot);
   const snapshots = new Map();
   const createdDirectories = new Set();
+  const existingDirectories = new Set();
   const track = (file) => {
     if (!snapshots.has(file)) {
       snapshots.set(file, fs.existsSync(file) ? fs.readFileSync(file) : null);
@@ -291,10 +344,69 @@ export function initDesktop({
       }
       run(manager, ["install"], { cwd: projectRoot });
     }
+
+    const desktopRoot = path.join(projectRoot, "desktop");
+    const autolinkRoot = path.join(desktopRoot, "autolink");
+    const buildRoot = path.join(desktopRoot, "build");
+    const rememberDirectory = (directory) => {
+      for (
+        let current = directory;
+        current.startsWith(projectRoot) && !fs.existsSync(current);
+        current = path.dirname(current)
+      ) {
+        createdDirectories.add(current);
+      }
+    };
+    snapshotTree(autolinkRoot, track, rememberDirectory, existingDirectories);
+    const assetsRoot = path.join(buildRoot, "assets");
+    snapshotTree(assetsRoot, track, rememberDirectory, existingDirectories);
+    const bundlePath = path.join(buildRoot, "index.bundle");
+    track(bundlePath);
+    track(path.join(desktopRoot, "Cargo.toml"));
+    track(path.join(desktopRoot, "src/main.rs"));
+    autolink({ projectRoot });
+
+    if (!fs.existsSync(bundlePath)) {
+      rememberDirectory(assetsRoot);
+      run(
+        "npx",
+        [
+          "react-native",
+          "bundle",
+          "--platform",
+          "gpui",
+          "--entry-file",
+          "index.js",
+          "--bundle-output",
+          bundlePath,
+          "--assets-dest",
+          assetsRoot,
+          "--config",
+          path.join(desktopRoot, "metro.config.js"),
+          "--dev",
+          "false",
+        ],
+        { cwd: projectRoot },
+      );
+    }
     console.log(
       `Added GPUI desktop support to ${projectRoot}. Run npx react-native run-desktop.`,
     );
   } catch (error) {
+    removeNewFiles(
+      path.join(projectRoot, "desktop/autolink"),
+      snapshots,
+      existingDirectories,
+    );
+    removeNewFiles(
+      path.join(projectRoot, "desktop/build/assets"),
+      snapshots,
+      existingDirectories,
+    );
+    const bundlePath = path.join(projectRoot, "desktop/build/index.bundle");
+    if (snapshots.get(bundlePath) === null) {
+      fs.rmSync(bundlePath, { force: true });
+    }
     for (const [file, contents] of [...snapshots.entries()].reverse()) {
       if (contents === null) fs.rmSync(file, { force: true });
       else fs.writeFileSync(file, contents);

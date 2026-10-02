@@ -9,8 +9,6 @@ module.exports = {
         await runDesktop({
           projectRoot: options.projectRoot,
           entryFile: options.entryFile,
-          module: options.module,
-          appId: options.appId,
           bundle: options.bundle,
           config: options.config,
           release: options.release,
@@ -33,14 +31,6 @@ module.exports = {
           description: "Metro server host (default: localhost)",
         },
         { name: "--config <path>", description: "Metro configuration file" },
-        {
-          name: "--module <name>",
-          description: "React Native root module name",
-        },
-        {
-          name: "--app-id <id>",
-          description: "Desktop application identifier",
-        },
         { name: "--bundle <path>", description: "Bundle output path" },
       ],
       examples: [

@@ -6,6 +6,9 @@ edition = "2021"
 [features]
 visual-capture = ["react-native-gpui/visual-capture"]
 
+[build-dependencies]
+serde_json = "1"
+
 [dependencies]
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../../packages/react-native-gpui/ReactGpui/rn-gpui" }

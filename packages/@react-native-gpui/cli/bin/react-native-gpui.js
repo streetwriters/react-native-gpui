@@ -69,8 +69,6 @@ if (command === "run") {
   await runDesktop({
     projectRoot,
     entryFile: option("--entry-file"),
-    module: option("--module"),
-    appId: option("--app-id"),
     bundle: option("--bundle"),
     config: option("--config"),
     release: hasFlag("--release"),

@@ -8,7 +8,13 @@ Run the desktop app from the project root with:
 npx react-native run-desktop
 ```
 
-The Metro config, Rust app crate, generated bundle, Cargo build output, and autolinking cache are kept in this directory.
+The build script reads the app name and `desktop.appId` from the project-root
+`app.json`. `Cargo.lock` is committed so this smoke app stays reproducible
+against the dependency set used by template and runtime checks.
+
+Autolink output is generated under `desktop/autolink/` and gitignored. It is
+recreated by `init-desktop` and `run-desktop`; do not commit those generated files.
+Cargo build output and bundles are kept under `desktop/build/`.
 `Cargo.lock` is committed so this smoke app stays reproducible against the
 dependency set used by template and runtime checks.
 

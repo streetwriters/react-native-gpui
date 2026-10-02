@@ -9,21 +9,23 @@
 //!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
 
 fn main() {
-    let config = react_native_gpui::DesktopAppConfig::from_env()
-        .window_title("My React Native App")
-        .window_size(1024.0, 768.0)
-        // Uncomment to choose a fixed initial top-left location (screen DIPs).
-        // .window_position(120.0, 80.0)
-        // .restore_window_state(false)
-        .configure_window(|options| {
-            // GPUI window options are public: titlebar, resizability, display,
-            // decorations, min size, and other native window behavior.
-            options.is_resizable = true;
-        })
-        .on_window_opened(|_window_id, window, _cx| {
-            // Use the underlying live GPUI window directly when needed.
-            window.set_window_title("My React Native App");
-        });
+    if std::env::var_os("RN_GPUI_BUNDLE").is_none() {
+        std::env::set_var("RN_GPUI_BUNDLE", env!("RN_GPUI_DEFAULT_BUNDLE"));
+    }
+    let config = react_native_gpui::DesktopAppConfig::from_env_with_defaults(
+        env!("RN_GPUI_APP_NAME"),
+        env!("RN_GPUI_APP_ID"),
+    )
+    .window_title(env!("RN_GPUI_APP_NAME"))
+    .window_size(1024.0, 768.0)
+    // Uncomment to choose a fixed initial top-left location (screen DIPs).
+    // .window_position(120.0, 80.0)
+    // .restore_window_state(false)
+    .configure_window(|options| {
+        // GPUI window options are public: titlebar, resizability, display,
+        // decorations, min size, and other native window behavior.
+        options.is_resizable = true;
+    });
 
     react_native_gpui::run_with(config);
 }
