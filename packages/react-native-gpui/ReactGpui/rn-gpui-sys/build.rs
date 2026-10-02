@@ -75,6 +75,14 @@ fn main() {
     let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("desktop/.cache/react-native-gpui/autolink.cmake"));
+    println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
+    println!("cargo:rerun-if-changed={}", autolink_cmake.display());
+    let cpp_provider = autolink_cmake
+        .parent()
+        .unwrap_or(&autolink_cmake)
+        .join("CppTurboModules.generated.cpp");
+    println!("cargo:rerun-if-changed={}", cpp_provider.display());
     let generated_module_dir = out_dir.join("generated");
     fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
     let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
@@ -93,6 +101,31 @@ fn main() {
                         .iter()
                         .filter_map(|spec| spec.as_str().map(PathBuf::from)),
                 );
+            }
+            if let Some(modules) = manifest
+                .get("cppTurboModules")
+                .and_then(|value| value.as_array())
+            {
+                for source in modules
+                    .iter()
+                    .filter_map(|module| module.get("sources"))
+                    .filter_map(serde_json::Value::as_array)
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                {
+                    println!("cargo:rerun-if-changed={source}");
+                }
+            }
+            if let Some(projects) = manifest
+                .get("cmakeProjects")
+                .and_then(|value| value.as_array())
+            {
+                for project in projects.iter().filter_map(serde_json::Value::as_str) {
+                    println!(
+                        "cargo:rerun-if-changed={}",
+                        PathBuf::from(project).join("CMakeLists.txt").display()
+                    );
+                }
             }
         }
     }

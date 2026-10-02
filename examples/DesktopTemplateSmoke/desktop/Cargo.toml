@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rn-gpui = { path = "../node_modules/react-native-gpui/ReactGpui/rn-gpui" }
+react-native-gpui = { path = "../node_modules/react-native-gpui/ReactGpui/rn-gpui" }

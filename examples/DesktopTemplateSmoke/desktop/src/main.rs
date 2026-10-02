@@ -6,10 +6,10 @@
 //!
 //! To manually include one in this app, add e.g.:
 //!   mod greeting;
-//!   rn_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
+//!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
 
 fn main() {
-    let config = rn_gpui::DesktopAppConfig::from_env()
+    let config = react_native_gpui::DesktopAppConfig::from_env()
         .window_title("My React Native App")
         .window_size(1024.0, 768.0)
         // Uncomment to choose a fixed initial top-left location (screen DIPs).
@@ -25,5 +25,5 @@ fn main() {
             window.set_window_title("My React Native App");
         });
 
-    rn_gpui::run_with(config);
+    react_native_gpui::run_with(config);
 }

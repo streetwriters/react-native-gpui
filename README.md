@@ -25,7 +25,7 @@ See `.local/react-native-gpui.md` for the full design doc.
 ## Create an app
 
 ```sh
-npx rn-gpui init MyApp
+npx @react-native-gpui/cli init MyApp
 cd MyApp
 npm install
 npx react-native run-desktop
@@ -34,3 +34,9 @@ npx react-native run-desktop
 The initializer creates a standard React Native project with `ios/` and
 `android/` directories, then adds a `desktop/` GPUI target. All three platforms
 use the same React Native app entry and dependencies. Use `npx react-native run-ios` and `npx react-native run-android` for the standard mobile workflows.
+
+To add GPUI support to an existing React Native project, run
+`npx react-native init-desktop`. Create a native TurboModule package with
+`npx react-native create-library mmkv` (Rust) or
+`npx react-native create-library mmkv --type cpp` (C++). Both templates use
+React Native's `TurboModuleRegistry` API and TypeScript specs.

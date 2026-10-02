@@ -26,7 +26,7 @@
     "probe:phase3-acceptance": "RN_GPUI_PHASE3_PROBE=Phase3AcceptanceProbe bash tester/scripts/run-phase3-probe.sh",
     "probe:phase4-composition": "bash tester/scripts/run-phase4-composition-probe.sh",
     "probe:phase4-webview": "bash tester/scripts/run-phase4-webview-probe.sh",
-    "autolink": "rn-gpui autolink"
+    "autolink": "react-native-gpui autolink"
   },
   "dependencies": {
     "react": "19.2.3",

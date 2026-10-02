@@ -6,7 +6,7 @@ const inputs = process.argv.slice(2);
 const outputPath = inputs.pop();
 if (inputs.length === 0 || !outputPath) {
   throw new Error(
-    "usage: generate-rust-turbomodules <NativeModule.d.ts>... <output.hpp>",
+    "usage: generate-rust-turbomodules <NativeModule.d.ts|RNModuleSpec.ts>... <output.hpp>",
   );
 }
 
@@ -15,13 +15,17 @@ const rows = [];
 const moduleNames = new Set();
 for (const specPath of inputs) {
   const source = fs.readFileSync(specPath, "utf8");
-  const moduleName = source.match(/MODULE_NAME\s*=\s*['"]([^'"]+)['"]/u)?.[1];
+  const moduleName =
+    source.match(/MODULE_NAME\s*=\s*['"]([^'"]+)['"]/u)?.[1] ??
+    source.match(
+      /TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"]([^'"]+)['"]\s*\)/u,
+    )?.[1];
   const rustType = source.match(
     /rn-gpui:rust-type\s+([A-Za-z_][A-Za-z0-9_]*)/u,
   )?.[1];
   if (!moduleName || !rustType) {
     throw new Error(
-      `${specPath} must declare MODULE_NAME and // rn-gpui:rust-type TypeName`,
+      `${specPath} must use TurboModuleRegistry.getEnforcing() and declare // rn-gpui:rust-type TypeName`,
     );
   }
   if (moduleNames.has(moduleName))

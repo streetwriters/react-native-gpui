@@ -1,6 +1,6 @@
 # Desktop (GPUI)
 
-This is the app-local GPUI target. Its `Cargo.toml` depends on the shared runtime crate; `src/main.rs` is the app's launch point, so you can add Rust modules and local crate dependencies without editing the platform package. iOS, Android, and desktop share the JavaScript entry point and JS dependencies.
+This is the app-local GPUI target. Its `Cargo.toml` depends on the `react-native-gpui` Rust crate; `src/main.rs` is the app's launch point, so you can add Rust modules and local crate dependencies without editing the platform package. iOS, Android, and desktop share the JavaScript entry point and JS dependencies.
 
 Run the desktop app from the project root with:
 
@@ -21,10 +21,10 @@ opens. Window size and position restore from the previous run by default; call
 ## Project-local Rust TurboModules
 
 Declare local Rust source in `src/main.rs`, annotate its implementation with
-`#[rn_gpui::rn_module("NativeGreeting")]`, and keep its generated symbols
+`#[react_native_gpui::rn_module("NativeGreeting")]`, and keep its generated symbols
 linked with
-`rn_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);`.
-Add `src/NativeGreeting.d.ts` with `MODULE_NAME = 'NativeGreeting'`, the
+`react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);`.
+Add `src/NativeGreeting.ts` with `MODULE_NAME = 'NativeGreeting'`, the
 `// rn-gpui:rust-type GreetingModule` annotation, and the supported synchronous
 `(string) => string` method signature. `npx react-native run-desktop` discovers
 these local specs during its normal autolink step and generates the native

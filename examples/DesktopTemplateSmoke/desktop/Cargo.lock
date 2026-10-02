@@ -4697,6 +4697,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "react-native-gpui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "base64 0.22.1",
+ "cocoa 0.25.0",
+ "cxx",
+ "env_logger",
+ "futures",
+ "gpui",
+ "gpui_platform",
+ "http_client",
+ "image",
+ "log",
+ "objc",
+ "reqwest",
+ "rn-gpui-autolink",
+ "rn-gpui-macros",
+ "rn-gpui-sys",
+ "serde_json",
+]
+
+[[package]]
 name = "read-fonts"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4887,30 +4911,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rn-gpui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel",
- "base64 0.22.1",
- "cocoa 0.25.0",
- "cxx",
- "env_logger",
- "futures",
- "gpui",
- "gpui_platform",
- "http_client",
- "image",
- "log",
- "objc",
- "reqwest",
- "rn-gpui-autolink",
- "rn-gpui-macros",
- "rn-gpui-sys",
- "serde_json",
-]
-
-[[package]]
 name = "rn-gpui-autolink"
 version = "0.1.0"
 
@@ -4918,7 +4918,7 @@ version = "0.1.0"
 name = "rn-gpui-desktoptemplatesmoke"
 version = "0.1.0"
 dependencies = [
- "rn-gpui",
+ "react-native-gpui",
 ]
 
 [[package]]
