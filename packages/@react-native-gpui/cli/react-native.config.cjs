@@ -2,19 +2,37 @@ module.exports = {
   commands: [
     {
       name: "run-desktop",
-      description: "Build and launch the GPUI desktop target",
+      description:
+        "Run the GPUI desktop target with Metro or as a release build",
       func: async (_argv, _config, options) => {
         const { runDesktop } = await import("./src/commands.js");
-        runDesktop({
+        await runDesktop({
           projectRoot: options.projectRoot,
           entryFile: options.entryFile,
           module: options.module,
           appId: options.appId,
           bundle: options.bundle,
+          config: options.config,
+          release: options.release,
+          port: options.port,
+          host: options.host,
         });
       },
       options: [
         { name: "--entry-file <path>", description: "Application entry file" },
+        {
+          name: "--release",
+          description: "Bundle JavaScript and build the optimized app",
+        },
+        {
+          name: "--port <number>",
+          description: "Metro server port (default: 8081)",
+        },
+        {
+          name: "--host <host>",
+          description: "Metro server host (default: localhost)",
+        },
+        { name: "--config <path>", description: "Metro configuration file" },
         {
           name: "--module <name>",
           description: "React Native root module name",
@@ -26,7 +44,14 @@ module.exports = {
         { name: "--bundle <path>", description: "Bundle output path" },
       ],
       examples: [
-        { desc: "Run the desktop target", cmd: "npx react-native run-desktop" },
+        {
+          desc: "Run with Metro and Fast Refresh",
+          cmd: "npx react-native run-desktop",
+        },
+        {
+          desc: "Build a bundled release",
+          cmd: "npx react-native run-desktop --release",
+        },
       ],
     },
     {

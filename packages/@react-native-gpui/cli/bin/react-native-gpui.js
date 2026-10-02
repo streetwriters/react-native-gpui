@@ -66,13 +66,16 @@ if (!["autolink", "bundle", "run"].includes(command)) {
 }
 
 if (command === "run") {
-  runDesktop({
+  await runDesktop({
     projectRoot,
     entryFile: option("--entry-file"),
     module: option("--module"),
     appId: option("--app-id"),
     bundle: option("--bundle"),
     config: option("--config"),
+    release: hasFlag("--release"),
+    port: option("--port"),
+    host: option("--host"),
   });
   process.exit(0);
 }

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { autolink } from "./autolink.js";
@@ -14,37 +14,121 @@ const run = (bin, args, options = {}) =>
     env: options.env ?? process.env,
   });
 
-export function runDesktop({
+async function isMetroRunning(host, port) {
+  try {
+    const response = await fetch(`http://${host}:${port}/status`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    return (
+      response.ok && (await response.text()).includes("packager-status:running")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function ensureMetro({ projectRoot, desktopRoot, host, port, config }) {
+  if (await isMetroRunning(host, port)) {
+    console.log(`Reusing Metro at http://${host}:${port}`);
+    return;
+  }
+
+  const logPath = path.join(desktopRoot, "build/metro.log");
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logFd = fs.openSync(logPath, "a");
+  const args = [
+    "react-native",
+    "start",
+    "--host",
+    host,
+    "--port",
+    String(port),
+    "--no-interactive",
+  ];
+  if (config) args.push("--config", config);
+  const server = spawn("npx", args, {
+    cwd: projectRoot,
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+  });
+  fs.closeSync(logFd);
+  server.unref();
+  let launchError;
+  server.once("error", (error) => {
+    launchError = error;
+  });
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (await isMetroRunning(host, port)) {
+      console.log(`Started Metro at http://${host}:${port} (log: ${logPath})`);
+      return;
+    }
+    if (launchError) throw launchError;
+    if (server.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    `Metro did not start at http://${host}:${port}. Check ${logPath} or run npx react-native start --port ${port}.`,
+  );
+}
+
+export async function runDesktop({
   projectRoot = process.cwd(),
   entryFile = "index.js",
   module,
   appId,
   bundle,
   config,
+  release = false,
+  port = 8081,
+  host = "localhost",
 }) {
   projectRoot = path.resolve(projectRoot);
   const desktopRoot = path.join(projectRoot, "desktop");
   const bundlePath = path.resolve(
+    projectRoot,
     bundle ?? path.join(desktopRoot, "build/index.bundle"),
   );
-  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
-  const bundleArgs = [
-    "react-native",
-    "bundle",
-    "--platform",
-    "gpui",
-    "--entry-file",
-    entryFile,
-    "--bundle-output",
-    bundlePath,
-    "--assets-dest",
-    path.join(path.dirname(bundlePath), "assets"),
-    "--dev",
-    "false",
-  ];
-  const metroConfig = config ?? path.join(desktopRoot, "metro.config.js");
-  if (fs.existsSync(metroConfig)) bundleArgs.push("--config", metroConfig);
-  run("npx", bundleArgs, { cwd: projectRoot });
+  const metroConfig = path.resolve(
+    projectRoot,
+    config ?? path.join(desktopRoot, "metro.config.js"),
+  );
+
+  if (release) {
+    fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
+    const bundleArgs = [
+      "react-native",
+      "bundle",
+      "--platform",
+      "gpui",
+      "--entry-file",
+      entryFile,
+      "--bundle-output",
+      bundlePath,
+      "--assets-dest",
+      path.join(path.dirname(bundlePath), "assets"),
+      "--dev",
+      "false",
+    ];
+    if (fs.existsSync(metroConfig)) bundleArgs.push("--config", metroConfig);
+    run("npx", bundleArgs, { cwd: projectRoot });
+  } else {
+    const numericPort = Number(port);
+    if (
+      !Number.isInteger(numericPort) ||
+      numericPort < 1 ||
+      numericPort > 65535
+    ) {
+      throw new Error(`--port must be an integer between 1 and 65535`);
+    }
+    await ensureMetro({
+      projectRoot,
+      desktopRoot,
+      host,
+      port: numericPort,
+      config: fs.existsSync(metroConfig) ? metroConfig : undefined,
+    });
+  }
   autolink({ projectRoot });
 
   const appCargoManifest = path.join(desktopRoot, "Cargo.toml");
@@ -61,7 +145,10 @@ export function runDesktop({
       .basename(projectRoot)
       .toLowerCase()
       .replaceAll(/[^a-z0-9-]/gu, "-")}`;
-  run("cargo", ["run", "--release", "--manifest-path", appCargoManifest], {
+  const cargoArgs = ["run"];
+  if (release) cargoArgs.push("--release");
+  cargoArgs.push("--manifest-path", appCargoManifest);
+  run("cargo", cargoArgs, {
     cwd: projectRoot,
     env: {
       ...process.env,
@@ -71,6 +158,8 @@ export function runDesktop({
       RN_GPUI_MODULE: module ?? defaultModule ?? "App",
       RN_GPUI_APP_ID: resolvedAppId,
       RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
+      RN_GPUI_DEV_HOST: host,
+      RN_GPUI_DEV_PORT: String(port),
       RN_GPUI_AUTOLINK_MANIFEST: path.join(
         desktopRoot,
         "autolink/autolink.json",

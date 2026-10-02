@@ -8,6 +8,10 @@ Run the desktop app from the project root with:
 npx react-native run-desktop
 ```
 
+The default starts or reuses Metro on port 8081 and runs a debug Cargo build,
+so Fast Refresh and LogBox work. Change the Metro port with `--port 8082`.
+Use `--release` to bundle JavaScript and run the optimized, Metro-free build.
+
 The Metro config, Rust app crate, generated bundle, Cargo build output, and autolinking cache are kept in this directory.
 
 ## Window configuration
