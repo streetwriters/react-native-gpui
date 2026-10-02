@@ -46,6 +46,7 @@ pub struct RNNodeView {
     pub input_placeholder: String,
     input_placeholder_mode: bool,
     input_text_color: u32,
+    input_selection_color: u32,
     pub input_multiline: bool,
     pub input_editable: bool,
     pub input_selection: std::ops::Range<usize>,
@@ -185,6 +186,7 @@ impl RNNodeView {
             input_text: op.text_input_text.clone(),
             input_placeholder: op.text_input_placeholder.clone(),
             input_placeholder_mode: op.text_input_text.is_empty(),
+            input_selection_color: op.text_input_selection_color,
             input_text_color: op
                 .paragraph
                 .fragments
@@ -265,6 +267,7 @@ impl RNNodeView {
                     self.input_marked = None;
                 }
                 self.input_placeholder = op.text_input_placeholder.clone();
+                self.input_selection_color = op.text_input_selection_color;
                 self.input_multiline = op.text_input_multiline;
                 self.input_editable = op.text_input_editable;
                 self.input_selection = crate::input::reconcile_selection(
@@ -1063,6 +1066,7 @@ impl Render for RNNodeView {
             let input_selection = self.input_selection.clone();
             let content_insets = self.view.content_insets;
             let input_text_color = self.input_text_color;
+            let input_selection_color = self.input_selection_color;
             let caret_visible = self.caret_visible;
             let caret_height = self
                 .paragraph
@@ -1161,13 +1165,18 @@ impl Render for RNNodeView {
                                         origin: point(x, y),
                                         size: gpui::size(px(scale_x.max(1.0)), px(caret_height)),
                                     };
-                                    // Match the insertion caret to the actual
-                                    // TextInput foreground. A fixed black caret
-                                    // disappears when the input uses a light
-                                    // foreground on a dark surface.
+                                    // Honor RN's selectionColor for the caret;
+                                    // otherwise match the text foreground. A
+                                    // fixed black caret disappears on dark
+                                    // surfaces with light text.
+                                    let caret_color = if input_selection_color == 0 {
+                                        input_text_color
+                                    } else {
+                                        input_selection_color
+                                    };
                                     window.paint_quad(gpui::fill(
                                         caret,
-                                        crate::style::color(input_text_color),
+                                        crate::style::color(caret_color),
                                     ));
                                 }
                             }

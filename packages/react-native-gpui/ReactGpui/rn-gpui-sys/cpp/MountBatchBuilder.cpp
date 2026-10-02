@@ -254,6 +254,7 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       if (auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props)) {
         op.text_input_text = props->text;
         op.text_input_placeholder = props->placeholder;
+        op.text_input_selection_color = argb(props->selectionColor);
         op.text_input_multiline = props->multiline;
         op.text_input_editable = props->editable && !props->readOnly;
         op.text_input_most_recent_event_count = props->mostRecentEventCount;

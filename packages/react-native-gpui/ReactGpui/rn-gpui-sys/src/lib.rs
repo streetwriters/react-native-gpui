@@ -130,6 +130,7 @@ pub mod ffi {
         pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
         pub text_input_text: String,
         pub text_input_placeholder: String,
+        pub text_input_selection_color: u32,
         pub text_input_multiline: bool,
         pub text_input_editable: bool,
         pub text_input_most_recent_event_count: i32,
