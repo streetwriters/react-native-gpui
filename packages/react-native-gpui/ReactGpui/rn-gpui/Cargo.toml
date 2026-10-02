@@ -30,6 +30,7 @@ futures = { workspace = true }
 reqwest = { workspace = true }
 image = { version = "0.25.1" }
 base64 = "0.22"
+rn-gpui-macros = { path = "../rn-gpui-macros" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

@@ -12,6 +12,7 @@ pub mod input;
 #[cfg(target_os = "macos")]
 pub mod native_view_probe;
 pub mod node_view;
+pub mod sample_turbo_module;
 pub mod store;
 pub mod style;
 pub mod text;

@@ -3,5 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Rust code generator for react-native-gpui, plugged into @react-native/codegen.",
+  "type": "module",
+  "exports": {
+    "./generate-rust-turbomodules": "./src/generate-rust-turbomodules.js"
+  },
+  "scripts": {
+    "generate-rust-turbomodules": "node ./src/generate-rust-turbomodules.js"
+  },
   "dependencies": {}
 }

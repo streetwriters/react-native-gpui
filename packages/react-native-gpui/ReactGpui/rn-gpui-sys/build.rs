@@ -17,7 +17,9 @@
 //! linkable targets (and rn-gpui-sys is an rlib).
 
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
@@ -61,6 +63,29 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));
 
+    // Generate the C++ TurboModule registry from the RN-style TS spec before
+    // CMake compiles the provider. Rust method wrappers themselves come from
+    // #[rn_module] in rn-gpui-macros.
+    let module_spec = package_dir.join("src-gpui/NativeGreeting.d.ts");
+    let module_codegen =
+        repo_root.join("packages/@rn-gpui/codegen/src/generate-rust-turbomodules.js");
+    let generated_module_dir = out_dir.join("generated");
+    fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
+    let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
+    println!("cargo:rerun-if-changed={}", module_spec.display());
+    println!("cargo:rerun-if-changed={}", module_codegen.display());
+    let status = Command::new("node")
+        .arg(&module_codegen)
+        .arg(&module_spec)
+        .arg(&generated_modules)
+        .status()
+        .expect("run @rn-gpui/codegen; Node.js must be installed");
+    assert!(
+        status.success(),
+        "@rn-gpui/codegen failed for {}",
+        module_spec.display()
+    );
+
     // --- 1. the cxx bridge ---------------------------------------------------
 
     cxx_build::bridge("src/lib.rs")
@@ -82,6 +107,7 @@ fn main() {
         .define("REACT_CXX_PLATFORM_DIR", &react_cxx_platform_dir)
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
+        .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
         .build_target("rn_gpui_core")
         .build();
 

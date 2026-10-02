@@ -354,6 +354,9 @@ add_library(rn_gpui_core STATIC
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+if(RN_GPUI_GENERATED_MODULES_DIR)
+  target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_GENERATED_MODULES_DIR}")
+endif()
 
 # The cxx-generated bridge header (TODO 1.6, design doc §18.6) is located above,
 # before the ReactCommon subdirectories. rn_gpui_core consumes it directly.

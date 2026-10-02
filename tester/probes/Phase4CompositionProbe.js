@@ -1,10 +1,20 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useState} from 'react';
 import {AppRegistry, Text, View} from 'react-native';
+import NativeGreeting from '../../packages/react-native-gpui/src-gpui/NativeGreeting';
 
 /** Verify native/GPUI z-ordering; the GPUI probe control owns toggling. */
 export default function Phase4CompositionProbe() {
+  const [moduleResult, setModuleResult] = useState('loading');
   useEffect(() => {
     console.log('[phase4-composition] native composition probe mounted');
+    try {
+      const result = NativeGreeting.greet('GPUI');
+      console.log(`[rust-turbomodule] ${result}`);
+      setModuleResult(result);
+    } catch (error) {
+      console.error('[rust-turbomodule] call failed', error);
+      setModuleResult(String(error));
+    }
   }, []);
 
   return (
@@ -18,6 +28,7 @@ export default function Phase4CompositionProbe() {
         Resize the window: the native surface should stay below this text and
         track the lower region's changing width and height.
       </Text>
+      <Text>Rust TurboModule: {moduleResult}</Text>
     </View>
   );
 }
