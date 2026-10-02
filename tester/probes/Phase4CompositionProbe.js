@@ -1,34 +1,34 @@
-import React, {useEffect, useState} from 'react';
-import {AppRegistry, Text, View} from 'react-native';
-import NativeGreeting from '../../packages/react-native-gpui/src-gpui/NativeGreeting';
-import NativeFixture from '../gpui-native-module/src-gpui/NativeFixture';
+import React, { useEffect, useState } from "react";
+import { AppRegistry, Text, View } from "react-native";
+import NativeGreeting from "../../packages/react-native-gpui/src-gpui/NativeGreeting";
+import NativeFixture from "../gpui-native-module/src/NativeFixture";
 
 /** Verify native/GPUI z-ordering; the GPUI probe control owns toggling. */
 export default function Phase4CompositionProbe() {
-  const [moduleResult, setModuleResult] = useState('loading');
-  const [autolinkResult, setAutolinkResult] = useState('loading');
+  const [moduleResult, setModuleResult] = useState("loading");
+  const [autolinkResult, setAutolinkResult] = useState("loading");
   useEffect(() => {
-    console.log('[phase4-composition] native composition probe mounted');
+    console.log("[phase4-composition] native composition probe mounted");
     try {
-      const result = NativeGreeting.greet('GPUI');
+      const result = NativeGreeting.greet("GPUI");
       console.log(`[rust-turbomodule] ${result}`);
       setModuleResult(result);
-      const linkedResult = NativeFixture.greet('GPUI');
+      const linkedResult = NativeFixture.greet("GPUI");
       console.log(`[rust-autolink] ${linkedResult}`);
       setAutolinkResult(linkedResult);
     } catch (error) {
-      console.error('[rust-turbomodule] call failed', error);
+      console.error("[rust-turbomodule] call failed", error);
       setModuleResult(String(error));
-      setAutolinkResult('not called');
+      setAutolinkResult("not called");
     }
   }, []);
 
   return (
-    <View style={{flex: 1, padding: 24, gap: 10, backgroundColor: '#f3f4f6'}}>
-      <Text style={{fontSize: 22}}>Phase 4: native layer composition</Text>
+    <View style={{ flex: 1, padding: 24, gap: 10, backgroundColor: "#f3f4f6" }}>
+      <Text style={{ fontSize: 22 }}>Phase 4: native layer composition</Text>
       <Text>
-        A native view occupies the lower region. Use the GPUI control below
-        this text to show or hide an overlay above the native surface.
+        A native view occupies the lower region. Use the GPUI control below this
+        text to show or hide an overlay above the native surface.
       </Text>
       <Text>
         Resize the window: the native surface should stay below this text and
@@ -40,4 +40,7 @@ export default function Phase4CompositionProbe() {
   );
 }
 
-AppRegistry.registerComponent('Phase4CompositionProbe', () => Phase4CompositionProbe);
+AppRegistry.registerComponent(
+  "Phase4CompositionProbe",
+  () => Phase4CompositionProbe,
+);

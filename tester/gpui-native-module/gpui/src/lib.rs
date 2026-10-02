@@ -1,9 +1,9 @@
 use rn_gpui_macros::rn_module;
 
-pub struct FixtureModule;
+pub struct NativeFixture;
 
 #[rn_module("NativeFixture")]
-impl FixtureModule {
+impl NativeFixture {
     pub fn greet(name: String) -> String {
         format!("Autolinked Rust says hi to {name}.")
     }

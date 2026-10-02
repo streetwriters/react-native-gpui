@@ -70,6 +70,9 @@ module.exports = {
         const args = ["create-library", ...argv];
         if (options.type) args.push("--type", options.type);
         if (options.directory) args.push("--directory", options.directory);
+        if (options.moduleName) args.push("--module-name", options.moduleName);
+        if (options.packageName)
+          args.push("--package-name", options.packageName);
         execFileSync(process.execPath, [bin, ...args], { stdio: "inherit" });
       },
       options: [
@@ -78,6 +81,11 @@ module.exports = {
           description: "Native implementation language (default: rust)",
         },
         { name: "--directory <path>", description: "Output directory" },
+        {
+          name: "--module-name <name>",
+          description: "Native TurboModule name",
+        },
+        { name: "--package-name <name>", description: "npm package name" },
       ],
       examples: [
         {

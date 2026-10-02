@@ -93,7 +93,8 @@ fn main() {
     if let Ok(manifest) = fs::read_to_string(&autolink_manifest) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest) {
             if let Some(specs) = manifest
-                .get("turboModuleSpecs")
+                .get("rustTurboModuleSpecs")
+                .or_else(|| manifest.get("turboModuleSpecs"))
                 .and_then(|value| value.as_array())
             {
                 module_specs.extend(

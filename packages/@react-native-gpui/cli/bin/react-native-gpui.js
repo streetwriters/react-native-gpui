@@ -21,6 +21,14 @@ const run = (bin, args, options = {}) =>
     stdio: options.stdio ?? "inherit",
     env: options.env ?? process.env,
   });
+const findCppSources = (directory) => {
+  if (!directory || !fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return findCppSources(entryPath);
+    return /\.(?:cc|cpp|cxx)$/u.test(entry.name) ? [entryPath] : [];
+  });
+};
 
 if (command === "init-desktop") {
   const snapshots = new Map();
@@ -155,7 +163,7 @@ if (command === "create-library") {
     !["rust", "cpp"].includes(type)
   ) {
     console.error(
-      "usage: npx react-native create-library <Name> [--type rust|cpp] [--directory path]",
+      "usage: npx react-native create-library <Name> [--type rust|cpp] [--module-name PascalCase] [--package-name name] [--directory path]",
     );
     process.exit(2);
   }
@@ -166,44 +174,40 @@ if (command === "create-library") {
     .replaceAll(/([a-z0-9])([A-Z])/gu, "$1-$2")
     .toLowerCase()
     .replaceAll(/[^a-z0-9-]/gu, "-");
-  const words = libraryName.match(
-    /[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z0-9]+/gu,
-  ) ?? [libraryName];
+  const words = libraryName.match(/[A-Z]?[a-z0-9]+|[A-Z]+/gu) ?? [libraryName];
   const moduleStem = words
-    .map((word) =>
-      word === word.toLowerCase() && word.length <= 4
-        ? word.toUpperCase()
-        : word[0].toUpperCase() + word.slice(1),
-    )
+    .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
     .join("");
-  const moduleName = `RN${moduleStem}Module`;
-  const specName = `${moduleName}Spec`;
-  const rustModuleFile = `rn-${slug}-module.rs`;
-  const rustModuleIdentifier = `rn_${slug.replaceAll("-", "_")}_module`;
+  const moduleName = option("--module-name") ?? `RN${moduleStem}Module`;
+  if (!/^[A-Za-z][A-Za-z0-9]*$/u.test(moduleName)) {
+    throw new Error("--module-name must be a PascalCase identifier");
+  }
+  const specName = `Native${moduleStem}`;
   const rustSymbolPrefix = moduleName.toLowerCase();
   const cppProvider = `create_${slug.replaceAll("-", "_")}_module`;
+  const packageName = option("--package-name") ?? `react-native-${slug}`;
   const templateRoot = path.join(cliDir, `../templates/modules/${type}`);
   fs.mkdirSync(destination, { recursive: true });
   const replaceTokens = (source) =>
     source
-      .replaceAll("RNModuleSpec", specName)
+      .replaceAll("NativeModule", specName)
       .replaceAll("RNMODULE", moduleName.toUpperCase())
       .replaceAll("RNModule", moduleName)
       .replaceAll("rnmodule", rustSymbolPrefix)
-      .replaceAll("rn-module.rs", rustModuleFile)
-      .replaceAll("module_path", rustModuleIdentifier)
       .replaceAll("create_rn_module", cppProvider);
   const moduleFiles =
     type === "rust"
       ? {
-          [`src-gpui/${specName}.ts`]: "RNModuleSpec.ts",
-          [`ReactGpui/src/${rustModuleFile}`]: "rn-module.rs",
-          "ReactGpui/src/lib.rs": "lib.rs",
+          [`src/${specName}.ts`]: "NativeModule.ts",
+          "src/index.ts": "index.ts",
+          "gpui/src/lib.rs": "lib.rs",
         }
       : {
-          [`src-gpui/${specName}.ts`]: "RNModuleSpec.ts",
-          [`ReactGpui/cpp/${moduleName}.hpp`]: "RNModule.hpp",
-          [`ReactGpui/cpp/${moduleName}.cpp`]: "RNModule.cpp",
+          [`src/${specName}.ts`]: "NativeModule.ts",
+          "src/index.ts": "index.ts",
+          [`gpui/cpp/${moduleName}.hpp`]: "RNModule.hpp",
+          [`gpui/cpp/${moduleName}.cpp`]: "RNModule.cpp",
+          "gpui/CMakeLists.txt": "CMakeLists.txt",
         };
   for (const [target, source] of Object.entries(moduleFiles)) {
     const targetPath = path.join(destination, target);
@@ -217,22 +221,23 @@ if (command === "create-library") {
     type === "rust"
       ? {
           crate: `rn-gpui-${slug}`,
-          path: "ReactGpui",
-          specs: "src-gpui",
         }
       : {
-          cppSources: [`ReactGpui/cpp/${moduleName}.cpp`],
+          cmake: "gpui",
           cppProvider,
-          specs: "src-gpui",
         };
   const pkg = {
-    name: `@react-native-gpui/${slug}`,
+    name: packageName,
     version: "0.1.0",
-    main: `src-gpui/${specName}.ts`,
-    files: ["src-gpui", "ReactGpui", "react-native.config.js"],
+    main: "src/index.ts",
+    files: ["src", "gpui", "react-native.config.js", "README.md"],
+    codegenConfig: {
+      name: `${moduleName}Spec`,
+      type: "modules",
+      jsSrcsDir: "src",
+    },
     peerDependencies: { "react-native": ">=0.76" },
   };
-  if (type === "rust") pkg.files.push("ReactGpui/Cargo.toml");
   fs.writeFileSync(
     path.join(destination, "package.json"),
     `${JSON.stringify(pkg, null, 2)}\n`,
@@ -243,19 +248,19 @@ if (command === "create-library") {
   );
   if (type === "rust") {
     fs.writeFileSync(
-      path.join(destination, "ReactGpui/Cargo.toml"),
+      path.join(destination, "gpui/Cargo.toml"),
       `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n`,
     );
   } else {
     fs.writeFileSync(
       path.join(destination, "README.md"),
-      `# ${libraryName}\n\nC++ TurboModule library for React Native GPUI. The TypeScript spec and JavaScript registry access use React Native's standard TurboModule shape. The native implementation uses RN's C++ TurboModule and JSI method map; automatic GPUI autolinking registers its provider. Import the default export from src-gpui/${moduleName}.js and call its typed greet(name) method.\n`,
+      `# ${libraryName}\n\nC++ TurboModule library for React Native GPUI. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in gpui/cpp/${moduleName}.cpp and is discovered through package metadata. Import the default export from ${pkg.name} and call its typed greet(name) method.\n`,
     );
   }
   if (type === "rust") {
     fs.writeFileSync(
       path.join(destination, "README.md"),
-      `# ${libraryName}\n\nRust TurboModule library for React Native GPUI. The TypeScript spec and JavaScript registry access use React Native's standard TurboModule shape. GPUI autolinking links the Rust crate and registers its generated provider. Import the default export from src-gpui/${moduleName}.js and call its typed greet(name) method.\n`,
+      `# ${libraryName}\n\nRust TurboModule library for React Native GPUI. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in gpui/src/lib.rs and is discovered through package metadata. Import the default export from ${pkg.name} and call its typed greet(name) method.\n`,
     );
   }
   console.log(
@@ -445,6 +450,7 @@ if (!fs.existsSync(path.join(runtimeCrate, "Cargo.toml"))) {
 }
 const rustCrates = [];
 const turboModuleSpecs = [];
+const rustTurboModuleSpecs = [];
 const cmakeProjects = [];
 const cppTurboModules = [];
 for (const [dependencyName, dependency] of Object.entries(
@@ -457,6 +463,11 @@ for (const [dependencyName, dependency] of Object.entries(
       dependency.root ?? path.join(projectRoot, "node_modules", dependencyName),
     ),
   );
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
+  const specDirectory =
+    packageJson.codegenConfig?.jsSrcsDir ?? gpui.specs ?? "src";
   if (gpui.cppProvider) {
     if (
       typeof gpui.cppProvider !== "string" ||
@@ -466,7 +477,7 @@ for (const [dependencyName, dependency] of Object.entries(
         `${dependencyName}: platforms.gpui.cppProvider must be a C++ function name`,
       );
     }
-    const specDir = path.join(root, gpui.specs ?? "src-gpui");
+    const specDir = path.join(root, specDirectory);
     for (const file of fs
       .readdirSync(specDir)
       .filter((entry) =>
@@ -474,26 +485,25 @@ for (const [dependencyName, dependency] of Object.entries(
       )) {
       const specPath = path.join(specDir, file);
       const specSource = fs.readFileSync(specPath, "utf8");
-      const provider = specSource.match(
-        /rn-gpui:cpp-provider\s+([A-Za-z_][A-Za-z0-9_]*)/u,
+      const moduleName = specSource.match(
+        /TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"]([^'"]+)['"]\s*\)/u,
       )?.[1];
-      const moduleName =
-        specSource.match(/MODULE_NAME\s*=\s*['"]([^'"]+)['"]/u)?.[1] ??
-        specSource.match(
-          /TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"]([^'"]+)['"]\s*\)/u,
-        )?.[1];
-      if (provider !== gpui.cppProvider || !moduleName)
+      if (!moduleName)
         throw new Error(
-          `${specPath} must use TurboModuleRegistry.getEnforcing() and declare // rn-gpui:cpp-provider ${gpui.cppProvider}`,
+          `${specPath} must register its module with TurboModuleRegistry.getEnforcing()`,
         );
       cppTurboModules.push({
         dependencyName,
         moduleName,
-        provider,
-        sources: (gpui.cppSources ?? []).map((source) =>
-          path.resolve(root, source),
-        ),
+        provider: gpui.cppProvider,
+        hasCmake: Boolean(gpui.cmake),
+        sources: gpui.cppSources
+          ? gpui.cppSources.map((source) => path.resolve(root, source))
+          : gpui.cmake
+            ? findCppSources(path.resolve(root, gpui.cmake))
+            : [],
       });
+      turboModuleSpecs.push(specPath);
     }
   }
   if (!gpui.crate) {
@@ -506,13 +516,8 @@ for (const [dependencyName, dependency] of Object.entries(
       `${dependencyName}: platforms.gpui.crate must be a Cargo crate name`,
     );
   }
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(root, "package.json"), "utf8"),
-  );
-  const defaultCargoPath = fs.existsSync(
-    path.join(root, "ReactGpui/Cargo.toml"),
-  )
-    ? "ReactGpui"
+  const defaultCargoPath = fs.existsSync(path.join(root, "gpui/Cargo.toml"))
+    ? "gpui"
     : ".";
   const cargoPath = path.resolve(root, gpui.path ?? defaultCargoPath);
   if (!fs.existsSync(path.join(cargoPath, "Cargo.toml"))) {
@@ -520,7 +525,7 @@ for (const [dependencyName, dependency] of Object.entries(
   }
   const alias = crateName.replaceAll("-", "_");
   const moduleTypes = [];
-  const specDir = path.join(root, gpui.specs ?? "src-gpui");
+  const specDir = path.join(root, specDirectory);
   if (fs.existsSync(specDir)) {
     for (const file of fs
       .readdirSync(specDir)
@@ -529,15 +534,16 @@ for (const [dependencyName, dependency] of Object.entries(
       )) {
       const specPath = path.join(specDir, file);
       const specSource = fs.readFileSync(specPath, "utf8");
-      const rustType = specSource.match(
-        /rn-gpui:rust-type\s+([A-Za-z_][A-Za-z0-9_]*)/u,
+      const moduleName = specSource.match(
+        /TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"]([^'"]+)['"]\s*\)/u,
       )?.[1];
-      if (!rustType)
+      if (!moduleName)
         throw new Error(
-          `${specPath} must declare // rn-gpui:rust-type TypeName`,
+          `${specPath} must register its module with TurboModuleRegistry.getEnforcing()`,
         );
-      moduleTypes.push(rustType);
+      moduleTypes.push(moduleName);
       turboModuleSpecs.push(specPath);
+      rustTurboModuleSpecs.push(specPath);
     }
   }
   rustCrates.push({
@@ -563,10 +569,17 @@ if (fs.existsSync(localDesktopSource)) {
     )) {
     const specPath = path.join(localDesktopSource, file);
     const specSource = fs.readFileSync(specPath, "utf8");
-    if (!/rn-gpui:rust-type\s+([A-Za-z_][A-Za-z0-9_]*)/u.test(specSource)) {
-      throw new Error(`${specPath} must declare // rn-gpui:rust-type TypeName`);
+    if (
+      !/TurboModuleRegistry\.getEnforcing(?:<[^>]+>)?\(\s*['"][^'"]+['"]\s*\)/u.test(
+        specSource,
+      )
+    ) {
+      throw new Error(
+        `${specPath} must register its module with TurboModuleRegistry.getEnforcing()`,
+      );
     }
     turboModuleSpecs.push(specPath);
+    rustTurboModuleSpecs.push(specPath);
   }
 }
 
@@ -575,6 +588,7 @@ fs.mkdirSync(generatedDir, { recursive: true });
 const manifest = {
   rustCrates,
   turboModuleSpecs,
+  rustTurboModuleSpecs,
   cppTurboModules,
   cmakeProjects,
 };
@@ -688,20 +702,25 @@ fs.writeFileSync(
   `// Generated by @react-native-gpui/cli autolink; do not edit.\n#include <ReactCommon/TurboModule.h>\n#include <memory>\n#include <string>\n${[...new Set(cppTurboModules.map(({ provider }) => `extern std::shared_ptr<facebook::react::TurboModule> ${provider}(const std::string&, std::shared_ptr<facebook::react::CallInvoker>);`))].join("\n")}\nextern "C" void rn_gpui_set_app_cpp_turbo_module_provider(std::shared_ptr<facebook::react::TurboModule> (*)(const std::string&, std::shared_ptr<facebook::react::CallInvoker>));\nextern "C" void rn_gpui_initialize_app_turbo_modules() {\n  rn_gpui_set_app_cpp_turbo_module_provider(+[](const std::string& name, std::shared_ptr<facebook::react::CallInvoker> jsInvoker) -> std::shared_ptr<facebook::react::TurboModule> {\n${cppProviderCases}\n    return nullptr;\n  });\n}\n`,
 );
 const cppSources = [
-  ...new Set(cppTurboModules.flatMap(({ sources }) => sources)),
+  ...new Set(
+    cppTurboModules
+      .filter(({ hasCmake }) => !hasCmake)
+      .flatMap(({ sources }) => sources),
+  ),
 ];
 const cmakePath = (value) => value.replaceAll("\\", "/").replaceAll('"', '\\"');
 const cmake = [
   ...cmakeProjects.map(
-    (directory) => `add_subdirectory("${cmakePath(directory)}")`,
+    (directory, index) =>
+      `add_subdirectory("${cmakePath(directory)}" "${cmakePath(path.join("${CMAKE_BINARY_DIR}", `rn_gpui_autolink_${index}`))}")`,
   ),
   `set(RN_GPUI_APP_CPP_PROVIDER_SOURCE "${cmakePath(cppProviderPath)}")`,
-  `set(RN_GPUI_APP_CPP_SOURCES ${cppSources.map((source) => `"${cmakePath(source)}"`).join(" ")})`,
+  `list(APPEND RN_GPUI_APP_CPP_SOURCES ${cppSources.map((source) => `"${cmakePath(source)}"`).join(" ")})`,
 ].join("\n");
 fs.writeFileSync(
   path.join(generatedDir, "autolink.cmake"),
   `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
 );
 console.log(
-  `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${turboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), and ${cmakeProjects.length} CMake project(s).`,
+  `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), and ${cmakeProjects.length} CMake project(s).`,
 );

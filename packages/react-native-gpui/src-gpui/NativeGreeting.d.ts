@@ -1,11 +1,7 @@
-import type {TurboModule} from 'react-native';
-
-// rn-gpui:rust-type GreetingModule
-export const MODULE_NAME = 'RustGreeting';
+import { TurboModuleRegistry, type TurboModule } from "react-native";
 
 export interface Spec extends TurboModule {
   greet(name: string): string;
 }
 
-declare const NativeGreeting: Spec;
-export default NativeGreeting;
+export default TurboModuleRegistry.getEnforcing<Spec>("RustGreeting");

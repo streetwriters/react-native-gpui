@@ -1,3 +1,3 @@
-import {getEnforcing} from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
+import { TurboModuleRegistry } from "react-native";
 
-export default getEnforcing('RustGreeting');
+export default TurboModuleRegistry.getEnforcing("RustGreeting");

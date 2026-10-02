@@ -20,13 +20,14 @@ opens. Window size and position restore from the previous run by default; call
 
 ## Project-local Rust TurboModules
 
-Declare local Rust source in `src/main.rs`, annotate its implementation with
-`#[react_native_gpui::rn_module("NativeGreeting")]`, and keep its generated symbols
-linked with
-`react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);`.
-Add `src/NativeGreeting.ts` with `MODULE_NAME = 'NativeGreeting'`, the
-`// rn-gpui:rust-type GreetingModule` annotation, and the supported synchronous
-`(string) => string` method signature. `npx react-native run-desktop` discovers
+Declare local Rust source in `src/main.rs`, annotate its `NativeGreeting`
+implementation with `#[react_native_gpui::rn_module("NativeGreeting")]`, and
+keep its generated symbols linked with
+`react_native_gpui::register_turbo_module!(greeting::NATIVEGREETING_RN_GPUI_MODULES);`.
+Add `src/NativeGreeting.ts` with a
+`TurboModuleRegistry.getEnforcing<Spec>('NativeGreeting')` spec and the
+supported synchronous `(string) => string` method signature.
+`npx react-native run-desktop` discovers
 these local specs during its normal autolink step and generates the native
 provider automatically. Put Rust implementation dependencies in this folder's
 `Cargo.toml`.

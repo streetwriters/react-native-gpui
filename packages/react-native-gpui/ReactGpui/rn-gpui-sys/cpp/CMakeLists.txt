@@ -484,6 +484,8 @@ endforeach()
 # App TurboModules are generated under desktop/autolink and linked as a
 # separate archive. The platform runtime only owns the registration hook.
 if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}")
+  get_property(RN_GPUI_CMAKE_APP_CPP_SOURCES GLOBAL PROPERTY RN_GPUI_APP_CPP_SOURCES)
+  list(APPEND RN_GPUI_APP_CPP_SOURCES ${RN_GPUI_CMAKE_APP_CPP_SOURCES})
   add_library(rn_gpui_app_turbo_modules STATIC
     "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}"
     ${RN_GPUI_APP_CPP_SOURCES})

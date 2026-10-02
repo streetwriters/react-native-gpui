@@ -2,6 +2,15 @@
   "name": "@react-native-gpui/native-module-fixture",
   "version": "0.1.0",
   "private": true,
-  "main": "src-gpui/NativeFixture.js",
-  "files": ["src-gpui", "ReactGpui", "react-native.config.js"]
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "gpui",
+    "react-native.config.js"
+  ],
+  "codegenConfig": {
+    "name": "NativeFixtureSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  }
 }
