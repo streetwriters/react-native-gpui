@@ -3,6 +3,7 @@
 //! `main.rs` opens the GPUI window (TODO 1.9); the node tree and styles land in
 //! TODO 1.10, text in TODO 1.11 (design doc §18.10-§18.14).
 
+pub mod autolink;
 pub mod events;
 pub mod frame;
 pub mod host;

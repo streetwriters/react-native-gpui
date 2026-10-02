@@ -4995,9 +4995,17 @@ dependencies = [
  "log",
  "objc",
  "reqwest",
+ "rn-gpui-autolink",
  "rn-gpui-macros",
  "rn-gpui-sys",
  "serde_json",
+]
+
+[[package]]
+name = "rn-gpui-autolink"
+version = "0.1.0"
+dependencies = [
+ "rn-gpui-native-fixture",
 ]
 
 [[package]]
@@ -5010,6 +5018,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rn-gpui-native-fixture"
+version = "0.1.0"
+dependencies = [
+ "rn-gpui-macros",
+]
+
+[[package]]
 name = "rn-gpui-sys"
 version = "0.1.0"
 dependencies = [
@@ -5017,6 +5032,7 @@ dependencies = [
  "cxx",
  "cxx-build",
  "log",
+ "serde_json",
 ]
 
 [[package]]

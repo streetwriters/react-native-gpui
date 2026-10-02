@@ -1,19 +1,25 @@
 import React, {useEffect, useState} from 'react';
 import {AppRegistry, Text, View} from 'react-native';
 import NativeGreeting from '../../packages/react-native-gpui/src-gpui/NativeGreeting';
+import NativeFixture from '../gpui-native-module/src-gpui/NativeFixture';
 
 /** Verify native/GPUI z-ordering; the GPUI probe control owns toggling. */
 export default function Phase4CompositionProbe() {
   const [moduleResult, setModuleResult] = useState('loading');
+  const [autolinkResult, setAutolinkResult] = useState('loading');
   useEffect(() => {
     console.log('[phase4-composition] native composition probe mounted');
     try {
       const result = NativeGreeting.greet('GPUI');
       console.log(`[rust-turbomodule] ${result}`);
       setModuleResult(result);
+      const linkedResult = NativeFixture.greet('GPUI');
+      console.log(`[rust-autolink] ${linkedResult}`);
+      setAutolinkResult(linkedResult);
     } catch (error) {
       console.error('[rust-turbomodule] call failed', error);
       setModuleResult(String(error));
+      setAutolinkResult('not called');
     }
   }, []);
 
@@ -29,6 +35,7 @@ export default function Phase4CompositionProbe() {
         track the lower region's changing width and height.
       </Text>
       <Text>Rust TurboModule: {moduleResult}</Text>
+      <Text>Autolinked module: {autolinkResult}</Text>
     </View>
   );
 }

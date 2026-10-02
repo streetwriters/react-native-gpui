@@ -6,6 +6,7 @@ BUNDLE="${RN_GPUI_PHASE4_BUNDLE:-/tmp/rn-gpui-phase4-webview.bundle}"
 APP="${REPO_ROOT}/packages/react-native-gpui/ReactGpui/target/release/rn-gpui"
 
 cd "${REPO_ROOT}"
+npm run autolink
 npx react-native bundle \
   --platform gpui \
   --entry-file tester/probes/Phase4CompositionProbe.js \

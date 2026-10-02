@@ -1,0 +1,7 @@
+[package]
+name = "rn-gpui-autolink"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rn_gpui_native_fixture = { package = "rn-gpui-native-fixture", path = "../../../../tester/gpui-native-module/ReactGpui" }

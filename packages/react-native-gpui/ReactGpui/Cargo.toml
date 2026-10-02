@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["rn-gpui-sys", "rn-gpui", "rn-gpui-macros"]
+members = [
+  "rn-gpui-sys", "rn-gpui", "rn-gpui-macros",
+  # BEGIN RN-GPUI AUTOLINK MEMBERS
+"rn-gpui-autolink"
+# END RN-GPUI AUTOLINK MEMBERS
+]
 
 [workspace.dependencies]
 gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }   # pinned in TODO 1.2, see GPUI_PIN.md

@@ -1,0 +1,7 @@
+{
+  "name": "@rn-gpui/native-module-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src-gpui/NativeFixture.js",
+  "files": ["src-gpui", "ReactGpui", "react-native.config.js"]
+}

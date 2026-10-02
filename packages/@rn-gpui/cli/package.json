@@ -6,5 +6,6 @@
   "bin": {
     "rn-gpui": "./bin/rn-gpui.js"
   },
+  "type": "module",
   "dependencies": {}
 }

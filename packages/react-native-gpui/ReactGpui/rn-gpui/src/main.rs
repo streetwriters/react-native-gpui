@@ -382,6 +382,7 @@ fn main() {
     application
         .with_http_client(std::sync::Arc::new(rn_gpui::http_client::GpuiHttpClient::default()))
         .run(move |cx: &mut App| {
+        rn_gpui::autolink::ensure_linked();
         startup_trace("GPUI application callback entered");
         rn_gpui::image_loader::install(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs

@@ -8,7 +8,8 @@
     "packages/@rn-gpui/cli",
     "packages/@rn-gpui/codegen",
     "template",
-    "tester"
+    "tester",
+    "tester/gpui-native-module"
   ],
   "scripts": {
     "test:retention": "bash tester/scripts/verify-retention.sh",
@@ -24,7 +25,8 @@
     "probe:modal": "RN_GPUI_PHASE3_PROBE=ModalProbe bash tester/scripts/run-phase3-probe.sh",
     "probe:phase3-acceptance": "RN_GPUI_PHASE3_PROBE=Phase3AcceptanceProbe bash tester/scripts/run-phase3-probe.sh",
     "probe:phase4-composition": "bash tester/scripts/run-phase4-composition-probe.sh",
-    "probe:phase4-webview": "bash tester/scripts/run-phase4-webview-probe.sh"
+    "probe:phase4-webview": "bash tester/scripts/run-phase4-webview-probe.sh",
+    "autolink": "rn-gpui autolink"
   },
   "dependencies": {
     "react": "19.2.3",
@@ -36,6 +38,7 @@
   "devDependencies": {
     "@react-native-community/cli": "^20.2.0",
     "@react-native/metro-config": "^0.87.1",
-    "react-native-platform-override": "^0.84.0"
+    "react-native-platform-override": "^0.84.0",
+    "@rn-gpui/native-module-fixture": "0.1.0"
   }
 }

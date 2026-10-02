@@ -24,7 +24,7 @@ module.exports = {
       // The platform has no Gradle/Xcode project to link: everything below is
       // built by the Rust crate (see packages/react-native-gpui/ReactGpui).
       projectConfig: () => null,
-      dependencyConfig: () => null,
+      dependencyConfig: (_root, dependencyConfig) => dependencyConfig ?? null,
     },
   },
   project: {

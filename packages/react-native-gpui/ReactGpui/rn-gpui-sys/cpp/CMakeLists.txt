@@ -353,9 +353,15 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
+if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
+  include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(RN_GPUI_GENERATED_MODULES_DIR)
   target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_GENERATED_MODULES_DIR}")
+endif()
+if(RN_GPUI_AUTOLINK_LIBRARIES)
+  target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
 
 # The cxx-generated bridge header (TODO 1.6, design doc §18.6) is located above,

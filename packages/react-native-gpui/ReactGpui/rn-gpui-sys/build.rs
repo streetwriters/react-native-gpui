@@ -69,15 +69,34 @@ fn main() {
     let module_spec = package_dir.join("src-gpui/NativeGreeting.d.ts");
     let module_codegen =
         repo_root.join("packages/@rn-gpui/codegen/src/generate-rust-turbomodules.js");
+    let autolink_manifest = repo_root.join(".rn-gpui/autolink.json");
     let generated_module_dir = out_dir.join("generated");
     fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
     let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
     println!("cargo:rerun-if-changed={}", module_spec.display());
     println!("cargo:rerun-if-changed={}", module_codegen.display());
-    let status = Command::new("node")
+    println!("cargo:rerun-if-changed={}", autolink_manifest.display());
+    let mut module_specs = vec![module_spec.clone()];
+    if let Ok(manifest) = fs::read_to_string(&autolink_manifest) {
+        if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest) {
+            if let Some(specs) = manifest
+                .get("turboModuleSpecs")
+                .and_then(|value| value.as_array())
+            {
+                module_specs.extend(
+                    specs
+                        .iter()
+                        .filter_map(|spec| spec.as_str().map(PathBuf::from)),
+                );
+            }
+        }
+    }
+    let mut codegen = Command::new("node");
+    codegen
         .arg(&module_codegen)
-        .arg(&module_spec)
-        .arg(&generated_modules)
+        .args(&module_specs)
+        .arg(&generated_modules);
+    let status = codegen
         .status()
         .expect("run @rn-gpui/codegen; Node.js must be installed");
     assert!(
@@ -108,6 +127,10 @@ fn main() {
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
+        .define(
+            "RN_GPUI_AUTOLINK_CMAKE",
+            repo_root.join(".rn-gpui/autolink.cmake"),
+        )
         .build_target("rn_gpui_core")
         .build();
 
