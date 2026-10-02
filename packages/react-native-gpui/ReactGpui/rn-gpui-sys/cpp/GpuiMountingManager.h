@@ -1,4 +1,4 @@
-// TODO 1.5 — design doc §18.8.
+// Fabric mounting manager (design doc §18.8).
 #pragma once
 
 #include <folly/dynamic.h>

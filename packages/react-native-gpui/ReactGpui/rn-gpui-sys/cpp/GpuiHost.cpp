@@ -1,8 +1,8 @@
-// TODO 1.5 — design doc §18.7.
+// React host implementation (design doc §18.7).
 #include "GpuiHost.h"
 #include <react/runtime/GpuiDebug.h>
 
-#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"

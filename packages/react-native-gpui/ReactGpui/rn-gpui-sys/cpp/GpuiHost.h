@@ -1,4 +1,4 @@
-// TODO 1.5 — design doc §18.7.
+// React host bridge declarations (design doc §18.7).
 //
 // Signature note: this header is what the cxx bridge `include!("GpuiHost.h")`
 // names in §18.6, so these are the exact types Rust sees. cxx takes the address

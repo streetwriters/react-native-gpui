@@ -18,8 +18,8 @@ impl Host {
         ))))
     }
 
-    /// Loads the JS bundle. `bundle` is a file path (used when Metro is not
-    /// reachable, TODO 1.7); `url` is the source URL RN reports to JS.
+    /// Loads the JS bundle. `bundle` is a file path used when Metro is not
+    /// reachable; `url` is the source URL RN reports to JS.
     pub fn load_script(&self, bundle: &str, url: &str) -> bool {
         self.0.lock().unwrap().pin_mut().load_script(bundle, url)
     }

@@ -1,4 +1,4 @@
-//! rn-gpui-sys build script (design doc §18.4, TODO 1.6).
+//! rn-gpui-sys build script (design doc §18.4).
 //!
 //! Two steps, in this order because the C++ glue includes the header that the
 //! first step generates:

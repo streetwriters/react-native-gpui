@@ -1,4 +1,4 @@
-# GPUI pin (TODO 1.2)
+# GPUI pin
 
 We build on the Longbridge `gpui-fast` fork: GPUI extracted from the Zed
 monorepo, with a retained-mode layout engine (unchanged views are replayed,

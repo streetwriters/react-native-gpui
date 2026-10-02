@@ -1,4 +1,4 @@
-// TODO 1.4 done-when check: the prebuilt libhermesvm (from
+// The prebuilt libhermesvm (from
 // the hermes-engine Maven artifact, fetched by
 // cmake/modules/ThirdParty.cmake) links into this test
 // executable, which creates a Hermes runtime and evaluates

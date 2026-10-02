@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// TODO 1.11 — design doc §18.9.
+// React Native text measurement override (design doc §18.9).
 //
 // Copy override of ReactCommon's cxx platform TextLayoutManager. Upstream
 // returns `layoutConstraints.minimumSize` for every paragraph, so on the gpui

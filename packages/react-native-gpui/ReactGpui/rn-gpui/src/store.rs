@@ -4,8 +4,8 @@
 //! mount batches arrive on the JS thread and are forwarded to this store on the
 //! main thread, where they are applied to GPUI entities.
 //!
-//! TODO 1.10 turns the ops into `RNNodeView`s and splices them into the
-//! `SurfaceRootView` of each surface.
+//! Mount operations are applied to `RNNodeView`s in the `SurfaceRootView` for
+//! each React Native surface.
 
 use crate::frame::FrameHook;
 use crate::host::Host;
@@ -62,7 +62,7 @@ pub struct ViewStore {
     pub pointer: Point<Pixels>,
     /// Suppress per-mutation logging during the 10k-node performance probe.
     log_mount_ops: bool,
-    /// TODO 1.12 — the window-bounds observer. A dropped `Subscription`
+    /// The window-bounds observer. A dropped `Subscription`
     /// unsubscribes, and the setup closure in `main` returns right after
     /// wiring, so the store owns it for the lifetime of the window.
     pub window_bounds_subscription: Option<Subscription>,
@@ -183,7 +183,7 @@ impl ViewStore {
         cx.notify();
     }
 
-    /// TODO 1.12 — the window changed size: hand Fabric the new surface
+    /// The window changed size: hand Fabric the new surface
     /// constraints so it re-lays out and emits a fresh mount batch (which the
     /// drain task in `main` applies like any other transaction).
     ///

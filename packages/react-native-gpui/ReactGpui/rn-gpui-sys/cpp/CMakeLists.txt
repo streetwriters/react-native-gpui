@@ -1,4 +1,4 @@
-# react-native-gpui core C++ build (TODO 1.3, design doc §18.5).
+# react-native-gpui core C++ build (design doc §18.5).
 #
 # Builds the ReactCommon libraries (from node_modules/react-native) and the
 # vendored ReactCxxPlatform (../../ReactCxxPlatform) as OBJECT libraries, the
@@ -64,14 +64,14 @@ endfunction()
 
 # --- cxx bridge include directory -------------------------------------------
 
-# The cxx-generated bridge header (TODO 1.6, design doc §18.6) carries the flat
+# The cxx-generated bridge header (design doc §18.6) carries the flat
 # structs and the `rn_gpui_*` entry point declarations. build.rs runs
 # `cxx_build::bridge` *before* configuring CMake and passes the directory here.
 # When CMake is driven by hand (the 1.3 workflow) the variable is unset, so fall
 # back to the include directory of the most recent cargo build.
 #
 # This has to happen before the ReactCommon subdirectories are added: the
-# TextLayoutManager copy override (TODO 1.11) is compiled inside one of them and
+# TextLayoutManager copy override is compiled inside one of them and
 # needs the bridge header, which it reaches through MountBatchBuilder.h.
 if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
@@ -232,7 +232,7 @@ add_react_common_subdir(react/renderer/observers/intersection)
 add_react_common_subdir(react/renderer/observers/mutation)
 add_react_common_subdir(react/renderer/textlayoutmanager)
 
-# --- TextLayoutManager copy override (TODO 1.11, design doc §18.9) ----------
+# --- TextLayoutManager copy override (design doc §18.9) ---------------------
 
 # Upstream's cxx `TextLayoutManager::measure` returns the Yoga minimum size, so
 # every paragraph collapses to zero height. Compile our copy override
@@ -330,7 +330,7 @@ add_react_cxx_platform_subdir(react/threading)
 add_react_cxx_platform_subdir(react/utils)
 add_react_cxx_platform_subdir(react/runtime)
 
-# --- hermes runtime smoke test (TODO 1.4 done-when) ---------------
+# --- Hermes runtime smoke test ------------------------------------
 
 # Links libhermesvm and creates a Hermes runtime to prove the
 # prebuilt VM is usable from this build.
@@ -343,7 +343,7 @@ set_target_properties(hermes_runtime_test PROPERTIES
   BUILD_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx"
   INSTALL_RPATH "${RN_GPUI_HERMES_DIR}/destroot/Library/Frameworks/macosx")
 
-# --- rn_gpui_core: the gpui platform glue (TODO 1.5, design doc §18.5) ------
+# --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
@@ -364,7 +364,7 @@ if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
 
-# The cxx-generated bridge header (TODO 1.6, design doc §18.6) is located above,
+# The cxx-generated bridge header (design doc §18.6) is located above,
 # before the ReactCommon subdirectories. rn_gpui_core consumes it directly.
 if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
   target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
@@ -378,7 +378,7 @@ endif()
 # their interface include directories. OBJECT libraries forward those to
 # consumers, and their objects reach the final link through the consuming
 # binary — which is exactly how the Rust cdylib will consume this static
-# library (TODO 1.6). Targets listed in Fantom's tester build that do not
+# library. Targets listed in Fantom's tester build that do not
 # exist here are guard-skipped with a warning rather than dropped silently.
 set(RN_GPUI_CORE_DEPS
   # third-party
@@ -495,7 +495,7 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
   target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
 endif()
 
-# --- link_libs.txt for build.rs (TODO 1.6, design doc §18.4) -----------------
+# --- link_libs.txt for build.rs (design doc §18.4) --------------------------
 #
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script
 # that declares `links = "..."` to every dependent crate, whereas

@@ -6,7 +6,6 @@
 pub(crate) mod events;
 pub(crate) mod frame;
 pub(crate) mod host;
-pub(crate) mod http_client;
 pub(crate) mod image_loader;
 pub(crate) mod input;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]

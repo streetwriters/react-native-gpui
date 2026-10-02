@@ -1,4 +1,4 @@
-//! react-native-gpui core FFI bindings (design doc §18.6, TODO 1.6).
+//! react-native-gpui core FFI bindings (design doc §18.6).
 //!
 //! One cxx bridge, two directions:
 //!  * `extern "Rust"` — the C++ platform glue hands mount batches and text
@@ -319,7 +319,7 @@ fn rn_gpui_on_mount(batch: ffi::MountBatch) {
     match MOUNT_HANDLER.get() {
         Some(handler) => handler(batch),
         None => {
-            // No handler yet (TODO 1.6-1.9 window): log and drop.
+            // Bootstrap has not registered the GPUI mount handler yet; log and drop.
             log::debug!(
                 "rn_gpui_on_mount: dropping batch for surface {} ({} ops) — no handler registered",
                 batch.surface_id,

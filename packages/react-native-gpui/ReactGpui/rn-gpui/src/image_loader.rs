@@ -1,7 +1,10 @@
 //! Background image fetching shared by GPUI's RN image rendering and
 //! React Native's `ImageLoader` TurboModule.
 
-use gpui::App;
+use gpui::{
+    http_client::{HttpClient, Url},
+    App,
+};
 use rn_gpui_sys::{ffi, IMAGE_CACHE_QUERY_HANDLER, IMAGE_HANDLER};
 use std::{
     collections::{HashMap, VecDeque},
@@ -10,7 +13,7 @@ use std::{
 };
 
 pub(crate) fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
-    let url = uri.parse::<http_client::Url>().ok()?;
+    let url = uri.parse::<Url>().ok()?;
     if url.scheme() != "file" {
         return None;
     }
@@ -84,7 +87,7 @@ pub fn install(cx: &App) {
 
 async fn load_dimensions(
     uri: &str,
-    client: std::sync::Arc<dyn http_client::HttpClient>,
+    client: std::sync::Arc<dyn HttpClient>,
 ) -> Result<(u32, u32), String> {
     let bytes = if let Some(bytes) = cached_bytes(uri) {
         bytes

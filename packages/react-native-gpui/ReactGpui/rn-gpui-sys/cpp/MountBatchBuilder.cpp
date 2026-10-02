@@ -1,5 +1,5 @@
-// TODO 1.5 — design doc §18.8, with field names/types corrected against the
-// react-native 0.87.1 headers (the headers win; see the notes in §19).
+// Fabric mutation flattening implementation (design doc §18.8). Field names
+// and types follow the React Native 0.87.1 headers (the headers win; see §19).
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/components/image/ImageProps.h>

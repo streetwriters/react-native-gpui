@@ -5,8 +5,8 @@ members = [
 ]
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }   # pinned in TODO 1.2, see GPUI_PIN.md
-gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }   # needed by TODO 1.9 (gpui_platform::application)
+gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
+gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
 cxx = "1"
 cxx-build = "1"
 cmake = "0.1"
@@ -15,6 +15,5 @@ anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 serde_json = "1"
-http_client = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
 futures = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+reqwest_client = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }

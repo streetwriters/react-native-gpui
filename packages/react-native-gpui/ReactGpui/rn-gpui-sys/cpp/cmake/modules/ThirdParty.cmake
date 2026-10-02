@@ -63,7 +63,7 @@ set_target_properties(nlohmann_json PROPERTIES
 # top-level CMakeLists.txt).
 find_package(OpenSSL REQUIRED)
 
-# --- hermes-engine (TODO 1.4) -------------------------------------------
+# --- hermes-engine -------------------------------------------------------
 #
 # The hermes-engine SDK inside the react-native package ships
 # no binaries, only build scripts and a version pin

@@ -1,4 +1,4 @@
-//! One GPUI view per Fabric node (design doc §18.13, TODO 1.10).
+//! One GPUI view per Fabric node (design doc §18.13).
 //!
 //! Phase 1 uses a GPUI `div()` **only** for absolute position, size and paint
 //! styles. No flex properties are ever set, so Taffy cannot disagree with Yoga:

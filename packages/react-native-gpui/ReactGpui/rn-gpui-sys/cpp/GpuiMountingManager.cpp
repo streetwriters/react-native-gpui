@@ -1,14 +1,10 @@
-// TODO 1.5 — design doc §18.8.
-//
-// executeMount() deliberately stops at building the MountBatch and logging it:
-// the Rust side has no mount handler until TODO 1.6 (the cxx bridge), so the
-// batch would go nowhere. TODO 1.6 replaces the logging block with
-// `rn_gpui_on_mount(std::move(batch))` — which queues it for the GPUI main
-// thread and returns immediately, keeping Fabric's mounting thread free.
+// Fabric mounting manager implementation (design doc §18.8).
+// `executeMount()` flattens mutations and queues the batch for the GPUI main
+// thread, keeping Fabric's mounting thread free while GPUI applies the tree.
 #include "GpuiMountingManager.h"
 #include <react/runtime/GpuiDebug.h>
 
-#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (TODO 1.6, design doc §18.6)
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 #include "GpuiHost.h"               // TODO 2.6 — kAllSurfacesStopped
 #include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"

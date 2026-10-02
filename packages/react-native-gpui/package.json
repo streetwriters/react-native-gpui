@@ -10,17 +10,24 @@
     "src-gpui",
     "ReactCommonOverrides",
     "ReactCxxPlatform",
-    "ReactGpui",
+    "ReactGpui/Cargo.toml",
+    "ReactGpui/GPUI_PIN.md",
+    "ReactGpui/rn-gpui/Cargo.toml",
+    "ReactGpui/rn-gpui/build.rs",
+    "ReactGpui/rn-gpui/src",
+    "ReactGpui/rn-gpui-sys/Cargo.toml",
+    "ReactGpui/rn-gpui-sys/build.rs",
+    "ReactGpui/rn-gpui-sys/src",
+    "ReactGpui/rn-gpui-sys/cpp",
+    "ReactGpui/rn-gpui-macros/Cargo.toml",
+    "ReactGpui/rn-gpui-macros/src",
+    "ReactGpui/rn-gpui-macros/tests",
     "react-native.config.js",
     "overrides.json"
   ],
   "peerDependencies": {
     "react": "19.2.3",
     "react-native": "0.87.1"
-  },
-  "peerDependenciesMeta": {
-    "react": { "optional": false },
-    "react-native": { "optional": false }
   },
   "dependencies": {
     "@react-native-gpui/codegen": "0.1.0"

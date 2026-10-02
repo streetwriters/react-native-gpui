@@ -1,4 +1,4 @@
-//! TODO 1.9 — open a GPUI window driven by React Native.
+//! GPUI window and React Native runtime bootstrap.
 //!
 //! Shape follows the design doc §18.10, with the API adjustments the pinned
 //! gpui rev needs (`gpui_platform::application()` instead of the doc's
@@ -23,8 +23,8 @@
 //!   (visual-capture) RN_GPUI_RESIZE_MS   after N ms resize the window to
 //!                       RN_GPUI_RESIZE_WIDTH x RN_GPUI_RESIZE_HEIGHT
 //!                       (defaults 1200x400); 0 (default) = never. This is the
-//!                       verification hook for TODO 1.12 — it drives the same
-//!                       `on_resize` path a mouse drag does.
+//!                       verification hook that drives the same `on_resize`
+//!                       path as a mouse drag.
 //!   RN_GPUI_SCREENSHOT  with `--features visual-capture`: render the window's
 //!                       scene to this PNG path after the first mount batch,
 //!                       then quit (see the feature docs in Cargo.toml)
@@ -228,7 +228,7 @@ async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
 /// Everything C++ (JS/Fabric thread) sends to the GPUI main thread over one
 /// channel, so the drain task applies it in the order it happened.
 enum MainEvent {
-    /// A Fabric transaction (TODO 1.6). `apply_batch` mounts it.
+    /// A Fabric transaction. `apply_batch` mounts it.
     Mount(MountBatch),
     /// TODO 2.6 — a surface went away (or, with `rn_gpui_sys::ALL_SURFACES`, the
     /// whole instance: a reload). The store drops that tree.
@@ -519,7 +519,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     startup_trace("active display detected");
     let application = Application::with_platform(platform);
     application
-        .with_http_client(std::sync::Arc::new(crate::http_client::GpuiHttpClient::default()))
+            .with_http_client(std::sync::Arc::new(reqwest_client::ReqwestClient::new()))
         .run(move |cx: &mut App| {
         startup_trace("GPUI application callback entered");
         crate::image_loader::install(cx);
@@ -881,7 +881,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
-        // TODO 1.12 — window resizes drive Fabric. gpui calls the bounds
+        // Window resizes drive Fabric. gpui calls the bounds
         // observers from the platform's `on_resize` hook (the same path a mouse
         // drag takes), and `viewport_size()` is the content area, which is what
         // the React surface covers.
