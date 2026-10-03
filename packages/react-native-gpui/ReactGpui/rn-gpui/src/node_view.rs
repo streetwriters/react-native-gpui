@@ -1046,12 +1046,15 @@ impl Render for RNNodeView {
                     }),
                 )
                 .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
-                    let target = crate::events::target(cx, this);
+                    let hit_target = crate::events::target(cx, this);
                     if event.pressed_button.is_some() {
                         if this.component == "TextInput" && this.input_selection_anchor.is_some() {
                             crate::input::select_at_point(this, event.position, true, window, cx);
                         }
-                        // A drag: RN touch moves need an active touch.
+                        // RN keeps the touch target fixed from mouse-down to
+                        // release, including when the pointer leaves the view.
+                        let target =
+                            crate::events::active_touch_target(cx).or_else(|| hit_target.clone());
                         if let Some(target) = target.as_ref() {
                             crate::events::send(
                                 window,
@@ -1065,23 +1068,26 @@ impl Render for RNNodeView {
                         // TODO 2.5 — a hover: enter/leave for the chain. The
                         // target is `None` when `pointerEvents` made the hit
                         // subtree untouchable, which leaves the old chain.
-                        crate::events::hover(window, cx, target.as_ref(), event.position);
+                        crate::events::hover(window, cx, hit_target.as_ref(), event.position);
                     }
-                    if target.is_some() {
+                    if hit_target.is_some() || crate::events::active_touch_target(cx).is_some() {
                         cx.stop_propagation();
                     }
                 }))
                 .on_mouse_up(
                     MouseButton::Left,
                     cx.listener(|this, event: &MouseUpEvent, window, cx| {
-                        if let Some(target) = crate::events::target(cx, this) {
+                        let active_target = crate::events::active_touch_target(cx);
+                        if let Some(target) = active_target.as_ref() {
                             crate::events::send(
                                 window,
                                 cx,
-                                &target,
+                                target,
                                 event.position,
                                 crate::events::Phase::End,
                             );
+                        }
+                        if active_target.is_some() || crate::events::target(cx, this).is_some() {
                             cx.stop_propagation();
                         }
                     }),

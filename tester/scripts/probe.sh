@@ -14,7 +14,7 @@ APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmo
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, PanResponderProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error" >&2
   exit 2
 }
 
@@ -108,6 +108,17 @@ case "${PROBE}" in
     RUST_LOG_DEFAULT=info,rn_gpui=debug
     export RN_GPUI_CLICK="${RN_GPUI_CLICK:-250,450}"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+    ;;
+  PanResponderProbe)
+    ENTRY_FILE=tester/probes/PanResponderProbe.tsx
+    BUNDLE="${RN_GPUI_PAN_RESPONDER_BUNDLE:-/tmp/rn-gpui-pan-responder.bundle}"
+    ASSETS_DIR=/tmp/rn-gpui-pan-responder-assets
+    SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-pan-responder.png
+    DEV_PORT_DEFAULT=8082
+    RUST_LOG_DEFAULT=info,rn_gpui=debug
+    export RN_GPUI_DRAG="${RN_GPUI_DRAG:-120,220:440,220;440,220:760,220:cancel}"
+    export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-2000}"
+    export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1000}"
     ;;
   nav-safe-area|nav-tabs|nav-stack|nav-drawer|nav-native-stack|nav-nested|nav-worklet-error)
     APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"

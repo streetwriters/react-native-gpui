@@ -51,6 +51,7 @@ pub enum Phase {
     Start,
     Move,
     End,
+    Cancel,
 }
 
 /// Milliseconds since the process started, as RN's `DOMHighResTimeStamp`.
@@ -86,6 +87,11 @@ pub struct Target {
     /// The target and its ancestors, innermost first: RN's hover path
     /// (`PointerHoverTracker::getEventPathTargets`), the surface root excluded.
     pub chain: Vec<i32>,
+}
+
+/// Return the stable target of the current primary-button touch, if any.
+pub fn active_touch_target(cx: &App) -> Option<Target> {
+    store_from(cx).and_then(|store| store.read(cx).active_touch_target.clone())
 }
 
 impl Target {
@@ -289,6 +295,11 @@ pub fn send(
         let store = store.read(cx);
         (store.host.clone(), store.frame_hook.clone())
     };
+    if matches!(phase, Phase::Start) {
+        store.update(cx, |store, _| {
+            store.active_touch_target = Some(target.clone())
+        });
+    }
     let tag = target.tag;
     let location = target.local_position(position);
     log::debug!(
@@ -335,10 +346,32 @@ pub fn send(
                 &pointer_payload(tag, position, location, 0),
             );
         }
+        Phase::Cancel => {
+            host.dispatch_event(
+                tag,
+                "topTouchCancel",
+                &touch_payload(tag, position, location, false),
+            );
+            host.dispatch_event(
+                tag,
+                "topPointerCancel",
+                &pointer_payload(tag, position, location, 0),
+            );
+        }
+    }
+    if matches!(phase, Phase::End | Phase::Cancel) {
+        store.update(cx, |store, _| store.active_touch_target = None);
     }
     // dispatchEvent queues React work; the frame hook is what calls RN's
     // RunLoopObserverManager::onRender and lets the JS scheduler consume it.
     frame_hook.arm(window);
+}
+
+/// Cancel the active primary-button touch, if a platform interruption occurs.
+pub fn cancel_active_touch(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
+    if let Some(target) = active_touch_target(cx) {
+        send(window, cx, &target, position, Phase::Cancel);
+    }
 }
 
 /// How many nodes the two chains share at the root end.

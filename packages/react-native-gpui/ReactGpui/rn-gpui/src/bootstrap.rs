@@ -34,6 +34,7 @@
 //!                       before capturing (default 500). Raise it past
 //!                       RN_GPUI_RESIZE_MS to capture the resized scene.
 //!   (visual-capture) RN_GPUI_CLICK       `"x,y;x,y"` synthetic left clicks
+//!   (visual-capture) RN_GPUI_DRAG        `"x,y:x,y[:cancel];..."` drags
 //!                       coordinates, dispatched as real GPUI mouse events
 //!                       (TODO 2.4)
 //!   (visual-capture) RN_GPUI_CLICK_MS    delay before each click (default 1500)
@@ -185,6 +186,30 @@ fn env_points(key: &str) -> Vec<(f32, f32)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// `RN_GPUI_DRAG="100,120:420,160;200,200:240,240:cancel"` — primary drags.
+#[cfg(feature = "visual-capture")]
+fn env_drags(key: &str) -> Vec<(f32, f32, f32, f32, bool)> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let mut parts = entry.split(':');
+            let start = parts.next()?;
+            let end = parts.next()?;
+            let cancel = parts.next().is_some_and(|phase| phase.trim() == "cancel");
+            let (start_x, start_y) = start.split_once(',')?;
+            let (end_x, end_y) = end.split_once(',')?;
+            Some((
+                start_x.trim().parse().ok()?,
+                start_y.trim().parse().ok()?,
+                end_x.trim().parse().ok()?,
+                end_y.trim().parse().ok()?,
+                cancel,
+            ))
+        })
+        .collect()
 }
 
 #[cfg(feature = "visual-capture")]
@@ -408,6 +433,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let click_ms = env_u32("RN_GPUI_CLICK_MS", 1500);
     #[cfg(feature = "visual-capture")]
     let click_hold_ms = env_u32("RN_GPUI_CLICK_HOLD_MS", 0);
+    #[cfg(feature = "visual-capture")]
+    let drags = env_drags("RN_GPUI_DRAG");
+    #[cfg(feature = "visual-capture")]
+    let drag_ms = env_u32("RN_GPUI_DRAG_MS", 1800);
+    #[cfg(feature = "visual-capture")]
+    let drag_start_ms = env_u32("RN_GPUI_DRAG_START_MS", drag_ms);
     #[cfg(feature = "visual-capture")]
     let skip_synthetic_input_flush = env_bool("RN_GPUI_SKIP_INPUT_FLUSH", false);
     // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
@@ -756,6 +787,106 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     if !skip_synthetic_input_flush {
                         flush_js(&host, cx).await;
                     }
+                }
+            })
+            .detach();
+        }
+
+        // TODO 7.8 — exercise touch responder negotiation with native mouse
+        // input. Each drag is split into several move events so PanResponder's
+        // gesture state and move callback see a path outside the origin.
+        #[cfg(feature = "visual-capture")]
+        if !drags.is_empty() {
+            let host = host_for_input.clone();
+            let frame_hook = frame_hook.clone();
+            cx.spawn(async move |cx| {
+                for (index, (start_x, start_y, end_x, end_y, cancel)) in
+                    drags.into_iter().enumerate()
+                {
+                    let delay = if index == 0 { drag_start_ms } else { drag_ms };
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(delay)))
+                        .await;
+                    log::info!("dragging from {start_x},{start_y} to {end_x},{end_y}");
+                    let start = gpui::point(px(start_x), px(start_y));
+                    let down = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position: start,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                        },
+                    );
+                    if let Err(error) = down {
+                        log::error!("drag down failed: {error}");
+                        continue;
+                    }
+                    flush_js(&host, cx).await;
+
+                    for step in 1..=8 {
+                        let amount = step as f32 / 8.0;
+                        let position = gpui::point(
+                            px(start_x + (end_x - start_x) * amount),
+                            px(start_y + (end_y - start_y) * amount),
+                        );
+                        let hook = frame_hook.clone();
+                        let moved = cx.update_window(
+                            any_window,
+                            move |_root: gpui::AnyView,
+                                  window: &mut gpui::Window,
+                                  cx: &mut App| {
+                                let arena_clear_needed = window.draw(cx);
+                                arena_clear_needed.clear(cx);
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                        position,
+                                        pressed_button: Some(gpui::MouseButton::Left),
+                                        ..Default::default()
+                                    }),
+                                    cx,
+                                );
+                                hook.arm(window);
+                            },
+                        );
+                        if let Err(error) = moved {
+                            log::error!("drag move {step} failed: {error}");
+                            break;
+                        }
+                        flush_js(&host, cx).await;
+                    }
+
+                    let end = gpui::point(px(end_x), px(end_y));
+                    let hook = frame_hook.clone();
+                    let released = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
+                            if cancel {
+                                crate::events::cancel_active_touch(window, cx, end);
+                            }
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position: end,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = released {
+                        log::error!("drag release failed: {error}");
+                    }
+                    flush_js(&host, cx).await;
                 }
             })
             .detach();

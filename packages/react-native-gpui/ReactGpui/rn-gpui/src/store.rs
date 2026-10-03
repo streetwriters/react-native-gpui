@@ -60,6 +60,10 @@ pub struct ViewStore {
     /// TODO 2.5 — the last pointer position, so a leave that is not caused by a
     /// move (the pointer left the window) still reports where it came from.
     pub pointer: Point<Pixels>,
+    /// Target fixed at primary-button down. RN keeps a touch's target stable
+    /// across drags, so responder moves/releases must still reach this node
+    /// after the pointer leaves its bounds.
+    pub active_touch_target: Option<crate::events::Target>,
     /// Suppress per-mutation logging during the 10k-node performance probe.
     log_mount_ops: bool,
     /// The window-bounds observer. A dropped `Subscription`
@@ -87,6 +91,7 @@ impl ViewStore {
             overlay_host,
             hovered: Vec::new(),
             pointer: point(px(0.), px(0.)),
+            active_touch_target: None,
             log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
             window_appearance_subscription: None,
@@ -138,6 +143,7 @@ impl ViewStore {
             );
             self.nodes.clear();
             self.hovered.clear();
+            self.active_touch_target = None;
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
             for root in roots {
                 root.update(cx, |root, cx| {
@@ -160,6 +166,13 @@ impl ViewStore {
             .map(|(tag, _)| *tag)
             .collect();
         let dropped = stale.len();
+        if self
+            .active_touch_target
+            .as_ref()
+            .is_some_and(|target| stale.contains(&target.tag))
+        {
+            self.active_touch_target = None;
+        }
         for tag in stale {
             self.nodes.remove(&tag);
             self.overlay_host.update(cx, |host, cx| {
