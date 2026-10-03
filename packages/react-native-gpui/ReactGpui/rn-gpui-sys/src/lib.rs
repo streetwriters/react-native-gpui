@@ -66,6 +66,7 @@ pub mod ffi {
         pub outline_offset: f32,
         pub outline_style: u8,
         pub overflow_hidden: bool,
+        pub display_none: bool, // Fabric layout visibility, including retained descendants
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
         pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto (TODO 2.5)
         pub shadows: Vec<ShadowF>,
@@ -236,8 +237,10 @@ pub mod ffi {
         fn rn_gpui_alert_result(id: i32, button_index: i32);
         fn rn_gpui_clipboard_result(id: i32, text: String);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
-        /// Call once per GPUI frame on the main thread (drives RN's EventBeat).
-        fn on_render(self: &GpuiHost);
+        /// Wake RN's EventBeat after input or a mount batch on the main thread.
+        fn on_render(self: &GpuiHost) -> Result<()>;
+        /// Animation ticks only from the display-frame hook, never mount batches.
+        fn on_frame(self: &GpuiHost) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn set_scroll_offset(self: &GpuiHost, tag: i32, x: f32, y: f32);

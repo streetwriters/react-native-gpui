@@ -57,7 +57,15 @@ impl Host {
     }
 
     pub fn on_render(&self) {
-        self.0.lock().unwrap().on_render()
+        if let Err(error) = self.0.lock().unwrap().on_render() {
+            log::error!("[event-beat] {error}");
+        }
+    }
+
+    pub fn on_frame(&self) {
+        if let Err(error) = self.0.lock().unwrap().on_frame() {
+            log::error!("[animation-frame] {error}");
+        }
     }
 
     pub fn dispatch_event(&self, tag: i32, ty: &str, payload: &serde_json::Value) {

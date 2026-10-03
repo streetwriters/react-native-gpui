@@ -59,6 +59,7 @@ class GpuiHost {
   void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);
   void on_render() const;
+  void on_frame() const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void set_scroll_offset(int32_t tag, float x, float y) const;
   std::shared_ptr<facebook::react::UIManager> ui_manager() const;

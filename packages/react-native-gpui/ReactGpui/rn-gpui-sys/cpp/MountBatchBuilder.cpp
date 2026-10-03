@@ -74,6 +74,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   // Non-view components must remain opaque; a value-initialized flat struct
   // otherwise silently turns an unrecognized props type fully transparent.
   out.opacity = 1.f;
+  out.display_none = shadowView.layoutMetrics.displayType == DisplayType::None;
   auto props = std::dynamic_pointer_cast<const BaseViewProps>(shadowView.props);
   if (!props) {
     return out;

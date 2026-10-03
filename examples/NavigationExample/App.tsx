@@ -7,10 +7,18 @@ import {
   Text,
   TextInput,
 } from 'react-native';
-import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  useFocusEffect,
+  type DrawerNavigationState,
+  type ParamListBase,
+} from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { createDrawerNavigator } from '@react-navigation/drawer';
+import {
+  createDrawerNavigator,
+  getDrawerStatusFromState,
+} from '@react-navigation/drawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
   SafeAreaProvider,
@@ -232,7 +240,15 @@ function Scenario() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer
+        onStateChange={state => {
+          if (state?.type === 'drawer') {
+            console.log(
+              `[nav] drawer status=${getDrawerStatusFromState(state as DrawerNavigationState<ParamListBase>)}`,
+            );
+          }
+        }}
+      >
         <SafeAreaTrace>
           <Scenario />
         </SafeAreaTrace>

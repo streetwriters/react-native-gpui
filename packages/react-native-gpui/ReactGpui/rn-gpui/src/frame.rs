@@ -113,7 +113,7 @@ impl FrameHook {
                 return;
             }
             hook.state.last_tick_ms.set(hook.now_ms());
-            hook.host.on_render();
+            hook.host.on_frame();
             if hook.is_active() {
                 hook.schedule(window);
             } else {

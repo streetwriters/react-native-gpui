@@ -3,6 +3,7 @@
 #include "rn-gpui-sys/src/lib.rs.h"
 
 #include <glog/logging.h>
+#include <worklets/Tools/JSLogger.h>
 #include <worklets/WorkletRuntime/RuntimeBindings.h>
 
 #include <algorithm>
@@ -158,7 +159,7 @@ void Module::initialize(facebook::jsi::Runtime& runtime) {
     return;
   uiScheduler_ = std::make_shared<GPUIScheduler>();
   runtimeStatus_ = std::make_shared<worklets::RNRuntimeStatus>();
-  auto jsScheduler = std::make_shared<worklets::JSScheduler>(
+  jsScheduler_ = std::make_shared<worklets::JSScheduler>(
       runtime, jsInvoker_, [] { return true; });
   std::weak_ptr<Module> weakModule = shared_from_this();
   auto runtimeBindings =
@@ -173,7 +174,7 @@ void Module::initialize(facebook::jsi::Runtime& runtime) {
           .networkingBackend = nullptr,
       });
   initializer_ = std::make_shared<worklets::WorkletsModuleProxyInitializer>(
-      jsScheduler, uiScheduler_, runtimeBindings, runtimeStatus_);
+      jsScheduler_, uiScheduler_, runtimeBindings, runtimeStatus_);
   LOG(INFO) << "[gpui-worklets] initialized runtime bindings";
   auto initializer = initializer_;
   std::thread([initializer] { initializer->prepareProxy(); }).detach();
@@ -240,8 +241,23 @@ void Module::onFrame(double timestampMs) {
   if (animationTracingEnabled() && (count <= 5 || count % 600 == 0)) {
     LOG(INFO) << "[gpui-worklets] GPUI frame count=" << count;
   }
-  if (uiScheduler_)
-    uiScheduler_->triggerUI();
+  // Frame callbacks are platform entry points, outside Worklets' guarded
+  // invocation paths. Report JS exceptions on RN rather than unwinding across
+  // the CXX boundary and terminating the desktop process.
+  const auto reportError = [this](const facebook::jsi::JSError& error) {
+    LOG(ERROR) << "[gpui-worklets] " << error.what();
+    worklets::JSLogger::reportFatalErrorOnJS(
+        jsScheduler_,
+        {.message = error.getMessage(),
+         .stack = error.getStack(),
+         .name = "WorkletsError"});
+  };
+  try {
+    if (uiScheduler_)
+      uiScheduler_->triggerUI();
+  } catch (const facebook::jsi::JSError& error) {
+    reportError(error);
+  }
   std::vector<std::function<void(double)>> callbacks;
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
@@ -251,8 +267,13 @@ void Module::onFrame(double timestampMs) {
       (count <= 5 || count % 60 == 0)) {
     LOG(INFO) << "[gpui-worklets] callbacks on frame=" << callbacks.size();
   }
-  for (auto& callback : callbacks)
-    callback(timestampMs);
+  for (auto& callback : callbacks) {
+    try {
+      callback(timestampMs);
+    } catch (const facebook::jsi::JSError& error) {
+      reportError(error);
+    }
+  }
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
     if (frameCallbacks_.empty()) {

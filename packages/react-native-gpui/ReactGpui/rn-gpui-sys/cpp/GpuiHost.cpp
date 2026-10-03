@@ -677,6 +677,10 @@ void GpuiHost::stop_log_box_surface() {
 
 void GpuiHost::on_render() const {
   runLoopObserverManager_->onRender();
+}
+
+void GpuiHost::on_frame() const {
+  on_render();
 #if defined(RN_GPUI_HAS_WORKLETS)
   const auto frameTimestampMs =
       std::chrono::duration<double, std::milli>(

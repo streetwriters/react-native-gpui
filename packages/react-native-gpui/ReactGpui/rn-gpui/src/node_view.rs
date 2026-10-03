@@ -769,7 +769,7 @@ impl Render for RNNodeView {
                 self.render_count
             );
         }
-        if self.component == "ModalHostView" && !self.modal_visible {
+        if self.view.display_none || (self.component == "ModalHostView" && !self.modal_visible) {
             return div().id(self.tag).size_0();
         }
         #[cfg(target_os = "macos")]
@@ -1014,8 +1014,11 @@ impl Render for RNNodeView {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                        // `this` is the hit node and is mid-update, so it is
-                        // passed by reference instead of read from the map.
+                        // Reject the whole subtree before focus/edit side effects.
+                        // A transparent overlay must let underlying siblings receive input.
+                        let Some(target) = crate::events::target(cx, this) else {
+                            return;
+                        };
                         if let Some(handle) = this.nearest_focus_handle(cx) {
                             window.focus(&handle, cx);
                         }
@@ -1032,15 +1035,13 @@ impl Render for RNNodeView {
                                 );
                             }
                         }
-                        if let Some(target) = crate::events::target(cx, this) {
-                            crate::events::send(
-                                window,
-                                cx,
-                                &target,
-                                event.position,
-                                crate::events::Phase::Start,
-                            );
-                        }
+                        crate::events::send(
+                            window,
+                            cx,
+                            &target,
+                            event.position,
+                            crate::events::Phase::Start,
+                        );
                         cx.stop_propagation();
                     }),
                 )
@@ -1066,7 +1067,9 @@ impl Render for RNNodeView {
                         // subtree untouchable, which leaves the old chain.
                         crate::events::hover(window, cx, target.as_ref(), event.position);
                     }
-                    cx.stop_propagation();
+                    if target.is_some() {
+                        cx.stop_propagation();
+                    }
                 }))
                 .on_mouse_up(
                     MouseButton::Left,
@@ -1079,8 +1082,8 @@ impl Render for RNNodeView {
                                 event.position,
                                 crate::events::Phase::End,
                             );
+                            cx.stop_propagation();
                         }
-                        cx.stop_propagation();
                     }),
                 );
         }

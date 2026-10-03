@@ -2,7 +2,7 @@
 //!
 //! GPUI hit-tests the pointer against the absolute-positioned `RNNodeView`
 //! divs, so the innermost node under the cursor runs its handler first. Every
-//! handler calls `cx.stop_propagation()`, which is what makes RN's single
+//! accepted handler calls `cx.stop_propagation()`, which makes RN's single
 //! "target" node the deepest hit one; from there the responder plugin walks up
 //! the React tree exactly as it does on iOS, so a `Pressable` whose child `Text`
 //! was hit still claims the touch.

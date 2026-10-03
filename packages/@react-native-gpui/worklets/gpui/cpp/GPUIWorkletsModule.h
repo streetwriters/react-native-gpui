@@ -42,6 +42,7 @@ class Module final : public facebook::react::TurboModule,
 
   std::shared_ptr<facebook::react::CallInvoker> jsInvoker_;
   std::shared_ptr<worklets::UIScheduler> uiScheduler_;
+  std::shared_ptr<worklets::JSScheduler> jsScheduler_;
   std::shared_ptr<worklets::RNRuntimeStatus> runtimeStatus_;
   std::shared_ptr<worklets::WorkletsModuleProxyInitializer> initializer_;
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy_;

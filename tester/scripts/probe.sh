@@ -14,7 +14,7 @@ APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmo
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error" >&2
   exit 2
 }
 
@@ -109,7 +109,7 @@ case "${PROBE}" in
     export RN_GPUI_CLICK="${RN_GPUI_CLICK:-250,450}"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
     ;;
-  nav-safe-area|nav-tabs|nav-stack|nav-drawer|nav-native-stack|nav-nested)
+  nav-safe-area|nav-tabs|nav-stack|nav-drawer|nav-native-stack|nav-nested|nav-worklet-error)
     APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"
     APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
     APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/react-native-gpui-navigationexample"
@@ -138,7 +138,7 @@ case "${PROBE}" in
       nav-stack)
         export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,138;28,28}"
         ;;
-      nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
+      nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-25,28;600,200;25,28;65,90}" ;;
       nav-native-stack) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160}" ;;
       nav-nested) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
     esac
