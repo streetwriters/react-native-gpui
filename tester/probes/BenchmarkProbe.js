@@ -1,8 +1,8 @@
 // TODO 3.3 — 10,000 mounted RN View nodes for retention, scroll and animation
 // benchmarks. Use RN_GPUI_MODULE=BenchIdle|BenchScroll|BenchAnimate.
 
-import React, {useEffect, useMemo, useState} from 'react';
-import {AppRegistry, ScrollView, View} from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AppRegistry, ScrollView, View } from 'react-native';
 
 const NODE_COUNT = 10_000;
 
@@ -32,10 +32,10 @@ function AnimatedRow() {
   );
 }
 
-function BenchmarkProbe({mode}) {
+function BenchmarkProbe({ mode }) {
   const rows = useMemo(
     () =>
-      Array.from({length: NODE_COUNT}, (_, index) => {
+      Array.from({ length: NODE_COUNT }, (_, index) => {
         const style = {
           height: 24,
           backgroundColor: index % 2 === 0 ? '#e5e7eb' : '#f5f5f5',
@@ -54,12 +54,16 @@ function BenchmarkProbe({mode}) {
   }, [mode]);
 
   return (
-    <ScrollView style={{flex: 1, backgroundColor: '#fff'}}>
-      {rows}
-    </ScrollView>
+    <ScrollView style={{ flex: 1, backgroundColor: '#fff' }}>{rows}</ScrollView>
   );
 }
 
-AppRegistry.registerComponent('BenchIdle', () => () => <BenchmarkProbe mode="idle" />);
-AppRegistry.registerComponent('BenchScroll', () => () => <BenchmarkProbe mode="scroll" />);
-AppRegistry.registerComponent('BenchAnimate', () => () => <BenchmarkProbe mode="animate" />);
+AppRegistry.registerComponent('BenchIdle', () => () => (
+  <BenchmarkProbe mode="idle" />
+));
+AppRegistry.registerComponent('BenchScroll', () => () => (
+  <BenchmarkProbe mode="scroll" />
+));
+AppRegistry.registerComponent('BenchAnimate', () => () => (
+  <BenchmarkProbe mode="animate" />
+));

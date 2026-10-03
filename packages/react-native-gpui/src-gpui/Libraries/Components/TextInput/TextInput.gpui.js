@@ -43,7 +43,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
   }, [autoFocus]);
 
   const handleChange = React.useCallback(
-    (event) => {
+    event => {
       const nextText = event.nativeEvent.text;
       if (value == null) setUncontrolledValue(nextText);
       onChangeText?.(nextText);
@@ -52,14 +52,14 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
     [onChange, onChangeText, value],
   );
   const handleFocus = React.useCallback(
-    (event) => {
+    event => {
       focusedRef.current = true;
       onFocus?.(event);
     },
     [onFocus],
   );
   const handleBlur = React.useCallback(
-    (event) => {
+    event => {
       focusedRef.current = false;
       onBlur?.(event);
     },

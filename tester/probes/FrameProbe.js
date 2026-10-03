@@ -12,13 +12,13 @@
 // `effect` proves `useEffect` ran at all, `interval` proves `setInterval` fires
 // without input, and `raf` proves `requestAnimationFrame` is driven by frames.
 
-import React, {useEffect, useState} from 'react';
-import {AppRegistry, Text, View} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppRegistry, Text, View } from 'react-native';
 
-function Bar({label, ticks, color}) {
+function Bar({ label, ticks, color }) {
   return (
-    <View style={{gap: 4}}>
-      <Text style={{fontSize: 16, color: '#111'}}>
+    <View style={{ gap: 4 }}>
+      <Text style={{ fontSize: 16, color: '#111' }}>
         {label} {ticks}
       </Text>
       <View
@@ -87,8 +87,8 @@ function FrameProbe() {
   });
 
   return (
-    <View style={{flex: 1, padding: 24, gap: 16, backgroundColor: '#f5f5f5'}}>
-      <Text style={{fontSize: 20, color: '#111'}}>Frame probe</Text>
+    <View style={{ flex: 1, padding: 24, gap: 16, backgroundColor: '#f5f5f5' }}>
+      <Text style={{ fontSize: 20, color: '#111' }}>Frame probe</Text>
       <Bar label="effect" ticks={effects} color="#8b5cf6" />
       <Bar label="interval" ticks={intervals} color="#3b82f6" />
       <Bar label="raf" ticks={rafs} color="#10b981" />

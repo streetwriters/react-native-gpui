@@ -2,15 +2,15 @@
 // and types follow the React Native 0.87.1 headers (the headers win; see §19).
 #include "MountBatchBuilder.h"
 
+#include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/image/ImageProps.h>
+#include <react/renderer/components/iostextinput/TextInputProps.h>
+#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
-#include <react/renderer/components/iostextinput/TextInputProps.h>
-#include <react/renderer/components/textinput/TextInputState.h>
-#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/text/ParagraphState.h>
+#include <react/renderer/components/textinput/TextInputState.h>
 #include <react/renderer/components/view/ViewProps.h>
-#include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/core/ConcreteState.h>
 
 #include <algorithm>
@@ -29,20 +29,27 @@ uint32_t argb(const SharedColor& color) {
   auto to8 = [](float v) {
     return static_cast<uint32_t>(std::lround(v * 255.f)) & 0xFF;
   };
-  return (to8(components.alpha) << 24) | (to8(components.red) << 16) | (to8(components.green) << 8) |
-      to8(components.blue);
+  return (to8(components.alpha) << 24) | (to8(components.red) << 16) |
+      (to8(components.green) << 8) | to8(components.blue);
 }
 
-TextFragmentFlat flattenTextFragment(const TextAttributes& attributes, const std::string& text) {
+TextFragmentFlat flattenTextFragment(
+    const TextAttributes& attributes,
+    const std::string& text) {
   TextFragmentFlat out{};
   out.text = text;
   out.font_family = attributes.fontFamily;
   out.font_size = std::isnan(attributes.fontSize) ? 14.f : attributes.fontSize;
-  out.font_weight = attributes.fontWeight ? static_cast<uint16_t>(*attributes.fontWeight) : 400;
-  out.italic = attributes.fontStyle && *attributes.fontStyle != FontStyle::Normal;
+  out.font_weight = attributes.fontWeight
+      ? static_cast<uint16_t>(*attributes.fontWeight)
+      : 400;
+  out.italic =
+      attributes.fontStyle && *attributes.fontStyle != FontStyle::Normal;
   out.color = argb(attributes.foregroundColor);
-  out.line_height = std::isnan(attributes.lineHeight) ? 0.f : attributes.lineHeight;
-  out.letter_spacing = std::isnan(attributes.letterSpacing) ? 0.f : attributes.letterSpacing;
+  out.line_height =
+      std::isnan(attributes.lineHeight) ? 0.f : attributes.lineHeight;
+  out.letter_spacing =
+      std::isnan(attributes.letterSpacing) ? 0.f : attributes.letterSpacing;
   if (attributes.textDecorationLineType) {
     switch (*attributes.textDecorationLineType) {
       case TextDecorationLineType::Underline:
@@ -90,7 +97,11 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
       layoutMetrics.contentInsets.bottom};
 
   auto colors = props->borderColors.resolve(/*isRTL*/ false, SharedColor{});
-  out.border_colors = {argb(colors.left), argb(colors.top), argb(colors.right), argb(colors.bottom)};
+  out.border_colors = {
+      argb(colors.left),
+      argb(colors.top),
+      argb(colors.right),
+      argb(colors.bottom)};
   auto borderStyles = props->borderStyles.resolve(false, BorderStyle::Solid);
   out.border_styles = {
       static_cast<uint8_t>(borderStyles.left),
@@ -106,9 +117,14 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   // against the frame's smaller side (percentage radii).
   auto radii = props->borderRadii.resolve(false, ValueUnit{0, UnitType::Point});
   auto px = [&](const ValueUnit& v) {
-    return v.resolve(std::min(layoutMetrics.frame.size.width, layoutMetrics.frame.size.height));
+    return v.resolve(std::min(
+        layoutMetrics.frame.size.width, layoutMetrics.frame.size.height));
   };
-  out.border_radii = {px(radii.topLeft), px(radii.topRight), px(radii.bottomRight), px(radii.bottomLeft)};
+  out.border_radii = {
+      px(radii.topLeft),
+      px(radii.topRight),
+      px(radii.bottomRight),
+      px(radii.bottomLeft)};
 
   out.overflow_hidden = props->getClipsContentToBounds();
   out.pointer_events = static_cast<uint8_t>(props->pointerEvents);
@@ -159,7 +175,8 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   } else {
     out.accessibility_expanded = -1;
   }
-  if (auto platformProps = std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
+  if (auto platformProps =
+          std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
     out.focusable = platformProps->focusable;
   }
 
@@ -171,7 +188,8 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
 
 static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   ParagraphFlat out{};
-  auto state = std::dynamic_pointer_cast<const ConcreteState<ParagraphState>>(shadowView.state);
+  auto state = std::dynamic_pointer_cast<const ConcreteState<ParagraphState>>(
+      shadowView.state);
   if (!state) {
     return out;
   }
@@ -179,14 +197,16 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   const auto& data = state->getData();
   const auto& fragments = data.attributedString.getFragments();
   for (const auto& fragment : fragments) {
-    out.fragments.push_back(flattenTextFragment(fragment.textAttributes, fragment.string));
+    out.fragments.push_back(
+        flattenTextFragment(fragment.textAttributes, fragment.string));
   }
 
   // Text alignment lives on TextAttributes, not on ParagraphAttributes: take
   // it from the first fragment (they are homogeneous in practice). The
   // TextAlignment enum values already match the ParagraphFlat encoding.
   if (!fragments.empty() && fragments.front().textAttributes.alignment) {
-    out.text_align = static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
+    out.text_align =
+        static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
   }
 
   const auto& attributes = data.paragraphAttributes;
@@ -210,10 +230,12 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   return out;
 }
 
-static ParagraphFlat flattenInputText(const AttributedString& attributedString) {
+static ParagraphFlat flattenInputText(
+    const AttributedString& attributedString) {
   ParagraphFlat out{};
   for (const auto& fragment : attributedString.getFragments()) {
-    out.fragments.push_back(flattenTextFragment(fragment.textAttributes, fragment.string));
+    out.fragments.push_back(
+        flattenTextFragment(fragment.textAttributes, fragment.string));
   }
   return out;
 }
@@ -232,25 +254,31 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
   if (op.component == "NativeViewHost") {
-    if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(shadowView.props)) {
+    if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
+            shadowView.props)) {
       op.native_view_name = props->viewName;
       op.native_view_props = props->nativePropsJson;
     }
   }
   if (op.component == "ModalHostView") {
-    auto modal = std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
+    auto modal =
+        std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
     op.modal_visible = modal && modal->visible;
   }
 
   const auto& frame = shadowView.layoutMetrics.frame;
-  op.frame = {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height};
+  op.frame = {
+      frame.origin.x, frame.origin.y, frame.size.width, frame.size.height};
   op.layout_changed = mutation.type == ShadowViewMutation::Create ||
       (mutation.type == ShadowViewMutation::Update &&
-       mutation.oldChildShadowView.layoutMetrics.frame != mutation.newChildShadowView.layoutMetrics.frame);
+       mutation.oldChildShadowView.layoutMetrics.frame !=
+           mutation.newChildShadowView.layoutMetrics.frame);
 
-  if (mutation.type == ShadowViewMutation::Create || mutation.type == ShadowViewMutation::Update) {
+  if (mutation.type == ShadowViewMutation::Create ||
+      mutation.type == ShadowViewMutation::Update) {
     op.props_changed = mutation.type == ShadowViewMutation::Create ||
-        mutation.oldChildShadowView.props != mutation.newChildShadowView.props ||
+        mutation.oldChildShadowView.props !=
+            mutation.newChildShadowView.props ||
         mutation.oldChildShadowView.state != mutation.newChildShadowView.state;
     op.view = flattenView(shadowView);
     if (op.component == "Paragraph") {
@@ -258,7 +286,8 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.paragraph = flattenParagraph(shadowView);
     }
     if (op.component == "TextInput") {
-      if (auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props)) {
+      if (auto props = std::dynamic_pointer_cast<const TextInputProps>(
+              shadowView.props)) {
         op.text_input_text = props->text;
         op.text_input_placeholder = props->placeholder;
         op.text_input_selection_color = argb(props->selectionColor);
@@ -281,29 +310,44 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
           op.text_input_selection_end = cursor;
         }
       }
-      if (auto state = std::dynamic_pointer_cast<const ConcreteState<TextInputState>>(shadowView.state)) {
+      if (auto state =
+              std::dynamic_pointer_cast<const ConcreteState<TextInputState>>(
+                  shadowView.state)) {
         op.has_paragraph = true;
-        op.paragraph = flattenInputText(state->getData().attributedStringBox.getValue());
+        op.paragraph =
+            flattenInputText(state->getData().attributedStringBox.getValue());
       }
     }
     if (op.component == "Image") {
-      if (auto imageProps = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
+      if (auto imageProps =
+              std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
           imageProps && !imageProps->sources.empty()) {
         op.image_uri = imageProps->sources[0].uri;
         switch (imageProps->resizeMode) {
-          case ImageResizeMode::Contain: op.image_resize_mode = 1; break;
-          case ImageResizeMode::Cover: op.image_resize_mode = 2; break;
-          case ImageResizeMode::Center: op.image_resize_mode = 3; break;
-          default: op.image_resize_mode = 0; break;
+          case ImageResizeMode::Contain:
+            op.image_resize_mode = 1;
+            break;
+          case ImageResizeMode::Cover:
+            op.image_resize_mode = 2;
+            break;
+          case ImageResizeMode::Center:
+            op.image_resize_mode = 3;
+            break;
+          default:
+            op.image_resize_mode = 0;
+            break;
         }
       }
     }
     if (op.component == "ScrollView") {
-      if (auto props = std::dynamic_pointer_cast<const ScrollViewProps>(shadowView.props)) {
+      if (auto props = std::dynamic_pointer_cast<const ScrollViewProps>(
+              shadowView.props)) {
         op.scroll_horizontal = props->horizontal;
         op.scroll_enabled = props->scrollEnabled;
       }
-      if (auto state = std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(shadowView.state)) {
+      if (auto state =
+              std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(
+                  shadowView.state)) {
         const auto& data = state->getData();
         op.scroll_x = data.contentOffset.x;
         op.scroll_y = data.contentOffset.y;

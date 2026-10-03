@@ -12,15 +12,15 @@ See `.local/react-native-gpui.md` for the full design doc.
 
 ## Toolchain (verified on the dev machine, TODO 0.4)
 
-| Tool | Version |
-|---|---|
-| macOS | Darwin (Apple) |
-| Node.js | v22.20.0 |
-| npm | (bundled) |
-| Rust / cargo | 1.96.0 |
-| CMake | 3.31.4 |
-| Ninja | 1.12.1 |
-| clang | Apple clang 21.0.0 |
+| Tool         | Version            |
+| ------------ | ------------------ |
+| macOS        | Darwin (Apple)     |
+| Node.js      | v22.20.0           |
+| npm          | (bundled)          |
+| Rust / cargo | 1.96.0             |
+| CMake        | 3.31.4             |
+| Ninja        | 1.12.1             |
+| clang        | Apple clang 21.0.0 |
 
 ## Create an app
 

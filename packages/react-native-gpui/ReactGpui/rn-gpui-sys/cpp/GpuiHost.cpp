@@ -6,33 +6,33 @@
 #endif
 #include <react/runtime/GpuiDebug.h>
 
-#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
+#include <react/coremodules/DeviceInfoModule.h>
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
 #include "RustTurboModules.generated.hpp"
-#include <react/coremodules/DeviceInfoModule.h>
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 
 #include <folly/json.h>
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
 #include <react/http/IHttpClient.h>
 #include <react/http/IWebSocketClient.h>
+#include <react/nativemodule/core/ReactCommon/TurboModuleUtils.h>
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
+#include <react/renderer/components/FBReactNativeSpec/FBReactNativeSpecJSI.h>
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/ReactHost.h>
-#include <react/renderer/components/FBReactNativeSpec/FBReactNativeSpecJSI.h>
-#include <react/nativemodule/core/ReactCommon/TurboModuleUtils.h>
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <glog/logging.h>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -52,8 +52,9 @@ namespace {
 std::atomic<GpuiHost*> activeGpuiHost{nullptr};
 
 namespace jsi = facebook::jsi;
-using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (
-    *)(const std::string&, std::shared_ptr<CallInvoker>);
+using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (*)(
+    const std::string&,
+    std::shared_ptr<CallInvoker>);
 std::atomic<AppCppTurboModuleProvider> appCppTurboModuleProvider{nullptr};
 
 class RustStringTurboModule final : public TurboModule {
@@ -103,7 +104,9 @@ class GpuiFeatureFlagsOverrides final
   // React Native's C++ AnimatedModule queues operations until
   // finishOperationBatch(). GPUI is neither Android nor iOS, so RN's JS helper
   // only sends those batch boundaries when this flag is enabled.
-  bool cxxNativeAnimatedEnabled() override { return true; }
+  bool cxxNativeAnimatedEnabled() override {
+    return true;
+  }
 };
 
 std::mutex appearanceMutex;
@@ -125,7 +128,8 @@ struct ClipboardPromise {
   std::shared_ptr<Promise> promise;
 };
 std::mutex clipboardPromisesMutex;
-std::unordered_map<int32_t, std::shared_ptr<ClipboardPromise>> clipboardPromises;
+std::unordered_map<int32_t, std::shared_ptr<ClipboardPromise>>
+    clipboardPromises;
 std::atomic<int32_t> nextClipboardRequestId{1};
 
 class GpuiAppearanceModule final
@@ -170,11 +174,17 @@ class GpuiLinkingModule final
       facebook::jsi::String value) {
     auto url = value.utf8(runtime);
     const auto separator = url.find(':');
-    auto scheme = separator == std::string::npos ? std::string{} : url.substr(0, separator);
-    std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char character) {
-      return static_cast<char>(std::tolower(character));
-    });
-    const bool supported = scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel";
+    auto scheme = separator == std::string::npos ? std::string{}
+                                                 : url.substr(0, separator);
+    std::transform(
+        scheme.begin(),
+        scheme.end(),
+        scheme.begin(),
+        [](unsigned char character) {
+          return static_cast<char>(std::tolower(character));
+        });
+    const bool supported = scheme == "http" || scheme == "https" ||
+        scheme == "mailto" || scheme == "tel";
     return createPromiseAsJSIValue(runtime, [supported](auto&, auto promise) {
       promise->resolve(facebook::jsi::Value(supported));
     });
@@ -184,10 +194,11 @@ class GpuiLinkingModule final
       facebook::jsi::Runtime& runtime,
       facebook::jsi::String value) {
     auto url = value.utf8(runtime);
-    return createPromiseAsJSIValue(runtime, [url = std::move(url)](auto&, auto promise) {
-      rn_gpui_open_url(url);
-      promise->resolve(facebook::jsi::Value::undefined());
-    });
+    return createPromiseAsJSIValue(
+        runtime, [url = std::move(url)](auto&, auto promise) {
+          rn_gpui_open_url(url);
+          promise->resolve(facebook::jsi::Value::undefined());
+        });
   }
 
   facebook::jsi::Value openSettings(facebook::jsi::Runtime& runtime) {
@@ -204,16 +215,19 @@ class GpuiAlertModule final
     : public NativeAlertManagerCxxSpec<GpuiAlertModule> {
  public:
   explicit GpuiAlertModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeAlertManagerCxxSpec(jsInvoker), jsInvoker_(std::move(jsInvoker)) {}
+      : NativeAlertManagerCxxSpec(jsInvoker),
+        jsInvoker_(std::move(jsInvoker)) {}
 
   void alertWithArgs(
       facebook::jsi::Runtime& runtime,
       facebook::jsi::Object args,
       facebook::jsi::Function callback) {
-    auto readString = [&runtime](const facebook::jsi::Object& object, const char* key) {
-      auto value = object.getProperty(runtime, key);
-      return value.isString() ? value.asString(runtime).utf8(runtime) : std::string{};
-    };
+    auto readString =
+        [&runtime](const facebook::jsi::Object& object, const char* key) {
+          auto value = object.getProperty(runtime, key);
+          return value.isString() ? value.asString(runtime).utf8(runtime)
+                                  : std::string{};
+        };
     const auto title = readString(args, "title");
     const auto message = readString(args, "message");
     std::vector<std::string> buttons;
@@ -224,23 +238,28 @@ class GpuiAlertModule final
       buttons.reserve(length);
       for (size_t index = 0; index < length; ++index) {
         auto button = array.getValueAtIndex(runtime, index);
-        if (!button.isObject()) continue;
-        auto key = facebook::jsi::String::createFromUtf8(runtime, std::to_string(index));
+        if (!button.isObject())
+          continue;
+        auto key = facebook::jsi::String::createFromUtf8(
+            runtime, std::to_string(index));
         auto label = button.asObject(runtime).getProperty(runtime, key);
-        buttons.push_back(label.isString() ? label.asString(runtime).utf8(runtime) : std::string{});
+        buttons.push_back(
+            label.isString() ? label.asString(runtime).utf8(runtime)
+                             : std::string{});
       }
     }
-    if (buttons.empty()) buttons.push_back("OK");
+    if (buttons.empty())
+      buttons.push_back("OK");
 
     const auto id = nextAlertId.fetch_add(1, std::memory_order_relaxed);
-    auto pending = std::make_shared<AlertCallback>(AlertCallback{
-        jsInvoker_, &runtime, std::move(callback)});
+    auto pending = std::make_shared<AlertCallback>(
+        AlertCallback{jsInvoker_, &runtime, std::move(callback)});
     {
       std::lock_guard<std::mutex> lock(alertCallbacksMutex);
       alertCallbacks.emplace(id, std::move(pending));
     }
     rust::Vec<rust::String> rustButtons;
-    for (const auto &button : buttons) {
+    for (const auto& button : buttons) {
       rustButtons.push_back(rust::String(button));
     }
     rn_gpui_show_alert(
@@ -262,11 +281,13 @@ class GpuiClipboardModule final
   }
 
   facebook::jsi::Value getString(facebook::jsi::Runtime& runtime) {
-    const auto id = nextClipboardRequestId.fetch_add(1, std::memory_order_relaxed);
+    const auto id =
+        nextClipboardRequestId.fetch_add(1, std::memory_order_relaxed);
     auto invoker = jsInvoker_;
     return createPromiseAsJSIValue(
         runtime,
-        [id, invoker = std::move(invoker)](auto& runtime, auto promise) mutable {
+        [id, invoker = std::move(invoker)](
+            auto& runtime, auto promise) mutable {
           auto pending = std::make_shared<ClipboardPromise>(ClipboardPromise{
               std::move(invoker), &runtime, std::move(promise)});
           {
@@ -291,43 +312,51 @@ extern "C" void rn_gpui_set_app_cpp_turbo_module_provider(
 }
 
 TurboModuleProviders gpui_turbo_module_providers() {
-  return {[](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
-              -> std::shared_ptr<TurboModule> {
-    if (auto provider = appCppTurboModuleProvider.load(std::memory_order_acquire)) {
-      if (auto appModule = provider(name, jsInvoker)) {
-        return appModule;
-      }
-    }
+  return {
+      [](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
+          -> std::shared_ptr<TurboModule> {
+        if (auto provider =
+                appCppTurboModuleProvider.load(std::memory_order_acquire)) {
+          if (auto appModule = provider(name, jsInvoker)) {
+            return appModule;
+          }
+        }
 #if defined(RN_GPUI_HAS_NODE_API)
-    if (name == callstack::react_native_node_api::CxxNodeApiHostModule::kModuleName) {
-      static std::once_flag injected;
-      std::call_once(injected, [] {
-        callstack::react_native_node_api::injectIntoWeakNodeApi();
-      });
-      return callstack::react_native_node_api::createNodeApiHostModule(jsInvoker);
-    }
+        if (name ==
+            callstack::react_native_node_api::CxxNodeApiHostModule::
+                kModuleName) {
+          static std::once_flag injected;
+          std::call_once(injected, [] {
+            callstack::react_native_node_api::injectIntoWeakNodeApi();
+          });
+          return callstack::react_native_node_api::createNodeApiHostModule(
+              jsInvoker);
+        }
 #endif
-#define RN_GPUI_REGISTER_RUST_STRING_MODULE(module_name_fn, method_name_fn, method_fn, free_fn) \
-    if (name == module_name_fn()) { \
-      return std::make_shared<RustStringTurboModule>( \
-          module_name_fn(), jsInvoker, method_name_fn(), method_fn, free_fn); \
-    }
-    RN_GPUI_RUST_TURBO_MODULES(RN_GPUI_REGISTER_RUST_STRING_MODULE)
+#define RN_GPUI_REGISTER_RUST_STRING_MODULE(                                \
+    module_name_fn, method_name_fn, method_fn, free_fn)                     \
+  if (name == module_name_fn()) {                                           \
+    return std::make_shared<RustStringTurboModule>(                         \
+        module_name_fn(), jsInvoker, method_name_fn(), method_fn, free_fn); \
+  }
+        RN_GPUI_RUST_TURBO_MODULES(RN_GPUI_REGISTER_RUST_STRING_MODULE)
 #undef RN_GPUI_REGISTER_RUST_STRING_MODULE
-    if (name == NativeAppearanceCxxSpec<GpuiAppearanceModule>::kModuleName) {
-      return std::make_shared<GpuiAppearanceModule>(jsInvoker);
-    }
-    if (name == NativeLinkingManagerCxxSpec<GpuiLinkingModule>::kModuleName) {
-      return std::make_shared<GpuiLinkingModule>(jsInvoker);
-    }
-    if (name == NativeAlertManagerCxxSpec<GpuiAlertModule>::kModuleName) {
-      return std::make_shared<GpuiAlertModule>(jsInvoker);
-    }
-    if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
-      return std::make_shared<GpuiClipboardModule>(jsInvoker);
-    }
-    return nullptr;
-  }};
+        if (name ==
+            NativeAppearanceCxxSpec<GpuiAppearanceModule>::kModuleName) {
+          return std::make_shared<GpuiAppearanceModule>(jsInvoker);
+        }
+        if (name ==
+            NativeLinkingManagerCxxSpec<GpuiLinkingModule>::kModuleName) {
+          return std::make_shared<GpuiLinkingModule>(jsInvoker);
+        }
+        if (name == NativeAlertManagerCxxSpec<GpuiAlertModule>::kModuleName) {
+          return std::make_shared<GpuiAlertModule>(jsInvoker);
+        }
+        if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
+          return std::make_shared<GpuiClipboardModule>(jsInvoker);
+        }
+        return nullptr;
+      }};
 }
 
 // Installs the OSS stable feature flags, which is what an OSS app on the new
@@ -352,16 +381,18 @@ void rn_gpui_alert_result(int32_t id, int32_t buttonIndex) {
   {
     std::lock_guard<std::mutex> lock(alertCallbacksMutex);
     auto entry = alertCallbacks.find(id);
-    if (entry == alertCallbacks.end()) return;
+    if (entry == alertCallbacks.end())
+      return;
     pending = std::move(entry->second);
     alertCallbacks.erase(entry);
   }
-  pending->jsInvoker->invokeAsync([pending = std::move(pending), buttonIndex]() mutable {
-    pending->callback.call(
-        *pending->runtime,
-        static_cast<double>(buttonIndex),
-        facebook::jsi::String::createFromUtf8(*pending->runtime, ""));
-  });
+  pending->jsInvoker->invokeAsync(
+      [pending = std::move(pending), buttonIndex]() mutable {
+        pending->callback.call(
+            *pending->runtime,
+            static_cast<double>(buttonIndex),
+            facebook::jsi::String::createFromUtf8(*pending->runtime, ""));
+      });
 }
 
 void rn_gpui_clipboard_result(int32_t id, rust::String text) {
@@ -369,18 +400,21 @@ void rn_gpui_clipboard_result(int32_t id, rust::String text) {
   {
     std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
     auto entry = clipboardPromises.find(id);
-    if (entry == clipboardPromises.end()) return;
+    if (entry == clipboardPromises.end())
+      return;
     pending = std::move(entry->second);
     clipboardPromises.erase(entry);
   }
   auto value = std::string(text);
-  pending->jsInvoker->invokeAsync([pending = std::move(pending), value = std::move(value)]() {
-    pending->promise->resolve(
-        facebook::jsi::String::createFromUtf8(*pending->runtime, value));
-  });
+  pending->jsInvoker->invokeAsync(
+      [pending = std::move(pending), value = std::move(value)]() {
+        pending->promise->resolve(
+            facebook::jsi::String::createFromUtf8(*pending->runtime, value));
+      });
 }
 
-std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
+std::unique_ptr<GpuiHost>
+new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   return std::make_unique<GpuiHost>(appId, devHost, devPort);
 }
 
@@ -393,11 +427,12 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   config.devServerHost = std::string(devHost);
   config.devServerPort = devPort;
 
-  mountingManager_ = std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
-    reactHost_->runOnScheduler([surfaceId](Scheduler& scheduler) {
-      scheduler.reportMount(surfaceId);
-    });
-  });
+  mountingManager_ =
+      std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
+        reactHost_->runOnScheduler([surfaceId](Scheduler& scheduler) {
+          scheduler.reportMount(surfaceId);
+        });
+      });
 
   // ReactHost's constructor throws std::runtime_error("No HttpClientFactory
   // provided") / ("No WebSocketClientFactory provided") unless both factories
@@ -407,7 +442,8 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   // stay shared_ptr<const>).
   auto contextContainer = std::make_shared<const ContextContainer>();
   contextContainer->insert(HttpClientFactoryKey, gpui_http_client_factory());
-  contextContainer->insert(WebSocketClientFactoryKey, getWebSocketClientFactory());
+  contextContainer->insert(
+      WebSocketClientFactoryKey, getWebSocketClientFactory());
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
@@ -415,27 +451,28 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   // GPUI stores RN's requested frame callback and invokes it from the window's
   // frame hook while active; synchronouslyUpdateViewOnUIThread forwards each
   // resulting prop patch to its retained node.
-  animatedNodesManagerProvider_ = std::make_shared<NativeAnimatedNodesManagerProvider>(
-      [this](std::function<void()>&& callback, bool /*isAsync*/) {
-        if (gpuiDebugAnimationEnabled()) {
-          LOG(INFO) << "[native-animated] frame callback started";
-        }
-        {
-          std::lock_guard<std::mutex> lock(animatedFrameMutex_);
-          animatedFrameCallback_ = std::move(callback);
-        }
-        rn_gpui_set_animated_active(true);
-      },
-      [this](bool /*isAsync*/) {
-        if (gpuiDebugAnimationEnabled()) {
-          LOG(INFO) << "[native-animated] frame callback stopped";
-        }
-        {
-          std::lock_guard<std::mutex> lock(animatedFrameMutex_);
-          animatedFrameCallback_ = nullptr;
-        }
-        rn_gpui_set_animated_active(false);
-      });
+  animatedNodesManagerProvider_ =
+      std::make_shared<NativeAnimatedNodesManagerProvider>(
+          [this](std::function<void()>&& callback, bool /*isAsync*/) {
+            if (gpuiDebugAnimationEnabled()) {
+              LOG(INFO) << "[native-animated] frame callback started";
+            }
+            {
+              std::lock_guard<std::mutex> lock(animatedFrameMutex_);
+              animatedFrameCallback_ = std::move(callback);
+            }
+            rn_gpui_set_animated_active(true);
+          },
+          [this](bool /*isAsync*/) {
+            if (gpuiDebugAnimationEnabled()) {
+              LOG(INFO) << "[native-animated] frame callback stopped";
+            }
+            {
+              std::lock_guard<std::mutex> lock(animatedFrameMutex_);
+              animatedFrameCallback_ = nullptr;
+            }
+            rn_gpui_set_animated_active(false);
+          });
 
   // TODO 2.6 — the LogBox surface. ReactHost hands this to
   // `ReactCxxTurboModuleProvider`, which builds `LogBoxModule` only when the
@@ -448,18 +485,24 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
       mountingManager_,
       runLoopObserverManager_,
       std::move(contextContainer),
-      /* onJsError */ [](facebook::jsi::Runtime&, const JsErrorHandler::ProcessedError& error) {
+      /* onJsError */
+      [](facebook::jsi::Runtime&, const JsErrorHandler::ProcessedError& error) {
         rn_gpui_log(3, error.message);
         for (const auto& frame : error.stack) {
           std::string entry = "  at " + frame.methodName;
-          if (frame.file) entry += " (" + *frame.file;
-          if (frame.lineNumber) entry += ":" + std::to_string(*frame.lineNumber);
-          if (frame.column) entry += ":" + std::to_string(*frame.column);
-          if (frame.file) entry += ")";
+          if (frame.file)
+            entry += " (" + *frame.file;
+          if (frame.lineNumber)
+            entry += ":" + std::to_string(*frame.lineNumber);
+          if (frame.column)
+            entry += ":" + std::to_string(*frame.column);
+          if (frame.file)
+            entry += ")";
           rn_gpui_log(3, entry);
         }
       },
-      /* logger */ [](const std::string& message, unsigned int level) {
+      /* logger */
+      [](const std::string& message, unsigned int level) {
         rn_gpui_log(static_cast<int32_t>(level), message);
       },
       /* devUIDelegate */ nullptr,
@@ -477,14 +520,14 @@ GpuiHost::~GpuiHost() {
     });
   }
   auto* expected = this;
-  activeGpuiHost.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+  activeGpuiHost.compare_exchange_strong(
+      expected, nullptr, std::memory_order_acq_rel);
 }
 
 std::shared_ptr<UIManager> GpuiHost::ui_manager() const {
   std::shared_ptr<UIManager> result;
-  reactHost_->runOnScheduler([&result](Scheduler& scheduler) {
-    result = scheduler.getUIManager();
-  });
+  reactHost_->runOnScheduler(
+      [&result](Scheduler& scheduler) { result = scheduler.getUIManager(); });
   return result;
 }
 
@@ -521,11 +564,17 @@ void register_gpui_event_listener(
 }
 
 bool GpuiHost::load_script(rust::Str bundlePath, rust::Str sourceUrl) {
-  scriptLoaded_ = reactHost_->loadScript(std::string(bundlePath), std::string(sourceUrl));
+  scriptLoaded_ =
+      reactHost_->loadScript(std::string(bundlePath), std::string(sourceUrl));
   return scriptLoaded_;
 }
 
-void GpuiHost::start_surface(int32_t id, rust::Str module, float w, float h, float scale) {
+void GpuiHost::start_surface(
+    int32_t id,
+    rust::Str module,
+    float w,
+    float h,
+    float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
@@ -541,7 +590,8 @@ void GpuiHost::start_surface(int32_t id, rust::Str module, float w, float h, flo
     surfaceScale_ = scale;
     mountingManager_->setWindowSize(w, h);
   }
-  reactHost_->startSurface(id, std::string(module), folly::dynamic::object(), constraints, context);
+  reactHost_->startSurface(
+      id, std::string(module), folly::dynamic::object(), constraints, context);
 }
 
 void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
@@ -568,14 +618,10 @@ void GpuiHost::set_window_metrics(float w, float h, float scale) {
   if (!DeviceInfoModule::setWindowMetrics(w, h, scale) || !scriptLoaded_) {
     return;
   }
-  const folly::dynamic metrics = folly::dynamic::object
-      ("width", w)
-      ("height", h)
-      ("scale", scale)
-      ("fontScale", 1.0);
-  folly::dynamic payload = folly::dynamic::object
-      ("window", metrics)
-      ("screen", metrics);
+  const folly::dynamic metrics = folly::dynamic::object("width", w)(
+      "height", h)("scale", scale)("fontScale", 1.0);
+  folly::dynamic payload =
+      folly::dynamic::object("window", metrics)("screen", metrics);
   reactHost_->emitDeviceEvent(
       folly::dynamic::array("didUpdateDimensions", std::move(payload)));
 }
@@ -586,12 +632,14 @@ void GpuiHost::set_system_appearance(rust::Str appearance) {
   {
     std::lock_guard<std::mutex> lock(appearanceMutex);
     nextAppearance = std::string(appearance) == "dark" ? "dark" : "light";
-    if (systemAppearance == nextAppearance) return;
+    if (systemAppearance == nextAppearance)
+      return;
     systemAppearance = nextAppearance;
     shouldNotify = !appearanceOverride.has_value() && scriptLoaded_;
   }
   if (shouldNotify) {
-    folly::dynamic preferences = folly::dynamic::object("colorScheme", nextAppearance);
+    folly::dynamic preferences =
+        folly::dynamic::object("colorScheme", nextAppearance);
     reactHost_->emitDeviceEvent(
         folly::dynamic::array("appearanceChanged", std::move(preferences)));
   }
@@ -613,7 +661,11 @@ void GpuiHost::start_log_box_surface() {
   LayoutContext context;
   context.pointScaleFactor = surfaceScale_;
   reactHost_->startSurface(
-      kLogBoxSurfaceId, "LogBox", folly::dynamic::object(), constraints, context);
+      kLogBoxSurfaceId,
+      "LogBox",
+      folly::dynamic::object(),
+      constraints,
+      context);
 }
 
 /// TODO 2.6 — stop the LogBox surface again: `hide()` is what keeps a closed
@@ -626,8 +678,10 @@ void GpuiHost::stop_log_box_surface() {
 void GpuiHost::on_render() const {
   runLoopObserverManager_->onRender();
 #if defined(RN_GPUI_HAS_WORKLETS)
-  const auto frameTimestampMs = std::chrono::duration<double, std::milli>(
-      std::chrono::steady_clock::now().time_since_epoch()).count();
+  const auto frameTimestampMs =
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count();
   gpui_worklets::onFrame(frameTimestampMs);
 #endif
   std::function<void()> animationFrame;
@@ -647,8 +701,12 @@ void GpuiHost::on_render() const {
   }
 }
 
-void GpuiHost::dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const {
-  mountingManager_->dispatchEvent(tag, std::string(type), folly::parseJson(std::string(payloadJson)));
+void GpuiHost::dispatch_event(
+    int32_t tag,
+    rust::Str type,
+    rust::Str payloadJson) const {
+  mountingManager_->dispatchEvent(
+      tag, std::string(type), folly::parseJson(std::string(payloadJson)));
 }
 
 void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {

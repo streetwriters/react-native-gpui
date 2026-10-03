@@ -65,7 +65,7 @@ function getState(): NonNullable<typeof lazyState> {
     };
     new NativeEventEmitter<{
       appearanceChanged: [NativeAppearancePreferences],
-    }>(NativeAppearance).addListener('appearanceChanged', (newAppearance) => {
+    }>(NativeAppearance).addListener('appearanceChanged', newAppearance => {
       state.appearance = {
         colorScheme: newAppearance.colorScheme,
       };

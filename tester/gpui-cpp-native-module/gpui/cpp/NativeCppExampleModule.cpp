@@ -27,7 +27,8 @@ class NativeCppExampleModule final : public TurboModule {
       throw jsi::JSError(runtime, "NativeCppExample.greet expects one string");
     }
     const auto name = args[0].asString(runtime).utf8(runtime);
-    return jsi::String::createFromUtf8(runtime, "Hello from C++, " + name + "!");
+    return jsi::String::createFromUtf8(
+        runtime, "Hello from C++, " + name + "!");
   }
 };
 } // namespace
@@ -35,6 +36,7 @@ class NativeCppExampleModule final : public TurboModule {
 std::shared_ptr<TurboModule> create_cpp_example_module(
     const std::string& name,
     std::shared_ptr<CallInvoker> jsInvoker) {
-  if (name != "NativeCppExample") return nullptr;
+  if (name != "NativeCppExample")
+    return nullptr;
   return std::make_shared<NativeCppExampleModule>(std::move(jsInvoker));
 }

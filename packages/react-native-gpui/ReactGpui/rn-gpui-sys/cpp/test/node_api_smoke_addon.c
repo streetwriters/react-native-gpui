@@ -36,17 +36,17 @@ static napi_value add(napi_env env, napi_callback_info info) {
   return result;
 }
 
-static void execute_add(napi_env env, void *data) {
+static void execute_add(napi_env env, void* data) {
   (void)env;
-  AddWork *work = (AddWork *)data;
+  AddWork* work = (AddWork*)data;
   work->result = work->left + work->right;
 }
 
-static void complete_add(napi_env env, napi_status status, void *data) {
-  AddWork *work = (AddWork *)data;
+static void complete_add(napi_env env, napi_status status, void* data) {
+  AddWork* work = (AddWork*)data;
   napi_value result = NULL;
-  if (status == napi_ok && napi_create_int32(env, work->result, &result) ==
-                               napi_ok) {
+  if (status == napi_ok &&
+      napi_create_int32(env, work->result, &result) == napi_ok) {
     napi_resolve_deferred(env, work->deferred, result);
   } else {
     napi_value error = NULL;
@@ -67,7 +67,7 @@ static napi_value async_add(napi_env env, napi_callback_info info) {
       napi_get_value_int32(env, args[1], &right) != napi_ok) {
     return NULL;
   }
-  AddWork *work = (AddWork *)calloc(1, sizeof(AddWork));
+  AddWork* work = (AddWork*)calloc(1, sizeof(AddWork));
   if (work == NULL) {
     return NULL;
   }
@@ -77,10 +77,16 @@ static napi_value async_add(napi_env env, napi_callback_info info) {
   napi_value promise = NULL;
   napi_value resource_name = NULL;
   if (napi_create_promise(env, &work->deferred, &promise) != napi_ok ||
-      napi_create_string_utf8(env, "node-api-smoke", NAPI_AUTO_LENGTH,
-                              &resource_name) != napi_ok ||
-      napi_create_async_work(env, NULL, resource_name, execute_add,
-                             complete_add, work, &work->work) != napi_ok ||
+      napi_create_string_utf8(
+          env, "node-api-smoke", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+      napi_create_async_work(
+          env,
+          NULL,
+          resource_name,
+          execute_add,
+          complete_add,
+          work,
+          &work->work) != napi_ok ||
       napi_queue_async_work(env, work->work) != napi_ok) {
     free(work);
     return NULL;
@@ -88,10 +94,10 @@ static napi_value async_add(napi_env env, napi_callback_info info) {
   return promise;
 }
 
-static void call_js(napi_env env, napi_value callback, void *context,
-                    void *data) {
+static void
+call_js(napi_env env, napi_value callback, void* context, void* data) {
   (void)context;
-  int32_t *value = (int32_t *)data;
+  int32_t* value = (int32_t*)data;
   if (env != NULL && callback != NULL && value != NULL) {
     napi_value global = NULL;
     napi_value argument = NULL;
@@ -103,13 +109,13 @@ static void call_js(napi_env env, napi_value callback, void *context,
   free(value);
 }
 
-static void *run_threadsafe_call(void *data) {
-  ThreadsafeWork *work = (ThreadsafeWork *)data;
-  int32_t *value = (int32_t *)malloc(sizeof(int32_t));
+static void* run_threadsafe_call(void* data) {
+  ThreadsafeWork* work = (ThreadsafeWork*)data;
+  int32_t* value = (int32_t*)malloc(sizeof(int32_t));
   if (value != NULL) {
     *value = 42;
-    if (napi_call_threadsafe_function(work->function, value,
-                                      napi_tsfn_nonblocking) != napi_ok) {
+    if (napi_call_threadsafe_function(
+            work->function, value, napi_tsfn_nonblocking) != napi_ok) {
       free(value);
     }
   }
@@ -127,15 +133,25 @@ static napi_value threadsafe_ping(napi_env env, napi_callback_info info) {
   }
 
   napi_value resource_name = NULL;
-  if (napi_create_string_utf8(env, "node-api-smoke-tsfn", NAPI_AUTO_LENGTH,
-                              &resource_name) != napi_ok) {
+  if (napi_create_string_utf8(
+          env, "node-api-smoke-tsfn", NAPI_AUTO_LENGTH, &resource_name) !=
+      napi_ok) {
     return NULL;
   }
-  ThreadsafeWork *work = (ThreadsafeWork *)calloc(1, sizeof(ThreadsafeWork));
+  ThreadsafeWork* work = (ThreadsafeWork*)calloc(1, sizeof(ThreadsafeWork));
   if (work == NULL ||
-      napi_create_threadsafe_function(env, args[0], NULL, resource_name, 0, 1,
-                                      NULL, NULL, NULL, call_js,
-                                      &work->function) != napi_ok) {
+      napi_create_threadsafe_function(
+          env,
+          args[0],
+          NULL,
+          resource_name,
+          0,
+          1,
+          NULL,
+          NULL,
+          NULL,
+          call_js,
+          &work->function) != napi_ok) {
     free(work);
     return NULL;
   }
@@ -156,8 +172,14 @@ NAPI_MODULE_INIT() {
   napi_property_descriptor descriptors[] = {
       {"add", NULL, add, NULL, NULL, NULL, napi_default, NULL},
       {"asyncAdd", NULL, async_add, NULL, NULL, NULL, napi_default, NULL},
-      {"threadsafePing", NULL, threadsafe_ping, NULL, NULL, NULL,
-       napi_default, NULL},
+      {"threadsafePing",
+       NULL,
+       threadsafe_ping,
+       NULL,
+       NULL,
+       NULL,
+       napi_default,
+       NULL},
   };
   if (napi_define_properties(env, exports, 3, descriptors) != napi_ok) {
     return NULL;

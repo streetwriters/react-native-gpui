@@ -84,7 +84,7 @@ function resolveWithPlatformFallback(context, moduleName, platform) {
 function collectSourceOverrides() {
   const overrides = new Map();
 
-  const walk = (relativeDir) => {
+  const walk = relativeDir => {
     const absoluteDir = path.join(GPUI_RN_SRC_DIR, relativeDir);
     for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
       const relative = path.join(relativeDir, entry.name);
@@ -121,7 +121,7 @@ if (GPUI_SOURCE_OVERRIDES.size > 0) {
   const files = [...new Set(GPUI_SOURCE_OVERRIDES.values())];
   console.log(
     `[rn-gpui] ${files.length} src-gpui override(s): ${files
-      .map((file) => path.relative(GPUI_PACKAGE_DIR, file))
+      .map(file => path.relative(GPUI_PACKAGE_DIR, file))
       .join(', ')}`,
   );
 }

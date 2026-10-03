@@ -6,7 +6,7 @@
 //     ./packages/react-native-gpui/ReactGpui/target/debug/rn-gpui
 
 import React from 'react';
-import {AppRegistry, StyleSheet, Text, View} from 'react-native';
+import { AppRegistry, StyleSheet, Text, View } from 'react-native';
 
 function Broken(): React.Node {
   throw new Error('ErrorProbe: boom while rendering');
@@ -22,8 +22,14 @@ function ErrorProbe(): React.Node {
 }
 
 const styles = StyleSheet.create({
-  app: {flex: 1, backgroundColor: '#f5f5f5'},
-  title: {position: 'absolute', left: 24, top: 24, fontSize: 20, color: '#111'},
+  app: { flex: 1, backgroundColor: '#f5f5f5' },
+  title: {
+    position: 'absolute',
+    left: 24,
+    top: 24,
+    fontSize: 20,
+    color: '#111',
+  },
 });
 
 AppRegistry.registerComponent('ErrorProbe', () => ErrorProbe);

@@ -6,14 +6,14 @@
 #include <iostream>
 #include <memory>
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   if (argc != 2) {
     std::cerr << "usage: hermes_node_api_addon_test <addon.node>" << std::endl;
     return 2;
   }
 
   auto runtime = facebook::hermes::makeHermesRuntime();
-  auto *hermes =
+  auto* hermes =
       facebook::jsi::castInterface<facebook::hermes::IHermes>(runtime.get());
   if (!hermes) {
     std::cerr << "Hermes runtime does not expose IHermes" << std::endl;

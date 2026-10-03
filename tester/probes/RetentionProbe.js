@@ -6,8 +6,8 @@
 //   RN_GPUI_DEBUG_RENDER_COUNTS=1 RN_GPUI_RUN_MS=5000 \
 //     ./packages/react-native-gpui/ReactGpui/target/debug/rn-gpui
 
-import React, {useEffect, useState} from 'react';
-import {AppRegistry, Text, View} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppRegistry, Text, View } from 'react-native';
 
 function AnimatedNode() {
   const [frame, setFrame] = useState(0);
@@ -42,11 +42,11 @@ function AnimatedNode() {
 
 function RetentionProbe() {
   return (
-    <View style={{flex: 1, padding: 24, gap: 16, backgroundColor: '#f5f5f5'}}>
-      <Text style={{fontSize: 20, color: '#111'}}>Retention probe</Text>
+    <View style={{ flex: 1, padding: 24, gap: 16, backgroundColor: '#f5f5f5' }}>
+      <Text style={{ fontSize: 20, color: '#111' }}>Retention probe</Text>
       <AnimatedNode />
-      <View style={{width: 180, height: 48, backgroundColor: '#10b981'}} />
-      <Text style={{fontSize: 16, color: '#111'}}>Static sibling</Text>
+      <View style={{ width: 180, height: 48, backgroundColor: '#10b981' }} />
+      <Text style={{ fontSize: 16, color: '#111' }}>Static sibling</Text>
     </View>
   );
 }

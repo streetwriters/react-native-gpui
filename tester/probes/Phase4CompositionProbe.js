@@ -1,24 +1,24 @@
-import React, { useEffect, useState } from "react";
-import { AppRegistry, Text, View } from "react-native";
-import NativeFixture from "@react-native-gpui/native-module-fixture";
+import React, { useEffect, useState } from 'react';
+import { AppRegistry, Text, View } from 'react-native';
+import NativeFixture from '@react-native-gpui/native-module-fixture';
 
 /** Verify native/GPUI z-ordering; the GPUI probe control owns toggling. */
 export default function Phase4CompositionProbe() {
-  const [autolinkResult, setAutolinkResult] = useState("loading");
+  const [autolinkResult, setAutolinkResult] = useState('loading');
   useEffect(() => {
-    console.log("[phase4-composition] native composition probe mounted");
+    console.log('[phase4-composition] native composition probe mounted');
     try {
-      const linkedResult = NativeFixture.greet("GPUI");
+      const linkedResult = NativeFixture.greet('GPUI');
       console.log(`[rust-autolink] ${linkedResult}`);
       setAutolinkResult(linkedResult);
     } catch (error) {
-      console.error("[rust-turbomodule] call failed", error);
-      setAutolinkResult("not called");
+      console.error('[rust-turbomodule] call failed', error);
+      setAutolinkResult('not called');
     }
   }, []);
 
   return (
-    <View style={{ flex: 1, padding: 24, gap: 10, backgroundColor: "#f3f4f6" }}>
+    <View style={{ flex: 1, padding: 24, gap: 10, backgroundColor: '#f3f4f6' }}>
       <Text style={{ fontSize: 22 }}>Phase 4: native layer composition</Text>
       <Text>
         A native view occupies the lower region. Use the GPUI control below this
@@ -34,6 +34,6 @@ export default function Phase4CompositionProbe() {
 }
 
 AppRegistry.registerComponent(
-  "Phase4CompositionProbe",
+  'Phase4CompositionProbe',
   () => Phase4CompositionProbe,
 );

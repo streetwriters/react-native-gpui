@@ -14,8 +14,8 @@
 // the log shows which node `pointerEvents` made the target. The first box also
 // repaints on hover, which is the §19 "Done when" screenshot.
 
-import React, {useState} from 'react';
-import {AppRegistry, StyleSheet, Text, View} from 'react-native';
+import React, { useState } from 'react';
+import { AppRegistry, StyleSheet, Text, View } from 'react-native';
 
 function describe(name, event) {
   const e = event.nativeEvent;
@@ -62,39 +62,56 @@ function HoverProbe() {
         }}
         style={[
           styles.box,
-          {top: 80, backgroundColor: hovered ? '#f59e0b' : '#3b82f6'},
-        ]}>
-        <Text style={styles.boxLabel}>
-          {hovered ? 'hovered' : 'hover me'}
-        </Text>
+          { top: 80, backgroundColor: hovered ? '#f59e0b' : '#3b82f6' },
+        ]}
+      >
+        <Text style={styles.boxLabel}>{hovered ? 'hovered' : 'hover me'}</Text>
       </View>
 
       {/* box-none: the box itself is not a target, its child is. */}
-      <View style={[styles.box, styles.grey, {top: 170}]} pointerEvents="box-none" {...handlers('box-none')}>
+      <View
+        style={[styles.box, styles.grey, { top: 170 }]}
+        pointerEvents="box-none"
+        {...handlers('box-none')}
+      >
         <View
           onLayout={logLayout('box-none-inner')}
-          style={[styles.inner, {left: 16, top: 16}]}
-          {...handlers('box-none-inner')}>
+          style={[styles.inner, { left: 16, top: 16 }]}
+          {...handlers('box-none-inner')}
+        >
           <Text style={styles.innerLabel}>inner</Text>
         </View>
       </View>
 
       {/* none: neither the box nor its child are targets. */}
-      <View style={[styles.box, styles.grey, {top: 260}]} pointerEvents="none" {...handlers('none')}>
+      <View
+        style={[styles.box, styles.grey, { top: 260 }]}
+        pointerEvents="none"
+        {...handlers('none')}
+      >
         <View
           onLayout={logLayout('none-inner')}
-          style={[styles.inner, {left: 16, top: 16}]}
-          {...handlers('none-inner')}>
+          style={[styles.inner, { left: 16, top: 16 }]}
+          {...handlers('none-inner')}
+        >
           <Text style={styles.innerLabel}>inner</Text>
         </View>
       </View>
 
       {/* box-only: the child is not a target, the box is. */}
-      <View style={[styles.box, styles.grey, {top: 350}]} pointerEvents="box-only" {...handlers('box-only')}>
+      <View
+        style={[styles.box, styles.grey, { top: 350 }]}
+        pointerEvents="box-only"
+        {...handlers('box-only')}
+      >
         <Text
           onLayout={logLayout('box-only-inner')}
-          style={[styles.innerLabel, {position: 'absolute', left: 16, top: 22}]}
-          {...handlers('box-only-inner')}>
+          style={[
+            styles.innerLabel,
+            { position: 'absolute', left: 16, top: 22 },
+          ]}
+          {...handlers('box-only-inner')}
+        >
           inner (not a target)
         </Text>
       </View>
@@ -102,8 +119,9 @@ function HoverProbe() {
       {/* The cursor prop: `style.rs` logs the ordinal GPUI maps. */}
       <View
         onLayout={logLayout('cursor-box')}
-        style={[styles.box, styles.grey, {top: 440, cursor: 'pointer'}]}
-        {...handlers('cursor-box')}>
+        style={[styles.box, styles.grey, { top: 440, cursor: 'pointer' }]}
+        {...handlers('cursor-box')}
+      >
         <Text style={styles.innerLabel}>cursor: pointer</Text>
       </View>
     </View>
@@ -111,8 +129,14 @@ function HoverProbe() {
 }
 
 const styles = StyleSheet.create({
-  app: {flex: 1, backgroundColor: '#f5f5f5'},
-  title: {position: 'absolute', left: 24, top: 24, fontSize: 20, color: '#111'},
+  app: { flex: 1, backgroundColor: '#f5f5f5' },
+  title: {
+    position: 'absolute',
+    left: 24,
+    top: 24,
+    fontSize: 20,
+    color: '#111',
+  },
   box: {
     position: 'absolute',
     left: 24,
@@ -122,9 +146,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  grey: {backgroundColor: '#e5e7eb'},
-  boxLabel: {color: 'white'},
-  innerLabel: {color: '#111'},
+  grey: { backgroundColor: '#e5e7eb' },
+  boxLabel: { color: 'white' },
+  innerLabel: { color: '#111' },
   inner: {
     position: 'absolute',
     width: 120,

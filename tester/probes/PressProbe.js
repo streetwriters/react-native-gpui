@@ -14,8 +14,8 @@
 // `locationX/Y` RN computed for that node — so the log shows whether the
 // innermost node is the target and whether the offset is relative to it.
 
-import React, {useEffect, useState} from 'react';
-import {AppRegistry, Pressable, Text, View} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppRegistry, Pressable, Text, View } from 'react-native';
 
 const round = value =>
   typeof value === 'number' ? Math.round(value * 10) / 10 : value;
@@ -56,8 +56,16 @@ function PressProbe() {
   }, [n]);
 
   return (
-    <View style={{flex: 1, backgroundColor: '#f5f5f5'}}>
-      <Text style={{position: 'absolute', left: 24, top: 24, fontSize: 20, color: '#111'}}>
+    <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
+      <Text
+        style={{
+          position: 'absolute',
+          left: 24,
+          top: 24,
+          fontSize: 20,
+          color: '#111',
+        }}
+      >
         Press probe
       </Text>
 
@@ -76,8 +84,9 @@ function PressProbe() {
           borderRadius: 8,
           justifyContent: 'center',
           alignItems: 'center',
-        }}>
-        <Text style={{color: 'white'}}>Pressed {n} times</Text>
+        }}
+      >
+        <Text style={{ color: 'white' }}>Pressed {n} times</Text>
       </Pressable>
 
       <View
@@ -96,8 +105,12 @@ function PressProbe() {
           borderRadius: 8,
           justifyContent: 'center',
           alignItems: 'center',
-        }}>
-        <Text onLayout={logLayout('plain-inner')} onTouchStart={event => log('touchStart(plain-inner)', event)}>
+        }}
+      >
+        <Text
+          onLayout={logLayout('plain-inner')}
+          onTouchStart={event => log('touchStart(plain-inner)', event)}
+        >
           plain inner
         </Text>
       </View>

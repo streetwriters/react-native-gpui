@@ -10,8 +10,8 @@
 #include "rust/cxx.h"
 
 #include <cstdint>
-#include <memory>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -38,7 +38,8 @@ class GpuiLogBoxSurfaceDelegate;
 /// second surface with the app key "LogBox".
 constexpr int32_t kAppSurfaceId = 1;
 constexpr int32_t kLogBoxSurfaceId = 2;
-/// Passed to `rn_gpui_on_surface_stopped` when every surface is gone (a reload).
+/// Passed to `rn_gpui_on_surface_stopped` when every surface is gone (a
+/// reload).
 constexpr int32_t kAllSurfacesStopped = -1;
 
 class GpuiHost {
@@ -47,7 +48,12 @@ class GpuiHost {
   ~GpuiHost();
 
   bool load_script(rust::Str bundlePath, rust::Str sourceUrl);
-  void start_surface(int32_t surfaceId, rust::Str moduleName, float w, float h, float scale);
+  void start_surface(
+      int32_t surfaceId,
+      rust::Str moduleName,
+      float w,
+      float h,
+      float scale);
   void set_surface_size(int32_t surfaceId, float w, float h, float scale);
   void set_window_metrics(float w, float h, float scale);
   void set_system_appearance(rust::Str appearance);
@@ -56,8 +62,10 @@ class GpuiHost {
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void set_scroll_offset(int32_t tag, float x, float y) const;
   std::shared_ptr<facebook::react::UIManager> ui_manager() const;
-  void synchronously_update_props(int32_t tag, const folly::dynamic& props) const;
-  void add_event_listener(std::shared_ptr<const facebook::react::EventListener> listener);
+  void synchronously_update_props(int32_t tag, const folly::dynamic& props)
+      const;
+  void add_event_listener(
+      std::shared_ptr<const facebook::react::EventListener> listener);
 
   // TODO 2.6 — driven by `GpuiLogBoxSurfaceDelegate`. There is no reload entry
   // point here on purpose: both reload triggers (Metro's websocket `reload`
@@ -68,19 +76,21 @@ class GpuiHost {
 
  private:
   std::shared_ptr<GpuiMountingManager> mountingManager_;
-  std::shared_ptr<facebook::react::RunLoopObserverManager> runLoopObserverManager_;
+  std::shared_ptr<facebook::react::RunLoopObserverManager>
+      runLoopObserverManager_;
   /// Passed to ReactHost as its `logBoxSurfaceDelegate` (TODO 2.6). Created
   /// before the host because ReactHost takes it in its constructor.
   std::shared_ptr<GpuiLogBoxSurfaceDelegate> logBoxDelegate_;
-  /// Passed to ReactHost as its `animatedNodesManagerProvider` (TODO 2.6). It is
-  /// what makes `AnimatedModule` load; without it LogBox's inspector throws
+  /// Passed to ReactHost as its `animatedNodesManagerProvider` (TODO 2.6). It
+  /// is what makes `AnimatedModule` load; without it LogBox's inspector throws
   /// "Native animated module is not available" and no red box renders.
   std::shared_ptr<facebook::react::NativeAnimatedNodesManagerProvider>
       animatedNodesManagerProvider_;
   mutable std::mutex animatedFrameMutex_;
   mutable std::function<void()> animatedFrameCallback_;
   std::unique_ptr<facebook::react::ReactHost> reactHost_;
-  std::vector<std::shared_ptr<const facebook::react::EventListener>> eventListeners_;
+  std::vector<std::shared_ptr<const facebook::react::EventListener>>
+      eventListeners_;
   /// The app surface's constraints, reused for the LogBox overlay surface.
   float surfaceWidth_{0.};
   float surfaceHeight_{0.};
@@ -88,7 +98,8 @@ class GpuiHost {
   bool scriptLoaded_{false};
 };
 
-std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort);
+std::unique_ptr<GpuiHost>
+new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort);
 std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(

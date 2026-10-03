@@ -20,7 +20,7 @@ void noteMainThread();
 
 class Module final : public facebook::react::TurboModule,
                      public std::enable_shared_from_this<Module> {
-public:
+ public:
   explicit Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
   ~Module() override;
 
@@ -30,14 +30,15 @@ public:
   std::shared_ptr<worklets::UIScheduler> uiScheduler() const;
 
   // Called by the static TurboModule method trampolines.
-  bool installTurboModule(facebook::jsi::Runtime &runtime,
-                          bool bundleModeEnabled);
+  bool installTurboModule(
+      facebook::jsi::Runtime& runtime,
+      bool bundleModeEnabled);
   bool prepareBundleMode();
   bool start();
   bool toggleSlowAnimationsOnUIRuntime();
 
-private:
-  void initialize(facebook::jsi::Runtime &runtime);
+ private:
+  void initialize(facebook::jsi::Runtime& runtime);
 
   std::shared_ptr<facebook::react::CallInvoker> jsInvoker_;
   std::shared_ptr<worklets::UIScheduler> uiScheduler_;
@@ -50,12 +51,12 @@ private:
 
 void onFrame(double timestampMs);
 std::shared_ptr<Module> currentModule();
-std::shared_ptr<facebook::react::TurboModule>
-createModule(const std::string &name,
-             std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
+std::shared_ptr<facebook::react::TurboModule> createModule(
+    const std::string& name,
+    std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
 
 } // namespace gpui_worklets
 
 std::shared_ptr<facebook::react::TurboModule> create_gpui_worklets_module(
-    const std::string &name,
+    const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker);

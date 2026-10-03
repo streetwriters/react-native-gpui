@@ -1,4 +1,4 @@
-import { TurboModuleRegistry, type TurboModule } from "react-native";
+import { TurboModuleRegistry, type TurboModule } from 'react-native';
 
 export interface Spec extends TurboModule {
   installTurboModule(bundleModeEnabled: boolean): boolean;
@@ -7,4 +7,4 @@ export interface Spec extends TurboModule {
   start(): boolean;
 }
 
-export default TurboModuleRegistry.get<Spec>("WorkletsModule");
+export default TurboModuleRegistry.get<Spec>('WorkletsModule');

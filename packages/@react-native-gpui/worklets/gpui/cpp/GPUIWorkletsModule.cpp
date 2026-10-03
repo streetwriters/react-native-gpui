@@ -5,10 +5,10 @@
 #include <glog/logging.h>
 #include <worklets/WorkletRuntime/RuntimeBindings.h>
 
-#include <chrono>
 #include <algorithm>
-#include <cstdlib>
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -25,12 +25,12 @@ std::atomic<uint64_t> workletFrames{0};
 std::atomic<uint64_t> workletRafRequests{0};
 
 class GPUIScheduler final : public worklets::UIScheduler {
-protected:
+ protected:
   bool queryIsOnUIThread() const override {
     return gpui_worklets::isOnMainThread();
   }
 
-public:
+ public:
   void scheduleOnUI(std::function<void()> job) override {
     static std::atomic<uint64_t> scheduled{0};
     const auto count = ++scheduled;
@@ -48,8 +48,9 @@ public:
 };
 
 worklets::RuntimeBindings::NativeLoggingHook nativeLoggingHook() {
-  return [](facebook::jsi::Runtime &runtime, const facebook::jsi::Value &,
-            const facebook::jsi::Value *args,
+  return [](facebook::jsi::Runtime& runtime,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
             size_t count) -> facebook::jsi::Value {
     if (count != 2) {
       throw std::invalid_argument("nativeLoggingHook takes 2 arguments");
@@ -60,47 +61,52 @@ worklets::RuntimeBindings::NativeLoggingHook nativeLoggingHook() {
   };
 }
 
-facebook::jsi::Value installTurboModule(facebook::jsi::Runtime &runtime,
-                                        facebook::react::TurboModule &base,
-                                        const facebook::jsi::Value *args,
-                                        size_t count) {
+facebook::jsi::Value installTurboModule(
+    facebook::jsi::Runtime& runtime,
+    facebook::react::TurboModule& base,
+    const facebook::jsi::Value* args,
+    size_t count) {
   if (count != 1 || !args[0].isBool()) {
-    throw facebook::jsi::JSError(runtime,
-                                 "installTurboModule expects a boolean");
+    throw facebook::jsi::JSError(
+        runtime, "installTurboModule expects a boolean");
   }
   return facebook::jsi::Value(
-      static_cast<gpui_worklets::Module &>(base).installTurboModule(
+      static_cast<gpui_worklets::Module&>(base).installTurboModule(
           runtime, args[0].getBool()));
 }
 
-facebook::jsi::Value prepareBundleMode(facebook::jsi::Runtime &runtime,
-                                       facebook::react::TurboModule &base,
-                                       const facebook::jsi::Value *,
-                                       size_t count) {
+facebook::jsi::Value prepareBundleMode(
+    facebook::jsi::Runtime& runtime,
+    facebook::react::TurboModule& base,
+    const facebook::jsi::Value*,
+    size_t count) {
   if (count != 0)
-    throw facebook::jsi::JSError(runtime,
-                                 "prepareBundleMode expects no arguments");
+    throw facebook::jsi::JSError(
+        runtime, "prepareBundleMode expects no arguments");
   return facebook::jsi::Value(
-      static_cast<gpui_worklets::Module &>(base).prepareBundleMode());
+      static_cast<gpui_worklets::Module&>(base).prepareBundleMode());
 }
 
-facebook::jsi::Value start(facebook::jsi::Runtime &runtime,
-                           facebook::react::TurboModule &base,
-                           const facebook::jsi::Value *, size_t count) {
+facebook::jsi::Value start(
+    facebook::jsi::Runtime& runtime,
+    facebook::react::TurboModule& base,
+    const facebook::jsi::Value*,
+    size_t count) {
   if (count != 0)
     throw facebook::jsi::JSError(runtime, "start expects no arguments");
   return facebook::jsi::Value(
-      static_cast<gpui_worklets::Module &>(base).start());
+      static_cast<gpui_worklets::Module&>(base).start());
 }
 
-facebook::jsi::Value
-toggleSlowAnimationsOnUIRuntime(facebook::jsi::Runtime &runtime,
-                                facebook::react::TurboModule &base,
-                                const facebook::jsi::Value *, size_t count) {
+facebook::jsi::Value toggleSlowAnimationsOnUIRuntime(
+    facebook::jsi::Runtime& runtime,
+    facebook::react::TurboModule& base,
+    const facebook::jsi::Value*,
+    size_t count) {
   if (count != 0)
     throw facebook::jsi::JSError(
         runtime, "toggleSlowAnimationsOnUIRuntime expects no arguments");
-  return facebook::jsi::Value(static_cast<gpui_worklets::Module &>(base)
+  return facebook::jsi::Value(static_cast<gpui_worklets::Module&>(base)
                                   .toggleSlowAnimationsOnUIRuntime());
 }
 } // namespace
@@ -114,7 +120,7 @@ std::thread::id uiThreadId;
 bool isOnMainThread() {
   std::lock_guard<std::mutex> lock(uiThreadMutex);
   return uiThreadId != std::thread::id{} &&
-         uiThreadId == std::this_thread::get_id();
+      uiThreadId == std::this_thread::get_id();
 }
 
 void noteMainThread() {
@@ -127,13 +133,14 @@ void noteMainThread() {
 Module::Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
     : TurboModule("WorkletsModule", jsInvoker),
       jsInvoker_(std::move(jsInvoker)) {
-  methodMap_.emplace("installTurboModule",
-                     MethodMetadata{1, &::installTurboModule});
-  methodMap_.emplace("prepareBundleMode",
-                     MethodMetadata{0, &::prepareBundleMode});
+  methodMap_.emplace(
+      "installTurboModule", MethodMetadata{1, &::installTurboModule});
+  methodMap_.emplace(
+      "prepareBundleMode", MethodMetadata{0, &::prepareBundleMode});
   methodMap_.emplace("start", MethodMetadata{0, &::start});
-  methodMap_.emplace("toggleSlowAnimationsOnUIRuntime",
-                     MethodMetadata{0, &::toggleSlowAnimationsOnUIRuntime});
+  methodMap_.emplace(
+      "toggleSlowAnimationsOnUIRuntime",
+      MethodMetadata{0, &::toggleSlowAnimationsOnUIRuntime});
 }
 
 Module::~Module() {
@@ -146,7 +153,7 @@ Module::~Module() {
   }
 }
 
-void Module::initialize(facebook::jsi::Runtime &runtime) {
+void Module::initialize(facebook::jsi::Runtime& runtime) {
   if (initializer_)
     return;
   uiScheduler_ = std::make_shared<GPUIScheduler>();
@@ -172,8 +179,9 @@ void Module::initialize(facebook::jsi::Runtime &runtime) {
   std::thread([initializer] { initializer->prepareProxy(); }).detach();
 }
 
-bool Module::installTurboModule(facebook::jsi::Runtime &runtime,
-                                bool bundleModeEnabled) {
+bool Module::installTurboModule(
+    facebook::jsi::Runtime& runtime,
+    bool bundleModeEnabled) {
   initialize(runtime);
   if (bundleModeEnabled) {
     throw facebook::jsi::JSError(
@@ -197,7 +205,9 @@ bool Module::start() {
   return true;
 }
 
-bool Module::toggleSlowAnimationsOnUIRuntime() { return false; }
+bool Module::toggleSlowAnimationsOnUIRuntime() {
+  return false;
+}
 
 void Module::requestAnimationFrame(std::function<void(double)> callback) {
   const auto count = ++workletRafRequests;
@@ -241,7 +251,7 @@ void Module::onFrame(double timestampMs) {
       (count <= 5 || count % 60 == 0)) {
     LOG(INFO) << "[gpui-worklets] callbacks on frame=" << callbacks.size();
   }
-  for (auto &callback : callbacks)
+  for (auto& callback : callbacks)
     callback(timestampMs);
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
@@ -275,9 +285,9 @@ std::shared_ptr<Module> currentModule() {
   return moduleInstance.lock();
 }
 
-std::shared_ptr<facebook::react::TurboModule>
-createModule(const std::string &name,
-             std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
+std::shared_ptr<facebook::react::TurboModule> createModule(
+    const std::string& name,
+    std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
   if (name != "WorkletsModule")
     return nullptr;
   auto module = std::make_shared<Module>(std::move(jsInvoker));
@@ -290,7 +300,7 @@ createModule(const std::string &name,
 } // namespace gpui_worklets
 
 std::shared_ptr<facebook::react::TurboModule> create_gpui_worklets_module(
-    const std::string &name,
+    const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
   return gpui_worklets::createModule(name, std::move(jsInvoker));
 }

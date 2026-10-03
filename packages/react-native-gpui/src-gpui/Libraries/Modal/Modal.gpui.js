@@ -275,7 +275,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
     if (ModalEventEmitter) {
       this._eventSubscription = ModalEventEmitter.addListener(
         'modalDismissed',
-        (event) => {
+        event => {
           this.setState({ isRendered: false }, () => {
             if (event.modalID === this._identifier && this.props.onDismiss) {
               this.props.onDismiss();

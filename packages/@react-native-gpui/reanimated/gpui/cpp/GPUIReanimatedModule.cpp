@@ -8,8 +8,8 @@
 
 #include <glog/logging.h>
 
-#include <chrono>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -27,7 +27,7 @@ using reanimated::PlatformDepMethodsHolder;
 using reanimated::ReanimatedModuleProxy;
 
 PlatformDepMethodsHolder platformMethods(
-    const std::shared_ptr<std::weak_ptr<ReanimatedModuleProxy>> &proxyHolder) {
+    const std::shared_ptr<std::weak_ptr<ReanimatedModuleProxy>>& proxyHolder) {
   PlatformDepMethodsHolder methods;
   methods.requestRender = [](std::function<void(const double)> callback) {
     static std::atomic<uint64_t> requests{0};
@@ -40,7 +40,7 @@ PlatformDepMethodsHolder platformMethods(
       module->requestAnimationFrame(std::move(callback));
   };
   methods.synchronouslyUpdateUIPropsFunction = [](const int tag,
-                                                  const folly::dynamic &props) {
+                                                  const folly::dynamic& props) {
     rngpui::gpui_synchronously_update_props(tag, props);
   };
   methods.getAnimationTimestamp = [] {
@@ -48,8 +48,8 @@ PlatformDepMethodsHolder platformMethods(
                std::chrono::steady_clock::now().time_since_epoch())
         .count();
   };
-  methods.registerSensor = [](int, int, int,
-                              std::function<void(double[], int)>) { return 0; };
+  methods.registerSensor =
+      [](int, int, int, std::function<void(double[], int)>) { return 0; };
   methods.unregisterSensor = [](int) {};
   methods.setGestureStateFunction = [](int, int) {};
   methods.maybeFlushUIUpdatesQueueFunction = [proxyHolder] {
@@ -78,26 +78,27 @@ PlatformDepMethodsHolder platformMethods(
 }
 
 class Module final : public facebook::react::TurboModule {
-public:
+ public:
   explicit Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
       : TurboModule("ReanimatedModule", jsInvoker),
         jsInvoker_(std::move(jsInvoker)) {
-    methodMap_.emplace("installTurboModule",
-                       MethodMetadata{0, &Module::install});
+    methodMap_.emplace(
+        "installTurboModule", MethodMetadata{0, &Module::install});
   }
 
-private:
-  static facebook::jsi::Value install(Runtime &runtime,
-                                      facebook::react::TurboModule &base,
-                                      const facebook::jsi::Value *,
-                                      size_t count) {
+ private:
+  static facebook::jsi::Value install(
+      Runtime& runtime,
+      facebook::react::TurboModule& base,
+      const facebook::jsi::Value*,
+      size_t count) {
     if (count != 0)
-      throw facebook::jsi::JSError(runtime,
-                                   "installTurboModule expects no arguments");
-    return facebook::jsi::Value(static_cast<Module &>(base).install(runtime));
+      throw facebook::jsi::JSError(
+          runtime, "installTurboModule expects no arguments");
+    return facebook::jsi::Value(static_cast<Module&>(base).install(runtime));
   }
 
-  bool install(Runtime &runtime) {
+  bool install(Runtime& runtime) {
     if (proxy_)
       return true;
     auto worklets = gpui_worklets::currentModule();
@@ -111,22 +112,25 @@ private:
     // The platform flush callback is constructed before the proxy exists.
     // Retain only a weak reference so the decorated UI runtime cannot keep
     // the module alive after React Native tears it down.
-    auto proxyHolder =
-        std::make_shared<std::weak_ptr<ReanimatedModuleProxy>>();
+    auto proxyHolder = std::make_shared<std::weak_ptr<ReanimatedModuleProxy>>();
     auto methods = platformMethods(proxyHolder);
     proxy_ = std::make_shared<ReanimatedModuleProxy>(
-        worklets->uiRuntime(), worklets->uiScheduler(), runtime, jsInvoker_,
-        methods, false);
+        worklets->uiRuntime(),
+        worklets->uiScheduler(),
+        runtime,
+        jsInvoker_,
+        methods,
+        false);
     *proxyHolder = proxy_;
     proxy_->init(methods);
     proxy_->initializeFabric(uiManager);
     LOG(INFO) << "[gpui-reanimated] module proxy initialized";
-    auto &uiRuntime =
+    auto& uiRuntime =
         worklets::getJSIRuntimeFromWorkletRuntime(worklets->uiRuntime());
     reanimated::RNRuntimeDecorator::decorate(runtime, uiRuntime, proxy_);
     std::weak_ptr<ReanimatedModuleProxy> weakProxy = proxy_;
     eventListener_ = std::make_shared<const facebook::react::EventListener>(
-        [weakProxy](const facebook::react::RawEvent &event) {
+        [weakProxy](const facebook::react::RawEvent& event) {
           auto proxy = weakProxy.lock();
           if (!proxy)
             return false;
@@ -153,7 +157,7 @@ private:
 } // namespace
 
 std::shared_ptr<facebook::react::TurboModule> create_gpui_reanimated_module(
-    const std::string &name,
+    const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
   if (name != "ReanimatedModule")
     return nullptr;

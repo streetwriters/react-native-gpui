@@ -18,6 +18,8 @@ MountOp buildMountOp(const facebook::react::ShadowViewMutation& mutation);
 // Shared flattening helpers. The text measurement override (§18.9)
 // reuses these so React and GPUI describe text identically.
 uint32_t argb(const facebook::react::SharedColor& color);
-TextFragmentFlat flattenTextFragment(const facebook::react::TextAttributes& attributes, const std::string& text);
+TextFragmentFlat flattenTextFragment(
+    const facebook::react::TextAttributes& attributes,
+    const std::string& text);
 
 } // namespace rngpui

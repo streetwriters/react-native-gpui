@@ -71,7 +71,7 @@ const Platform = {
   },
 
   // `spec.gpui` wins, then the platform-neutral `spec.native`, then `default`.
-  select: (spec) =>
+  select: spec =>
     'gpui' in spec ? spec.gpui : 'native' in spec ? spec.native : spec.default,
 };
 

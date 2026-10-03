@@ -1,1 +1,1 @@
-export { default } from "./NativeFixture";
+export { default } from './NativeFixture';

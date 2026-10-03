@@ -1,1 +1,1 @@
-export { default } from "./NativeCppExample";
+export { default } from './NativeCppExample';

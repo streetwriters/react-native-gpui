@@ -4,10 +4,10 @@
 
 #include <curl/curl.h>
 
+#include <folly/io/IOBuf.h>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <folly/io/IOBuf.h>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -60,15 +60,15 @@ struct Transfer {
   int64_t totalBytes{-1};
 };
 
-bool isCancelled(const Transfer &transfer) {
+bool isCancelled(const Transfer& transfer) {
   return transfer.cancellation->cancelled.load(std::memory_order_relaxed);
 }
 
 // Returning a short count makes libcurl abort the transfer with
 // CURLE_WRITE_ERROR, which is how cancellation interrupts a download in
 // progress.
-size_t writeCallback(char *data, size_t size, size_t count, void *userData) {
-  auto &transfer = *static_cast<Transfer *>(userData);
+size_t writeCallback(char* data, size_t size, size_t count, void* userData) {
+  auto& transfer = *static_cast<Transfer*>(userData);
   if (isCancelled(transfer)) {
     return 0;
   }
@@ -93,15 +93,16 @@ size_t writeCallback(char *data, size_t size, size_t count, void *userData) {
   transfer.receivedBytes += length;
   if (transfer.callbacks.sendProgressUpdates &&
       transfer.callbacks.onBodyProgress) {
-    transfer.callbacks.onBodyProgress(transfer.receivedBytes, transfer.totalBytes);
+    transfer.callbacks.onBodyProgress(
+        transfer.receivedBytes, transfer.totalBytes);
   }
   return size * count;
 }
 
 // libcurl hands the header block over one line at a time, status line first and
 // a blank line last.
-size_t headerCallback(char *data, size_t size, size_t count, void *userData) {
-  auto &transfer = *static_cast<Transfer *>(userData);
+size_t headerCallback(char* data, size_t size, size_t count, void* userData) {
+  auto& transfer = *static_cast<Transfer*>(userData);
   const size_t length = size * count;
   const std::string_view line(data, length);
 
@@ -119,11 +120,13 @@ size_t headerCallback(char *data, size_t size, size_t count, void *userData) {
     while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
       value.remove_prefix(1);
     }
-    while (!value.empty() &&
-           (value.back() == '\r' || value.back() == '\n' || value.back() == ' ')) {
+    while (
+        !value.empty() &&
+        (value.back() == '\r' || value.back() == '\n' || value.back() == ' ')) {
       value.remove_suffix(1);
     }
-    transfer.responseHeaders.emplace_back(std::string(name), std::string(value));
+    transfer.responseHeaders.emplace_back(
+        std::string(name), std::string(value));
   }
   return length;
 }
@@ -131,12 +134,12 @@ size_t headerCallback(char *data, size_t size, size_t count, void *userData) {
 // The callback that keeps cancellation responsive between writes and, as a
 // side effect, tells us the expected body size for progress reporting.
 int progressCallback(
-    void *userData,
+    void* userData,
     curl_off_t dltotal,
     curl_off_t /*dlnow*/,
     curl_off_t /*ultotal*/,
     curl_off_t /*ulnow*/) {
-  auto &transfer = *static_cast<Transfer *>(userData);
+  auto& transfer = *static_cast<Transfer*>(userData);
   if (dltotal > 0) {
     transfer.totalBytes = static_cast<int64_t>(dltotal);
   }
@@ -144,8 +147,8 @@ int progressCallback(
 }
 
 struct CurlHandle {
-  CURL *handle{nullptr};
-  curl_slist *headers{nullptr};
+  CURL* handle{nullptr};
+  curl_slist* headers{nullptr};
 
   ~CurlHandle() {
     curl_slist_free_all(headers);
@@ -157,10 +160,10 @@ struct CurlHandle {
 
 void performRequest(
     Transfer transfer,
-    const std::string &method,
-    const std::string &url,
-    const http::Headers &requestHeaders,
-    const http::Body &requestBody,
+    const std::string& method,
+    const std::string& url,
+    const http::Headers& requestHeaders,
+    const http::Body& requestBody,
     uint32_t timeout) {
   const auto complete = [&transfer](std::string error, bool timeoutError) {
     if (transfer.callbacks.onResponseComplete) {
@@ -175,7 +178,7 @@ void performRequest(
     return;
   }
 
-  for (const auto &[name, value] : requestHeaders) {
+  for (const auto& [name, value] : requestHeaders) {
     const std::string line = name + ": " + value;
     curl.headers = curl_slist_append(curl.headers, line.c_str());
   }
@@ -196,8 +199,7 @@ void performRequest(
   }
   if (timeout > 0) {
     // The interface documents a timeout in seconds, 0 meaning "no timeout".
-    curl_easy_setopt(
-        curl.handle, CURLOPT_TIMEOUT, static_cast<long>(timeout));
+    curl_easy_setopt(curl.handle, CURLOPT_TIMEOUT, static_cast<long>(timeout));
   }
   if (method != "GET" && method != "get") {
     curl_easy_setopt(curl.handle, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -234,8 +236,7 @@ void performRequest(
   if (responseCode < 200 || responseCode >= 300) {
     // Deliberately no onBody(): a caller such as downloadBundleResourceSync()
     // treats the body as the script to load, and an error page is not a script.
-    complete(
-        "HTTP " + std::to_string(responseCode) + " from " + url, false);
+    complete("HTTP " + std::to_string(responseCode) + " from " + url, false);
     return;
   }
 
@@ -248,11 +249,11 @@ void performRequest(
 class CurlHttpClient final : public IHttpClient {
  public:
   std::unique_ptr<http::IRequestToken> sendRequest(
-      http::NetworkCallbacks &&callbacks,
-      const std::string &method,
-      const std::string &url,
-      const http::Headers &headers = {},
-      const http::Body &body = {},
+      http::NetworkCallbacks&& callbacks,
+      const std::string& method,
+      const std::string& url,
+      const http::Headers& headers = {},
+      const http::Body& body = {},
       uint32_t timeout = 0,
       std::optional<std::string> /*loggingId*/ = std::nullopt) override {
     ensureCurlInitialized();

@@ -61,7 +61,7 @@ component LogBoxButton(
       focusable={true}
       hitSlop={hitSlop}
       onPress={onPress}
-      onFocus={(event) => {
+      onFocus={event => {
         // Desktop pointer focus must not add a layout-changing focus border
         // during a press. The host supplies its keyboard input modality.
         setFocused(event.nativeEvent.focusVisible === true);
