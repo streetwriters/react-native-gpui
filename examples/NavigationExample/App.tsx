@@ -157,12 +157,29 @@ function ModalScreen({ navigation }: { navigation: any }) {
 function JsStack() {
   return (
     <Stack.Navigator
+      screenListeners={({ route }) => ({
+        transitionStart: event =>
+          console.log(
+            `[nav] stack transition start route=${route.name} closing=${event.data.closing}`,
+          ),
+        transitionEnd: event =>
+          console.log(
+            `[nav] stack transition end route=${route.name} closing=${event.data.closing}`,
+          ),
+      })}
       screenOptions={{
         headerMode: Platform.OS === 'gpui' ? 'float' : undefined,
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
-      <Stack.Screen name="Details" component={DetailsScreen} />
+      <Stack.Screen
+        name="Details"
+        component={DetailsScreen}
+        options={({ route }) => {
+          const params = route.params as { id?: number } | undefined;
+          return { title: `Details ${params?.id ?? 1}` };
+        }}
+      />
     </Stack.Navigator>
   );
 }
@@ -241,7 +258,21 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer
+        onReady={() => {
+          if (scenario === 'stack') {
+            console.log('[nav] stack state route=Home title=Home');
+          }
+        }}
         onStateChange={state => {
+          if (scenario === 'stack' && state?.type === 'stack') {
+            const route = state.routes[state.index];
+            const params = route.params as { id?: number } | undefined;
+            const title =
+              route.name === 'Details'
+                ? `Details ${params?.id ?? 1}`
+                : route.name;
+            console.log(`[nav] stack state route=${route.name} title=${title}`);
+          }
           if (state?.type === 'drawer') {
             console.log(
               `[nav] drawer status=${getDrawerStatusFromState(state as DrawerNavigationState<ParamListBase>)}`,

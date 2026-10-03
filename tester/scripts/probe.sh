@@ -136,7 +136,7 @@ case "${PROBE}" in
         export RN_GPUI_SCROLL_START_MS="${RN_GPUI_SCROLL_START_MS:-3900}"
         ;;
       nav-stack)
-        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,138;28,28}"
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,138;28,28;28,28}"
         ;;
       nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-25,28;600,200;25,28;65,90}" ;;
       nav-native-stack) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160}" ;;
