@@ -162,6 +162,7 @@ export async function runDesktop({
   const cargoEnv = {
     ...process.env,
     RN_GPUI_BUNDLE: bundlePath,
+    RN_GPUI_ASSETS_DIR: path.join(path.dirname(bundlePath), 'assets', 'assets'),
     RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ''),
     RN_GPUI_DEV_HOST: host,
     RN_GPUI_DEV_PORT: String(port),

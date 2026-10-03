@@ -72,11 +72,12 @@ function Page({
       {children}
       <Button
         title="Open details"
-        onPress={() =>
+        onPress={() => {
+          console.log(`[nav] press Open details from ${name}`);
           navigation.push
             ? navigation.push('Details', { id: 1 })
-            : navigation.navigate('Details')
-        }
+            : navigation.navigate('Details');
+        }}
       />
     </SafeAreaView>
   );
@@ -92,7 +93,10 @@ function DetailsScreen({ route, navigation }: { route: any; navigation: any }) {
     <Page name={`Details ${id}`} navigation={navigation}>
       <Button
         title="Open next detail"
-        onPress={() => navigation.push('Details', { id: id + 1 })}
+        onPress={() => {
+          console.log(`[nav] press next detail ${id + 1}`);
+          navigation.push('Details', { id: id + 1 });
+        }}
       />
     </Page>
   );
@@ -144,7 +148,11 @@ function ModalScreen({ navigation }: { navigation: any }) {
 
 function JsStack() {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator
+      screenOptions={{
+        headerMode: Platform.OS === 'gpui' ? 'float' : undefined,
+      }}
+    >
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="Details" component={DetailsScreen} />
     </Stack.Navigator>

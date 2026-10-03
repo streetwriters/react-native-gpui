@@ -136,9 +136,7 @@ case "${PROBE}" in
         export RN_GPUI_SCROLL_START_MS="${RN_GPUI_SCROLL_START_MS:-3900}"
         ;;
       nav-stack)
-        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,160}"
-        export RN_GPUI_KEY="${RN_GPUI_KEY:-cmd-[}"
-        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-4500}"
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,138;28,28}"
         ;;
       nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
       nav-native-stack) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160}" ;;
@@ -179,6 +177,7 @@ CCACHE_DISABLE=1 cargo build \
 export RN_GPUI_MODULE="${MODULE}"
 export RN_GPUI_SOURCE_URL="${ENTRY_FILE%.js}"
 export RN_GPUI_BUNDLE="${BUNDLE}"
+export RN_GPUI_ASSETS_DIR="${ASSETS_DIR}/assets"
 if [[ -n "${DEV_PORT_DEFAULT}" ]]; then
   export RN_GPUI_DEV_PORT="${RN_GPUI_DEV_PORT:-${DEV_PORT_DEFAULT}}"
 fi

@@ -13,6 +13,21 @@ use std::{
 };
 
 pub(crate) fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
+    if let Some(asset_path) = uri.strip_prefix("file://assets/") {
+        let relative_path = std::path::Path::new(asset_path);
+        if relative_path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        }) {
+            return None;
+        }
+        let assets_dir = std::env::var_os("RN_GPUI_ASSETS_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::current_dir().ok().map(|cwd| cwd.join("assets")))?;
+        return Some(assets_dir.join(relative_path));
+    }
     let url = uri.parse::<Url>().ok()?;
     if url.scheme() != "file" {
         return None;
