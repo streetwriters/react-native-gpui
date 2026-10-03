@@ -1,10 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button,
-  Dimensions,
   FlatList,
   Platform,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,7 +12,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaFrame,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 
 // react-native-screens does not currently list GPUI as a native platform.
@@ -30,10 +33,17 @@ const Tabs = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const NativeStack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
-const initialMetrics = {
-  frame: { x: 0, y: 0, ...Dimensions.get('window') },
-  insets: { top: 0, right: 0, bottom: 0, left: 0 },
-};
+
+function SafeAreaTrace({ children }: React.PropsWithChildren) {
+  const frame = useSafeAreaFrame();
+  const insets = useSafeAreaInsets();
+  useEffect(() => {
+    console.log(
+      `[safe-area] frame=${frame.x},${frame.y} ${frame.width}x${frame.height} insets=${insets.top},${insets.right},${insets.bottom},${insets.left}`,
+    );
+  }, [frame, insets]);
+  return children;
+}
 
 function useRouteTrace(name: string) {
   useFocusEffect(
@@ -213,9 +223,11 @@ function Scenario() {
 
 export default function App() {
   return (
-    <SafeAreaProvider initialMetrics={initialMetrics}>
+    <SafeAreaProvider>
       <NavigationContainer>
-        <Scenario />
+        <SafeAreaTrace>
+          <Scenario />
+        </SafeAreaTrace>
       </NavigationContainer>
     </SafeAreaProvider>
   );

@@ -10,6 +10,7 @@
 #include <react/renderer/uimanager/IMountingManager.h>
 #include "GpuiImageLoader.h"
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <mutex>
@@ -85,6 +86,7 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
+  std::unordered_map<Tag, std::array<float, 4>> safeAreaFrames_;
 };
 
 } // namespace rngpui

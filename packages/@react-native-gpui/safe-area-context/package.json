@@ -1,0 +1,15 @@
+{
+  "name": "@react-native-gpui/safe-area-context",
+  "version": "0.1.0",
+  "description": "GPUI platform implementation for react-native-safe-area-context",
+  "files": [
+    "gpui",
+    "react-native.config.js",
+    "src"
+  ],
+  "peerDependencies": {
+    "react-native": "0.87.1",
+    "react-native-safe-area-context": "5.10.x"
+  },
+  "license": "MIT"
+}

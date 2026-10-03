@@ -82,10 +82,31 @@ function generateComponentCodegen({
   gpui,
   generatedRoot,
 }) {
-  const codegenConfig = packageJson.codegenConfig;
+  const componentCodegenPackage = gpui.componentCodegenPackage;
+  let codegenPackageRoot = packageRoot;
+  let codegenPackageJson = packageJson;
+  if (componentCodegenPackage !== undefined) {
+    if (
+      typeof componentCodegenPackage !== 'string' ||
+      !/^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]+$/u.test(componentCodegenPackage)
+    ) {
+      throw new Error(
+        `${dependencyName}: platforms.gpui.componentCodegenPackage must be a package name`,
+      );
+    }
+    const packageJsonPath = appRequire.resolve(
+      `${componentCodegenPackage}/package.json`,
+    );
+    codegenPackageRoot = path.dirname(packageJsonPath);
+    codegenPackageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  }
+  const codegenConfig = codegenPackageJson.codegenConfig;
   if (!codegenConfig || !['components', 'all'].includes(codegenConfig.type))
-    return [];
-  const jsSrcsDir = path.resolve(packageRoot, codegenConfig.jsSrcsDir ?? '');
+    return { sources: [], libraryName: undefined };
+  const jsSrcsDir = path.resolve(
+    codegenPackageRoot,
+    codegenConfig.jsSrcsDir ?? '',
+  );
   if (!fs.existsSync(jsSrcsDir)) {
     throw new Error(
       `${dependencyName}: Codegen source directory does not exist: ${jsSrcsDir}`,
@@ -108,7 +129,7 @@ function generateComponentCodegen({
       module => module.type === 'Component',
     )
   )
-    return [];
+    return { sources: [], libraryName: undefined };
   const libraryName = codegenConfig.name;
   if (
     typeof libraryName !== 'string' ||
@@ -149,7 +170,7 @@ function generateComponentCodegen({
     );
   }
   const sources = findCppSources(outputDirectory);
-  return sources;
+  return { sources, libraryName };
 }
 
 function findNodeApiModules(packageRoot, packageJson, dependencyName) {
@@ -289,7 +310,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
     appComponentDescriptors.push(...componentConfig.descriptors);
     appComponentHeaders.push(...componentConfig.headers);
-    const generatedSources = generateComponentCodegen({
+    const generatedCodegen = generateComponentCodegen({
       appRequire,
       packageJson,
       packageRoot: root,
@@ -298,7 +319,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       generatedRoot: codegenRoot,
     });
     if (
-      generatedSources.length > 0 &&
+      generatedCodegen.sources.length > 0 &&
       componentConfig.descriptors.length === 0
     ) {
       throw new Error(
@@ -306,12 +327,12 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       );
     }
     appComponentSources.push(
-      ...generatedSources,
+      ...generatedCodegen.sources,
       ...componentConfig.sources.map(source => path.resolve(root, source)),
     );
-    if (generatedSources.length > 0 && packageJson.codegenConfig?.name) {
+    if (generatedCodegen.sources.length > 0 && generatedCodegen.libraryName) {
       appComponentIncludeDirs.push(
-        path.join(codegenRoot, packageJson.codegenConfig.name),
+        path.join(codegenRoot, generatedCodegen.libraryName),
       );
     }
     appComponentIncludeDirs.push(

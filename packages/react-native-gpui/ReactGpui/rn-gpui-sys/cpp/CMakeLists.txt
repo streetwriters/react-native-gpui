@@ -584,6 +584,13 @@ if(RN_GPUI_HAS_WORKLETS)
   target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_WORKLETS=1)
 endif()
 
+get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
+  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SAFE_AREA_CONTEXT=1)
+  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
+endif()
+
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------
 #
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script
