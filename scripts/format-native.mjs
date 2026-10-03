@@ -1,0 +1,74 @@
+#!/usr/bin/env node
+// Formats or checks the repo's own C, C++, Objective-C and Rust sources.
+//
+//   node scripts/format-native.mjs [--check] [files...]
+//
+// With no files, every tracked native source is processed. Vendored React
+// Native sources and third-party code are skipped so upstream diffs stay clean.
+import { execFileSync, spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+const args = process.argv.slice(2);
+const check = args.includes('--check');
+const requested = args.filter(arg => arg !== '--check');
+
+const cFamily = /\.(c|cc|cpp|h|hpp|m|mm)$/;
+const rust = /\.rs$/;
+const excluded = [
+  'packages/react-native-gpui/ReactCxxPlatform/',
+  'packages/react-native-gpui/ReactCommonOverrides/',
+  'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/',
+  'examples/DesktopTemplateSmoke/ios/',
+  'examples/DesktopTemplateSmoke/android/',
+];
+
+const toRelative = file =>
+  path.relative(repoRoot, path.resolve(file)).split(path.sep).join('/');
+const files = (
+  requested.length > 0
+    ? requested.map(toRelative)
+    : execFileSync('git', ['ls-files'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }).split('\n')
+).filter(file => file && !excluded.some(prefix => file.startsWith(prefix)));
+
+function run(tool, toolArgs, targets, installHint) {
+  if (targets.length === 0) return true;
+  const result = spawnSync(tool, [...toolArgs, ...targets], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  });
+  if (result.error?.code === 'ENOENT') {
+    console.error(`${tool} was not found on PATH. ${installHint}`);
+    return false;
+  }
+  return result.status === 0;
+}
+
+const cTargets = files.filter(file => cFamily.test(file));
+const rustTargets = files.filter(file => rust.test(file));
+
+const cOk = run(
+  'clang-format',
+  check ? ['--dry-run', '-Werror'] : ['-i'],
+  cTargets,
+  'Install it with `brew install clang-format` or your platform package manager.',
+);
+const rustOk = run(
+  'rustfmt',
+  check ? ['--check', '--edition', '2021'] : ['--edition', '2021'],
+  rustTargets,
+  'Install it with `rustup component add rustfmt`.',
+);
+
+if (!cOk || !rustOk) {
+  if (check)
+    console.error('Native sources are not formatted. Run `npm run format`.');
+  process.exit(1);
+}

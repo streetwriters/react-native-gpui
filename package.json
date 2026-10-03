@@ -18,7 +18,13 @@
     "bench:10k": "bash tester/scripts/run-10k-benchmark.sh",
     "probe": "bash tester/scripts/probe.sh",
     "autolink": "react-native-gpui autolink",
-    "clean:native": "node scripts/clean-native.mjs"
+    "clean:native": "node scripts/clean-native.mjs",
+    "prepare": "husky",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write . && node scripts/format-native.mjs",
+    "format:check": "prettier --check . && node scripts/format-native.mjs --check",
+    "format:native": "node scripts/format-native.mjs"
   },
   "dependencies": {
     "@react-native-node-api/cli-utils": "file:.local/react-native-node-api-cli-utils-0.1.4.tgz",
@@ -31,12 +37,29 @@
     "node": ">=22.13.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "@eslint/compat": "^1.4.1",
     "@react-native-community/cli": "^20.2.0",
     "@react-native-gpui/cli": "0.1.0",
     "@react-native-gpui/native-module-fixture": "0.1.0",
+    "@react-native/eslint-config": "^0.87.1",
     "@react-native/metro-config": "^0.87.1",
+    "eslint": "^9.39.5",
+    "hermes-eslint": "^0.36.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.9.9",
     "react-native-platform-override": "^0.84.0",
     "react-native-reanimated": "^4.7.1",
     "react-native-worklets": "^0.13.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": "prettier --write",
+    "*.{c,cc,cpp,h,hpp,m,mm,rs}": "node scripts/format-native.mjs"
   }
 }

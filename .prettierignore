@@ -1,0 +1,12 @@
+node_modules/
+target/
+build/
+.local/
+package-lock.json
+packages/react-native-gpui/bin/
+packages/react-native-gpui/ReactCxxPlatform/
+packages/react-native-gpui/ReactCommonOverrides/
+packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/
+examples/*/android/
+examples/*/ios/
+examples/*/desktop/autolink/
