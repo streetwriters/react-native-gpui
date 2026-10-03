@@ -864,14 +864,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
                             let arena_clear_needed = window.draw(cx);
                             arena_clear_needed.clear(cx);
-                            window.dispatch_event(
-                                gpui::PlatformInput::KeyDown(gpui::KeyDownEvent {
-                                    keystroke: keystroke.clone(),
-                                    is_held: false,
-                                    prefer_character_input: false,
-                                }),
-                                cx,
-                            );
+                            window.dispatch_keystroke(keystroke.clone(), cx);
                             window.dispatch_event(
                                 gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }),
                                 cx,
