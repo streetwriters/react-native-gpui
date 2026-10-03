@@ -15,7 +15,8 @@
     "test:retention": "bash tester/scripts/verify-retention.sh",
     "bench:10k": "bash tester/scripts/run-10k-benchmark.sh",
     "probe": "bash tester/scripts/probe.sh",
-    "autolink": "react-native-gpui autolink"
+    "autolink": "react-native-gpui autolink",
+    "clean:native": "node scripts/clean-native.mjs"
   },
   "dependencies": {
     "react": "19.2.3",

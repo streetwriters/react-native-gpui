@@ -4,6 +4,18 @@ members = [
   "rn-gpui-sys", "rn-gpui", "rn-gpui-macros"
 ]
 
+# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+debug = false
+strip = "debuginfo"
+
 [workspace.dependencies]
 gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
 gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }

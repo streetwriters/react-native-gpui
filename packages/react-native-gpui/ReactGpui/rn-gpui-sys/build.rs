@@ -17,19 +17,19 @@
 //! linkable targets (and rn-gpui-sys is an rlib).
 
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=cpp");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BUILD_DIR");
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
+    watch_cpp_tree(&manifest_dir.join("cpp"));
     // .../packages/react-native-gpui/ReactGpui/rn-gpui-sys
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
@@ -64,6 +64,13 @@ fn main() {
     println!("cargo:rerun-if-changed={}", overrides_dir.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));
+    let target_triple = env::var("TARGET").expect("TARGET is set");
+    let cargo_target_dir = cargo_target_dir(&out_dir, &target_triple);
+    let cmake_build_type = cmake_build_type();
+    let cmake_out_dir = cargo_target_dir
+        .join("rn-gpui-cmake")
+        .join(&target_triple)
+        .join(cmake_build_type);
 
     // Generate RN core Fabric props/events and C++ TurboModule specs into the
     // Cargo build directory. These are version-specific @react-native/codegen
@@ -192,8 +199,21 @@ fn main() {
 
     // --- 2. rn_gpui_core via CMake ------------------------------------------
 
+    fs::create_dir_all(&cmake_out_dir).expect("create shared CMake output directory");
+    let cmake_lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(cmake_out_dir.join(".configure-build.lock"))
+        .expect("open shared CMake build lock");
+    cmake_lock
+        .lock()
+        .expect("lock shared CMake build directory");
+
     let mut cmake_config = cmake::Config::new("cpp");
     cmake_config
+        .out_dir(&cmake_out_dir)
+        .profile(cmake_build_type)
         .define("REACT_COMMON_DIR", &react_common_dir)
         .define("REACT_CXX_PLATFORM_DIR", &react_cxx_platform_dir)
         .define("RN_GPUI_OVERRIDES_DIR", &overrides_dir)
@@ -208,13 +228,14 @@ fn main() {
         cmake_config.define("RN_GPUI_HERMES_BUILD_DIR", build_dir);
     }
     let dst = cmake_config.build_target("rn_gpui_core").build();
+    drop(cmake_lock);
 
     let cmake_build_dir = dst.join("build");
     println!(
         "cargo:rustc-link-search=native={}",
         cmake_build_dir.display()
     );
-    println!("cargo:rustc-link-lib=static=rn_gpui_core");
+    println!("cargo:rustc-link-lib=static:-bundle=rn_gpui_core");
 
     // --- 3. the libraries rn_gpui_core needs at final link time -------------
 
@@ -263,6 +284,35 @@ fn watch_tree(root: &Path) {
         if path.is_dir() {
             watch_tree(&path);
         } else {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+}
+
+fn watch_cpp_tree(root: &Path) {
+    if !root.is_dir() {
+        return;
+    }
+    for entry in fs::read_dir(root).expect("read C++ source directory") {
+        let path = entry.expect("read C++ source entry").path();
+        if path.is_dir() {
+            if matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("build" | "target")
+            ) {
+                continue;
+            }
+            watch_cpp_tree(&path);
+            continue;
+        }
+
+        let is_source = matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" | "cmake")
+        ) || path
+            .file_name()
+            .is_some_and(|name| name == "CMakeLists.txt");
+        if is_source {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
@@ -344,17 +394,70 @@ fn emit_link_libs(path: &Path) {
             if name.is_empty() {
                 continue;
             }
-            let kind = if is_archive { "static" } else { "dylib" };
-            let directive = format!("{kind}={name}");
+            // The main archive is emitted before this transitive manifest so
+            // Cargo does not see conflicting link modifiers for the same lib.
+            if name == "rn_gpui_core" {
+                continue;
+            }
+            let directive = if is_archive {
+                format!("static:-bundle={name}")
+            } else {
+                format!("dylib={name}")
+            };
             if seen.insert(directive.clone()) {
                 println!("cargo:rustc-link-lib={directive}");
             }
         } else {
             // Design doc §18.4: a bare name is a static archive.
-            let directive = format!("static={line}");
+            let directive = format!("static:-bundle={line}");
             if seen.insert(directive.clone()) {
                 println!("cargo:rustc-link-lib={directive}");
             }
         }
+    }
+}
+
+fn cargo_target_dir(out_dir: &Path, target_triple: &str) -> PathBuf {
+    if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
+        let target_dir = PathBuf::from(target_dir);
+        return if target_dir.is_absolute() {
+            target_dir
+        } else {
+            env::current_dir()
+                .expect("read build-script working directory")
+                .join(target_dir)
+        };
+    }
+
+    let profile = env::var("PROFILE").expect("PROFILE is set");
+    let profile_dir = out_dir
+        .ancestors()
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy() == profile)
+        })
+        .expect("find Cargo profile directory above OUT_DIR");
+    let target_or_profile_dir = profile_dir
+        .parent()
+        .expect("Cargo profile directory has a parent");
+    if target_or_profile_dir
+        .file_name()
+        .is_some_and(|name| name == target_triple)
+    {
+        target_or_profile_dir
+            .parent()
+            .expect("Cargo target triple directory has a parent")
+            .to_path_buf()
+    } else {
+        target_or_profile_dir.to_path_buf()
+    }
+}
+
+fn cmake_build_type() -> &'static str {
+    match env::var("OPT_LEVEL").as_deref() {
+        Ok("0") => "Debug",
+        Ok("s" | "z") => "MinSizeRel",
+        _ if env::var("DEBUG").as_deref() == Ok("false") => "Release",
+        _ => "RelWithDebInfo",
     }
 }

@@ -3,6 +3,18 @@ name = "rn-gpui-desktoptemplatesmoke"
 version = "0.1.0"
 edition = "2021"
 
+# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+debug = false
+strip = "debuginfo"
+
 [features]
 visual-capture = ["react-native-gpui/visual-capture"]
 

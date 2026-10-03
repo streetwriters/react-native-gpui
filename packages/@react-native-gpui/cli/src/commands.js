@@ -14,6 +14,29 @@ const run = (bin, args, options = {}) =>
     env: options.env ?? process.env,
   });
 
+function cargoConfigSetsTargetDir(projectRoot) {
+  let directory = path.resolve(projectRoot);
+  while (true) {
+    for (const fileName of ["config.toml", "config"]) {
+      const configPath = path.join(directory, ".cargo", fileName);
+      if (!fs.existsSync(configPath)) continue;
+      const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/u);
+      let inBuildTable = false;
+      for (const line of lines) {
+        const table = line.match(/^\s*\[([^\]]+)\]/u);
+        if (table) {
+          inBuildTable = table[1].trim() === "build";
+        } else if (inBuildTable && /^\s*target-dir\s*=/u.test(line)) {
+          return true;
+        }
+      }
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) return false;
+    directory = parent;
+  }
+}
+
 async function isMetroRunning(host, port) {
   try {
     const response = await fetch(`http://${host}:${port}/status`, {
@@ -136,22 +159,24 @@ export async function runDesktop({
   const cargoArgs = ["run"];
   if (release) cargoArgs.push("--release");
   cargoArgs.push("--manifest-path", appCargoManifest);
+  const cargoEnv = {
+    ...process.env,
+    RN_GPUI_BUNDLE: bundlePath,
+    RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
+    RN_GPUI_DEV_HOST: host,
+    RN_GPUI_DEV_PORT: String(port),
+    RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, "autolink/autolink.json"),
+    RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, "autolink/autolink.cmake"),
+  };
+  if (
+    process.env.CARGO_TARGET_DIR === undefined &&
+    !cargoConfigSetsTargetDir(projectRoot)
+  ) {
+    cargoEnv.CARGO_TARGET_DIR = path.join(desktopRoot, "build/target");
+  }
   run("cargo", cargoArgs, {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      CARGO_TARGET_DIR:
-        process.env.CARGO_TARGET_DIR ?? path.join(desktopRoot, "build/target"),
-      RN_GPUI_BUNDLE: bundlePath,
-      RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ""),
-      RN_GPUI_DEV_HOST: host,
-      RN_GPUI_DEV_PORT: String(port),
-      RN_GPUI_AUTOLINK_MANIFEST: path.join(
-        desktopRoot,
-        "autolink/autolink.json",
-      ),
-      RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, "autolink/autolink.cmake"),
-    },
+    env: cargoEnv,
   });
 }
 
@@ -225,7 +250,7 @@ function scaffoldDesktop(
     beforeWrite(cargoPath);
     fs.writeFileSync(
       cargoPath,
-      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
+      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n[profile.dev.package."*"]\ndebug = false\n\n[profile.release]\ndebug = false\nstrip = "debuginfo"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
   }
 
