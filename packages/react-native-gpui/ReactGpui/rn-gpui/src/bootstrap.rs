@@ -1026,7 +1026,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
                     }
                     MainEvent::AnimatedProps(props) => {
-                        if props.has_opacity || props.has_transform || props.reset_transform {
+                        if props.has_opacity
+                            || props.has_transform
+                            || props.reset_transform
+                            || props.has_background_color
+                            || props.has_text_color
+                        {
                             let mut target = None;
                             store.update(cx, |store, _cx| {
                                 target = store.nodes.get(&props.tag).cloned();
@@ -1035,6 +1040,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 node.update(cx, |node, cx| {
                                     if props.has_opacity {
                                         node.set_animated_opacity(props.opacity);
+                                    }
+                                    if props.has_background_color {
+                                        node.set_animated_background_color(props.background_color);
+                                    }
+                                    if props.has_text_color {
+                                        node.set_animated_text_color(props.text_color);
                                     }
                                     if props.has_transform {
                                         node.set_animated_transform(Some(props.transform));

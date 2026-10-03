@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -35,9 +36,17 @@
 
 using namespace facebook::react;
 
+#if defined(RN_GPUI_HAS_WORKLETS)
+namespace gpui_worklets {
+void onFrame(double timestampMs);
+}
+#endif
+
 namespace rngpui {
 
 namespace {
+std::atomic<GpuiHost*> activeGpuiHost{nullptr};
+
 namespace jsi = facebook::jsi;
 using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (
     *)(const std::string&, std::shared_ptr<CallInvoker>);
@@ -436,10 +445,58 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
       /* turboModuleProviders */ gpui_turbo_module_providers(),
       /* logBoxSurfaceDelegate */ logBoxDelegate_,
       /* animatedNodesManagerProvider */ animatedNodesManagerProvider_);
+  activeGpuiHost.store(this, std::memory_order_release);
 }
 
 GpuiHost::~GpuiHost() {
   reactHost_->stopAllSurfaces();
+  for (const auto& listener : eventListeners_) {
+    reactHost_->runOnScheduler([&listener](Scheduler& scheduler) {
+      scheduler.removeEventListener(listener);
+    });
+  }
+  auto* expected = this;
+  activeGpuiHost.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+}
+
+std::shared_ptr<UIManager> GpuiHost::ui_manager() const {
+  std::shared_ptr<UIManager> result;
+  reactHost_->runOnScheduler([&result](Scheduler& scheduler) {
+    result = scheduler.getUIManager();
+  });
+  return result;
+}
+
+void GpuiHost::synchronously_update_props(
+    int32_t tag,
+    const folly::dynamic& props) const {
+  mountingManager_->synchronouslyUpdateViewOnUIThread(tag, props);
+}
+
+void GpuiHost::add_event_listener(
+    std::shared_ptr<const EventListener> listener) {
+  reactHost_->runOnScheduler([&listener](Scheduler& scheduler) {
+    scheduler.addEventListener(listener);
+  });
+  eventListeners_.push_back(std::move(listener));
+}
+
+std::shared_ptr<UIManager> get_gpui_ui_manager() {
+  auto* host = activeGpuiHost.load(std::memory_order_acquire);
+  return host ? host->ui_manager() : nullptr;
+}
+
+void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props) {
+  if (auto* host = activeGpuiHost.load(std::memory_order_acquire)) {
+    host->synchronously_update_props(tag, props);
+  }
+}
+
+void register_gpui_event_listener(
+    std::shared_ptr<const EventListener> listener) {
+  if (auto* host = activeGpuiHost.load(std::memory_order_acquire)) {
+    host->add_event_listener(std::move(listener));
+  }
 }
 
 bool GpuiHost::load_script(rust::Str bundlePath, rust::Str sourceUrl) {
@@ -547,6 +604,11 @@ void GpuiHost::stop_log_box_surface() {
 
 void GpuiHost::on_render() const {
   runLoopObserverManager_->onRender();
+#if defined(RN_GPUI_HAS_WORKLETS)
+  const auto frameTimestampMs = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  gpui_worklets::onFrame(frameTimestampMs);
+#endif
   std::function<void()> animationFrame;
   {
     std::lock_guard<std::mutex> lock(animatedFrameMutex_);

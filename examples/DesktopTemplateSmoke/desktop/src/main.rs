@@ -77,5 +77,19 @@ fn main() {
         );
     });
 
+    // Temporary recording demo; ordinary launches retain window persistence.
+    let config = if std::env::var_os("RN_GPUI_DEMO_WINDOW").is_some() {
+        config
+            .window_title("React Native GPUI — In motion")
+            .window_size(1600.0, 900.0)
+            .restore_window_state(false)
+            .configure_window(|options| {
+                // Full-size content gives the recording an exact 1600x900 frame.
+                options.titlebar = None;
+            })
+    } else {
+        config
+    };
+
     react_native_gpui::run_with(config);
 }

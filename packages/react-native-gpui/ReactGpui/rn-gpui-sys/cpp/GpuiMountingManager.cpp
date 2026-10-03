@@ -231,6 +231,16 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
       update.opacity = static_cast<float>(opacity->asDouble());
       update.has_opacity = true;
     }
+    const auto* backgroundColor = props.get_ptr("backgroundColor");
+    if (backgroundColor != nullptr && backgroundColor->isNumber()) {
+      update.background_color = static_cast<uint32_t>(backgroundColor->asDouble());
+      update.has_background_color = true;
+    }
+    const auto* textColor = props.get_ptr("color");
+    if (textColor != nullptr && textColor->isNumber()) {
+      update.text_color = static_cast<uint32_t>(textColor->asDouble());
+      update.has_text_color = true;
+    }
     const auto* transform = props.get_ptr("transform");
     if (transform != nullptr && transform->isArray()) {
       // Use RN's parser and matrix composition, including operation order,
@@ -257,7 +267,8 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
       update.reset_transform = true;
     }
   }
-  if (update.has_opacity || update.has_transform || update.reset_transform) {
+  if (update.has_opacity || update.has_transform || update.reset_transform ||
+      update.has_background_color || update.has_text_color) {
     if (gpuiDebugAnimationEnabled()) {
       static std::atomic<uint64_t> updates{0};
       const auto updateNumber = ++updates;

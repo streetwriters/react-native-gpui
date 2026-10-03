@@ -6,7 +6,7 @@
 
 use crate::style;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
+    div, point, prelude::*, px, App, Context, Entity, Fill, FocusHandle, IntoElement, KeyDownEvent,
     KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Position,
     Role, StyleRefinement, Subscription, Task, WeakEntity, Window,
 };
@@ -52,6 +52,8 @@ pub struct RNNodeView {
     /// outside normal mount batches. Keep that frame value separate so RN's
     /// original transform remains available when the animation detaches.
     animated_transform: Option<[f32; 16]>,
+    animated_background_color: Option<u32>,
+    animated_text_color: Option<u32>,
     /// Text payload, only present for `Paragraph` nodes.
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
@@ -126,6 +128,14 @@ impl RNNodeView {
         self.animated_transform = transform;
     }
 
+    pub fn set_animated_background_color(&mut self, color: u32) {
+        self.animated_background_color = Some(color);
+    }
+
+    pub fn set_animated_text_color(&mut self, color: u32) {
+        self.animated_text_color = Some(color);
+    }
+
     fn start_caret_blink(&mut self, cx: &mut Context<Self>) {
         if self.component != "TextInput" {
             return;
@@ -198,6 +208,8 @@ impl RNNodeView {
             },
             view: op.view.clone(),
             animated_transform: None,
+            animated_background_color: None,
+            animated_text_color: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             input_text: op.text_input_text.clone(),
             input_placeholder: op.text_input_placeholder.clone(),
@@ -948,6 +960,9 @@ impl Render for RNNodeView {
         // frame. Nothing flex-related is ever set (see the module docs).
         *element.style() = {
             let mut style = self.cached_style.clone();
+            if let Some(color) = self.animated_background_color {
+                style.background = Some(Fill::from(style::color(color)));
+            }
             let radius_scale = scale_x.min(scale_y);
             style.corner_radii.top_left = Some(px(self.view.border_radii.tl * radius_scale).into());
             style.corner_radii.top_right =
@@ -1077,6 +1092,9 @@ impl Render for RNNodeView {
                 fragment.font_size *= scale_y;
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
+                if let Some(color) = self.animated_text_color {
+                    fragment.color = color;
+                }
             }
             if self.component == "TextInput" {
                 let left = self.view.content_insets.left * scale_x;

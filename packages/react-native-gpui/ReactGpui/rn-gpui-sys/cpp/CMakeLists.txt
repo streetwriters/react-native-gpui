@@ -344,6 +344,11 @@ set_target_properties(hermes_runtime_test PROPERTIES
   BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
   INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
 
+# Load app-owned platform modules before assembling the shared C++ provider.
+if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
+  include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
+
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
@@ -354,9 +359,6 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
-if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
-  include("${RN_GPUI_AUTOLINK_CMAKE}")
-endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
@@ -488,15 +490,25 @@ endforeach()
 # separate archive. The platform runtime only owns the registration hook.
 if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}")
   get_property(RN_GPUI_CMAKE_APP_CPP_SOURCES GLOBAL PROPERTY RN_GPUI_APP_CPP_SOURCES)
+  get_property(RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
+  get_property(RN_GPUI_CMAKE_APP_CPP_DEFINITIONS GLOBAL PROPERTY RN_GPUI_APP_CPP_DEFINITIONS)
   list(APPEND RN_GPUI_APP_CPP_SOURCES ${RN_GPUI_CMAKE_APP_CPP_SOURCES})
   add_library(rn_gpui_app_turbo_modules STATIC
     "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}"
     ${RN_GPUI_APP_CPP_SOURCES})
   target_include_directories(rn_gpui_app_turbo_modules PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${RN_GPUI_GENERATED_MODULES_DIR}")
+    "${RN_GPUI_GENERATED_MODULES_DIR}"
+    "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}"
+    ${RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS})
+  target_compile_definitions(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_DEFINITIONS})
   target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
   target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+endif()
+
+get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
+if(RN_GPUI_HAS_WORKLETS)
+  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_WORKLETS=1)
 endif()
 
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------

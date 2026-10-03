@@ -163,6 +163,10 @@ pub mod ffi {
         pub transform: [f32; 16],
         pub has_transform: bool,
         pub reset_transform: bool,
+        pub background_color: u32,
+        pub has_background_color: bool,
+        pub text_color: u32,
+        pub has_text_color: bool,
     }
 
     #[derive(Clone, Copy, Debug, Default)]

@@ -14,12 +14,20 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace facebook::react {
 class ReactHost;
 class RunLoopObserverManager;
 class NativeAnimatedNodesManagerProvider;
+class UIManager;
+struct RawEvent;
+using EventListener = std::function<bool(const RawEvent&)>;
 } // namespace facebook::react
+
+namespace folly {
+class dynamic;
+} // namespace folly
 
 namespace rngpui {
 
@@ -47,6 +55,9 @@ class GpuiHost {
   void on_render() const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void set_scroll_offset(int32_t tag, float x, float y) const;
+  std::shared_ptr<facebook::react::UIManager> ui_manager() const;
+  void synchronously_update_props(int32_t tag, const folly::dynamic& props) const;
+  void add_event_listener(std::shared_ptr<const facebook::react::EventListener> listener);
 
   // TODO 2.6 — driven by `GpuiLogBoxSurfaceDelegate`. There is no reload entry
   // point here on purpose: both reload triggers (Metro's websocket `reload`
@@ -69,6 +80,7 @@ class GpuiHost {
   mutable std::mutex animatedFrameMutex_;
   mutable std::function<void()> animatedFrameCallback_;
   std::unique_ptr<facebook::react::ReactHost> reactHost_;
+  std::vector<std::shared_ptr<const facebook::react::EventListener>> eventListeners_;
   /// The app surface's constraints, reused for the LogBox overlay surface.
   float surfaceWidth_{0.};
   float surfaceHeight_{0.};
@@ -77,6 +89,10 @@ class GpuiHost {
 };
 
 std::unique_ptr<GpuiHost> new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort);
+std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
+void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
+void register_gpui_event_listener(
+    std::shared_ptr<const facebook::react::EventListener> listener);
 void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
 void rn_gpui_clipboard_result(int32_t id, rust::String text);
 

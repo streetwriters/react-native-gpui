@@ -9,7 +9,9 @@
     "packages/@react-native-gpui/codegen",
     "tester",
     "tester/gpui-native-module",
-    "tester/gpui-cpp-native-module"
+    "tester/gpui-cpp-native-module",
+    "packages/@react-native-gpui/worklets",
+    "packages/@react-native-gpui/reanimated"
   ],
   "scripts": {
     "test:retention": "bash tester/scripts/verify-retention.sh",
@@ -30,6 +32,8 @@
     "@react-native/metro-config": "^0.87.1",
     "react-native-platform-override": "^0.84.0",
     "@react-native-gpui/native-module-fixture": "0.1.0",
-    "@react-native-gpui/cli": "0.1.0"
+    "@react-native-gpui/cli": "0.1.0",
+    "react-native-reanimated": "^4.7.1",
+    "react-native-worklets": "^0.13.0"
   }
 }
