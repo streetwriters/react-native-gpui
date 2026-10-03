@@ -8,13 +8,18 @@ import {
   TextInput,
 } from 'react-native';
 import {
+  DarkTheme,
   NavigationContainer,
   useFocusEffect,
   type DrawerNavigationState,
   type ParamListBase,
+  type Theme,
 } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator } from '@react-navigation/stack';
+import {
+  createStackNavigator,
+  type StackCardStyleInterpolator,
+} from '@react-navigation/stack';
 import {
   createDrawerNavigator,
   getDrawerStatusFromState,
@@ -37,6 +42,34 @@ if (!['ios', 'android', 'windows'].includes(Platform.OS)) {
 const scenario =
   (globalThis as { __RN_GPUI_NAV_SCENARIO__?: string })
     .__RN_GPUI_NAV_SCENARIO__ ?? 'tabs';
+const APP_BACKGROUND = '#171923';
+const navigationTheme: Theme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: APP_BACKGROUND,
+    card: APP_BACKGROUND,
+    text: '#ffffff',
+    border: '#303442',
+    primary: '#6772e5',
+  },
+};
+const stackCardStyleInterpolator: StackCardStyleInterpolator = ({
+  current,
+  layouts,
+}) => ({
+  cardStyle: {
+    transform: [
+      {
+        translateX: current.progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [layouts.screen.width, 0],
+          extrapolate: 'clamp',
+        }),
+      },
+    ],
+  },
+});
 const Tabs = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const NativeStack = createNativeStackNavigator();
@@ -62,6 +95,10 @@ function useRouteTrace(name: string) {
   );
 }
 
+function StackBackIcon({ tintColor }: { tintColor: string }) {
+  return <Text style={[styles.backIcon, { color: tintColor }]}>‹</Text>;
+}
+
 function Page({
   name,
   navigation,
@@ -77,9 +114,14 @@ function Page({
   return (
     <SafeAreaView style={styles.page}>
       <Text style={styles.title}>{name}</Text>
+      <Text style={styles.description}>
+        This screen keeps its background and text colors consistent while you
+        navigate.
+      </Text>
       {children}
       <Button
         title="Open details"
+        color="#aab2ff"
         onPress={() => {
           console.log(`[nav] press Open details from ${name}`);
           navigation.push
@@ -101,6 +143,7 @@ function DetailsScreen({ route, navigation }: { route: any; navigation: any }) {
     <Page name={`Details ${id}`} navigation={navigation}>
       <Button
         title="Open next detail"
+        color="#aab2ff"
         onPress={() => {
           console.log(`[nav] press next detail ${id + 1}`);
           navigation.push('Details', { id: id + 1 });
@@ -121,6 +164,10 @@ function ListScreen({ navigation }: { navigation: any }) {
   return (
     <SafeAreaView style={styles.page}>
       <Text style={styles.title}>Long list + input</Text>
+      <Text style={styles.description}>
+        Scroll the list or switch tabs; this screen keeps its state while you
+        navigate.
+      </Text>
       <TextInput
         value={value}
         onFocus={() => console.log('[nav] input focus')}
@@ -144,6 +191,7 @@ function ListScreen({ navigation }: { navigation: any }) {
       />
       <Button
         title="Open details"
+        color="#aab2ff"
         onPress={() => navigation.navigate('Details')}
       />
     </SafeAreaView>
@@ -169,6 +217,15 @@ function JsStack() {
       })}
       screenOptions={{
         headerMode: Platform.OS === 'gpui' ? 'float' : undefined,
+        headerStyle: { backgroundColor: APP_BACKGROUND },
+        headerTintColor: '#ffffff',
+        headerTitleStyle: { color: '#ffffff' },
+        headerBackButtonDisplayMode: 'minimal',
+        headerBackImage: StackBackIcon,
+        detachPreviousScreen: false,
+        cardOverlayEnabled: false,
+        cardStyleInterpolator: stackCardStyleInterpolator,
+        cardStyle: { backgroundColor: APP_BACKGROUND },
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
@@ -258,6 +315,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer
+        theme={navigationTheme}
         onReady={() => {
           if (scenario === 'stack') {
             console.log('[nav] stack state route=Home title=Home');
@@ -289,8 +347,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, padding: 24, gap: 16, backgroundColor: '#171923' },
+  page: { flex: 1, padding: 24, gap: 16, backgroundColor: APP_BACKGROUND },
   title: { color: '#fff', fontSize: 28, fontWeight: '700' },
+  backIcon: { color: '#ffffff', fontSize: 30, lineHeight: 32 },
+  description: { color: '#d5d7e0', fontSize: 16, lineHeight: 24 },
   row: {
     color: '#ddd',
     paddingVertical: 12,
