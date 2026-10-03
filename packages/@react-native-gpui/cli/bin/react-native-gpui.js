@@ -21,6 +21,13 @@ const desktopRoot = path.join(projectRoot, "desktop");
 const run = (bin, args) =>
   execFileSync(bin, args, { cwd: projectRoot, stdio: "inherit" });
 
+if (hasFlag("--help") || hasFlag("-h")) {
+  console.log(
+    "usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release]",
+  );
+  process.exit(0);
+}
+
 if (command === "init-desktop") {
   initDesktop({ projectRoot, skipInstall: hasFlag("--skip-install") });
   process.exit(0);

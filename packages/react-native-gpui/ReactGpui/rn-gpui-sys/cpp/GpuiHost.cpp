@@ -1,5 +1,9 @@
 // React host implementation (design doc §18.7).
 #include "GpuiHost.h"
+#if defined(RN_GPUI_HAS_NODE_API)
+#include "CxxNodeApiHostModule.hpp"
+#include "WeakNodeApiInjector.hpp"
+#endif
 #include <react/runtime/GpuiDebug.h>
 
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
@@ -294,6 +298,15 @@ TurboModuleProviders gpui_turbo_module_providers() {
         return appModule;
       }
     }
+#if defined(RN_GPUI_HAS_NODE_API)
+    if (name == callstack::react_native_node_api::CxxNodeApiHostModule::kModuleName) {
+      static std::once_flag injected;
+      std::call_once(injected, [] {
+        callstack::react_native_node_api::injectIntoWeakNodeApi();
+      });
+      return callstack::react_native_node_api::createNodeApiHostModule(jsInvoker);
+    }
+#endif
 #define RN_GPUI_REGISTER_RUST_STRING_MODULE(module_name_fn, method_name_fn, method_fn, free_fn) \
     if (name == module_name_fn()) { \
       return std::make_shared<RustStringTurboModule>( \
@@ -437,6 +450,14 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
       std::move(contextContainer),
       /* onJsError */ [](facebook::jsi::Runtime&, const JsErrorHandler::ProcessedError& error) {
         rn_gpui_log(3, error.message);
+        for (const auto& frame : error.stack) {
+          std::string entry = "  at " + frame.methodName;
+          if (frame.file) entry += " (" + *frame.file;
+          if (frame.lineNumber) entry += ":" + std::to_string(*frame.lineNumber);
+          if (frame.column) entry += ":" + std::to_string(*frame.column);
+          if (frame.file) entry += ")";
+          rn_gpui_log(3, entry);
+        }
       },
       /* logger */ [](const std::string& message, unsigned int level) {
         rn_gpui_log(static_cast<int32_t>(level), message);

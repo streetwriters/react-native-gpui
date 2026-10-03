@@ -6,16 +6,31 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
+#include <string>
 
-int main() {
+int main(int argc, char** argv) {
   // Create the Hermes runtime — proves libhermesvm links
   // and initializes.
   auto runtime = facebook::hermes::makeHermesRuntime();
 
-  // Evaluate a tiny script through JSI — proves the VM runs.
-  auto script = std::make_shared<facebook::jsi::StringBuffer>("40 + 2");
+  // Evaluate source or a hermesc-produced bytecode file through JSI.
+  std::string source = "40 + 2";
+  if (argc > 1) {
+    std::ifstream bytecode(argv[1], std::ios::binary);
+    if (!bytecode) {
+      std::cerr << "failed to open bytecode file: " << argv[1] << std::endl;
+      return 2;
+    }
+    source.assign(
+        std::istreambuf_iterator<char>(bytecode),
+        std::istreambuf_iterator<char>());
+  }
+  auto script =
+      std::make_shared<facebook::jsi::StringBuffer>(std::move(source));
   facebook::jsi::Value result =
       runtime->evaluateJavaScript(script, "hermes_runtime_test");
 

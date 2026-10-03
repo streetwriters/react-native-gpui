@@ -101,7 +101,7 @@ export async function runDesktop({
   bundle,
   config,
   release = false,
-  port = 8081,
+  port = 8082,
   host = "localhost",
 }) {
   projectRoot = path.resolve(projectRoot);

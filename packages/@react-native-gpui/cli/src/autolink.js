@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 
 const findCppSources = (directory) => {
@@ -11,6 +11,53 @@ const findCppSources = (directory) => {
     return /\.(?:cc|cpp|cxx)$/u.test(entry.name) ? [entryPath] : [];
   });
 };
+
+const nodeApiMarker = "react-native-node-api-module";
+const nodeApiSuffix = ".apple.node";
+
+function findNodeApiModules(packageRoot, packageJson, dependencyName) {
+  if (
+    !packageJson.name ||
+    ["react-native", "react-native-node-api"].includes(packageJson.name)
+  ) {
+    return [];
+  }
+  const packageSegment = (
+    packageJson.name.startsWith("@")
+      ? packageJson.name.split("/").slice(1).join("/")
+      : packageJson.name
+  ).replaceAll(/[^A-Za-z0-9_-]/gu, "-");
+  const modules = [];
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (
+        !entry.isDirectory() ||
+        [".git", "node_modules"].includes(entry.name)
+      ) {
+        continue;
+      }
+      const entryPath = path.join(directory, entry.name);
+      if (
+        entry.name.endsWith(nodeApiSuffix) &&
+        fs.existsSync(path.join(entryPath, nodeApiMarker))
+      ) {
+        const addonName = entry.name
+          .slice(0, -nodeApiSuffix.length)
+          .replaceAll(/[^A-Za-z0-9_-]/gu, "-");
+        modules.push({
+          dependencyName,
+          packageName: packageJson.name,
+          libraryName: `${packageSegment}--${addonName}`,
+          modulePath: entryPath,
+        });
+        continue;
+      }
+      visit(entryPath);
+    }
+  };
+  visit(packageRoot);
+  return modules;
+}
 
 export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   projectRoot = path.resolve(projectRoot);
@@ -61,11 +108,18 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const rustTurboModuleSpecs = [];
   const cmakeProjects = [];
   const cppTurboModules = [];
+  const nodeApiModules = findNodeApiModules(
+    projectRoot,
+    JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")),
+    "<app>",
+  );
+  const nodeApiFrameworksDir = path.join(
+    autolinkRoot,
+    "node-api/apple/Frameworks",
+  );
   for (const [dependencyName, dependency] of Object.entries(
     config.dependencies ?? {},
   )) {
-    const gpui = dependency.platforms?.gpui;
-    if (!gpui) continue;
     const root = fs.realpathSync(
       path.resolve(
         dependency.root ??
@@ -75,6 +129,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf8"),
     );
+    nodeApiModules.push(
+      ...findNodeApiModules(root, packageJson, dependencyName),
+    );
+    const gpui = dependency.platforms?.gpui;
+    if (!gpui) continue;
     const specDirectory =
       packageJson.codegenConfig?.jsSrcsDir ?? gpui.specs ?? "src";
     if (gpui.cppProvider) {
@@ -144,6 +203,52 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     if (gpui.cmake) cmakeProjects.push(path.resolve(root, gpui.cmake));
   }
 
+  if (process.platform === "darwin" && nodeApiModules.length > 0) {
+    fs.rmSync(nodeApiFrameworksDir, { recursive: true, force: true });
+    const nodeApiCli = appRequire.resolve("react-native-node-api/cli");
+    const result = spawnSync(
+      process.execPath,
+      [
+        nodeApiCli,
+        "link",
+        "--apple",
+        "--no-prune",
+        "--exclude-self",
+        projectRoot,
+      ],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          RN_NODE_API_AUTOLINK_PATH: path.join(autolinkRoot, "node-api"),
+          TARGET_BUILD_DIR: path.join(autolinkRoot, "node-api"),
+          FRAMEWORKS_FOLDER_PATH: "apple/Frameworks",
+          PLATFORM_NAME: "macosx",
+          ARCHS: process.arch === "arm64" ? "arm64" : "x86_64",
+          CODE_SIGNING_REQUIRED: "NO",
+          CODE_SIGNING_ALLOWED: "NO",
+        },
+      },
+    );
+    if (result.status !== 0) {
+      throw new Error(
+        `Node-API framework staging failed:\n${result.stdout}\n${result.stderr}`,
+      );
+    }
+  }
+
+  const nodeApiNames = new Map();
+  for (const addon of nodeApiModules) {
+    const previousPath = nodeApiNames.get(addon.libraryName);
+    if (previousPath && previousPath !== addon.modulePath) {
+      throw new Error(
+        `Node-API addon name collision for ${addon.libraryName}: ${previousPath} and ${addon.modulePath}`,
+      );
+    }
+    nodeApiNames.set(addon.libraryName, addon.modulePath);
+  }
+
   // Project-local TurboModules live beside the app's Rust entry point. They do
   // not need a publishable npm package or an extra autolinking command: the
   // normal run-desktop autolink pass feeds their specs to the shared C++ codegen.
@@ -165,6 +270,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     rustTurboModuleSpecs,
     cppTurboModules,
     cmakeProjects,
+    nodeApiModules,
   };
   fs.writeFileSync(
     path.join(generatedDir, "autolink.json"),
@@ -293,12 +399,14 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     ),
     `set(RN_GPUI_APP_CPP_PROVIDER_SOURCE "${cmakePath(cppProviderPath)}")`,
     `list(APPEND RN_GPUI_APP_CPP_SOURCES ${cppSources.map((source) => `"${cmakePath(source)}"`).join(" ")})`,
+    `set(RN_GPUI_NODE_API_MODULE_NAMES ${nodeApiModules.map(({ libraryName }) => `"${libraryName}"`).join(" ")})`,
+    `set(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR "${cmakePath(nodeApiFrameworksDir)}")`,
   ].join("\n");
   fs.writeFileSync(
     path.join(generatedDir, "autolink.cmake"),
     `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
   );
   console.log(
-    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), and ${cmakeProjects.length} CMake project(s).`,
+    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), and ${cmakeProjects.length} CMake project(s).`,
   );
 }

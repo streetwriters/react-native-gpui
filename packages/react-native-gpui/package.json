@@ -10,6 +10,7 @@
     "metro.config.js",
     "setup-env.js",
     "src-gpui",
+    "bin",
     "ReactCommonOverrides",
     "ReactCxxPlatform",
     "ReactGpui/Cargo.toml",

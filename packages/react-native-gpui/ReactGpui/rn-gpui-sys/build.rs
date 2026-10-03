@@ -25,7 +25,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
-    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BUILD_DIR");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BIN_ROOT");
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
@@ -43,6 +43,16 @@ fn main() {
         .to_path_buf();
 
     let react_native_dir = repo_root.join("node_modules").join("react-native");
+    let node_api_package_dir = repo_root.join("node_modules/react-native-node-api");
+    let weak_node_api_package_dir = repo_root.join("node_modules/weak-node-api");
+    println!(
+        "cargo:rerun-if-changed={}",
+        node_api_package_dir.join("package.json").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        weak_node_api_package_dir.join("package.json").display()
+    );
     let react_common_dir = react_native_dir.join("ReactCommon");
     let react_cxx_platform_dir = package_dir.join("ReactCxxPlatform");
     for changed_platform_source in [
@@ -220,12 +230,17 @@ fn main() {
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
         .define("RN_GPUI_GENERATED_RNCORE_DIR", &generated_rncore)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
-        .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake);
+        .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake)
+        .define("RN_GPUI_NODE_API_PACKAGE_DIR", node_api_package_dir)
+        .define(
+            "RN_GPUI_WEAK_NODE_API_PACKAGE_DIR",
+            weak_node_api_package_dir,
+        );
     if let Some(source_dir) = env::var_os("RN_GPUI_HERMES_SOURCE_DIR") {
         cmake_config.define("RN_GPUI_HERMES_SOURCE_DIR", source_dir);
     }
-    if let Some(build_dir) = env::var_os("RN_GPUI_HERMES_BUILD_DIR") {
-        cmake_config.define("RN_GPUI_HERMES_BUILD_DIR", build_dir);
+    if let Some(bin_root) = env::var_os("RN_GPUI_HERMES_BIN_ROOT") {
+        cmake_config.define("RN_GPUI_HERMES_BIN_ROOT", bin_root);
     }
     let dst = cmake_config.build_target("rn_gpui_core").build();
     drop(cmake_lock);

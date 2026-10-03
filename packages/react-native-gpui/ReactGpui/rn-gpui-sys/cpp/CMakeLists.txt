@@ -344,21 +344,94 @@ set_target_properties(hermes_runtime_test PROPERTIES
   BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
   INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
 
-# Load app-owned platform modules before assembling the shared C++ provider.
-if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
-  include("${RN_GPUI_AUTOLINK_CMAKE}")
+# Proves the custom Hermes build can load a real Node-API addon.
+if(NOT WIN32)
+  enable_testing()
+  add_library(gpui_node_api_smoke MODULE test/node_api_smoke_addon.c)
+  target_link_libraries(gpui_node_api_smoke PRIVATE hermes-engine::hermesvm)
+  set_target_properties(gpui_node_api_smoke PROPERTIES
+    PREFIX ""
+    SUFFIX ".node"
+    OUTPUT_NAME "gpui_node_api_smoke"
+    BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
+    INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
+
+  add_executable(hermes_node_api_addon_test test/hermes_node_api_addon_test.cpp)
+  target_link_libraries(hermes_node_api_addon_test PRIVATE
+    hermes-engine::hermesvm jsi)
+  set_target_properties(hermes_node_api_addon_test PROPERTIES
+    BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
+    INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
+  add_test(NAME hermes_node_api_addon_smoke
+    COMMAND hermes_node_api_addon_test $<TARGET_FILE:gpui_node_api_smoke>)
+
 endif()
 
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
+if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
+  include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
+
+if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
+   AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+   AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  add_library(weak-node-api SHARED
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  target_include_directories(weak-node-api PUBLIC
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  target_compile_features(weak-node-api PRIVATE cxx_std_20)
+  set_target_properties(weak-node-api PROPERTIES
+    FRAMEWORK TRUE
+    OUTPUT_NAME "weak-node-api"
+    FRAMEWORK_VERSION A
+    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
+
+  if("DesktopTemplateSmoke--gpui_node_api_smoke" IN_LIST RN_GPUI_NODE_API_MODULE_NAMES)
+    target_include_directories(gpui_node_api_smoke PRIVATE
+      "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+    add_library(gpui_node_api_smoke_framework SHARED test/node_api_smoke_addon.c)
+    target_link_libraries(gpui_node_api_smoke_framework PRIVATE weak-node-api)
+    set_target_properties(gpui_node_api_smoke_framework PROPERTIES
+      FRAMEWORK TRUE
+      OUTPUT_NAME "DesktopTemplateSmoke--gpui_node_api_smoke"
+      FRAMEWORK_VERSION A
+      MACOSX_FRAMEWORK_IDENTIFIER "dev.reactnativegpui.DesktopTemplateSmoke-node-api-smoke"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks"
+      BUILD_RPATH "@loader_path;${RN_GPUI_HERMES_LIBRARY_DIR}"
+      INSTALL_RPATH "@loader_path;${RN_GPUI_HERMES_LIBRARY_DIR}")
+  endif()
+endif()
+
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
+if(TARGET weak-node-api)
+  target_compile_definitions(rn_gpui_core PRIVATE
+    RN_GPUI_HAS_NODE_API=1
+    HERMES_NAPI_USE_CPP_LINKAGE=1)
+  target_sources(rn_gpui_core PRIVATE
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
+  target_include_directories(rn_gpui_core PRIVATE
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  add_dependencies(rn_gpui_core weak-node-api)
+  if(TARGET gpui_node_api_smoke_framework)
+    add_dependencies(rn_gpui_core gpui_node_api_smoke_framework)
+  endif()
+endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
@@ -558,8 +631,14 @@ set(RN_GPUI_LINK_LIBS "")
 # and Rust does not turn `rustc-link-search` into an rpath. build.rs forwards
 # this list to the rn-gpui package, whose build script emits the linker flags.
 set(RN_GPUI_RPATH_DIRS "")
+if(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR AND EXISTS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}")
+  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}\n")
+endif()
 if(DEFINED RN_GPUI_HERMES_LIBRARY_DIR)
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_HERMES_LIBRARY_DIR}\n")
+endif()
+if(TARGET weak-node-api)
+  string(APPEND RN_GPUI_RPATH_DIRS "${CMAKE_BINARY_DIR}/node-api-frameworks\n")
 endif()
 
 # Use a symlink with a stable linkable name so Cargo's linker directives remain
@@ -585,6 +664,17 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
     continue()
   endif()
   get_target_property(_type "${_target}" TYPE)
+  get_target_property(_is_framework "${_target}" FRAMEWORK)
+  if(_is_framework)
+    get_target_property(_framework_output_name "${_target}" OUTPUT_NAME)
+    if(NOT _framework_output_name)
+      set(_framework_output_name "${_target}")
+    endif()
+    get_target_property(_framework_search_dir "${_target}" LIBRARY_OUTPUT_DIRECTORY)
+    string(APPEND RN_GPUI_LINK_LIBS "framework-search:${_framework_search_dir}\nframework-name:${_framework_output_name}\n")
+    string(APPEND RN_GPUI_RPATH_DIRS "${_framework_search_dir}\n")
+    continue()
+  endif()
   # UNKNOWN_LIBRARY covers imported libraries found by find_package() (e.g.
   # OpenSSL::Crypto from FindOpenSSL); they still have a usable TARGET_FILE.
   if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "UNKNOWN_LIBRARY")

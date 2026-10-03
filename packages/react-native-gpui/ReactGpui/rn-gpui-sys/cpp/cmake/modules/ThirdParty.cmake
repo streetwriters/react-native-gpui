@@ -68,9 +68,10 @@ find_package(OpenSSL REQUIRED)
 # and its build output outside this repository; CI will eventually download a
 # platform-specific artifact built from the same pinned source revision.
 #
-# RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BUILD_DIR may be passed by the
+# RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BIN_ROOT may be passed by the
 # Cargo build script (or supplied as environment variables for direct CMake
-# use). For this workspace, default to the sibling Work/hermes checkout.
+# use). VM artifacts live in this npm package under bin/<platform>/; the
+# source checkout and CMake build tree remain external.
 if(NOT RN_GPUI_HERMES_SOURCE_DIR)
   if(DEFINED ENV{RN_GPUI_HERMES_SOURCE_DIR})
     set(RN_GPUI_HERMES_SOURCE_DIR "$ENV{RN_GPUI_HERMES_SOURCE_DIR}")
@@ -79,22 +80,38 @@ if(NOT RN_GPUI_HERMES_SOURCE_DIR)
       "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../../hermes/hermes" ABSOLUTE)
   endif()
 endif()
-if(NOT RN_GPUI_HERMES_BUILD_DIR AND DEFINED ENV{RN_GPUI_HERMES_BUILD_DIR})
-  set(RN_GPUI_HERMES_BUILD_DIR "$ENV{RN_GPUI_HERMES_BUILD_DIR}")
+get_filename_component(_rn_gpui_repo_root
+  "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../" ABSOLUTE)
+get_filename_component(_rn_gpui_package_root
+  "${CMAKE_CURRENT_LIST_DIR}/../../../../../" ABSOLUTE)
+if(NOT RN_GPUI_HERMES_BIN_ROOT AND DEFINED ENV{RN_GPUI_HERMES_BIN_ROOT})
+  set(RN_GPUI_HERMES_BIN_ROOT "$ENV{RN_GPUI_HERMES_BIN_ROOT}")
 endif()
-if(NOT RN_GPUI_HERMES_BUILD_DIR AND RN_GPUI_HERMES_SOURCE_DIR)
-  get_filename_component(_hermes_workspace "${RN_GPUI_HERMES_SOURCE_DIR}" DIRECTORY)
-  set(RN_GPUI_HERMES_BUILD_DIR "${_hermes_workspace}/build-gpui-release")
+if(NOT RN_GPUI_HERMES_BIN_ROOT)
+  set(RN_GPUI_HERMES_BIN_ROOT "${_rn_gpui_package_root}/bin")
 endif()
-if(NOT RN_GPUI_HERMES_SOURCE_DIR OR NOT RN_GPUI_HERMES_BUILD_DIR)
+if(NOT RN_GPUI_HERMES_SOURCE_DIR)
   message(FATAL_ERROR
-    "Build Hermes from source with Node-API, then set RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BUILD_DIR. See docs/hermes.md.")
+    "Set RN_GPUI_HERMES_SOURCE_DIR to the external Hermes source checkout. See docs/hermes.md.")
 endif()
 
-set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_BUILD_DIR}/lib/libhermesvm.dylib")
+if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64|aarch64")
+  set(RN_GPUI_HERMES_PLATFORM "darwin-arm64")
+elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64|AMD64")
+  set(RN_GPUI_HERMES_PLATFORM "darwin-x64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  set(RN_GPUI_HERMES_PLATFORM "darwin-arm64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  set(RN_GPUI_HERMES_PLATFORM "darwin-x64")
+else()
+  message(FATAL_ERROR "Unsupported macOS Hermes architecture: ${CMAKE_OSX_ARCHITECTURES}/${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+set(RN_GPUI_HERMES_PLATFORM_BIN_DIR "${RN_GPUI_HERMES_BIN_ROOT}/${RN_GPUI_HERMES_PLATFORM}")
+set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/libhermesvm.dylib")
 if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
   message(FATAL_ERROR
-    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; build the hermesvm target with HERMES_ENABLE_NAPI=ON.")
+    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; run scripts/build-hermes-macos.sh to populate the gitignored platform binary directory.")
 endif()
 
 add_library(hermes-engine::hermesvm SHARED IMPORTED)
@@ -102,4 +119,4 @@ set_target_properties(hermes-engine::hermesvm PROPERTIES
   IMPORTED_LOCATION "${RN_GPUI_HERMES_LIBRARY}"
   INTERFACE_INCLUDE_DIRECTORIES
     "${RN_GPUI_HERMES_SOURCE_DIR}/include;${RN_GPUI_HERMES_SOURCE_DIR}/public;${RN_GPUI_HERMES_SOURCE_DIR}/API")
-set(RN_GPUI_HERMES_LIBRARY_DIR "${RN_GPUI_HERMES_BUILD_DIR}/lib")
+set(RN_GPUI_HERMES_LIBRARY_DIR "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
