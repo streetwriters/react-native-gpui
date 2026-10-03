@@ -1,0 +1,7 @@
+{
+  "name": "NavigationExample",
+  "displayName": "NavigationExample",
+  "desktop": {
+    "appId": "com.example.reactnavigation"
+  }
+}

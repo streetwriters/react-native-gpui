@@ -14,7 +14,7 @@ APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmo
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested" >&2
   exit 2
 }
 
@@ -34,7 +34,7 @@ case "${PROBE}" in
   TextInputProbe)
     BUNDLE="${RN_GPUI_TEXTINPUT_BUNDLE:-/tmp/rn-gpui-textinput-probe.bundle}"
     ASSETS_DIR=/tmp/rn-gpui-textinput-assets
-    RUST_LOG_DEFAULT=info,rn_gpui=debug
+    RUST_LOG_DEFAULT=info
     SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-textinput-probe.png
     export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,84}"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1000}"
@@ -109,6 +109,41 @@ case "${PROBE}" in
     export RN_GPUI_CLICK="${RN_GPUI_CLICK:-250,450}"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
     ;;
+  nav-tabs|nav-stack|nav-drawer|nav-native-stack|nav-nested)
+    APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"
+    APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
+    APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/react-native-gpui-navigationexample"
+    ENTRY_FILE="entries/${PROBE}.tsx"
+    BUNDLE="/tmp/rn-gpui-${PROBE}.bundle"
+    ASSETS_DIR="/tmp/rn-gpui-${PROBE}-assets"
+    MODULE=NavigationExample
+    DEV_PORT_DEFAULT=8082
+    RUST_LOG_DEFAULT=info,rn_gpui=debug
+    SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}.png"
+    export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+    case "${PROBE}" in
+      nav-tabs)
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-512,744;300,170;853,744;512,744}"
+        export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-x}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-3500}"
+        export RN_GPUI_SCROLL="${RN_GPUI_SCROLL:-500,400,0,-500}"
+        export RN_GPUI_SCROLL_START_MS="${RN_GPUI_SCROLL_START_MS:-3900}"
+        ;;
+      nav-stack)
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,160}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-cmd-[}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-4500}"
+        ;;
+      nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
+      nav-native-stack) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160}" ;;
+      nav-nested) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
+    esac
+    export RN_GPUI_WIDTH="${RN_GPUI_WIDTH:-1200}"
+    export RN_GPUI_HEIGHT="${RN_GPUI_HEIGHT:-800}"
+    export RN_GPUI_WINDOW_STATE="${RN_GPUI_WINDOW_STATE:-/tmp/rn-gpui-${PROBE}.window-state}"
+    rm -f "${RN_GPUI_WINDOW_STATE}"
+    ;;
   *) usage ;;
 esac
 
@@ -119,7 +154,7 @@ npx react-native bundle \
   --entry-file "${ENTRY_FILE}" \
   --bundle-output "${BUNDLE}" \
   --assets-dest "${ASSETS_DIR}" \
-  --config "${REPO_ROOT}/metro.config.js" \
+  --config "${APP_DESKTOP_ROOT}/metro.config.js" \
   --dev false \
   --minify true
 
