@@ -3,6 +3,7 @@
 
 #include <folly/dynamic.h>
 #include <react/io/IImageLoader.h>
+#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/modal/ModalHostViewState.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -15,6 +16,9 @@
 #include <unordered_map>
 
 namespace rngpui {
+
+void rn_gpui_register_app_components(
+    facebook::react::ComponentDescriptorProviderRegistry& registry);
 
 using namespace facebook::react;
 

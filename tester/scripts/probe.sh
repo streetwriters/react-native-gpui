@@ -10,11 +10,11 @@ fi
 PROBE="${1:-}"
 APP_PROJECT_ROOT="${REPO_ROOT}/examples/DesktopTemplateSmoke"
 APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
-APP="${APP_DESKTOP_ROOT}/target/release/rn-gpui-desktoptemplatesmoke"
+APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmoke"
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe" >&2
   exit 2
 }
 
@@ -99,6 +99,15 @@ case "${PROBE}" in
     SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-phase4-webview.png
     DEV_PORT_DEFAULT=8082
     export RN_GPUI_NATIVE_WEBVIEW_PROBE=1
+    ;;
+  GpuiComponentRegistryProbe)
+    BUNDLE="${RN_GPUI_COMPONENT_REGISTRY_BUNDLE:-/tmp/rn-gpui-component-registry.bundle}"
+    ASSETS_DIR=/tmp/rn-gpui-component-registry-assets
+    SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-component-registry.png
+    DEV_PORT_DEFAULT=8082
+    RUST_LOG_DEFAULT=info,rn_gpui=debug
+    export RN_GPUI_CLICK="${RN_GPUI_CLICK:-250,450}"
+    export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
     ;;
   *) usage ;;
 esac

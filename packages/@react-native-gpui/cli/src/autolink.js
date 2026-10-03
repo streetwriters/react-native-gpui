@@ -14,6 +14,143 @@ const findCppSources = directory => {
 
 const nodeApiMarker = 'react-native-node-api-module';
 const nodeApiSuffix = '.apple.node';
+const cppIdentifier = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const includePath = /^[A-Za-z0-9_./+-]+$/u;
+
+function componentConfigFor(dependencyName, gpui) {
+  const descriptors = gpui.componentDescriptors ?? [];
+  const headers = gpui.componentHeaders ?? [];
+  const sources = gpui.componentSources ?? [];
+  const includeDirs = gpui.componentIncludeDirs ?? [];
+  if (
+    !Array.isArray(descriptors) ||
+    !descriptors.every(
+      value => typeof value === 'string' && cppIdentifier.test(value),
+    )
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.componentDescriptors must be an array of C++ identifiers`,
+    );
+  }
+  if (
+    !Array.isArray(headers) ||
+    !headers.every(
+      value =>
+        typeof value === 'string' &&
+        includePath.test(value) &&
+        value.endsWith('.h'),
+    )
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.componentHeaders must be an array of C++ header paths`,
+    );
+  }
+  if (headers.some(value => value.split('/').includes('..'))) {
+    throw new Error(
+      `${dependencyName}: componentHeaders must not escape the include search path`,
+    );
+  }
+  if (descriptors.length > 0 && headers.length === 0) {
+    throw new Error(
+      `${dependencyName}: componentHeaders is required when componentDescriptors are declared`,
+    );
+  }
+  if (
+    !Array.isArray(sources) ||
+    !sources.every(value => typeof value === 'string')
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.componentSources must be an array of source paths`,
+    );
+  }
+  if (
+    !Array.isArray(includeDirs) ||
+    !includeDirs.every(value => typeof value === 'string')
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.componentIncludeDirs must be an array of paths`,
+    );
+  }
+  return { descriptors, headers, sources, includeDirs };
+}
+
+function generateComponentCodegen({
+  appRequire,
+  packageJson,
+  packageRoot,
+  dependencyName,
+  gpui,
+  generatedRoot,
+}) {
+  const codegenConfig = packageJson.codegenConfig;
+  if (!codegenConfig || !['components', 'all'].includes(codegenConfig.type))
+    return [];
+  const jsSrcsDir = path.resolve(packageRoot, codegenConfig.jsSrcsDir ?? '');
+  if (!fs.existsSync(jsSrcsDir)) {
+    throw new Error(
+      `${dependencyName}: Codegen source directory does not exist: ${jsSrcsDir}`,
+    );
+  }
+  const specs = [];
+  const visit = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(entryPath);
+      else if (/\.(?:js|jsx|ts|tsx)$/u.test(entry.name)) specs.push(entryPath);
+    }
+  };
+  visit(jsSrcsDir);
+  const schema = appRequire(
+    '@react-native/codegen/lib/cli/combine/combine-js-to-schema',
+  ).combineSchemasInFileList(specs, 'gpui', null, codegenConfig.name);
+  if (
+    !Object.values(schema.modules ?? {}).some(
+      module => module.type === 'Component',
+    )
+  )
+    return [];
+  const libraryName = codegenConfig.name;
+  if (
+    typeof libraryName !== 'string' ||
+    !/^[A-Za-z][A-Za-z0-9_]*$/u.test(libraryName)
+  ) {
+    throw new Error(
+      `${dependencyName}: codegenConfig.name must be a C++ identifier for Fabric component codegen`,
+    );
+  }
+  const codegenPackage = appRequire.resolve(
+    '@react-native/codegen/package.json',
+  );
+  const codegenRoot = path.dirname(codegenPackage);
+  const rnCodegen = appRequire(
+    path.join(codegenRoot, 'lib/generators/RNCodegen.js'),
+  );
+  const outputDirectory = path.join(
+    generatedRoot,
+    libraryName,
+    'react/renderer/components',
+    libraryName,
+  );
+  const generated = rnCodegen.generate(
+    {
+      libraryName,
+      schema,
+      outputDirectory,
+      packageName: packageJson.name,
+      assumeNonnull: false,
+    },
+    {
+      generators: ['descriptors', 'events', 'props', 'states', 'shadow-nodes'],
+    },
+  );
+  if (generated !== true) {
+    throw new Error(
+      `${dependencyName}: React Native Codegen failed for Fabric components`,
+    );
+  }
+  const sources = findCppSources(outputDirectory);
+  return sources;
+}
 
 function findNodeApiModules(packageRoot, packageJson, dependencyName) {
   if (
@@ -108,6 +245,12 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const rustTurboModuleSpecs = [];
   const cmakeProjects = [];
   const cppTurboModules = [];
+  const appComponentDescriptors = [];
+  const appComponentHeaders = [];
+  const appComponentSources = [];
+  const appComponentIncludeDirs = [];
+  const componentNames = new Map();
+  const codegenRoot = path.join(autolinkRoot, 'codegen');
   const nodeApiModules = findNodeApiModules(
     projectRoot,
     JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')),
@@ -134,6 +277,48 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     );
     const gpui = dependency.platforms?.gpui;
     if (!gpui) continue;
+    const componentConfig = componentConfigFor(dependencyName, gpui);
+    for (const descriptor of componentConfig.descriptors) {
+      const previousDependency = componentNames.get(descriptor);
+      if (previousDependency) {
+        throw new Error(
+          `${dependencyName}: component descriptor ${descriptor} is already declared by ${previousDependency}`,
+        );
+      }
+      componentNames.set(descriptor, dependencyName);
+    }
+    appComponentDescriptors.push(...componentConfig.descriptors);
+    appComponentHeaders.push(...componentConfig.headers);
+    const generatedSources = generateComponentCodegen({
+      appRequire,
+      packageJson,
+      packageRoot: root,
+      dependencyName,
+      gpui,
+      generatedRoot: codegenRoot,
+    });
+    if (
+      generatedSources.length > 0 &&
+      componentConfig.descriptors.length === 0
+    ) {
+      throw new Error(
+        `${dependencyName}: GPUI component Codegen is enabled, but platforms.gpui.componentDescriptors is empty`,
+      );
+    }
+    appComponentSources.push(
+      ...generatedSources,
+      ...componentConfig.sources.map(source => path.resolve(root, source)),
+    );
+    if (generatedSources.length > 0 && packageJson.codegenConfig?.name) {
+      appComponentIncludeDirs.push(
+        path.join(codegenRoot, packageJson.codegenConfig.name),
+      );
+    }
+    appComponentIncludeDirs.push(
+      ...componentConfig.includeDirs.map(directory =>
+        path.resolve(root, directory),
+      ),
+    );
     const specDirectory =
       packageJson.codegenConfig?.jsSrcsDir ?? gpui.specs ?? 'src';
     if (gpui.cppProvider) {
@@ -271,6 +456,10 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     cppTurboModules,
     cmakeProjects,
     nodeApiModules,
+    appComponentDescriptors,
+    appComponentHeaders: [...new Set(appComponentHeaders)],
+    appComponentSources: [...new Set(appComponentSources)],
+    appComponentIncludeDirs: [...new Set(appComponentIncludeDirs)],
   };
   fs.writeFileSync(
     path.join(generatedDir, 'autolink.json'),
@@ -379,16 +568,26 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `  if (name == ${JSON.stringify(moduleName)}) return ::${provider}(name, jsInvoker);`,
     )
     .join('\n');
+  const componentHeaders = [...new Set(appComponentHeaders)]
+    .map(header => `#include <${header}>`)
+    .join('\n');
+  const componentRegistration = appComponentDescriptors
+    .map(
+      descriptor =>
+        `  addComponent(facebook::react::concreteComponentDescriptorProvider<facebook::react::${descriptor}>());`,
+    )
+    .join('\n');
   fs.writeFileSync(
     cppProviderPath,
-    `// Generated by @react-native-gpui/cli autolink; do not edit.\n#include <ReactCommon/TurboModule.h>\n#include <memory>\n#include <string>\n${[...new Set(cppTurboModules.map(({ provider }) => `extern std::shared_ptr<facebook::react::TurboModule> ${provider}(const std::string&, std::shared_ptr<facebook::react::CallInvoker>);`))].join('\n')}\nextern "C" void rn_gpui_set_app_cpp_turbo_module_provider(std::shared_ptr<facebook::react::TurboModule> (*)(const std::string&, std::shared_ptr<facebook::react::CallInvoker>));\nextern "C" void rn_gpui_initialize_app_turbo_modules() {\n  rn_gpui_set_app_cpp_turbo_module_provider(+[](const std::string& name, std::shared_ptr<facebook::react::CallInvoker> jsInvoker) -> std::shared_ptr<facebook::react::TurboModule> {\n${cppProviderCases}\n    return nullptr;\n  });\n}\n`,
+    `// Generated by @react-native-gpui/cli autolink; do not edit.\n#include <ReactCommon/TurboModule.h>\n#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>\n#include <iostream>\n#include <memory>\n#include <string>\n#include <unordered_set>\n${componentHeaders}\n${[...new Set(cppTurboModules.map(({ provider }) => `extern std::shared_ptr<facebook::react::TurboModule> ${provider}(const std::string&, std::shared_ptr<facebook::react::CallInvoker>);`))].join('\n')}\nextern "C" void rn_gpui_set_app_cpp_turbo_module_provider(std::shared_ptr<facebook::react::TurboModule> (*)(const std::string&, std::shared_ptr<facebook::react::CallInvoker>));\nextern "C" void rn_gpui_initialize_app_turbo_modules() {\n  rn_gpui_set_app_cpp_turbo_module_provider(+[](const std::string& name, std::shared_ptr<facebook::react::CallInvoker> jsInvoker) -> std::shared_ptr<facebook::react::TurboModule> {\n${cppProviderCases}\n    return nullptr;\n  });\n}\nnamespace rngpui {\nvoid rn_gpui_register_app_components(facebook::react::ComponentDescriptorProviderRegistry& registry) {\n  static const std::unordered_set<std::string> builtins = {"View", "Paragraph", "Text", "RawText", "Image", "ScrollView", "TextInput", "ModalHostView", "NativeViewHost"};\n  std::unordered_set<std::string> registered;\n  auto addComponent = [&registry, &registered](const facebook::react::ComponentDescriptorProvider& provider) {\n    const std::string name(provider.name);\n    if (builtins.contains(name) || !registered.insert(name).second) {\n      std::cerr << "[rn-gpui] duplicate app Fabric component descriptor ignored: " << name << std::endl;\n      return;\n    }\n    registry.add(provider);\n  };\n${componentRegistration}\n}\n} // namespace rngpui\n`,
   );
   const cppSources = [
-    ...new Set(
-      cppTurboModules
+    ...new Set([
+      ...cppTurboModules
         .filter(({ hasCmake }) => !hasCmake)
         .flatMap(({ sources }) => sources),
-    ),
+      ...appComponentSources,
+    ]),
   ];
   const cmakePath = value => value.replaceAll('\\', '/').replaceAll('"', '\\"');
   const cmake = [
@@ -397,7 +596,8 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `add_subdirectory("${cmakePath(directory)}" "${cmakePath(path.join('${CMAKE_BINARY_DIR}', `rn_gpui_autolink_${index}`))}")`,
     ),
     `set(RN_GPUI_APP_CPP_PROVIDER_SOURCE "${cmakePath(cppProviderPath)}")`,
-    `list(APPEND RN_GPUI_APP_CPP_SOURCES ${cppSources.map(source => `"${cmakePath(source)}"`).join(' ')})`,
+    `set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES ${cppSources.map(source => `"${cmakePath(source)}"`).join(' ')})`,
+    `set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS ${appComponentIncludeDirs.map(directory => `"${cmakePath(directory)}"`).join(' ')})`,
     `set(RN_GPUI_NODE_API_MODULE_NAMES ${nodeApiModules.map(({ libraryName }) => `"${libraryName}"`).join(' ')})`,
     `set(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR "${cmakePath(nodeApiFrameworksDir)}")`,
   ].join('\n');

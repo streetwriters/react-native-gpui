@@ -434,6 +434,11 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                   GpuiModalHostViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   NativeViewHostComponentDescriptor>());
+      result->setComponentDescriptorProviderRequest([](ComponentName name) {
+        LOG(ERROR) << "Fabric component " << name
+                   << " is not implemented on gpui";
+      });
+      rn_gpui_register_app_components(*result);
       return result;
     }();
     return registry->createComponentDescriptorRegistry(

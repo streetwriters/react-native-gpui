@@ -35,11 +35,33 @@ The initializer creates a standard React Native project with `ios/` and
 `android/` directories, then adds a `desktop/` GPUI target. All three platforms
 use the same React Native app entry and dependencies. Use `npx react-native run-ios` and `npx react-native run-android` for the standard mobile workflows.
 
-GPUI builds its own Hermes VM with Node-API enabled; see [the Hermes build
-notes](docs/hermes.md) for the external source checkout setup.
+GPUI builds its own Hermes VM with Node-API enabled from an external source
+checkout; locally built platform binaries stay ignored in the package tree.
 
 To add GPUI support to an existing React Native project, run
 `npx react-native init-desktop`. Create a native TurboModule package with
 `npx react-native create-library mmkv` (Rust) or
 `npx react-native create-library mmkv --type cpp` (C++). Both templates use
 React Native's `TurboModuleRegistry` API and TypeScript specs.
+
+## Fabric components in native packages
+
+A native package that provides Fabric components declares their descriptors
+and headers in its `react-native.config.js` GPUI platform entry:
+
+```js
+gpui: {
+  cmake: 'gpui',
+  componentDescriptors: ['RNCSafeAreaViewComponentDescriptor'],
+  componentHeaders: [
+    'react/renderer/components/safeareacontext/ComponentDescriptors.h',
+  ],
+}
+```
+
+Autolinking registers these descriptors with Fabric and runs React Native
+Codegen for dependencies whose `codegenConfig.type` is `components` or `all`.
+Their generated C++ is kept under `desktop/autolink/codegen/` and compiled into
+the app. Handwritten platform sources and include directories can be added as
+`componentSources` and `componentIncludeDirs` in the same GPUI config. Missing
+or duplicate descriptors are reported during autolinking or app startup.

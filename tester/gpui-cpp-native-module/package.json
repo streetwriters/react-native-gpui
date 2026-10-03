@@ -11,7 +11,7 @@
   ],
   "codegenConfig": {
     "name": "NativeCppExampleSpec",
-    "type": "modules",
+    "type": "all",
     "jsSrcsDir": "src"
   }
 }
