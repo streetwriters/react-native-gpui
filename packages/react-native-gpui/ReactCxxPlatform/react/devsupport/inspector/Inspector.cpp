@@ -69,7 +69,10 @@ class InspectorHostTargetDelegate
           jsinspector_modern::NetworkRequestListener> executor) override {
     http::NetworkCallbacks callbacks{
         .onResponse =
-            [executor](uint32_t responseCode, const http::Headers& headers) {
+            [executor](
+                uint32_t responseCode,
+                const http::Headers& headers,
+                const std::string& /*responseUrl*/) {
               executor([responseCode, headers](
                            jsinspector_modern::NetworkRequestListener&
                                listener) {

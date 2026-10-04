@@ -9,6 +9,7 @@
 
 #include <folly/io/IOBuf.h>
 #include <functional>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,17 +29,27 @@ struct FormDataField {
   std::optional<std::string> uri;
 };
 
+struct BlobReference {
+  std::string blobId;
+  uint64_t offset{0};
+  uint64_t size{0};
+};
+
 using FormData = std::vector<FormDataField>;
 
 struct Body {
   std::optional<std::string> string;
-  std::optional<std::string> blob;
+  std::optional<BlobReference> blob;
   std::optional<FormData> formData;
   std::optional<std::string> base64;
+  bool withCredentials{true};
 };
 
 using OnUploadProgress = std::function<void(int64_t progress, int64_t size)>;
-using OnResponse = std::function<void(uint16_t responseCode, Headers headers)>;
+using OnResponse = std::function<void(
+    uint16_t responseCode,
+    Headers headers,
+    std::string responseUrl)>;
 using OnBody = std::function<void(std::unique_ptr<folly::IOBuf> body)>;
 using OnBodyIncremental = std::function<int64_t(int64_t progress, int64_t total, std::unique_ptr<folly::IOBuf> body)>;
 using OnBodyProgress = std::function<void(int64_t loaded, int64_t total)>;

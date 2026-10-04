@@ -82,6 +82,10 @@ class GpuiHost {
   void on_gesture_frame(double eventTimestampMs) const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void emit_device_event(rust::Str event_name) const;
+  void emit_device_event_bool(rust::Str event_name, bool value) const;
+  void emit_accessibility_setting_event(
+      const std::string& event_name,
+      bool enabled) const;
   void dispatch_pointer_event(
       rust::Str targetChainJson,
       float x,

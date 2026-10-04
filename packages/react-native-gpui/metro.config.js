@@ -93,14 +93,14 @@ function collectSourceOverrides() {
         walk(relative);
         continue;
       }
-      if (!entry.name.endsWith('.gpui.js')) {
+      if (!/\.gpui\.(?:js|ts|tsx)$/.test(entry.name)) {
         continue;
       }
 
       const upstreamBase = path.join(
         UPSTREAM_RN_DIR,
         path.dirname(relative),
-        entry.name.slice(0, -'.gpui.js'.length),
+        entry.name.replace(/\.gpui\.(?:js|ts|tsx)$/, ''),
       );
       const override = path.join(GPUI_RN_SRC_DIR, relative);
       for (const variant of ['.js', '.native.js', '.ios.js', '.android.js']) {
@@ -348,7 +348,7 @@ function resolveModule(context, moduleName, platform) {
         UPSTREAM_RN_DIR,
         path
           .relative(GPUI_RN_SRC_DIR, context.originModulePath)
-          .replace(/\.gpui\.js$/, '.js'),
+          .replace(/\.gpui\.(?:js|ts|tsx)$/, '.js'),
       ),
     };
   }
@@ -399,13 +399,22 @@ function resolveModule(context, moduleName, platform) {
 }
 
 function resolveWithGpuiPlatform() {
-  return (context, moduleName, platform) =>
-    applySourceOverride(
+  return (context, moduleName, platform) => {
+    // Platform adapters can reuse an explicit upstream implementation without
+    // routing that implementation back through the adapter itself.
+    if (
+      context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep) &&
+      /\.(?:ios|android)(?:\.js)?$/.test(moduleName)
+    ) {
+      return resolveModule(context, moduleName, platform);
+    }
+    return applySourceOverride(
       preferVariantOverShim(
         resolveModule(context, moduleName, platform),
         platform,
       ),
     );
+  };
 }
 
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {

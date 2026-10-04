@@ -13,8 +13,19 @@ use gpui::{
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+#[cfg(all(target_os = "macos", feature = "visual-capture"))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
+
+static ACCESSIBILITY_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ACCESSIBILITY_ACTIVE_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+#[no_mangle]
+pub extern "C" fn rn_gpui_accessibility_active() -> bool {
+    ACCESSIBILITY_ACTIVE.load(Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ScreenTransitionMode {
@@ -136,6 +147,7 @@ pub struct RNNodeView {
     input_selection_color: u32,
     pub input_multiline: bool,
     pub input_editable: bool,
+    input_secure_text: bool,
     pub input_selection: std::ops::Range<usize>,
     pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
@@ -182,7 +194,44 @@ pub struct RNNodeView {
     focus_subscriptions: Vec<Subscription>,
 }
 
+static A11Y_TREE_DUMP_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static A11Y_TREE_DUMP_COMPLETE: AtomicBool = AtomicBool::new(false);
+#[cfg(all(target_os = "macos", feature = "visual-capture"))]
+static A11Y_TREE_DUMP_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+
 impl RNNodeView {
+    pub(crate) fn accessibility_focus_handle(&self) -> Option<FocusHandle> {
+        self.focus_handle.clone()
+    }
+
+    pub(crate) fn set_accessibility_tab_stop_allowed(&mut self, allowed: bool) {
+        if let Some(handle) = self.focus_handle.take() {
+            self.focus_handle = Some(handle.tab_stop(
+                allowed
+                    && (self.focusable || self.view.accessibility_has_escape_listener)
+                    && !self.view.accessibility_disabled
+                    && self.view.accessibility_responds_to_interaction
+                    && !self.view.accessibility_hidden
+                    && self.view.accessibility_important != 3
+                    && !self.view.display_none,
+            ));
+        }
+    }
+    pub(crate) fn focus_for_accessibility(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(handle) = self.focus_handle.as_ref() {
+            handle.focus(window, cx);
+            log::info!(
+                "[accessibility] focused tag {} from native request",
+                self.tag
+            );
+        } else {
+            log::warn!(
+                "[accessibility] cannot focus tag {} because it has no focus handle",
+                self.tag
+            );
+        }
+    }
+
     pub fn apply_text_input_focus_command(
         &mut self,
         focus: bool,
@@ -256,7 +305,251 @@ impl RNNodeView {
         self.start_caret_blink(cx);
     }
 
+    fn hidden_by_modal_sibling(&self, cx: &App) -> bool {
+        let mut child_tag = self.tag;
+        let mut parent = self.parent.clone();
+        while let Some(parent_entity) = parent.and_then(|parent| parent.upgrade()) {
+            let parent_view = parent_entity.read(cx);
+            if parent_view.children.iter().any(|(sibling_tag, sibling)| {
+                *sibling_tag != child_tag && sibling.read(cx).view.accessibility_modal
+            }) {
+                return true;
+            }
+            child_tag = parent_view.tag;
+            parent = parent_view.parent.clone();
+        }
+        false
+    }
+
+    fn hidden_by_hidden_ancestor(&self, cx: &App) -> bool {
+        let mut parent = self.parent.clone();
+        while let Some(entity) = parent.and_then(|parent| parent.upgrade()) {
+            let node = entity.read(cx);
+            if node.view.accessibility_hidden
+                || node.view.accessibility_important == 3
+                || node.view.display_none
+            {
+                return true;
+            }
+            parent = node.parent.clone();
+        }
+        false
+    }
+
+    fn accessibility_escape_target(&self, cx: &App) -> Option<i32> {
+        if self.view.accessibility_has_escape_listener {
+            return Some(self.tag);
+        }
+        let mut parent = self.parent.clone();
+        while let Some(entity) = parent.and_then(|parent| parent.upgrade()) {
+            let node = entity.read(cx);
+            if node.view.accessibility_has_escape_listener {
+                return Some(node.tag);
+            }
+            parent = node.parent.clone();
+        }
+        None
+    }
+
+    fn hidden_by_accessible_ancestor(&self, cx: &App) -> bool {
+        if self.focusable || self.view.accessible {
+            return false;
+        }
+        let mut parent = self.parent.clone();
+        while let Some(parent_entity) = parent.and_then(|parent| parent.upgrade()) {
+            let parent_view = parent_entity.read(cx);
+            if parent_view.view.accessible {
+                return true;
+            }
+            parent = parent_view.parent.clone();
+        }
+        false
+    }
+
+    fn hidden_by_inactive_screen_ancestor(&self, cx: &App) -> bool {
+        let mut parent = self.parent.clone();
+        while let Some(parent_entity) = parent.and_then(|parent| parent.upgrade()) {
+            let parent_view = parent_entity.read(cx);
+            if parent_view.component == "RNSScreen" && parent_view.screen_activity_state <= 0.0 {
+                return true;
+            }
+            parent = parent_view.parent.clone();
+        }
+        false
+    }
+
+    fn accessible_group_text(&self, cx: &App) -> String {
+        let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+            return String::new();
+        };
+        fn collect(
+            tag: i32,
+            active_tag: i32,
+            nodes: &HashMap<i32, Entity<RNNodeView>>,
+            cx: &App,
+            output: &mut String,
+        ) {
+            if tag == active_tag {
+                return;
+            }
+            let Some(entity) = nodes.get(&tag) else {
+                return;
+            };
+            let view = entity.read(cx);
+            if view.component == "Paragraph" {
+                if view.view.accessibility_hidden || view.view.accessibility_important == 3 {
+                    return;
+                }
+                if let Some(paragraph) = &view.paragraph {
+                    if !output.is_empty() {
+                        output.push(' ');
+                    }
+                    for fragment in &paragraph.fragments {
+                        output.push_str(&fragment.text);
+                    }
+                }
+                return;
+            }
+            if view.view.accessible || view.focusable {
+                return;
+            }
+            let children = view
+                .children
+                .iter()
+                .map(|(tag, _)| *tag)
+                .collect::<Vec<_>>();
+            for child_tag in children {
+                collect(child_tag, active_tag, nodes, cx, output);
+            }
+        }
+        let store = store.0.read(cx);
+        let mut text = String::new();
+        let children = self
+            .children
+            .iter()
+            .map(|(tag, _)| *tag)
+            .collect::<Vec<_>>();
+        for tag in children {
+            collect(tag, self.tag, &store.nodes, cx, &mut text);
+        }
+        text
+    }
+
+    fn accessibility_labelled_by_text(&self, cx: &App) -> String {
+        if self.view.accessibility_labelled_by.is_empty() {
+            return String::new();
+        }
+        let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+            return String::new();
+        };
+        let store = store.0.read(cx);
+        fn collect(
+            tag: i32,
+            active_tag: i32,
+            nodes: &HashMap<i32, Entity<RNNodeView>>,
+            cx: &App,
+            output: &mut String,
+        ) {
+            if tag == active_tag {
+                return;
+            }
+            let Some(entity) = nodes.get(&tag) else {
+                return;
+            };
+            let view = entity.read(cx);
+            if !view.view.accessibility_label.is_empty() {
+                output.push_str(&view.view.accessibility_label);
+                return;
+            }
+            if view.component == "Paragraph" {
+                if let Some(paragraph) = &view.paragraph {
+                    for fragment in &paragraph.fragments {
+                        output.push_str(&fragment.text);
+                    }
+                }
+                return;
+            }
+            let children = view
+                .children
+                .iter()
+                .map(|(tag, _)| *tag)
+                .collect::<Vec<_>>();
+            for child_tag in children {
+                collect(child_tag, active_tag, nodes, cx, output);
+            }
+        }
+        let mut labels = Vec::new();
+        for native_id in &self.view.accessibility_labelled_by {
+            let Some(tag) = store.nodes.iter().find_map(|(tag, entity)| {
+                if *tag == self.tag {
+                    return None;
+                }
+                let view = entity.read(cx);
+                (view.view.accessibility_native_id == *native_id).then_some(*tag)
+            }) else {
+                continue;
+            };
+            let mut label = String::new();
+            collect(tag, self.tag, &store.nodes, cx, &mut label);
+            if !label.is_empty() {
+                labels.push(label);
+            }
+        }
+        labels.join(" ")
+    }
+
     fn accessibility_role(&self) -> Option<Role> {
+        if self.view.accessibility_important == 2 {
+            return Some(Role::GenericContainer);
+        }
+        if self.component == "Paragraph" && self.view.accessibility_role.is_empty() {
+            return Some(Role::Label);
+        }
+        if self.component == "TextInput" && self.view.accessibility_role.is_empty() {
+            return Some(if self.input_secure_text {
+                Role::PasswordInput
+            } else if self.input_multiline {
+                Role::MultilineTextInput
+            } else {
+                Role::TextInput
+            });
+        }
+        if self.component == "Image" && self.view.accessibility_role.is_empty() {
+            return if self.view.accessible || !self.view.accessibility_label.is_empty() {
+                Some(Role::Image)
+            } else {
+                None
+            };
+        }
+        if self.view.accessibility_role.is_empty() {
+            let traits = self.view.accessibility_traits;
+            let trait_role = if traits & (1 << 0) != 0 {
+                Some(Role::Button)
+            } else if traits & (1 << 1) != 0 {
+                Some(Role::Link)
+            } else if traits & (1 << 2) != 0 {
+                Some(Role::Image)
+            } else if traits & (1 << 5) != 0 {
+                Some(Role::Keyboard)
+            } else if traits & (1 << 6) != 0 {
+                Some(Role::Label)
+            } else if traits & (1 << 7) != 0 {
+                Some(Role::Note)
+            } else if traits & (1 << 9) != 0 {
+                Some(Role::Search)
+            } else if traits & (1 << 12) != 0 {
+                Some(Role::Slider)
+            } else if traits & (1 << 15) != 0 {
+                Some(Role::Heading)
+            } else if traits & (1 << 16) != 0 {
+                Some(Role::Switch)
+            } else {
+                None
+            };
+            if trait_role.is_some() {
+                return trait_role;
+            }
+        }
         role_for_accessibility_role(&self.view.accessibility_role, self.view.accessible)
     }
 
@@ -318,6 +611,7 @@ impl RNNodeView {
                 .unwrap_or(0xff000000),
             input_multiline: op.text_input_multiline,
             input_editable: op.text_input_editable,
+            input_secure_text: op.text_input_secure,
             input_selection: 0..0,
             input_selection_anchor: None,
             input_marked: None,
@@ -624,9 +918,9 @@ fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
     Some(match role {
         "none" | "presentation" => return None,
         "button" | "imagebutton" | "togglebutton" => Role::Button,
-        "image" => Role::Image,
+        "image" | "img" => Role::Image,
         "link" => Role::Link,
-        "header" => Role::Heading,
+        "header" | "heading" => Role::Heading,
         "adjustable" => Role::Slider,
         "dropdownlist" | "combobox" => Role::ComboBox,
         "keyboardkey" => Role::Keyboard,
@@ -651,6 +945,39 @@ fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
         "timer" => Role::Timer,
         "alert" => Role::Alert,
         "dialog" => Role::Dialog,
+        "alertdialog" => Role::AlertDialog,
+        "application" => Role::Application,
+        "article" => Role::Article,
+        "banner" => Role::Banner,
+        "complementary" => Role::Complementary,
+        "contentinfo" => Role::ContentInfo,
+        "definition" => Role::Definition,
+        "directory" => Role::List,
+        "feed" => Role::Feed,
+        "figure" => Role::Figure,
+        "form" => Role::Form,
+        "log" => Role::Log,
+        "main" => Role::Main,
+        "marquee" => Role::Marquee,
+        "math" => Role::Math,
+        "meter" => Role::Meter,
+        "navigation" => Role::Navigation,
+        "option" => Role::ListBoxOption,
+        "region" => Role::Region,
+        "rowgroup" => Role::RowGroup,
+        "rowheader" => Role::RowHeader,
+        "columnheader" => Role::ColumnHeader,
+        "searchbox" => Role::SearchInput,
+        "separator" => Role::Splitter,
+        "status" => Role::Status,
+        "tabpanel" => Role::TabPanel,
+        "term" => Role::Term,
+        "tooltip" => Role::Tooltip,
+        "tree" => Role::Tree,
+        "treegrid" => Role::TreeGrid,
+        "treeitem" => Role::TreeItem,
+        "textbox" => Role::TextInput,
+        "generic" | "group" => Role::Group,
         "list" => Role::List,
         "listitem" => Role::ListItem,
         "grid" => Role::Grid,
@@ -667,6 +994,96 @@ fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
         _ if !role.is_empty() || accessible => Role::Group,
         _ => return None,
     })
+}
+
+fn accessibility_action_for_name(name: &str) -> Option<gpui::AccessibleAction> {
+    Some(match name {
+        "activate" => gpui::AccessibleAction::Click,
+        "increment" => gpui::AccessibleAction::Increment,
+        "decrement" => gpui::AccessibleAction::Decrement,
+        "longpress" => gpui::AccessibleAction::ShowContextMenu,
+        "expand" => gpui::AccessibleAction::Expand,
+        "collapse" => gpui::AccessibleAction::Collapse,
+        _ => return None,
+    })
+}
+
+fn dispatch_accessibility_event(
+    tag: i32,
+    event: &str,
+    payload: &serde_json::Value,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+        return;
+    };
+    let (host, frame_hook) = {
+        let store = store.0.read(cx);
+        (store.host.clone(), store.frame_hook.clone())
+    };
+    host.dispatch_event(tag, event, payload);
+    frame_hook.arm(window);
+}
+
+fn focus_adjacent_semantic_sibling(
+    view: &RNNodeView,
+    key: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
+    let Some(role @ (Role::RadioButton | Role::Tab)) = view.accessibility_role() else {
+        return false;
+    };
+    let direction = match key {
+        "left" | "up" => -1,
+        "right" | "down" => 1,
+        _ => return false,
+    };
+    let Some(parent) = view.parent.as_ref().and_then(WeakEntity::upgrade) else {
+        return false;
+    };
+    let parent = parent.read(cx);
+    let mut siblings = Vec::new();
+    for (tag, entity) in &parent.children {
+        if *tag == view.tag {
+            if let Some(focus) = view.focus_handle.clone() {
+                siblings.push((*tag, focus));
+            }
+            continue;
+        }
+        let sibling = entity.read(cx);
+        if sibling.accessibility_role() == Some(role)
+            && sibling.focusable
+            && sibling.view.accessibility_responds_to_interaction
+            && !sibling.view.accessibility_disabled
+            && !sibling.view.accessibility_hidden
+            && !sibling.view.display_none
+        {
+            if let Some(focus) = sibling.focus_handle.clone() {
+                siblings.push((*tag, focus));
+            }
+        }
+    }
+    let Some(current_index) = siblings.iter().position(|(tag, _)| *tag == view.tag) else {
+        return false;
+    };
+    if siblings.len() < 2 {
+        return false;
+    }
+    let next_index = if direction > 0 {
+        (current_index + 1) % siblings.len()
+    } else {
+        (current_index + siblings.len() - 1) % siblings.len()
+    };
+    let (tag, focus_handle) = &siblings[next_index];
+    let tag = *tag;
+    let focus_handle = focus_handle.clone();
+    window.on_next_frame(move |window, cx| {
+        focus_handle.focus(window, cx);
+        dispatch_accessibility_event(tag, "click", &serde_json::json!({}), window, cx);
+    });
+    true
 }
 
 #[cfg(test)]
@@ -963,6 +1380,54 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.render_count += 1;
+        let accessibility_active = window.is_a11y_active();
+        let was_initialized = ACCESSIBILITY_ACTIVE_INITIALIZED.swap(true, Ordering::Relaxed);
+        let previous_accessibility_active =
+            ACCESSIBILITY_ACTIVE.swap(accessibility_active, Ordering::Relaxed);
+        if cfg!(not(target_os = "macos"))
+            && was_initialized
+            && previous_accessibility_active != accessibility_active
+        {
+            if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                store
+                    .0
+                    .read(cx)
+                    .host
+                    .emit_device_event_bool("screenReaderChanged", accessibility_active);
+            }
+        }
+        if std::env::var_os("RN_GPUI_DEBUG_A11Y_TREE").is_some()
+            && !A11Y_TREE_DUMP_COMPLETE.load(Ordering::Relaxed)
+            && A11Y_TREE_DUMP_SCHEDULED
+                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            window.on_next_frame(|window, _cx| {
+                #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+                let attempts = A11Y_TREE_DUMP_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+                if let Some(tree) = window.debug_a11y_tree_json() {
+                    log::info!("[a11y-tree] {tree}");
+                    A11Y_TREE_DUMP_COMPLETE.store(true, Ordering::Relaxed);
+                } else {
+                    #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+                    {
+                        if attempts >= 10 {
+                            log::error!("[a11y-tree] provider did not activate after 10 frames");
+                            A11Y_TREE_DUMP_COMPLETE.store(true, Ordering::Relaxed);
+                            return;
+                        }
+                        crate::native_view::activate_accessibility_probe(window);
+                        A11Y_TREE_DUMP_SCHEDULED.store(false, Ordering::Relaxed);
+                        window.refresh();
+                    }
+                    #[cfg(not(all(target_os = "macos", feature = "visual-capture")))]
+                    {
+                        log::info!("[a11y-tree] unavailable (no active AccessKit client)");
+                        A11Y_TREE_DUMP_COMPLETE.store(true, Ordering::Relaxed);
+                    }
+                }
+            });
+        }
         if debug_render_counts_enabled() {
             log::info!(
                 "[retention] RNNodeView::render elapsed_ms={} tag={} component={} count={}",
@@ -1082,48 +1547,255 @@ impl Render for RNNodeView {
             window.request_animation_frame();
         }
         let is_scroll = self.component == "ScrollView";
+        // Accessibility order must never alter the visual stacking order. The
+        // pinned GPUI API cannot reorder native children independently of paint.
+        let ordered_children = self.children.clone();
         let mut element = div().id(self.tag);
         if self.component == "RNSScreenStack" {
             element = element.overflow_hidden();
         }
-        if !self.view.test_id.is_empty() {
-            element = element.accessibility_id(self.view.test_id.clone());
+        let accessibility_id = if self.view.accessibility_native_id.is_empty() {
+            &self.view.test_id
+        } else {
+            &self.view.accessibility_native_id
+        };
+        if !accessibility_id.is_empty() {
+            element = element.accessibility_id(accessibility_id.clone());
         }
         if !self.view.accessibility_label.is_empty() {
             element = element.aria_label(self.view.accessibility_label.clone());
         }
+        if !self.view.accessibility_hint.is_empty() {
+            element = element.aria_description(self.view.accessibility_hint.clone());
+        }
+        if self.view.accessibility_label.is_empty() {
+            let labelled_by = self.accessibility_labelled_by_text(cx);
+            let label = if !labelled_by.is_empty() {
+                labelled_by
+            } else if self.view.accessible {
+                self.accessible_group_text(cx)
+            } else {
+                String::new()
+            };
+            if !label.is_empty() {
+                element = element.aria_label(label);
+            }
+        }
+        if self.component == "Paragraph" && self.view.accessibility_label.is_empty() {
+            if let Some(paragraph) = &self.paragraph {
+                let text = paragraph
+                    .fragments
+                    .iter()
+                    .map(|fragment| fragment.text.as_str())
+                    .collect::<String>();
+                if !text.is_empty() {
+                    element = element.aria_value(text);
+                }
+            }
+        }
+        if !self.view.accessibility_value_text.is_empty() {
+            element = element.aria_value(self.view.accessibility_value_text.clone());
+        }
+        if self.view.accessibility_has_value_min {
+            element = element.aria_min_numeric_value(self.view.accessibility_value_min as f64);
+        }
+        if self.view.accessibility_has_value_max {
+            element = element.aria_max_numeric_value(self.view.accessibility_value_max as f64);
+        }
+        if self.view.accessibility_has_value_now {
+            element = element.aria_numeric_value(self.view.accessibility_value_now as f64);
+        }
+        if self.component == "TextInput" {
+            if !self.input_placeholder.is_empty() {
+                element = element.aria_placeholder(self.input_placeholder.clone());
+            }
+            if !self.input_secure_text && !self.input_text.is_empty() {
+                element = element.aria_value(self.input_text.clone());
+            }
+        }
         if let Some(role) = self.accessibility_role() {
             element = element.role(role);
         }
-        if self.view.accessible {
-            if self.view.accessibility_disabled {
-                // GPUI's Div builder omits a disabled setter, but the public
-                // subtree hook exposes the generated AccessKit parent node.
-                element = element.a11y_synthetic_children(|builder| {
-                    builder.parent_node().set_disabled();
-                });
+        if self.accessibility_role() == Some(Role::ListItem) {
+            if let Some(parent) = self.parent.as_ref().and_then(|parent| parent.upgrade()) {
+                let parent = parent.read(cx);
+                let mut position = None;
+                let mut size = 0;
+                for (tag, sibling) in &parent.children {
+                    // Render already leases self. Never read it through Entity.
+                    let is_item = *tag == self.tag
+                        || sibling.read(cx).accessibility_role() == Some(Role::ListItem);
+                    if is_item {
+                        size += 1;
+                        if *tag == self.tag {
+                            position = Some(size);
+                        }
+                    }
+                }
+                if let Some(position) = position {
+                    element = element
+                        .aria_position_in_set(position)
+                        .aria_size_of_set(size);
+                }
             }
-            if self.view.accessibility_selected {
-                element = element.aria_selected(true);
-            }
-            if self.view.accessibility_expanded >= 0 {
-                element = element.aria_expanded(self.view.accessibility_expanded != 0);
-            }
-            element = match self.view.accessibility_checked {
-                1 => element.aria_toggled(gpui::Toggled::False),
-                2 => element.aria_toggled(gpui::Toggled::True),
-                3 => element.aria_toggled(gpui::Toggled::Mixed),
-                _ => element,
-            };
         }
-        if self.focusable {
+        let hidden_image = self.component == "Image"
+            && self.view.accessibility_label.is_empty()
+            && self.view.accessibility_role.is_empty()
+            && !self.view.accessible;
+        let hidden_by_accessible_ancestor = self.hidden_by_accessible_ancestor(cx);
+        let hidden_by_hidden_ancestor = self.hidden_by_hidden_ancestor(cx);
+        let hidden_by_modal_sibling = self.hidden_by_modal_sibling(cx);
+        let hidden_by_active_modal = crate::accessibility::hidden_by_active_modal(self.tag, cx);
+        let hidden_by_inactive_screen_ancestor = self.hidden_by_inactive_screen_ancestor(cx);
+        let hidden_inactive_screen = self.component == "RNSScreen"
+            && self.screen_activity_state <= 0.0
+            && transition_progress.is_none_or(|progress| progress >= 1.0);
+        let hidden_display_none = self.view.display_none;
+        let accessibility = self.view.clone();
+        #[cfg(feature = "visual-capture")]
+        let accessibility_tag = self.tag;
+        let input_editable = self.input_editable;
+        let input_secure_text = self.input_secure_text;
+        let is_text_input = self.component == "TextInput";
+        let input_text = self.input_text.clone();
+        let input_placeholder = self.input_placeholder.clone();
+        element = element.a11y_synthetic_children(move |builder| {
+            let node = builder.parent_node();
+            if accessibility.accessibility_important == 3
+                || accessibility.accessibility_hidden
+                || hidden_image
+                || hidden_by_accessible_ancestor
+                || hidden_by_hidden_ancestor
+                || hidden_by_modal_sibling
+                || hidden_by_active_modal
+                || hidden_by_inactive_screen_ancestor
+                || hidden_inactive_screen
+                || hidden_display_none
+            {
+                node.set_hidden();
+            }
+            if accessibility.accessibility_modal {
+                node.set_modal();
+            }
+            if accessibility.accessibility_busy {
+                node.set_busy();
+            }
+            if accessibility.accessibility_disabled
+                || !accessibility.accessibility_responds_to_interaction
+            {
+                node.set_disabled();
+            }
+            if accessibility.accessibility_selected {
+                node.set_selected(true);
+            }
+            if accessibility.accessibility_expanded >= 0 {
+                node.set_expanded(accessibility.accessibility_expanded != 0);
+            }
+            match accessibility.accessibility_checked {
+                1 => node.set_toggled(gpui::Toggled::False),
+                2 => node.set_toggled(gpui::Toggled::True),
+                3 => node.set_toggled(gpui::Toggled::Mixed),
+                _ => {}
+            }
+            if !accessibility.accessibility_language.is_empty() {
+                node.set_language(accessibility.accessibility_language.clone());
+            }
+            match accessibility.accessibility_live_region {
+                1 => node.set_live(gpui::accesskit::Live::Polite),
+                2 => node.set_live(gpui::accesskit::Live::Assertive),
+                _ => {}
+            }
+            if accessibility.accessibility_has_value_min {
+                node.set_min_numeric_value(accessibility.accessibility_value_min as f64);
+            }
+            if accessibility.accessibility_has_value_max {
+                node.set_max_numeric_value(accessibility.accessibility_value_max as f64);
+            }
+            if accessibility.accessibility_has_value_now {
+                node.set_numeric_value(accessibility.accessibility_value_now as f64);
+            }
+            let value = if is_text_input {
+                if input_secure_text || input_text.is_empty() {
+                    None
+                } else {
+                    Some(input_text.as_str())
+                }
+            } else if !accessibility.accessibility_value_text.is_empty() {
+                Some(accessibility.accessibility_value_text.as_str())
+            } else {
+                None
+            };
+            if let Some(value) = value {
+                node.set_value(value);
+            }
+            if is_text_input && !input_placeholder.is_empty() {
+                node.set_placeholder(input_placeholder);
+            }
+            if is_text_input {
+                if !input_editable {
+                    node.set_read_only();
+                }
+                if input_secure_text {
+                    node.set_value("");
+                }
+            }
+            node.set_custom_actions(
+                accessibility
+                    .accessibility_actions
+                    .iter()
+                    .filter(|action| accessibility_action_for_name(&action.name).is_none())
+                    .enumerate()
+                    .map(|(index, action)| gpui::accesskit::CustomAction {
+                        id: index as i32,
+                        description: if action.label.is_empty() {
+                            action.name.clone().into_boxed_str()
+                        } else {
+                            action.label.clone().into_boxed_str()
+                        },
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            #[cfg(feature = "visual-capture")]
+            if std::env::var_os("RN_GPUI_DEBUG_A11Y_TREE").is_some() {
+                // Inspect the actual AccessKit node, including properties the
+                // upstream debug-tree serializer does not currently expose.
+                let snapshot = serde_json::json!({
+                    "tag": accessibility_tag,
+                    "id": accessibility.test_id,
+                    "role": format!("{:?}", node.role()),
+                    "label": node.label(),
+                    "value": node.value(),
+                    "hidden": node.is_hidden(),
+                    "disabled": node.is_disabled(),
+                    "modal": node.is_modal(),
+                    "escapeListener": accessibility.accessibility_has_escape_listener,
+                    "language": node.language(),
+                    "live": node.live().map(|value| format!("{value:?}")),
+                    "position": node.position_in_set(),
+                    "size": node.size_of_set(),
+                    "customActions": node.custom_actions().iter().map(|action| action.description.as_ref()).collect::<Vec<_>>(),
+                }).to_string();
+                static SNAPSHOTS: OnceLock<Mutex<HashMap<i32, String>>> = OnceLock::new();
+                let mut snapshots = SNAPSHOTS.get_or_init(Mutex::default).lock().unwrap();
+                if snapshots.get(&accessibility_tag) != Some(&snapshot) {
+                    log::info!("[a11y-node] {snapshot}");
+                    snapshots.insert(accessibility_tag, snapshot);
+                }
+            }
+        });
+        let has_accessibility_focus_target =
+            self.view.accessible || self.accessibility_role().is_some();
+        if self.focusable
+            || self.view.accessibility_has_escape_listener
+            || has_accessibility_focus_target
+        {
             if self.focus_handle.is_none() {
-                // GPUI excludes handles from traversal unless they are marked
-                // as tab stops. RN's `focusable` prop opts into the same role;
-                // the Fabric tag keeps order stable across rerenders.
+                // Accessible noninteractive nodes get programmatic focus
+                // handles without becoming extra keyboard tab stops.
                 let handle = cx
                     .focus_handle()
-                    .tab_stop(true)
+                    .tab_stop(self.focusable || self.view.accessibility_has_escape_listener)
                     .tab_index(self.tag as isize);
                 if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                     let host = store.0.read(cx).host.clone();
@@ -1170,12 +1842,67 @@ impl Render for RNNodeView {
                 }
                 self.focus_handle = Some(handle);
             }
+            self.set_accessibility_tab_stop_allowed(
+                !hidden_by_active_modal
+                    && !hidden_by_modal_sibling
+                    && !hidden_by_inactive_screen_ancestor
+                    && !hidden_inactive_screen
+                    && !self.hidden_by_hidden_ancestor(cx)
+                    && !self.hidden_by_accessible_ancestor(cx),
+            );
             if let Some(handle) = &self.focus_handle {
                 element = element.track_focus(handle);
             }
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                    if !event.is_held
+                        && focus_adjacent_semantic_sibling(this, &event.keystroke.key, window, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                    if !event.is_held
+                        && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                        && this.component != "TextInput"
+                        && matches!(
+                            this.accessibility_role(),
+                            Some(
+                                Role::Button
+                                    | Role::DefaultButton
+                                    | Role::CheckBox
+                                    | Role::RadioButton
+                                    | Role::Switch
+                                    | Role::Link
+                            )
+                        )
+                    {
+                        dispatch_accessibility_event(
+                            this.tag,
+                            "click",
+                            &serde_json::json!({}),
+                            window,
+                            cx,
+                        );
+                        cx.stop_propagation();
+                    }
+                    if event.keystroke.key == "escape" {
+                        #[cfg(feature = "visual-capture")]
+                        log::info!(
+                            "[accessibility] Escape tag={} target={:?}",
+                            this.tag,
+                            this.accessibility_escape_target(cx)
+                        );
+                        if let Some(tag) = this.accessibility_escape_target(cx) {
+                            dispatch_accessibility_event(
+                                tag,
+                                "accessibilityEscape",
+                                &serde_json::json!({}),
+                                window,
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }
+                    }
                     if this.component == "TextInput"
                         && crate::input::handle_key(
                             this,
@@ -1213,6 +1940,113 @@ impl Render for RNNodeView {
                         window.blur(cx);
                     }
                 }
+            }
+        }
+        if self.view.accessibility_responds_to_interaction && !self.view.accessibility_disabled {
+            let tag = self.tag;
+            let actions = self.view.accessibility_actions.clone();
+            let has_activate_action = actions.iter().any(|action| action.name == "activate");
+            if !has_activate_action
+                && (self.focusable
+                    || self.view.accessibility_has_tap_listener
+                    || matches!(
+                        self.accessibility_role(),
+                        Some(
+                            Role::Button
+                                | Role::DefaultButton
+                                | Role::CheckBox
+                                | Role::RadioButton
+                                | Role::Switch
+                                | Role::Link
+                                | Role::Tab
+                                | Role::MenuItem
+                        )
+                    ))
+            {
+                let has_tap_listener = self.view.accessibility_has_tap_listener;
+                element = element.on_a11y_action(
+                    gpui::AccessibleAction::Click,
+                    move |_data, window, cx| {
+                        dispatch_accessibility_event(
+                            tag,
+                            "click",
+                            &serde_json::json!({}),
+                            window,
+                            cx,
+                        );
+                        if has_tap_listener {
+                            dispatch_accessibility_event(
+                                tag,
+                                "accessibilityTap",
+                                &serde_json::json!({}),
+                                window,
+                                cx,
+                            );
+                        }
+                    },
+                );
+            }
+            for action in actions.iter().filter_map(|action| {
+                accessibility_action_for_name(&action.name)
+                    .map(|native_action| (native_action, action.name.clone()))
+            }) {
+                let (native_action, name) = action;
+                let dispatch = self.view.accessibility_has_action_listener;
+                let tap = name == "activate" && self.view.accessibility_has_tap_listener;
+                element = element.on_a11y_action(native_action, move |_data, window, cx| {
+                    if name == "activate" {
+                        dispatch_accessibility_event(
+                            tag,
+                            "click",
+                            &serde_json::json!({}),
+                            window,
+                            cx,
+                        );
+                    }
+                    if dispatch {
+                        dispatch_accessibility_event(
+                            tag,
+                            "accessibilityAction",
+                            &serde_json::json!({"actionName": name}),
+                            window,
+                            cx,
+                        );
+                    }
+                    if tap {
+                        dispatch_accessibility_event(
+                            tag,
+                            "accessibilityTap",
+                            &serde_json::json!({}),
+                            window,
+                            cx,
+                        );
+                    }
+                });
+            }
+            let custom_actions = actions
+                .into_iter()
+                .filter(|action| accessibility_action_for_name(&action.name).is_none())
+                .collect::<Vec<_>>();
+            if !custom_actions.is_empty() && self.view.accessibility_has_action_listener {
+                let tag = self.tag;
+                element = element.on_a11y_action(
+                    gpui::AccessibleAction::CustomAction,
+                    move |data, window, cx| {
+                        let Some(gpui::accesskit::ActionData::CustomAction(id)) = data else {
+                            return;
+                        };
+                        let Some(action) = custom_actions.get(*id as usize) else {
+                            return;
+                        };
+                        dispatch_accessibility_event(
+                            tag,
+                            "accessibilityAction",
+                            &serde_json::json!({"actionName": action.name}),
+                            window,
+                            cx,
+                        );
+                    },
+                );
             }
         }
         if self.component == "ModalHostView" && self.modal_visible {
@@ -1895,7 +2729,7 @@ impl Render for RNNodeView {
                 .top(px(-self.scroll_offset.y))
                 .w(px(content_width.max(frame.w)))
                 .h(px(content_height.max(frame.h)));
-            content = content.children(self.children.iter().map(|(_, child)| child.clone()));
+            content = content.children(ordered_children.iter().map(|(_, child)| child.clone()));
             element = element.overflow_hidden().child(content);
             if self.scroll_enabled {
                 element = element.on_scroll_wheel(cx.listener(
@@ -1957,10 +2791,10 @@ impl Render for RNNodeView {
                                 0xff171923
                             },
                         ))
-                        .children(self.children.iter().map(|(_, child)| child.clone())),
+                        .children(ordered_children.iter().map(|(_, child)| child.clone())),
                 );
             } else if !self.component.starts_with("RNSVG") {
-                element = element.children(self.children.iter().map(|(_, child)| child.clone()));
+                element = element.children(ordered_children.iter().map(|(_, child)| child.clone()));
             }
         }
         let width = frame.w * scale_x;
@@ -2075,6 +2909,51 @@ impl Render for RNNodeView {
                 false,
                 self.view.outline_color,
                 self.view.outline_style,
+            ));
+        }
+        if window.last_input_was_keyboard()
+            && self
+                .focus_handle
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+        {
+            let focus_color = 0xff60a5fa;
+            let ring = 2.0;
+            outline_rules.extend(rule_segments(
+                -ring,
+                -ring,
+                width + ring * 2.0,
+                ring,
+                true,
+                focus_color,
+                0,
+            ));
+            outline_rules.extend(rule_segments(
+                -ring,
+                height,
+                width + ring * 2.0,
+                ring,
+                true,
+                focus_color,
+                0,
+            ));
+            outline_rules.extend(rule_segments(
+                -ring,
+                0.0,
+                height,
+                ring,
+                false,
+                focus_color,
+                0,
+            ));
+            outline_rules.extend(rule_segments(
+                width,
+                0.0,
+                height,
+                ring,
+                false,
+                focus_color,
+                0,
             ));
         }
         element.children(outline_rules)

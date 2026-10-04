@@ -11,6 +11,9 @@
 
 cmake_minimum_required(VERSION 3.13)
 project(rn_gpui_core CXX C)
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # --- paths -----------------------------------------------------------------
@@ -321,8 +324,17 @@ if(TARGET react_cxx_platform_react_http)
        "${REACT_CXX_PLATFORM_DIR}/react/http/platform/cxx/*.cpp")
   target_sources(react_cxx_platform_react_http PRIVATE ${_rn_gpui_http_platform_cxx_SRC})
   target_include_directories(react_cxx_platform_react_http PUBLIC ${REACT_COMMON_DIR})
+  if(APPLE)
+    find_library(RN_GPUI_SECURITY_FRAMEWORK Security REQUIRED)
+    target_link_libraries(react_cxx_platform_react_http ${RN_GPUI_SECURITY_FRAMEWORK})
+  elseif(WIN32)
+    target_link_libraries(react_cxx_platform_react_http Crypt32)
+  endif()
 endif()
 add_react_cxx_platform_subdir(react/io)
+target_include_directories(react_cxx_platform_react_io PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(react_cxx_platform_react_io OpenSSL::SSL)
 add_react_cxx_platform_subdir(react/logging)
 add_react_cxx_platform_subdir(react/nativemodule)
 add_react_cxx_platform_subdir(react/profiling)
@@ -412,6 +424,12 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
+if(APPLE)
+  set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
+    COMPILE_FLAGS "-fobjc-arc")
+  target_sources(rn_gpui_core PRIVATE GpuiAccessibilityMac.mm)
+  target_link_libraries(rn_gpui_core PUBLIC "-framework AppKit")
+endif()
 get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
 if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
   target_include_directories(rn_gpui_core PRIVATE "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")

@@ -11,6 +11,7 @@
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/textinput/TextInputState.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/components/view/accessibilityPropsConversions.h>
 #if defined(RN_GPUI_HAS_SVG)
 #include <react/renderer/components/rnsvg/Props.h>
 #endif
@@ -251,17 +252,68 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   }
 
   out.test_id = props->testId;
+  out.accessibility_native_id = props->nativeId;
   out.accessible = props->accessible;
-  if (!props->accessibilityLabel.empty()) {
-    out.accessibility_label = props->accessibilityLabel;
+  out.accessibility_label = props->accessibilityLabel;
+  out.accessibility_hint = props->accessibilityHint;
+  out.accessibility_language = props->accessibilityLanguage;
+  out.accessibility_role = props->accessibilityRole;
+  if (props->role != Role::None) {
+    out.accessibility_role = toString(props->role);
   }
-  if (!props->accessibilityRole.empty()) {
-    out.accessibility_role = props->accessibilityRole;
+  out.accessibility_traits = static_cast<uint32_t>(props->accessibilityTraits);
+  for (const auto& tag : props->accessibilityOrder) {
+    out.accessibility_order.push_back(tag);
+  }
+  for (const auto& nativeId : props->accessibilityLabelledBy.value) {
+    out.accessibility_labelled_by.push_back(nativeId);
+  }
+  out.accessibility_hidden = props->accessibilityElementsHidden;
+  out.accessibility_modal = props->accessibilityViewIsModal;
+  out.accessibility_ignores_invert_colors =
+      props->accessibilityIgnoresInvertColors;
+  out.accessibility_large_content_enabled =
+      props->accessibilityShowsLargeContentViewer;
+  out.accessibility_large_content_title = props->accessibilityLargeContentTitle;
+  out.accessibility_responds_to_interaction =
+      props->accessibilityRespondsToUserInteraction;
+  out.accessibility_has_action_listener = props->onAccessibilityAction;
+  out.accessibility_has_tap_listener = props->onAccessibilityTap;
+  out.accessibility_has_escape_listener = props->onAccessibilityEscape;
+  out.accessibility_has_magic_tap_listener = props->onAccessibilityMagicTap;
+  out.accessibility_important =
+      static_cast<uint8_t>(props->importantForAccessibility);
+  out.accessibility_live_region =
+      static_cast<uint8_t>(props->accessibilityLiveRegion);
+  for (const auto& action : props->accessibilityActions) {
+    out.accessibility_actions.push_back(
+        {action.name, action.label.value_or("")});
+  }
+  out.accessibility_disabled = (out.accessibility_traits & (1u << 8)) != 0;
+  out.accessibility_selected = (out.accessibility_traits & (1u << 3)) != 0;
+  const auto& accessibilityValue = props->accessibilityValue;
+  if (accessibilityValue.min) {
+    out.accessibility_has_value_min = true;
+    out.accessibility_value_min = *accessibilityValue.min;
+  }
+  if (accessibilityValue.max) {
+    out.accessibility_has_value_max = true;
+    out.accessibility_value_max = *accessibilityValue.max;
+  }
+  if (accessibilityValue.now) {
+    out.accessibility_has_value_now = true;
+    out.accessibility_value_now = *accessibilityValue.now;
+  }
+  if (accessibilityValue.text) {
+    out.accessibility_value_text = *accessibilityValue.text;
   }
   if (props->accessibilityState) {
     const auto& state = *props->accessibilityState;
-    out.accessibility_disabled = state.disabled;
-    out.accessibility_selected = state.selected;
+    out.accessibility_disabled =
+        state.disabled || (out.accessibility_traits & (1u << 8)) != 0;
+    out.accessibility_selected =
+        state.selected || (out.accessibility_traits & (1u << 3)) != 0;
+    out.accessibility_busy = state.busy;
     switch (state.checked) {
       case AccessibilityState::Unchecked:
         out.accessibility_checked = 1;
@@ -443,6 +495,7 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
         op.text_input_selection_color = argb(props->selectionColor);
         op.text_input_multiline = props->multiline;
         op.text_input_editable = props->editable && !props->readOnly;
+        op.text_input_secure = props->traits.secureTextEntry;
         op.text_input_most_recent_event_count = props->mostRecentEventCount;
         op.text_input_selection_set = props->selection.has_value();
         if (props->selection) {

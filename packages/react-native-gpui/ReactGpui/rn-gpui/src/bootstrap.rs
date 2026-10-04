@@ -268,6 +268,7 @@ enum MainEvent {
         tag: i32,
         focus: bool,
     },
+    AccessibilityFocus(i32),
     TextInputClear(i32),
     OpenUrl(String),
     AlertRequest {
@@ -515,6 +516,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let text_input_command_tx = tx.clone();
     let _ = rn_gpui_sys::TEXT_INPUT_COMMAND_HANDLER.set(Box::new(move |tag, focus| {
         let _ = text_input_command_tx.send_blocking(MainEvent::TextInputCommand { tag, focus });
+    }));
+    let accessibility_focus_tx = tx.clone();
+    let _ = rn_gpui_sys::ACCESSIBILITY_FOCUS_HANDLER.set(Box::new(move |tag| {
+        let _ = accessibility_focus_tx.send_blocking(MainEvent::AccessibilityFocus(tag));
     }));
     let text_input_clear_tx = tx.clone();
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
@@ -1342,6 +1347,26 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
                                     node.apply_text_input_focus_command(focus, window, cx);
+                                });
+                            });
+                        }
+                    }
+                    MainEvent::AccessibilityFocus(tag) => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store
+                                    .nodes
+                                    .get(&tag)
+                                    .cloned()
+                                    .map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        if let Some((window_handle, node)) = target {
+                            let _ = cx.update_window(window_handle, move |_root, window, cx| {
+                                node.update(cx, |node, cx| {
+                                    node.focus_for_accessibility(window, cx);
                                 });
                             });
                         }

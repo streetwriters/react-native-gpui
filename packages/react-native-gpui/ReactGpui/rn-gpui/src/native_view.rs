@@ -240,6 +240,24 @@ pub(crate) fn window_top_inset(window: &Window) -> f32 {
     }
 }
 
+/// Request the real AppKit provider tree for accessibility probe assertions.
+/// This activates AccessKit without changing the user's VoiceOver setting.
+#[cfg(feature = "visual-capture")]
+pub(crate) fn activate_accessibility_probe(window: &Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+    unsafe {
+        let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
+        let content: id = msg_send![native_window, contentView];
+        let _: id = msg_send![content, accessibilityChildren];
+    }
+}
+
 #[cfg(feature = "visual-capture")]
 pub(crate) fn set_probe_titlebar_transparent(window: &Window, transparent: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};

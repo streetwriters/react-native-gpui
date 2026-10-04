@@ -14,6 +14,7 @@
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 
 #include <folly/json.h>
+#include <react/bridging/Function.h>
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
 #include <react/http/IHttpClient.h>
@@ -37,6 +38,21 @@
 #include <optional>
 #include <unordered_map>
 #include <utility>
+
+extern "C" bool rn_gpui_accessibility_active();
+
+#if defined(__APPLE__)
+extern "C" bool rn_gpui_get_reduce_motion();
+extern "C" bool rn_gpui_get_reduce_transparency();
+extern "C" bool rn_gpui_get_increase_contrast();
+extern "C" bool rn_gpui_get_invert_colors();
+extern "C" bool rn_gpui_get_voice_over();
+extern "C" void rn_gpui_announce_accessibility(
+    const char* message,
+    int priorityLevel);
+extern "C" void rn_gpui_start_accessibility_observing();
+extern "C" void rn_gpui_stop_accessibility_observing();
+#endif
 
 using namespace facebook::react;
 
@@ -167,6 +183,175 @@ class GpuiAppearanceModule final
 
   void addListener(facebook::jsi::Runtime&, std::string) {}
   void removeListeners(facebook::jsi::Runtime&, double) {}
+};
+
+class GpuiAccessibilityManagerModule final
+    : public NativeAccessibilityManagerCxxSpec<GpuiAccessibilityManagerModule> {
+ public:
+  explicit GpuiAccessibilityManagerModule(
+      std::shared_ptr<CallInvoker> jsInvoker)
+      : NativeAccessibilityManagerCxxSpec(std::move(jsInvoker)) {}
+
+  void getCurrentBoldTextState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+    onSuccess(false);
+  }
+  void getCurrentGrayscaleState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+    onSuccess(false);
+  }
+  void getCurrentInvertColorsState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+#if defined(__APPLE__)
+    onSuccess(rn_gpui_get_invert_colors());
+#else
+    onSuccess(false);
+#endif
+  }
+  void getCurrentReduceMotionState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+#if defined(__APPLE__)
+    onSuccess(rn_gpui_get_reduce_motion());
+#else
+    onSuccess(false);
+#endif
+  }
+  void getCurrentDarkerSystemColorsState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+#if defined(__APPLE__)
+    onSuccess(rn_gpui_get_increase_contrast());
+#else
+    onSuccess(false);
+#endif
+  }
+  void getCurrentPrefersCrossFadeTransitionsState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+    onSuccess(false);
+  }
+  void getCurrentReduceTransparencyState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+#if defined(__APPLE__)
+    onSuccess(rn_gpui_get_reduce_transparency());
+#else
+    onSuccess(false);
+#endif
+  }
+  void getCurrentVoiceOverState(
+      jsi::Runtime& /*runtime*/,
+      AsyncCallback<bool> onSuccess,
+      AsyncCallback<jsi::Value> /*onError*/) {
+#if defined(__APPLE__)
+    onSuccess(rn_gpui_get_voice_over());
+#else
+    onSuccess(rn_gpui_accessibility_active());
+#endif
+  }
+  void setAccessibilityContentSizeMultipliers(
+      jsi::Runtime& /*runtime*/,
+      jsi::Object /*multipliers*/) {}
+  void setAccessibilityFocus(jsi::Runtime& /*runtime*/, double reactTag) {
+    rn_gpui_request_accessibility_focus(static_cast<int32_t>(reactTag));
+  }
+  void announceForAccessibility(
+      jsi::Runtime& runtime,
+      jsi::String announcement) {
+#if defined(__APPLE__)
+    auto text = announcement.utf8(runtime);
+    rn_gpui_announce_accessibility(text.c_str(), 1);
+#endif
+  }
+  void announceForAccessibilityWithOptions(
+      jsi::Runtime& runtime,
+      jsi::String announcement,
+      jsi::Object options) {
+#if defined(__APPLE__)
+    auto text = announcement.utf8(runtime);
+    const auto queue = options.getProperty(runtime, "queue");
+    int priorityLevel = queue.isBool() && queue.getBool() ? 0 : 1;
+    const auto priority = options.getProperty(runtime, "priority");
+    if (priority.isString()) {
+      const auto name = priority.asString(runtime).utf8(runtime);
+      if (name == "high")
+        priorityLevel = 2;
+      else if (name == "low")
+        priorityLevel = 0;
+      else if (name == "default")
+        priorityLevel = 1;
+    }
+    rn_gpui_announce_accessibility(text.c_str(), priorityLevel);
+#endif
+  }
+};
+
+class GpuiAccessibilityInfoModule final
+    : public NativeAccessibilityInfoCxxSpec<GpuiAccessibilityInfoModule> {
+ public:
+  explicit GpuiAccessibilityInfoModule(std::shared_ptr<CallInvoker> jsInvoker)
+      : NativeAccessibilityInfoCxxSpec(std::move(jsInvoker)) {}
+
+  void isReduceMotionEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
+#if defined(__APPLE__)
+    callback(rn_gpui_get_reduce_motion());
+#else
+    callback(false);
+#endif
+  }
+  void isInvertColorsEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
+#if defined(__APPLE__)
+    callback(rn_gpui_get_invert_colors());
+#else
+    callback(false);
+#endif
+  }
+  void isHighTextContrastEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
+#if defined(__APPLE__)
+    callback(rn_gpui_get_increase_contrast());
+#else
+    callback(false);
+#endif
+  }
+  void isTouchExplorationEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
+    // Desktop pointer/keyboard accessibility is not equivalent to touch
+    // exploration; AccessKit currently has no portable screen-reader query.
+    callback(false);
+  }
+  void isAccessibilityServiceEnabled(
+      jsi::Runtime&,
+      AsyncCallback<bool> callback) {
+    callback(false);
+  }
+  void setAccessibilityFocus(jsi::Runtime&, double reactTag) {
+    rn_gpui_request_accessibility_focus(static_cast<int32_t>(reactTag));
+  }
+  void announceForAccessibility(jsi::Runtime& runtime, jsi::String text) {
+#if defined(__APPLE__)
+    const auto announcement = text.utf8(runtime);
+    rn_gpui_announce_accessibility(announcement.c_str(), 1);
+#endif
+  }
+  void getRecommendedTimeoutMillis(
+      jsi::Runtime&,
+      double timeout,
+      AsyncCallback<double> callback) {
+    callback(timeout);
+  }
+  void isGrayscaleEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
+    callback(false);
+  }
 };
 
 class GpuiLinkingModule final
@@ -358,6 +543,16 @@ TurboModuleProviders gpui_turbo_module_providers() {
           return std::make_shared<GpuiAppearanceModule>(jsInvoker);
         }
         if (name ==
+            NativeAccessibilityManagerCxxSpec<
+                GpuiAccessibilityManagerModule>::kModuleName) {
+          return std::make_shared<GpuiAccessibilityManagerModule>(jsInvoker);
+        }
+        if (name ==
+            NativeAccessibilityInfoCxxSpec<
+                GpuiAccessibilityInfoModule>::kModuleName) {
+          return std::make_shared<GpuiAccessibilityInfoModule>(jsInvoker);
+        }
+        if (name ==
             NativeLinkingManagerCxxSpec<GpuiLinkingModule>::kModuleName) {
           return std::make_shared<GpuiLinkingModule>(jsInvoker);
         }
@@ -525,9 +720,15 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
       /* logBoxSurfaceDelegate */ logBoxDelegate_,
       /* animatedNodesManagerProvider */ animatedNodesManagerProvider_);
   activeGpuiHost.store(this, std::memory_order_release);
+#if defined(__APPLE__)
+  rn_gpui_start_accessibility_observing();
+#endif
 }
 
 GpuiHost::~GpuiHost() {
+#if defined(__APPLE__)
+  rn_gpui_stop_accessibility_observing();
+#endif
   reactHost_->stopAllSurfaces();
   for (const auto& listener : eventListeners_) {
     reactHost_->runOnScheduler([&listener](Scheduler& scheduler) {
@@ -655,6 +856,32 @@ void GpuiHost::emit_device_event(rust::Str eventName) const {
   reactHost_->emitDeviceEvent(folly::dynamic::array(
       std::string(eventName), folly::dynamic::object("timeStamp", timestamp)));
 }
+
+void GpuiHost::emit_device_event_bool(rust::Str eventName, bool value) const {
+  if (scriptLoaded_) {
+    reactHost_->emitDeviceEvent(
+        folly::dynamic::array(std::string(eventName), value));
+  }
+}
+
+void GpuiHost::emit_accessibility_setting_event(
+    const std::string& eventName,
+    bool enabled) const {
+  if (scriptLoaded_) {
+    reactHost_->emitDeviceEvent(folly::dynamic::array(eventName, enabled));
+  }
+}
+
+#if defined(__APPLE__)
+extern "C" void rn_gpui_accessibility_setting_changed(
+    const char* eventName,
+    bool enabled) {
+  auto* host = activeGpuiHost.load(std::memory_order_acquire);
+  if (host != nullptr && eventName != nullptr) {
+    host->emit_accessibility_setting_event(eventName, enabled);
+  }
+}
+#endif
 
 void GpuiHost::set_system_appearance(rust::Str appearance) {
   bool shouldNotify = false;

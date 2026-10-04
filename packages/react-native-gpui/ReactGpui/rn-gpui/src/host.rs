@@ -89,6 +89,13 @@ impl Host {
         self.0.lock().unwrap().emit_device_event(event_name)
     }
 
+    pub fn emit_device_event_bool(&self, event_name: &str, value: bool) {
+        self.0
+            .lock()
+            .unwrap()
+            .emit_device_event_bool(event_name, value)
+    }
+
     pub fn dispatch_pointer_event(
         &self,
         target_chain: &[i32],

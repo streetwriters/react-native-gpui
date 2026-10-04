@@ -17,6 +17,8 @@
 #include <react/devsupport/LogBoxModule.h>
 #include <react/devsupport/SourceCodeModule.h>
 #include <react/io/ImageLoaderModule.h>
+#include <react/io/BlobModule.h>
+#include <react/io/FileReaderModule.h>
 #include <react/io/NetworkingModule.h>
 #include <react/io/WebSocketModule.h>
 #include <react/logging/NativeExceptionsManager.h>
@@ -105,6 +107,10 @@ std::shared_ptr<TurboModule> ReactCxxTurboModuleProvider::operator()(
     return std::make_shared<NativeMutationObserver>(jsInvoker_);
   } else if (name == NetworkingModule::kModuleName) {
     return std::make_shared<NetworkingModule>(jsInvoker_, httpClientFactory_);
+  } else if (name == BlobModule::kModuleName) {
+    return std::make_shared<BlobModule>(jsInvoker_);
+  } else if (name == FileReaderModule::kModuleName) {
+    return std::make_shared<FileReaderModule>(jsInvoker_);
   } else if (name == LogBoxModule::kModuleName) {
     if (logBoxSurfaceDelegate_) {
       return std::make_shared<LogBoxModule>(jsInvoker_, logBoxSurfaceDelegate_);

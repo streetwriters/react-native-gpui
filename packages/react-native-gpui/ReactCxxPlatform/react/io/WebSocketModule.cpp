@@ -7,9 +7,36 @@
 
 #include "WebSocketModule.h"
 
+#include <react/io/BlobModule.h>
 #include <glog/logging.h>
+#include <atomic>
+#include <mutex>
+#include <react/utils/Base64.h>
+#include <unordered_map>
 
 namespace facebook::react {
+
+namespace {
+std::mutex socketSendersMutex;
+std::unordered_map<int32_t, std::function<void(const std::string&)>> socketSenders;
+
+void removeSocketSender(int32_t socketId) {
+  std::lock_guard lock(socketSendersMutex);
+  socketSenders.erase(socketId);
+}
+} // namespace
+
+bool sendBlobOverWebSocket(int32_t socketId, const std::string& bytes) {
+  std::function<void(const std::string&)> sender;
+  {
+    std::lock_guard lock(socketSendersMutex);
+    auto it = socketSenders.find(socketId);
+    if (it == socketSenders.end()) return false;
+    sender = it->second;
+  }
+  sender(bytes);
+  return true;
+}
 
 WebSocketModule::WebSocketModule(
     std::shared_ptr<CallInvoker> jsInvoker,
@@ -18,6 +45,9 @@ WebSocketModule::WebSocketModule(
       webSocketClientFactory_(std::move(webSocketClientFactory)) {}
 
 WebSocketModule::~WebSocketModule() {
+  for (const auto& [socketId, _] : connections_) {
+    removeSocketSender(socketId);
+  }
   connections_.clear();
 }
 
@@ -29,42 +59,82 @@ void WebSocketModule::connect(
     int32_t socketID) {
   auto webSocket = webSocketClientFactory_();
   connections_.emplace(socketID, std::move(webSocket));
-  connections_[socketID]->setOnMessageCallback([weakThis = weak_from_this(),
+  {
+    std::lock_guard lock(socketSendersMutex);
+    socketSenders[socketID] = [weakThis = weak_from_this(), socketID](
+                                  const std::string& bytes) {
+      if (auto strongThis = weakThis.lock()) {
+        auto it = strongThis->connections_.find(socketID);
+        if (it != strongThis->connections_.end()) {
+          it->second->sendBinary(bytes);
+        }
+      }
+    };
+  }
+  connections_[socketID]->setOnMessageFrameCallback([weakThis = weak_from_this(),
                                                 socketID](
-                                                   const std::string& message) {
+                                                   const std::string& message,
+                                                   bool isBinary) {
     auto strongThis = weakThis.lock();
     if (!strongThis) {
       return;
     }
+    const bool asBlob = isBinary && isBlobWebSocketHandler(socketID);
+    static std::atomic<uint64_t> blobSequence{0};
+    const auto blobId = asBlob
+        ? "gpui-websocket-" + std::to_string(socketID) + "-" +
+            std::to_string(blobSequence.fetch_add(1))
+        : std::string{};
+    if (asBlob) {
+      storeBlob(blobId, message);
+    }
     strongThis->emitDeviceEvent(
         "websocketMessage",
-        [socketID, message = std::string(message)](
+        [socketID, message = std::string(message), isBinary, asBlob, blobId](
             jsi::Runtime& rt, std::vector<jsi::Value>& args) {
           auto arg = jsi::Object(rt);
           arg.setProperty(rt, "id", jsi::Value(socketID));
           arg.setProperty(
-              rt, "type", facebook::jsi::String::createFromAscii(rt, "string"));
-          arg.setProperty(
-              rt, "data", facebook::jsi::String::createFromUtf8(rt, message));
+              rt,
+              "type",
+              facebook::jsi::String::createFromAscii(
+                  rt, asBlob ? "blob" : (isBinary ? "binary" : "string")));
+          if (asBlob) {
+            jsi::Object data(rt);
+            data.setProperty(
+                rt, "blobId", jsi::String::createFromUtf8(rt, blobId));
+            data.setProperty(rt, "offset", 0);
+            data.setProperty(rt, "size", static_cast<double>(message.size()));
+            data.setProperty(rt, "type", "application/octet-stream");
+            arg.setProperty(rt, "data", std::move(data));
+          } else {
+            arg.setProperty(
+                rt,
+                "data",
+                facebook::jsi::String::createFromUtf8(
+                    rt, isBinary ? base64Encode(message) : message));
+          }
           args.emplace_back(rt, arg);
         });
   });
-  connections_[socketID]->setOnClosedCallback(
-      [weakThis = weak_from_this(), socketID](const std::string& /*reason*/) {
+  connections_[socketID]->setOnClosedFrameCallback(
+      [weakThis = weak_from_this(), socketID](uint16_t code, const std::string& reason) {
+        removeSocketSender(socketID);
+        setBlobWebSocketHandler(socketID, false);
         auto strongThis = weakThis.lock();
         if (!strongThis) {
           return;
         }
         strongThis->emitDeviceEvent(
             "websocketClosed",
-            [socketID](jsi::Runtime& rt, std::vector<jsi::Value>& args) {
+            [socketID, code, reason](jsi::Runtime& rt, std::vector<jsi::Value>& args) {
               auto arg = jsi::Object(rt);
               arg.setProperty(rt, "id", jsi::Value(socketID));
-              arg.setProperty(rt, "code", jsi::Value(0));
+              arg.setProperty(rt, "code", jsi::Value(code));
               arg.setProperty(
                   rt,
                   "reason",
-                  facebook::jsi::String::createFromAscii(rt, "closed"));
+                  facebook::jsi::String::createFromUtf8(rt, reason));
               args.emplace_back(rt, arg);
             });
       });
@@ -119,7 +189,30 @@ void WebSocketModule::sendBinary(
     jsi::Runtime& rt,
     const std::string& base64String,
     int32_t forSocketID) {
-  send(rt, base64String, forSocketID);
+  auto it = connections_.find(static_cast<int>(forSocketID));
+  if (it == connections_.end()) {
+    LOG(ERROR) << "Failed to send binary data to a socket (" << forSocketID
+               << "), the socket is not open.";
+    return;
+  }
+  std::string decoded;
+  decoded.reserve(base64String.size() * 3 / 4);
+  uint32_t value = 0;
+  int bits = -8;
+  for (char ch : base64String) {
+    if (ch == '=') break;
+    const std::string_view alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const auto index = alphabet.find(ch);
+    if (index == std::string_view::npos) continue;
+    value = (value << 6) | static_cast<uint32_t>(index);
+    bits += 6;
+    if (bits >= 0) {
+      decoded.push_back(static_cast<char>((value >> bits) & 0xff));
+      bits -= 8;
+    }
+  }
+  it->second->sendBinary(decoded);
 }
 
 void WebSocketModule::ping(jsi::Runtime& /*rt*/, int32_t socketID) {
@@ -134,7 +227,7 @@ void WebSocketModule::ping(jsi::Runtime& /*rt*/, int32_t socketID) {
 
 void WebSocketModule::close(
     jsi::Runtime& /*rt*/,
-    int32_t /*code*/,
+    int32_t code,
     const std::string& reason,
     int32_t socketID) {
   auto it = connections_.find(static_cast<int>(socketID));
@@ -143,7 +236,9 @@ void WebSocketModule::close(
                << "), the socket is not open.";
     return;
   }
-  it->second->close(reason);
+  it->second->close(static_cast<uint16_t>(code), reason);
+  removeSocketSender(socketID);
+  setBlobWebSocketHandler(socketID, false);
   connections_.erase(it);
 }
 

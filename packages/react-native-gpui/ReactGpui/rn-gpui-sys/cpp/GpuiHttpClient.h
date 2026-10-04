@@ -19,5 +19,6 @@
 namespace rngpui {
 
 facebook::react::HttpClientFactory gpui_http_client_factory();
+bool gpui_http_client_clear_cookies();
 
 } // namespace rngpui

@@ -63,7 +63,13 @@ void SchedulerDelegateImpl::schedulerDidSetIsJSResponder(
 
 void SchedulerDelegateImpl::schedulerDidSendAccessibilityEvent(
     const ShadowView& shadowView,
-    const std::string& eventType) {}
+    const std::string& eventType) {
+  if (eventType == "focus") {
+    mountingManager_->setAccessibilityFocusedView(shadowView.tag);
+  } else if (eventType == "click") {
+    mountingManager_->accessibleClickAction(shadowView.tag);
+  }
+}
 
 void SchedulerDelegateImpl::schedulerShouldSynchronouslyUpdateViewOnUIThread(
     Tag tag,

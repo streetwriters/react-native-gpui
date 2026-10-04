@@ -51,6 +51,12 @@ pub mod ffi {
         pub inset: bool,
     }
 
+    #[derive(Clone, Debug, Default)]
+    pub struct AccessibilityActionFlat {
+        pub name: String,
+        pub label: String,
+    }
+
     /// Everything the painter needs from BaseViewProps. Colors are 0xAARRGGBB, 0 = none.
     #[derive(Clone, Debug, Default)]
     pub struct ViewPropsFlat {
@@ -74,12 +80,39 @@ pub mod ffi {
         pub has_transform: bool,
         pub test_id: String,
         pub accessibility_label: String,
+        pub accessibility_hint: String,
+        pub accessibility_language: String,
         pub accessibility_role: String,
+        pub accessibility_traits: u32,
+        pub accessibility_value_text: String,
+        pub accessibility_value_min: i32,
+        pub accessibility_value_max: i32,
+        pub accessibility_value_now: i32,
+        pub accessibility_has_value_min: bool,
+        pub accessibility_has_value_max: bool,
+        pub accessibility_has_value_now: bool,
+        pub accessibility_actions: Vec<AccessibilityActionFlat>,
+        pub accessibility_labelled_by: Vec<String>,
+        pub accessibility_order: Vec<String>,
         pub accessible: bool,
         pub accessibility_disabled: bool,
         pub accessibility_selected: bool,
+        pub accessibility_busy: bool,
         pub accessibility_checked: u8, // 0 absent, 1 unchecked, 2 checked, 3 mixed
         pub accessibility_expanded: i8, // -1 absent, 0 false, 1 true
+        pub accessibility_important: u8, // Auto, Yes, No, NoHideDescendants
+        pub accessibility_live_region: u8, // None, Polite, Assertive
+        pub accessibility_hidden: bool,
+        pub accessibility_modal: bool,
+        pub accessibility_responds_to_interaction: bool,
+        pub accessibility_has_action_listener: bool,
+        pub accessibility_has_tap_listener: bool,
+        pub accessibility_has_escape_listener: bool,
+        pub accessibility_has_magic_tap_listener: bool,
+        pub accessibility_native_id: String,
+        pub accessibility_ignores_invert_colors: bool,
+        pub accessibility_large_content_enabled: bool,
+        pub accessibility_large_content_title: String,
         pub focusable: bool,
     }
 
@@ -137,6 +170,7 @@ pub mod ffi {
         pub text_input_selection_color: u32,
         pub text_input_multiline: bool,
         pub text_input_editable: bool,
+        pub text_input_secure: bool,
         pub text_input_most_recent_event_count: i32,
         pub text_input_selection_set: bool,
         pub text_input_selection_start: i32,
@@ -204,6 +238,7 @@ pub mod ffi {
         fn rn_gpui_on_animated_props(props: AnimatedPropsFlat);
         /// Called by Fabric when RN's TextInput JS wrapper issues focus/blur.
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
+        fn rn_gpui_request_accessibility_focus(tag: i32);
         /// Called by Fabric when the TextInput ref's clear command is issued.
         fn rn_gpui_on_text_input_clear(tag: i32);
         fn rn_gpui_set_animated_active(active: bool);
@@ -264,6 +299,7 @@ pub mod ffi {
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);
+        fn emit_device_event_bool(self: &GpuiHost, event_name: &str, value: bool);
         /// Send raw GPUI pointer input to an optional native recognizer before RN touch dispatch.
         fn dispatch_pointer_event(
             self: &GpuiHost,
@@ -294,6 +330,7 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type OpenUrlHandler = Box<dyn Fn(String) + Send + Sync>;
 pub type AlertHandler = Box<dyn Fn(i32, String, String, Vec<String>) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
@@ -303,6 +340,7 @@ pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::ne
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
 pub static OPEN_URL_HANDLER: OnceLock<OpenUrlHandler> = OnceLock::new();
 pub static ALERT_HANDLER: OnceLock<AlertHandler> = OnceLock::new();
 pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
@@ -404,6 +442,12 @@ fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
 
 fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
+        handler(tag);
+    }
+}
+
+fn rn_gpui_request_accessibility_focus(tag: i32) {
+    if let Some(handler) = ACCESSIBILITY_FOCUS_HANDLER.get() {
         handler(tag);
     }
 }

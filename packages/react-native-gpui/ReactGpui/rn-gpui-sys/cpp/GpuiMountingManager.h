@@ -72,6 +72,8 @@ class GpuiMountingManager : public IMountingManager {
   void setScrollOffset(Tag tag, float x, float y);
   void setWindowSize(float width, float height);
   void setWindowTopInset(float top);
+  void setAccessibilityFocusedView(Tag viewTag) override;
+  void accessibleClickAction(Tag viewTag) override;
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;

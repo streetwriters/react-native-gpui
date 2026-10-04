@@ -1,14 +1,17 @@
 // TODO 2.1 — design doc §18.7 / §19 2.1. A libcurl-backed HTTP client; see the
 // header for why the process needs one at all.
 #include "GpuiHttpClient.h"
+#include <react/io/BlobModule.h>
 
 #include <curl/curl.h>
 
+#include <folly/Uri.h>
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -29,6 +32,33 @@ using namespace facebook::react;
 void ensureCurlInitialized() {
   static std::once_flag once;
   std::call_once(once, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+
+struct SharedCookies {
+  CURLSH* handle{curl_share_init()};
+  std::mutex mutex;
+
+  SharedCookies() {
+    curl_share_setopt(handle, CURLSHOPT_LOCKFUNC, lock);
+    curl_share_setopt(handle, CURLSHOPT_UNLOCKFUNC, unlock);
+    curl_share_setopt(handle, CURLSHOPT_USERDATA, this);
+    curl_share_setopt(handle, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+  }
+  ~SharedCookies() {
+    curl_share_cleanup(handle);
+  }
+
+  static void lock(CURL*, curl_lock_data, curl_lock_access, void* data) {
+    static_cast<SharedCookies*>(data)->mutex.lock();
+  }
+  static void unlock(CURL*, curl_lock_data, void* data) {
+    static_cast<SharedCookies*>(data)->mutex.unlock();
+  }
+};
+
+SharedCookies& sharedCookies() {
+  static SharedCookies cookies;
+  return cookies;
 }
 
 // Shared by the worker thread and the token handed back to the caller: cancel()
@@ -59,6 +89,8 @@ struct Transfer {
   http::Headers responseHeaders;
   int64_t receivedBytes{0};
   int64_t totalBytes{-1};
+  int64_t uploadedBytes{0};
+  int64_t totalUploadBytes{-1};
 };
 
 bool isCancelled(const Transfer& transfer) {
@@ -110,6 +142,11 @@ size_t headerCallback(char* data, size_t size, size_t count, void* userData) {
   if (isCancelled(transfer)) {
     return 0;
   }
+  if (line.starts_with("HTTP/")) {
+    // libcurl reports each redirect/interim response header block. Only the
+    // final response headers belong on the Fetch Response.
+    transfer.responseHeaders.clear();
+  }
   if (line == "\r\n" || line == "\n") {
     return length; // End of the response header block.
   }
@@ -138,11 +175,21 @@ int progressCallback(
     void* userData,
     curl_off_t dltotal,
     curl_off_t /*dlnow*/,
-    curl_off_t /*ultotal*/,
-    curl_off_t /*ulnow*/) {
+    curl_off_t ultotal,
+    curl_off_t ulnow) {
   auto& transfer = *static_cast<Transfer*>(userData);
   if (dltotal > 0) {
     transfer.totalBytes = static_cast<int64_t>(dltotal);
+  }
+  if (ultotal >= 0) {
+    transfer.totalUploadBytes = static_cast<int64_t>(ultotal);
+  }
+  if (ulnow >= 0 && static_cast<int64_t>(ulnow) != transfer.uploadedBytes) {
+    transfer.uploadedBytes = static_cast<int64_t>(ulnow);
+    if (transfer.callbacks.onUploadProgress) {
+      transfer.callbacks.onUploadProgress(
+          transfer.uploadedBytes, transfer.totalUploadBytes);
+    }
   }
   return isCancelled(transfer) ? 1 : 0; // Non-zero aborts the transfer.
 }
@@ -150,14 +197,83 @@ int progressCallback(
 struct CurlHandle {
   CURL* handle{nullptr};
   curl_slist* headers{nullptr};
+  curl_mime* mime{nullptr};
 
   ~CurlHandle() {
+    if (mime != nullptr) {
+      curl_mime_free(mime);
+    }
     curl_slist_free_all(headers);
     if (handle != nullptr) {
       curl_easy_cleanup(handle);
     }
   }
 };
+
+std::optional<std::string> decodeBase64(std::string_view input) {
+  static constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string result;
+  uint32_t value = 0;
+  int bits = -8;
+  for (char ch : input) {
+    if (ch == '=') {
+      break;
+    }
+    if (ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t') {
+      continue;
+    }
+    const auto index = alphabet.find(ch);
+    if (index == std::string_view::npos) {
+      return std::nullopt;
+    }
+    value = (value << 6) | static_cast<uint32_t>(index);
+    bits += 6;
+    if (bits >= 0) {
+      result.push_back(static_cast<char>((value >> bits) & 0xff));
+      bits -= 8;
+    }
+  }
+  return result;
+}
+
+bool addFormData(curl_mime* mime, const http::FormData& fields) {
+  for (const auto& field : fields) {
+    auto* part = curl_mime_addpart(mime);
+    curl_mime_name(part, field.fieldName.c_str());
+    std::string filename;
+    for (const auto& [name, value] : field.headers) {
+      if (name == "Content-Type" || name == "content-type") {
+        curl_mime_type(part, value.c_str());
+      } else if (
+          name == "Content-Disposition" || name == "content-disposition") {
+        const auto filenamePos = value.find("filename=\"");
+        if (filenamePos != std::string::npos) {
+          const auto start = filenamePos + 10;
+          const auto end = value.find('"', start);
+          if (end != std::string::npos) {
+            filename = value.substr(start, end - start);
+          }
+        }
+      }
+    }
+    if (field.string) {
+      curl_mime_data(part, field.string->data(), field.string->size());
+    } else if (field.uri) {
+      std::string path = *field.uri;
+      if (path.starts_with("file://")) {
+        path.erase(0, 7);
+      }
+      if (curl_mime_filedata(part, path.c_str()) != CURLE_OK) {
+        return false;
+      }
+      if (!filename.empty()) {
+        curl_mime_filename(part, filename.c_str());
+      }
+    }
+  }
+  return true;
+}
 
 void performRequest(
     Transfer transfer,
@@ -171,6 +287,55 @@ void performRequest(
       transfer.callbacks.onResponseComplete(std::move(error), timeoutError);
     }
   };
+
+  if (url.starts_with("blob:")) {
+    try {
+      const folly::Uri uri(url);
+      auto path = uri.path();
+      while (!path.empty() && path.front() == '/') {
+        path.erase(path.begin());
+      }
+      uint64_t offset = 0;
+      uint64_t size = std::numeric_limits<uint64_t>::max();
+      const auto query = uri.query();
+      const auto offsetKey = query.find("offset=");
+      if (offsetKey != std::string::npos) {
+        offset = std::stoull(query.substr(offsetKey + 7));
+      }
+      const auto sizeKey = query.find("size=");
+      if (sizeKey != std::string::npos) {
+        size = std::stoull(query.substr(sizeKey + 5));
+      }
+      auto data = readBlob(path, offset, size);
+      if (!data) {
+        if (transfer.callbacks.onResponse) {
+          transfer.callbacks.onResponse(404, {}, url);
+        }
+        complete("Blob URL is no longer available", false);
+        return;
+      }
+      if (transfer.callbacks.onResponse) {
+        transfer.callbacks.onResponse(
+            200,
+            {{"Content-Length", std::to_string(data->size())},
+             {"Content-Type", "application/octet-stream"}},
+            url);
+      }
+      if (transfer.callbacks.sendIncrementalUpdates &&
+          transfer.callbacks.onBodyIncremental) {
+        transfer.callbacks.onBodyIncremental(
+            0,
+            static_cast<int64_t>(data->size()),
+            folly::IOBuf::copyBuffer(*data));
+      } else if (transfer.callbacks.onBody) {
+        transfer.callbacks.onBody(folly::IOBuf::copyBuffer(*data));
+      }
+      complete("", false);
+    } catch (const std::exception& error) {
+      complete(std::string("Invalid Blob URL: ") + error.what(), false);
+    }
+    return;
+  }
 
   CurlHandle curl;
   curl.handle = curl_easy_init();
@@ -189,6 +354,12 @@ void performRequest(
   curl_easy_setopt(curl.handle, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_ACCEPT_ENCODING, "");
+  curl_easy_setopt(curl.handle, CURLOPT_SHARE, sharedCookies().handle);
+  if (requestBody.withCredentials) {
+    // Enables libcurl's in-memory cookie engine. Cookie data is shared between
+    // requests for the lifetime of the process and is never written to disk.
+    curl_easy_setopt(curl.handle, CURLOPT_COOKIEFILE, "");
+  }
   curl_easy_setopt(curl.handle, CURLOPT_WRITEFUNCTION, writeCallback);
   curl_easy_setopt(curl.handle, CURLOPT_WRITEDATA, &transfer);
   curl_easy_setopt(curl.handle, CURLOPT_HEADERFUNCTION, headerCallback);
@@ -206,7 +377,42 @@ void performRequest(
   if (method != "GET" && method != "get") {
     curl_easy_setopt(curl.handle, CURLOPT_CUSTOMREQUEST, method.c_str());
   }
-  if (requestBody.string.has_value()) {
+  std::optional<std::string> requestBodyBlob;
+  if (requestBody.formData) {
+    curl.mime = curl_mime_init(curl.handle);
+    if (curl.mime == nullptr ||
+        !addFormData(curl.mime, *requestBody.formData)) {
+      complete("Invalid FormData request body", false);
+      return;
+    }
+    curl_easy_setopt(curl.handle, CURLOPT_MIMEPOST, curl.mime);
+  } else if (requestBody.blob) {
+    auto blob = readBlob(
+        requestBody.blob->blobId,
+        requestBody.blob->offset,
+        requestBody.blob->size);
+    if (!blob) {
+      complete("Blob request body is no longer available", false);
+      return;
+    }
+    requestBodyBlob = std::move(*blob);
+    curl_easy_setopt(curl.handle, CURLOPT_POSTFIELDS, requestBodyBlob->data());
+    curl_easy_setopt(
+        curl.handle,
+        CURLOPT_POSTFIELDSIZE_LARGE,
+        static_cast<curl_off_t>(requestBodyBlob->size()));
+  } else if (requestBody.base64) {
+    auto decoded = decodeBase64(*requestBody.base64);
+    if (!decoded) {
+      complete("Invalid base64 request body", false);
+      return;
+    }
+    curl_easy_setopt(curl.handle, CURLOPT_POSTFIELDS, decoded->data());
+    curl_easy_setopt(
+        curl.handle,
+        CURLOPT_POSTFIELDSIZE_LARGE,
+        static_cast<curl_off_t>(decoded->size()));
+  } else if (requestBody.string.has_value()) {
     curl_easy_setopt(
         curl.handle, CURLOPT_POSTFIELDS, requestBody.string->data());
     curl_easy_setopt(
@@ -218,7 +424,11 @@ void performRequest(
   const CURLcode result = curl_easy_perform(curl.handle);
 
   long responseCode = 0;
+  char* effectiveUrlValue = nullptr;
   curl_easy_getinfo(curl.handle, CURLINFO_RESPONSE_CODE, &responseCode);
+  curl_easy_getinfo(curl.handle, CURLINFO_EFFECTIVE_URL, &effectiveUrlValue);
+  const std::string effectiveUrl =
+      effectiveUrlValue == nullptr ? url : effectiveUrlValue;
   curl_easy_cleanup(curl.handle);
   curl.handle = nullptr;
 
@@ -236,18 +446,9 @@ void performRequest(
 
   const auto statusCode = static_cast<uint16_t>(responseCode);
   if (transfer.callbacks.onResponse) {
-    transfer.callbacks.onResponse(statusCode, transfer.responseHeaders);
+    transfer.callbacks.onResponse(
+        statusCode, transfer.responseHeaders, effectiveUrl);
   }
-  if (responseCode < 200 || responseCode >= 300) {
-    // Deliberately no onBody(): a caller such as downloadBundleResourceSync()
-    // treats the body as the script to load, and an error page is not a script.
-    const auto error = "HTTP " + std::to_string(responseCode) + " from " + url;
-    LOG(ERROR) << "[gpui-http] " << method << " " << url
-               << " failed: " << error;
-    complete(error, false);
-    return;
-  }
-
   if (transfer.callbacks.onBody && !transfer.callbacks.sendIncrementalUpdates) {
     transfer.callbacks.onBody(folly::IOBuf::copyBuffer(transfer.body));
   }
@@ -294,6 +495,19 @@ HttpClientFactory gpui_http_client_factory() {
   return []() -> std::unique_ptr<IHttpClient> {
     return std::make_unique<CurlHttpClient>();
   };
+}
+
+bool gpui_http_client_clear_cookies() {
+  ensureCurlInitialized();
+  CURL* handle = curl_easy_init();
+  if (handle == nullptr) {
+    return false;
+  }
+  curl_easy_setopt(handle, CURLOPT_SHARE, sharedCookies().handle);
+  curl_easy_setopt(handle, CURLOPT_COOKIEFILE, "");
+  const auto result = curl_easy_setopt(handle, CURLOPT_COOKIELIST, "ALL");
+  curl_easy_cleanup(handle);
+  return result == CURLE_OK;
 }
 
 } // namespace rngpui

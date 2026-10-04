@@ -479,6 +479,14 @@ void GpuiMountingManager::dispatchEvent(
   emitter->dispatchEvent(type, std::move(payload));
 }
 
+void GpuiMountingManager::setAccessibilityFocusedView(Tag viewTag) {
+  rn_gpui_request_accessibility_focus(viewTag);
+}
+
+void GpuiMountingManager::accessibleClickAction(Tag viewTag) {
+  dispatchEvent(viewTag, "click", folly::dynamic::object("target", viewTag));
+}
+
 void GpuiMountingManager::dispatchCommand(
     const ShadowView& view,
     const std::string& name,

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <FBReactNativeSpec/FBReactNativeSpecJSI.h>
+#include <react/io/BlobModule.h>
 #include <react/http/IHttpClient.h>
 #include <memory>
 #include <optional>
@@ -34,9 +35,15 @@ struct Bridging<http::Body> {
   {
     return http::Body{
         .string = bridging::fromJs<std::optional<std::string>>(rt, value.getProperty(rt, "string"), jsInvoker),
-        .blob = bridging::fromJs<std::optional<std::string>>(rt, value.getProperty(rt, "blob"), jsInvoker),
+        .blob = value.getProperty(rt, "blob").isObject()
+            ? std::optional<http::BlobReference>(http::BlobReference{
+                  .blobId = value.getProperty(rt, "blob").asObject(rt).getProperty(rt, "blobId").asString(rt).utf8(rt),
+                  .offset = static_cast<uint64_t>(value.getProperty(rt, "blob").asObject(rt).getProperty(rt, "offset").asNumber()),
+                  .size = static_cast<uint64_t>(value.getProperty(rt, "blob").asObject(rt).getProperty(rt, "size").asNumber())})
+            : std::nullopt,
         .formData = bridging::fromJs<std::optional<http::FormData>>(rt, value.getProperty(rt, "formData"), jsInvoker),
         .base64 = bridging::fromJs<std::optional<std::string>>(rt, value.getProperty(rt, "base64"), jsInvoker),
+        .withCredentials = true,
 
     };
   }

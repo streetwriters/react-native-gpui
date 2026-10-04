@@ -14,7 +14,7 @@ APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmo
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, PanResponderProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error, nav-svg, nav-fonts" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, PanResponderProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error, nav-svg, nav-fonts, nav-networking" >&2
   exit 2
 }
 
@@ -29,6 +29,7 @@ SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}-probe.png"
 DEV_PORT_DEFAULT=""
 BUILD_PATH_PREFIX=""
 unset RN_GPUI_NATIVE_COMPOSITION_PROBE RN_GPUI_NATIVE_WEBVIEW_PROBE
+unset RN_GPUI_DEBUG_A11Y_TREE
 
 case "${PROBE}" in
   TextInputProbe)
@@ -74,6 +75,13 @@ case "${PROBE}" in
     export RN_GPUI_RESIZE_HEIGHT="${RN_GPUI_RESIZE_HEIGHT:-640}"
     ;;
   AccessibilityProbe|AppearanceProbe|BorderProbe|ModalProbe|Phase3AcceptanceProbe)
+    if [[ "${PROBE}" == AccessibilityProbe ]]; then
+      ENTRY_FILE=tester/probes/AccessibilityProbe.tsx
+      export RN_GPUI_DEBUG_A11Y_TREE=1
+      export RN_GPUI_KEY="${RN_GPUI_KEY:-right;tab;escape}"
+      export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-2500}"
+      RUST_LOG_DEFAULT=info
+    fi
     ASSETS_DIR="/tmp/rn-gpui-${PROBE}-assets"
     BUNDLE="${RN_GPUI_PHASE3_BUNDLE:-/tmp/rn-gpui-${PROBE}-probe.bundle}"
     SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}-probe.png"
@@ -120,7 +128,7 @@ case "${PROBE}" in
     export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-2000}"
     export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1000}"
     ;;
-  nav-safe-area|nav-titlebar|nav-tabs|nav-stack|nav-drawer|nav-drawer-back|nav-drawer-drag|nav-native-stack|nav-native-stack-hidden|nav-native-stack-lifecycle|nav-native-stack-modal|nav-native-stack-transparent-modal|nav-native-stack-overlay|nav-native-stack-unsupported|nav-nested|nav-worklet-error|nav-gesture-native|nav-gesture-tap|nav-gesture-longpress|nav-gesture-buttons|nav-gesture-relations|nav-svg|nav-fonts)
+  nav-safe-area|nav-titlebar|nav-tabs|nav-stack|nav-drawer|nav-drawer-back|nav-drawer-drag|nav-native-stack|nav-native-stack-hidden|nav-native-stack-lifecycle|nav-native-stack-modal|nav-native-stack-transparent-modal|nav-native-stack-overlay|nav-native-stack-unsupported|nav-nested|nav-worklet-error|nav-gesture-native|nav-gesture-tap|nav-gesture-longpress|nav-gesture-buttons|nav-gesture-relations|nav-svg|nav-fonts|nav-networking)
     APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"
     APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
     APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/react-native-gpui-navigationexample"
@@ -144,6 +152,16 @@ case "${PROBE}" in
         SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-fonts.png
         mkdir -p "${ASSETS_DIR}/assets/fonts"
         cp "${APP_PROJECT_ROOT}"/desktop/assets/fonts/*.ttf "${ASSETS_DIR}/assets/fonts/"
+        ;;
+      nav-networking)
+        ENTRY_FILE=entries/networking.tsx
+        SCREENSHOTS_DEFAULT=12000:/tmp/rn-gpui-networking.png
+        export RN_GPUI_NETWORK_CERT_DIR="${REPO_ROOT}/.local/networking-test-certs"
+        mkdir -p "${RN_GPUI_NETWORK_CERT_DIR}"
+        if [[ ! -f "${RN_GPUI_NETWORK_CERT_DIR}/networking-test-cert.pem" ]]; then
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RN_GPUI_NETWORK_CERT_DIR}/networking-test-key.pem" -out "${RN_GPUI_NETWORK_CERT_DIR}/networking-test-cert.pem" -days 3650 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,digitalSignature,keyCertSign,cRLSign"
+        fi
+        export SSL_CERT_FILE="${RN_GPUI_NETWORK_CERT_DIR}/networking-test-cert.pem"
         ;;
       nav-gesture-native)
         ENTRY_FILE=entries/nav-gesture-native.tsx
@@ -304,6 +322,23 @@ CCACHE_DISABLE=1 cargo build \
 elif [[ ! -x "${APP}" ]]; then
   echo "Missing prebuilt app: ${APP}" >&2
   exit 1
+fi
+
+if [[ "${PROBE}" == "nav-networking" ]]; then
+  CERT_DIR="${REPO_ROOT}/.local/networking-test-certs"
+  export RN_GPUI_NETWORK_CERT_DIR="${CERT_DIR}"
+  export SSL_CERT_FILE="${CERT_DIR}/networking-test-cert.pem"
+  SERVER_PID_FILE="${REPO_ROOT}/.local/network-fixture.pid"
+  if [[ ! -f "${SERVER_PID_FILE}" ]] || ! kill -0 "$(cat "${SERVER_PID_FILE}")" 2>/dev/null; then
+    nohup node tester/scripts/network-fixture.mjs > .local/network-fixture.log 2>&1 < /dev/null &
+    echo $! > "${SERVER_PID_FILE}"
+    for _ in {1..50}; do
+      if curl --silent --output /dev/null --max-time 1 "http://127.0.0.1:43181/text"; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
 fi
 
 export RN_GPUI_MODULE="${MODULE}"

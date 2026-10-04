@@ -26,12 +26,16 @@ class WebSocketClient : public IWebSocketClient {
   void setOnClosedCallback(OnClosedCallback &&callback) noexcept override;
 
   void setOnMessageCallback(OnMessageCallback &&callback) noexcept override;
+  void setOnMessageFrameCallback(OnMessageFrameCallback &&callback) noexcept override;
+  void setOnClosedFrameCallback(OnClosedFrameCallback &&callback) noexcept override;
 
   void connect(const std::string &url, OnConnectCallback &&onConnectCallback = nullptr) override;
 
   void close(const std::string &reason) override;
+  void close(uint16_t code, const std::string &reason) override;
 
   void send(const std::string &message) override;
+  void sendBinary(const std::string &bytes) override;
 
   void ping() override;
 

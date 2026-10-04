@@ -19,7 +19,7 @@ use gpui::{
     MouseButton, NavigationDirection, Pixels, Point, Subscription, Window,
 };
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -58,6 +58,7 @@ pub struct ViewStore {
     /// Fabric tag -> node view. One map per window: Fabric tags are unique
     /// across surfaces of the same React instance.
     pub nodes: HashMap<i32, Entity<RNNodeView>>,
+    pub(crate) accessibility_modal_tags: BTreeSet<i32>,
     /// Surface id -> the window's root view for that surface.
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
     /// TODO 2.6 — the surface the window shows ([`APP_SURFACE_ID`]). Roots of
@@ -106,6 +107,7 @@ impl ViewStore {
             frame_hook,
             window: window.into(),
             nodes: HashMap::new(),
+            accessibility_modal_tags: BTreeSet::new(),
             roots: HashMap::new(),
             primary_surface_id: APP_SURFACE_ID,
             overlay_host,
@@ -165,6 +167,7 @@ impl ViewStore {
                 self.nodes.len()
             );
             self.nodes.clear();
+            self.accessibility_modal_tags.clear();
             self.hovered.clear();
             self.active_touch_target = None;
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
@@ -198,6 +201,7 @@ impl ViewStore {
         }
         for tag in stale {
             self.nodes.remove(&tag);
+            self.accessibility_modal_tags.remove(&tag);
             self.overlay_host.update(cx, |host, cx| {
                 host.remove_modal(tag);
                 cx.notify();
@@ -372,6 +376,21 @@ impl ViewStore {
             pop_plans.insert(op.tag, (revealed, animation));
         }
         for op in batch.ops.iter() {
+            match op.kind {
+                MountKind::Create | MountKind::Update => {
+                    if op.view.accessibility_modal
+                        || (op.component == "ModalHostView" && op.modal_visible)
+                    {
+                        self.accessibility_modal_tags.insert(op.tag);
+                    } else {
+                        self.accessibility_modal_tags.remove(&op.tag);
+                    }
+                }
+                MountKind::Delete | MountKind::Remove => {
+                    self.accessibility_modal_tags.remove(&op.tag);
+                }
+                _ => {}
+            }
             if self.log_mount_ops {
                 log_mount_op(op);
             }
@@ -418,6 +437,14 @@ impl ViewStore {
                         log::warn!("[store] insert of unknown tag {}", op.tag);
                         continue;
                     };
+                    {
+                        let node = child.read(cx);
+                        if node.view.accessibility_modal
+                            || (node.component == "ModalHostView" && node.modal_visible)
+                        {
+                            self.accessibility_modal_tags.insert(op.tag);
+                        }
+                    }
                     if matches!(
                         op.component.as_str(),
                         "ModalHostView" | "RNSFullWindowOverlay"
@@ -883,7 +910,10 @@ impl ViewStore {
         // triggers (a timer or animation that keeps committing does not need a
         // native event to keep it going).
         let hook = self.frame_hook.clone();
-        let _ = cx.update_window(self.window, |_root, window, _cx| hook.arm(window));
+        let _ = cx.update_window(self.window, |_root, window, _cx| {
+            hook.arm(window);
+            window.on_next_frame(crate::accessibility::sync_modal_focus);
+        });
     }
 }
 

@@ -3,6 +3,7 @@
 //! `run` boots the shared platform runtime; per-app launch logic lives under
 //! the consuming app's `desktop/src/`.
 
+pub(crate) mod accessibility;
 pub(crate) mod events;
 pub(crate) mod frame;
 pub(crate) mod host;

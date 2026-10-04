@@ -6,6 +6,7 @@
  */
 
 #include "NetworkingModule.h"
+#include <GpuiHttpClient.h>
 
 #include <react/debug/react_native_assert.h>
 #include <react/utils/Base64.h>
@@ -128,7 +129,7 @@ void NetworkingModule::sendRequest(
     const std::string& responseType,
     bool useIncrementalUpdates,
     uint32_t timeout,
-    bool /*withCredentials*/) {
+    bool withCredentials) {
   if (!requests_.reserve(requestId)) {
     // If the NetworkingModule is shutting down, don't invoke the callback.
     return;
@@ -146,11 +147,13 @@ void NetworkingModule::sendRequest(
             }
           },
       .onResponse =
-          [weakThis = weak_from_this(), requestId, url](
-              uint32_t responseCode, const http::Headers& headers) {
+          [weakThis = weak_from_this(), requestId](
+              uint32_t responseCode,
+              const http::Headers& headers,
+              const std::string& responseUrl) {
             if (auto strongThis = weakThis.lock()) {
               strongThis->didReceiveNetworkResponse(
-                  requestId, responseCode, headers, url);
+                  requestId, responseCode, headers, responseUrl);
             }
           },
       .onBody =
@@ -198,12 +201,14 @@ void NetworkingModule::sendRequest(
       .sendIncrementalUpdates = sendIncrementalUpdates,
       .sendProgressUpdates = sendProgressUpdates};
 
+  auto requestBody = body;
+  requestBody.withCredentials = withCredentials;
   auto token = httpClient_->sendRequest(
       std::move(callbacks),
       method,
       url,
       headers,
-      body,
+      requestBody,
       timeout,
       std::to_string(requestId));
   if (token) {
@@ -299,7 +304,31 @@ void NetworkingModule::didReceiveNetworkData(
     return;
   }
 
-  auto responseData = encodeResponseBody(responseType, buf->toString());
+  auto body = buf->toString();
+  if (responseType == "blob") {
+    static std::atomic<uint64_t> blobSequence{0};
+    const auto blobId = "gpui-response-" + std::to_string(requestId) + "-" +
+        std::to_string(blobSequence.fetch_add(1));
+    const auto size = body.size();
+    storeBlob(blobId, std::move(body));
+    emitDeviceEvent(
+        "didReceiveNetworkData",
+        [requestId, blobId, size, jsInvoker = jsInvoker_] (
+            jsi::Runtime& rt, std::vector<jsi::Value>& args) {
+          jsi::Object data(rt);
+          data.setProperty(
+              rt, "blobId", jsi::String::createFromUtf8(rt, blobId));
+          data.setProperty(rt, "offset", 0);
+          data.setProperty(rt, "size", static_cast<double>(size));
+          data.setProperty(rt, "type", "");
+          args.emplace_back(
+              rt,
+              jsi::Array::createWithElements(
+                  rt, static_cast<double>(requestId), std::move(data)));
+        });
+    return;
+  }
+  auto responseData = encodeResponseBody(responseType, std::move(body));
   emitDeviceEvent(
       "didReceiveNetworkData",
       [requestId,
@@ -360,8 +389,8 @@ void NetworkingModule::abortRequest(jsi::Runtime& /*rt*/, uint32_t requestId) {
 
 void NetworkingModule::clearCookies(
     jsi::Runtime& /*rt*/,
-    const AsyncCallback<bool>& /*callback*/) {
-  LOG(INFO) << "NetworkingModule::clearCookies";
+    const AsyncCallback<bool>& callback) {
+  callback(rngpui::gpui_http_client_clear_cookies());
 }
 
 void NetworkingModule::addListener(
