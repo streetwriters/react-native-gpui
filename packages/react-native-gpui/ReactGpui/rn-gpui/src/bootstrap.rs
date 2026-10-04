@@ -571,6 +571,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         .run(move |cx: &mut App| {
         startup_trace("GPUI application callback entered");
         crate::image_loader::install(cx);
+        crate::text::install_fonts(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
         crate::text::install_measure_handler(cx);

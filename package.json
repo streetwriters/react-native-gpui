@@ -2,7 +2,7 @@
   "name": "react-native-gpui",
   "private": true,
   "version": "0.0.1",
-  "description": "React Native on GPUI — a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
+  "description": "React Native on GPUI \u2014 a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
   "workspaces": [
     "packages/react-native-gpui",
     "packages/@react-native-gpui/cli",
@@ -10,6 +10,7 @@
     "packages/@react-native-gpui/worklets",
     "packages/@react-native-gpui/reanimated",
     "packages/@react-native-gpui/svg",
+    "packages/@react-native-gpui/fonts",
     "packages/@react-native-gpui/gesture-handler",
     "packages/@react-native-gpui/screens",
     "tester",

@@ -28,6 +28,8 @@ env_logger = { workspace = true }
 serde_json = { workspace = true }
 futures = { workspace = true }
 reqwest_client = { workspace = true }
+http_client = { workspace = true }
+fontdue = { workspace = true }
 image = { version = "0.25.1" }
 base64 = "0.22"
 rn-gpui-macros = { path = "../rn-gpui-macros" }

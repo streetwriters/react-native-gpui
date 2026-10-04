@@ -1,0 +1,12 @@
+{
+  "name": "@react-native-gpui/fonts",
+  "version": "0.1.0",
+  "description": "Custom font loading for React Native GPUI apps",
+  "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "codegenConfig": {
+    "name": "GPUIFontLoaderSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  }
+}

@@ -14,6 +14,48 @@ const run = (bin, args, options = {}) =>
     env: options.env ?? process.env,
   });
 
+function copyFontAssets(projectRoot, bundlePath, config) {
+  const destination = path.join(
+    path.dirname(bundlePath),
+    'assets',
+    'assets',
+    'fonts',
+  );
+  fs.rmSync(destination, { recursive: true, force: true });
+  const sources = [];
+  const appFonts = path.join(projectRoot, 'desktop/assets/fonts');
+  if (fs.existsSync(appFonts)) sources.push({ root: appFonts, prefix: 'app' });
+  for (const [name, dependency] of Object.entries(config.dependencies ?? {})) {
+    const root =
+      dependency.root ?? path.join(projectRoot, 'node_modules', name);
+    for (const assets of dependency.assets ?? []) {
+      sources.push({
+        root: path.resolve(root, assets),
+        prefix: name.replaceAll('/', '-'),
+      });
+    }
+  }
+  let copied = 0;
+  const copyDirectory = (sourceRoot, directory, prefix) => {
+    if (!fs.existsSync(directory)) return;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const source = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        copyDirectory(sourceRoot, source, prefix);
+      } else if (/\.(?:ttf|otf)$/iu.test(entry.name)) {
+        const relative = path.relative(sourceRoot, source);
+        const target = path.join(destination, prefix, relative);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(source, target);
+        copied += 1;
+      }
+    }
+  };
+  for (const source of sources)
+    copyDirectory(source.root, source.root, source.prefix);
+  console.log(`Prepared ${copied} desktop font asset(s) in ${destination}`);
+}
+
 function cargoConfigSetsTargetDir(projectRoot) {
   let directory = path.resolve(projectRoot);
   while (true) {
@@ -150,7 +192,8 @@ export async function runDesktop({
       config: fs.existsSync(metroConfig) ? metroConfig : undefined,
     });
   }
-  autolink({ projectRoot });
+  const rnConfig = autolink({ projectRoot });
+  copyFontAssets(projectRoot, bundlePath, rnConfig);
 
   const appCargoManifest = path.join(desktopRoot, 'Cargo.toml');
   if (!fs.existsSync(appCargoManifest)) {

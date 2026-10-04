@@ -10,9 +10,11 @@ use gpui::{
 };
 use rn_gpui_sys::ffi::{MeasureResult, ParagraphFlat, TextFragmentFlat};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     hash::Hash,
-    sync::{Arc, Mutex, OnceLock},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock, RwLock},
 };
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -81,7 +83,253 @@ struct TextService {
 }
 
 static TEXT_SERVICE: OnceLock<Arc<TextService>> = OnceLock::new();
+static FONT_ALIASES: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+static FONT_DATA: OnceLock<RwLock<HashMap<String, Arc<Vec<u8>>>>> = OnceLock::new();
 const MAX_CACHED_PARAGRAPHS: usize = 256;
+
+fn font_aliases() -> &'static RwLock<HashMap<String, String>> {
+    FONT_ALIASES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn font_data() -> &'static RwLock<HashMap<String, Arc<Vec<u8>>>> {
+    FONT_DATA.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn normalized_font_name(name: &str) -> String {
+    name.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn remember_font(alias: &str, path: Option<&Path>, bytes: &[u8]) {
+    let mut keys = vec![normalized_font_name(alias)];
+    if let Some(stem) = path
+        .and_then(Path::file_stem)
+        .and_then(|stem| stem.to_str())
+    {
+        let stem = normalized_font_name(stem);
+        keys.push(stem.clone());
+        for suffix in [
+            "regular",
+            "semibold",
+            "bold",
+            "extrabold",
+            "light",
+            "medium",
+        ] {
+            if let Some(base) = stem.strip_suffix(suffix) {
+                keys.push(base.to_owned());
+            }
+        }
+    }
+    let bytes = Arc::new(bytes.to_vec());
+    let mut fonts = font_data()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for key in keys.into_iter().filter(|key| !key.is_empty()) {
+        fonts.insert(key, bytes.clone());
+    }
+}
+
+fn supported_font_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "ttf" | "otf"))
+}
+
+fn collect_font_files(directory: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_font_files(&path, files);
+        } else if supported_font_file(&path) {
+            files.push(path);
+        }
+    }
+}
+
+/// Register fonts bundled by the desktop CLI and expose runtime font loading
+/// to the out-of-tree `@react-native-gpui/fonts` TurboModule.
+pub(crate) fn install_fonts(cx: &mut App) {
+    let directory = std::env::var_os("RN_GPUI_ASSETS_DIR")
+        .map(PathBuf::from)
+        .map(|assets| assets.join("fonts"));
+    if let Some(directory) = directory {
+        let mut files = Vec::new();
+        collect_font_files(&directory, &mut files);
+        files.sort();
+        if files.is_empty() {
+            log::debug!("no desktop font assets found at {}", directory.display());
+        } else {
+            let fonts = files
+                .iter()
+                .filter_map(|path| {
+                    let bytes = std::fs::read(path).ok()?;
+                    let alias = path.file_stem()?.to_str()?;
+                    remember_font(alias, Some(path), &bytes);
+                    Some(Cow::Owned(bytes))
+                })
+                .collect();
+            match cx.text_system().add_fonts(fonts) {
+                Ok(()) => log::info!("registered {} bundled desktop font(s)", files.len()),
+                Err(error) => log::warn!("failed to register desktop font assets: {error:#}"),
+            }
+        }
+    }
+    let text_system = cx.text_system().clone();
+    let _ = rn_gpui_sys::FONT_LOAD_HANDLER.set(Box::new(move |family, uri| {
+        let Some(bytes) = load_font_source(uri) else {
+            return false;
+        };
+        install_custom_font(&text_system, family, &bytes)
+    }));
+    let _ = rn_gpui_sys::FONT_ICON_HANDLER.set(Box::new(render_font_icon));
+}
+
+fn load_font_source(uri: &str) -> Option<Vec<u8>> {
+    if uri.starts_with("https://") || uri.starts_with("http://") {
+        use futures::io::AsyncReadExt;
+        use http_client::HttpClient;
+
+        let client = reqwest_client::ReqwestClient::new();
+        let mut response =
+            futures::executor::block_on(client.get(uri, http_client::AsyncBody::empty(), true))
+                .map_err(|error| log::warn!("failed to fetch font URI {uri}: {error:#}"))
+                .ok()?;
+        if !response.status().is_success() {
+            log::warn!("font URI {uri} returned HTTP {}", response.status());
+            return None;
+        }
+        let mut bytes = Vec::new();
+        futures::executor::block_on(response.body_mut().read_to_end(&mut bytes))
+            .map_err(|error| log::warn!("failed to read font URI {uri}: {error}"))
+            .ok()?;
+        return Some(bytes);
+    }
+
+    let path = crate::image_loader::file_uri_path(uri).unwrap_or_else(|| PathBuf::from(uri));
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            log::warn!("failed to read font file {}: {error}", path.display());
+            None
+        }
+    }
+}
+
+fn install_custom_font(text_system: &gpui::TextSystem, alias: &str, bytes: &[u8]) -> bool {
+    if alias.trim().is_empty() || bytes.is_empty() {
+        return false;
+    }
+    let before = text_system.all_font_names();
+    if let Err(error) = text_system.add_fonts(vec![Cow::Owned(bytes.to_vec())]) {
+        log::warn!("could not add runtime font {alias}: {error:#}");
+        return false;
+    }
+    let names = text_system.all_font_names();
+    let family = names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(alias))
+        .or_else(|| {
+            names.iter().find(|name| {
+                !before.iter().any(|previous| previous == *name)
+                    && name
+                        .to_ascii_lowercase()
+                        .contains(&alias.to_ascii_lowercase())
+            })
+        })
+        .cloned()
+        .unwrap_or_else(|| alias.to_owned());
+    font_aliases()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(alias.to_owned(), family);
+    remember_font(alias, None, bytes);
+    log::info!("registered runtime font {alias}");
+    if let Some(service) = TEXT_SERVICE.get() {
+        service
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+    true
+}
+
+fn render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> String {
+    use base64::Engine;
+    use image::ImageEncoder;
+
+    if !font_size.is_finite() || font_size <= 0.0 || font_size > 512.0 {
+        return String::new();
+    }
+    let key = normalized_font_name(family);
+    let bytes = font_data()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key)
+        .cloned();
+    let Some(bytes) = bytes else {
+        log::warn!("icon font {family} is not loaded");
+        return String::new();
+    };
+    let Ok(font) = fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default())
+    else {
+        log::warn!("could not parse icon font {family}");
+        return String::new();
+    };
+    let Some(glyph) = glyph.chars().next() else {
+        return String::new();
+    };
+    let (metrics, coverage) = font.rasterize(glyph, font_size as f32);
+    if metrics.width == 0 || metrics.height == 0 {
+        return String::new();
+    }
+    let red = (color >> 16) as u8;
+    let green = (color >> 8) as u8;
+    let blue = color as u8;
+    let opacity = (color >> 24) as u8;
+    // Keep the complete glyph bitmap inside the source image with a small
+    // transparent edge. Some icon fonts have glyphs wider than their em size;
+    // returning the tight bitmap makes Image's default fill crop their sides.
+    let requested_size = (font_size.ceil() as usize).max(1);
+    let width = requested_size.max(metrics.width.saturating_add(4));
+    let height = requested_size.max(metrics.height);
+    let left = (width - metrics.width) / 2;
+    let top = (height - metrics.height) / 2;
+    let mut rgba = vec![0; width * height * 4];
+    for (index, alpha) in coverage.into_iter().enumerate() {
+        let source_x = index % metrics.width;
+        let source_y = index / metrics.width;
+        let target = ((top + source_y) * width + left + source_x) * 4;
+        rgba[target..target + 4].copy_from_slice(&[
+            red,
+            green,
+            blue,
+            ((u16::from(alpha) * u16::from(opacity) + 127) / 255) as u8,
+        ]);
+    }
+    let mut png = std::io::Cursor::new(Vec::new());
+    if image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(
+            &rgba,
+            width as u32,
+            height as u32,
+            image::ExtendedColorType::Rgba8,
+        )
+        .is_err()
+    {
+        return String::new();
+    }
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+    )
+}
 
 fn font_size_of(size: f32) -> f32 {
     if size.is_finite() && size > 0.0 {
@@ -92,10 +340,16 @@ fn font_size_of(size: f32) -> f32 {
 }
 
 fn font_of(fragment: &TextFragmentFlat) -> Font {
-    let family = if fragment.font_family.is_empty() {
+    let family = font_aliases()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&fragment.font_family)
+        .cloned()
+        .unwrap_or_else(|| fragment.font_family.clone());
+    let family = if family.is_empty() {
         ".SystemUIFont"
     } else {
-        fragment.font_family.as_str()
+        family.as_str()
     };
     let mut font = font(family);
     font.weight = FontWeight(fragment.font_weight as f32);

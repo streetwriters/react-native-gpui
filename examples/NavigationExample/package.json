@@ -12,12 +12,15 @@
     "nav:nested": "../../tester/scripts/probe.sh nav-nested"
   },
   "dependencies": {
+    "@react-native-gpui/fonts": "file:../../packages/@react-native-gpui/fonts",
     "@react-native-gpui/gesture-handler": "file:../../packages/@react-native-gpui/gesture-handler",
     "@react-native-gpui/reanimated": "file:../../packages/@react-native-gpui/reanimated",
     "@react-native-gpui/safe-area-context": "file:../../packages/@react-native-gpui/safe-area-context",
     "@react-native-gpui/screens": "file:../../packages/@react-native-gpui/screens",
     "@react-native-gpui/svg": "file:../../packages/@react-native-gpui/svg",
     "@react-native-gpui/worklets": "file:../../packages/@react-native-gpui/worklets",
+    "@react-native-vector-icons/common": "^11.0.0",
+    "@react-native/assets-registry": "^0.87.1",
     "@react-navigation/bottom-tabs": "7.20.0",
     "@react-navigation/drawer": "7.14.3",
     "@react-navigation/native": "7.5.0",

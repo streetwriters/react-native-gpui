@@ -191,6 +191,13 @@ pub mod ffi {
     extern "Rust" {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
+        fn rn_gpui_load_font(family: &str, uri: &str) -> bool;
+        fn rn_gpui_render_font_icon(
+            family: &str,
+            glyph: &str,
+            font_size: f64,
+            color: u32,
+        ) -> String;
         /// Called on the JS/Fabric thread. Must not block, must not touch GPUI.
         fn rn_gpui_on_mount(batch: MountBatch);
         /// Called by RN's synchronous native animated props path.
@@ -306,6 +313,22 @@ pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
 pub static IMAGE_CACHE_QUERY_HANDLER: OnceLock<ImageCacheQueryHandler> = OnceLock::new();
+pub type FontLoadHandler = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
+pub type FontIconHandler = Box<dyn Fn(&str, &str, f64, u32) -> String + Send + Sync>;
+pub static FONT_LOAD_HANDLER: OnceLock<FontLoadHandler> = OnceLock::new();
+pub static FONT_ICON_HANDLER: OnceLock<FontIconHandler> = OnceLock::new();
+
+fn rn_gpui_load_font(family: &str, uri: &str) -> bool {
+    FONT_LOAD_HANDLER
+        .get()
+        .is_some_and(|handler| handler(family, uri))
+}
+
+fn rn_gpui_render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> String {
+    FONT_ICON_HANDLER.get().map_or_else(String::new, |handler| {
+        handler(family, glyph, font_size, color)
+    })
+}
 
 fn rn_gpui_load_image(uri: String, request_id: u64) {
     if let Some(handler) = IMAGE_HANDLER.get() {
