@@ -1,4 +1,8 @@
-get_filename_component(_gpui_app_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+if(NOT RN_GPUI_PROJECT_ROOT)
+  get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+endif()
+get_filename_component(_gpui_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
 set(_safe_area_root "${_gpui_app_root}/node_modules/react-native-safe-area-context")
 set(_safe_area_common "${_safe_area_root}/common/cpp")
 set(_safe_area_shadow_node "${_safe_area_common}/react/renderer/components/safeareacontext/RNCSafeAreaViewShadowNode.cpp")
@@ -18,7 +22,7 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/cpp/GPUISafeAreaContextModule.cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_safe_area_common}"
-  "${_gpui_app_root}/packages/react-native-gpui/ReactCxxPlatform"
+  "${_gpui_repo_root}/packages/react-native-gpui/ReactCxxPlatform"
   "${CMAKE_CURRENT_LIST_DIR}/cpp")
 set_property(GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT TRUE)
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS

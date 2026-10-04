@@ -22,6 +22,7 @@ function componentConfigFor(dependencyName, gpui) {
   const headers = gpui.componentHeaders ?? [];
   const sources = gpui.componentSources ?? [];
   const includeDirs = gpui.componentIncludeDirs ?? [];
+  const sourcePackage = gpui.componentSourcePackage;
   if (
     !Array.isArray(descriptors) ||
     !descriptors.every(
@@ -71,7 +72,16 @@ function componentConfigFor(dependencyName, gpui) {
       `${dependencyName}: platforms.gpui.componentIncludeDirs must be an array of paths`,
     );
   }
-  return { descriptors, headers, sources, includeDirs };
+  if (
+    sourcePackage !== undefined &&
+    (typeof sourcePackage !== 'string' ||
+      !/^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]+$/u.test(sourcePackage))
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.componentSourcePackage must be a package name`,
+    );
+  }
+  return { descriptors, headers, sources, includeDirs, sourcePackage };
 }
 
 function generateComponentCodegen({
@@ -299,6 +309,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     const gpui = dependency.platforms?.gpui;
     if (!gpui) continue;
     const componentConfig = componentConfigFor(dependencyName, gpui);
+    const componentSourceRoot = componentConfig.sourcePackage
+      ? path.dirname(
+          appRequire.resolve(`${componentConfig.sourcePackage}/package.json`),
+        )
+      : root;
     for (const descriptor of componentConfig.descriptors) {
       const previousDependency = componentNames.get(descriptor);
       if (previousDependency) {
@@ -328,7 +343,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
     appComponentSources.push(
       ...generatedCodegen.sources,
-      ...componentConfig.sources.map(source => path.resolve(root, source)),
+      ...componentConfig.sources.map(source =>
+        path.resolve(componentSourceRoot, source),
+      ),
     );
     if (generatedCodegen.sources.length > 0 && generatedCodegen.libraryName) {
       appComponentIncludeDirs.push(
@@ -337,7 +354,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
     appComponentIncludeDirs.push(
       ...componentConfig.includeDirs.map(directory =>
-        path.resolve(root, directory),
+        path.resolve(componentSourceRoot, directory),
       ),
     );
     const specDirectory =
@@ -629,4 +646,5 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   console.log(
     `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), and ${cmakeProjects.length} CMake project(s).`,
   );
+  return config;
 }

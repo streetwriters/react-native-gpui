@@ -126,6 +126,12 @@ fn main() {
     let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.cmake"));
+    let project_root = autolink_cmake
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .unwrap_or(&repo_root)
+        .to_path_buf();
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
     println!("cargo:rerun-if-changed={}", autolink_cmake.display());
@@ -230,6 +236,7 @@ fn main() {
         .define("RN_GPUI_CXXBRIDGE_INCLUDE_DIR", &cxxbridge_include)
         .define("RN_GPUI_GENERATED_RNCORE_DIR", &generated_rncore)
         .define("RN_GPUI_GENERATED_MODULES_DIR", &generated_module_dir)
+        .define("RN_GPUI_PROJECT_ROOT", &project_root)
         .define("RN_GPUI_AUTOLINK_CMAKE", autolink_cmake)
         .define("RN_GPUI_NODE_API_PACKAGE_DIR", node_api_package_dir)
         .define(

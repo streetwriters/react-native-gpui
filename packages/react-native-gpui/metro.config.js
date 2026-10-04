@@ -22,6 +22,7 @@
 const path = require('path');
 
 const fs = require('fs');
+const { createRequire } = require('module');
 
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
@@ -473,6 +474,10 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   }
   const nodeModulesPaths = [];
   const platformPackageDirs = [];
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  const appPackage = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
+  );
   try {
     platformPackageDirs.push(
       path.dirname(
@@ -488,6 +493,20 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     );
   } catch {
     // Screens is optional for apps that do not use native-stack.
+  }
+  const gpuiPackages = new Set([
+    ...Object.keys(appPackage.dependencies ?? {}),
+    ...Object.keys(appPackage.devDependencies ?? {}),
+  ]);
+  for (const packageName of gpuiPackages) {
+    if (!packageName.startsWith('@react-native-gpui/')) continue;
+    try {
+      platformPackageDirs.push(
+        path.dirname(appRequire.resolve(`${packageName}/package.json`)),
+      );
+    } catch {
+      // Optional GPUI packages contribute Metro sources only when installed.
+    }
   }
   for (let directory = projectRoot; ; directory = path.dirname(directory)) {
     const candidate = path.join(directory, 'node_modules');

@@ -9,6 +9,7 @@
     "packages/@react-native-gpui/codegen",
     "packages/@react-native-gpui/worklets",
     "packages/@react-native-gpui/reanimated",
+    "packages/@react-native-gpui/svg",
     "packages/@react-native-gpui/gesture-handler",
     "packages/@react-native-gpui/screens",
     "tester",
@@ -33,7 +34,8 @@
     "react": "19.2.3",
     "react-native": "0.87.1",
     "react-native-node-api": "file:.local/react-native-node-api-gpui.tgz",
-    "weak-node-api": "file:.local/weak-node-api-0.1.1.tgz"
+    "weak-node-api": "file:.local/weak-node-api-0.1.1.tgz",
+    "react-native-svg": "15.15.5"
   },
   "engines": {
     "node": ">=22.13.0"

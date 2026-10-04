@@ -13,7 +13,6 @@ cmake_minimum_required(VERSION 3.13)
 project(rn_gpui_core CXX C)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 # --- paths -----------------------------------------------------------------
 
 # <repo>/node_modules/react-native/ReactCommon
@@ -413,6 +412,11 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
+get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+  target_include_directories(rn_gpui_core PRIVATE "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
+  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SVG=1)
+endif()
 if(TARGET weak-node-api)
   target_compile_definitions(rn_gpui_core PRIVATE
     RN_GPUI_HAS_NODE_API=1

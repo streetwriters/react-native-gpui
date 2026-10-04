@@ -1,4 +1,8 @@
-get_filename_component(_gpui_app_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+if(NOT RN_GPUI_PROJECT_ROOT)
+  get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+endif()
+get_filename_component(_gpui_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
 set(_reanimated_root "${_gpui_app_root}/node_modules/react-native-reanimated")
 set(_reanimated_common "${_reanimated_root}/Common/cpp")
 set(_worklets_common "${_gpui_app_root}/node_modules/react-native-worklets/Common/cpp")
@@ -49,7 +53,7 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_reanimated_root}"
   "${_worklets_common}"
   "${_rn_codegen}"
-  "${_gpui_app_root}/packages/@react-native-gpui/worklets/gpui/cpp")
+  "${_gpui_repo_root}/packages/@react-native-gpui/worklets/gpui/cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_DEFINITIONS
   "REANIMATED_VERSION=4.7.1"
   "REANIMATED_FEATURE_FLAGS=\"${_reanimated_feature_flags}\"")

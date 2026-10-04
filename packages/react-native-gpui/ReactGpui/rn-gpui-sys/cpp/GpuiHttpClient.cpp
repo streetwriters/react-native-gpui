@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 
 #include <folly/io/IOBuf.h>
+#include <glog/logging.h>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -184,6 +185,7 @@ void performRequest(
   }
 
   curl_easy_setopt(curl.handle, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl.handle, CURLOPT_USERAGENT, "react-native-gpui/0.1");
   curl_easy_setopt(curl.handle, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_ACCEPT_ENCODING, "");
@@ -225,7 +227,10 @@ void performRequest(
     return;
   }
   if (result != CURLE_OK) {
-    complete(curl_easy_strerror(result), result == CURLE_OPERATION_TIMEDOUT);
+    const auto error = curl_easy_strerror(result);
+    LOG(ERROR) << "[gpui-http] " << method << " " << url
+               << " failed: " << error;
+    complete(error, result == CURLE_OPERATION_TIMEDOUT);
     return;
   }
 
@@ -236,7 +241,10 @@ void performRequest(
   if (responseCode < 200 || responseCode >= 300) {
     // Deliberately no onBody(): a caller such as downloadBundleResourceSync()
     // treats the body as the script to load, and an error page is not a script.
-    complete("HTTP " + std::to_string(responseCode) + " from " + url, false);
+    const auto error = "HTTP " + std::to_string(responseCode) + " from " + url;
+    LOG(ERROR) << "[gpui-http] " << method << " " << url
+               << " failed: " << error;
+    complete(error, false);
     return;
   }
 

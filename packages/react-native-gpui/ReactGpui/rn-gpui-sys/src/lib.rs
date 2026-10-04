@@ -124,6 +124,7 @@ pub mod ffi {
         pub component: String,         // "View", "Paragraph", "Image", "ScrollView", ...
         pub native_view_name: String,  // Registered NativeViewFactory key
         pub native_view_props: String, // JSON object supplied to the native view factory
+        pub svg_props_json: String,    // Serialized upstream react-native-svg Fabric props
         pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,

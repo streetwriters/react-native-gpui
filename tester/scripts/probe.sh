@@ -14,7 +14,7 @@ APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/rn-gpui-desktoptemplatesmo
 
 usage() {
   echo "Usage: npm run probe -- [--bundle-only] <ProbeName>" >&2
-  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, PanResponderProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error" >&2
+  echo "Probes: TextInputProbe, TransformProbe, NativeAnimatedProbe, CoreModulesProbe, DimensionsProbe, AccessibilityProbe, AppearanceProbe, BorderProbe, ModalProbe, Phase3AcceptanceProbe, Phase4CompositionProbe, Phase4WebViewProbe, GpuiComponentRegistryProbe, PanResponderProbe, nav-safe-area, nav-tabs, nav-stack, nav-drawer, nav-native-stack, nav-nested, nav-worklet-error, nav-svg, nav-fonts" >&2
   exit 2
 }
 
@@ -120,7 +120,7 @@ case "${PROBE}" in
     export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-2000}"
     export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1000}"
     ;;
-  nav-safe-area|nav-titlebar|nav-tabs|nav-stack|nav-drawer|nav-drawer-back|nav-drawer-drag|nav-native-stack|nav-native-stack-hidden|nav-native-stack-lifecycle|nav-native-stack-modal|nav-native-stack-transparent-modal|nav-native-stack-overlay|nav-native-stack-unsupported|nav-nested|nav-worklet-error|nav-gesture-native|nav-gesture-tap|nav-gesture-longpress|nav-gesture-buttons|nav-gesture-relations)
+  nav-safe-area|nav-titlebar|nav-tabs|nav-stack|nav-drawer|nav-drawer-back|nav-drawer-drag|nav-native-stack|nav-native-stack-hidden|nav-native-stack-lifecycle|nav-native-stack-modal|nav-native-stack-transparent-modal|nav-native-stack-overlay|nav-native-stack-unsupported|nav-nested|nav-worklet-error|nav-gesture-native|nav-gesture-tap|nav-gesture-longpress|nav-gesture-buttons|nav-gesture-relations|nav-svg|nav-fonts)
     APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"
     APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
     APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/react-native-gpui-navigationexample"
@@ -133,6 +133,18 @@ case "${PROBE}" in
     SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}.png"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
     case "${PROBE}" in
+      nav-svg)
+        ENTRY_FILE=entries/svg.tsx
+        export RN_GPUI_DEBUG_SVG=1
+        RUST_LOG_DEFAULT=info,rn_gpui=debug
+        SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-svg.png
+        ;;
+      nav-fonts)
+        ENTRY_FILE=entries/fonts.tsx
+        SCREENSHOTS_DEFAULT=5000:/tmp/rn-gpui-fonts.png
+        mkdir -p "${ASSETS_DIR}/assets/fonts"
+        cp "${APP_PROJECT_ROOT}"/desktop/assets/fonts/*.ttf "${ASSETS_DIR}/assets/fonts/"
+        ;;
       nav-gesture-native)
         ENTRY_FILE=entries/nav-gesture-native.tsx
         BUNDLE="${RN_GPUI_NATIVE_GESTURE_BUNDLE:-/tmp/rn-gpui-native-gesture-probe.bundle}"
