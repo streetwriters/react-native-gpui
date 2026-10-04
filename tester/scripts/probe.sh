@@ -120,7 +120,7 @@ case "${PROBE}" in
     export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-2000}"
     export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1000}"
     ;;
-  nav-safe-area|nav-tabs|nav-stack|nav-drawer|nav-native-stack|nav-nested|nav-worklet-error)
+  nav-safe-area|nav-titlebar|nav-tabs|nav-stack|nav-drawer|nav-drawer-back|nav-drawer-drag|nav-native-stack|nav-native-stack-hidden|nav-native-stack-lifecycle|nav-native-stack-modal|nav-native-stack-transparent-modal|nav-native-stack-overlay|nav-native-stack-unsupported|nav-nested|nav-worklet-error|nav-gesture-native|nav-gesture-tap|nav-gesture-longpress|nav-gesture-buttons|nav-gesture-relations)
     APP_PROJECT_ROOT="${REPO_ROOT}/examples/NavigationExample"
     APP_DESKTOP_ROOT="${APP_PROJECT_ROOT}/desktop"
     APP="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}/release/react-native-gpui-navigationexample"
@@ -133,6 +133,52 @@ case "${PROBE}" in
     SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}.png"
     export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
     case "${PROBE}" in
+      nav-gesture-native)
+        ENTRY_FILE=entries/nav-gesture-native.tsx
+        BUNDLE="${RN_GPUI_NATIVE_GESTURE_BUNDLE:-/tmp/rn-gpui-native-gesture-probe.bundle}"
+        ASSETS_DIR=/tmp/rn-gpui-native-gesture-assets
+        SCREENSHOTS_DEFAULT=8500:/tmp/rn-gpui-native-gesture.png
+        export RN_GPUI_DRAG="${RN_GPUI_DRAG:-100,260:300,260;300,300:300,400}"
+        export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-3000}"
+        RUST_LOG_DEFAULT=info,rn_gpui=debug
+        ;;
+      nav-gesture-tap|nav-gesture-longpress)
+        ENTRY_FILE=entries/nav-gesture-basic.tsx
+        BUNDLE="/tmp/rn-gpui-${PROBE}.bundle"
+        ASSETS_DIR="/tmp/rn-gpui-${PROBE}-assets"
+        SCREENSHOTS_DEFAULT="5000:/tmp/rn-gpui-${PROBE}.png"
+        export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+        if [[ "${PROBE}" == nav-gesture-tap ]]; then
+          export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,310}"
+          export RN_GPUI_CLICK_HOLD_MS=0
+        else
+          export RN_GPUI_CLICK="${RN_GPUI_CLICK:-500,310}"
+          export RN_GPUI_CLICK_HOLD_MS=800
+        fi
+        RUST_LOG_DEFAULT=info,rn_gpui=debug
+        ;;
+      nav-gesture-buttons)
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-120,160;120,250}"
+        export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+        RUST_LOG_DEFAULT=info,rn_gpui=debug
+        ;;
+      nav-gesture-relations)
+        ENTRY_FILE=entries/nav-gesture-relations.tsx
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,310}"
+        export RN_GPUI_CLICK_MS="${RN_GPUI_CLICK_MS:-1500}"
+        export RN_GPUI_DRAG="${RN_GPUI_DRAG:-200,310:350,410}"
+        export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-2500}"
+        export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1000}"
+        SCREENSHOTS_DEFAULT=6000:/tmp/rn-gpui-nav-gesture-relations.png
+        RUST_LOG_DEFAULT=info,rn_gpui=debug
+        ;;
+      nav-titlebar)
+        ENTRY_FILE=entries/nav-native-stack.tsx
+        export RN_GPUI_TRANSPARENT_TITLEBAR=1
+        export RN_GPUI_TITLEBAR_TOGGLE_MS="${RN_GPUI_TITLEBAR_TOGGLE_MS:-2500}"
+        export RN_GPUI_FULLSCREEN_MS="${RN_GPUI_FULLSCREEN_MS:-7500}"
+        SCREENSHOTS_DEFAULT="1500:/tmp/rn-gpui-titlebar.png;9000:/tmp/rn-gpui-titlebar-fullscreen.png;12500:/tmp/rn-gpui-titlebar-restored.png"
+        ;;
       nav-safe-area)
         export RN_GPUI_RESIZE_MS="${RN_GPUI_RESIZE_MS:-2500}"
         export RN_GPUI_RESIZE_WIDTH="${RN_GPUI_RESIZE_WIDTH:-900}"
@@ -147,11 +193,69 @@ case "${PROBE}" in
         export RN_GPUI_SCROLL_START_MS="${RN_GPUI_SCROLL_START_MS:-3900}"
         ;;
       nav-stack)
-        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160;200,138;28,28;28,28}"
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,180;200,180}"
+        export RN_GPUI_MOUSE_NAV="${RN_GPUI_MOUSE_NAV:-back;forward}"
+        export RN_GPUI_MOUSE_NAV_MS="${RN_GPUI_MOUSE_NAV_MS:-4500}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-cmd-[;cmd-]}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-6000}"
+        SCREENSHOTS_DEFAULT=13500:/tmp/rn-gpui-nav-stack.png
         ;;
-      nav-drawer) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-25,28;600,200;25,28;65,90}" ;;
-      nav-native-stack) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,160}" ;;
-      nav-nested) export RN_GPUI_CLICK="${RN_GPUI_CLICK:-45,58;85,170}" ;;
+      nav-drawer-back)
+        ENTRY_FILE=entries/nav-drawer.tsx
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-25,28;25,28}"
+        export RN_GPUI_MOUSE_NAV=back
+        export RN_GPUI_MOUSE_NAV_MS=2500
+        export RN_GPUI_KEY='cmd-['
+        export RN_GPUI_KEY_MS=4500
+        SCREENSHOTS_DEFAULT=6000:/tmp/rn-gpui-nav-drawer-back.png
+        ;;
+      nav-drawer)
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-25,28;600,200;25,28;65,90}"
+        ;;
+      nav-drawer-drag)
+        ENTRY_FILE=entries/nav-drawer.tsx
+        export RN_GPUI_DRAG="${RN_GPUI_DRAG:-10,400:500,400;500,400:10,400}"
+        export RN_GPUI_DRAG_START_MS="${RN_GPUI_DRAG_START_MS:-1800}"
+        export RN_GPUI_DRAG_MS="${RN_GPUI_DRAG_MS:-1600}"
+        SCREENSHOTS_DEFAULT=7000:/tmp/rn-gpui-nav-drawer-drag.png
+        ;;
+      nav-native-stack)
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,185;200,185;200,185;200,185;16,30;16,30}"
+        export RN_GPUI_MOUSE_NAV="${RN_GPUI_MOUSE_NAV:-back}"
+        export RN_GPUI_MOUSE_NAV_MS="${RN_GPUI_MOUSE_NAV_MS:-10500}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-cmd-[}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-12000}"
+        SCREENSHOTS_DEFAULT=15500:/tmp/rn-gpui-nav-native-stack.png
+        ;;
+      nav-native-stack-lifecycle)
+        ENTRY_FILE=entries/nav-native-stack.tsx
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,185}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-escape}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-3500}"
+        SCREENSHOTS_DEFAULT=5200:/tmp/rn-gpui-nav-native-stack-lifecycle.png
+        ;;
+      nav-native-stack-modal|nav-native-stack-transparent-modal)
+        ENTRY_FILE="entries/${PROBE}.tsx"
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,185}"
+        export RN_GPUI_KEY="${RN_GPUI_KEY:-escape}"
+        export RN_GPUI_KEY_MS="${RN_GPUI_KEY_MS:-3500}"
+        SCREENSHOTS_DEFAULT="3000:/tmp/rn-gpui-${PROBE}-presented.png;5200:/tmp/rn-gpui-${PROBE}-dismissed.png"
+        ;;
+      nav-native-stack-hidden)
+        ENTRY_FILE=entries/nav-native-stack-hidden.tsx
+        export RN_GPUI_CLICK="${RN_GPUI_CLICK:-200,135}"
+        SCREENSHOTS_DEFAULT="1000:/tmp/rn-gpui-hidden-header.png;5000:/tmp/rn-gpui-hidden-header-after-push.png"
+        ;;
+      nav-nested)
+        export RN_GPUI_SCROLL="500,400,0,-500"
+        export RN_GPUI_SCROLL_MS=1000
+        export RN_GPUI_CLICK=""
+        export RN_GPUI_MOUSE_NAV='back;back'
+        export RN_GPUI_MOUSE_NAV_MS=4000
+        export RN_GPUI_KEY='cmd-[;cmd-['
+        export RN_GPUI_KEY_MS=5500
+        SCREENSHOTS_DEFAULT=13500:/tmp/rn-gpui-nav-nested.png
+        ;;
     esac
     export RN_GPUI_WIDTH="${RN_GPUI_WIDTH:-1200}"
     export RN_GPUI_HEIGHT="${RN_GPUI_HEIGHT:-800}"
@@ -177,6 +281,7 @@ if [[ "${BUNDLE_ONLY}" == "1" ]]; then
   exit 0
 fi
 
+if [[ "${RN_GPUI_SKIP_NATIVE_BUILD:-0}" != "1" ]]; then
 PATH="${BUILD_PATH_PREFIX:+${BUILD_PATH_PREFIX}:}${PATH}" \
 RN_GPUI_AUTOLINK_MANIFEST="${APP_DESKTOP_ROOT}/autolink/autolink.json" \
 RN_GPUI_AUTOLINK_CMAKE="${APP_DESKTOP_ROOT}/autolink/autolink.cmake" \
@@ -184,6 +289,10 @@ CCACHE_DISABLE=1 cargo build \
   --release \
   --manifest-path "${APP_DESKTOP_ROOT}/Cargo.toml" \
   --features visual-capture
+elif [[ ! -x "${APP}" ]]; then
+  echo "Missing prebuilt app: ${APP}" >&2
+  exit 1
+fi
 
 export RN_GPUI_MODULE="${MODULE}"
 export RN_GPUI_SOURCE_URL="${ENTRY_FILE%.js}"
@@ -201,6 +310,22 @@ else
 fi
 
 printf 'Launching %s. The app remains open after capture.\n' "${MODULE}"
+# Keep only the freshly built instance visible. Match the exact app executable
+# and its optional caffeinate wrapper; do not kill other GPUI examples.
+existing_app_pids() {
+  ps -axo pid=,command= | awk -v app="${APP}" \
+    '$2 == app || ($2 ~ /caffeinate$/ && $NF == app) { print $1 }'
+}
+old_pids="$(existing_app_pids)"
+if [[ -n "${old_pids}" ]]; then
+  while IFS= read -r pid; do
+    kill "${pid}" 2>/dev/null || true
+  done <<< "${old_pids}"
+  for _ in {1..20}; do
+    [[ -z "$(existing_app_pids)" ]] && break
+    sleep 0.1
+  done
+fi
 if command -v caffeinate >/dev/null 2>&1; then
   exec caffeinate -d -u "${APP}"
 fi

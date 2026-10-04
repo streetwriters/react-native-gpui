@@ -1,19 +1,21 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   FlatList,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 import {
   DarkTheme,
+  DrawerActions,
   NavigationContainer,
   useFocusEffect,
   type DrawerNavigationState,
   type ParamListBase,
   type Theme,
+  useNavigationContainerRef,
 } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -31,17 +33,17 @@ import {
   useSafeAreaFrame,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { enableScreens } from 'react-native-screens';
-
-// react-native-screens does not currently list GPUI as a native platform.
-// Keep JS navigators available while Step 5 builds the GPUI native-stack port.
-if (!['ios', 'android', 'windows'].includes(Platform.OS)) {
-  enableScreens(false);
-}
+import {
+  enableScreens,
+  FullWindowOverlay,
+  ScreenFooter,
+} from 'react-native-screens';
+import { useDesktopForwardNavigation } from 'react-native-gpui/navigation';
 
 const scenario =
   (globalThis as { __RN_GPUI_NAV_SCENARIO__?: string })
     .__RN_GPUI_NAV_SCENARIO__ ?? 'tabs';
+enableScreens(scenario.startsWith('native-stack'));
 const APP_BACKGROUND = '#171923';
 const navigationTheme: Theme = {
   ...DarkTheme,
@@ -112,7 +114,16 @@ function Page({
 }>) {
   useRouteTrace(name);
   return (
-    <SafeAreaView style={styles.page}>
+    <SafeAreaView
+      style={[
+        styles.page,
+        (scenario === 'native-stack-modal' ||
+          scenario === 'native-stack-transparent-modal') &&
+        name.startsWith('Details')
+          ? { backgroundColor: 'transparent' }
+          : null,
+      ]}
+    >
       <Text style={styles.title}>{name}</Text>
       <Text style={styles.description}>
         This screen keeps its background and text colors consistent while you
@@ -156,9 +167,18 @@ function DetailsScreen({ route, navigation }: { route: any; navigation: any }) {
 function ListScreen({ navigation }: { navigation: any }) {
   useRouteTrace('List');
   const [value, setValue] = useState('Navigation input state');
+  const listScroll = useRef(0);
+  useEffect(() => {
+    console.log('[nav] list mounted');
+    return () => {
+      console.log('[nav] list unmounted');
+    };
+  }, []);
   useFocusEffect(
     useCallback(() => {
-      console.log(`[nav] list state input=${value}`);
+      console.log(
+        `[nav] list state input=${value} scroll=${listScroll.current}`,
+      );
     }, [value]),
   );
   return (
@@ -181,11 +201,12 @@ function ListScreen({ navigation }: { navigation: any }) {
       <FlatList
         data={Array.from({ length: 100 }, (_, index) => `Row ${index + 1}`)}
         keyExtractor={item => item}
-        onScroll={event =>
+        onScroll={event => {
+          listScroll.current = event.nativeEvent.contentOffset.y;
           console.log(
             `[nav] scroll offset=${event.nativeEvent.contentOffset.y}`,
-          )
-        }
+          );
+        }}
         scrollEventThrottle={16}
         renderItem={({ item }) => <Text style={styles.row}>{item}</Text>}
       />
@@ -216,7 +237,8 @@ function JsStack() {
           ),
       })}
       screenOptions={{
-        headerMode: Platform.OS === 'gpui' ? 'float' : undefined,
+        gestureEnabled: true,
+        headerMode: 'float',
         headerStyle: { backgroundColor: APP_BACKGROUND },
         headerTintColor: '#ffffff',
         headerTitleStyle: { color: '#ffffff' },
@@ -243,9 +265,68 @@ function JsStack() {
 
 function NativeStackFlow() {
   return (
-    <NativeStack.Navigator>
-      <NativeStack.Screen name="Home" component={HomeScreen} />
-      <NativeStack.Screen name="Details" component={DetailsScreen} />
+    <NativeStack.Navigator
+      screenListeners={({ route }) => ({
+        transitionStart: event =>
+          console.log(
+            `[nav-native] transition start route=${route.name} closing=${event.data.closing}`,
+          ),
+        transitionEnd: event =>
+          console.log(
+            `[nav-native] transition end route=${route.name} closing=${event.data.closing}`,
+          ),
+      })}
+      screenOptions={{
+        headerTitleAlign: 'center',
+        headerRight: () => (
+          <Text
+            style={styles.nativeHeaderAction}
+            onPress={() => console.log('[nav] native header action')}
+          >
+            Action
+          </Text>
+        ),
+      }}
+    >
+      <NativeStack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          headerShown: scenario !== 'native-stack-hidden',
+          animation: 'none',
+        }}
+      />
+      <NativeStack.Screen
+        name="Details"
+        component={DetailsScreen}
+        options={({ route, navigation }) => {
+          const params = route.params as { id?: number } | undefined;
+          const id = params?.id ?? 1;
+          return {
+            title: `Details ${id}`,
+            animation:
+              id === 4 ? 'fade' : id >= 3 ? 'none' : 'slide_from_right',
+            presentation:
+              scenario === 'native-stack-modal'
+                ? 'modal'
+                : scenario === 'native-stack-transparent-modal'
+                  ? 'transparentModal'
+                  : 'card',
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Text
+                style={styles.nativeHeaderBack}
+                onPress={() => {
+                  console.log('[nav] native custom back');
+                  navigation.goBack();
+                }}
+              >
+                ‹
+              </Text>
+            ),
+          };
+        }}
+      />
     </NativeStack.Navigator>
   );
 }
@@ -295,13 +376,56 @@ function NestedFlow() {
   );
 }
 
+function FullWindowOverlayFlow() {
+  return (
+    <View style={{ flex: 1, backgroundColor: APP_BACKGROUND, padding: 24 }}>
+      <Text style={styles.title}>Navigation content behind overlay</Text>
+      <FullWindowOverlay>
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 120,
+            left: 80,
+            padding: 16,
+            backgroundColor: '#2c8f6b',
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 20 }}>
+            Full window overlay above the app
+          </Text>
+        </View>
+      </FullWindowOverlay>
+    </View>
+  );
+}
+
+function UnsupportedScreensFlow() {
+  return (
+    <View style={{ flex: 1, padding: 24, backgroundColor: APP_BACKGROUND }}>
+      <Text style={styles.title}>Unsupported screens component probe</Text>
+      <ScreenFooter>
+        <Text style={{ color: '#fff' }}>ScreenFooter is not implemented</Text>
+      </ScreenFooter>
+    </View>
+  );
+}
+
 function Scenario() {
   switch (scenario) {
+    case 'native-stack-overlay':
+      return <FullWindowOverlayFlow />;
+    case 'native-stack-unsupported':
+      return <UnsupportedScreensFlow />;
     case 'stack':
       return <JsStack />;
     case 'drawer':
       return <DrawerFlow />;
     case 'native-stack':
+    case 'native-stack-hidden':
+    case 'native-stack-lifecycle':
+    case 'native-stack-modal':
+    case 'native-stack-transparent-modal':
       return <NativeStackFlow />;
     case 'nested':
       return <NestedFlow />;
@@ -312,24 +436,81 @@ function Scenario() {
 }
 
 export default function App() {
+  const navigationRef = useNavigationContainerRef<ParamListBase>();
+  useDesktopForwardNavigation(navigationRef);
   return (
     <SafeAreaProvider>
       <NavigationContainer
+        ref={navigationRef}
         theme={navigationTheme}
         onReady={() => {
-          if (scenario === 'stack') {
-            console.log('[nav] stack state route=Home title=Home');
+          if (scenario === 'nested') {
+            const later = (delay: number, action: () => void) =>
+              setTimeout(action, delay);
+            later(500, () =>
+              navigationRef.navigate('Tabs', {
+                screen: 'TabsHome',
+                params: { screen: 'List' },
+              }),
+            );
+            later(1500, () =>
+              navigationRef.navigate('Tabs', {
+                screen: 'Details',
+                params: { id: 1 },
+              }),
+            );
+            later(2500, () =>
+              navigationRef.navigate('Tabs', { screen: 'Modal' }),
+            );
+            later(6500, () =>
+              navigationRef.dispatch(DrawerActions.openDrawer()),
+            );
+          }
+
+          if (
+            scenario === 'stack' ||
+            scenario === 'native-stack' ||
+            scenario === 'native-stack-hidden' ||
+            scenario === 'native-stack-lifecycle' ||
+            scenario === 'native-stack-modal' ||
+            scenario === 'native-stack-transparent-modal'
+          ) {
+            const label = scenario === 'stack' ? 'stack' : 'native-stack';
+            console.log(`[nav] ${label} state route=Home title=Home`);
           }
         }}
         onStateChange={state => {
-          if (scenario === 'stack' && state?.type === 'stack') {
+          if (scenario === 'nested') {
+            let current: any = state;
+            const path = [];
+            while (current?.routes) {
+              const route = current.routes[current.index ?? 0];
+              if (!route) break;
+              path.push(route.name);
+              current = route.state;
+            }
+            console.log(`[nav] nested path=${path.join('/')}`);
+          }
+
+          if (
+            (scenario === 'stack' ||
+              scenario === 'native-stack' ||
+              scenario === 'native-stack-hidden' ||
+              scenario === 'native-stack-lifecycle' ||
+              scenario === 'native-stack-modal' ||
+              scenario === 'native-stack-transparent-modal') &&
+            state?.type === 'stack'
+          ) {
+            const label = scenario === 'stack' ? 'stack' : 'native-stack';
             const route = state.routes[state.index];
             const params = route.params as { id?: number } | undefined;
             const title =
               route.name === 'Details'
                 ? `Details ${params?.id ?? 1}`
                 : route.name;
-            console.log(`[nav] stack state route=${route.name} title=${title}`);
+            console.log(
+              `[nav] ${label} state route=${route.name} title=${title}`,
+            );
           }
           if (state?.type === 'drawer') {
             console.log(
@@ -350,6 +531,13 @@ const styles = StyleSheet.create({
   page: { flex: 1, padding: 24, gap: 16, backgroundColor: APP_BACKGROUND },
   title: { color: '#fff', fontSize: 28, fontWeight: '700' },
   backIcon: { color: '#ffffff', fontSize: 30, lineHeight: 32 },
+  nativeHeaderAction: { color: '#ffffff', fontSize: 14, padding: 12 },
+  nativeHeaderBack: {
+    color: '#ffffff',
+    fontSize: 30,
+    lineHeight: 32,
+    padding: 8,
+  },
   description: { color: '#d5d7e0', fontSize: 16, lineHeight: 24 },
   row: {
     color: '#ddd',

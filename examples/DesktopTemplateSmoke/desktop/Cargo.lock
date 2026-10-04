@@ -4930,6 +4930,7 @@ dependencies = [
  "image",
  "log",
  "objc",
+ "raw-window-handle",
  "reqwest_client",
  "rn-gpui-macros",
  "rn-gpui-sys",
