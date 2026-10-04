@@ -591,6 +591,13 @@ if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
   target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
 endif()
 
+get_property(RN_GPUI_HAS_SCREENS GLOBAL PROPERTY RN_GPUI_HAS_SCREENS)
+if(RN_GPUI_HAS_SCREENS)
+  get_property(RN_GPUI_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
+  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SCREENS=1)
+  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
+endif()
+
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------
 #
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script

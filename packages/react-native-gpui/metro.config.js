@@ -117,6 +117,65 @@ function collectSourceOverrides() {
 }
 
 const GPUI_SOURCE_OVERRIDES = collectSourceOverrides();
+// RNGH's legacy handler path registers only the continuous event in its JS
+// module. GPUI dispatches the codegen state-change event directly, so expose
+// the same direct-event registrations from a GPUI-specific source shim.
+try {
+  const gestureHandlerDir = path.dirname(
+    require.resolve('react-native-gesture-handler/package.json'),
+  );
+  const gestureHandlerEvents = path.join(
+    gestureHandlerDir,
+    'src/handlers/customDirectEventTypes.ts',
+  );
+  const gpuiGestureHandlerEvents = path.join(
+    path.dirname(
+      require.resolve('@react-native-gpui/gesture-handler/package.json'),
+    ),
+    'src/customDirectEventTypes.gpui.ts',
+  );
+  if (fs.existsSync(gpuiGestureHandlerEvents)) {
+    GPUI_SOURCE_OVERRIDES.set(gestureHandlerEvents, gpuiGestureHandlerEvents);
+  }
+  const upstreamGestureButtons = path.join(
+    gestureHandlerDir,
+    'src/v3/components/GestureButtons.tsx',
+  );
+  const gpuiGestureButtons = path.join(
+    path.dirname(
+      require.resolve('@react-native-gpui/gesture-handler/package.json'),
+    ),
+    'src/GestureButtons.gpui.tsx',
+  );
+  if (fs.existsSync(gpuiGestureButtons)) {
+    GPUI_SOURCE_OVERRIDES.set(upstreamGestureButtons, gpuiGestureButtons);
+  }
+} catch {
+  // Gesture Handler is an optional platform package.
+}
+try {
+  const screensDir = path.dirname(
+    require.resolve('react-native-screens/package.json'),
+  );
+  const gpuiScreensCore = path.join(
+    path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
+    'src/core.gpui.ts',
+  );
+  const gpuiFullWindowOverlay = path.join(
+    path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
+    'src/FullWindowOverlay.gpui.tsx',
+  );
+  GPUI_SOURCE_OVERRIDES.set(
+    path.join(screensDir, 'src/core.ts'),
+    gpuiScreensCore,
+  );
+  GPUI_SOURCE_OVERRIDES.set(
+    path.join(screensDir, 'src/components/FullWindowOverlay.tsx'),
+    gpuiFullWindowOverlay,
+  );
+} catch {
+  // Screens is optional for apps that do not use native-stack.
+}
 if (GPUI_SOURCE_OVERRIDES.size > 0) {
   const files = [...new Set(GPUI_SOURCE_OVERRIDES.values())];
   console.log(
@@ -133,7 +192,42 @@ function applySourceOverride(resolution) {
     return resolution;
   }
 
-  const override = GPUI_SOURCE_OVERRIDES.get(filePath);
+  let override = GPUI_SOURCE_OVERRIDES.get(filePath);
+  if (
+    override == null &&
+    filePath.endsWith(
+      `${path.sep}react-native-screens${path.sep}src${path.sep}core.ts`,
+    )
+  ) {
+    for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
+      if (
+        sourcePath.endsWith(
+          `${path.sep}react-native-screens${path.sep}src${path.sep}core.ts`,
+        )
+      ) {
+        override = candidate;
+        break;
+      }
+    }
+  }
+  if (override == null) {
+    // Metro may resolve a symlinked workspace package through its canonical
+    // path, while `require.resolve` above returned the node_modules path.
+    // Compare real paths so platform-package overrides also apply in that
+    // workspace layout.
+    let canonicalPath;
+    try {
+      canonicalPath = fs.realpathSync(filePath);
+      for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
+        if (fs.realpathSync(sourcePath) === canonicalPath) {
+          override = candidate;
+          break;
+        }
+      }
+    } catch {
+      // Keep normal Metro resolution when either path has disappeared.
+    }
+  }
   if (override == null) {
     return resolution;
   }
@@ -276,6 +370,13 @@ function resolveModule(context, moduleName, platform) {
   }
 
   if (moduleName.startsWith(GPUI_PACKAGE_NAME + '/')) {
+    if (moduleName === `${GPUI_PACKAGE_NAME}/navigation`) {
+      return resolveWithPlatformFallback(
+        context,
+        path.join(GPUI_PACKAGE_DIR, 'navigation.ts'),
+        platform,
+      );
+    }
     if (moduleName === `${GPUI_PACKAGE_NAME}/NativeViewHost`) {
       return resolveWithPlatformFallback(
         context,
@@ -308,14 +409,98 @@ function resolveWithGpuiPlatform() {
 
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   const defaultConfig = getDefaultConfig(projectRoot);
+  const projectGestureHandlerDir = path.join(
+    projectRoot,
+    'node_modules/react-native-gesture-handler',
+  );
+  const gpuiGestureHandlerDir = path.dirname(
+    require.resolve('@react-native-gpui/gesture-handler/package.json'),
+  );
+  const projectGestureEvents = path.join(
+    projectGestureHandlerDir,
+    'src/handlers/customDirectEventTypes.ts',
+  );
+  const projectGestureButtons = path.join(
+    projectGestureHandlerDir,
+    'src/v3/components/GestureButtons.tsx',
+  );
+  if (fs.existsSync(projectGestureHandlerDir)) {
+    GPUI_SOURCE_OVERRIDES.set(
+      projectGestureEvents,
+      path.join(gpuiGestureHandlerDir, 'src/customDirectEventTypes.gpui.ts'),
+    );
+    GPUI_SOURCE_OVERRIDES.set(
+      projectGestureButtons,
+      path.join(gpuiGestureHandlerDir, 'src/GestureButtons.gpui.tsx'),
+    );
+  }
+  const projectScreensDir = path.join(
+    projectRoot,
+    'node_modules/react-native-screens',
+  );
+  if (fs.existsSync(projectScreensDir)) {
+    GPUI_SOURCE_OVERRIDES.set(
+      path.join(projectScreensDir, 'src/core.ts'),
+      path.join(
+        path.dirname(
+          require.resolve('@react-native-gpui/screens/package.json'),
+        ),
+        'src/core.gpui.ts',
+      ),
+    );
+    GPUI_SOURCE_OVERRIDES.set(
+      path.join(projectScreensDir, 'src/components/FullWindowOverlay.tsx'),
+      path.join(
+        path.dirname(
+          require.resolve('@react-native-gpui/screens/package.json'),
+        ),
+        'src/FullWindowOverlay.gpui.tsx',
+      ),
+    );
+  }
+  const drawerGestureHandler = path.join(
+    projectRoot,
+    'node_modules/react-native-drawer-layout/lib/module/views/GestureHandler.js',
+  );
+  const drawerNativeGestureHandler = path.join(
+    projectRoot,
+    'node_modules/react-native-drawer-layout/lib/module/views/GestureHandler.ios.js',
+  );
+  if (fs.existsSync(drawerNativeGestureHandler)) {
+    // The package's platform-neutral GestureHandler is a web-only no-op stub.
+    // GPUI follows its native implementation, which attaches the drawer Pan.
+    GPUI_SOURCE_OVERRIDES.set(drawerGestureHandler, drawerNativeGestureHandler);
+  }
   const nodeModulesPaths = [];
+  const platformPackageDirs = [];
+  try {
+    platformPackageDirs.push(
+      path.dirname(
+        require.resolve('@react-native-gpui/gesture-handler/package.json'),
+      ),
+    );
+  } catch {
+    // Gesture Handler is optional for apps that only use the core GPUI package.
+  }
+  try {
+    platformPackageDirs.push(
+      path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
+    );
+  } catch {
+    // Screens is optional for apps that do not use native-stack.
+  }
   for (let directory = projectRoot; ; directory = path.dirname(directory)) {
     const candidate = path.join(directory, 'node_modules');
     if (fs.existsSync(candidate)) nodeModulesPaths.push(candidate);
     if (path.dirname(directory) === directory) break;
   }
   const watchFolders = [
-    ...new Set([GPUI_PACKAGE_DIR, UPSTREAM_RN_DIR, ...nodeModulesPaths]),
+    ...new Set([
+      GPUI_PACKAGE_DIR,
+      ...platformPackageDirs,
+      UPSTREAM_RN_DIR,
+      ...nodeModulesPaths,
+    ]),
   ];
 
   return mergeConfig(defaultConfig, {

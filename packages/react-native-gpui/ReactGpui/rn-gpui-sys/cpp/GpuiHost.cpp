@@ -47,6 +47,18 @@ void onFrame(double timestampMs);
 #endif
 
 namespace rngpui {
+namespace {
+std::mutex gesturePointerProcessorMutex;
+GpuiGesturePointerProcessor gesturePointerProcessor;
+std::mutex gesturePointerEventMutex;
+GpuiRawPointerEvent lastGesturePointerEvent{};
+} // namespace
+
+void register_gpui_gesture_pointer_processor(
+    GpuiGesturePointerProcessor processor) {
+  std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
+  gesturePointerProcessor = std::move(processor);
+}
 
 namespace {
 std::atomic<GpuiHost*> activeGpuiHost{nullptr};
@@ -444,6 +456,9 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   contextContainer->insert(HttpClientFactoryKey, gpui_http_client_factory());
   contextContainer->insert(
       WebSocketClientFactoryKey, getWebSocketClientFactory());
+  contextContainer->insert(
+      "RCTImageLoader",
+      std::static_pointer_cast<void>(mountingManager_->getImageLoader()));
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
@@ -614,6 +629,10 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   set_window_metrics(w, h, scale);
 }
 
+void GpuiHost::set_window_top_inset(float top) {
+  mountingManager_->setWindowTopInset(top);
+}
+
 void GpuiHost::set_window_metrics(float w, float h, float scale) {
   if (!DeviceInfoModule::setWindowMetrics(w, h, scale) || !scriptLoaded_) {
     return;
@@ -624,6 +643,17 @@ void GpuiHost::set_window_metrics(float w, float h, float scale) {
       folly::dynamic::object("window", metrics)("screen", metrics);
   reactHost_->emitDeviceEvent(
       folly::dynamic::array("didUpdateDimensions", std::move(payload)));
+}
+
+void GpuiHost::emit_device_event(rust::Str eventName) const {
+  if (!scriptLoaded_)
+    return;
+  const auto timestamp =
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count();
+  reactHost_->emitDeviceEvent(folly::dynamic::array(
+      std::string(eventName), folly::dynamic::object("timeStamp", timestamp)));
 }
 
 void GpuiHost::set_system_appearance(rust::Str appearance) {
@@ -679,7 +709,39 @@ void GpuiHost::on_render() const {
   runLoopObserverManager_->onRender();
 }
 
-void GpuiHost::on_frame() const {
+namespace {
+void dispatchGestureTime(
+    GpuiMountingManager& mountingManager,
+    double eventTimestampMs) {
+  GpuiGesturePointerProcessor processor;
+  {
+    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
+    processor = gesturePointerProcessor;
+  }
+  if (processor) {
+    GpuiRawPointerEvent tick;
+    {
+      std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
+      tick = lastGesturePointerEvent;
+    }
+    tick.phase = 4; // native time tick for duration-based recognizers
+    tick.timestamp = eventTimestampMs;
+    for (const auto& recognized : processor(tick)) {
+      mountingManager.dispatchEvent(
+          recognized.targetTag,
+          recognized.eventType,
+          folly::parseJson(recognized.payloadJson));
+    }
+  }
+}
+} // namespace
+
+void GpuiHost::on_gesture_frame(double eventTimestampMs) const {
+  dispatchGestureTime(*mountingManager_, eventTimestampMs);
+}
+
+void GpuiHost::on_frame(double eventTimestampMs) const {
+  dispatchGestureTime(*mountingManager_, eventTimestampMs);
   on_render();
 #if defined(RN_GPUI_HAS_WORKLETS)
   const auto frameTimestampMs =
@@ -711,6 +773,51 @@ void GpuiHost::dispatch_event(
     rust::Str payloadJson) const {
   mountingManager_->dispatchEvent(
       tag, std::string(type), folly::parseJson(std::string(payloadJson)));
+}
+
+void GpuiHost::dispatch_pointer_event(
+    rust::Str targetChainJson,
+    float x,
+    float y,
+    int32_t phase,
+    double timestamp) const {
+  GpuiGesturePointerProcessor processor;
+  {
+    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
+    processor = gesturePointerProcessor;
+  }
+  if (!processor)
+    return;
+
+  GpuiRawPointerEvent event;
+  try {
+    const auto targetChain = folly::parseJson(std::string(targetChainJson));
+    if (!targetChain.isArray())
+      return;
+    event.targetChain.reserve(targetChain.size());
+    for (const auto& tag : targetChain) {
+      if (tag.isInt())
+        event.targetChain.push_back(static_cast<int32_t>(tag.asInt()));
+    }
+  } catch (const std::exception& error) {
+    LOG(WARNING) << "[gesture-handler] invalid pointer target chain: "
+                 << error.what();
+    return;
+  }
+  event.x = x;
+  event.y = y;
+  event.phase = phase;
+  event.timestamp = timestamp;
+  {
+    std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
+    lastGesturePointerEvent = event;
+  }
+  for (const auto& recognized : processor(event)) {
+    mountingManager_->dispatchEvent(
+        recognized.targetTag,
+        recognized.eventType,
+        folly::parseJson(recognized.payloadJson));
+  }
 }
 
 void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {

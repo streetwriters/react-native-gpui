@@ -9,6 +9,8 @@
     "packages/@react-native-gpui/codegen",
     "packages/@react-native-gpui/worklets",
     "packages/@react-native-gpui/reanimated",
+    "packages/@react-native-gpui/gesture-handler",
+    "packages/@react-native-gpui/screens",
     "tester",
     "tester/gpui-native-module",
     "tester/gpui-cpp-native-module"

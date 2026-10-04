@@ -26,6 +26,7 @@
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 
 #if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+#include <react/renderer/components/safeareacontext/RNCSafeAreaViewState.h>
 #include "GPUISafeAreaInsets.h"
 #endif
 
@@ -275,7 +276,8 @@ void GpuiMountingManager::executeMount(
         safeAreaFrames_.erase(mutation.oldChildShadowView.tag);
 #endif
         animatedViews_.erase(mutation.oldChildShadowView.tag);
-        emitters_.erase(mutation.oldChildShadowView.tag);
+        const auto tag = mutation.oldChildShadowView.tag;
+        emitters_.erase(tag);
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
       }
@@ -293,6 +295,10 @@ void GpuiMountingManager::executeMount(
   }
 
   rn_gpui_on_mount(std::move(batch));
+#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+  // Apply current geometry to newly mounted SafeAreaViews as well as providers.
+  setWindowTopInset(gpui_safe_area::windowTopInset.load());
+#endif
 
   if (onAfterMount_) {
     onAfterMount_(surfaceId);
@@ -408,6 +414,46 @@ void GpuiMountingManager::setWindowSize(float width, float height) {
   }
 }
 
+void GpuiMountingManager::setWindowTopInset(float top) {
+#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+  const auto previous = gpui_safe_area::windowTopInset.exchange(top);
+  std::vector<std::shared_ptr<const ConcreteState<RNCSafeAreaViewState>>>
+      states;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    if (previous != top) {
+      for (const auto& [tag, frame] : safeAreaFrames_) {
+        const auto emitter = emitters_.find(tag);
+        if (emitter == emitters_.end() || !emitter->second)
+          continue;
+        emitter->second->dispatchEvent(
+            "insetsChange",
+            folly::dynamic::object(
+                "insets",
+                folly::dynamic::object("top", top)("right", 0)("bottom", 0)(
+                    "left", 0))(
+                "frame",
+                folly::dynamic::object("x", frame[0])("y", frame[1])(
+                    "width", frame[2])("height", frame[3])));
+      }
+    }
+    for (const auto& [_, view] : animatedViews_) {
+      if (std::string_view(view.componentName) != "RNCSafeAreaView")
+        continue;
+      if (auto state = std::dynamic_pointer_cast<
+              const ConcreteState<RNCSafeAreaViewState>>(view.state))
+        if (state->getData().insets.top != top)
+          states.push_back(std::move(state));
+    }
+  }
+  for (const auto& state : states) {
+    auto next = state->getData();
+    next.insets.top = top;
+    state->updateState(std::move(next));
+  }
+#endif
+}
+
 void GpuiMountingManager::dispatchEvent(
     Tag tag,
     const std::string& type,
@@ -416,10 +462,14 @@ void GpuiMountingManager::dispatchEvent(
   {
     std::lock_guard<std::mutex> lock(emittersMutex_);
     auto it = emitters_.find(tag);
-    if (it == emitters_.end()) {
+    if (it != emitters_.end()) {
+      emitter = it->second;
+    } else {
+      // A JS-driven pop has already unmounted its Fabric listener. Keep the
+      // outgoing pixels for animation, but never enqueue events for a dead
+      // EventTarget. Native dismissals announce their lifecycle before unmount.
       return;
     }
-    emitter = it->second;
   }
   if (!emitter) {
     return;

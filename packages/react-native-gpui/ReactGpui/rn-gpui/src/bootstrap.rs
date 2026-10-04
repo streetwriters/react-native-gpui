@@ -46,7 +46,7 @@
 //! `--features visual-capture`; normal app builds do not include those hooks.
 
 use crate::host::Host;
-use crate::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
+use crate::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore, APP_SURFACE_ID};
 use gpui::{point, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
 use rn_gpui_sys::ffi::MountBatch;
 use std::cell::Cell;
@@ -464,6 +464,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
     #[cfg(feature = "visual-capture")]
     let key_ms = env_u32("RN_GPUI_KEY_MS", 1500);
     #[cfg(feature = "visual-capture")]
+    let mouse_navigation: Vec<String> = std::env::var("RN_GPUI_MOUSE_NAV")
+        .unwrap_or_default()
+        .split(';')
+        .map(str::trim)
+        .filter(|direction| matches!(*direction, "back" | "forward"))
+        .map(str::to_owned)
+        .collect();
+    #[cfg(feature = "visual-capture")]
+    let mouse_navigation_ms = env_u32("RN_GPUI_MOUSE_NAV_MS", 1500);
+    #[cfg(feature = "visual-capture")]
     let screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     #[cfg(feature = "visual-capture")]
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
@@ -575,7 +585,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // the window tracked while drawing, and the root view itself is not
         // invalidated after that first frame.
         let overlay_host = cx.new(|_| OverlayHost::new());
-        let root_view = SurfaceRootView::new().with_overlay_host(overlay_host.clone());
+        let root_view = SurfaceRootView::new(APP_SURFACE_ID).with_overlay_host(overlay_host.clone());
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         let root_view = if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
             root_view.with_native_view_probe(
@@ -615,6 +625,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
         };
         if let Some(configure_window) = config.configure_window.take() {
             configure_window(&mut window_options);
+        }
+        #[cfg(feature = "visual-capture")]
+        if std::env::var_os("RN_GPUI_TRANSPARENT_TITLEBAR").is_some() {
+            window_options.titlebar.get_or_insert_with(Default::default).appears_transparent = true;
         }
         let window = cx
             .open_window(
@@ -683,6 +697,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // NativeDeviceInfo is queried during JS module initialization; publish
         // the actual viewport before loading the bundle that imports Dimensions.
         host.set_window_metrics(width, height, scale);
+        let top_inset = window.update(cx, |_root, window, _cx| {
+            #[cfg(target_os = "macos")]
+            { crate::native_view::window_top_inset(window) }
+            #[cfg(not(target_os = "macos"))]
+            { 0.0 }
+        }).unwrap_or(0.0);
+        host.set_window_top_inset(top_inset);
+        log::info!("[safe-area] native window top inset={top_inset}");
         let appearance = match cx.window_appearance() {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
             _ => "light",
@@ -727,8 +749,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let host_for_input = host.clone();
         let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone(), overlay_host));
         cx.set_global(StoreGlobal(store.clone()));
+        let keyboard_host = store.read(cx).host.clone();
+        let keyboard_hook = frame_hook.clone();
+        let navigation_keyboard_subscription = cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle().window_id() != window_id { return; }
+            if let Some(event_name) = crate::input::desktop_navigation_event(&event.keystroke) {
+                keyboard_host.emit_device_event(event_name);
+                keyboard_hook.arm(window);
+                log::info!("[navigation] emitted {event_name} from keyboard");
+                cx.stop_propagation();
+            }
+        });
+
         store.update(cx, |store, cx| {
             store.register_root(1, root);
+            store.top_inset = top_inset;
+            store.navigation_keyboard_subscription = Some(navigation_keyboard_subscription);
             store.window_appearance_subscription = Some(appearance_subscription);
             cx.notify();
         });
@@ -1012,6 +1048,82 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
+        #[cfg(feature = "visual-capture")]
+        if !mouse_navigation.is_empty() {
+            let host = host_for_input.clone();
+            let frame_hook = frame_hook.clone();
+            cx.spawn(async move |cx| {
+                for direction in mouse_navigation {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(mouse_navigation_ms)))
+                        .await;
+                    let button = match direction.as_str() {
+                        "back" => gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+                        _ => gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                    };
+                    let hook = frame_hook.clone();
+                    let dispatched = cx.update_window(
+                        any_window,
+                        move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
+                            let arena_clear_needed = window.draw(cx);
+                            arena_clear_needed.clear(cx);
+                            let position = gpui::point(px(1.), px(1.));
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button,
+                                    position,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button,
+                                    position,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            hook.arm(window);
+                        },
+                    );
+                    if let Err(error) = dispatched {
+                        log::error!("synthetic mouse navigation {direction} failed: {error}");
+                    } else {
+                        log::info!("pressed mouse navigation {direction}");
+                    }
+                    flush_js(&host, cx).await;
+                }
+            })
+            .detach();
+        }
+
+        #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+        if env_u32("RN_GPUI_TITLEBAR_TOGGLE_MS", 0) > 0 {
+            let delay = env_u32("RN_GPUI_TITLEBAR_TOGGLE_MS", 0);
+            cx.spawn(async move |cx| {
+                for transparent in [false, true] {
+                    cx.background_executor().timer(Duration::from_millis(u64::from(delay))).await;
+                    let _ = cx.update_window(any_window, move |_, window, cx| {
+                        crate::native_view::set_probe_titlebar_transparent(window, transparent);
+                        window.bounds_changed(cx);
+                        window.refresh();
+                        log::info!("[safe-area] probe titlebar transparent={transparent}");
+                    });
+                }
+            }).detach();
+        }
+        #[cfg(feature = "visual-capture")]
+        if env_u32("RN_GPUI_FULLSCREEN_MS", 0) > 0 {
+            let delay = env_u32("RN_GPUI_FULLSCREEN_MS", 0);
+            cx.spawn(async move |cx| {
+                for interval in [delay, 3000] {
+                    cx.background_executor().timer(Duration::from_millis(u64::from(interval))).await;
+                    let _ = cx.update_window(any_window, |_, window, _| window.toggle_fullscreen());
+                }
+            }).detach();
+        }
+
         // Window resizes drive Fabric. gpui calls the bounds
         // observers from the platform's `on_resize` hook (the same path a mouse
         // drag takes), and `viewport_size()` is the content area, which is what
@@ -1028,6 +1140,23 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 cx.observe_window_bounds(window, move |_root, window, cx| {
                     let size = window.viewport_size();
                     save_window_bounds(&window_state_path, window.bounds(), size);
+                    #[cfg(target_os = "macos")]
+                    {
+                        let top = crate::native_view::window_top_inset(window);
+                        store.update(cx, |store, cx| {
+                            if store.top_inset != top {
+                                store.top_inset = top;
+                                store.host.set_window_top_inset(top);
+                                store.frame_hook.arm(window);
+                                for node in store.nodes.values() {
+                                    if node.read(cx).component == "RNSScreenStackHeaderConfig" {
+                                        node.update(cx, |_, cx| cx.notify());
+                                    }
+                                }
+                            }
+                        });
+                        log::info!("[safe-area] native window top inset={top} fullscreen={}", window.is_fullscreen());
+                    }
                     let scale = scale_override.unwrap_or_else(|| window.scale_factor());
                     let (width, height) = (f32::from(size.width), f32::from(size.height));
                     let old = last_surface_size.get();
@@ -1187,9 +1316,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             target = Some((store.window, store.frame_hook.clone()));
                         });
                         if let Some((window, frame_hook)) = target {
-                            let _ = cx.update_window(window, move |_root, window, _cx| {
-                                frame_hook.set_animation_active(active, window);
-                            });
+                            if let Err(error) =
+                                cx.update_window(window, move |_root, window, cx| {
+                                    frame_hook.set_animation_active(active, window, cx);
+                                })
+                            {
+                                log::error!(
+                                    "[native-animated] failed to update GPUI window activity: {error}"
+                                );
+                            }
+                        } else if std::env::var_os("RN_GPUI_DEBUG_ANIMATION").is_some() {
+                            log::warn!("[native-animated] animation activity has no window");
                         }
                     }
                     MainEvent::TextInputCommand { tag, focus } => {

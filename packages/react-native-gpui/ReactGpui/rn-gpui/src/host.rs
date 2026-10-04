@@ -40,6 +40,10 @@ impl Host {
             .set_surface_size(id, w, h, scale)
     }
 
+    pub fn set_window_top_inset(&self, top: f32) {
+        self.0.lock().unwrap().pin_mut().set_window_top_inset(top)
+    }
+
     pub fn set_window_metrics(&self, w: f32, h: f32, scale: f32) {
         self.0
             .lock()
@@ -62,9 +66,15 @@ impl Host {
         }
     }
 
-    pub fn on_frame(&self) {
-        if let Err(error) = self.0.lock().unwrap().on_frame() {
+    pub fn on_frame(&self, timestamp: f64) {
+        if let Err(error) = self.0.lock().unwrap().on_frame(timestamp) {
             log::error!("[animation-frame] {error}");
+        }
+    }
+
+    pub fn on_gesture_frame(&self, timestamp: f64) {
+        if let Err(error) = self.0.lock().unwrap().on_gesture_frame(timestamp) {
+            log::error!("[gesture-frame] {error}");
         }
     }
 
@@ -73,6 +83,25 @@ impl Host {
             .lock()
             .unwrap()
             .dispatch_event(tag, ty, &payload.to_string())
+    }
+
+    pub fn emit_device_event(&self, event_name: &str) {
+        self.0.lock().unwrap().emit_device_event(event_name)
+    }
+
+    pub fn dispatch_pointer_event(
+        &self,
+        target_chain: &[i32],
+        x: f32,
+        y: f32,
+        phase: i32,
+        timestamp: f64,
+    ) {
+        let target_chain = serde_json::to_string(target_chain).unwrap_or_default();
+        self.0
+            .lock()
+            .unwrap()
+            .dispatch_pointer_event(&target_chain, x, y, phase, timestamp);
     }
 
     pub fn set_scroll_offset(&self, tag: i32, x: f32, y: f32) {

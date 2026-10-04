@@ -34,6 +34,24 @@ namespace rngpui {
 class GpuiMountingManager;
 class GpuiLogBoxSurfaceDelegate;
 
+struct GpuiRawPointerEvent {
+  std::vector<int32_t> targetChain;
+  float x;
+  float y;
+  int32_t phase;
+  double timestamp;
+};
+
+struct GpuiRecognizedGestureEvent {
+  int32_t targetTag;
+  std::string eventType;
+  std::string payloadJson;
+};
+
+using GpuiGesturePointerProcessor =
+    std::function<std::vector<GpuiRecognizedGestureEvent>(
+        const GpuiRawPointerEvent&)>;
+
 /// Surface ids (TODO 2.6). The window shows surface 1; React starts LogBox as a
 /// second surface with the app key "LogBox".
 constexpr int32_t kAppSurfaceId = 1;
@@ -56,11 +74,20 @@ class GpuiHost {
       float scale);
   void set_surface_size(int32_t surfaceId, float w, float h, float scale);
   void set_window_metrics(float w, float h, float scale);
+  void set_window_top_inset(float top);
   void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);
   void on_render() const;
-  void on_frame() const;
+  void on_frame(double eventTimestampMs) const;
+  void on_gesture_frame(double eventTimestampMs) const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
+  void emit_device_event(rust::Str event_name) const;
+  void dispatch_pointer_event(
+      rust::Str targetChainJson,
+      float x,
+      float y,
+      int32_t phase,
+      double timestamp) const;
   void set_scroll_offset(int32_t tag, float x, float y) const;
   std::shared_ptr<facebook::react::UIManager> ui_manager() const;
   void synchronously_update_props(int32_t tag, const folly::dynamic& props)
@@ -105,6 +132,8 @@ std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(
     std::shared_ptr<const facebook::react::EventListener> listener);
+void register_gpui_gesture_pointer_processor(
+    GpuiGesturePointerProcessor processor);
 void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
 void rn_gpui_clipboard_result(int32_t id, rust::String text);
 

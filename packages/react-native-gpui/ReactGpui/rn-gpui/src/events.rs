@@ -295,6 +295,11 @@ pub fn send(
         let store = store.read(cx);
         (store.host.clone(), store.frame_hook.clone())
     };
+    match phase {
+        Phase::Start => frame_hook.set_gesture_active(true, window),
+        Phase::End | Phase::Cancel => frame_hook.set_gesture_active(false, window),
+        Phase::Move => {}
+    }
     if matches!(phase, Phase::Start) {
         store.update(cx, |store, _| {
             store.active_touch_target = Some(target.clone())
@@ -308,6 +313,18 @@ pub fn send(
         f32::from(position.y),
         f32::from(location.x),
         f32::from(location.y),
+    );
+    host.dispatch_pointer_event(
+        &target.chain,
+        f32::from(position.x),
+        f32::from(position.y),
+        match phase {
+            Phase::Start => 0,
+            Phase::Move => 1,
+            Phase::End => 2,
+            Phase::Cancel => 3,
+        },
+        now_ms(),
     );
     match phase {
         Phase::Start => {

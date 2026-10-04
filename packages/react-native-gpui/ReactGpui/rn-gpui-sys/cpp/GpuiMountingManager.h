@@ -71,6 +71,7 @@ class GpuiMountingManager : public IMountingManager {
   dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
   void setWindowSize(float width, float height);
+  void setWindowTopInset(float top);
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;

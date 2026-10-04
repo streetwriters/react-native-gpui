@@ -140,7 +140,21 @@ class Module final : public facebook::react::TurboModule {
                   .count();
           static std::atomic<uint64_t> events{0};
           const auto count = ++events;
-          if (animationTracingEnabled() && count <= 10) {
+          if (animationTracingEnabled() &&
+              event.type.find("GestureHandler") != std::string::npos) {
+            const auto* target = event.eventTarget.get();
+            const auto tag = target ? target->getTag() : -1;
+            auto eventName = event.type;
+            if (eventName.rfind("top", 0) == 0) {
+              eventName = "on" + eventName.substr(3);
+            }
+            LOG(INFO) << "[gpui-reanimated] gesture lookup type=" << eventName
+                      << " tag=" << tag << " waiting="
+                      << proxy->isAnyHandlerWaitingForEvent(eventName, tag);
+          }
+          if (animationTracingEnabled() &&
+              (count <= 10 ||
+               event.type.find("GestureHandler") != std::string::npos)) {
             LOG(INFO) << "[gpui-reanimated] raw event count=" << count
                       << " type=" << event.type;
           }

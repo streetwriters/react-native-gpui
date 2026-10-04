@@ -213,3 +213,52 @@ impl Element for NativeViewSurfaceElement {
     ) {
     }
 }
+
+/// AppKit's content layout rectangle excludes the actual title-bar region.
+/// Read it on the GPUI thread; ordinary decorated windows return zero.
+pub(crate) fn window_top_inset(window: &Window) -> f32 {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    if window.is_fullscreen() || window.is_simple_fullscreen() {
+        return 0.0;
+    }
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return 0.0;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return 0.0;
+    };
+    unsafe {
+        let view = handle.ns_view.as_ptr() as id;
+        let native_window: id = msg_send![view, window];
+        if native_window.is_null() {
+            return 0.0;
+        }
+        let content: id = msg_send![native_window, contentView];
+        let bounds: NSRect = msg_send![content, bounds];
+        let layout: NSRect = msg_send![native_window, contentLayoutRect];
+        (bounds.size.height - layout.origin.y - layout.size.height).max(0.0) as f32
+    }
+}
+
+#[cfg(feature = "visual-capture")]
+pub(crate) fn set_probe_titlebar_transparent(window: &Window, transparent: bool) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+    unsafe {
+        let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
+        let mask: u64 = msg_send![native_window, styleMask];
+        let full_size = cocoa::appkit::NSWindowStyleMask::NSFullSizeContentViewWindowMask.bits();
+        let next = if transparent {
+            mask | full_size
+        } else {
+            mask & !full_size
+        };
+        let _: () = msg_send![native_window, setStyleMask: next];
+        let _: () = msg_send![native_window, setTitlebarAppearsTransparent: if transparent {cocoa::base::YES} else {cocoa::base::NO}];
+    }
+}

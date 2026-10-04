@@ -645,3 +645,32 @@ mod tests {
         assert!(!clear_text_state(&mut text, &mut selection, &mut marked));
     }
 }
+
+/// Desktop navigation shortcuts are intercepted before focus-scoped handlers:
+/// popping a focused screen must not disable subsequent shortcuts.
+pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'static str> {
+    let modifiers = stroke.modifiers;
+    let (back, forward, enabled) = if cfg!(target_os = "macos") {
+        (
+            "[",
+            "]",
+            modifiers.platform && !modifiers.alt && !modifiers.control && !modifiers.shift,
+        )
+    } else {
+        (
+            "left",
+            "right",
+            modifiers.alt && !modifiers.control && !modifiers.platform && !modifiers.shift,
+        )
+    };
+    if !enabled {
+        return None;
+    }
+    if stroke.key == back {
+        Some("hardwareBackPress")
+    } else if stroke.key == forward {
+        Some("hardwareForwardPress")
+    } else {
+        None
+    }
+}

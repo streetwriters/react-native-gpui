@@ -141,6 +141,16 @@ pub mod ffi {
         pub text_input_selection_start: i32,
         pub text_input_selection_end: i32,
         pub modal_visible: bool,
+        pub screen_header_title: String,
+        pub screen_header_subview_type: String,
+        pub screen_header_background_color: u32,
+        pub screen_header_title_color: u32,
+        pub screen_header_tint_color: u32,
+        pub screen_header_hidden: bool,
+        pub screen_header_hide_back: bool,
+        pub screen_activity_state: f32,
+        pub screen_stack_animation: String,
+        pub screen_stack_presentation: String,
         pub scroll_x: f32,
         pub scroll_y: f32,
         pub content_width: f32,
@@ -232,6 +242,7 @@ pub mod ffi {
             height: f32,
             scale: f32,
         );
+        fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_alert_result(id: i32, button_index: i32);
@@ -240,9 +251,20 @@ pub mod ffi {
         /// Wake RN's EventBeat after input or a mount batch on the main thread.
         fn on_render(self: &GpuiHost) -> Result<()>;
         /// Animation ticks only from the display-frame hook, never mount batches.
-        fn on_frame(self: &GpuiHost) -> Result<()>;
+        fn on_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
+        fn on_gesture_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
+        fn emit_device_event(self: &GpuiHost, event_name: &str);
+        /// Send raw GPUI pointer input to an optional native recognizer before RN touch dispatch.
+        fn dispatch_pointer_event(
+            self: &GpuiHost,
+            target_chain_json: &str,
+            x: f32,
+            y: f32,
+            phase: i32,
+            timestamp: f64,
+        );
         fn set_scroll_offset(self: &GpuiHost, tag: i32, x: f32, y: f32);
     }
 }

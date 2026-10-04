@@ -1,0 +1,20 @@
+get_filename_component(_gpui_app_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(_screens_root "${_gpui_app_root}/node_modules/react-native-screens")
+set(_screens_common "${_screens_root}/common/cpp")
+set(_screens_component_dir "${_screens_common}/react/renderer/components/rnscreens")
+set(_screens_package_json "${_screens_root}/package.json")
+
+if(NOT EXISTS "${_screens_component_dir}/RNSScreenShadowNode.cpp" OR NOT EXISTS "${_screens_package_json}")
+  message(FATAL_ERROR "react-native-screens 4.28.x was not found under ${_gpui_app_root}/node_modules")
+endif()
+
+file(READ "${_screens_package_json}" _screens_package_json_contents)
+string(JSON _screens_version GET "${_screens_package_json_contents}" version)
+if(NOT _screens_version MATCHES "^4\\.28\\.")
+  message(FATAL_ERROR "@react-native-gpui/screens supports react-native-screens 4.28.x, found ${_screens_version}")
+endif()
+
+file(GLOB _screens_common_sources CONFIGURE_DEPENDS "${_screens_component_dir}/*.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES ${_screens_common_sources})
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS "${_screens_common}")
+set_property(GLOBAL PROPERTY RN_GPUI_HAS_SCREENS TRUE)
