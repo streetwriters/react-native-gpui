@@ -8,6 +8,7 @@ module.exports = [
       '**/node_modules/',
       '**/target/',
       '**/build/',
+      'packages/@react-native-gpui/testing/dist/',
       '.local/',
       'desktop/',
       'packages/react-native-gpui/bin/',
