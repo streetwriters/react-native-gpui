@@ -47,12 +47,8 @@
     "pretest:e2e:all": "npm run test:build"
   },
   "dependencies": {
-    "@react-native-node-api/cli-utils": "file:.local/react-native-node-api-cli-utils-0.1.4.tgz",
     "react": "19.2.3",
-    "react-native": "0.87.1",
-    "react-native-node-api": "file:.local/react-native-node-api-gpui.tgz",
-    "react-native-svg": "15.15.5",
-    "weak-node-api": "file:.local/weak-node-api-0.1.1.tgz"
+    "react-native": "0.87.1"
   },
   "engines": {
     "node": ">=22.13.0"

@@ -43,16 +43,6 @@ fn main() {
         .to_path_buf();
 
     let react_native_dir = repo_root.join("node_modules").join("react-native");
-    let node_api_package_dir = repo_root.join("node_modules/react-native-node-api");
-    let weak_node_api_package_dir = repo_root.join("node_modules/weak-node-api");
-    println!(
-        "cargo:rerun-if-changed={}",
-        node_api_package_dir.join("package.json").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        weak_node_api_package_dir.join("package.json").display()
-    );
     let react_common_dir = react_native_dir.join("ReactCommon");
     let react_cxx_platform_dir = package_dir.join("ReactCxxPlatform");
     for changed_platform_source in [
@@ -132,6 +122,19 @@ fn main() {
         .and_then(Path::parent)
         .unwrap_or(&repo_root)
         .to_path_buf();
+    // Node-API is an optional application dependency, not a core dependency.
+    // Resolve from the app so standalone installations and workspace hoisting
+    // both work; an empty path also clears stale optional CMake cache entries.
+    let node_api_package_dir = resolve_optional_package(&project_root, "react-native-node-api");
+    let weak_node_api_package_dir = resolve_optional_package(&project_root, "weak-node-api");
+    for package in [&node_api_package_dir, &weak_node_api_package_dir] {
+        if !package.as_os_str().is_empty() {
+            println!(
+                "cargo:rerun-if-changed={}",
+                package.join("package.json").display()
+            );
+        }
+    }
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
     println!("cargo:rerun-if-changed={}", autolink_cmake.display());
@@ -482,4 +485,39 @@ fn cmake_build_type() -> &'static str {
         _ if env::var("DEBUG").as_deref() == Ok("false") => "Release",
         _ => "RelWithDebInfo",
     }
+}
+
+fn resolve_optional_package(project_root: &Path, name: &str) -> PathBuf {
+    let output = Command::new("node")
+        .arg("-e")
+        .arg(r#"
+const fs = require('fs');
+const path = require('path');
+const appRequire = require('module').createRequire(path.join(process.argv[1], 'package.json'));
+try {
+  let dir = path.dirname(appRequire.resolve(process.argv[2]));
+  while (true) {
+    const manifest = path.join(dir, 'package.json');
+    if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).name === process.argv[2]) {
+      process.stdout.write(dir);
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error('Package root not found');
+    dir = parent;
+  }
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error;
+}
+"#)
+        .arg(project_root)
+        .arg(name)
+        .output()
+        .expect("resolve optional Node-API package; Node.js must be installed");
+    assert!(
+        output.status.success(),
+        "Failed to resolve {name}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    PathBuf::from(String::from_utf8(output.stdout).expect("package path is UTF-8"))
 }
