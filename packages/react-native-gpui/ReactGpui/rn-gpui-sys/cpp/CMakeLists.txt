@@ -5,17 +5,24 @@
 # same way ReactAndroid's jni/CMakeLists.txt does, adapted for the gpui
 # platform (no Android/JNI-only targets).
 #
-# Third-party dependencies come from Homebrew (folly, glog, boost,
-# nlohmann-json, openssl), a vendored copy of fast_float, and a Hermes VM
-# built from the external source checkout with Node-API enabled.
+# Third-party C++ sources are downloaded from the same pinned tarballs used by
+# ReactAndroid into this CMake build tree and compiled from that cache.
 
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.18)
 project(rn_gpui_core CXX C)
 if(APPLE)
   enable_language(OBJCXX)
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # RN 0.87.1 has several headers that use uint*_t without including
+  # <cstdint>. Android's libc++ headers expose these transitively; make the
+  # dependency explicit for GCC/libstdc++ Linux builds.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:-include>"
+    "$<$<COMPILE_LANGUAGE:CXX>:cstdint>")
+endif()
 # --- paths -----------------------------------------------------------------
 
 # <repo>/node_modules/react-native/ReactCommon
@@ -42,20 +49,35 @@ endif()
 # runtime code. See android-shim/README.md.
 set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 
-# brew openssl@3 is keg-only; make find_package(OpenSSL) see it.
-list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/openssl@3")
+# RN Android stores source archives and prepared third-party sources under its
+# Gradle build directory. Mirror that layout under this target's CMake build
+# cache so independent desktop builds do not rely on host package managers.
+set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
 
-# libcurl backs GpuiHttpClient (TODO 2.1, design doc §18.7); macOS ships it in
-# the SDK, Linux distributions as libcurl.so.
-find_package(CURL REQUIRED)
+# GpuiHttpClient uses libcurl. Build curl from its pinned source archive against
+# the OpenSSL copy prepared in the same CMake cache above.
+set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CURL_USE_OPENSSL ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
+set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
+set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
+set(CURL_ZLIB OFF CACHE STRING "" FORCE)
+set(USE_NGHTTP2 OFF CACHE BOOL "" FORCE)
+set(USE_LIBIDN2 OFF CACHE BOOL "" FORCE)
+set(CURL_USE_BROTLI OFF CACHE BOOL "" FORCE)
+set(CURL_USE_ZSTD OFF CACHE BOOL "" FORCE)
+set(CURL_DISABLE_TESTS ON CACHE BOOL "" FORCE)
+add_subdirectory("${RN_GPUI_CURL_SOURCE_DIR}" "${RN_GPUI_NATIVE_DEPS_BUILD}/curl")
 
 # --- third-party imported targets -------------------------------------------
-
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ThirdParty.cmake)
 
 # --- RN build helpers -------------------------------------------------------
 
 include(${REACT_COMMON_DIR}/cmake-utils/react-native-flags.cmake)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ThirdParty.cmake)
 
 function(add_react_common_subdir relative_path)
   add_subdirectory(${REACT_COMMON_DIR}/${relative_path}
@@ -587,6 +609,7 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
   get_property(RN_GPUI_CMAKE_APP_CPP_SOURCES GLOBAL PROPERTY RN_GPUI_APP_CPP_SOURCES)
   get_property(RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
   get_property(RN_GPUI_CMAKE_APP_CPP_DEFINITIONS GLOBAL PROPERTY RN_GPUI_APP_CPP_DEFINITIONS)
+  get_property(RN_GPUI_CMAKE_APP_CPP_COMPILE_OPTIONS GLOBAL PROPERTY RN_GPUI_APP_CPP_COMPILE_OPTIONS)
   list(APPEND RN_GPUI_APP_CPP_SOURCES ${RN_GPUI_CMAKE_APP_CPP_SOURCES})
   add_library(rn_gpui_app_turbo_modules STATIC
     "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}"
@@ -597,6 +620,7 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}"
     ${RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS})
   target_compile_definitions(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_DEFINITIONS})
+  target_compile_options(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_COMPILE_OPTIONS})
   target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
   target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
 endif()
@@ -662,10 +686,9 @@ endfunction()
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
 
 set(RN_GPUI_LINK_LIBS "")
-# Directories that must end up on the executable's rpath: some linked libraries
-# (libjsi.dylib, the hermesvm framework binary) have `@rpath/...` install names
-# and Rust does not turn `rustc-link-search` into an rpath. build.rs forwards
-# this list to the rn-gpui package, whose build script emits the linker flags.
+# Directories that must end up on the executable's rpath: Rust does not turn
+# `rustc-link-search` into an rpath. build.rs forwards this list to rn-gpui,
+# whose build script emits the platform-specific linker flags.
 set(RN_GPUI_RPATH_DIRS "")
 if(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR AND EXISTS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}")
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}\n")
@@ -682,16 +705,27 @@ endif()
 set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
 if(TARGET hermes-engine::hermesvm)
   get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
+  if(APPLE)
+    set(_rn_gpui_hermes_link_name "libhermesvm.dylib")
+  elseif(UNIX)
+    set(_rn_gpui_hermes_link_name "libhermesvm.so")
+  else()
+    set(_rn_gpui_hermes_link_name "hermesvm.lib")
+  endif()
   if(_hermes_location)
     file(MAKE_DIRECTORY "${RN_GPUI_SHIM_LIB_DIR}")
     # Recreate unconditionally so switching Hermes build directories cannot
     # leave a stale link behind.
-    if(EXISTS "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
-      file(REMOVE "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib")
+    if(EXISTS "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
+      file(REMOVE "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
     endif()
-    file(CREATE_LINK "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/libhermesvm.dylib" SYMBOLIC)
+    if(WIN32)
+      file(COPY_FILE "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
+    else()
+      file(CREATE_LINK "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}" SYMBOLIC)
+    endif()
   endif()
-  string(APPEND RN_GPUI_LINK_LIBS "search:${RN_GPUI_SHIM_LIB_DIR}\nname:libhermesvm.dylib\n")
+  string(APPEND RN_GPUI_LINK_LIBS "search:${RN_GPUI_SHIM_LIB_DIR}\nname:${_rn_gpui_hermes_link_name}\n")
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_SHIM_LIB_DIR}\n")
 endif()
 
@@ -727,6 +761,12 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
     string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_app_turbo_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_app_turbo_modules>\n")
   endif()
 endforeach()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # libstdc++ emits these helpers for lock-free 16-byte atomics on x86_64.
+  # Place it after the static RN archives so the final Rust link resolves them.
+  string(APPEND RN_GPUI_LINK_LIBS "name:atomic\n")
+endif()
 
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")

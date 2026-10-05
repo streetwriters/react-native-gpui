@@ -1,66 +1,38 @@
-# Imported third-party targets for the gpui C++ build (macOS, Homebrew).
-#
-# These are the target names ReactCommon's and ReactCxxPlatform's
-# CMakeLists reference. On Android they come from third-party-ndk
-# (built by Gradle); here we map them onto Homebrew packages.
+# Compile React Native's own pinned third-party targets from the archives
+# cached and prepared under this CMake build directory.
+add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/glog" "${RN_GPUI_NATIVE_DEPS_BUILD}/glog")
+add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "${RN_GPUI_NATIVE_DEPS_BUILD}/double-conversion")
+add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float" "${RN_GPUI_NATIVE_DEPS_BUILD}/fast_float")
+add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt" "${RN_GPUI_NATIVE_DEPS_BUILD}/fmt")
+add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/folly" "${RN_GPUI_NATIVE_DEPS_BUILD}/folly")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # RN's reduced GPUI Folly target omits platform-neutral sources used by
+  # ReactCxxPlatform's HTTP and threading implementations.
+  target_sources(folly_runtime PRIVATE
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/system/ThreadName.cpp"
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/io/IOBuf.cpp"
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/Uri.cpp"
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/memory/SanitizeAddress.cpp")
+endif()
 
-# folly -> folly_runtime (RN's name for the folly library).
-# RN's Android folly target links glog, double-conversion, boost,
-# fmt and fast_float, so those propagate to every folly consumer
-# (e.g. react/renderer/core pulls in css/CSSTokenizer.h, which
-# includes <fast_float/fast_float.h>, through its own headers).
-add_library(folly_runtime SHARED IMPORTED)
-set_target_properties(folly_runtime PROPERTIES
-  IMPORTED_LOCATION "/opt/homebrew/lib/libfolly.dylib"
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include"
-  INTERFACE_LINK_LIBRARIES "double_conversion;fmt;fast_float")
-
-# double-conversion (folly dep)
-add_library(double_conversion SHARED IMPORTED)
-set_target_properties(double_conversion PROPERTIES
-  IMPORTED_LOCATION "/opt/homebrew/lib/libdouble-conversion.dylib"
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include")
-
-# fmt (folly dep)
-add_library(fmt SHARED IMPORTED)
-set_target_properties(fmt PROPERTIES
-  IMPORTED_LOCATION "/opt/homebrew/lib/libfmt.dylib"
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include")
-
-# glog
-add_library(glog SHARED IMPORTED)
-set_target_properties(glog PROPERTIES
-  IMPORTED_LOCATION "/opt/homebrew/lib/libglog.dylib"
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include")
-
-# fbgloginit is Android-only (glog initialization); nothing to do here.
-add_library(glog_init INTERFACE)
-
-# boost (headers only: beast, etc.)
+# Boost is headers-only on GPUI (RN's additional assembly sources are Android-only).
 add_library(boost INTERFACE)
-set_target_properties(boost PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include")
+target_include_directories(boost INTERFACE
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0"
+  "${RN_GPUI_OPENSSL_INSTALL}/include")
 
-# fbjni is Android/JNI-only. The component libraries that link it
-# (rrc_safeareaview, rrc_switch, rrc_progressbar) do not use any
-# fbjni symbols in their platform-independent C++ sources, so an
-# empty target satisfies the link.
+# nlohmann/json is header-only.
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json INTERFACE
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include")
+add_library(double_conversion ALIAS double-conversion)
+
+# folly -> folly_runtime (RN's name for this dependency).
+# fbgloginit and fbjni are Android/JNI-only.
+add_library(glog_init INTERFACE)
 add_library(fbjni INTERFACE)
 
-# fast_float (header-only), vendored under third_party/.
-add_library(fast_float INTERFACE)
-set_target_properties(fast_float PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fast_float/include")
-
-# nlohmann_json (header-only, brew nlohmann-json)
-add_library(nlohmann_json INTERFACE)
-set_target_properties(nlohmann_json PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include")
-
-# OpenSSL (ReactCxxPlatform devsupport links OpenSSL::Crypto;
-# brew's openssl@3 is keg-only, CMAKE_PREFIX_PATH is set in the
-# top-level CMakeLists.txt).
+# OpenSSL (ReactCxxPlatform devsupport links OpenSSL::Crypto).
 find_package(OpenSSL REQUIRED)
 
 # --- hermes-engine -------------------------------------------------------
@@ -95,23 +67,36 @@ if(NOT RN_GPUI_HERMES_SOURCE_DIR)
     "Set RN_GPUI_HERMES_SOURCE_DIR to the external Hermes source checkout. See docs/hermes.md.")
 endif()
 
-if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64|aarch64")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(RN_GPUI_HERMES_PLATFORM "linux-x64")
+  else()
+    message(FATAL_ERROR "Unsupported Linux Hermes architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+  set(_rn_gpui_hermes_library_name "libhermesvm.so")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  message(FATAL_ERROR "Windows Hermes linkage is not implemented yet")
+elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64|aarch64")
   set(RN_GPUI_HERMES_PLATFORM "darwin-arm64")
-elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64|AMD64")
+  set(_rn_gpui_hermes_library_name "libhermesvm.dylib")
+elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64|AMD64")
   set(RN_GPUI_HERMES_PLATFORM "darwin-x64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  set(_rn_gpui_hermes_library_name "libhermesvm.dylib")
+elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
   set(RN_GPUI_HERMES_PLATFORM "darwin-arm64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  set(_rn_gpui_hermes_library_name "libhermesvm.dylib")
+elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   set(RN_GPUI_HERMES_PLATFORM "darwin-x64")
+  set(_rn_gpui_hermes_library_name "libhermesvm.dylib")
 else()
-  message(FATAL_ERROR "Unsupported macOS Hermes architecture: ${CMAKE_OSX_ARCHITECTURES}/${CMAKE_SYSTEM_PROCESSOR}")
+  message(FATAL_ERROR "Unsupported Hermes target: ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
 set(RN_GPUI_HERMES_PLATFORM_BIN_DIR "${RN_GPUI_HERMES_BIN_ROOT}/${RN_GPUI_HERMES_PLATFORM}")
-set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/libhermesvm.dylib")
+set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/${_rn_gpui_hermes_library_name}")
 if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
   message(FATAL_ERROR
-    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; run scripts/build-hermes-macos.sh to populate the gitignored platform binary directory.")
+    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; run the matching scripts/build-hermes-<platform> script to populate the gitignored platform binary directory.")
 endif()
 
 add_library(hermes-engine::hermesvm SHARED IMPORTED)

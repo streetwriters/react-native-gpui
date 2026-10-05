@@ -19,9 +19,6 @@ perf-timing = ["gpui/profiler"]
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }
 gpui = { workspace = true }
-# `font-kit` is what makes gpui_macos build a real (CoreText) text system;
-# without it every glyph paints as nothing (TODO 1.11).
-gpui_platform = { workspace = true, features = ["font-kit"] }
 cxx = { workspace = true }
 async-channel = { workspace = true }
 anyhow = { workspace = true }
@@ -41,6 +38,17 @@ rn-gpui-macros = { path = "../rn-gpui-macros" }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# `font-kit` makes gpui_macos build a real (CoreText) text system; without it
+# every glyph paints as nothing (TODO 1.11).
+gpui_platform = { workspace = true, features = ["font-kit"] }
 cocoa = "0.25"
 objc = "0.2"
 raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# gpui_platform intentionally has no default features. Enable both backends so
+# Linux users can run under either X11 or Wayland.
+gpui_platform = { workspace = true, features = ["x11", "wayland"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_platform = { workspace = true }

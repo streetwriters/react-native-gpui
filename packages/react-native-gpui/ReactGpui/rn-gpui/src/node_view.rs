@@ -680,7 +680,10 @@ impl RNNodeView {
         {
             self.native_view_name = op.native_view_name.clone();
             self.native_view_props = op.native_view_props.clone();
-            self.native_view_host = None;
+            #[cfg(target_os = "macos")]
+            {
+                self.native_view_host = None;
+            }
         }
         self.frame = if matches!(
             self.component.as_str(),
