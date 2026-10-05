@@ -4,6 +4,7 @@
  * this desktop wrapper adapts the same event/value contract to GPUI.
  */
 import * as React from 'react';
+import { StyleSheet } from 'react-native';
 import * as NativeComponentRegistry from '../../NativeComponent/NativeComponentRegistry';
 import codegenNativeCommands from '../../Utilities/codegenNativeCommands';
 import RCTTextInputViewConfig from './RCTTextInputViewConfig';
@@ -29,8 +30,30 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
     multiline = false,
     editable = true,
     autoFocus = false,
+    style,
     ...nativeProps
   } = props;
+  const flatStyle = StyleSheet.flatten(style) || {};
+  const metric = value => (typeof value === 'number' ? value : 0);
+  const fontSize =
+    typeof flatStyle.fontSize === 'number' ? flatStyle.fontSize : 14;
+  const lineHeight =
+    typeof flatStyle.lineHeight === 'number'
+      ? flatStyle.lineHeight
+      : Math.max(fontSize * 1.2, fontSize * 1.4);
+  const verticalPadding =
+    metric(flatStyle.paddingVertical ?? flatStyle.padding) * 2 ||
+    metric(flatStyle.paddingTop) + metric(flatStyle.paddingBottom);
+  const verticalBorder =
+    metric(flatStyle.borderTopWidth ?? flatStyle.borderWidth) +
+    metric(flatStyle.borderBottomWidth ?? flatStyle.borderWidth);
+  const minimumLineHeight = Math.ceil(
+    lineHeight + verticalPadding + verticalBorder,
+  );
+  const inputStyle =
+    flatStyle.height == null
+      ? [{ minHeight: minimumLineHeight }, style]
+      : style;
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue == null ? '' : String(defaultValue),
   );
@@ -98,6 +121,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
       selection={selection}
       multiline={multiline}
       editable={editable}
+      style={inputStyle}
       onChange={handleChange}
       onSelectionChange={onSelectionChange}
       onFocus={handleFocus}

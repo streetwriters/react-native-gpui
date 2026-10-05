@@ -149,6 +149,8 @@ pub struct RNNodeView {
     pub input_editable: bool,
     input_secure_text: bool,
     pub input_selection: std::ops::Range<usize>,
+    /// Horizontal scroll position for a focused single-line TextInput, in DIPs.
+    pub(crate) input_scroll_x: f32,
     pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
     pub input_event_count: i32,
@@ -613,6 +615,7 @@ impl RNNodeView {
             input_editable: op.text_input_editable,
             input_secure_text: op.text_input_secure,
             input_selection: 0..0,
+            input_scroll_x: 0.0,
             input_selection_anchor: None,
             input_marked: None,
             input_event_count: 0,
@@ -2536,19 +2539,60 @@ impl Render for RNNodeView {
                 let top = self.view.content_insets.top * scale_y;
                 let right = self.view.content_insets.right * scale_x;
                 let bottom = self.view.content_insets.bottom * scale_y;
-                element = element.child(
-                    div()
-                        .absolute()
-                        .left(px(left))
-                        .top(px(top))
-                        .w(px((frame.w * scale_x - left - right).max(0.0)))
-                        .h(px((frame.h * scale_y - top - bottom).max(0.0)))
-                        .child(crate::text::paragraph_element(
-                            &scaled_paragraph,
-                            (frame.w * scale_x - left - right).max(0.0),
-                            (frame.h * scale_y - top - bottom).max(0.0),
-                        )),
-                );
+                let viewport_width = (frame.w * scale_x - left - right).max(0.0);
+                let viewport_height = (frame.h * scale_y - top - bottom).max(0.0);
+                if !self.input_multiline {
+                    // A single-line input is a horizontally clipped viewport,
+                    // not a wrapping paragraph. Give the shaper enough width
+                    // for the complete current line so Yoga/GPUI never hides
+                    // its tail at the field edge.
+                    scaled_paragraph.max_lines = 0;
+                    scaled_paragraph.ellipsize = 0;
+                    let line = self.input_text.split('\n').next().unwrap_or_default();
+                    let natural_width = crate::text::input_caret_x(
+                        window.text_system(),
+                        &scaled_paragraph,
+                        line,
+                        line.len(),
+                    );
+                    let text_width = viewport_width.max(natural_width + 2.0);
+                    element = element.child(
+                        div()
+                            .absolute()
+                            .left(px(left))
+                            .top(px(top))
+                            .w(px(viewport_width))
+                            .h(px(viewport_height))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(-self.input_scroll_x * scale_x))
+                                    .top_0()
+                                    .w(px(text_width))
+                                    .h(px(viewport_height))
+                                    .child(crate::text::paragraph_element(
+                                        &scaled_paragraph,
+                                        text_width,
+                                        viewport_height,
+                                    )),
+                            ),
+                    );
+                } else {
+                    element = element.child(
+                        div()
+                            .absolute()
+                            .left(px(left))
+                            .top(px(top))
+                            .w(px(viewport_width))
+                            .h(px(viewport_height))
+                            .child(crate::text::paragraph_element(
+                                &scaled_paragraph,
+                                viewport_width,
+                                viewport_height,
+                            )),
+                    );
+                }
             } else {
                 element = element.child(crate::text::paragraph_element(
                     &scaled_paragraph,
@@ -2562,11 +2606,17 @@ impl Render for RNNodeView {
             let focus = self.focus_handle.clone();
             let caret_text = self.input_text.clone();
             let caret_offset = self.input_selection.end.min(self.input_text.len());
-            let caret_paragraph = self.paragraph.clone().unwrap_or_default();
+            let mut caret_paragraph = self.paragraph.clone().unwrap_or_default();
+            for fragment in &mut caret_paragraph.fragments {
+                fragment.font_size *= scale_y;
+                fragment.letter_spacing *= scale_x;
+            }
             let input_selection = self.input_selection.clone();
             let content_insets = self.view.content_insets;
             let input_text_color = self.input_text_color;
             let input_selection_color = self.input_selection_color;
+            let input_multiline = self.input_multiline;
+            let input_scroll_x = self.input_scroll_x * scale_x;
             let caret_visible = self.caret_visible;
             let caret_height = self
                 .paragraph
@@ -2589,8 +2639,9 @@ impl Render for RNNodeView {
                                 if !input_selection.is_empty() {
                                     let start = input_selection.start.min(caret_text.len());
                                     let end = input_selection.end.min(caret_text.len());
-                                    let content_width = f32::from(bounds.size.width)
-                                        - (content_insets.left + content_insets.right) * scale_x;
+                                    let content_width = (f32::from(bounds.size.width)
+                                        - (content_insets.left + content_insets.right) * scale_x)
+                                        .max(0.0);
                                     let mut line_start = 0;
                                     for (line_number, raw_line) in
                                         caret_text.split_inclusive('\n').enumerate()
@@ -2606,18 +2657,24 @@ impl Render for RNNodeView {
                                             let prefix = &line[..selected_start - line_start];
                                             let through_selection =
                                                 &line[..selected_end - line_start];
-                                            let x0 = crate::text::input_caret_x(
+                                            let mut x0 = crate::text::input_caret_x(
                                                 window.text_system(),
                                                 &caret_paragraph,
                                                 prefix,
                                                 prefix.len(),
                                             );
-                                            let x1 = crate::text::input_caret_x(
+                                            let mut x1 = crate::text::input_caret_x(
                                                 window.text_system(),
                                                 &caret_paragraph,
                                                 through_selection,
                                                 through_selection.len(),
                                             );
+                                            if !input_multiline {
+                                                x0 -= input_scroll_x;
+                                                x1 -= input_scroll_x;
+                                                x0 = x0.clamp(0.0, content_width);
+                                                x1 = x1.clamp(0.0, content_width);
+                                            }
                                             let width = if includes_newline {
                                                 (content_width - x0).max(1.0)
                                             } else {
@@ -2657,6 +2714,16 @@ impl Render for RNNodeView {
                                         line,
                                         line.len(),
                                     );
+                                    let mut x = x - input_scroll_x;
+                                    let content_width = (f32::from(bounds.size.width)
+                                        - (content_insets.left + content_insets.right) * scale_x)
+                                        .max(0.0);
+                                    if !input_multiline {
+                                        x = x.clamp(
+                                            0.0,
+                                            (content_width - scale_x.max(1.0)).max(0.0),
+                                        );
+                                    }
                                     let x = bounds.origin.x + px(content_insets.left * scale_x + x);
                                     let y = bounds.origin.y
                                         + px(content_insets.top * scale_y
@@ -2795,6 +2862,53 @@ impl Render for RNNodeView {
                 );
             } else if !self.component.starts_with("RNSVG") {
                 element = element.children(ordered_children.iter().map(|(_, child)| child.clone()));
+            }
+            if self.component == "TextInput" && !self.input_multiline {
+                element = element.on_scroll_wheel(cx.listener(
+                    |this, event: &gpui::ScrollWheelEvent, window, cx| {
+                        let delta = match &event.delta {
+                            gpui::ScrollDelta::Pixels(delta) => {
+                                let x = f32::from(delta.x);
+                                if x.abs() > 0.0 {
+                                    x
+                                } else {
+                                    f32::from(delta.y)
+                                }
+                            }
+                            gpui::ScrollDelta::Lines(lines) => {
+                                if lines.x.abs() > 0.0 {
+                                    lines.x * 40.0
+                                } else {
+                                    lines.y * 40.0
+                                }
+                            }
+                        };
+                        let viewport = (this.frame.w
+                            - this.view.content_insets.left
+                            - this.view.content_insets.right)
+                            .max(0.0);
+                        let natural_width = this
+                            .paragraph
+                            .as_ref()
+                            .map(|paragraph| {
+                                let line = this.input_text.split('\n').next().unwrap_or_default();
+                                crate::text::input_caret_x(
+                                    window.text_system(),
+                                    paragraph,
+                                    line,
+                                    line.len(),
+                                )
+                            })
+                            .unwrap_or(0.0);
+                        let max_offset = (natural_width - viewport).max(0.0);
+                        let next = (this.input_scroll_x - delta).clamp(0.0, max_offset);
+                        if (next - this.input_scroll_x).abs() > f32::EPSILON {
+                            this.input_scroll_x = next;
+                            cx.notify();
+                            cx.stop_propagation();
+                        }
+                    },
+                ));
             }
         }
         let width = frame.w * scale_x;

@@ -302,6 +302,7 @@ fn clear_text_state(
 fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     this.input_event_count += 1;
     this.input_selection_anchor = None;
+    keep_caret_visible(this, window);
     let text = this.input_text.clone();
     let selection = utf16_range(&text, selected_range(this));
     if let Some(store) = store_from(cx) {
@@ -326,6 +327,7 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
 }
 
 fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    keep_caret_visible(this, window);
     let selection = utf16_range(&this.input_text, selected_range(this));
     if let Some(store) = store_from(cx) {
         let host = store.read(cx).host.clone();
@@ -338,6 +340,42 @@ fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<R
     }
     this.reset_text_input_caret(cx);
     cx.notify();
+}
+
+pub(crate) fn keep_caret_visible(this: &mut RNNodeView, window: &mut Window) {
+    if this.input_multiline {
+        this.input_scroll_x = 0.0;
+        return;
+    }
+    let Some(paragraph) = this.paragraph.as_ref() else {
+        this.input_scroll_x = 0.0;
+        return;
+    };
+    if paragraph.fragments.is_empty() {
+        this.input_scroll_x = 0.0;
+        return;
+    }
+    let end = this.input_selection.end.min(this.input_text.len());
+    let line_start = this.input_text[..end]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line = &this.input_text[line_start..end];
+    let caret_x = crate::text::input_caret_x(window.text_system(), paragraph, line, line.len());
+    let viewport =
+        (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0);
+    this.input_scroll_x = input_scroll_offset(this.input_scroll_x, caret_x, viewport);
+}
+
+fn input_scroll_offset(current: f32, caret_x: f32, viewport: f32) -> f32 {
+    let current = current.max(0.0);
+    let viewport = viewport.max(0.0);
+    if caret_x < current {
+        caret_x.max(0.0)
+    } else if caret_x > current + viewport {
+        (caret_x - viewport + 1.0).max(0.0)
+    } else {
+        current
+    }
 }
 
 pub fn clear_text_input(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
@@ -494,6 +532,11 @@ impl EntityInputHandler for RNNodeView {
         let local_x = (f32::from(point.x - origin.x) / scale_x.max(0.0001)
             - self.view.content_insets.left)
             .max(0.0);
+        let local_x = if self.input_multiline {
+            local_x
+        } else {
+            local_x + self.input_scroll_x
+        };
         let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)
             - self.view.content_insets.top)
             .max(0.0);
@@ -559,8 +602,8 @@ impl EntityInputHandler for RNNodeView {
 #[cfg(test)]
 mod tests {
     use super::{
-        byte_at_utf16, clear_text_state, reconcile_selection, replace_marked_text,
-        replace_plain_text, should_apply_text_update, utf16_at_byte,
+        byte_at_utf16, clear_text_state, input_scroll_offset, reconcile_selection,
+        replace_marked_text, replace_plain_text, should_apply_text_update, utf16_at_byte,
     };
 
     #[test]
@@ -643,6 +686,13 @@ mod tests {
         assert_eq!(selection, 0..0);
         assert_eq!(marked, None);
         assert!(!clear_text_state(&mut text, &mut selection, &mut marked));
+    }
+
+    #[test]
+    fn horizontal_scroll_keeps_the_caret_inside_the_viewport() {
+        assert_eq!(input_scroll_offset(0.0, 180.0, 100.0), 81.0);
+        assert_eq!(input_scroll_offset(81.0, 40.0, 100.0), 40.0);
+        assert_eq!(input_scroll_offset(40.0, 90.0, 100.0), 40.0);
     }
 }
 
