@@ -26,3 +26,6 @@ examples/DesktopTemplateSmoke/node_modules
 
 # Root-level autolink output from local package tests
 /desktop/
+
+# Compiled testing client (included in npm packs)
+/packages/@react-native-gpui/testing/dist/

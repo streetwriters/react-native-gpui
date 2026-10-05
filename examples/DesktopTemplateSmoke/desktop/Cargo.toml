@@ -17,6 +17,7 @@ strip = "debuginfo"
 
 [features]
 visual-capture = ["react-native-gpui/visual-capture"]
+test-driver = ["react-native-gpui/test-driver"]
 
 [build-dependencies]
 serde_json = "1"

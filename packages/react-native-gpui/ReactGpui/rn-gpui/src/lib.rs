@@ -4,6 +4,7 @@
 //! the consuming app's `desktop/src/`.
 
 pub(crate) mod accessibility;
+pub(crate) mod animation_policy;
 pub(crate) mod events;
 pub(crate) mod frame;
 pub(crate) mod host;
@@ -16,6 +17,8 @@ pub(crate) mod native_view_probe;
 pub(crate) mod node_view;
 pub(crate) mod store;
 pub(crate) mod style;
+#[cfg(feature = "test-driver")]
+mod test_driver;
 pub(crate) mod text;
 
 mod bootstrap;

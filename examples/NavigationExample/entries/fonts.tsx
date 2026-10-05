@@ -17,7 +17,11 @@ const MaterialIcon = createIconSet(
   'MaterialIcons-Regular.ttf',
 );
 
-function FontProbe() {
+export function FontProbe({
+  fontSource = 'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf',
+}: {
+  fontSource?: string | number;
+}) {
   const [status, setStatus] = useState(
     'Loading Inter through the native font loader…',
   );
@@ -28,8 +32,7 @@ function FontProbe() {
 
   useEffect(() => {
     loadAsync({
-      Inter:
-        'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf',
+      Inter: fontSource,
     })
       .then(() => setStatus('Inter loaded. Check weights 400, 600, and 800.'))
       .catch(error => {
@@ -41,16 +44,19 @@ function FontProbe() {
     MaterialIcon.getImageSource('favorite', 40, '#ff6584')
       .then(source => setAsyncIcon(source ?? null))
       .catch(error => console.error('[gpui-fonts] icon raster failed', error));
-  }, []);
+  }, [fontSource]);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Custom fonts on GPUI</Text>
-      <Text style={styles.status}>{status}</Text>
+      <Text testID="font-load-status" style={styles.status}>
+        {status}
+      </Text>
       <View style={styles.card}>
         <Text style={styles.section}>System font</Text>
         {[400, 600, 800].map(weight => (
           <Text
+            testID={`system-font-${weight}`}
             key={`system-${weight}`}
             style={[
               styles.system,
@@ -63,6 +69,7 @@ function FontProbe() {
         <Text style={styles.section}>Inter</Text>
         {[400, 600, 800].map(weight => (
           <Text
+            testID={`inter-font-${weight}`}
             key={weight}
             style={[
               styles.sample,

@@ -352,6 +352,7 @@ impl ViewStore {
             let retain = !native_dismiss_already_animated
                 && revealed.is_some()
                 && !cx.reduce_motion()
+                && !crate::animation_policy::animations_disabled()
                 && screen_transition_mode(&animation).is_some();
             if retain {
                 let retained_before = retained_descendants.len();
@@ -539,10 +540,12 @@ impl ViewStore {
                                 op.tag,
                                 animation,
                                 child.read(cx).screen_stack_presentation,
-                                cx.reduce_motion()
+                                cx.reduce_motion() || crate::animation_policy::animations_disabled()
                             );
-                            let mode =
-                                screen_transition_mode(&animation).filter(|_| !cx.reduce_motion());
+                            let mode = screen_transition_mode(&animation).filter(|_| {
+                                !cx.reduce_motion()
+                                    && !crate::animation_policy::animations_disabled()
+                            });
                             let transition_duration = mode.map(|mode| match mode {
                                 crate::node_view::ScreenTransitionMode::Fade => {
                                     Duration::from_millis(150)
@@ -704,8 +707,10 @@ impl ViewStore {
                                         cx.notify();
                                     });
                                 }
-                                let mode = screen_transition_mode(&animation)
-                                    .filter(|_| !cx.reduce_motion());
+                                let mode = screen_transition_mode(&animation).filter(|_| {
+                                    !cx.reduce_motion()
+                                        && !crate::animation_policy::animations_disabled()
+                                });
                                 let duration = mode.map(|mode| match mode {
                                     crate::node_view::ScreenTransitionMode::Fade => {
                                         Duration::from_millis(150)
@@ -1019,6 +1024,212 @@ mod screen_lifecycle_tests {
             assert!(unsupported_screens_component(name), "{name}");
         }
         assert!(!unsupported_screens_component("RNSScreen"));
+    }
+}
+
+#[cfg(test)]
+mod test_app_context_tests {
+    use super::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
+    use crate::{frame::FrameHook, host::Host};
+    use gpui::{px, AppContext, TestAppContext};
+    use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp, ParagraphFlat, RectF, ViewPropsFlat};
+
+    fn op(kind: MountKind) -> MountOp {
+        MountOp {
+            kind,
+            tag: 101,
+            parent_tag: -1,
+            index: 0,
+            component: "View".into(),
+            native_view_name: String::new(),
+            native_view_props: "{}".into(),
+            svg_props_json: String::new(),
+            frame: RectF {
+                x: 10.0,
+                y: 12.0,
+                w: 40.0,
+                h: 30.0,
+            },
+            props_changed: true,
+            view: ViewPropsFlat {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            has_paragraph: false,
+            paragraph: ParagraphFlat::default(),
+            image_uri: String::new(),
+            image_resize_mode: 0,
+            text_input_text: String::new(),
+            text_input_placeholder: String::new(),
+            text_input_selection_color: 0,
+            text_input_multiline: false,
+            text_input_editable: false,
+            text_input_secure: false,
+            text_input_most_recent_event_count: 0,
+            text_input_selection_set: false,
+            text_input_selection_start: 0,
+            text_input_selection_end: 0,
+            modal_visible: false,
+            screen_header_title: String::new(),
+            screen_header_subview_type: String::new(),
+            screen_header_background_color: 0,
+            screen_header_title_color: 0,
+            screen_header_tint_color: 0,
+            screen_header_hidden: false,
+            screen_header_hide_back: false,
+            screen_activity_state: 0.0,
+            screen_stack_animation: String::new(),
+            screen_stack_presentation: String::new(),
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            content_width: 0.0,
+            content_height: 0.0,
+            scroll_horizontal: false,
+            scroll_enabled: false,
+            layout_changed: false,
+        }
+    }
+
+    #[gpui::test]
+    fn test_app_context_mounts_a_view_and_resolves_its_pointer_target(cx: &mut TestAppContext) {
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![op(MountKind::Create), op(MountKind::Insert)],
+                },
+                cx,
+            );
+        });
+
+        cx.update_window(any_window, |_, window, app| {
+            let needs_clear = window.draw(app);
+            needs_clear.clear(app);
+            window.dispatch_event(
+                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                    position: gpui::point(px(20.0), px(20.0)),
+                    pressed_button: None,
+                    ..Default::default()
+                }),
+                app,
+            );
+        })
+        .unwrap();
+        let hit = cx.read_entity(&store, |store, _| store.hovered.first().copied());
+        assert_eq!(hit, Some(101));
+    }
+
+    #[gpui::test]
+    fn test_driver_frames_follow_transforms_and_visibility_clips(cx: &mut TestAppContext) {
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).expect("surface root exists");
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        let mut create = op(MountKind::Create);
+        create.view.has_transform = true;
+        create.view.transform = [
+            2.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 8.0, 6.0, 0.0, 1.0,
+        ];
+        let mut insert = op(MountKind::Insert);
+        insert.view = create.view.clone();
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![create, insert],
+                },
+                cx,
+            );
+        });
+
+        let transformed = cx.read_entity(&store, |store, app| {
+            crate::test_driver::node_frame(store, 101, app).expect("mounted frame")
+        });
+        assert_eq!((transformed.x, transformed.y), (18.0, 18.0));
+        assert_eq!((transformed.w, transformed.h), (80.0, 15.0));
+
+        let clipped = cx.read_entity(&store, |store, app| {
+            crate::test_driver::node_visible_frame(
+                store,
+                101,
+                RectF {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 20.0,
+                    h: 20.0,
+                },
+                app,
+            )
+        });
+        let clipped = clipped.expect("transformed frame intersects viewport");
+        assert_eq!((clipped.x, clipped.y), (18.0, 18.0));
+        assert_eq!((clipped.w, clipped.h), (2.0, 2.0));
+
+        let outside = cx.read_entity(&store, |store, app| {
+            crate::test_driver::node_visible_frame(
+                store,
+                101,
+                RectF {
+                    x: 100.0,
+                    y: 80.0,
+                    w: 20.0,
+                    h: 20.0,
+                },
+                app,
+            )
+        });
+        assert!(outside.is_none(), "off-window view must be invisible");
+
+        let mut hidden = op(MountKind::Update);
+        hidden.view.display_none = true;
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![hidden],
+                },
+                cx,
+            );
+        });
+        let hidden_frame = cx.read_entity(&store, |store, app| {
+            crate::test_driver::node_visible_frame(
+                store,
+                101,
+                RectF {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 120.0,
+                    h: 100.0,
+                },
+                app,
+            )
+        });
+        assert!(
+            hidden_frame.is_none(),
+            "display:none view must be invisible"
+        );
     }
 }
 

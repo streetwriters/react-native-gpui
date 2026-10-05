@@ -150,9 +150,9 @@ impl FrameHook {
                     state.epoch.elapsed().as_millis() as u64 + ACTIVITY_WINDOW.as_millis() as u64,
                 );
                 if cx
-                    .update(|window, _| {
+                    .update(|_window, _| {
                         host.on_frame(crate::events::now_ms());
-                        window.refresh();
+                        // Mount notifications invalidate only changed views.
                     })
                     .is_err()
                 {
@@ -222,16 +222,19 @@ impl FrameHook {
                 hook.state.armed.set(false);
             }
         });
-        // GPUI's macOS `on_next_frame` demand can be consumed by a stale
-        // one-shot after an idle window; dirty the window too so AppKit
-        // schedules the next display frame for persistent RN animations.
-        window.refresh();
+        // on_next_frame requests the platform tick without invalidating every
+        // retained RN sibling. Mount notifications dirty the changed views;
+        // the foreground ticker still handles missed animation callbacks.
     }
 
     fn is_active(&self) -> bool {
         self.state.animation_active.get()
             || self.state.gesture_active.get()
             || self.now_ms() < self.state.active_until_ms.get()
+    }
+
+    pub fn gesture_is_active(&self) -> bool {
+        self.state.gesture_active.get()
     }
 
     fn now_ms(&self) -> u64 {

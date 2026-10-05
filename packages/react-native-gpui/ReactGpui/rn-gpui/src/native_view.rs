@@ -280,3 +280,84 @@ pub(crate) fn set_probe_titlebar_transparent(window: &Window, transparent: bool)
         let _: () = msg_send![native_window, setTitlebarAppearsTransparent: if transparent {cocoa::base::YES} else {cocoa::base::NO}];
     }
 }
+
+/// Inspect the platform's actual accessibility element by its RN identifier.
+#[cfg(feature = "test-driver")]
+pub(crate) fn test_accessibility_node(
+    window: &Window,
+    identifier: &str,
+) -> Option<serde_json::Value> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    unsafe fn string(value: id) -> String {
+        if value.is_null() {
+            return String::new();
+        }
+        let utf8: *const std::ffi::c_char = msg_send![value, UTF8String];
+        if utf8.is_null() {
+            String::new()
+        } else {
+            std::ffi::CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+    unsafe fn find(element: id, identifier: &str, budget: &mut usize) -> Option<serde_json::Value> {
+        if element.is_null() || *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        let responds: bool = msg_send![element, respondsToSelector: sel!(accessibilityIdentifier)];
+        if responds {
+            let author: id = msg_send![element, accessibilityIdentifier];
+            if string(author) == identifier {
+                let label: id = msg_send![element, accessibilityLabel];
+                let title: id = msg_send![element, accessibilityTitle];
+                let role: id = msg_send![element, accessibilityRole];
+                let help: id = msg_send![element, accessibilityHelp];
+                let enabled: bool = msg_send![element, isAccessibilityEnabled];
+                let name = string(label);
+                return Some(
+                    serde_json::json!({"identifier":identifier,"name":if name.is_empty(){string(title)}else{name},"role":string(role),"hint":string(help),"enabled":enabled}),
+                );
+            }
+        }
+        let responds: bool = msg_send![element, respondsToSelector: sel!(accessibilityChildren)];
+        if responds {
+            let children: id = msg_send![element, accessibilityChildren];
+            if !children.is_null() {
+                let count: usize = msg_send![children, count];
+                for index in 0..count.min(*budget) {
+                    let child: id = msg_send![children, objectAtIndex:index];
+                    if let Some(node) = find(child, identifier, budget) {
+                        return Some(node);
+                    }
+                }
+            }
+        }
+        None
+    }
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return None;
+    };
+    unsafe {
+        let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
+        let content: id = msg_send![native_window, contentView];
+        find(content, identifier, &mut 10000)
+    }
+}
+
+#[cfg(feature = "test-driver")]
+pub(crate) fn test_window_visible(window: &Window) -> bool {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return false;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return false;
+    };
+    unsafe {
+        let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
+        msg_send![native_window, isVisible]
+    }
+}

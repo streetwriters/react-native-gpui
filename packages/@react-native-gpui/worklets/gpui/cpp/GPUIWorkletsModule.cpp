@@ -5,6 +5,7 @@
 #include <glog/logging.h>
 #include <worklets/Tools/JSLogger.h>
 #include <worklets/WorkletRuntime/RuntimeBindings.h>
+#include <worklets/WorkletRuntime/WorkletRuntime.h>
 
 #include <algorithm>
 #include <atomic>
@@ -13,6 +14,9 @@
 #include <stdexcept>
 #include <thread>
 #include <utility>
+
+extern "C" void rn_gpui_set_worklets_active(bool active) noexcept;
+extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept;
 
 namespace {
 bool animationTracingEnabled() {
@@ -44,7 +48,7 @@ class GPUIScheduler final : public worklets::UIScheduler {
       return;
     }
     UIScheduler::scheduleOnUI(std::move(job));
-    rngpui::rn_gpui_set_animated_active(true);
+    rn_gpui_set_worklets_active(true);
   }
 };
 
@@ -145,6 +149,8 @@ Module::Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
 }
 
 Module::~Module() {
+  rn_gpui_set_worklet_frame_count(0);
+  rn_gpui_set_worklets_active(false);
   if (initializer_) {
     initializer_->invalidate();
   }
@@ -219,7 +225,7 @@ void Module::requestAnimationFrame(std::function<void(double)> callback) {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
     frameCallbacks_.push_back(std::move(callback));
   }
-  rngpui::rn_gpui_set_animated_active(true);
+  rn_gpui_set_worklets_active(true);
 }
 
 void Module::onFrame(double timestampMs) {
@@ -258,6 +264,61 @@ void Module::onFrame(double timestampMs) {
   } catch (const facebook::jsi::JSError& error) {
     reportError(error);
   }
+  // Worklets has a perpetual native heartbeat even when its JS RAF queue is
+  // empty. Test synchronization observes application callbacks, not that beat.
+  if (std::getenv("RN_GPUI_TEST_DRIVER")) {
+    if (auto runtime = uiRuntime()) {
+      runtime->runSync([](facebook::jsi::Runtime& rt) {
+        auto global = rt.global();
+        if (!global.hasProperty(rt, "requestAnimationFrame") ||
+            (global.hasProperty(rt, "__gpuiTestRaf") &&
+             facebook::jsi::Value::strictEquals(
+                 rt,
+                 global.getProperty(rt, "requestAnimationFrame"),
+                 global.getProperty(rt, "__gpuiTestRaf"))))
+          return;
+        global.setProperty(
+            rt,
+            "__gpuiReportPendingRaf",
+            facebook::jsi::Function::createFromHostFunction(
+                rt,
+                facebook::jsi::PropNameID::forAscii(
+                    rt, "__gpuiReportPendingRaf"),
+                1,
+                [](facebook::jsi::Runtime&,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) {
+                  if (count == 1 && args[0].isNumber())
+                    rn_gpui_set_worklet_frame_count(
+                        static_cast<uint64_t>(args[0].getNumber()));
+                  return facebook::jsi::Value::undefined();
+                }));
+        rt.evaluateJavaScript(
+            std::make_shared<facebook::jsi::StringBuffer>(R"JS(
+          (() => {
+            const raf = globalThis.requestAnimationFrame;
+            const cancel = globalThis.cancelAnimationFrame;
+            const pending = new Set();
+            const report = () => globalThis.__gpuiReportPendingRaf(pending.size);
+            globalThis.requestAnimationFrame = callback => {
+              let id;
+              id = raf(timestamp => {
+                pending.delete(id); report(); callback(timestamp);
+              });
+              pending.add(id); report(); return id;
+            };
+            globalThis.cancelAnimationFrame = id => {
+              pending.delete(id); report(); cancel(id);
+            };
+            globalThis.__gpuiTestRaf = globalThis.requestAnimationFrame;
+            report();
+          })();
+        )JS"),
+            "gpui-test-raf.js");
+      });
+    }
+  }
   std::vector<std::function<void(double)>> callbacks;
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
@@ -277,7 +338,7 @@ void Module::onFrame(double timestampMs) {
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
     if (frameCallbacks_.empty()) {
-      rngpui::rn_gpui_set_animated_active(false);
+      rn_gpui_set_worklets_active(false);
     }
   }
 }

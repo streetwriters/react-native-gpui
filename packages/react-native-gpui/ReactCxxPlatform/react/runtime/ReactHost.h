@@ -63,6 +63,8 @@ class ReactHost {
   bool loadScript(const std::string &bundlePath, const std::string &sourcePath) noexcept;
 
   void openDebugger();
+  void requestReload() { reloadReactInstance(); }
+  bool isReloading() const { return isReloadingReactInstance_.load(); }
 
   void startSurface(
       SurfaceId surfaceId,
@@ -100,6 +102,8 @@ class ReactHost {
   bool loadScriptFromDevServer();
   bool loadScriptFromBundlePath(const std::string &bundlePath);
 
+  std::string lastBundlePath_;
+  std::string lastSourcePath_;
   const ReactInstanceConfig reactInstanceConfig_;
   std::unique_ptr<ReactInstanceData> reactInstanceData_;
   std::unique_ptr<ReactInstance> reactInstance_;

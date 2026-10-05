@@ -99,10 +99,9 @@ class GpuiHost {
   void add_event_listener(
       std::shared_ptr<const facebook::react::EventListener> listener);
 
-  // TODO 2.6 — driven by `GpuiLogBoxSurfaceDelegate`. There is no reload entry
-  // point here on purpose: both reload triggers (Metro's websocket `reload`
-  // message and `DevSettings.reload()`) funnel into `ReactHost`'s private
-  // `reloadReactInstance()`, and `ReactHost` owns them.
+  // Both developer and test reloads are owned by ReactHost.
+  void request_reload();
+  bool reload_in_progress() const;
   void start_log_box_surface();
   void stop_log_box_surface();
 
@@ -118,7 +117,7 @@ class GpuiHost {
   /// "Native animated module is not available" and no red box renders.
   std::shared_ptr<facebook::react::NativeAnimatedNodesManagerProvider>
       animatedNodesManagerProvider_;
-  mutable std::mutex animatedFrameMutex_;
+  mutable std::recursive_mutex animatedFrameMutex_;
   mutable std::function<void()> animatedFrameCallback_;
   std::unique_ptr<facebook::react::ReactHost> reactHost_;
   std::vector<std::shared_ptr<const facebook::react::EventListener>>

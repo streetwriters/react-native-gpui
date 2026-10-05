@@ -14,6 +14,7 @@ function AppearanceProbe() {
   const next = colorScheme === 'dark' ? 'light' : 'dark';
   return (
     <View
+      testID="appearance-root"
       style={{
         flex: 1,
         padding: 32,
@@ -22,6 +23,7 @@ function AppearanceProbe() {
       }}
     >
       <Text
+        testID="appearance-status"
         style={{
           fontSize: 20,
           color: colorScheme === 'dark' ? '#fff' : '#111',

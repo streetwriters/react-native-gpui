@@ -14,6 +14,7 @@ function ImageProbe() {
         {['cover', 'contain', 'stretch', 'center'].map(mode => (
           <View key={mode} style={{ alignItems: 'center', gap: 4 }}>
             <Image
+              testID={`image-${mode}`}
               source={require('../assets/image-probe.png')}
               resizeMode={mode}
               style={{ width: 120, height: 72, backgroundColor: '#ddd' }}
@@ -24,6 +25,7 @@ function ImageProbe() {
       </View>
       <Text style={{ fontSize: 14, color: '#111' }}>data URI</Text>
       <Image
+        testID="image-data-uri"
         source={{ uri: dataImage }}
         resizeMode="contain"
         style={{ width: 160, height: 80, backgroundColor: '#ddd' }}

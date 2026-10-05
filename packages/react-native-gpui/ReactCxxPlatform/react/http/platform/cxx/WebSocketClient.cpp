@@ -34,6 +34,8 @@
 namespace facebook::react {
 
 namespace {
+std::atomic<uint64_t> webSocketMessagesInFlight{0};
+
 using PlainWebSocket =
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket>;
 using TlsWebSocket = boost::beast::websocket::stream<
@@ -129,6 +131,10 @@ void loadWindowsSystemRoots(boost::asio::ssl::context& context) {
 }
 #endif
 } // namespace
+
+extern "C" uint64_t rn_gpui_websocket_messages_in_flight() noexcept {
+  return webSocketMessagesInFlight.load(std::memory_order_relaxed);
+}
 
 struct WebSocketClient::Impl final : public std::enable_shared_from_this<Impl> {
   void onResolveCompleted(
@@ -282,6 +288,13 @@ void WebSocketClient::close(const std::string& reason) {
 void WebSocketClient::close(uint16_t code, const std::string& reason) {
   if (!impl_->isClosing_.exchange(true)) {
     impl_->onClosed(code, reason);
+    {
+      std::lock_guard<std::mutex> lock(impl_->mutexOut_);
+      const auto queued = impl_->messagesOut_.size();
+      while (!impl_->messagesOut_.empty()) impl_->messagesOut_.pop();
+      if (queued > 0)
+        webSocketMessagesInFlight.fetch_sub(queued, std::memory_order_relaxed);
+    }
     auto ws = impl_->ws_.wlock();
     std::visit(
         [code, &reason](auto& socket) {
@@ -307,7 +320,9 @@ void WebSocketClient::close(uint16_t code, const std::string& reason) {
 void WebSocketClient::send(const std::string& message) {
   {
     std::lock_guard<std::mutex> lock(impl_->mutexOut_);
+    if (impl_->isClosing_) return;
     impl_->messagesOut_.emplace(message, false);
+    webSocketMessagesInFlight.fetch_add(1, std::memory_order_relaxed);
   }
   impl_->write();
 }
@@ -315,7 +330,9 @@ void WebSocketClient::send(const std::string& message) {
 void WebSocketClient::sendBinary(const std::string& bytes) {
   {
     std::lock_guard<std::mutex> lock(impl_->mutexOut_);
+    if (impl_->isClosing_) return;
     impl_->messagesOut_.emplace(bytes, true);
+    webSocketMessagesInFlight.fetch_add(1, std::memory_order_relaxed);
   }
   impl_->write();
 }
@@ -524,16 +541,18 @@ void WebSocketClient::Impl::write() {
             [message, weakImpl](
                 boost::beast::error_code ec,
                 std::size_t /*bytes_transferred*/) mutable {
+              webSocketMessagesInFlight.fetch_sub(1, std::memory_order_relaxed);
               auto impl = weakImpl.lock();
-              if (!impl || impl->isClosing_) {
+              if (!impl) {
                 return;
               }
               if (ec) {
                 LOG(ERROR) << "Error writing to websocket: " << ec.message();
+                impl->isWriting_ = false;
                 return;
               }
               impl->isWriting_ = false;
-              impl->write();
+              if (!impl->isClosing_) impl->write();
               message.reset(); // Release the message after it's been sent
             });
       },

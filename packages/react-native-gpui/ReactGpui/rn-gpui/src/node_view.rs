@@ -557,7 +557,12 @@ impl RNNodeView {
 
     /// Text and images receive the innermost mouse hit, but keyboard focus
     /// belongs to the closest focusable view containing that hit.
-    fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
+    #[cfg(feature = "test-driver")]
+    pub(crate) fn test_render_count(&self) -> u64 {
+        self.render_count
+    }
+
+    pub(crate) fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
         if let Some(handle) = &self.focus_handle {
             return Some(handle.clone());
         }
@@ -853,7 +858,7 @@ impl RNNodeView {
             if node.component == "RNSScreen" {
                 let screen_active = node.screen_activity_state > 0.0;
                 let transition_active = node.screen_transition.is_some_and(|transition| {
-                    !cx.reduce_motion()
+                    !(cx.reduce_motion() || crate::animation_policy::animations_disabled())
                         && Instant::now() - transition.started_at < transition.duration
                 });
                 screen = Some((
@@ -1496,7 +1501,7 @@ impl Render for RNNodeView {
             .unwrap_or_default();
         let base_left = f32::from(local_origin.x - parent_origin.x) - parent_border_left;
         let base_top = f32::from(local_origin.y - parent_origin.y) - parent_border_top;
-        let transition = if cx.reduce_motion() {
+        let transition = if cx.reduce_motion() || crate::animation_policy::animations_disabled() {
             None
         } else {
             self.screen_transition
@@ -1906,6 +1911,19 @@ impl Render for RNNodeView {
                             cx.stop_propagation();
                         }
                     }
+                    let primary_modifier = if cfg!(target_os = "macos") {
+                        event.keystroke.modifiers.platform
+                    } else {
+                        event.keystroke.modifiers.control
+                    };
+                    if this.component == "TextInput"
+                        && primary_modifier
+                        && event.keystroke.key == "a"
+                        && !event.keystroke.modifiers.alt
+                    {
+                        crate::input::select_all(this, window, cx);
+                        cx.stop_propagation();
+                    }
                     if this.component == "TextInput"
                         && crate::input::handle_key(
                             this,
@@ -2105,7 +2123,10 @@ impl Render for RNNodeView {
                             .map(|screen| screen.read(cx).screen_stack_animation.clone())
                             .unwrap_or_default();
                         let mode = crate::node_view::screen_transition_mode(&animation)
-                            .filter(|_| !cx.reduce_motion());
+                            .filter(|_| {
+                                !cx.reduce_motion()
+                                    && !crate::animation_policy::animations_disabled()
+                            });
                         let duration = mode.map(|mode| match mode {
                             crate::node_view::ScreenTransitionMode::Fade => {
                                 std::time::Duration::from_millis(150)

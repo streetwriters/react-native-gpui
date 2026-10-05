@@ -13,6 +13,41 @@
 
 namespace facebook::react {
 
+std::mutex PlatformTimerRegistryImpl::registriesMutex_;
+std::unordered_set<PlatformTimerRegistryImpl*> PlatformTimerRegistryImpl::registries_;
+
+PlatformTimerRegistryImpl::PlatformTimerRegistryImpl() noexcept {
+  std::lock_guard<std::mutex> guard(registriesMutex_);
+  registries_.insert(this);
+}
+
+PlatformTimerRegistryImpl::~PlatformTimerRegistryImpl() noexcept {
+  quit();
+  std::lock_guard<std::mutex> guard(registriesMutex_);
+  registries_.erase(this);
+}
+
+uint64_t PlatformTimerRegistryImpl::pendingDueWithin(uint64_t windowMs) noexcept {
+  const auto limit = std::chrono::steady_clock::now() +
+      std::chrono::milliseconds(windowMs);
+  std::lock_guard<std::mutex> registriesGuard(
+      PlatformTimerRegistryImpl::registriesMutex_);
+  uint64_t count = 0;
+  for (auto* registry : PlatformTimerRegistryImpl::registries_) {
+    std::lock_guard<std::mutex> timersGuard(registry->timersMutex_);
+    for (const auto& [id, timer] : registry->timers_) {
+      (void)id;
+      if (!timer.isRecurring && timer.due <= limit) ++count;
+    }
+  }
+  return count;
+}
+
+extern "C" uint64_t rn_gpui_pending_timers_due_within(
+    uint64_t windowMs) noexcept {
+  return PlatformTimerRegistryImpl::pendingDueWithin(windowMs);
+}
+
 void PlatformTimerRegistryImpl::quit() {
   LOG(INFO) << "Shutting down PlatformTimerRegistryImpl...";
   taskDispatchThread_.quit();
@@ -62,6 +97,15 @@ void PlatformTimerRegistryImpl::startTimer(uint32_t timerId, double delayMs) {
   // desktop frame cadence instead of an unbounded tight loop.
   constexpr double kMinimumFrameTimerMs = 1000.0 / 60.0;
   const auto scheduledDelayMs = std::max(delayMs, kMinimumFrameTimerMs);
+  {
+    std::lock_guard<std::mutex> guard(timersMutex_);
+    if (auto it = timers_.find(timerId); it != timers_.end()) {
+      it->second.due = std::chrono::steady_clock::now() +
+          std::chrono::milliseconds(static_cast<int32_t>(scheduledDelayMs));
+    } else {
+      return;
+    }
+  }
   taskDispatchThread_.runAsync(
       [this, timerId, delayMs]() {
         bool isRecurring = true;

@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -65,6 +66,29 @@ SharedCookies& sharedCookies() {
 // can be called from any thread at any time.
 struct Cancellation {
   std::atomic<bool> cancelled{false};
+};
+
+std::atomic<uint64_t> httpRequestsInFlight{0};
+std::mutex httpRequestsMutex;
+std::unordered_map<std::string, uint64_t> httpRequestUrlsInFlight;
+
+struct RequestActivity {
+  explicit RequestActivity(const std::string& url) : url_(url) {
+    httpRequestsInFlight.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(httpRequestsMutex);
+    ++httpRequestUrlsInFlight[url_];
+  }
+  ~RequestActivity() {
+    httpRequestsInFlight.fetch_sub(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(httpRequestsMutex);
+    auto it = httpRequestUrlsInFlight.find(url_);
+    if (it != httpRequestUrlsInFlight.end() && --it->second == 0) {
+      httpRequestUrlsInFlight.erase(it);
+    }
+  }
+
+ private:
+  std::string url_;
 };
 
 class CurlRequestToken final : public http::IRequestToken {
@@ -282,6 +306,7 @@ void performRequest(
     const http::Headers& requestHeaders,
     const http::Body& requestBody,
     uint32_t timeout) {
+  const RequestActivity activity(url);
   const auto complete = [&transfer](std::string error, bool timeoutError) {
     if (transfer.callbacks.onResponseComplete) {
       transfer.callbacks.onResponseComplete(std::move(error), timeoutError);
@@ -490,6 +515,37 @@ class CurlHttpClient final : public IHttpClient {
 };
 
 } // namespace
+
+extern "C" uint64_t rn_gpui_http_requests_in_flight() noexcept {
+  return httpRequestsInFlight.load(std::memory_order_relaxed);
+}
+
+extern "C" uint64_t rn_gpui_http_requests_not_ignored(
+    const char* newline_separated_patterns) noexcept {
+  std::lock_guard<std::mutex> lock(httpRequestsMutex);
+  uint64_t count = 0;
+  for (const auto& [url, active] : httpRequestUrlsInFlight) {
+    bool ignored = false;
+    if (newline_separated_patterns != nullptr) {
+      const std::string patterns(newline_separated_patterns);
+      size_t start = 0;
+      while (start <= patterns.size()) {
+        const auto end = patterns.find('\n', start);
+        const auto pattern = patterns.substr(start, end - start);
+        if (!pattern.empty() && url.find(pattern) != std::string::npos) {
+          ignored = true;
+          break;
+        }
+        if (end == std::string::npos)
+          break;
+        start = end + 1;
+      }
+    }
+    if (!ignored)
+      count += active;
+  }
+  return count;
+}
 
 HttpClientFactory gpui_http_client_factory() {
   return []() -> std::unique_ptr<IHttpClient> {

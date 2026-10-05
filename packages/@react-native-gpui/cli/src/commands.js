@@ -139,15 +139,21 @@ async function ensureMetro({ projectRoot, desktopRoot, host, port, config }) {
 
 export async function runDesktop({
   projectRoot = process.cwd(),
-  entryFile = 'index.js',
+  entryFile,
   bundle,
   config,
   release = false,
   port = 8082,
   host = 'localhost',
+  features,
+  noLaunch = false,
 }) {
   projectRoot = path.resolve(projectRoot);
   const desktopRoot = path.join(projectRoot, 'desktop');
+  entryFile ??=
+    ['index.js', 'index.ts', 'index.tsx'].find(file =>
+      fs.existsSync(path.join(projectRoot, file)),
+    ) ?? 'index.js';
   const bundlePath = path.resolve(
     projectRoot,
     bundle ?? path.join(desktopRoot, 'build/index.bundle'),
@@ -199,8 +205,19 @@ export async function runDesktop({
   if (!fs.existsSync(appCargoManifest)) {
     throw new Error(`missing desktop Cargo manifest: ${appCargoManifest}`);
   }
-  const cargoArgs = ['run'];
+  const cargoArgs = [noLaunch ? 'build' : 'run'];
   if (release) cargoArgs.push('--release');
+  const cargoFeatures = (features ?? '')
+    .split(',')
+    .map(feature => feature.trim())
+    .filter(Boolean);
+  if (cargoFeatures.some(feature => !/^[A-Za-z0-9_/-]+$/u.test(feature))) {
+    throw new Error(
+      '--features must be a comma-separated list of Cargo features',
+    );
+  }
+  if (cargoFeatures.length > 0)
+    cargoArgs.push('--features', cargoFeatures.join(','));
   cargoArgs.push('--manifest-path', appCargoManifest);
   const cargoEnv = {
     ...process.env,
@@ -337,8 +354,16 @@ function scaffoldDesktop(
       'react-native-gpui':
         packageJson.dependencies?.['react-native-gpui'] ?? '^0.1.0',
     },
+    scripts: {
+      ...packageJson.scripts,
+      'test:e2e':
+        packageJson.scripts?.['test:e2e'] ??
+        'jest --config desktop/jest.e2e.config.cjs',
+    },
     devDependencies: {
       ...packageJson.devDependencies,
+      '@react-native-gpui/testing':
+        packageJson.devDependencies?.['@react-native-gpui/testing'] ?? '^0.1.0',
       '@react-native-gpui/cli':
         packageJson.devDependencies?.['@react-native-gpui/cli'] ?? '^0.1.0',
     },
@@ -445,7 +470,9 @@ export function initDesktop({
           '--platform',
           'gpui',
           '--entry-file',
-          'index.js',
+          ['index.js', 'index.ts', 'index.tsx'].find(file =>
+            fs.existsSync(path.join(projectRoot, file)),
+          ) ?? 'index.js',
           '--bundle-output',
           bundlePath,
           '--assets-dest',
@@ -660,6 +687,50 @@ export function createLibrary({
       `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-macros = { path = ${JSON.stringify(macrosPath)} }\n`,
     );
   }
+  const exampleRoot = path.join(destination, 'example');
+  fs.mkdirSync(exampleRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(exampleRoot, 'app.json'),
+    `${JSON.stringify({ name: `${moduleStem}Example`, displayName: `${moduleStem} Example` }, null, 2)}\n`,
+  );
+  const examplePackage = scaffoldDesktop(exampleRoot, {
+    name: `${slug}-example`,
+    version: '0.0.1',
+    private: true,
+    dependencies: {
+      react: '19.2.3',
+      'react-native': '0.87.1',
+      [packageName]: 'file:..',
+    },
+    devDependencies: {
+      '@react-native-community/cli': '^20.2.0',
+      '@react-native/babel-preset': '0.87.1',
+      '@react-native/metro-config': '0.87.1',
+      '@react-native/jest-preset': '0.87.1',
+      jest: '^29.7.0',
+    },
+  });
+  fs.writeFileSync(
+    path.join(exampleRoot, 'package.json'),
+    `${JSON.stringify(examplePackage, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(exampleRoot, 'babel.config.cjs'),
+    "module.exports = {presets: ['module:@react-native/babel-preset']};\n",
+  );
+  fs.writeFileSync(
+    path.join(exampleRoot, 'index.ts'),
+    "import {AppRegistry} from 'react-native';\nimport App from './App';\nimport {name} from './app.json';\nAppRegistry.registerComponent(name, () => App);\n",
+  );
+  fs.writeFileSync(
+    path.join(exampleRoot, 'App.tsx'),
+    `import React from 'react';\nimport {Text, View} from 'react-native';\nimport Module from ${JSON.stringify(packageName)};\nexport default function App() {\n  return <View testID="desktop-app-root" style={{flex: 1, padding: 32}}><Text testID="library-result">{Module.greet('Desktop')}</Text></View>;\n}\n`,
+  );
+  fs.writeFileSync(
+    path.join(exampleRoot, 'desktop/e2e/library.e2e.ts'),
+    "import {launchApp, expect as desktopExpect} from '@react-native-gpui/testing';\ntest('calls the native library', async () => {\n  const app = await launchApp({disableAnimations: true});\n  await desktopExpect(app.getByTestId('library-result')).toContainText('Desktop');\n});\n",
+  );
+
   const language = type === 'rust' ? 'Rust' : 'C++';
   const implementation =
     type === 'rust' ? 'gpui/src/lib.rs' : `gpui/cpp/${moduleName}.cpp`;

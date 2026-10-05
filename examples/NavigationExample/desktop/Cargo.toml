@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 visual-capture = ["react-native-gpui/visual-capture"]
+test-driver = ["react-native-gpui/test-driver"]
 
 # Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.
 [profile.dev]

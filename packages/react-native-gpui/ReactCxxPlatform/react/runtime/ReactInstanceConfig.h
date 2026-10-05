@@ -15,6 +15,7 @@
 namespace facebook::react {
 
 class PlatformTimerRegistry;
+class NativeAnimatedNodesManagerProvider;
 
 struct ReactInstanceConfig {
   std::string appId;
@@ -34,6 +35,13 @@ struct ReactInstanceConfig {
   // is a seam for tests (e.g. Fantom) to inject a deterministic, mockable timer
   // registry.
   std::function<std::unique_ptr<PlatformTimerRegistry>()> platformTimerRegistryFactory{nullptr};
+
+  // Native animation graphs hold UIManager/runtime references and must not be
+  // reused across a reload. Platforms with render callbacks create a provider
+  // per instance and quiesce those callbacks before the instance is destroyed.
+  std::function<std::shared_ptr<NativeAnimatedNodesManagerProvider>()>
+      animatedNodesManagerProviderFactory{nullptr};
+  std::function<void()> beforeInstanceDestroy{nullptr};
 };
 
 } // namespace facebook::react

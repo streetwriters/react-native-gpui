@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 export default function App() {
   return (
-    <View style={styles.page}>
+    <View testID="desktop-app-root" style={styles.page}>
       <Text style={styles.eyebrow}>REACT NATIVE + GPUI</Text>
       <Text style={styles.title}>Your desktop app is ready.</Text>
       <Text style={styles.body}>

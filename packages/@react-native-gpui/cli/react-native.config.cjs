@@ -14,6 +14,8 @@ module.exports = {
           release: options.release,
           port: options.port,
           host: options.host,
+          features: options.features,
+          noLaunch: options.noLaunch === true || options.launch === false,
         });
       },
       options: [
@@ -32,6 +34,14 @@ module.exports = {
         },
         { name: '--config <path>', description: 'Metro configuration file' },
         { name: '--bundle <path>', description: 'Bundle output path' },
+        {
+          name: '--features <features>',
+          description: 'Comma-separated Cargo features for the desktop app',
+        },
+        {
+          name: '--no-launch',
+          description: 'Build the desktop app without launching it',
+        },
       ],
       examples: [
         {

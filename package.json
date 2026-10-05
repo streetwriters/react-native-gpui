@@ -7,6 +7,7 @@
     "packages/react-native-gpui",
     "packages/@react-native-gpui/cli",
     "packages/@react-native-gpui/codegen",
+    "packages/@react-native-gpui/testing",
     "packages/@react-native-gpui/worklets",
     "packages/@react-native-gpui/reanimated",
     "packages/@react-native-gpui/svg",
@@ -28,15 +29,30 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write . && node scripts/format-native.mjs",
     "format:check": "prettier --check . && node scripts/format-native.mjs --check",
-    "format:native": "node scripts/format-native.mjs"
+    "format:native": "node scripts/format-native.mjs",
+    "test": "jest",
+    "test:unit": "jest",
+    "test:vitest": "vitest run",
+    "test:all": "npm run test:unit && npm run test:vitest",
+    "test:e2e": "node tester/scripts/run-7.16-e2e.mjs",
+    "test:rust": "node tester/scripts/run-rust-tests.mjs",
+    "test:build": "npm run build --workspace @react-native-gpui/testing",
+    "pretest": "npm run test:build",
+    "pretest:unit": "npm run test:build",
+    "pretest:vitest": "npm run test:build",
+    "pretest:e2e": "npm run test:build",
+    "test:e2e:vitest": "node tester/scripts/run-7.16-e2e.mjs --runner=vitest",
+    "test:e2e:all": "node tester/scripts/run-7.16-e2e.mjs --runner=both",
+    "pretest:e2e:vitest": "npm run test:build",
+    "pretest:e2e:all": "npm run test:build"
   },
   "dependencies": {
     "@react-native-node-api/cli-utils": "file:.local/react-native-node-api-cli-utils-0.1.4.tgz",
     "react": "19.2.3",
     "react-native": "0.87.1",
     "react-native-node-api": "file:.local/react-native-node-api-gpui.tgz",
-    "weak-node-api": "file:.local/weak-node-api-0.1.1.tgz",
-    "react-native-svg": "15.15.5"
+    "react-native-svg": "15.15.5",
+    "weak-node-api": "file:.local/weak-node-api-0.1.1.tgz"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -48,16 +64,24 @@
     "@react-native-community/cli": "^20.2.0",
     "@react-native-gpui/cli": "0.1.0",
     "@react-native-gpui/native-module-fixture": "0.1.0",
+    "@react-native-gpui/testing": "0.1.0",
     "@react-native/eslint-config": "^0.87.1",
+    "@react-native/jest-preset": "^0.87.1",
     "@react-native/metro-config": "^0.87.1",
+    "@testing-library/react-native": "^14.0.1",
+    "@types/pngjs": "^6.0.5",
     "eslint": "^9.39.5",
     "hermes-eslint": "^0.36.1",
     "husky": "^9.1.7",
+    "jest": "^29.7.0",
     "lint-staged": "^16.4.0",
+    "pngjs": "^7.0.0",
     "prettier": "^3.9.9",
     "react-native-platform-override": "^0.84.0",
     "react-native-reanimated": "^4.7.1",
-    "react-native-worklets": "^0.13.0"
+    "react-native-worklets": "^0.13.0",
+    "react-test-renderer": "^19.2.3",
+    "vitest": "^3.2.4"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [

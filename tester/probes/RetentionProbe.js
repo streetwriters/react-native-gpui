@@ -28,15 +28,18 @@ function AnimatedNode() {
   }, []);
 
   return (
-    <View
-      style={{
-        width: 180,
-        height: 48,
-        opacity: 0.15 + (frame % 10) / 12,
-        backgroundColor: '#3b82f6',
-        borderRadius: 8,
-      }}
-    />
+    <View>
+      <Text testID="retention-step">Step {frame}</Text>
+      <View
+        style={{
+          width: 180,
+          height: 48,
+          opacity: 0.15 + (frame % 10) / 12,
+          backgroundColor: '#3b82f6',
+          borderRadius: 8,
+        }}
+      />
+    </View>
   );
 }
 
@@ -46,7 +49,9 @@ function RetentionProbe() {
       <Text style={{ fontSize: 20, color: '#111' }}>Retention probe</Text>
       <AnimatedNode />
       <View style={{ width: 180, height: 48, backgroundColor: '#10b981' }} />
-      <Text style={{ fontSize: 16, color: '#111' }}>Static sibling</Text>
+      <Text testID="retention-static" style={{ fontSize: 16, color: '#111' }}>
+        Static sibling
+      </Text>
     </View>
   );
 }

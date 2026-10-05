@@ -23,6 +23,7 @@
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include <react/renderer/components/FBReactNativeSpec/FBReactNativeSpecJSI.h>
 #include <react/renderer/scheduler/Scheduler.h>
+#include <react/runtime/PlatformTimerRegistryImpl.h>
 #include <react/runtime/ReactHost.h>
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
@@ -38,6 +39,26 @@
 #include <optional>
 #include <unordered_map>
 #include <utility>
+
+namespace {
+std::atomic<bool> nativeAnimationActive{false};
+std::atomic<bool> workletsRenderActive{false};
+std::atomic<uint64_t> workletFrameCount{0};
+} // namespace
+extern "C" void rn_gpui_set_worklets_active(bool active) noexcept {
+  workletsRenderActive.store(active);
+  rngpui::rn_gpui_set_animated_active(active || nativeAnimationActive.load());
+}
+
+extern "C" uint64_t rn_gpui_native_animations_active() noexcept {
+  return nativeAnimationActive.load() ? 1 : 0;
+}
+extern "C" uint64_t rn_gpui_worklet_frames_pending() noexcept {
+  return workletFrameCount.load();
+}
+extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept {
+  workletFrameCount.store(count);
+}
 
 extern "C" bool rn_gpui_accessibility_active();
 
@@ -633,6 +654,14 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   config.deviceName = "rn-gpui";
   config.devServerHost = std::string(devHost);
   config.devServerPort = devPort;
+  if (std::getenv("RN_GPUI_TEST_DRIVER")) {
+    const auto* mode = std::getenv("RN_GPUI_TEST_MODE");
+    if (mode && std::string_view(mode) == "metro")
+      config.enableDevMode = true;
+  }
+  config.platformTimerRegistryFactory = [] {
+    return std::make_unique<PlatformTimerRegistryImpl>();
+  };
 
   mountingManager_ =
       std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
@@ -661,28 +690,39 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   // GPUI stores RN's requested frame callback and invokes it from the window's
   // frame hook while active; synchronouslyUpdateViewOnUIThread forwards each
   // resulting prop patch to its retained node.
-  animatedNodesManagerProvider_ =
-      std::make_shared<NativeAnimatedNodesManagerProvider>(
-          [this](std::function<void()>&& callback, bool /*isAsync*/) {
-            if (gpuiDebugAnimationEnabled()) {
-              LOG(INFO) << "[native-animated] frame callback started";
-            }
-            {
-              std::lock_guard<std::mutex> lock(animatedFrameMutex_);
-              animatedFrameCallback_ = std::move(callback);
-            }
-            rn_gpui_set_animated_active(true);
-          },
-          [this](bool /*isAsync*/) {
-            if (gpuiDebugAnimationEnabled()) {
-              LOG(INFO) << "[native-animated] frame callback stopped";
-            }
-            {
-              std::lock_guard<std::mutex> lock(animatedFrameMutex_);
-              animatedFrameCallback_ = nullptr;
-            }
-            rn_gpui_set_animated_active(false);
-          });
+  config.animatedNodesManagerProviderFactory = [this] {
+    return std::make_shared<NativeAnimatedNodesManagerProvider>(
+        [this](std::function<void()>&& callback, bool /*isAsync*/) {
+          if (gpuiDebugAnimationEnabled()) {
+            LOG(INFO) << "[native-animated] frame callback started";
+          }
+          {
+            std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+            animatedFrameCallback_ = std::move(callback);
+          }
+          nativeAnimationActive.store(true);
+          rn_gpui_set_animated_active(true);
+        },
+        [this](bool /*isAsync*/) {
+          if (gpuiDebugAnimationEnabled()) {
+            LOG(INFO) << "[native-animated] frame callback stopped";
+          }
+          {
+            std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+            animatedFrameCallback_ = nullptr;
+          }
+          nativeAnimationActive.store(false);
+          rn_gpui_set_animated_active(workletsRenderActive.load());
+        });
+  };
+  config.beforeInstanceDestroy = [this] {
+    // Wait for a frame already executing on GPUI, then prevent callbacks into
+    // the old graph while ReactHost tears down its runtime and UIManager.
+    std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+    animatedFrameCallback_ = nullptr;
+    nativeAnimationActive.store(false);
+    rn_gpui_set_animated_active(workletsRenderActive.load());
+  };
 
   // TODO 2.6 — the LogBox surface. ReactHost hands this to
   // `ReactCxxTurboModuleProvider`, which builds `LogBoxModule` only when the
@@ -806,8 +846,16 @@ void GpuiHost::start_surface(
     surfaceScale_ = scale;
     mountingManager_->setWindowSize(w, h);
   }
+  folly::dynamic initialProps = folly::dynamic::object();
+  if (id == kAppSurfaceId && std::getenv("RN_GPUI_TEST_DRIVER")) {
+    if (const char* value = std::getenv("RN_GPUI_TEST_INITIAL_PROPS")) {
+      initialProps = folly::parseJson(value);
+      if (!initialProps.isObject())
+        throw std::invalid_argument("Test initialProps must be an object");
+    }
+  }
   reactHost_->startSurface(
-      id, std::string(module), folly::dynamic::object(), constraints, context);
+      id, std::string(module), initialProps, constraints, context);
 }
 
 void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
@@ -910,6 +958,22 @@ void GpuiHost::stop_surface(int32_t id) {
 }
 
 /// TODO 2.6 — start the LogBox surface (see `GpuiLogBoxSurfaceDelegate`).
+void GpuiHost::request_reload() {
+  reactHost_->requestReload();
+}
+bool GpuiHost::reload_in_progress() const {
+  return reactHost_->isReloading();
+}
+extern "C" void rn_gpui_request_reload() {
+  if (auto* host = activeGpuiHost.load())
+    host->request_reload();
+}
+extern "C" bool rn_gpui_reload_in_progress() {
+  if (auto* host = activeGpuiHost.load())
+    return host->reload_in_progress();
+  return false;
+}
+
 void GpuiHost::start_log_box_surface() {
   LayoutConstraints constraints;
   constraints.minimumSize = {surfaceWidth_, surfaceHeight_};
@@ -933,6 +997,9 @@ void GpuiHost::stop_log_box_surface() {
 }
 
 void GpuiHost::on_render() const {
+  std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+  if (reactHost_->isReloading())
+    return;
   runLoopObserverManager_->onRender();
 }
 
@@ -964,10 +1031,16 @@ void dispatchGestureTime(
 } // namespace
 
 void GpuiHost::on_gesture_frame(double eventTimestampMs) const {
+  std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+  if (reactHost_->isReloading())
+    return;
   dispatchGestureTime(*mountingManager_, eventTimestampMs);
 }
 
 void GpuiHost::on_frame(double eventTimestampMs) const {
+  std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
+  if (reactHost_->isReloading())
+    return;
   dispatchGestureTime(*mountingManager_, eventTimestampMs);
   on_render();
 #if defined(RN_GPUI_HAS_WORKLETS)
@@ -979,7 +1052,7 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
 #endif
   std::function<void()> animationFrame;
   {
-    std::lock_guard<std::mutex> lock(animatedFrameMutex_);
+    std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
     animationFrame = animatedFrameCallback_;
   }
   if (animationFrame) {

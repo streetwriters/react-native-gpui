@@ -113,6 +113,10 @@ ReactHost::~ReactHost() noexcept {
 }
 
 void ReactHost::createReactInstance() {
+  if (reactInstanceConfig_.animatedNodesManagerProviderFactory) {
+    reactInstanceData_->animatedNodesManagerProvider =
+        reactInstanceConfig_.animatedNodesManagerProviderFactory();
+  }
   // Set up timers
   std::unique_ptr<PlatformTimerRegistry> platformTimers;
   if (reactInstanceConfig_.platformTimerRegistryFactory) {
@@ -307,6 +311,9 @@ void ReactHost::createReactInstance() {
 }
 
 void ReactHost::destroyReactInstance() {
+  if (reactInstanceConfig_.beforeInstanceDestroy) {
+    reactInstanceConfig_.beforeInstanceDestroy();
+  }
   if (inspector_ != nullptr) {
     reactInstance_->unregisterFromInspector();
   }
@@ -341,7 +348,7 @@ void ReactHost::reloadReactInstance() {
     }
     destroyReactInstance();
     createReactInstance();
-    loadScriptFromDevServer();
+    loadScript(lastBundlePath_, lastSourcePath_);
     for (auto& surfaceProp : surfaceProps) {
       startSurface(
           surfaceProp.surfaceId,
@@ -357,6 +364,8 @@ void ReactHost::reloadReactInstance() {
 bool ReactHost::loadScript(
     const std::string& bundlePath,
     const std::string& sourcePath) noexcept {
+  lastBundlePath_ = bundlePath;
+  lastSourcePath_ = sourcePath;
   bool isLoaded = false;
   if (reactInstanceConfig_.enableDevMode && devServerHelper_) {
     devServerHelper_->setSourcePath(sourcePath);

@@ -12,11 +12,15 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <unordered_map>
 
 namespace rngpui {
+
+extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept;
+extern "C" void rn_gpui_mount_batch_applied() noexcept;
 
 void rn_gpui_register_app_components(
     facebook::react::ComponentDescriptorProviderRegistry& registry);

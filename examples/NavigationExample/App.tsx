@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   FlatList,
+  Animated,
+  PanResponder,
   StyleSheet,
   Text,
   TextInput,
@@ -38,11 +40,20 @@ import {
   FullWindowOverlay,
   ScreenFooter,
 } from 'react-native-screens';
+import Reanimated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useDesktopForwardNavigation } from 'react-native-gpui/navigation';
 
 const scenario =
   (globalThis as { __RN_GPUI_NAV_SCENARIO__?: string })
     .__RN_GPUI_NAV_SCENARIO__ ?? 'tabs';
+const isE2ETest =
+  (globalThis as { __RN_GPUI_E2E__?: boolean }).__RN_GPUI_E2E__ ?? false;
 enableScreens(scenario.startsWith('native-stack'));
 const APP_BACKGROUND = '#171923';
 const navigationTheme: Theme = {
@@ -101,6 +112,204 @@ function StackBackIcon({ tintColor }: { tintColor: string }) {
   return <Text style={[styles.backIcon, { color: tintColor }]}>‹</Text>;
 }
 
+function E2ETextInput() {
+  const [value, setValue] = useState('');
+  return (
+    <TextInput
+      testID="e2e-text-input"
+      accessibilityLabel="Desktop test input"
+      value={value}
+      onChangeText={setValue}
+      style={styles.input}
+    />
+  );
+}
+
+function E2ENetworkProbe() {
+  const [result, setResult] = useState('idle');
+  const request = async () => {
+    setResult('loading');
+    try {
+      const response = await fetch('http://127.0.0.1:43181/idle');
+      setResult(await response.text());
+    } catch (error) {
+      setResult(`error: ${String(error)}`);
+    }
+  };
+  return (
+    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      <Button testID="e2e-network-request" title="Fetch" onPress={request} />
+      <Text testID="e2e-network-result" style={{ color: '#fff' }}>
+        {result}
+      </Text>
+    </View>
+  );
+}
+
+function E2EAnimationProbe() {
+  const progress = useRef(new Animated.Value(0)).current;
+  const animation = useRef<Animated.CompositeAnimation | null>(null);
+  return (
+    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      <Button
+        testID="e2e-animation-start"
+        title="Start loop"
+        onPress={() => {
+          const loop = Animated.loop(
+            Animated.timing(progress, {
+              toValue: 1,
+              duration: 250,
+              useNativeDriver: true,
+            }),
+          );
+          animation.current = loop;
+          loop.start();
+        }}
+      />
+      <Animated.View
+        testID="e2e-animation-indicator"
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 10,
+          backgroundColor: '#aab2ff',
+          opacity: progress,
+        }}
+      />
+      <Button
+        testID="e2e-animation-stop"
+        title="Stop loop"
+        onPress={() => animation.current?.stop()}
+      />
+    </View>
+  );
+}
+
+function E2EWorkletProbe() {
+  const progress = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ opacity: progress.value }));
+  return (
+    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      <Button
+        testID="e2e-worklet-start"
+        title="Start UI loop"
+        onPress={() => {
+          progress.value = withRepeat(
+            withTiming(1, { duration: 250 }),
+            -1,
+            true,
+          );
+        }}
+      />
+      <Reanimated.View
+        style={[{ width: 20, height: 20, backgroundColor: '#78e7c5' }, style]}
+      />
+      <Button
+        testID="e2e-worklet-stop"
+        title="Stop UI loop"
+        onPress={() => cancelAnimation(progress)}
+      />
+    </View>
+  );
+}
+
+function E2EActionabilityProbe() {
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        right: 8,
+        bottom: 8,
+        width: 24,
+        height: 24,
+      }}
+    >
+      <View
+        testID="e2e-hidden"
+        collapsable={false}
+        style={{ opacity: 0, width: 24, height: 24 }}
+      />
+      <View
+        testID="e2e-disabled"
+        accessibilityState={{ disabled: true }}
+        style={{ position: 'absolute', left: -32, width: 24, height: 24 }}
+      />
+      <View
+        testID="e2e-covered"
+        collapsable={false}
+        style={{ position: 'absolute', width: 24, height: 24 }}
+      />
+      <View
+        testID="e2e-cover"
+        collapsable={false}
+        style={{
+          position: 'absolute',
+          width: 24,
+          height: 24,
+          backgroundColor: '#171923',
+        }}
+      />
+    </View>
+  );
+}
+
+function E2ETimerProbe() {
+  const [result, setResult] = useState('idle');
+  return (
+    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      <Button
+        testID="e2e-timer-start"
+        title="Schedule timer"
+        onPress={() => {
+          setResult('pending');
+          setTimeout(() => setResult('timer-fired'), 700);
+        }}
+      />
+      <Text testID="e2e-timer-result" style={{ color: '#fff' }}>
+        {result}
+      </Text>
+    </View>
+  );
+}
+
+function E2EDragProbe() {
+  const [dx, setDx] = useState(0);
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_event, gesture) => setDx(gesture.dx),
+      onPanResponderRelease: (_event, gesture) => setDx(gesture.dx),
+    }),
+  ).current;
+  return (
+    <View style={{ flexDirection: 'row', gap: 24, alignItems: 'center' }}>
+      <View
+        testID="e2e-drag-source"
+        {...responder.panHandlers}
+        style={{
+          width: 88,
+          height: 44,
+          borderRadius: 8,
+          backgroundColor: '#6772e5',
+        }}
+      />
+      <View
+        testID="e2e-drag-target"
+        style={{
+          width: 88,
+          height: 44,
+          borderRadius: 8,
+          backgroundColor: '#3a4056',
+        }}
+      />
+      <Text testID="e2e-drag-result" style={{ color: '#fff' }}>
+        dx:{Math.round(dx)}
+      </Text>
+    </View>
+  );
+}
+
 function Page({
   name,
   navigation,
@@ -124,11 +333,22 @@ function Page({
           : null,
       ]}
     >
-      <Text style={styles.title}>{name}</Text>
+      <Text testID={`${name}-title`} style={styles.title}>
+        {name}
+      </Text>
       <Text style={styles.description}>
         This screen keeps its background and text colors consistent while you
         navigate.
       </Text>
+      {isE2ETest ? <E2ETextInput /> : null}
+      {isE2ETest ? <E2ENetworkProbe /> : null}
+      {isE2ETest && name.startsWith('Details') ? <E2EAnimationProbe /> : null}
+      {isE2ETest && name.startsWith('Details') ? <E2ETimerProbe /> : null}
+      {isE2ETest && name.startsWith('Details') ? <E2EWorkletProbe /> : null}
+      {isE2ETest && name.startsWith('Details') ? (
+        <E2EActionabilityProbe />
+      ) : null}
+      {isE2ETest ? <E2EDragProbe /> : null}
       {children}
       <Button
         title="Open details"
@@ -154,6 +374,7 @@ function DetailsScreen({ route, navigation }: { route: any; navigation: any }) {
     <Page name={`Details ${id}`} navigation={navigation}>
       <Button
         title="Open next detail"
+        testID={`details-${id}-next`}
         color="#aab2ff"
         onPress={() => {
           console.log(`[nav] press next detail ${id + 1}`);
@@ -189,6 +410,7 @@ function ListScreen({ navigation }: { navigation: any }) {
         navigate.
       </Text>
       <TextInput
+        testID="navigation-list-input"
         value={value}
         onFocus={() => console.log('[nav] input focus')}
         onBlur={() => console.log('[nav] input blur')}
@@ -199,6 +421,7 @@ function ListScreen({ navigation }: { navigation: any }) {
         style={styles.input}
       />
       <FlatList
+        testID="navigation-list"
         data={Array.from({ length: 100 }, (_, index) => `Row ${index + 1}`)}
         keyExtractor={item => item}
         onScroll={event => {
@@ -215,6 +438,12 @@ function ListScreen({ navigation }: { navigation: any }) {
         color="#aab2ff"
         onPress={() => navigation.navigate('Details')}
       />
+      {isE2ETest && scenario === 'nested' ? (
+        <Button
+          title="Open modal"
+          onPress={() => navigation.navigate('Modal')}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -444,7 +673,7 @@ export default function App() {
         ref={navigationRef}
         theme={navigationTheme}
         onReady={() => {
-          if (scenario === 'nested') {
+          if (scenario === 'nested' && !isE2ETest) {
             const later = (delay: number, action: () => void) =>
               setTimeout(action, delay);
             later(500, () =>

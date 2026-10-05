@@ -74,6 +74,7 @@ function PanResponderProbe() {
       </Text>
       <Text style={styles.status}>{status}</Text>
       <View
+        testID="pan-source"
         {...pan.panHandlers}
         style={[
           styles.panTarget,
@@ -84,7 +85,12 @@ function PanResponderProbe() {
       >
         <Text style={styles.targetText}>Drag from here</Text>
       </View>
-      <View pointerEvents="none" style={styles.releaseArea} />
+      <View
+        testID="pan-target"
+        collapsable={false}
+        pointerEvents="none"
+        style={styles.releaseArea}
+      />
     </View>
   );
 }
@@ -109,7 +115,7 @@ const styles = StyleSheet.create({
   releaseArea: {
     position: 'absolute',
     left: 320,
-    top: 150,
+    top: 250,
     width: 260,
     height: 180,
     borderRadius: 16,

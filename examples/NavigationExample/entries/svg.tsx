@@ -5,12 +5,18 @@ import { SvgUri, SvgXml } from 'react-native-svg';
 
 const xml = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" rx="12" fill="#152238"/><path d="M18 57 43 25l19 21 14-17 26 28" fill="none" stroke="#64d2ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="88" cy="25" r="6" fill="#ff6584"/></svg>`;
 
-function SvgProbe() {
+export function SvgProbe({
+  uri = 'https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/circle-check.svg',
+}: {
+  uri?: string;
+}) {
   const [uriStatus, setUriStatus] = useState('Loading remote SvgUri…');
 
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.root}>
-      <Text style={styles.title}>React Native SVG</Text>
+      <Text testID="svg-title" style={styles.title}>
+        React Native SVG
+      </Text>
       <View style={styles.row}>
         <Svg width={180} height={120} viewBox="0 0 180 120">
           <Rect x={4} y={4} width={172} height={112} rx={18} fill="#16243c" />
@@ -28,16 +34,19 @@ function SvgProbe() {
       </View>
       <Text style={styles.label}>Fabric primitives and SvgXml</Text>
       <SvgUri
+        testID="svg-uri-image"
         width={180}
         height={120}
         color="#64d2ff"
-        uri="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/circle-check.svg"
+        uri={uri}
         onLoad={() => setUriStatus('Remote SvgUri loaded.')}
         onError={error =>
           setUriStatus(`Remote SvgUri failed: ${error.message}`)
         }
       />
-      <Text style={styles.label}>{uriStatus}</Text>
+      <Text testID="svg-uri-status" style={styles.label}>
+        {uriStatus}
+      </Text>
     </ScrollView>
   );
 }

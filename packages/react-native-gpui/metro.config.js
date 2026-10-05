@@ -522,10 +522,26 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     if (fs.existsSync(candidate)) nodeModulesPaths.push(candidate);
     if (path.dirname(directory) === directory) break;
   }
+  const linkedPackageDirs = [];
+  for (const packageName of gpuiPackages) {
+    for (const modulesPath of nodeModulesPaths) {
+      const candidate = path.join(modulesPath, packageName);
+      if (!fs.existsSync(candidate)) continue;
+      const realPath = fs.realpathSync(candidate);
+      if (
+        !realPath.startsWith(projectRoot + path.sep) &&
+        !nodeModulesPaths.some(folder => realPath.startsWith(folder + path.sep))
+      ) {
+        linkedPackageDirs.push(realPath);
+      }
+      break;
+    }
+  }
   const watchFolders = [
     ...new Set([
       GPUI_PACKAGE_DIR,
       ...platformPackageDirs,
+      ...linkedPackageDirs,
       UPSTREAM_RN_DIR,
       ...nodeModulesPaths,
     ]),

@@ -14,6 +14,11 @@ function handleHttp(request, response) {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
   if (url.pathname === '/text') {
     response.end('network-text-ok');
+  } else if (url.pathname === '/svg') {
+    response.setHeader('content-type', 'image/svg+xml');
+    response.end(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" rx="12" fill="#152238"/><path d="M18 57 43 25l19 21 14-17 26 28" fill="none" stroke="#64d2ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="88" cy="25" r="6" fill="#ff6584"/></svg>',
+    );
   } else if (url.pathname === '/json') {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ ok: true, source: 'gpui-network-fixture' }));
@@ -59,6 +64,8 @@ function handleHttp(request, response) {
     response.end(Buffer.from([0, 1, 2, 127, 254, 255]));
   } else if (url.pathname === '/slow') {
     setTimeout(() => response.end('too-late'), 1500);
+  } else if (url.pathname === '/idle') {
+    setTimeout(() => response.end('network-idle-ok'), 2200);
   } else if (url.pathname === '/stream') {
     response.setHeader('content-type', 'text/plain');
     response.write('first-');
@@ -70,7 +77,9 @@ function handleHttp(request, response) {
 }
 
 const httpServer = http.createServer(handleHttp);
-httpServer.listen(httpPort, '127.0.0.1');
+httpServer.listen(httpPort, '127.0.0.1', () => {
+  console.log(`GPUI network fixture listening on ${httpPort}`);
+});
 
 if (certDir) {
   const tlsServer = https.createServer(
@@ -97,5 +106,3 @@ if (certDir) {
   });
   tlsServer.listen(wsPort, '127.0.0.1');
 }
-
-console.log(`GPUI network fixture listening on ${httpPort} and ${wsPort}`);

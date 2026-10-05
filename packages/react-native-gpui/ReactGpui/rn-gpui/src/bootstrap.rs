@@ -53,6 +53,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
+unsafe extern "C" {
+    fn rn_gpui_mount_batch_applied();
+}
+
 fn env_string(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
@@ -390,6 +394,10 @@ pub fn run() {
 
 /// Launch the React Native desktop runtime with project-specific GPUI settings.
 pub fn run_with(mut config: DesktopAppConfig) {
+    #[cfg(not(feature = "test-driver"))]
+    if std::env::var_os("RN_GPUI_TEST_DRIVER").is_some_and(|value| value != "0") {
+        panic!("RN_GPUI_TEST_DRIVER is enabled, but this app was not built with --features test-driver");
+    }
     startup_trace("main entered");
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
@@ -489,10 +497,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         })
         .collect();
 
-    if !std::path::Path::new(&bundle).exists() {
-        log::error!("bundle not found: {bundle}");
-        std::process::exit(1);
-    }
+    // Metro can supply the initial script without a prebuilt bundle. The
+    // host reports a load failure if both Metro and the fallback are absent.
 
     // C++ (JS/Fabric thread) -> main thread. Installed before any surface
     // starts, otherwise the first mount batch would be dropped.
@@ -620,6 +626,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     Bounds::centered(None, size, cx)
                 }
             });
+        #[cfg(feature = "test-driver")]
+        let bounds = if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
+            Bounds::new(point(px(-10000.0), px(-10000.0)), bounds.size)
+        } else { bounds };
         let (width, height) = restored_bounds.map_or((width, height), |(_, _, width, height)| (width, height));
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
             log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
@@ -629,6 +639,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
+        #[cfg(feature = "test-driver")]
+        if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
+            // AppKit clamps remote coordinates into the visible desktop.
+            // Hidden windows still support forced draws and injected input.
+            window_options.show = false;
+            window_options.focus = false;
+        }
         if let Some(configure_window) = config.configure_window.take() {
             configure_window(&mut window_options);
         }
@@ -755,6 +772,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let host_for_input = host.clone();
         let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone(), overlay_host));
         cx.set_global(StoreGlobal(store.clone()));
+        #[cfg(feature = "test-driver")]
+        if std::env::var("RN_GPUI_TEST_DRIVER").as_deref() == Ok("1") {
+            let animations_disabled = std::env::var("RN_GPUI_TEST_DISABLE_ANIMATIONS")
+                .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false);
+            crate::animation_policy::set_animations_disabled(animations_disabled);
+            crate::test_driver::start(cx, store.clone(), (*window).into());
+        }
         let keyboard_host = store.read(cx).host.clone();
         let keyboard_hook = frame_hook.clone();
         let navigation_keyboard_subscription = cx.intercept_keystrokes(move |event, window, cx| {
@@ -1280,6 +1305,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 match event {
                     MainEvent::Mount(batch) => {
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
+                        unsafe { rn_gpui_mount_batch_applied() };
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));

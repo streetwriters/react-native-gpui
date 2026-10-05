@@ -111,6 +111,8 @@ void rn_gpui_on_image_load_result(
 
 namespace {
 
+std::atomic<uint64_t> mountBatchesInFlight{0};
+
 const char* kindName(MountKind kind) {
   switch (kind) {
     case MountKind::Create:
@@ -294,6 +296,7 @@ void GpuiMountingManager::executeMount(
     rn_gpui_log(0, describeOp(op));
   }
 
+  mountBatchesInFlight.fetch_add(1, std::memory_order_relaxed);
   rn_gpui_on_mount(std::move(batch));
 #if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
   // Apply current geometry to newly mounted SafeAreaViews as well as providers.
@@ -303,6 +306,14 @@ void GpuiMountingManager::executeMount(
   if (onAfterMount_) {
     onAfterMount_(surfaceId);
   }
+}
+
+extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept {
+  return mountBatchesInFlight.load(std::memory_order_relaxed);
+}
+
+extern "C" void rn_gpui_mount_batch_applied() noexcept {
+  mountBatchesInFlight.fetch_sub(1, std::memory_order_relaxed);
 }
 
 void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(

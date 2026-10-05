@@ -37,7 +37,10 @@ function TextProbe() {
       <Text style={{ fontSize: 20, color: '#111' }}>
         ÁÉÅ accents; gjpqy descenders; café naïve
       </Text>
-      <Text style={{ fontSize: 16, lineHeight: 24, color: '#111' }}>
+      <Text
+        testID="text-hard-break"
+        style={{ fontSize: 16, lineHeight: 24, color: '#111' }}
+      >
         First line: gjpqy ÁÉÅ{'\n'}Second line: café naïve
       </Text>
       <Text style={{ fontSize: 16, lineHeight: 24, color: '#111' }}>

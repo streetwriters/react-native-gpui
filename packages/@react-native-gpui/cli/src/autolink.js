@@ -579,6 +579,28 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       appCargo += `\n[dependencies]\nrn-gpui-autolink = { path = "autolink" }\n`;
     }
   }
+  if (!/^\[features\]\s*$/mu.test(appCargo)) {
+    appCargo = appCargo.replace(
+      /^\[dependencies\]\s*$/mu,
+      '[features]\nvisual-capture = ["react-native-gpui/visual-capture"]\ntest-driver = ["react-native-gpui/test-driver"]\n\n[dependencies]',
+    );
+  } else {
+    const tableStart = appCargo.indexOf('[features]');
+    const suffixStart = appCargo.indexOf(
+      '\n[',
+      tableStart + '[features]'.length,
+    );
+    const tableEnd = suffixStart < 0 ? appCargo.length : suffixStart;
+    let featureLines = appCargo.slice(
+      tableStart + '[features]'.length,
+      tableEnd,
+    );
+    if (!/^visual-capture\s*=/mu.test(featureLines))
+      featureLines += '\nvisual-capture = ["react-native-gpui/visual-capture"]';
+    if (!/^test-driver\s*=/mu.test(featureLines))
+      featureLines += '\ntest-driver = ["react-native-gpui/test-driver"]';
+    appCargo = `${appCargo.slice(0, tableStart)}[features]${featureLines}${appCargo.slice(tableEnd)}`;
+  }
   fs.writeFileSync(appCargoManifest, appCargo);
   const appMain = path.join(desktopRoot, 'src/main.rs');
   if (fs.existsSync(appMain)) {

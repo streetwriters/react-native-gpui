@@ -6,11 +6,31 @@ use gpui::{
     App,
 };
 use rn_gpui_sys::{ffi, IMAGE_CACHE_QUERY_HANDLER, IMAGE_HANDLER};
+#[cfg(feature = "test-driver")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::{HashMap, VecDeque},
     io::Cursor,
     sync::{Mutex, OnceLock},
 };
+
+#[cfg(feature = "test-driver")]
+static IMAGE_LOADS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(feature = "test-driver")]
+pub(crate) fn loads_in_flight() -> usize {
+    IMAGE_LOADS_IN_FLIGHT.load(Ordering::Relaxed)
+}
+
+#[cfg(feature = "test-driver")]
+struct ImageLoadActivity;
+
+#[cfg(feature = "test-driver")]
+impl Drop for ImageLoadActivity {
+    fn drop(&mut self) {
+        IMAGE_LOADS_IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 pub(crate) fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
     if let Some(asset_path) = uri.strip_prefix("file://assets/") {
@@ -83,8 +103,12 @@ pub fn install(cx: &App) {
     let client = cx.http_client();
     let _ = IMAGE_HANDLER.set(Box::new(move |uri, request_id| {
         let client = client.clone();
+        #[cfg(feature = "test-driver")]
+        IMAGE_LOADS_IN_FLIGHT.fetch_add(1, Ordering::Relaxed);
         executor
             .spawn(async move {
+                #[cfg(feature = "test-driver")]
+                let _activity = ImageLoadActivity;
                 let result = load_dimensions(&uri, client).await;
                 match result {
                     Ok((width, height)) => ffi::rn_gpui_on_image_load_result(
