@@ -78,8 +78,8 @@
     "pngjs": "^7.0.0",
     "prettier": "^3.9.9",
     "react-native-platform-override": "^0.84.0",
-    "react-native-reanimated": "^4.7.1",
-    "react-native-worklets": "^0.13.0",
+    "react-native-reanimated": "https://github.com/ammarahm-ed/react-native-reanimated/releases/download/4.7.1-linux.2/react-native-reanimated-4.7.1.tgz",
+    "react-native-worklets": "https://github.com/ammarahm-ed/react-native-reanimated/releases/download/worklets-0.13.0-linux.1/react-native-worklets-0.13.0.tgz",
     "react-test-renderer": "^19.2.3",
     "vitest": "^3.2.4"
   },

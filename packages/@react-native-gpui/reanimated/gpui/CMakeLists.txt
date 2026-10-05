@@ -1,14 +1,49 @@
 if(NOT RN_GPUI_PROJECT_ROOT)
   get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 endif()
-get_filename_component(_gpui_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
-set(_reanimated_root "${_gpui_app_root}/node_modules/react-native-reanimated")
-set(_reanimated_common "${_reanimated_root}/Common/cpp")
-set(_worklets_common "${_gpui_app_root}/node_modules/react-native-worklets/Common/cpp")
-if(NOT EXISTS "${_reanimated_common}/reanimated/NativeModules/ReanimatedModuleProxy.h")
-  message(FATAL_ERROR "react-native-reanimated 4.7.x was not found under ${_gpui_app_root}/node_modules")
+find_program(_gpui_node node REQUIRED)
+execute_process(
+  COMMAND "${_gpui_node}" -e "process.stdout.write(require.resolve('react-native-reanimated/package.json', {paths: [process.argv[1]]}))" "${_gpui_app_root}"
+  RESULT_VARIABLE _reanimated_resolve_result
+  OUTPUT_VARIABLE _reanimated_package_json
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _reanimated_resolve_result EQUAL 0 OR NOT EXISTS "${_reanimated_package_json}")
+  message(FATAL_ERROR "react-native-reanimated could not be resolved from ${_gpui_app_root}")
 endif()
+get_filename_component(_reanimated_root "${_reanimated_package_json}" DIRECTORY)
+execute_process(
+  COMMAND "${_gpui_node}" -e "process.stdout.write(require.resolve('react-native/package.json', {paths: [process.argv[1]]}))" "${_gpui_app_root}"
+  RESULT_VARIABLE _react_native_resolve_result
+  OUTPUT_VARIABLE _react_native_package_json
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _react_native_resolve_result EQUAL 0 OR NOT EXISTS "${_react_native_package_json}")
+  message(FATAL_ERROR "react-native could not be resolved from ${_gpui_app_root}")
+endif()
+get_filename_component(_react_native_root "${_react_native_package_json}" DIRECTORY)
+execute_process(
+  COMMAND "${_gpui_node}" -e "process.stdout.write(require.resolve('react-native-worklets/package.json', {paths: [process.argv[1]]}))" "${_gpui_app_root}"
+  RESULT_VARIABLE _worklets_resolve_result
+  OUTPUT_VARIABLE _worklets_package_json
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _worklets_resolve_result EQUAL 0 OR NOT EXISTS "${_worklets_package_json}")
+  message(FATAL_ERROR "react-native-worklets could not be resolved from ${_gpui_app_root}")
+endif()
+get_filename_component(_worklets_root "${_worklets_package_json}" DIRECTORY)
+set(_reanimated_common "${_reanimated_root}/Common/cpp")
+set(_worklets_common "${_worklets_root}/Common/cpp")
+if(NOT EXISTS "${_reanimated_common}/reanimated/NativeModules/ReanimatedModuleProxy.h")
+  message(FATAL_ERROR "react-native-reanimated 4.7.x was not found in ${_gpui_app_root} or any ancestor node_modules directory")
+endif()
+execute_process(
+  COMMAND "${_gpui_node}" -e "process.stdout.write(require.resolve('@react-native-gpui/worklets/package.json', {paths: [process.argv[1]]}))" "${_gpui_app_root}"
+  RESULT_VARIABLE _gpui_worklets_resolve_result
+  OUTPUT_VARIABLE _gpui_worklets_package_json
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _gpui_worklets_resolve_result EQUAL 0 OR NOT EXISTS "${_gpui_worklets_package_json}")
+  message(FATAL_ERROR "@react-native-gpui/worklets could not be resolved from ${_gpui_app_root}")
+endif()
+get_filename_component(_gpui_worklets_root "${_gpui_worklets_package_json}" DIRECTORY)
 if(NOT EXISTS "${_worklets_common}/worklets/Compat/StableApi.h")
   message(FATAL_ERROR "react-native-worklets 0.13.x is required by GPUI Reanimated")
 endif()
@@ -17,10 +52,9 @@ endif()
 # CocoaPods/Gradle builds. Without this, FeatureFlags.h silently treats every
 # flag as false, including defaults which change how animated props are
 # committed through Fabric.
-find_program(_gpui_node node REQUIRED)
 execute_process(
   COMMAND "${_gpui_node}" -e
-    "const fs=require('fs'); const flags=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const app=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); Object.assign(flags, app.reanimated?.staticFeatureFlags ?? {}); if(process.platform==='darwin' && !Object.hasOwn(app.reanimated?.staticFeatureFlags ?? {}, 'IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS')) flags.IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS=true; process.stdout.write(Object.entries(flags).map(([key,value])=>'['+key+':'+value+']').join(''));"
+    "const fs=require('fs'); const flags=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const app=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); Object.assign(flags, app.reanimated?.staticFeatureFlags ?? {}); if(process.platform==='darwin' && !Object.hasOwn(app.reanimated?.staticFeatureFlags ?? {}, 'IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS')) flags.IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS=true; if(process.platform==='linux' && !Object.hasOwn(app.reanimated?.staticFeatureFlags ?? {}, 'LINUX_SYNCHRONOUSLY_UPDATE_UI_PROPS')) flags.LINUX_SYNCHRONOUSLY_UPDATE_UI_PROPS=true; process.stdout.write(Object.entries(flags).map(([key,value])=>'['+key+':'+value+']').join(''));"
     "${_reanimated_root}/src/featureFlags/staticFlags.json"
     "${_gpui_app_root}/package.json"
   RESULT_VARIABLE _reanimated_flags_result
@@ -32,7 +66,7 @@ if(NOT _reanimated_flags_result EQUAL 0 OR _reanimated_feature_flags STREQUAL ""
 endif()
 
 execute_process(
-  COMMAND "${_gpui_node}" "${_gpui_app_root}/node_modules/react-native/scripts/generate-codegen-artifacts.js"
+  COMMAND "${_gpui_node}" "${_react_native_root}/scripts/generate-codegen-artifacts.js"
     --path "${_gpui_app_root}"
     --targetPlatform ios
     --outputPath "${_gpui_app_root}/desktop/build/codegen"
@@ -53,7 +87,7 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_reanimated_root}"
   "${_worklets_common}"
   "${_rn_codegen}"
-  "${_gpui_repo_root}/packages/@react-native-gpui/worklets/gpui/cpp")
+  "${_gpui_worklets_root}/gpui/cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_DEFINITIONS
   "REANIMATED_VERSION=4.7.1"
   "REANIMATED_FEATURE_FLAGS=\"${_reanimated_feature_flags}\"")
