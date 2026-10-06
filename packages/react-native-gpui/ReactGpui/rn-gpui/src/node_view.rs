@@ -501,8 +501,12 @@ impl RNNodeView {
     }
 
     fn accessibility_role(&self) -> Option<Role> {
+        // `importantForAccessibility="no"` keeps this node out of the a11y tree
+        // while leaving its children in. `Role::GenericContainer` would say the
+        // same thing, except GPUI filters that role out itself and rejects it
+        // with a debug assertion, so expose no role at all.
         if self.view.accessibility_important == 2 {
-            return Some(Role::GenericContainer);
+            return None;
         }
         if self.component == "Paragraph" && self.view.accessibility_role.is_empty() {
             return Some(Role::Label);
