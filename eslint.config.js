@@ -64,6 +64,7 @@ module.exports = [
         NonNullable: 'readonly',
         Readonly: 'readonly',
         ReadonlyArray: 'readonly',
+        Stringish: 'readonly',
       },
     },
     rules: {
