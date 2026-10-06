@@ -68,3 +68,23 @@ Their generated C++ is kept under `desktop/autolink/codegen/` and compiled into
 the app. Handwritten platform sources and include directories can be added as
 `componentSources` and `componentIncludeDirs` in the same GPUI config. Missing
 or duplicate descriptors are reported during autolinking or app startup.
+
+## Tests
+
+```sh
+npm test                              # unit tests (Vitest)
+npm run test:e2e                      # bundle, build and run the e2e suite
+npm run test:e2e -- --headed          # same, with visible app windows
+npm run test:e2e -- --keep-app        # leave the test apps running afterwards
+npm run test:e2e -- -u                # refresh screenshot baselines
+```
+
+`npm run test:e2e` bundles `packages/rn-gpui-tester`, builds it with the
+`test-driver` feature, starts the local network fixture and runs
+`vitest.e2e.config.ts`. Test apps are detached processes, so the runner stops
+every app it started when the suite finishes; `--keep-app` (or
+`RN_GPUI_KEEP_APP=1`) leaves them running instead, which is what you want when
+inspecting a failure. Tests launch hidden windows by default — pass `--headed`
+(or set `RN_GPUI_TEST_HEADED=1`) to watch them, which also runs a single worker
+so only one app window is on screen at a time. For interactive use, run
+`npm run desktop`.

@@ -25,8 +25,17 @@ const metadata = JSON.parse(
 );
 const binary = path.join(metadata.target_directory, 'debug', appName);
 const pidFile = path.join(repoRoot, '.local/7.16-e2e.pid');
+const keepApp =
+  process.env.RN_GPUI_KEEP_APP === '1' || process.argv.includes('--keep-app');
+const headed =
+  process.env.RN_GPUI_HEADED === '1' || process.argv.includes('--headed');
+// Flags this runner handles itself must not reach Vitest.
+const passthrough = process.argv
+  .slice(2)
+  .filter(arg => arg !== '--keep-app' && arg !== '--headed');
 
-function stopPreviousTestApp() {
+/** Kill every test app process, including detached ones from earlier runs. */
+function stopTestApps() {
   const candidates = new Set();
   if (fs.existsSync(pidFile)) {
     const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
@@ -64,6 +73,7 @@ function stopPreviousTestApp() {
     } catch {}
   }
   fs.rmSync(pidFile, { force: true });
+  return [...candidates];
 }
 
 function stopPreviousNetworkFixture() {
@@ -95,7 +105,7 @@ function run(command, args, cwd, env = process.env) {
     );
 }
 
-stopPreviousTestApp();
+stopTestApps();
 stopPreviousNetworkFixture();
 run(
   'npx',
@@ -162,6 +172,9 @@ try {
       }
     });
   });
+  console.log(
+    `[e2e] headed=${headed ? 'yes' : 'no'} keep-app=${keepApp ? 'yes' : 'no'}`,
+  );
   const env = {
     ...process.env,
     RN_GPUI_TEST_BINARY: binary,
@@ -171,7 +184,8 @@ try {
     ),
     RN_GPUI_DEV_PORT: '1',
     RN_GPUI_TEST_METRO_PORT: '8082',
-    RN_GPUI_TEST_KEEP_APP: '1',
+    RN_GPUI_TEST_KEEP_APP: keepApp ? '1' : '0',
+    RN_GPUI_TEST_HEADED: headed ? '1' : '0',
     RN_GPUI_UPDATE_SNAPSHOTS:
       process.argv.includes('-u') || process.argv.includes('--update')
         ? '1'
@@ -184,11 +198,22 @@ try {
       'run',
       '--config',
       path.join(repoRoot, 'vitest.e2e.config.ts'),
-      ...process.argv.slice(2),
+      // A headed run is for watching, so show one app window at a time.
+      ...(headed && !passthrough.some(arg => arg.startsWith('--maxWorkers'))
+        ? ['--maxWorkers=1']
+        : []),
+      ...passthrough,
     ],
     repoRoot,
     env,
   );
 } finally {
   networkFixture.kill('SIGTERM');
+  if (!keepApp) {
+    const reclaimed = stopTestApps();
+    if (reclaimed.length)
+      console.log(
+        `[e2e] stopped ${reclaimed.length} leftover test app(s): ${reclaimed.join(', ')}`,
+      );
+  }
 }
