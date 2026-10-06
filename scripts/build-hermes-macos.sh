@@ -35,6 +35,7 @@ cmake -S "$hermes_source" -B "$hermes_build" -G Ninja \
   -DHERMES_ENABLE_NAPI=ON \
   -DHERMES_ENABLE_DEBUGGER=ON \
   -DHERMES_ENABLE_TEST_SUITE=OFF \
+  -DHERMES_ENABLE_INTL=ON \
   -DHERMES_BUILD_APPLE_FRAMEWORK=OFF
 cmake --build "$hermes_build" --target hermesvm hermesc -j "$jobs"
 
