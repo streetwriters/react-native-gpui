@@ -36,6 +36,11 @@ type DriverResponse = {
 export type LaunchOptions = {
   executable?: string;
   bundle?: string;
+  /**
+   * Launch with a hidden, unfocused window (faster, and it keeps the
+   * developer's focus on the terminal). `RN_GPUI_TEST_HEADED=1` — set by
+   * `npm run test:e2e -- --headed` — overrides this so windows are visible.
+   */
   offscreen?: boolean;
   idleOptions?: IdleOptions;
   initialProps?: Record<string, unknown>;
@@ -180,7 +185,9 @@ export class DesktopApp {
         ...(options.initialProps
           ? { RN_GPUI_TEST_INITIAL_PROPS: JSON.stringify(options.initialProps) }
           : {}),
-        ...(options.offscreen ? { RN_GPUI_TEST_OFFSCREEN: '1' } : {}),
+        ...(options.offscreen && process.env.RN_GPUI_TEST_HEADED !== '1'
+          ? { RN_GPUI_TEST_OFFSCREEN: '1' }
+          : {}),
         RN_GPUI_TEST_DRIVER: '1',
         RN_GPUI_TEST_DRIVER_TOKEN: token,
       },

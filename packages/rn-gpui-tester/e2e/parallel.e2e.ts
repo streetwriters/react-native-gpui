@@ -22,7 +22,10 @@ test('isolates a worker app and captures its hidden window', async () => {
   await desktopExpect(app.getByTestId('e2e-text-input')).toHaveValue(
     `worker-${worker}`,
   );
-  expect((await app.getWindowBounds()).hidden).toBe(true);
+  // A headed run deliberately shows the window instead of hiding it.
+  expect((await app.getWindowBounds()).hidden).toBe(
+    process.env.RN_GPUI_TEST_HEADED !== '1',
+  );
   const screenshot = await app.screenshot();
   expect(screenshot.length).toBeGreaterThan(1000);
   fs.mkdirSync('.local/worker-results', { recursive: true });
