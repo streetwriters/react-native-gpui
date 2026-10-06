@@ -14,9 +14,7 @@ module.exports = [
       'packages/react-native-gpui/bin/',
       'packages/react-native-gpui/ReactCxxPlatform/',
       'packages/react-native-gpui/ReactCommonOverrides/',
-      'examples/*/android/',
-      'examples/*/ios/',
-      'examples/*/desktop/autolink/',
+      'packages/rn-gpui-tester/desktop/autolink/',
     ],
   },
   // eslint-plugin-ft-flow still uses the ESLint 8 rule context API.
@@ -24,6 +22,8 @@ module.exports = [
   {
     // Node tooling: CLI, codegen, build scripts and config files.
     files: [
+      '.prettierrc.js',
+      '**/.prettierrc.js',
       'packages/@react-native-gpui/cli/**/*.js',
       'packages/@react-native-gpui/codegen/**/*.js',
       '**/*.mjs',
@@ -33,6 +33,7 @@ module.exports = [
     ],
     languageOptions: {
       sourceType: 'module',
+      parserOptions: { requireConfigFile: false },
       globals: {
         AbortSignal: 'readonly',
         process: 'readonly',
@@ -47,7 +48,10 @@ module.exports = [
     // Flow sources: @babel/eslint-parser crashes on template literals once
     // the RN preset switches to the Hermes parser, so lint them with
     // hermes-eslint like React Native itself does.
-    files: ['packages/react-native-gpui/**/*.js', 'tester/**/*.js'],
+    files: [
+      'packages/react-native-gpui/**/*.js',
+      'packages/rn-gpui-tester/**/*.js',
+    ],
     languageOptions: {
       parser: hermesParser,
       parserOptions: { sourceType: 'module' },

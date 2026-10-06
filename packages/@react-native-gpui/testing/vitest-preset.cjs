@@ -47,7 +47,7 @@ module.exports = {
       },
       {
         find: /^@react-native-gpui\/NativeViewHost$/,
-        replacement: path.join(__dirname, 'jest/NativeViewHostMock.tsx'),
+        replacement: path.join(__dirname, 'vitest/NativeViewHostMock.tsx'),
       },
     ],
   },
@@ -56,8 +56,5 @@ module.exports = {
   },
   define: {
     __DEV__: 'true',
-  },
-  testEnvironmentOptions: {
-    customExportConditions: ['react-native', 'node'],
   },
 };

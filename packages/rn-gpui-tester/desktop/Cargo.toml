@@ -1,0 +1,28 @@
+[package]
+name = "rn-gpui-tester"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+visual-capture = ["react-native-gpui/visual-capture"]
+test-driver = ["react-native-gpui/test-driver"]
+
+# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+debug = false
+strip = "debuginfo"
+
+[build-dependencies]
+serde_json = "1"
+
+[dependencies]
+
+rn-gpui-autolink = { path = "autolink" }
+react-native-gpui = { path = "../../react-native-gpui/ReactGpui/rn-gpui" }

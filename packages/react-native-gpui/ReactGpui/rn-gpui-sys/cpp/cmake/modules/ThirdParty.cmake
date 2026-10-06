@@ -5,9 +5,9 @@ add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "${RN_GPUI_
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float" "${RN_GPUI_NATIVE_DEPS_BUILD}/fast_float")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt" "${RN_GPUI_NATIVE_DEPS_BUILD}/fmt")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/folly" "${RN_GPUI_NATIVE_DEPS_BUILD}/folly")
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   # RN's reduced GPUI Folly target omits platform-neutral sources used by
-  # ReactCxxPlatform's HTTP and threading implementations.
+  # ReactCxxPlatform's HTTP and threading implementations on desktop targets.
   target_sources(folly_runtime PRIVATE
     "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/system/ThreadName.cpp"
     "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/io/IOBuf.cpp"
@@ -64,7 +64,7 @@ if(NOT RN_GPUI_HERMES_BIN_ROOT)
 endif()
 if(NOT RN_GPUI_HERMES_SOURCE_DIR)
   message(FATAL_ERROR
-    "Set RN_GPUI_HERMES_SOURCE_DIR to the external Hermes source checkout. See docs/hermes.md.")
+    "Set RN_GPUI_HERMES_SOURCE_DIR to the external Hermes source checkout.")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

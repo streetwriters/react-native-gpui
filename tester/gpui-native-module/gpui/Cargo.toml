@@ -1,7 +1,0 @@
-[package]
-name = "rn-gpui-native-fixture"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-rn-gpui-macros = { path = "../../../packages/react-native-gpui/ReactGpui/rn-gpui-macros" }

@@ -1,9 +1,11 @@
 const { execFileSync, spawn } = require('node:child_process');
 const path = require('node:path');
 
-module.exports = async function () {
+module.exports = async function (vitestProject) {
+  if (vitestProject?.config?.snapshotOptions?.updateSnapshot === 'all')
+    process.env.RN_GPUI_UPDATE_SNAPSHOTS = '1';
   if (process.env.RN_GPUI_TEST_MODE === 'metro') await startMetro();
-  if (process.env.RN_GPUI_TEST_BINARY) return;
+  if (process.env.RN_GPUI_TEST_BINARY) return require('./global-teardown.cjs');
   const project = path.resolve(
     process.env.RN_GPUI_TEST_PROJECT ?? process.cwd(),
   );
@@ -52,6 +54,7 @@ module.exports = async function () {
     project,
     'desktop/build/index.bundle',
   );
+  return require('./global-teardown.cjs');
 };
 
 async function startMetro() {
@@ -72,7 +75,8 @@ async function startMetro() {
   fs.mkdirSync(path.dirname(log), { recursive: true });
   const fd = fs.openSync(log, 'w');
   const metroEnv = { ...process.env, NODE_ENV: 'development' };
-  delete metroEnv.JEST_WORKER_ID;
+  delete metroEnv.VITEST_WORKER_ID;
+  delete metroEnv.VITEST_POOL_ID;
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
     [

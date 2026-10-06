@@ -1,7 +1,0 @@
-{
-  "name": "DesktopTemplateSmoke",
-  "displayName": "DesktopTemplateSmoke",
-  "desktop": {
-    "appId": "com.example.desktoptemplatesmoke"
-  }
-}

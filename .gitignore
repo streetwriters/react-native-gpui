@@ -22,7 +22,6 @@ packages/react-native-gpui/bin/
 packages/@react-native-gpui/cli/bin/hermesc/
 desktop/build/
 desktop/.cache/
-examples/DesktopTemplateSmoke/node_modules
 
 # Root-level autolink output from local package tests
 /desktop/

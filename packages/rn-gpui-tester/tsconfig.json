@@ -1,0 +1,10 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": ["react", "vitest/globals", "node"],
+    "moduleSuffixes": [".gpui", ".native", ""]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "desktop/build", "desktop/autolink"]
+}
