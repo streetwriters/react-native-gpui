@@ -1,16 +1,12 @@
 import React, { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
   const [invalid, setInvalid] = useState(false);
   return (
-    <View
-      style={{
-        flex: 1,
-        padding: 32,
-        gap: 16,
-      }}
-    >
-      <Text nativeID="document-label">Save document</Text>
+    <View style={styles.page}>
+      <Text nativeID="document-label" style={styles.label}>
+        Save document
+      </Text>
       <Pressable
         testID="save"
         accessible
@@ -24,7 +20,7 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
         ]}
         onPress={() => setInvalid(true)}
       >
-        <Text>Save</Text>
+        <Text style={styles.button}>Save</Text>
       </Pressable>
       <View
         testID="switch"
@@ -36,7 +32,7 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
           selected: true,
         }}
       >
-        <Text>Enabled</Text>
+        <Text style={styles.label}>Enabled</Text>
       </View>
       <Pressable
         testID="disabled"
@@ -48,7 +44,7 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
           disabled: true,
         }}
       >
-        <Text>Disabled</Text>
+        <Text style={styles.disabled}>Disabled</Text>
       </Pressable>
       <View
         testID="progress"
@@ -66,20 +62,27 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
         testID="input"
         accessibilityLabel="Project name"
         defaultValue="Desktop"
+        style={styles.input}
       />
-      <Text testID="live" accessibilityLiveRegion="polite">
+      <Text testID="live" accessibilityLiveRegion="polite" style={styles.muted}>
         Live status
       </Text>
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        <Text testID="hidden-a11y">Hidden subtree</Text>
+        <Text testID="hidden-a11y" style={styles.muted}>
+          Hidden subtree
+        </Text>
       </View>
       {duplicate ? (
         <>
-          <Text testID="duplicate">First</Text>
-          <Text testID="duplicate">Second</Text>
+          <Text testID="duplicate" style={styles.label}>
+            First
+          </Text>
+          <Text testID="duplicate" style={styles.label}>
+            Second
+          </Text>
         </>
       ) : null}
       {invalid ? (
@@ -95,4 +98,36 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
     </View>
   );
 }
+const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+    padding: 32,
+    gap: 16,
+    backgroundColor: '#15171f',
+  },
+  label: {
+    color: '#f2f4f8',
+    fontSize: 16,
+  },
+  button: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  disabled: {
+    color: '#8492ae',
+    fontSize: 16,
+  },
+  muted: {
+    color: '#bbc6d8',
+    fontSize: 15,
+  },
+  input: {
+    width: 280,
+    padding: 10,
+    color: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#6772e5',
+  },
+});
 export default AccessibilityFixture;
