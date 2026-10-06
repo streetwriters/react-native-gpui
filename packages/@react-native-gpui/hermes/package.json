@@ -15,6 +15,7 @@
       "HERMES_ENABLE_NAPI=ON",
       "HERMES_ENABLE_DEBUGGER=ON",
       "HERMES_ENABLE_TEST_SUITE=OFF",
+      "HERMES_ENABLE_INTL=ON",
       "HERMES_BUILD_APPLE_FRAMEWORK=OFF"
     ],
     "workflow": ".github/workflows/hermes-engine.yml"

@@ -41,7 +41,8 @@ cmake -S $HermesSource -B $HermesBuild -G $Generator `
   -DCMAKE_BUILD_TYPE=Release `
   -DHERMES_ENABLE_NAPI=ON `
   -DHERMES_ENABLE_DEBUGGER=ON `
-  -DHERMES_ENABLE_TEST_SUITE=OFF
+  -DHERMES_ENABLE_TEST_SUITE=OFF `
+  -DHERMES_ENABLE_INTL=ON
 if ($LASTEXITCODE -ne 0) { throw "Hermes CMake configuration failed ($LASTEXITCODE)." }
 cmake --build $HermesBuild --config Release --target hermesvm hermesc --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw "Hermes build failed ($LASTEXITCODE)." }
