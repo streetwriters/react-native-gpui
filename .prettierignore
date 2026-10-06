@@ -7,6 +7,11 @@ packages/react-native-gpui/bin/
 packages/react-native-gpui/ReactCxxPlatform/
 packages/react-native-gpui/ReactCommonOverrides/
 packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/
+# Vendored facebook/hermes headers and tools, kept byte-identical to the pin
+# (the hermes-engine workflow diffs them against upstream).
+packages/@react-native-gpui/hermes/API/
+packages/@react-native-gpui/hermes/include/
+packages/@react-native-gpui/hermes/public/
 examples/*/android/
 examples/*/ios/
 examples/*/desktop/autolink/

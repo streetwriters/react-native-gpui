@@ -1,0 +1,67 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// This file defines macros used for macro-metaprogramming with Hermes Passes.
+//
+//===----------------------------------------------------------------------===//
+
+/// PASS(Id, Name, Description)
+///   There exists a global function hermes::create##Id().
+///
+///   This macro must be defined by the includer.
+#ifndef PASS
+#error "Macro must be defined by includer"
+#endif
+
+PASS(DCE, "dce", "Eliminate dead code")
+PASS(FuncSigOpts, "funcsigopts", "Function Signature Optimizations")
+PASS(CSE, "cse", "Common subexpression elimination")
+PASS(CodeMotion, "codemotion", "Code Motion")
+PASS(Mem2Reg, "mem2reg", "Construct SSA")
+PASS(SimpleMem2Reg, "simplemem2reg", "Simple SSA construction")
+PASS(
+    LowerGeneratorFunction,
+    "lowergeneratorfunction",
+    "Lower generator functions")
+PASS(
+    FrameLoadStoreOpts,
+    "frameloadstoreopts",
+    "Eliminate loads/stores to the frame")
+PASS(
+    ScopeElimination,
+    "scopeelimination",
+    "Optimizations to eliminate unnecessary scopes")
+PASS(ScopeHoisting, "scopehoisting", "Move scopes up the scope chain")
+PASS(InstSimplify, "instsimplify", "Simplify instructions")
+PASS(SimpleStackPromotion, "simplestackpromotion", "Simple stack promotion")
+PASS(
+    ObjectStackPromotion,
+    "objectstackpromotion",
+    "Promote non-escaping objects to the stack")
+PASS(
+    ObjectMergeNewStores,
+    "objectmergenewstores",
+    "Merge DefineOwnPropertyInsts into AllocObjectLiteral")
+PASS(SimplifyCFG, "simplifycfg", "Simplify CFG")
+PASS(TypeInference, "typeinference", "Type inference")
+PASS(FunctionAnalysis, "functionanalysis", "Function analysis")
+PASS(Inlining, "inlining", "Inlining")
+PASS(ResolveStaticRequire, "staticrequire", "Resolve static require")
+PASS(MetroRequire, "metrorequire", "Optimize Metro require calls")
+PASS(Auditor, "auditor", "Auditor")
+PASS(TDZDedup, "tdzdedup", "TDZ Deduplication")
+PASS(
+    PrivateBrandCheckDedup,
+    "privatebrandcheckdedup",
+    "Deduplicate redundant private brand checks")
+PASS(StripDebugInsts, "stripdebug", "Strip debug instructions")
+PASS(LowerBuiltinCalls, "lowerbuiltincalls", "Lower builtin calls")
+PASS(LowerBuiltinCallsOptimized, "lowerbuiltincallsoptimized", "Lower builtin calls (with optimizations)")
+
+#undef PASS

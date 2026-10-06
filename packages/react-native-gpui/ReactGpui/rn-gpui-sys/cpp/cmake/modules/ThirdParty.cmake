@@ -36,35 +36,41 @@ add_library(fbjni INTERFACE)
 find_package(OpenSSL REQUIRED)
 
 # --- hermes-engine -------------------------------------------------------
-# Desktop Hermes is built from source with Node-API enabled. Keep the checkout
-# and its build output outside this repository; CI will eventually download a
-# platform-specific artifact built from the same pinned source revision.
+# Desktop Hermes ships as the workspace package packages/@react-native-gpui/hermes:
+# the headers it needs are committed there at one pinned facebook/hermes commit,
+# and the VM and compiler binaries live in its gitignored bin/<platform>/
+# directory, populated from the hermes-engine GitHub workflow.
 #
 # RN_GPUI_HERMES_SOURCE_DIR and RN_GPUI_HERMES_BIN_ROOT may be passed by the
-# Cargo build script (or supplied as environment variables for direct CMake
-# use). VM artifacts live in this npm package under bin/<platform>/; the
-# source checkout and CMake build tree remain external.
-if(NOT RN_GPUI_HERMES_SOURCE_DIR)
-  if(DEFINED ENV{RN_GPUI_HERMES_SOURCE_DIR})
-    set(RN_GPUI_HERMES_SOURCE_DIR "$ENV{RN_GPUI_HERMES_SOURCE_DIR}")
-  elseif(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../../hermes/hermes/CMakeLists.txt")
-    get_filename_component(RN_GPUI_HERMES_SOURCE_DIR
-      "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../../hermes/hermes" ABSOLUTE)
-  endif()
-endif()
+# Cargo build script or supplied as environment variables to point at a
+# different Hermes checkout or binary root.
 get_filename_component(_rn_gpui_repo_root
   "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../" ABSOLUTE)
 get_filename_component(_rn_gpui_package_root
   "${CMAKE_CURRENT_LIST_DIR}/../../../../../" ABSOLUTE)
+set(_rn_gpui_hermes_package
+  "${_rn_gpui_repo_root}/packages/@react-native-gpui/hermes")
+
+if(NOT RN_GPUI_HERMES_SOURCE_DIR AND DEFINED ENV{RN_GPUI_HERMES_SOURCE_DIR})
+  set(RN_GPUI_HERMES_SOURCE_DIR "$ENV{RN_GPUI_HERMES_SOURCE_DIR}")
+endif()
+if(NOT RN_GPUI_HERMES_SOURCE_DIR
+   AND EXISTS "${_rn_gpui_hermes_package}/include/hermes")
+  set(RN_GPUI_HERMES_SOURCE_DIR "${_rn_gpui_hermes_package}")
+endif()
 if(NOT RN_GPUI_HERMES_BIN_ROOT AND DEFINED ENV{RN_GPUI_HERMES_BIN_ROOT})
   set(RN_GPUI_HERMES_BIN_ROOT "$ENV{RN_GPUI_HERMES_BIN_ROOT}")
+endif()
+if(NOT RN_GPUI_HERMES_BIN_ROOT AND EXISTS "${_rn_gpui_hermes_package}/bin")
+  set(RN_GPUI_HERMES_BIN_ROOT "${_rn_gpui_hermes_package}/bin")
 endif()
 if(NOT RN_GPUI_HERMES_BIN_ROOT)
   set(RN_GPUI_HERMES_BIN_ROOT "${_rn_gpui_package_root}/bin")
 endif()
 if(NOT RN_GPUI_HERMES_SOURCE_DIR)
   message(FATAL_ERROR
-    "Set RN_GPUI_HERMES_SOURCE_DIR to the external Hermes source checkout.")
+    "Hermes headers not found. Install packages/@react-native-gpui/hermes or "
+    "set RN_GPUI_HERMES_SOURCE_DIR to a facebook/hermes checkout.")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -96,7 +102,10 @@ set(RN_GPUI_HERMES_PLATFORM_BIN_DIR "${RN_GPUI_HERMES_BIN_ROOT}/${RN_GPUI_HERMES
 set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/${_rn_gpui_hermes_library_name}")
 if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
   message(FATAL_ERROR
-    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}; run the matching scripts/build-hermes-<platform> script to populate the gitignored platform binary directory.")
+    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}. Build it with the "
+    "hermes-engine GitHub workflow and install the artifact with "
+    "`node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs --from <artifact>`, "
+    "or run scripts/build-hermes-<platform> against a facebook/hermes checkout.")
 endif()
 
 add_library(hermes-engine::hermesvm SHARED IMPORTED)

@@ -14,6 +14,10 @@ module.exports = [
       'packages/react-native-gpui/bin/',
       'packages/react-native-gpui/ReactCxxPlatform/',
       'packages/react-native-gpui/ReactCommonOverrides/',
+      // Vendored facebook/hermes sources, kept byte-identical to the pin.
+      'packages/@react-native-gpui/hermes/API/',
+      'packages/@react-native-gpui/hermes/include/',
+      'packages/@react-native-gpui/hermes/public/',
       'packages/rn-gpui-tester/desktop/autolink/',
     ],
   },

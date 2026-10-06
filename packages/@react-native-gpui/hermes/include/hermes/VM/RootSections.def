@@ -1,0 +1,33 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#ifndef ROOT_SECTION
+#define ROOT_SECTION(name)
+#endif
+
+ROOT_SECTION(Registers)
+ROOT_SECTION(Locals)
+ROOT_SECTION(SHLocals)
+ROOT_SECTION(SHUnits)
+ROOT_SECTION(RuntimeFields)
+ROOT_SECTION(CharStrings)
+ROOT_SECTION(StringCycleCheckVisited)
+ROOT_SECTION(Builtins)
+ROOT_SECTION(Jobs)
+// We don't need DebugEnvironment anymore, but keep it for MobileLab.
+ROOT_SECTION(DebugEnvironment)
+ROOT_SECTION(IdentifierTable)
+ROOT_SECTION(GCScopes)
+ROOT_SECTION(WeakRefs)
+ROOT_SECTION(WeakRefSlots)
+ROOT_SECTION(SymbolRegistry)
+ROOT_SECTION(SamplingProfiler)
+ROOT_SECTION(CodeCoverageProfiler)
+ROOT_SECTION(Serialization)
+ROOT_SECTION(Custom)
+
+#undef ROOT_SECTION
