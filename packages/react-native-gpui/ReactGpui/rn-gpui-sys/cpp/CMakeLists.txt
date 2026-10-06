@@ -424,20 +424,7 @@ if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
     MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
 
-  if("DesktopTemplateSmoke--gpui_node_api_smoke" IN_LIST RN_GPUI_NODE_API_MODULE_NAMES)
-    target_include_directories(gpui_node_api_smoke PRIVATE
-      "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-    add_library(gpui_node_api_smoke_framework SHARED test/node_api_smoke_addon.c)
-    target_link_libraries(gpui_node_api_smoke_framework PRIVATE weak-node-api)
-    set_target_properties(gpui_node_api_smoke_framework PROPERTIES
-      FRAMEWORK TRUE
-      OUTPUT_NAME "DesktopTemplateSmoke--gpui_node_api_smoke"
-      FRAMEWORK_VERSION A
-      MACOSX_FRAMEWORK_IDENTIFIER "dev.reactnativegpui.DesktopTemplateSmoke-node-api-smoke"
-      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks"
-      BUILD_RPATH "@loader_path;${RN_GPUI_HERMES_LIBRARY_DIR}"
-      INSTALL_RPATH "@loader_path;${RN_GPUI_HERMES_LIBRARY_DIR}")
-  endif()
+
 endif()
 
 add_library(rn_gpui_core STATIC
@@ -446,6 +433,11 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp)
+# Out-of-tree addons can require native build targets without linking into core.
+get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
+foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
+  add_dependencies(rn_gpui_core ${_rn_gpui_native_target})
+endforeach()
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc")
@@ -472,9 +464,6 @@ if(TARGET weak-node-api)
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
   add_dependencies(rn_gpui_core weak-node-api)
-  if(TARGET gpui_node_api_smoke_framework)
-    add_dependencies(rn_gpui_core gpui_node_api_smoke_framework)
-  endif()
 endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")

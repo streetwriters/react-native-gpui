@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifests = [
   'packages/react-native-gpui/ReactGpui/Cargo.toml',
-  'examples/DesktopTemplateSmoke/desktop/Cargo.toml',
+  'packages/rn-gpui-tester/desktop/Cargo.toml',
+  'packages/rn-gpui-tester/gpui-native-module/gpui/Cargo.toml',
 ];
 
 for (const manifest of manifests) {

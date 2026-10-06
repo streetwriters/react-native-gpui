@@ -3,8 +3,10 @@
 //
 //   node scripts/format-native.mjs [--check] [files...]
 //
-// With no files, every tracked native source is processed. Vendored React
-// Native sources and third-party code are skipped so upstream diffs stay clean.
+// With no files, every tracked and untracked repo native source is processed.
+// Vendored React Native sources and third-party code are skipped so upstream
+// diffs stay clean.
+import { existsSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +25,8 @@ const excluded = [
   'packages/react-native-gpui/ReactCxxPlatform/',
   'packages/react-native-gpui/ReactCommonOverrides/',
   'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/',
-  'examples/DesktopTemplateSmoke/ios/',
-  'examples/DesktopTemplateSmoke/android/',
+  'packages/rn-gpui-tester/ios/',
+  'packages/rn-gpui-tester/android/',
 ];
 
 const toRelative = file =>
@@ -32,11 +34,20 @@ const toRelative = file =>
 const files = (
   requested.length > 0
     ? requested.map(toRelative)
-    : execFileSync('git', ['ls-files'], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-      }).split('\n')
-).filter(file => file && !excluded.some(prefix => file.startsWith(prefix)));
+    : execFileSync(
+        'git',
+        ['ls-files', '--cached', '--others', '--exclude-standard'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+        },
+      ).split('\n')
+).filter(
+  file =>
+    file &&
+    existsSync(path.resolve(repoRoot, file)) &&
+    !excluded.some(prefix => file.startsWith(prefix)),
+);
 
 function run(tool, toolArgs, targets, installHint) {
   if (targets.length === 0) return true;

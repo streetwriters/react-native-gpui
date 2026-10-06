@@ -358,10 +358,11 @@ function scaffoldDesktop(
       ...packageJson.scripts,
       'test:e2e':
         packageJson.scripts?.['test:e2e'] ??
-        'jest --config desktop/jest.e2e.config.cjs',
+        'vitest run --config desktop/vitest.e2e.config.ts',
     },
     devDependencies: {
       ...packageJson.devDependencies,
+      vitest: packageJson.devDependencies?.vitest ?? '^3.2.4',
       '@react-native-gpui/testing':
         packageJson.devDependencies?.['@react-native-gpui/testing'] ?? '^0.1.0',
       '@react-native-gpui/cli':
@@ -706,8 +707,7 @@ export function createLibrary({
       '@react-native-community/cli': '^20.2.0',
       '@react-native/babel-preset': '0.87.1',
       '@react-native/metro-config': '0.87.1',
-      '@react-native/jest-preset': '0.87.1',
-      jest: '^29.7.0',
+      vitest: '^3.2.4',
     },
   });
   fs.writeFileSync(

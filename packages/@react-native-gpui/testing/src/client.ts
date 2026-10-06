@@ -169,6 +169,7 @@ export class DesktopApp {
         ...process.env,
         ...(bundlePath
           ? {
+              RN_GPUI_BUNDLE: path.resolve(bundlePath),
               RN_GPUI_ASSETS_DIR: path.join(
                 path.dirname(path.resolve(bundlePath)),
                 'assets/assets',
@@ -178,9 +179,6 @@ export class DesktopApp {
         ...options.env,
         ...(options.initialProps
           ? { RN_GPUI_TEST_INITIAL_PROPS: JSON.stringify(options.initialProps) }
-          : {}),
-        ...(options.bundle
-          ? { RN_GPUI_BUNDLE: path.resolve(options.bundle) }
           : {}),
         ...(options.offscreen ? { RN_GPUI_TEST_OFFSCREEN: '1' } : {}),
         RN_GPUI_TEST_DRIVER: '1',
@@ -959,13 +957,13 @@ export async function matchScreenshot(
     );
   const update =
     process.argv.includes('-u') ||
-    process.argv.includes('--updateSnapshot') ||
-    process.env.JEST_UPDATE_SNAPSHOT === '1';
+    process.argv.includes('--update') ||
+    process.env.RN_GPUI_UPDATE_SNAPSHOTS === '1';
 
   if (update || !fs.existsSync(baselinePath)) {
     if (!update)
       throw new Error(
-        `Screenshot baseline is missing: ${baselinePath}. Run Jest with --updateSnapshot to create it.`,
+        `Screenshot baseline is missing: ${baselinePath}. Run Vitest with --update to create it.`,
       );
     fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
     fs.writeFileSync(baselinePath, actualBuffer);

@@ -9,31 +9,19 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./jest-preset": "./jest-preset.js",
     "./vitest-preset": "./vitest-preset.cjs",
-    "./jest-preset-e2e": "./jest-preset-e2e.cjs",
-    "./jest-environment": "./jest-environment.cjs",
-    "./jest-preset-e2e/jest-preset": "./e2e/jest-preset.js",
     "./vitest-e2e": {
       "types": "./dist/vitest-e2e.d.mts",
       "default": "./dist/vitest-e2e.mjs"
-    }
+    },
+    "./vitest-preset-e2e": "./vitest-preset-e2e.cjs"
   },
   "peerDependencies": {
-    "@react-native/jest-preset": "0.87.1",
-    "@testing-library/react-native": ">=13",
-    "jest": ">=29",
     "react": "19.2.3",
     "react-native": "0.87.1",
     "vitest": ">=3"
   },
   "peerDependenciesMeta": {
-    "@react-native/jest-preset": {
-      "optional": true
-    },
-    "jest": {
-      "optional": true
-    },
     "vitest": {
       "optional": true
     }
@@ -54,9 +42,8 @@
   },
   "files": [
     "dist",
-    "jest",
-    "e2e",
     "*.js",
-    "*.cjs"
+    "*.cjs",
+    "vitest"
   ]
 }

@@ -10,3 +10,5 @@ packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/
 examples/*/android/
 examples/*/ios/
 examples/*/desktop/autolink/
+**/desktop/autolink/
+**/desktop/build/

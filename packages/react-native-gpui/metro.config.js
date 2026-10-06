@@ -35,6 +35,9 @@ const GPUI_ENTRY = path.join(GPUI_PACKAGE_DIR, 'index.gpui.js');
 // into this package (which is what would close the cycle).
 const UPSTREAM_RN_ENTRY = require.resolve('react-native');
 const UPSTREAM_RN_DIR = path.dirname(UPSTREAM_RN_ENTRY);
+const UPSTREAM_RN_DIRS = new Set([UPSTREAM_RN_DIR]);
+let activeUpstreamRNEntry = UPSTREAM_RN_ENTRY;
+let activeUpstreamRNDir = UPSTREAM_RN_DIR;
 const GPUI_RN_SRC_DIR = path.join(GPUI_PACKAGE_DIR, 'src-gpui');
 
 // Platform variants gpui falls back to. A handful of React Native modules only
@@ -82,7 +85,7 @@ function resolveWithPlatformFallback(context, moduleName, platform) {
 // internal imports are relative (`Settings.js` does
 // `import Platform from '../Utilities/Platform'`) and never pass through the
 // specifier-level rewrite below.
-function collectSourceOverrides() {
+function collectSourceOverrides(upstreamRNDir = UPSTREAM_RN_DIR) {
   const overrides = new Map();
 
   const walk = relativeDir => {
@@ -98,7 +101,7 @@ function collectSourceOverrides() {
       }
 
       const upstreamBase = path.join(
-        UPSTREAM_RN_DIR,
+        upstreamRNDir,
         path.dirname(relative),
         entry.name.replace(/\.gpui\.(?:js|ts|tsx)$/, ''),
       );
@@ -194,6 +197,23 @@ function applySourceOverride(resolution) {
   }
 
   let override = GPUI_SOURCE_OVERRIDES.get(filePath);
+  if (override == null) {
+    // Metro can return a canonical or workspace-local React Native path that
+    // differs from the path used by Node's resolver when the app has its own
+    // nested node_modules tree. Match the path relative to the RN package so
+    // GPUI source replacements still apply to every resolved RN copy.
+    const reactNativeMarker = `${path.sep}react-native${path.sep}`;
+    const markerIndex = filePath.lastIndexOf(reactNativeMarker);
+    if (markerIndex !== -1) {
+      const suffix = filePath.slice(markerIndex + reactNativeMarker.length);
+      for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
+        if (sourcePath.endsWith(`${path.sep}${suffix}`)) {
+          override = candidate;
+          break;
+        }
+      }
+    }
+  }
   if (
     override == null &&
     filePath.endsWith(
@@ -305,7 +325,12 @@ function isReExportShim(filePath) {
 function preferVariantOverShim(resolution, platform) {
   const filePath =
     typeof resolution === 'string' ? resolution : resolution?.filePath;
-  if (filePath == null || !filePath.startsWith(UPSTREAM_RN_DIR + path.sep)) {
+  if (
+    filePath == null ||
+    ![...UPSTREAM_RN_DIRS].some(directory =>
+      filePath.startsWith(directory + path.sep),
+    )
+  ) {
     return resolution;
   }
 
@@ -336,6 +361,16 @@ function preferVariantOverShim(resolution, platform) {
 // resolver. The CLI's own out-of-tree platform resolver (which rewrites
 // `react-native` imports) is deliberately bypassed: this function replaces it.
 function resolveModule(context, moduleName, platform) {
+  if (moduleName === 'react-native/setup-env') {
+    const origin = context.originModulePath ?? '';
+    const gpuiSetupEnv = path.join(GPUI_PACKAGE_DIR, 'setup-env.js');
+    const setupEnv =
+      origin === gpuiSetupEnv
+        ? path.join(activeUpstreamRNDir, 'src/setup-env.js')
+        : gpuiSetupEnv;
+    return resolveWithPlatformFallback(context, setupEnv, platform);
+  }
+
   // A patched RN module keeps upstream-relative imports. Resolve those from
   // its upstream location, then apply the normal GPUI override table below.
   if (
@@ -345,7 +380,7 @@ function resolveModule(context, moduleName, platform) {
     context = {
       ...context,
       originModulePath: path.join(
-        UPSTREAM_RN_DIR,
+        activeUpstreamRNDir,
         path
           .relative(GPUI_RN_SRC_DIR, context.originModulePath)
           .replace(/\.gpui\.(?:js|ts|tsx)$/, '.js'),
@@ -365,7 +400,7 @@ function resolveModule(context, moduleName, platform) {
 
     return resolveWithPlatformFallback(
       context,
-      insideGpuiPackage ? UPSTREAM_RN_ENTRY : GPUI_ENTRY,
+      insideGpuiPackage ? activeUpstreamRNEntry : GPUI_ENTRY,
       platform,
     );
   }
@@ -418,6 +453,15 @@ function resolveWithGpuiPlatform() {
 }
 
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  activeUpstreamRNEntry = appRequire.resolve('react-native');
+  activeUpstreamRNDir = path.dirname(activeUpstreamRNEntry);
+  UPSTREAM_RN_DIRS.add(activeUpstreamRNDir);
+  for (const [source, override] of collectSourceOverrides(
+    activeUpstreamRNDir,
+  )) {
+    GPUI_SOURCE_OVERRIDES.set(source, override);
+  }
   const defaultConfig = getDefaultConfig(projectRoot);
   const projectGestureHandlerDir = path.join(
     projectRoot,
@@ -483,7 +527,6 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   }
   const nodeModulesPaths = [];
   const platformPackageDirs = [];
-  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   const appPackage = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
   );
@@ -542,7 +585,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       GPUI_PACKAGE_DIR,
       ...platformPackageDirs,
       ...linkedPackageDirs,
-      UPSTREAM_RN_DIR,
+      activeUpstreamRNDir,
       ...nodeModulesPaths,
     ]),
   ];

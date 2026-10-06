@@ -403,7 +403,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
         .format_timestamp_millis()
         .init();
 
-    let bundle = env_string("RN_GPUI_BUNDLE", "tester/build/index.gpui.bundle");
+    let bundle = env_string(
+        "RN_GPUI_BUNDLE",
+        "packages/rn-gpui-tester/desktop/build/index.bundle",
+    );
     // TODO 2.1: this is the dev server's bundle path, not a URL — the cxx
     // `DevServerHelper` composes `http://<host>:<port>/<source path>.bundle`.
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");

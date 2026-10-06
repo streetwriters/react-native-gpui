@@ -1,10 +1,12 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  root: fileURLToPath(new URL('.', import.meta.url)),
   test: {
     globals: true,
-    include: ['examples/NavigationExample/e2e/**/*.e2e.ts'],
-    setupFiles: ['tester/e2e/vitest.setup.ts'],
+    include: ['packages/rn-gpui-tester/e2e/**/*.e2e.ts'],
+    setupFiles: ['packages/rn-gpui-tester/e2e/vitest.setup.ts'],
     testTimeout: 60_000,
     hookTimeout: 45_000,
     maxWorkers: 4,
