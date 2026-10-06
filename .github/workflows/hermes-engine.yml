@@ -13,6 +13,18 @@ name: hermes-engine
 #
 # The `headers` job also verifies that the headers committed in
 # packages/@react-native-gpui/hermes match the pinned commit exactly.
+#
+# The per-OS toolchains follow facebook/hermes' own workflows:
+#   * build-hermesc-linux.yml — apt dependency list
+#   * build-hermesc-windows.yml — MSVC on `windows-2022`
+#   * build-hermes-macos.yml — Apple builds on `macos-15`
+#   * build.yml (test-windows-test262) — the Windows arm64 combination:
+#     `windows-11-arm` with -DBOOST_CONTEXT_IMPLEMENTATION=winfib, because
+#     Boost.Context's default fcontext backend has no MSVC ARM64 path.
+#
+# Intl stays off (-DHERMES_ENABLE_INTL defaults to OFF), so no ICU build is
+# needed on any platform. That matters for Windows arm64, where upstream's
+# prebuilt ICU is x64-only and could not be linked anyway.
 
 on:
   workflow_dispatch:
@@ -44,15 +56,21 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      # One codeload tarball rather than a partial clone: `git clone
+      # --filter=blob:none` plus `checkout FETCH_HEAD -- <paths>` fetches blobs
+      # one at a time and takes tens of minutes on this tree.
       - name: Fetch the pinned Hermes headers
         run: |
           set -euo pipefail
           commit='${{ inputs.hermes_commit || env.HERMES_COMMIT }}'
-          git clone --filter=blob:none --no-checkout --depth 1 \
-            "https://github.com/${HERMES_REPOSITORY}.git" "$RUNNER_TEMP/hermes"
-          git -C "$RUNNER_TEMP/hermes" fetch --depth 1 origin "$commit"
-          git -C "$RUNNER_TEMP/hermes" checkout FETCH_HEAD -- \
-            include public API/CMakeLists.txt API/hermes API/jsi API/napi API/hermes_abi
+          curl -fsSL "https://codeload.github.com/${HERMES_REPOSITORY}/tar.gz/${commit}" \
+            -o "$RUNNER_TEMP/hermes.tar.gz"
+          mkdir -p "$RUNNER_TEMP/hermes"
+          tar -xzf "$RUNNER_TEMP/hermes.tar.gz" -C "$RUNNER_TEMP/hermes" \
+            --strip-components=1 \
+            --wildcards '*/include' '*/public' '*/API/CMakeLists.txt' \
+            '*/API/hermes' '*/API/jsi' '*/API/napi' '*/API/hermes_abi' \
+            '*/LICENSE'
       - name: Compare against the committed headers
         run: |
           set -euo pipefail
@@ -76,10 +94,10 @@ jobs:
       matrix:
         include:
           - platform: darwin-arm64
-            os: macos-14
+            os: macos-15
             configure: -DCMAKE_OSX_ARCHITECTURES=arm64
           - platform: darwin-x64
-            os: macos-14
+            os: macos-15
             configure: -DCMAKE_OSX_ARCHITECTURES=x86_64
           - platform: linux-x64
             os: ubuntu-24.04
@@ -94,10 +112,12 @@ jobs:
             configure: ''
           - platform: win32-x64
             os: windows-2022
-            configure: -A x64
+            arch: x64
+            configure: ''
           - platform: win32-arm64
             os: windows-11-arm
-            configure: -A arm64
+            arch: arm64
+            configure: -DBOOST_CONTEXT_IMPLEMENTATION=winfib
     steps:
       - name: Check out Hermes at the pinned commit
         uses: actions/checkout@v4
@@ -109,7 +129,42 @@ jobs:
 
       - name: Install build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache libicu-dev libreadline-dev
+
+      # Ninja rather than the Visual Studio generator: the generator name is
+      # tied to the installed Visual Studio version (`Visual Studio 17 2022` on
+      # `windows-2022`, `Visual Studio 18 2026` on the arm64 image), while the
+      # MSVC environment works the same on both. Locally,
+      # `scripts/build-hermes-windows.ps1` takes the same path.
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.arch }}'
+          $component = if ($arch -eq 'arm64') {
+            'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+          } else {
+            'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
+          $instance = & $vswhere -latest -products * -requires $component -property installationPath
+          if (-not $instance) { throw "No Visual Studio installation provides $component" }
+          $version = & $vswhere -latest -products * -requires $component -property catalog_productDisplayVersion
+          Write-Host "Using Visual Studio $version at $instance"
+          $vcvars = Join-Path $instance 'VC\Auxiliary\Build\vcvarsall.bat'
+          if (-not (Test-Path $vcvars)) { throw "vcvarsall.bat not found at $vcvars" }
+          cmd /c "`"$vcvars`" $arch >nul 2>&1 && set" | ForEach-Object {
+            $split = $_.IndexOf('=')
+            if ($split -gt 0) {
+              Set-Item -Path "env:$($_.Substring(0, $split))" -Value $_.Substring($split + 1)
+            }
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
+          Write-Host "MSVC compiler: $($cl.Source)"
 
       - name: Configure
         if: runner.os != 'Windows'
@@ -122,22 +177,28 @@ jobs:
             -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
             ${{ matrix.configure }}
 
-      - name: Build
-        if: runner.os != 'Windows'
-        run: cmake --build hermes-build --target hermesvm hermesc --parallel
-
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -S hermes -B hermes-build -G 'Visual Studio 17 2022' ${{ matrix.configure }} `
-            -DHERMES_ENABLE_NAPI=ON -DHERMES_ENABLE_DEBUGGER=ON `
-            -DHERMES_ENABLE_TEST_SUITE=OFF -DHERMES_BUILD_APPLE_FRAMEWORK=OFF
+          cmake -S hermes -B hermes-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DHERMES_ENABLE_NAPI=ON `
+            -DHERMES_ENABLE_DEBUGGER=ON `
+            -DHERMES_ENABLE_TEST_SUITE=OFF `
+            ${{ matrix.configure }}
+          if ($LASTEXITCODE -ne 0) { throw "Hermes configure failed ($LASTEXITCODE)" }
+
+      - name: Build
+        if: runner.os != 'Windows'
+        run: cmake --build hermes-build --target hermesvm hermesc --parallel
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cmake --build hermes-build --config Release --target hermesvm hermesc --parallel
+        run: |
+          cmake --build hermes-build --target hermesvm hermesc --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Hermes build failed ($LASTEXITCODE)" }
 
       - name: Stage binaries
         if: runner.os != 'Windows'
@@ -174,6 +235,7 @@ jobs:
           Get-ChildItem -Path (Split-Path $compiler.FullName) -Filter *.dll |
             Copy-Item -Destination $target -Force
           & "$target/hermesc.exe" -version
+          if ($LASTEXITCODE -ne 0) { throw "The staged hermesc failed its version check ($LASTEXITCODE)" }
 
       - uses: actions/upload-artifact@v4
         with:
