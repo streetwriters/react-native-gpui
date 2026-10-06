@@ -74,6 +74,10 @@
     },
     {
       "type": "platform",
+      "file": "src-gpui/Libraries/Components/Button.gpui.js"
+    },
+    {
+      "type": "platform",
       "file": "src-gpui/Libraries/Utilities/Appearance.gpui.js"
     },
     {
