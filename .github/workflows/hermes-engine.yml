@@ -139,10 +139,12 @@ jobs:
           sudo apt-get install -y ninja-build ccache libicu-dev libreadline-dev
 
       # Ninja rather than the Visual Studio generator: the generator name is
-      # tied to the installed Visual Studio version (`Visual Studio 17 2022` on
-      # `windows-2022`, `Visual Studio 18 2026` on the arm64 image), while the
-      # MSVC environment works the same on both. Locally,
-      # `scripts/build-hermes-windows.ps1` takes the same path.
+      # tied to the installed Visual Studio version while the MSVC environment
+      # works the same on every image. Two things follow, both Windows-only: the
+      # vcvars environment has to be exported through $GITHUB_ENV, because every
+      # `run:` step is a fresh process, and the NAPI test addons need the CMake
+      # fix applied by the "Prepare Hermes for Ninja" step below. Locally,
+      # `scripts/build-hermes-windows.ps1` takes the same Ninja path.
       - name: Set up MSVC
         if: runner.os == 'Windows'
         shell: pwsh
@@ -164,12 +166,40 @@ jobs:
           cmd /c "`"$vcvars`" $arch >nul 2>&1 && set" | ForEach-Object {
             $split = $_.IndexOf('=')
             if ($split -gt 0) {
-              Set-Item -Path "env:$($_.Substring(0, $split))" -Value $_.Substring($split + 1)
+              $name = $_.Substring(0, $split)
+              $value = $_.Substring($split + 1)
+              Set-Item -Path "env:$name" -Value $value
+              Add-Content -Path $env:GITHUB_ENV -Value "$name=$value" -Encoding utf8
             }
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
           Write-Host "MSVC compiler: $($cl.Source)"
+
+      # Hermes registers the same addon name in both NAPI test suites
+      # (test_exception, test_finalizer, test_general). A Windows shared library
+      # also emits an import library, and the addon helper only sets the
+      # LIBRARY/RUNTIME output directories, so both copies would write
+      # `<dir>/<addon>.lib`. The Visual Studio generator tolerates that; Ninja
+      # rejects the whole graph with "multiple rules generate <path>". Giving
+      # every addon its own archive directory keeps them buildable.
+      - name: Prepare Hermes for Ninja
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = 'hermes/external/node-api-tests/hermes/CMakeLists.txt'
+          $needle = '    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${ADDON_OUTPUT_DIR}'
+          if (-not (Test-Path $path)) { throw "Missing $path" }
+          $text = Get-Content -Path $path -Raw
+          if ($text -match 'ARCHIVE_OUTPUT_DIRECTORY') {
+            Write-Host "$path already sets ARCHIVE_OUTPUT_DIRECTORY"
+          } elseif ($text.Contains($needle)) {
+            $addition = $needle + "`n    ARCHIVE_OUTPUT_DIRECTORY " + '${ADDON_OUTPUT_DIR}'
+            Set-Content -Path $path -Value $text.Replace($needle, $addition) -NoNewline
+            Write-Host "Patched $path so every addon archives into its own directory"
+          } else {
+            throw "Hermes changed $path; update the Ninja duplicate-output workaround"
+          }
 
       - name: Configure
         if: runner.os != 'Windows'
@@ -189,12 +219,20 @@ jobs:
         run: |
           cmake -S hermes -B hermes-build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
             -DHERMES_ENABLE_NAPI=ON `
             -DHERMES_ENABLE_DEBUGGER=ON `
             -DHERMES_ENABLE_TEST_SUITE=OFF `
             -DHERMES_ENABLE_INTL=ON `
             ${{ matrix.configure }}
           if ($LASTEXITCODE -ne 0) { throw "Hermes configure failed ($LASTEXITCODE)" }
+          $cache = Get-Content hermes-build/CMakeCache.txt -Raw
+          if ($cache -notmatch 'cl\.exe') {
+            throw 'CMake did not configure an MSVC toolchain; the vcvars environment did not reach this step'
+          }
+          Select-String -Path hermes-build/CMakeCache.txt -Pattern '^CMAKE_(C|CXX)_COMPILER:' |
+            ForEach-Object { Write-Host $_.Line }
 
       - name: Build
         if: runner.os != 'Windows'
