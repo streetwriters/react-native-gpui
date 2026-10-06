@@ -35,8 +35,11 @@ The initializer creates a standard React Native project with `ios/` and
 `android/` directories, then adds a `desktop/` GPUI target. All three platforms
 use the same React Native app entry and dependencies. Use `npx react-native run-ios` and `npx react-native run-android` for the standard mobile workflows.
 
-GPUI builds its own Hermes VM with Node-API enabled from an external source
-checkout; locally built platform binaries stay ignored in the package tree.
+GPUI runs its own Hermes build, pinned to one `facebook/hermes` commit and
+shipped as the `@react-native-gpui/hermes` workspace package: the headers are
+committed there, and the VM and `hermesc` binaries are built for every platform
+by the `hermes-engine` workflow. Install them with
+`npm run fetch-binaries --workspace @react-native-gpui/hermes`.
 
 To add GPUI support to an existing React Native project, run
 `npx react-native init-desktop`. Create a native TurboModule package with

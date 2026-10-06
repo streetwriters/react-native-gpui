@@ -1,0 +1,64 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#ifndef HERMES_VM_JSWEAKREF
+#define HERMES_VM_JSWEAKREF
+
+#include "hermes/VM/CallResult.h"
+#include "hermes/VM/CellKind.h"
+#include "hermes/VM/JSObject.h"
+#include "hermes/VM/Runtime.h"
+#include "hermes/VM/WeakRef.h"
+
+namespace hermes {
+namespace vm {
+
+class JSWeakRef final : public JSObject {
+ public:
+  static const ObjectVTable vt;
+
+  static constexpr CellKind getCellKind() {
+    return CellKind::JSWeakRefKind;
+  }
+
+  static bool classof(const GCCell *cell) {
+    return cell->getKind() == CellKind::JSWeakRefKind;
+  }
+
+  /// Create a new WeakRef with prototype property \p parentHandle.
+  static PseudoHandle<JSWeakRef> create(
+      Runtime &runtime,
+      Handle<JSObject> parentHandle);
+
+  HermesValue deref(Runtime &runtime) const;
+
+  /// This allocates a new WeakRef pointing to the given target. This should
+  /// only be called once.
+  /// \pre \p target must be an Object or non-registered Symbol.
+  void setTarget(Runtime &runtime, SmallHermesValue target);
+
+  friend void JSWeakRefBuildMeta(const GCCell *cell, Metadata::Builder &mb);
+
+#ifdef HERMES_MEMORY_INSTRUMENTATION
+  static void _snapshotAddEdgesImpl(GCCell *cell, GC &gc, HeapSnapshot &snap);
+#endif
+
+  static void _finalizeImpl(GCCell *cell, GC &gc);
+
+  JSWeakRef(
+      Runtime &runtime,
+      Handle<JSObject> parent,
+      Handle<HiddenClass> clazz)
+      : JSObject(runtime, *parent, *clazz), ref_(nullptr) {}
+
+ private:
+  WeakRefObjOrSym ref_;
+};
+
+} // namespace vm
+} // namespace hermes
+#endif // HERMES_VM_JSRWEAKREF

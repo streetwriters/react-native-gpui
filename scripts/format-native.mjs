@@ -25,6 +25,11 @@ const excluded = [
   'packages/react-native-gpui/ReactCxxPlatform/',
   'packages/react-native-gpui/ReactCommonOverrides/',
   'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/third_party/',
+  // Vendored facebook/hermes sources, kept byte-identical to the pinned commit
+  // (the hermes-engine workflow diffs them against upstream).
+  'packages/@react-native-gpui/hermes/API/',
+  'packages/@react-native-gpui/hermes/include/',
+  'packages/@react-native-gpui/hermes/public/',
   'packages/rn-gpui-tester/ios/',
   'packages/rn-gpui-tester/android/',
 ];
