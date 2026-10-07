@@ -7,7 +7,6 @@
 #
 #   .\scripts\build-hermes-windows.ps1                  # host architecture
 #   .\scripts\build-hermes-windows.ps1 -Arch arm64      # on an ARM64 machine
-#   .\scripts\build-hermes-windows.ps1 -SkipIntlCheck   # skip the Intl smoke test
 #
 # The MSVC environment is set up by the script itself, so it does not have to be
 # run from a Visual Studio Developer PowerShell. That matters: CMake otherwise
@@ -25,8 +24,7 @@ param(
       "x64"
     }),
   [string]$Generator = "Ninja",
-  [int]$Jobs = [Environment]::ProcessorCount,
-  [switch]$SkipIntlCheck
+  [int]$Jobs = [Environment]::ProcessorCount
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,7 +135,7 @@ $configureArgs = @(
   "-DHERMES_ENABLE_NAPI=ON",
   "-DHERMES_ENABLE_DEBUGGER=ON",
   "-DHERMES_ENABLE_TEST_SUITE=OFF",
-  "-DHERMES_ENABLE_INTL=ON"
+  "-DHERMES_ENABLE_INTL=OFF"
 )
 if ($Generator -eq "Ninja") {
   # Pin the compiler so a missing MSVC environment fails loudly instead of
@@ -172,35 +170,5 @@ Get-ChildItem -Path (Split-Path $hermesc.FullName) -Filter "*.dll" |
   Copy-Item -Destination $platformBin -Force
 & (Join-Path $platformBin "hermesc.exe") -version
 if ($LASTEXITCODE -ne 0) { throw "The staged hermesc failed its version check ($LASTEXITCODE)." }
-
-# The same check the hermes-engine workflow runs, so a build that links without
-# working Intl cannot pass locally either.
-if (-not $SkipIntlCheck) {
-  $hermes = Get-ChildItem -Path (Join-Path $HermesBuild "bin") -Filter "hermes.exe" -File -Recurse | Select-Object -First 1
-  if (-not $hermes) { throw "Could not find hermes.exe under $HermesBuild to verify Intl." }
-  $smokeSource = @'
-const number = new Intl.NumberFormat('en-US').format(1234.5);
-const date = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'UTC',
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric',
-}).format(0);
-const order = new Intl.Collator('en-US').compare('a', 'b');
-print('Intl.NumberFormat en-US 1234.5 -> ' + number);
-print('Intl.DateTimeFormat en-US 0 -> ' + date);
-if (number !== '1,234.5') throw new Error('unexpected number format: ' + number);
-if (date.indexOf('January') !== 0 || date.indexOf('1970') < 0) {
-  throw new Error('unexpected date format: ' + date);
-}
-if (order >= 0) throw new Error('unexpected collation order: ' + order);
-print('Intl OK');
-'@
-  $smoke = Join-Path ([System.IO.Path]::GetTempPath()) "rn-gpui-intl-smoke.js"
-  Set-Content -Path $smoke -Value $smokeSource -Encoding ascii
-  & $hermes.FullName $smoke
-  if ($LASTEXITCODE -ne 0) { throw "The Intl smoke test failed ($LASTEXITCODE)." }
-  Remove-Item $smoke -Force
-}
 
 Write-Host "Artifacts: $platformBin\{hermesvm.dll,hermesvm.lib,hermesc.exe}"

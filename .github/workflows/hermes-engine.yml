@@ -22,14 +22,15 @@ name: hermes-engine
 #     `windows-11-arm` with -DBOOST_CONTEXT_IMPLEMENTATION=winfib, because
 #     Boost.Context's default fcontext backend has no MSVC ARM64 path.
 #
-# Intl is enabled (-DHERMES_ENABLE_INTL=ON), which picks a different backing
-# library per platform (lib/Platform/Intl/CMakeLists.txt): Foundation on Apple,
-# ICU4J on Android, and ICU everywhere else. Apple needs nothing extra, Linux
-# uses the system libicu-dev (ICU >= 65), and Windows uses the ICU that ships
-# with Windows 10 1703+ via HERMES_ENABLE_WIN10_ICU_FALLBACK. ICU is linked in
-# either case, because the non-Apple/Android Unicode backend uses it too.
-# Every leg also builds the `hermes` CLI and runs an Intl smoke test against the
-# freshly built VM, so a linking-only success cannot pass for working Intl.
+# Intl is enabled on Apple only (-DHERMES_ENABLE_INTL=ON), where Hermes backs it
+# with Foundation and nothing extra ships. Elsewhere Hermes's Intl backend
+# (lib/Platform/Intl/PlatformIntlICU.cpp) needs ICU's C++ API, which the ICU
+# built into Windows does not expose, and its NumberFormat is a stub; bundling
+# ICU would add ~30 MB. Windows and Linux build with Intl off until Hermes gets
+# a backend that loads the OS's ICU at runtime. The Unicode layer still uses
+# ICU on those platforms (libicu-dev on Linux, Windows 10 1703+ ICU on Windows).
+# The Apple legs also build the `hermes` CLI and run an Intl smoke test against
+# the freshly built VM, so a linking-only success cannot pass for working Intl.
 
 on:
   workflow_dispatch:
@@ -209,7 +210,7 @@ jobs:
             -DHERMES_ENABLE_NAPI=ON \
             -DHERMES_ENABLE_DEBUGGER=ON \
             -DHERMES_ENABLE_TEST_SUITE=OFF \
-            -DHERMES_ENABLE_INTL=ON \
+            -DHERMES_ENABLE_INTL=${{ runner.os == 'macOS' && 'ON' || 'OFF' }} \
             -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
             ${{ matrix.configure }}
 
@@ -224,7 +225,7 @@ jobs:
             -DHERMES_ENABLE_NAPI=ON `
             -DHERMES_ENABLE_DEBUGGER=ON `
             -DHERMES_ENABLE_TEST_SUITE=OFF `
-            -DHERMES_ENABLE_INTL=ON `
+            -DHERMES_ENABLE_INTL=OFF `
             ${{ matrix.configure }}
           if ($LASTEXITCODE -ne 0) { throw "Hermes configure failed ($LASTEXITCODE)" }
           $cache = Get-Content hermes-build/CMakeCache.txt -Raw
@@ -283,7 +284,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "The staged hermesc failed its version check ($LASTEXITCODE)" }
 
       - name: Verify Intl
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/intl-smoke.js" <<'JS'
@@ -306,33 +307,6 @@ jobs:
           print('Intl OK');
           JS
           ./hermes-build/bin/hermes "$RUNNER_TEMP/intl-smoke.js"
-
-      - name: Verify Intl (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $smoke = @'
-          const number = new Intl.NumberFormat('en-US').format(1234.5);
-          const date = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'UTC',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          }).format(0);
-          const order = new Intl.Collator('en-US').compare('a', 'b');
-          print('Intl.NumberFormat en-US 1234.5 -> ' + number);
-          print('Intl.DateTimeFormat en-US 0 -> ' + date);
-          print('Intl.Collator compare(a, b) -> ' + order);
-          if (number !== '1,234.5') throw new Error('unexpected number format: ' + number);
-          if (date.indexOf('January') !== 0 || date.indexOf('1970') < 0) {
-            throw new Error('unexpected date format: ' + date);
-          }
-          if (order >= 0) throw new Error('unexpected collation order: ' + order);
-          print('Intl OK');
-          '@
-          Set-Content -Path "$env:RUNNER_TEMP/intl-smoke.js" -Value $smoke
-          & hermes-build/bin/hermes.exe "$env:RUNNER_TEMP/intl-smoke.js"
-          if ($LASTEXITCODE -ne 0) { throw "Intl smoke test failed ($LASTEXITCODE)" }
 
       - uses: actions/upload-artifact@v4
         with:
