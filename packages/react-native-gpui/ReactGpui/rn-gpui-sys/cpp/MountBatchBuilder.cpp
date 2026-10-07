@@ -602,17 +602,7 @@ GpuiTextSize measureParagraphThroughRust(
   return GpuiTextSize{.width = result.width, .height = result.height};
 }
 
-GpuiTextMeasureTable gTextMeasureTable{};
-
 } // namespace
-
-void setGpuiTextMeasureTable(const GpuiTextMeasureTable& table) {
-  gTextMeasureTable = table;
-}
-
-const GpuiTextMeasureTable* gpuiTextMeasureTable() {
-  return gTextMeasureTable.measureParagraph ? &gTextMeasureTable : nullptr;
-}
 
 // Installs the Rust-backed measurer. Called from the GpuiHost constructor,
 // before any surface starts.
