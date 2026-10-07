@@ -26,7 +26,19 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BIN_ROOT");
-    println!("cargo:rerun-if-env-changed=RN_GPUI_PREBUILT_DIR");
+    for var in [
+        "RN_GPUI_PREBUILT_DIR",
+        "RN_GPUI_BUILD_FROM_SOURCE",
+        "RN_GPUI_USE_PREBUILT",
+        "RN_GPUI_REQUIRE_PREBUILT",
+        "RN_GPUI_PREBUILT_CACHE",
+        "RN_GPUI_PREBUILT_OFFLINE",
+        "CARGO_NET_OFFLINE",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
@@ -227,6 +239,8 @@ fn main() {
 
     // --- 2. rn_gpui_core via CMake ------------------------------------------
 
+    let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
+
     fs::create_dir_all(&cmake_out_dir).expect("create shared CMake output directory");
     let cmake_lock = OpenOptions::new()
         .read(true)
@@ -287,11 +301,9 @@ fn main() {
     }
     // A prebuilt runtime replaces the ReactCommon/third-party build. CMake
     // then only compiles the app-side targets against the archive's config.
-    if let Some(prebuilt_dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
-        cmake_config.define(
-            "RN_GPUI_PREBUILT_DIR",
-            cmake_path(PathBuf::from(prebuilt_dir)),
-        );
+    if let Some(dir) = &prebuilt_dir {
+        cmake_config.define("RN_GPUI_PREBUILT_DIR", cmake_path(dir));
+        cmake_config.define("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir));
     }
     if let Some(bin_root) = env::var_os("RN_GPUI_HERMES_BIN_ROOT") {
         cmake_config.define(
@@ -446,6 +458,90 @@ fn watch_cpp_tree(root: &Path) {
 /// such as `CMakeFiles/VerifyGlobs.cmake` fail there with "Invalid character
 /// escape '\\s'" for a path like `C:\\repo\\src/...`. CMake accepts forward
 /// slashes on every platform, so hand it those.
+/// Chooses the runtime for this build and returns the prebuilt directory, or
+/// `None` for a source build.
+///
+/// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` -> source; `RN_GPUI_PREBUILT_DIR` -> use
+/// it; inside this repository (not under `node_modules`) -> source, unless
+/// `RN_GPUI_USE_PREBUILT=1`; otherwise `prebuilt-binaries.mjs ensure` downloads
+/// (or reads the cache). Any failure falls back to source with one warning, and
+/// `RN_GPUI_REQUIRE_PREBUILT=1` turns that failure into a panic.
+fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
+    if env_flag("RN_GPUI_BUILD_FROM_SOURCE") {
+        return None;
+    }
+    if let Some(dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    let in_repo = !package_dir
+        .components()
+        .any(|c| c.as_os_str() == "node_modules");
+    if in_repo && !env_flag("RN_GPUI_USE_PREBUILT") {
+        return None;
+    }
+
+    let script = package_dir.join("scripts").join("prebuilt-binaries.mjs");
+    let require = env_flag("RN_GPUI_REQUIRE_PREBUILT");
+    let output = Command::new("node")
+        .arg(&script)
+        .arg("ensure")
+        .arg("--triple")
+        .arg(target)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if dir.is_empty() {
+                fallback_or_panic(require, "prebuilt-binaries.mjs printed no directory");
+                return None;
+            }
+            Some(PathBuf::from(dir))
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            fallback_or_panic(
+                require,
+                &format!(
+                    "prebuilt-binaries.mjs ensure exited {}: {stderr}",
+                    out.status
+                ),
+            );
+            None
+        }
+        Err(error) => {
+            fallback_or_panic(require, &format!("could not run node: {error}"));
+            None
+        }
+    }
+}
+
+fn fallback_or_panic(require: bool, reason: &str) {
+    if require {
+        panic!("rn-gpui-sys: RN_GPUI_REQUIRE_PREBUILT=1 and no prebuilt runtime: {reason}");
+    }
+    println!("cargo:warning=rn-gpui-sys: no prebuilt runtime ({reason}); building from source");
+}
+
+fn env_flag(name: &str) -> bool {
+    matches!(env::var(name).as_deref(), Ok("1") | Ok("true"))
+}
+
+/// The current ReactCommonOverrides hash, computed by the same JS helper that
+/// wrote the manifest so CMake compares like with like.
+fn overrides_sha256(package_dir: &Path) -> String {
+    let output = Command::new("node")
+        .arg(package_dir.join("scripts").join("prebuilt-inputs.mjs"))
+        .arg("--overrides-sha256")
+        .output()
+        .expect("run node for overridesSha256");
+    assert!(
+        output.status.success(),
+        "overridesSha256 failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 fn cmake_path(path: impl AsRef<Path>) -> String {
     path.as_ref().to_string_lossy().replace('\\', "/")
 }

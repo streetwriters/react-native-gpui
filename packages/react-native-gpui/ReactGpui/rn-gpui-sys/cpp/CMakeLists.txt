@@ -139,6 +139,16 @@ if(RN_GPUI_PREBUILT_DIR)
   if(NOT _rn_gpui_json_err AND _rn_gpui_prebuilt_rn_debug STREQUAL "0")
     add_compile_definitions(REACT_NATIVE_PRODUCTION)
   endif()
+  # ReactCommonOverrides is compiled into the archive. build.rs computes the
+  # current hash (CMake strings cannot hold the NUL separator) and passes it in
+  # as RN_GPUI_OVERRIDES_SHA256; a mismatch means the archive is stale.
+  string(JSON _rn_gpui_prebuilt_overrides_sha GET "${_rn_gpui_prebuilt_json}" overridesSha256)
+  if(RN_GPUI_OVERRIDES_SHA256 AND NOT RN_GPUI_OVERRIDES_SHA256 STREQUAL _rn_gpui_prebuilt_overrides_sha)
+    message(FATAL_ERROR
+      "RN_GPUI_PREBUILT_DIR was built from different ReactCommonOverrides (manifest "
+      "${_rn_gpui_prebuilt_overrides_sha}, current ${RN_GPUI_OVERRIDES_SHA256}). Rebuild the "
+      "prebuilt or unset RN_GPUI_PREBUILT_DIR.")
+  endif()
   message(STATUS "rn_gpui_core: using prebuilt runtime ${RN_GPUI_PREBUILT_DIR} (${_rn_gpui_prebuilt_triple})")
   find_package(react-native-gpui-prebuilt CONFIG REQUIRED
     PATHS "${RN_GPUI_PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
