@@ -6,6 +6,7 @@
 // Usage:
 //   node scripts/prebuilt-inputs.mjs            # prints the hash
 //   node scripts/prebuilt-inputs.mjs --list     # prints each input and its hash
+//   node scripts/prebuilt-inputs.mjs --overrides-sha256  # prints the ReactCommonOverrides hash
 //
 // Inputs (repo-relative):
 //   packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**  (CMake sources, glue headers)
@@ -80,10 +81,16 @@ export function inputHash() {
   return { hash: hash.digest('hex'), files: perFile };
 }
 
-if (
-  process.argv[1] &&
-  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-) {
+// Run as a CLI only when this file is the entry point. The guard matters
+// because importers (build-prebuilt.mjs, build.rs via node -e) must not print.
+const isEntry =
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isEntry) {
+  if (process.argv.includes('--overrides-sha256')) {
+    console.log(overridesSha256());
+    process.exit(0);
+  }
   const { hash, files } = inputHash();
   if (process.argv.includes('--list')) {
     for (const f of files) console.log(`${f.sha256}  ${f.path}`);
@@ -91,4 +98,26 @@ if (
   } else {
     console.log(hash);
   }
+}
+
+// sha256 over the sorted "file\0sha256" lines of ReactCommonOverrides, joined
+// by "\n". build-prebuilt.mjs writes this into the manifest; the CMake prebuilt
+// branch receives it from build.rs and compares.
+export function overridesSha256() {
+  const dir = path.join(
+    repoRoot,
+    'packages/react-native-gpui/ReactCommonOverrides',
+  );
+  const files = [];
+  walk(dir, files);
+  const lines = files
+    .map(f => path.relative(dir, f).split(path.sep).join('/'))
+    .sort()
+    .map(rel => {
+      const digest = createHash('sha256')
+        .update(readFileSync(path.join(dir, rel)))
+        .digest('hex');
+      return `${rel}\0${digest}`;
+    });
+  return createHash('sha256').update(lines.join('\n')).digest('hex');
 }
