@@ -371,6 +371,23 @@ function resolveModule(context, moduleName, platform) {
     return resolveWithPlatformFallback(context, setupEnv, platform);
   }
 
+  // InitializeCore pulls setup-env into the graph with a relative import.
+  // Route it through the GPUI setup-env too: Metro only runs the
+  // run-before-main modules that are already in the graph, so otherwise the
+  // `window` alias never runs.
+  if (
+    moduleName === '../../src/setup-env' &&
+    /[\\/]Libraries[\\/]Core[\\/]InitializeCore\.js$/.test(
+      context.originModulePath ?? '',
+    )
+  ) {
+    return resolveWithPlatformFallback(
+      context,
+      path.join(GPUI_PACKAGE_DIR, 'setup-env.js'),
+      platform,
+    );
+  }
+
   // A patched RN module keeps upstream-relative imports. Resolve those from
   // its upstream location, then apply the normal GPUI override table below.
   if (
