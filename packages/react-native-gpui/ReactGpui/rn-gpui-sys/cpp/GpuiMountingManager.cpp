@@ -25,11 +25,6 @@
 #include <react/renderer/components/view/conversions.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 
-#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-#include <react/renderer/components/safeareacontext/RNCSafeAreaViewState.h>
-#include "GPUISafeAreaInsets.h"
-#endif
-
 #include <folly/json.h>
 #include <glog/logging.h>
 #include <atomic>
@@ -166,51 +161,15 @@ void GpuiMountingManager::executeMount(
     std::lock_guard<std::mutex> lock(emittersMutex_);
     for (const auto& mutation : transaction.getMutations()) {
       batch.ops.push_back(buildMountOp(mutation));
-#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-      auto emitSafeAreaFrame = [this, surfaceId](const ShadowView& view) {
-        if (std::string_view(view.componentName) != "RNCSafeAreaProvider") {
-          return;
-        }
-        const auto& frame = view.layoutMetrics.frame;
-        const std::array<float, 4> nextFrame = {
-            frame.origin.x,
-            frame.origin.y,
-            frame.size.width,
-            frame.size.height};
-        const auto previous = safeAreaFrames_.find(view.tag);
-        if (previous != safeAreaFrames_.end() &&
-            previous->second == nextFrame) {
-          return;
-        }
-        safeAreaFrames_[view.tag] = nextFrame;
-        const auto insets = gpui_safe_area::gpui_safe_area_insets(
-            static_cast<int32_t>(surfaceId));
-        folly::dynamic insetPayload =
-            folly::dynamic::object("top", insets.top)("right", insets.right)(
-                "bottom", insets.bottom)("left", insets.left);
-        folly::dynamic framePayload =
-            folly::dynamic::object("x", frame.origin.x)("y", frame.origin.y)(
-                "width", frame.size.width)("height", frame.size.height);
-        if (view.eventEmitter) {
-          LOG(INFO) << "[gpui-safe-area] onInsetsChange tag=" << view.tag
-                    << " surface=" << surfaceId << " frame=(" << frame.origin.x
-                    << ',' << frame.origin.y << ' ' << frame.size.width << 'x'
-                    << frame.size.height << ')';
-          view.eventEmitter->dispatchEvent(
-              "insetsChange",
-              folly::dynamic::object("insets", std::move(insetPayload))(
-                  "frame", std::move(framePayload)));
-        }
-      };
-      if (mutation.type == ShadowViewMutation::Insert) {
-        emitSafeAreaFrame(mutation.newChildShadowView);
-      } else if (
-          mutation.type == ShadowViewMutation::Update &&
-          mutation.oldChildShadowView.layoutMetrics.frame !=
-              mutation.newChildShadowView.layoutMetrics.frame) {
-        emitSafeAreaFrame(mutation.newChildShadowView);
+      if (gpuiExtensionHooks().safeArea.viewFrameChanged &&
+          (mutation.type == ShadowViewMutation::Insert ||
+           (mutation.type == ShadowViewMutation::Update &&
+            mutation.oldChildShadowView.layoutMetrics.frame !=
+                mutation.newChildShadowView.layoutMetrics.frame))) {
+        auto views = mountedViews();
+        gpuiExtensionHooks().safeArea.viewFrameChanged(
+            surfaceId, mutation.newChildShadowView, views);
       }
-#endif
       auto isVisible = [](const ShadowView& shadowView) {
         auto props = std::dynamic_pointer_cast<const ModalHostViewProps>(
             shadowView.props);
@@ -274,9 +233,11 @@ void GpuiMountingManager::executeMount(
             modalStates_[mutation.newChildShadowView.tag] = std::move(state);
         }
       } else if (mutation.type == ShadowViewMutation::Delete) {
-#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-        safeAreaFrames_.erase(mutation.oldChildShadowView.tag);
-#endif
+        if (gpuiExtensionHooks().safeArea.viewDeleted) {
+          auto views = mountedViews();
+          gpuiExtensionHooks().safeArea.viewDeleted(
+              mutation.oldChildShadowView.tag, views);
+        }
         animatedViews_.erase(mutation.oldChildShadowView.tag);
         const auto tag = mutation.oldChildShadowView.tag;
         emitters_.erase(tag);
@@ -298,10 +259,11 @@ void GpuiMountingManager::executeMount(
 
   mountBatchesInFlight.fetch_add(1, std::memory_order_relaxed);
   rn_gpui_on_mount(std::move(batch));
-#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
   // Apply current geometry to newly mounted SafeAreaViews as well as providers.
-  setWindowTopInset(gpui_safe_area::windowTopInset.load());
-#endif
+  if (gpuiExtensionHooks().safeArea.afterMount) {
+    auto views = mountedViews();
+    gpuiExtensionHooks().safeArea.afterMount(views);
+  }
 
   if (onAfterMount_) {
     onAfterMount_(surfaceId);
@@ -426,43 +388,10 @@ void GpuiMountingManager::setWindowSize(float width, float height) {
 }
 
 void GpuiMountingManager::setWindowTopInset(float top) {
-#if defined(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-  const auto previous = gpui_safe_area::windowTopInset.exchange(top);
-  std::vector<std::shared_ptr<const ConcreteState<RNCSafeAreaViewState>>>
-      states;
-  {
-    std::lock_guard<std::mutex> lock(emittersMutex_);
-    if (previous != top) {
-      for (const auto& [tag, frame] : safeAreaFrames_) {
-        const auto emitter = emitters_.find(tag);
-        if (emitter == emitters_.end() || !emitter->second)
-          continue;
-        emitter->second->dispatchEvent(
-            "insetsChange",
-            folly::dynamic::object(
-                "insets",
-                folly::dynamic::object("top", top)("right", 0)("bottom", 0)(
-                    "left", 0))(
-                "frame",
-                folly::dynamic::object("x", frame[0])("y", frame[1])(
-                    "width", frame[2])("height", frame[3])));
-      }
-    }
-    for (const auto& [_, view] : animatedViews_) {
-      if (std::string_view(view.componentName) != "RNCSafeAreaView")
-        continue;
-      if (auto state = std::dynamic_pointer_cast<
-              const ConcreteState<RNCSafeAreaViewState>>(view.state))
-        if (state->getData().insets.top != top)
-          states.push_back(std::move(state));
-    }
+  if (gpuiExtensionHooks().safeArea.windowTopInset) {
+    auto views = mountedViews();
+    gpuiExtensionHooks().safeArea.windowTopInset(top, views);
   }
-  for (const auto& state : states) {
-    auto next = state->getData();
-    next.insets.top = top;
-    state->updateState(std::move(next));
-  }
-#endif
 }
 
 void GpuiMountingManager::dispatchEvent(
