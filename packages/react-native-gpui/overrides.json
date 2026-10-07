@@ -83,6 +83,27 @@
     {
       "type": "platform",
       "file": "src-gpui/Libraries/Utilities/BackHandler.gpui.js"
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/nativemodule/dom/NativeDOM.h",
+      "baseFile": "packages/react-native/ReactCommon/react/nativemodule/dom/NativeDOM.h",
+      "baseHash": "d6acbe5683b2cc276509305f9cafc721ad92a88c",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/nativemodule/dom/NativeDOM.cpp",
+      "baseFile": "packages/react-native/ReactCommon/react/nativemodule/dom/NativeDOM.cpp",
+      "baseHash": "190c251544809795faf1be36043d2684d49d8627",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/components/textinput/BaseTextInputShadowNode.h",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/components/textinput/BaseTextInputShadowNode.h",
+      "baseHash": "a94e72f4836e257f6cd1fe9cb21ede410169e267",
+      "issue": 0
     }
   ]
 }
