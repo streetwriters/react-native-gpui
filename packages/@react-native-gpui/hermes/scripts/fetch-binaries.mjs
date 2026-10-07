@@ -13,8 +13,8 @@
  * offline and accepts either an artifact zip from the Actions UI or an already
  * unpacked directory.
  *
- * The workflow stages `bin/<platform>-<arch>/` inside each `hermes-<platform>-<arch>`
- * artifact, so anything downloaded from CI drops straight into this package.
+ * The workflow uploads `bin/<platform>-<arch>/`, which GitHub stores without the
+ * `bin/` prefix, so anything downloaded from CI drops straight into this package.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -137,10 +137,26 @@ function extractArchive(archive, destination) {
   });
 }
 
-/** Copies every `bin/<platform>/` tree found under `sourceRoot` into the package. */
+/**
+ * Copies the platform trees found under `sourceRoot` into the package. Two
+ * layouts are accepted: `bin/<platform>/` as written by the local build scripts
+ * and the release zips, and `<platform>/` at the root of a `hermes-<platform>`
+ * artifact, because actions/upload-artifact uploads `bin/` without its prefix.
+ */
 function installFrom(sourceRoot, options) {
   const wanted = new Set(selectedPlatforms(options));
   const installed = [];
+  const install = (from, platform) => {
+    const to = path.join(binRoot, platform);
+    fs.mkdirSync(to, { recursive: true });
+    fs.cpSync(from, to, { recursive: true });
+    for (const file of fs.readdirSync(to)) {
+      if (file === 'hermesc' || file === 'hermesc.exe')
+        fs.chmodSync(path.join(to, file), 0o755);
+    }
+    installed.push(platform);
+    wanted.delete(platform);
+  };
   const visit = dir => {
     let entries;
     try {
@@ -151,31 +167,22 @@ function installFrom(sourceRoot, options) {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const child = path.join(dir, entry.name);
-      if (entry.name === 'bin') {
-        for (const platform of fs.readdirSync(child)) {
-          if (!wanted.has(platform)) continue;
-          const from = path.join(child, platform);
-          const to = path.join(binRoot, platform);
-          fs.mkdirSync(to, { recursive: true });
-          fs.cpSync(from, to, { recursive: true });
-          for (const file of fs.readdirSync(to)) {
-            if (file === 'hermesc' || file === 'hermesc.exe')
-              fs.chmodSync(path.join(to, file), 0o755);
-          }
-          installed.push(platform);
-          wanted.delete(platform);
-        }
-        continue;
-      }
-      if (entry.name.startsWith(ARTIFACT_PREFIX)) visit(child);
-      else if (entry.name === 'artifacts' || entry.name === 'download')
+      if (wanted.has(entry.name)) {
+        install(child, entry.name);
+      } else if (
+        entry.name === 'bin' ||
+        entry.name === 'artifacts' ||
+        entry.name === 'download' ||
+        entry.name.startsWith(ARTIFACT_PREFIX)
+      ) {
         visit(child);
+      }
     }
   };
   visit(sourceRoot);
   if (installed.length === 0)
     throw new Error(
-      `No hermes-* artifacts with bin/<platform>/ under ${sourceRoot}`,
+      `No hermes-<platform> artifacts with <platform>/ or bin/<platform>/ under ${sourceRoot}`,
     );
   console.log(`Installed: ${installed.join(', ')}`);
 }
