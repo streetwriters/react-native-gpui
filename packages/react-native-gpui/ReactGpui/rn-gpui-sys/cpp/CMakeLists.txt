@@ -25,6 +25,22 @@ if(MSVC)
     "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"
     "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
     "$<$<COMPILE_LANGUAGE:CXX>:/GR>")
+  # ReactCommon headers do `#ifndef RN_EXPORT / #define RN_EXPORT
+  # __attribute__((visibility("default")))`, which cl.exe cannot parse. The
+  # guard means defining it empty here is enough.
+  add_compile_definitions(RN_EXPORT=)
+  # glog's headers declare every symbol __declspec(dllimport) on Windows unless
+  # GOOGLE_GLOG_DLL_DECL is already defined, while this build links glog
+  # statically. Its own `#ifndef` guard lets the static spelling win here.
+  add_compile_definitions(GOOGLE_GLOG_DLL_DECL=)
+  # ReactCommon relies on libc++'s transitive includes; force the common
+  # standard headers into every C++ translation unit on MSVC.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_SOURCE_DIR}/cmake/msvc-preinclude.h>")
+  # <windows.h> defines min/max macros that break std::min/std::max in
+  # ReactCommon and folly, and both expect the Windows 10 API surface.
+  add_compile_definitions(NOMINMAX)
+  add_compile_definitions(_WIN32_WINNT=0x0A00)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # RN 0.87.1 has several headers that use uint*_t without including
@@ -810,7 +826,9 @@ if(MSVC)
           # -m... and -pthread have MSVC equivalents or are meaningless there.
           if(_option MATCHES "^-W[a-zA-Z]" OR _option MATCHES "^-f"
              OR _option MATCHES "^-std=" OR _option MATCHES "^-m[a-z]"
-             OR _option MATCHES "^-pthread")
+             OR _option MATCHES "^-pthread"
+             # RN's glog CMakeLists hardcodes -DHAVE_PREAD=1 for Android.
+             OR _option MATCHES "^-DHAVE_PREAD")
             set(_stripped TRUE)
           else()
             list(APPEND _kept "${_option}")
@@ -828,4 +846,14 @@ if(MSVC)
   endfunction()
 
   rn_gpui_strip_gcc_only_flags("${CMAKE_CURRENT_BINARY_DIR}")
+
+  # RN's jsi CMakeLists globs every jsi/*.cpp, which drags in the POSIX memory
+  # mapping implementation; Windows has jsilib-windows.cpp instead.
+  if(TARGET jsi)
+    get_target_property(_rn_gpui_jsi_sources jsi SOURCES)
+    if(_rn_gpui_jsi_sources)
+      list(FILTER _rn_gpui_jsi_sources EXCLUDE REGEX "jsilib-posix\\.cpp$")
+      set_target_properties(jsi PROPERTIES SOURCES "${_rn_gpui_jsi_sources}")
+    endif()
+  endif()
 endif()
