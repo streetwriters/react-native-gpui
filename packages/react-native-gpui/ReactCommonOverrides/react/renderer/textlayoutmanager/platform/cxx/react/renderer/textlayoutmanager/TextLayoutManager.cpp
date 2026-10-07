@@ -28,6 +28,22 @@
 
 #include "GpuiTextMeasure.h" // rngpui::gpuiTextMeasureTable (design doc §18.9)
 
+namespace rngpui {
+
+namespace {
+GpuiTextMeasureTable gTextMeasureTable{};
+} // namespace
+
+void setGpuiTextMeasureTable(const GpuiTextMeasureTable& table) {
+  gTextMeasureTable = table;
+}
+
+const GpuiTextMeasureTable* gpuiTextMeasureTable() {
+  return gTextMeasureTable.measureParagraph ? &gTextMeasureTable : nullptr;
+}
+
+} // namespace rngpui
+
 namespace facebook::react {
 
 TextLayoutManager::TextLayoutManager(

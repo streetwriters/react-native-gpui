@@ -3,8 +3,10 @@
 // The override is compiled as part of ReactCommon, which must not see the cxx
 // bridge headers (`rust/cxx.h`, `rn-gpui-sys/src/lib.rs.h`). It therefore calls
 // through this plain C++ function-pointer table. GpuiHost installs the table at
-// startup; the implementation wraps the Rust `rn_gpui_measure_text` call and
-// lives in MountBatchBuilder.cpp next to the flattening code it shares.
+// startup; the Rust-backed implementation is installed from
+// MountBatchBuilder.cpp (rn_gpui_core). The table storage and the two accessors
+// below are defined in the TextLayoutManager override itself, so ReactCommon
+// links without rn_gpui_core.
 #pragma once
 
 #include <react/renderer/attributedstring/AttributedString.h>
@@ -25,9 +27,10 @@ struct GpuiTextMeasureTable {
       float maxHeight);
 };
 
-// Installed once by GpuiHost before any surface is started. Measuring before
-// that falls back to a zero-sized paragraph, as the Rust side does when no
-// measure handler is registered.
+// Defined in ReactCommonOverrides/.../textlayoutmanager/platform/cxx/.../
+// TextLayoutManager.cpp. Installed once by GpuiHost before any surface is
+// started. Measuring before that falls back to a zero-sized paragraph, as the
+// Rust side does when no measure handler is registered.
 void setGpuiTextMeasureTable(const GpuiTextMeasureTable& table);
 const GpuiTextMeasureTable* gpuiTextMeasureTable();
 
