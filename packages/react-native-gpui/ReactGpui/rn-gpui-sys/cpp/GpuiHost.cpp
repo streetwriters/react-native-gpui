@@ -1,12 +1,9 @@
 // React host implementation (design doc §18.7).
 #include "GpuiHost.h"
-#if defined(RN_GPUI_HAS_NODE_API)
-#include "CxxNodeApiHostModule.hpp"
-#include "WeakNodeApiInjector.hpp"
-#endif
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/coremodules/DeviceInfoModule.h>
+#include "GpuiExtensions.h"
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
@@ -77,12 +74,6 @@ extern "C" void rn_gpui_stop_accessibility_observing();
 #endif
 
 using namespace facebook::react;
-
-#if defined(RN_GPUI_HAS_WORKLETS)
-namespace gpui_worklets {
-void onFrame(double timestampMs);
-}
-#endif
 
 namespace rngpui {
 namespace {
@@ -540,18 +531,12 @@ TurboModuleProviders gpui_turbo_module_providers() {
             return appModule;
           }
         }
-#if defined(RN_GPUI_HAS_NODE_API)
-        if (name ==
-            callstack::react_native_node_api::CxxNodeApiHostModule::
-                kModuleName) {
-          static std::once_flag injected;
-          std::call_once(injected, [] {
-            callstack::react_native_node_api::injectIntoWeakNodeApi();
-          });
-          return callstack::react_native_node_api::createNodeApiHostModule(
-              jsInvoker);
+        if (const auto& extensionProvider =
+                rngpui::gpuiExtensionHooks().turboModule) {
+          if (auto extensionModule = extensionProvider(name, jsInvoker)) {
+            return extensionModule;
+          }
         }
-#endif
 #define RN_GPUI_REGISTER_RUST_STRING_MODULE(                                \
     module_name_fn, method_name_fn, method_fn, free_fn)                     \
   if (name == module_name_fn()) {                                           \
@@ -648,6 +633,7 @@ new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
 }
 
 GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
+  rngpui::rn_gpui_install_extensions();
   install_feature_flags();
   // Text measurement from the TextLayoutManager override goes through the
   // plain table in GpuiTextMeasure.h; wire it to the Rust bridge first.
@@ -1047,13 +1033,13 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
     return;
   dispatchGestureTime(*mountingManager_, eventTimestampMs);
   on_render();
-#if defined(RN_GPUI_HAS_WORKLETS)
-  const auto frameTimestampMs =
-      std::chrono::duration<double, std::milli>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count();
-  gpui_worklets::onFrame(frameTimestampMs);
-#endif
+  if (const auto& frame = rngpui::gpuiExtensionHooks().frame) {
+    const auto frameTimestampMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    frame(frameTimestampMs);
+  }
   std::function<void()> animationFrame;
   {
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);

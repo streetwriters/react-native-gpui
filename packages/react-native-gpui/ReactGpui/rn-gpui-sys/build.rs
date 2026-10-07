@@ -290,7 +290,8 @@ fn main() {
             cmake_path(PathBuf::from(bin_root)),
         );
     }
-    let dst = cmake_config.build_target("rn_gpui_core").build();
+    // rn_gpui_extensions links PUBLIC to rn_gpui_core, so this builds core too.
+    let dst = cmake_config.build_target("rn_gpui_extensions").build();
     drop(cmake_lock);
 
     let cmake_build_dir = dst.join("build");

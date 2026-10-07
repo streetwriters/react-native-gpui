@@ -507,7 +507,8 @@ add_library(rn_gpui_core STATIC
   GpuiHttpClient.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
-  MountBatchBuilder.cpp)
+  MountBatchBuilder.cpp
+  GpuiExtensions.cpp)
 # Out-of-tree addons can require native build targets without linking into core.
 get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
 foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
@@ -518,27 +519,6 @@ if(APPLE)
     COMPILE_FLAGS "-fobjc-arc")
   target_sources(rn_gpui_core PRIVATE GpuiAccessibilityMac.mm)
   target_link_libraries(rn_gpui_core PUBLIC "-framework AppKit")
-endif()
-get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-  target_include_directories(rn_gpui_core PRIVATE "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SVG=1)
-endif()
-if(TARGET weak-node-api)
-  target_compile_definitions(rn_gpui_core PRIVATE
-    RN_GPUI_HAS_NODE_API=1
-    HERMES_NAPI_USE_CPP_LINKAGE=1)
-  target_sources(rn_gpui_core PRIVATE
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
-  target_include_directories(rn_gpui_core PRIVATE
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  add_dependencies(rn_gpui_core weak-node-api)
 endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
@@ -689,23 +669,108 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
   target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
 endif()
 
-get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
-if(RN_GPUI_HAS_WORKLETS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_WORKLETS=1)
-endif()
+# --- rn_gpui_extensions: optional library glue (cpp/GpuiExtensions.h) -------
+#
+# Glue for optional packages is compiled here, in the app's build, rather than
+# into rn_gpui_core, so rn_gpui_core compiles the same files with the same flags
+# for every app. Each present package adds one source file and one installer.
+# rn_gpui_install_extensions() (generated below) calls the installers once, and
+# GpuiHost calls it from its constructor.
+set(RN_GPUI_EXTENSION_SOURCES)
+set(RN_GPUI_EXTENSION_NODE_API_SOURCES)
+set(RN_GPUI_EXTENSION_INSTALLERS)
+set(RN_GPUI_EXTENSION_INCLUDE_DIRS)
+set(RN_GPUI_EXTENSION_DEFINITIONS)
 
-get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SAFE_AREA_CONTEXT=1)
-  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
+get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSvgExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS svg)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
 endif()
 
 get_property(RN_GPUI_HAS_SCREENS GLOBAL PROPERTY RN_GPUI_HAS_SCREENS)
 if(RN_GPUI_HAS_SCREENS)
   get_property(RN_GPUI_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SCREENS=1)
-  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiScreensExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS screens)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
+endif()
+
+get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSafeAreaExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS safe_area)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
+endif()
+
+get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
+if(RN_GPUI_HAS_WORKLETS)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiWorkletsExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS worklets)
+endif()
+
+if(TARGET weak-node-api)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiNodeApiExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS node_api)
+  list(APPEND RN_GPUI_EXTENSION_NODE_API_SOURCES
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  list(APPEND RN_GPUI_EXTENSION_DEFINITIONS HERMES_NAPI_USE_CPP_LINKAGE=1)
+endif()
+
+# The generated installer list depends on which packages are present, so it is
+# written at configure time. file(CONFIGURE) only rewrites it when it changes.
+set(RN_GPUI_EXTENSION_DECLARATIONS "")
+set(RN_GPUI_EXTENSION_CALLS "")
+foreach(_rn_gpui_installer IN LISTS RN_GPUI_EXTENSION_INSTALLERS)
+  string(APPEND RN_GPUI_EXTENSION_DECLARATIONS "void rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+  string(APPEND RN_GPUI_EXTENSION_CALLS "    rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+endforeach()
+set(RN_GPUI_INSTALL_EXTENSIONS_CPP "${CMAKE_BINARY_DIR}/generated/rn_gpui_install_extensions.cpp")
+file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
+// Generated by rn-gpui-sys cpp/CMakeLists.txt. Do not edit.
+#include "GpuiExtensions.h"
+
+#include <mutex>
+
+namespace rngpui {
+
+@RN_GPUI_EXTENSION_DECLARATIONS@
+void rn_gpui_install_extensions() {
+  static std::once_flag installed;
+  std::call_once(installed, [] {
+@RN_GPUI_EXTENSION_CALLS@  });
+}
+
+} // namespace rngpui
+]=])
+
+# Always defined, even when no package is present, so link_libs.txt is stable.
+add_library(rn_gpui_extensions STATIC
+  "${RN_GPUI_INSTALL_EXTENSIONS_CPP}"
+  ${RN_GPUI_EXTENSION_SOURCES}
+  ${RN_GPUI_EXTENSION_NODE_API_SOURCES})
+target_compile_definitions(rn_gpui_extensions PRIVATE ${RN_GPUI_EXTENSION_DEFINITIONS})
+target_include_directories(rn_gpui_extensions PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${REACT_CXX_PLATFORM_DIR}"
+  ${RN_GPUI_EXTENSION_INCLUDE_DIRS})
+if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
+  target_include_directories(rn_gpui_extensions PRIVATE "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+endif()
+target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_CORE_DEPS})
+target_link_libraries(rn_gpui_extensions PUBLIC rn_gpui_core)
+if(TARGET weak-node-api)
+  add_dependencies(rn_gpui_extensions weak-node-api)
 endif()
 
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------
@@ -801,6 +866,8 @@ if(TARGET hermes-engine::hermesvm)
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_SHIM_LIB_DIR}\n")
 endif()
 
+# rn_gpui_extensions appears before and after rn_gpui_core (see below).
+string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
 foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   if(_target STREQUAL "hermes-engine::hermesvm")
     continue()
@@ -831,6 +898,12 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   # archive and before the ReactCommon archives it depends on.
   if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_app_turbo_modules)
     string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_app_turbo_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_app_turbo_modules>\n")
+  endif()
+  # Installers read rn_gpui_core's hook storage and call into the app archive,
+  # so the extensions archive comes after both (static archives resolve left
+  # to right).
+  if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_extensions)
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
   endif()
 endforeach()
 
