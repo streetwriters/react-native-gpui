@@ -1,6 +1,7 @@
 // Fabric mutation flattening implementation (design doc §18.8). Field names
 // and types follow the React Native 0.87.1 headers (the headers win; see §19).
 #include "MountBatchBuilder.h"
+#include "GpuiTextMeasure.h"
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/image/ImageProps.h>
@@ -561,6 +562,63 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
     }
   }
   return op;
+}
+
+namespace {
+
+// Measures one paragraph through the Rust bridge. The override only sees the
+// plain table in GpuiTextMeasure.h, so the rust:: types stay in this file.
+GpuiTextSize measureParagraphThroughRust(
+    const AttributedString& text,
+    const ParagraphAttributes& attributes,
+    float maxWidth,
+    float maxHeight) {
+  ParagraphFlat paragraph = flattenInputText(text);
+
+  // Alignment lives on TextAttributes, not on ParagraphAttributes; the
+  // TextAlignment enum values already match the ParagraphFlat encoding.
+  const auto& fragments = text.getFragments();
+  if (!fragments.empty() && fragments.front().textAttributes.alignment) {
+    paragraph.text_align =
+        static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
+  }
+  paragraph.max_lines = attributes.maximumNumberOfLines;
+  switch (attributes.ellipsizeMode) {
+    case EllipsizeMode::Clip:
+      paragraph.ellipsize = 3;
+      break;
+    case EllipsizeMode::Head:
+      paragraph.ellipsize = 1;
+      break;
+    case EllipsizeMode::Middle:
+      paragraph.ellipsize = 2;
+      break;
+    case EllipsizeMode::Tail:
+      paragraph.ellipsize = 0;
+      break;
+  }
+
+  const auto result = rn_gpui_measure_text(paragraph, maxWidth, maxHeight);
+  return GpuiTextSize{.width = result.width, .height = result.height};
+}
+
+GpuiTextMeasureTable gTextMeasureTable{};
+
+} // namespace
+
+void setGpuiTextMeasureTable(const GpuiTextMeasureTable& table) {
+  gTextMeasureTable = table;
+}
+
+const GpuiTextMeasureTable* gpuiTextMeasureTable() {
+  return gTextMeasureTable.measureParagraph ? &gTextMeasureTable : nullptr;
+}
+
+// Installs the Rust-backed measurer. Called from the GpuiHost constructor,
+// before any surface starts.
+void installGpuiTextMeasureTable() {
+  setGpuiTextMeasureTable(
+      GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});
 }
 
 } // namespace rngpui
