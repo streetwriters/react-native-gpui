@@ -28,7 +28,10 @@
     "ReactGpui/rn-gpui-macros/src",
     "ReactGpui/rn-gpui-macros/tests",
     "react-native.config.js",
-    "overrides.json"
+    "overrides.json",
+    "prebuilt-binaries.json",
+    "scripts/prebuilt-binaries.mjs",
+    "scripts/prebuilt-inputs.mjs"
   ],
   "peerDependencies": {
     "react": "19.2.3",

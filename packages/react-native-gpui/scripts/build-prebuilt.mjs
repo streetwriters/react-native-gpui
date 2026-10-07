@@ -32,7 +32,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inputHash } from './prebuilt-inputs.mjs';
+import { inputHash, overridesSha256 } from './prebuilt-inputs.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
@@ -263,13 +263,7 @@ const manifest = {
   cxxBridgeHeaderSha256: sha256File(
     path.join(bridgeDir, 'rn-gpui-sys', 'src', 'lib.rs.h'),
   ),
-  overridesSha256: createHash('sha256')
-    .update(
-      listFiles(overridesDir, overridesDir)
-        .map(f => `${f}\0${sha256File(path.join(overridesDir, f))}`)
-        .join('\n'),
-    )
-    .digest('hex'),
+  overridesSha256: overridesSha256(),
   defines: { HERMES_ENABLE_DEBUGGER: 1, REACT_NATIVE_DEBUG: 0 },
   minOs: process.platform === 'darwin' ? 'macos 11.0' : null,
   glibc: process.platform === 'linux' ? '2.36' : null,
