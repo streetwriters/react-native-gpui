@@ -74,14 +74,31 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hermes"
           tar -xzf "$RUNNER_TEMP/hermes.tar.gz" -C "$RUNNER_TEMP/hermes" \
             --strip-components=1 \
-            --wildcards '*/include' '*/public' '*/API/CMakeLists.txt' \
-            '*/API/hermes' '*/API/jsi' '*/API/napi' '*/API/hermes_abi' \
-            '*/LICENSE'
+            --wildcards '*/API/hermes' '*/API/jsi' '*/API/napi' '*/API/hermes_abi' \
+            '*/public/hermes/Public' '*/include/hermes/napi' '*/LICENSE'
+      # The package ships only the headers needed to compile against the VM:
+      # every header under API/{hermes,jsi,napi,hermes_abi} (API/hermes_sandbox is
+      # not used), plus what those include from public/hermes/Public and
+      # include/hermes/napi.
+      # Select the same set from upstream and require an exact match, so a
+      # missing, extra or edited file fails the job.
       - name: Compare against the committed headers
         run: |
           set -euo pipefail
-          for dir in include public API; do
-            diff -r "$RUNNER_TEMP/hermes/$dir" "packages/@react-native-gpui/hermes/$dir"
+          src="$RUNNER_TEMP/hermes"
+          expected="$RUNNER_TEMP/expected"
+          mkdir -p "$expected"
+          (
+            cd "$src"
+            find API -name '*.h'
+            find public/hermes/Public -maxdepth 1 -name '*.h'
+            find include/hermes/napi -maxdepth 1 \( -name '*.h' -o -name '*.md' \)
+          ) | while read -r file; do
+            mkdir -p "$expected/$(dirname "$file")"
+            cp "$src/$file" "$expected/$file"
+          done
+          for dir in API public include; do
+            diff -r "$expected/$dir" "packages/@react-native-gpui/hermes/$dir"
           done
       - uses: actions/upload-artifact@v4
         with:

@@ -18,9 +18,24 @@ Everything here is built from one commit, recorded in `package.json`:
 
 | Path                          | Contents                                                       |
 | ----------------------------- | -------------------------------------------------------------- |
-| `include/`, `public/`, `API/` | The upstream headers at the pinned commit, byte for byte       |
+| `API/`, `public/`, `include/` | The upstream headers we compile against, byte for byte (below) |
 | `bin/<platform>-<arch>/`      | The prebuilt VM and compiler (not committed; fetched or built) |
 | `scripts/fetch-binaries.mjs`  | Downloads a CI artifact or release into `bin/` and verifies it |
+
+Only the headers needed to compile against the VM are vendored. Everything
+else in upstream `include/` is VM internals the shared library does not export.
+
+- `API/{hermes,jsi,napi,hermes_abi}/**/*.h`: every upstream header in those
+  folders (`hermes.h`, the debugger and CDP headers React Native's inspector
+  uses, `hermes_napi.h`, JSI and the Hermes ABI). Sources and tooling under
+  `API/` and the unused `API/hermes_sandbox` are not vendored.
+- `public/hermes/Public/*.h`: config and export headers that `hermes.h`
+  includes.
+- `include/hermes/napi/`: the Node-API C headers that `hermes_napi.h`
+  includes, with upstream's `VENDORED.md`.
+
+The build compiles against React Native's JSI (`ReactCommon/jsi`); `API/jsi`
+is kept only so the API folder matches upstream.
 
 `bin/` is gitignored, so a fresh clone has the headers but no binaries:
 
@@ -65,7 +80,7 @@ The build flags are mirrored from `package.json`'s `hermes.buildFlags`:
 ```
 HERMES_ENABLE_NAPI=ON
 HERMES_ENABLE_DEBUGGER=ON
-HERMES_ENABLE_INTL=ON
+HERMES_ENABLE_INTL=ON    # Apple only; OFF on Linux and Windows
 HERMES_ENABLE_TEST_SUITE=OFF
 HERMES_BUILD_APPLE_FRAMEWORK=OFF
 ```
@@ -74,16 +89,16 @@ HERMES_BUILD_APPLE_FRAMEWORK=OFF
 
 `HERMES_ENABLE_INTL=ON` exposes `Intl.Collator`, `Intl.NumberFormat` and
 `Intl.DateTimeFormat` (plus `Intl.getCanonicalLocales` and the `toLocale*` /
-`localeCompare` prototype methods). Upstream has no single backend for this
-(`lib/Platform/Intl/CMakeLists.txt`), so each platform resolves Intl
-differently:
+`localeCompare` prototype methods). It is enabled on Apple only for now:
 
-- **Apple** — Foundation (`NSLocale`, `NSDateFormatter`, …). No ICU involved.
-- **Linux** — the system ICU, so `libicu-dev` (ICU 65 or newer) is required to
-  build and the resulting `libhermesvm.so` links `libicuuc` / `libicui18n` at
-  runtime. Build with `-DHERMES_USE_STATIC_ICU=ON` for a self-contained library.
-- **Windows** — the ICU that ships with Windows 10 1703 and later, through
-  `HERMES_ENABLE_WIN10_ICU_FALLBACK` (the default). No extra artifacts needed.
+- **Apple**: Foundation (`NSLocale`, `NSDateFormatter`, …). No ICU involved and
+  nothing extra ships.
+- **Windows and Linux**: off. Upstream's backend for these platforms
+  (`lib/Platform/Intl/PlatformIntlICU.cpp`) needs ICU's C++ API, which the ICU
+  built into Windows does not expose; on Linux it ties `libhermesvm.so` to the
+  build machine's ICU version; and its `NumberFormat` is a stub
+  (`std::to_string`). Bundling ICU would add about 30 MB. Intl comes back once
+  Hermes has a backend that loads the OS's ICU at runtime.
 
 ICU is linked on Windows and Linux even with Intl off, because the
 non-Apple/Android Unicode backend uses it as well. Apple builds link only
