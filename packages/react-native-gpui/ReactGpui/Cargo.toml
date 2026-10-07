@@ -19,8 +19,8 @@ strip = "debuginfo"
 [workspace.dependencies]
 gpui = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
 gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "92a9b0f7041c8701d4aef4c05534a603caff75d3" }
-cxx = "1"
-cxx-build = "1"
+cxx = "=1.0.202"
+cxx-build = "=1.0.202"
 cmake = "0.1"
 async-channel = "2"
 anyhow = "1"
