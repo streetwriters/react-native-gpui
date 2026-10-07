@@ -1,37 +1,5 @@
 name: hermes-engine
 
-# Builds the pinned Hermes VM and compiler for every platform we ship and
-# uploads one artifact per platform. Each artifact carries its files under
-# `bin/<platform>-<arch>/`, so it can be dropped straight into
-# `packages/@react-native-gpui/hermes/bin` with:
-#
-#   node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs --from <artifact.zip>
-#
-# or, with an authenticated `gh` and a successful run:
-#
-#   node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs
-#
-# The `headers` job also verifies that the headers committed in
-# packages/@react-native-gpui/hermes match the pinned commit exactly.
-#
-# The per-OS toolchains follow facebook/hermes' own workflows:
-#   * build-hermesc-linux.yml — apt dependency list
-#   * build-hermesc-windows.yml — MSVC on `windows-2022`
-#   * build-hermes-macos.yml — Apple builds on `macos-15`
-#   * build.yml (test-windows-test262) — the Windows arm64 combination:
-#     `windows-11-arm` with -DBOOST_CONTEXT_IMPLEMENTATION=winfib, because
-#     Boost.Context's default fcontext backend has no MSVC ARM64 path.
-#
-# Intl is enabled on Apple only (-DHERMES_ENABLE_INTL=ON), where Hermes backs it
-# with Foundation and nothing extra ships. Elsewhere Hermes's Intl backend
-# (lib/Platform/Intl/PlatformIntlICU.cpp) needs ICU's C++ API, which the ICU
-# built into Windows does not expose, and its NumberFormat is a stub; bundling
-# ICU would add ~30 MB. Windows and Linux build with Intl off until Hermes gets
-# a backend that loads the OS's ICU at runtime. The Unicode layer still uses
-# ICU on those platforms (libicu-dev on Linux, Windows 10 1703+ ICU on Windows).
-# The Apple legs also build the `hermes` CLI and run an Intl smoke test against
-# the freshly built VM, so a linking-only success cannot pass for working Intl.
-
 on:
   workflow_dispatch:
     inputs:
@@ -62,9 +30,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      # One codeload tarball rather than a partial clone: `git clone
-      # --filter=blob:none` plus `checkout FETCH_HEAD -- <paths>` fetches blobs
-      # one at a time and takes tens of minutes on this tree.
       - name: Fetch the pinned Hermes headers
         run: |
           set -euo pipefail
@@ -76,12 +41,6 @@ jobs:
             --strip-components=1 \
             --wildcards '*/API/hermes' '*/API/jsi' '*/API/napi' '*/API/hermes_abi' \
             '*/public/hermes/Public' '*/include/hermes/napi' '*/LICENSE'
-      # The package ships only the headers needed to compile against the VM:
-      # every header under API/{hermes,jsi,napi,hermes_abi} (API/hermes_sandbox is
-      # not used), plus what those include from public/hermes/Public and
-      # include/hermes/napi.
-      # Select the same set from upstream and require an exact match, so a
-      # missing, extra or edited file fails the job.
       - name: Compare against the committed headers
         run: |
           set -euo pipefail
@@ -125,11 +84,6 @@ jobs:
           - platform: linux-x64
             os: ubuntu-24.04
             configure: ''
-          # `ubuntu-24.04-arm` needs arm64 runners (free on public repos). To
-          # cross-compile instead, use ubuntu-24.04 with:
-          #   -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64
-          #   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
-          #   -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             configure: ''
@@ -156,13 +110,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache libicu-dev libreadline-dev
 
-      # Ninja rather than the Visual Studio generator: the generator name is
-      # tied to the installed Visual Studio version while the MSVC environment
-      # works the same on every image. Two things follow, both Windows-only: the
-      # vcvars environment has to be exported through $GITHUB_ENV, because every
-      # `run:` step is a fresh process, and the NAPI test addons need the CMake
-      # fix applied by the "Prepare Hermes for Ninja" step below. Locally,
-      # `scripts/build-hermes-windows.ps1` takes the same Ninja path.
       - name: Set up MSVC
         if: runner.os == 'Windows'
         shell: pwsh
@@ -194,13 +141,6 @@ jobs:
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
           Write-Host "MSVC compiler: $($cl.Source)"
 
-      # Hermes registers the same addon name in both NAPI test suites
-      # (test_exception, test_finalizer, test_general). A Windows shared library
-      # also emits an import library, and the addon helper only sets the
-      # LIBRARY/RUNTIME output directories, so both copies would write
-      # `<dir>/<addon>.lib`. The Visual Studio generator tolerates that; Ninja
-      # rejects the whole graph with "multiple rules generate <path>". Giving
-      # every addon its own archive directory keeps them buildable.
       - name: Prepare Hermes for Ninja
         if: runner.os == 'Windows'
         shell: pwsh
@@ -227,7 +167,7 @@ jobs:
             -DHERMES_ENABLE_NAPI=ON \
             -DHERMES_ENABLE_DEBUGGER=ON \
             -DHERMES_ENABLE_TEST_SUITE=OFF \
-            -DHERMES_ENABLE_INTL=${{ runner.os == 'macOS' && 'ON' || 'OFF' }} \
+            -DHERMES_ENABLE_INTL=OFF \
             -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
             ${{ matrix.configure }}
 
