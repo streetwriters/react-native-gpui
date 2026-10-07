@@ -10,6 +10,7 @@
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
+#include "MountBatchBuilder.h"
 #include "RustTurboModules.generated.hpp"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 
@@ -648,6 +649,9 @@ new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
 
 GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   install_feature_flags();
+  // Text measurement from the TextLayoutManager override goes through the
+  // plain table in GpuiTextMeasure.h; wire it to the Rust bridge first.
+  rngpui::installGpuiTextMeasureTable();
 
   ReactInstanceConfig config;
   config.appId = std::string(appId);

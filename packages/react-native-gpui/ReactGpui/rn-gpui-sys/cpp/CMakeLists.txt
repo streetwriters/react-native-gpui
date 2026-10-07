@@ -160,8 +160,8 @@ endfunction()
 # back to the include directory of the most recent cargo build.
 #
 # This has to happen before the ReactCommon subdirectories are added: the
-# TextLayoutManager copy override is compiled inside one of them and
-# needs the bridge header, which it reaches through MountBatchBuilder.h.
+# rn_gpui_core glue (GpuiHost.cpp, MountBatchBuilder.cpp) needs the bridge
+# header. The ReactCommon override does not; it uses GpuiTextMeasure.h.
 if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../target/*/build/rn-gpui-sys-*/out/cxxbridge/include/rust/cxx.h")
@@ -185,12 +185,11 @@ endif()
 # builds in `target/debug/build`.
 include_directories(BEFORE "${CMAKE_BINARY_DIR}/../cxxbridge/include")
 
-# Shared glue headers (MountBatchBuilder.h) and the bridge header, for every
-# ReactCommon subdirectory: the TextLayoutManager override includes both.
+# Shared glue headers for every ReactCommon subdirectory: the TextLayoutManager
+# override includes GpuiTextMeasure.h from here. The cxx bridge header is not
+# added directory-wide; only rn_gpui_core consumes it (see below), so the
+# ReactCommon targets build without RN_GPUI_CXXBRIDGE_INCLUDE_DIR.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
-  include_directories(${RN_GPUI_CXXBRIDGE_INCLUDE_DIR})
-endif()
 
 # Header overrides (TODO 2.5). Must come before the ReactCommon subdirectories
 # below: this directory holds a replacement for
