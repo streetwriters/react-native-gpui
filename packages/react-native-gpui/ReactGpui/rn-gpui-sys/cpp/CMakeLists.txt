@@ -814,6 +814,9 @@ endfunction()
 
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
 
+# Install rules and find_package() config for the prebuilt runtime (T4).
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/PrebuiltInstall.cmake)
+
 set(RN_GPUI_LINK_LIBS "")
 # Directories that must end up on the executable's rpath: Rust does not turn
 # `rustc-link-search` into an rpath. build.rs forwards this list to rn-gpui,
