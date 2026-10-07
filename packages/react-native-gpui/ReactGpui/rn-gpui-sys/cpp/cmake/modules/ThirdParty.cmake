@@ -55,7 +55,7 @@ if(NOT RN_GPUI_HERMES_SOURCE_DIR AND DEFINED ENV{RN_GPUI_HERMES_SOURCE_DIR})
   set(RN_GPUI_HERMES_SOURCE_DIR "$ENV{RN_GPUI_HERMES_SOURCE_DIR}")
 endif()
 if(NOT RN_GPUI_HERMES_SOURCE_DIR
-   AND EXISTS "${_rn_gpui_hermes_package}/include/hermes")
+   AND EXISTS "${_rn_gpui_hermes_package}/API/hermes/hermes.h")
   set(RN_GPUI_HERMES_SOURCE_DIR "${_rn_gpui_hermes_package}")
 endif()
 if(NOT RN_GPUI_HERMES_BIN_ROOT AND DEFINED ENV{RN_GPUI_HERMES_BIN_ROOT})
