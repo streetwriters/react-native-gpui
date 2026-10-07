@@ -10,6 +10,18 @@ if(WIN32)
   if(_rn_gpui_glog_windows_include)
     target_include_directories(glog PRIVATE ${_rn_gpui_glog_windows_include})
   endif()
+  # glog 0.3.5 predates VS2015's C99 snprintf and would declare its own
+  # (C2375: redefinition; different linkage); HAVE_SNPRINTF skips that
+  # declaration. Its symbolize.cc uses the DbgHelp API.
+  target_compile_definitions(glog PRIVATE HAVE_SNPRINTF=1)
+  target_link_libraries(glog PUBLIC dbghelp)
+  # ReactAndroid's glog source list omits src/windows/port.cc, which provides
+  # safe_vsnprintf (used by raw_logging) and the other Windows shims.
+  file(GLOB _rn_gpui_glog_windows_sources
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/glog-*/src/windows/*.cc")
+  if(_rn_gpui_glog_windows_sources)
+    target_sources(glog PRIVATE ${_rn_gpui_glog_windows_sources})
+  endif()
 endif()
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "${RN_GPUI_NATIVE_DEPS_BUILD}/double-conversion")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float" "${RN_GPUI_NATIVE_DEPS_BUILD}/fast_float")
