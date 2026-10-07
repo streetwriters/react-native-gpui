@@ -183,6 +183,125 @@ if(TARGET folly_runtime)
   endforeach()
 endif()
 
+# --- include roots from the link closure ----------------------------------------
+# Source targets add their own include dirs (ReactCommon subdirectories such as
+# react/renderer/graphics/platform/cxx and react/nativemodule/core). The flat
+# roots above do not cover them, so map every dir that lies inside a source
+# tree to the location the install rules above put it at, and keep those.
+# Longest source prefix wins, so nested dirs resolve before the broad roots.
+# Pairs are "<source dir>" "<installed dir under the prefix>".
+set(_rn_gpui_include_map
+  "${RN_GPUI_OVERRIDES_DIR}" "include/react-common"
+  "${REACT_COMMON_DIR}" "include/react-common"
+  "${REACT_CXX_PLATFORM_DIR}" "include/react-cxx-platform"
+  "${CMAKE_CURRENT_SOURCE_DIR}" "include/react-native-gpui"
+  "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" "include/cxxbridge"
+  "${RN_GPUI_GENERATED_RNCORE_DIR}/jni" "include/generated"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly" "include/third-party/folly"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported/glog" "include/third-party/glog"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include" "include/third-party"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "include/third-party"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include" "include/third-party"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include" "include/third-party"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0/boost" "include/third-party/boost"
+  "${RN_GPUI_OPENSSL_INSTALL}/include" "include/third-party"
+  "${RN_GPUI_CURL_SOURCE_DIR}/include/curl" "include/third-party/curl")
+
+# rn_gpui_installed_include(<source dir> <out var>): sets <out var> to the
+# installed path (relative to the prebuilt root) of <source dir>, or "" when
+# the dir is not inside any mapped source tree.
+function(rn_gpui_installed_include dir out_var)
+  # Source trees are often named with "..", e.g. REACT_COMMON_DIR is
+  # ${CMAKE_CURRENT_SOURCE_DIR}/../../..; targets report normalized paths.
+  # Normalize both sides so the prefix comparison can match.
+  get_filename_component(dir "${dir}" ABSOLUTE)
+  set(_best_len -1)
+  set(_best "")
+  list(LENGTH _rn_gpui_include_map _map_count)
+  math(EXPR _map_last "${_map_count} - 1")
+  foreach(_map_i RANGE 0 ${_map_last} 2)
+    list(GET _rn_gpui_include_map ${_map_i} _prefix)
+    if(NOT _prefix STREQUAL "")
+      get_filename_component(_prefix "${_prefix}" ABSOLUTE)
+    endif()
+    math(EXPR _installed_i "${_map_i} + 1")
+    list(GET _rn_gpui_include_map ${_installed_i} _installed)
+    string(LENGTH "${_prefix}" _plen)
+    # An unset source variable leaves an empty prefix; it must not match anything.
+    if(_plen EQUAL 0 OR NOT _plen GREATER _best_len)
+      continue()
+    endif()
+    string(LENGTH "${dir}" _dlen)
+    if(dir STREQUAL _prefix)
+      set(_rel "")
+    else()
+      if(NOT _dlen GREATER _plen)
+        continue()
+      endif()
+      string(SUBSTRING "${dir}" 0 ${_plen} _head)
+      string(SUBSTRING "${dir}" ${_plen} 1 _sep)
+      if(NOT _head STREQUAL _prefix OR NOT _sep STREQUAL "/")
+        continue()
+      endif()
+      math(EXPR _rest_at "${_plen} + 1")
+      string(SUBSTRING "${dir}" ${_rest_at} -1 _rel)
+    endif()
+    set(_best_len ${_plen})
+    if(_rel STREQUAL "")
+      set(_best "${_installed}")
+    else()
+      set(_best "${_installed}/${_rel}")
+    endif()
+  endforeach()
+  set(${out_var} "${_best}" PARENT_SCOPE)
+endfunction()
+
+# Walk the link closure and the shadow targets, collect every include dir they
+# declare (BUILD_INTERFACE only; INSTALL_INTERFACE and unexpanded generator
+# expressions are skipped), and map each one to its installed location.
+set(_rn_gpui_mapped_includes "")
+set(_rn_gpui_include_walk ${RN_GPUI_LINK_TARGETS} ${_rn_gpui_shadow})
+list(REMOVE_DUPLICATES _rn_gpui_include_walk)
+foreach(_rn_gpui_walk_name IN LISTS _rn_gpui_include_walk)
+  if(NOT TARGET "${_rn_gpui_walk_name}")
+    continue()
+  endif()
+  foreach(_rn_gpui_prop IN ITEMS INTERFACE_INCLUDE_DIRECTORIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+    get_target_property(_rn_gpui_dirs "${_rn_gpui_walk_name}" ${_rn_gpui_prop})
+    if(NOT _rn_gpui_dirs)
+      continue()
+    endif()
+    foreach(_rn_gpui_dir IN LISTS _rn_gpui_dirs)
+      if(_rn_gpui_dir MATCHES "^\\$<BUILD_INTERFACE:(.*)>$")
+        set(_rn_gpui_dir "${CMAKE_MATCH_1}")
+      elseif(_rn_gpui_dir MATCHES "\\$<")
+        continue()
+      endif()
+      rn_gpui_installed_include("${_rn_gpui_dir}" _rn_gpui_inst)
+      if(_rn_gpui_inst)
+        list(APPEND _rn_gpui_mapped_includes "${_rn_gpui_inst}")
+      endif()
+    endforeach()
+  endforeach()
+endforeach()
+# Directory-level include_directories() calls (overrides, cpp/) reach targets
+# only through the directory's INCLUDE_DIRECTORIES property, not their own
+# INTERFACE properties. Map those too, so they stay on the consumer's path.
+get_property(_rn_gpui_dir_incs DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY INCLUDE_DIRECTORIES)
+foreach(_rn_gpui_dir IN LISTS _rn_gpui_dir_incs)
+  rn_gpui_installed_include("${_rn_gpui_dir}" _rn_gpui_inst)
+  if(_rn_gpui_inst)
+    list(APPEND _rn_gpui_mapped_includes "${_rn_gpui_inst}")
+  endif()
+endforeach()
+list(REMOVE_DUPLICATES _rn_gpui_mapped_includes)
+foreach(_rn_gpui_inc IN LISTS _rn_gpui_mapped_includes)
+  list(APPEND _rn_gpui_include_roots "\${_rn_gpui_prebuilt_root}/${_rn_gpui_inc}")
+endforeach()
+# Static roots first, so overrides (installed into include/react-common, which
+# the mapped dirs also point at) keep their place ahead of upstream headers.
+list(REMOVE_DUPLICATES _rn_gpui_include_roots)
+
 # --- targets file ---------------------------------------------------------------
 # Generated with file(GENERATE) so $<TARGET_FILE_NAME:...> resolves to the real
 # archive name for this configuration. Paths use _rn_gpui_prebuilt_root, which
