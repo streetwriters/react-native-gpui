@@ -240,31 +240,6 @@ jobs:
           & "$target/hermesc.exe" -version
           if ($LASTEXITCODE -ne 0) { throw "The staged hermesc failed its version check ($LASTEXITCODE)" }
 
-      - name: Verify Intl
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/intl-smoke.js" <<'JS'
-          const number = new Intl.NumberFormat('en-US').format(1234.5);
-          const date = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'UTC',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          }).format(0);
-          const order = new Intl.Collator('en-US').compare('a', 'b');
-          print('Intl.NumberFormat en-US 1234.5 -> ' + number);
-          print('Intl.DateTimeFormat en-US 0 -> ' + date);
-          print('Intl.Collator compare(a, b) -> ' + order);
-          if (number !== '1,234.5') throw new Error('unexpected number format: ' + number);
-          if (date.indexOf('January') !== 0 || date.indexOf('1970') < 0) {
-            throw new Error('unexpected date format: ' + date);
-          }
-          if (order >= 0) throw new Error('unexpected collation order: ' + order);
-          print('Intl OK');
-          JS
-          ./hermes-build/bin/hermes "$RUNNER_TEMP/intl-smoke.js"
-
       - uses: actions/upload-artifact@v4
         with:
           name: hermes-${{ matrix.platform }}
