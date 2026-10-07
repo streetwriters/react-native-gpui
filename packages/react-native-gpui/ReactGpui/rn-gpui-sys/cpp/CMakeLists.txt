@@ -25,6 +25,16 @@ if(MSVC)
     "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"
     "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
     "$<$<COMPILE_LANGUAGE:CXX>:/GR>")
+  # folly and fmt inspect __cplusplus, which MSVC reports as 199711L unless
+  # /Zc:__cplusplus is given.
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>")
+  # MSBuild hands each project's sources to a single cl.exe, which compiles
+  # them one at a time unless /MP is given; project dependencies leave only
+  # one or two projects building at once. Half the cores per cl.exe keeps the
+  # machine busy without exhausting memory (each compiler can use ~1 GB).
+  cmake_host_system_information(RESULT _rn_gpui_cores QUERY NUMBER_OF_LOGICAL_CORES)
+  math(EXPR _rn_gpui_mp "(${_rn_gpui_cores} + 1) / 2")
+  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/MP${_rn_gpui_mp}>")
   # ReactCommon headers do `#ifndef RN_EXPORT / #define RN_EXPORT
   # __attribute__((visibility("default")))`, which cl.exe cannot parse. The
   # guard means defining it empty here is enough.
@@ -41,6 +51,31 @@ if(MSVC)
   # ReactCommon and folly, and both expect the Windows 10 API surface.
   add_compile_definitions(NOMINMAX)
   add_compile_definitions(_WIN32_WINNT=0x0A00)
+  # Mirrors react-native-windows: __unused is an Apple attribute, JSI_EXPORT
+  # marks the dllimport storage class in jsi's headers (jsi exports come from
+  # WINDOWS_EXPORT_ALL_SYMBOLS below),
+  # _CRT_SECURE_NO_WARNINGS silences CRT deprecation warnings, and
+  # _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR avoids the MSVC 14.4x constexpr
+  # std::mutex problem. BOOST_ALL_NO_LIB stops boost headers from asking the
+  # linker for boost libraries we do not build.
+  add_compile_definitions("__unused=[[maybe_unused]]")
+  add_compile_definitions(JSI_EXPORT=)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+  add_compile_definitions(BOOST_ALL_NO_LIB=1)
+  # Lets boost compile its error_code/system facilities header-only so that
+  # nothing asks the linker for boost_system.lib; react-native-windows
+  # defines the same set.
+  add_compile_definitions(BOOST_ERROR_CODE_HEADER_ONLY)
+  add_compile_definitions(BOOST_SYSTEM_SOURCE)
+  add_compile_definitions(BOOST_NO_RTTI)
+  add_compile_definitions(BOOST_NO_TYPEID)
+  # <windows.h> pulls in wingdi.h, whose BLACK and TRANSPARENT macros collide
+  # with the names bundled libraries use for colour constants (reanimated's
+  # InterpolatorRegistry defines `const std::array<uint8_t, 4> BLACK`), and
+  # WIN32_LEAN_AND_MEAN keeps the rest of the Win32 surface out of reach.
+  add_compile_definitions(WIN32_LEAN_AND_MEAN)
+  add_compile_definitions(NOGDI)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # RN 0.87.1 has several headers that use uint*_t without including
@@ -358,6 +393,20 @@ else()
   message(WARNING
     "rn_gpui_core: DevServerHelper override not found (${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}); "
     "the dev server will be asked for the Android bundle")
+endif()
+
+# NativeDOM.cpp includes "NativeDOM.h" by quoted path, which always resolves to
+# the sibling upstream header, so the header override alone is not enough. The
+# copy override drops the backticks in its `#pragma mark` lines (MSVC rejects
+# them with C2018) and includes the header through the override include path.
+set(RN_GPUI_NATIVE_DOM_OVERRIDE
+    "${RN_GPUI_OVERRIDES_DIR}/react/nativemodule/dom/NativeDOM.cpp")
+if(TARGET react_nativemodule_dom)
+  get_target_property(_rn_gpui_dom_sources react_nativemodule_dom SOURCES)
+  list(FILTER _rn_gpui_dom_sources EXCLUDE REGEX "dom/NativeDOM\\.cpp$")
+  list(APPEND _rn_gpui_dom_sources "${RN_GPUI_NATIVE_DOM_OVERRIDE}")
+  set_property(TARGET react_nativemodule_dom
+               PROPERTY SOURCES "${_rn_gpui_dom_sources}")
 endif()
 
 add_react_cxx_platform_subdir(react/http)
@@ -838,6 +887,17 @@ if(MSVC)
           set_target_properties("${_target}" PROPERTIES "${_property}" "${_kept}")
         endif()
       endforeach()
+
+      # ReactCommon components glob their per-platform sources alongside the
+      # portable ones; the ios/android/apple trees only compile for those
+      # toolchains (our platform implementation lives in platform/cxx).
+      # rrc_textinput_gpui compiles RN's iostextinput shadow node and props on
+      # purpose (see its definition), so it keeps its platform/ios sources.
+      get_target_property(_of_sources "${_target}" SOURCES)
+      if(_of_sources AND NOT _target STREQUAL "rrc_textinput_gpui")
+        list(FILTER _of_sources EXCLUDE REGEX "/platform/(ios|android|apple)/")
+        set_target_properties("${_target}" PROPERTIES SOURCES "${_of_sources}")
+      endif()
     endforeach()
     get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
     foreach(_subdirectory IN LISTS _subdirectories)
@@ -855,5 +915,9 @@ if(MSVC)
       list(FILTER _rn_gpui_jsi_sources EXCLUDE REGEX "jsilib-posix\\.cpp$")
       set_target_properties(jsi PROPERTIES SOURCES "${_rn_gpui_jsi_sources}")
     endif()
+    # jsi is a shared library, but JSI_EXPORT is empty above, so nothing is
+    # marked dllexport. Without exports link.exe writes no jsi.lib and the
+    # final Rust link fails with LNK1181. Export every jsi symbol instead.
+    set_target_properties(jsi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
   endif()
 endif()

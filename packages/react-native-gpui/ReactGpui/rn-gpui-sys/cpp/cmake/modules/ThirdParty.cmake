@@ -27,14 +27,42 @@ add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "${RN_GPUI_
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float" "${RN_GPUI_NATIVE_DEPS_BUILD}/fast_float")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt" "${RN_GPUI_NATIVE_DEPS_BUILD}/fmt")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/folly" "${RN_GPUI_NATIVE_DEPS_BUILD}/folly")
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
-  # RN's reduced GPUI Folly target omits platform-neutral sources used by
-  # ReactCxxPlatform's HTTP and threading implementations on desktop targets.
+# RN's reduced Folly target omits platform-neutral sources used by
+# ReactCxxPlatform's HTTP and threading implementations on desktop targets.
+target_sources(folly_runtime PRIVATE
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/system/ThreadName.cpp"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/io/IOBuf.cpp"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/Uri.cpp"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/memory/SanitizeAddress.cpp")
+if(WIN32)
+  # On Windows folly routes POSIX calls (close, dup, sysconf, open, mmap,
+  # getrusage) through folly/portability/*.cpp, which Android never needs.
+  # Unistd.cpp closes sockets through SocketFileDescriptorMap, and MSVC
+  # references the leak annotations that clang folds away.
+  file(GLOB _rn_gpui_folly_portability
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/portability/*.cpp")
+  # ReactAndroid's list already has SysUio.cpp.
+  list(FILTER _rn_gpui_folly_portability EXCLUDE REGEX "/SysUio\\.cpp$")
   target_sources(folly_runtime PRIVATE
-    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/system/ThreadName.cpp"
-    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/io/IOBuf.cpp"
-    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/Uri.cpp"
-    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/memory/SanitizeAddress.cpp")
+    ${_rn_gpui_folly_portability}
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/net/detail/SocketFileDescriptorMap.cpp"
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/memory/SanitizeLeak.cpp")
+  target_link_libraries(folly_runtime ws2_32)
+  # portability/PThread.cpp implements pthread keys with
+  # boost::thread_specific_ptr, which lives in compiled Boost.Thread. Only
+  # its Win32 TSS sources are needed; tss_pe.cpp runs the per-thread cleanup.
+  set(_rn_gpui_boost_thread
+    "${RN_GPUI_NATIVE_DEPS_SOURCES}/boost/boost_1_83_0/libs/thread/src/win32")
+  target_sources(folly_runtime PRIVATE
+    "${_rn_gpui_boost_thread}/thread.cpp"
+    "${_rn_gpui_boost_thread}/thread_primitives.cpp"
+    "${_rn_gpui_boost_thread}/tss_pe.cpp")
+  set_source_files_properties(
+    "${_rn_gpui_boost_thread}/thread.cpp"
+    "${_rn_gpui_boost_thread}/thread_primitives.cpp"
+    "${_rn_gpui_boost_thread}/tss_pe.cpp"
+    TARGET_DIRECTORY folly_runtime
+    PROPERTIES COMPILE_DEFINITIONS "BOOST_THREAD_BUILD_LIB;BOOST_CHRONO_HEADER_ONLY")
 endif()
 
 # Boost is headers-only on GPUI (RN's additional assembly sources are Android-only).

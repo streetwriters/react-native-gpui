@@ -93,17 +93,21 @@ fn main() {
         codegen_package.join("package.json").display()
     );
     watch_tree(&codegen_package.join("lib"));
+    // Codegen recreates its output directory, so generate into a scratch dir
+    // and sync. Rewriting unchanged headers would recompile most of RN.
     let generated_rncore = out_dir.join("fbreactnativespec");
+    let generated_rncore_scratch = out_dir.join("fbreactnativespec.tmp");
     let status = Command::new("node")
         .arg(&fb_spec_codegen)
         .arg(&react_native_dir)
-        .arg(&generated_rncore)
+        .arg(&generated_rncore_scratch)
         .status()
         .expect("run React Native core Codegen; Node.js must be installed");
     assert!(
         status.success(),
         "React Native FBReactNativeSpec Codegen failed"
     );
+    sync_tree(&generated_rncore_scratch, &generated_rncore);
 
     // Generate the C++ TurboModule registry from the RN-style TS spec before
     // CMake compiles the provider. Rust method wrappers themselves come from
@@ -209,12 +213,16 @@ fn main() {
         .include("cpp")
         .compile("rn_gpui_cxx_bridge");
 
-    let cxxbridge_include = out_dir.join("cxxbridge").join("include");
+    let cxxbridge_generated = out_dir.join("cxxbridge").join("include");
     assert!(
-        cxxbridge_include.join("rust").join("cxx.h").is_file(),
+        cxxbridge_generated.join("rust").join("cxx.h").is_file(),
         "cxx_build did not produce {}",
-        cxxbridge_include.join("rust/cxx.h").display()
+        cxxbridge_generated.join("rust/cxx.h").display()
     );
+    // cxx_build rewrites its headers every run (copies on Windows), so CMake
+    // reads a mirror that only changes when the header contents do.
+    let cxxbridge_include = out_dir.join("cxxbridge-include");
+    sync_tree(&cxxbridge_generated, &cxxbridge_include);
 
     // --- 2. rn_gpui_core via CMake ------------------------------------------
 
@@ -261,6 +269,15 @@ fn main() {
             "RN_GPUI_WEAK_NODE_API_PACKAGE_DIR",
             cmake_path(weak_node_api_package_dir),
         );
+    if msvc_target() {
+        // Rust always links the release CRT (msvcrt). CMake's Debug config
+        // would compile with /MDd and the final link then fails on
+        // _CrtDbgReport / _calloc_dbg, so pin every target, including
+        // subprojects that declare an older cmake_minimum_required, to /MD.
+        cmake_config
+            .define("CMAKE_POLICY_DEFAULT_CMP0091", "NEW")
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
+    }
     if let Some(source_dir) = env::var_os("RN_GPUI_HERMES_SOURCE_DIR") {
         cmake_config.define(
             "RN_GPUI_HERMES_SOURCE_DIR",
@@ -324,6 +341,43 @@ fn main() {
             "QuartzCore",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
+}
+
+/// Mirrors `src` into `dst`, writing only files whose bytes differ and
+/// removing files that no longer exist in `src`, so mtimes stay stable.
+fn sync_tree(src: &Path, dst: &Path) {
+    fs::create_dir_all(dst).expect("create generated output directory");
+    let mut seen = std::collections::HashSet::new();
+    for entry in fs::read_dir(src).expect("read generated directory") {
+        let entry = entry.expect("read generated entry");
+        let name = entry.file_name();
+        let from = entry.path();
+        let to = dst.join(&name);
+        seen.insert(name);
+        // metadata() follows cxx_build's symlinks on Unix.
+        if fs::metadata(&from).expect("stat generated entry").is_dir() {
+            sync_tree(&from, &to);
+            continue;
+        }
+        let bytes = fs::read(&from).expect("read generated file");
+        if to.is_dir() {
+            fs::remove_dir_all(&to).expect("replace generated directory");
+        }
+        if fs::read(&to).ok().as_deref() != Some(&bytes[..]) {
+            fs::write(&to, &bytes).expect("write generated file");
+        }
+    }
+    for entry in fs::read_dir(dst).expect("read generated mirror") {
+        let entry = entry.expect("read generated mirror entry");
+        if !seen.contains(&entry.file_name()) {
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path).expect("remove stale generated directory");
+            } else {
+                fs::remove_file(&path).expect("remove stale generated file");
+            }
         }
     }
 }
@@ -422,6 +476,12 @@ fn emit_rpaths(path: &Path) {
     println!("cargo:rpaths={}", dirs.join("|"));
 }
 
+/// Whether the crate is being built for an MSVC target, where `link.exe` adds
+/// only a `.lib` suffix to the names given with `-l` instead of `lib<name>.a`.
+fn msvc_target() -> bool {
+    matches!(std::env::var("CARGO_CFG_TARGET_ENV").as_deref(), Ok("msvc"))
+}
+
 /// Translates `link_libs.txt` (written by CMake) into cargo directives.
 ///
 /// Line forms:
@@ -457,7 +517,14 @@ fn emit_link_libs(path: &Path) {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            let stem = stem.strip_prefix("lib").unwrap_or(stem);
+            // link.exe only appends `.lib`, so on MSVC the `lib` prefix that
+            // some libraries really carry (libcurl-d.lib, libssl.lib) must be
+            // kept; stripping it fails with LNK1181.
+            let stem = if msvc_target() {
+                stem
+            } else {
+                stem.strip_prefix("lib").unwrap_or(stem)
+            };
             let is_archive = stem.ends_with(".a") || stem.ends_with(".lib");
             let name = if is_archive {
                 stem.trim_end_matches(".a").trim_end_matches(".lib")
