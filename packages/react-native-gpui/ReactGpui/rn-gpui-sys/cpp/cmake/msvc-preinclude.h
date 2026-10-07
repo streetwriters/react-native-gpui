@@ -39,3 +39,21 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+// Additional headers MSVC does not reach transitively from ReactCommon's own
+// includes (react-native-windows force-includes the same set through its PCH).
+#include <array>
+#include <cstring>
+#include <exception>
+#include <limits>
+#include <memory_resource>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+
+#include <bit>
+#include <charconv>
+#include <compare>
+#include <concepts>
+#include <span>
+#include <version>
