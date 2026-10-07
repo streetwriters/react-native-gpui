@@ -114,6 +114,35 @@ set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 # RN Android stores source archives and prepared third-party sources under its
 # Gradle build directory. Mirror that layout under this target's CMake build
 # cache so independent desktop builds do not rely on host package managers.
+if(RN_GPUI_PREBUILT_DIR)
+  # Prebuilt mode: rn_gpui_core, ReactCommon and third-party come from the
+  # archive. Only the app-side targets below are compiled here.
+  set(_rn_gpui_prebuilt_manifest "${RN_GPUI_PREBUILT_DIR}/manifest.json")
+  if(NOT EXISTS "${_rn_gpui_prebuilt_manifest}")
+    message(FATAL_ERROR "RN_GPUI_PREBUILT_DIR has no manifest.json: ${RN_GPUI_PREBUILT_DIR}")
+  endif()
+  file(READ "${_rn_gpui_prebuilt_manifest}" _rn_gpui_prebuilt_json)
+  string(JSON _rn_gpui_prebuilt_bridge_sha GET "${_rn_gpui_prebuilt_json}" cxxBridgeHeaderSha256)
+  string(JSON _rn_gpui_prebuilt_triple GET "${_rn_gpui_prebuilt_json}" triple)
+  if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rn-gpui-sys/src/lib.rs.h")
+    file(SHA256 "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rn-gpui-sys/src/lib.rs.h" _rn_gpui_bridge_sha)
+    if(NOT _rn_gpui_bridge_sha STREQUAL _rn_gpui_prebuilt_bridge_sha)
+      message(FATAL_ERROR
+        "RN_GPUI_PREBUILT_DIR was built for a different cxx bridge (manifest ${_rn_gpui_prebuilt_bridge_sha}, "
+        "current ${_rn_gpui_bridge_sha}). Rebuild the prebuilt or unset RN_GPUI_PREBUILT_DIR.")
+    endif()
+  endif()
+  # The archive is Release, so its ReactCommon headers select the production
+  # ABI (Sealable without a debug constructor). Consumers must compile the same
+  # way or they reference symbols the archive never exports.
+  string(JSON _rn_gpui_prebuilt_rn_debug ERROR_VARIABLE _rn_gpui_json_err GET "${_rn_gpui_prebuilt_json}" defines REACT_NATIVE_DEBUG)
+  if(NOT _rn_gpui_json_err AND _rn_gpui_prebuilt_rn_debug STREQUAL "0")
+    add_compile_definitions(REACT_NATIVE_PRODUCTION)
+  endif()
+  message(STATUS "rn_gpui_core: using prebuilt runtime ${RN_GPUI_PREBUILT_DIR} (${_rn_gpui_prebuilt_triple})")
+  find_package(react-native-gpui-prebuilt CONFIG REQUIRED
+    PATHS "${RN_GPUI_PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
+else()
 set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
 
@@ -474,29 +503,6 @@ endif()
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
-if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
-  include("${RN_GPUI_AUTOLINK_CMAKE}")
-endif()
-
-if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
-   AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-   AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
-  add_library(weak-node-api SHARED
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
-  target_include_directories(weak-node-api PUBLIC
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  target_compile_features(weak-node-api PRIVATE cxx_std_20)
-  set_target_properties(weak-node-api PROPERTIES
-    FRAMEWORK TRUE
-    OUTPUT_NAME "weak-node-api"
-    FRAMEWORK_VERSION A
-    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
-
-
-endif()
-
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
@@ -639,6 +645,33 @@ foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
   endif()
 endforeach()
 
+endif()  # NOT RN_GPUI_PREBUILT_DIR (source build of rn_gpui_core and its deps)
+
+# Autolinked app packages and the Node-API shim are needed in both modes:
+# they only add sources to global properties and app-side targets.
+if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
+  include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
+
+if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
+   AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+   AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  add_library(weak-node-api SHARED
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  target_include_directories(weak-node-api PUBLIC
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  target_compile_features(weak-node-api PRIVATE cxx_std_20)
+  set_target_properties(weak-node-api PROPERTIES
+    FRAMEWORK TRUE
+    OUTPUT_NAME "weak-node-api"
+    FRAMEWORK_VERSION A
+    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
+
+
+endif()
+
 # App TurboModules are generated under desktop/autolink and linked as a
 # separate archive. The platform runtime only owns the registration hook.
 if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}")
@@ -657,8 +690,15 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     ${RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS})
   target_compile_definitions(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_DEFINITIONS})
   target_compile_options(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_COMPILE_OPTIONS})
-  target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
-  target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+  if(RN_GPUI_PREBUILT_DIR)
+    # The imported rn_gpui_core already carries ReactCommon, folly and the rest;
+    # it cannot be given a link to this archive, so the link order comes from
+    # link_libs-<CONFIG>.txt instead (see the link_libs section).
+    target_link_libraries(rn_gpui_app_turbo_modules PRIVATE rn_gpui_core)
+  else()
+    target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
+    target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+  endif()
 endif()
 
 # --- rn_gpui_extensions: optional library glue (cpp/GpuiExtensions.h) -------
@@ -769,6 +809,11 @@ if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/ru
 endif()
 target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_CORE_DEPS})
 target_link_libraries(rn_gpui_extensions PUBLIC rn_gpui_core)
+# The app archive is not linked into rn_gpui_core in prebuilt mode, so make the
+# build produce it explicitly; link_libs-<CONFIG>.txt still references it.
+if(RN_GPUI_PREBUILT_DIR AND TARGET rn_gpui_app_turbo_modules)
+  add_dependencies(rn_gpui_extensions rn_gpui_app_turbo_modules)
+endif()
 if(TARGET weak-node-api)
   add_dependencies(rn_gpui_extensions weak-node-api)
 endif()
@@ -815,7 +860,9 @@ endfunction()
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
 
 # Install rules and find_package() config for the prebuilt runtime (T4).
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/PrebuiltInstall.cmake)
+if(NOT RN_GPUI_PREBUILT_DIR)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/PrebuiltInstall.cmake)
+endif()
 
 set(RN_GPUI_LINK_LIBS "")
 # Directories that must end up on the executable's rpath: Rust does not turn
