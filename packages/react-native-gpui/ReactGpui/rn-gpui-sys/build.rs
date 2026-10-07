@@ -26,6 +26,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BIN_ROOT");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_PREBUILT_DIR");
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
@@ -282,6 +283,14 @@ fn main() {
         cmake_config.define(
             "RN_GPUI_HERMES_SOURCE_DIR",
             cmake_path(PathBuf::from(source_dir)),
+        );
+    }
+    // A prebuilt runtime replaces the ReactCommon/third-party build. CMake
+    // then only compiles the app-side targets against the archive's config.
+    if let Some(prebuilt_dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
+        cmake_config.define(
+            "RN_GPUI_PREBUILT_DIR",
+            cmake_path(PathBuf::from(prebuilt_dir)),
         );
     }
     if let Some(bin_root) = env::var_os("RN_GPUI_HERMES_BIN_ROOT") {
