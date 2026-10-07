@@ -1,6 +1,16 @@
 # Compile React Native's own pinned third-party targets from the archives
 # cached and prepared under this CMake build directory.
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/glog" "${RN_GPUI_NATIVE_DEPS_BUILD}/glog")
+if(WIN32)
+  # glog's utilities.h includes "port.h" when OS_WINDOWS is defined, and that
+  # header lives in glog-<version>/src/windows. RN's Android-first CMakeLists
+  # only exposes the project root and exported/ to the compiler.
+  file(GLOB _rn_gpui_glog_windows_include
+    "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/glog-*/src/windows")
+  if(_rn_gpui_glog_windows_include)
+    target_include_directories(glog PRIVATE ${_rn_gpui_glog_windows_include})
+  endif()
+endif()
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "${RN_GPUI_NATIVE_DEPS_BUILD}/double-conversion")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float" "${RN_GPUI_NATIVE_DEPS_BUILD}/fast_float")
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt" "${RN_GPUI_NATIVE_DEPS_BUILD}/fmt")
@@ -81,7 +91,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   endif()
   set(_rn_gpui_hermes_library_name "libhermesvm.so")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  message(FATAL_ERROR "Windows Hermes linkage is not implemented yet")
+  # Windows links through the hermesvm.lib import library and loads hermesvm.dll
+  # at run time; the hermes-engine workflow publishes both in win32-x64 and
+  # win32-arm64 flavours.
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
+    set(RN_GPUI_HERMES_PLATFORM "win32-arm64")
+  elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(RN_GPUI_HERMES_PLATFORM "win32-x64")
+  else()
+    message(FATAL_ERROR "Unsupported Windows Hermes architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+  set(_rn_gpui_hermes_library_name "hermesvm.dll")
+  set(_rn_gpui_hermes_import_library_name "hermesvm.lib")
 elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64|aarch64")
   set(RN_GPUI_HERMES_PLATFORM "darwin-arm64")
   set(_rn_gpui_hermes_library_name "libhermesvm.dylib")
@@ -113,4 +134,19 @@ set_target_properties(hermes-engine::hermesvm PROPERTIES
   IMPORTED_LOCATION "${RN_GPUI_HERMES_LIBRARY}"
   INTERFACE_INCLUDE_DIRECTORIES
     "${RN_GPUI_HERMES_SOURCE_DIR}/include;${RN_GPUI_HERMES_SOURCE_DIR}/public;${RN_GPUI_HERMES_SOURCE_DIR}/API")
+
+if(_rn_gpui_hermes_import_library_name)
+  # DLL platforms link through the import library; only the DLL itself is needed
+  # at run time, and the app build script stages it next to the executable.
+  set(RN_GPUI_HERMES_IMPORT_LIBRARY
+    "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/${_rn_gpui_hermes_import_library_name}")
+  if(NOT EXISTS "${RN_GPUI_HERMES_IMPORT_LIBRARY}")
+    message(FATAL_ERROR
+      "Hermes import library not found at ${RN_GPUI_HERMES_IMPORT_LIBRARY}. A "
+      "win32 Hermes artifact must contain hermesvm.dll, hermesvm.lib and hermesc.exe.")
+  endif()
+  set_target_properties(hermes-engine::hermesvm PROPERTIES
+    IMPORTED_IMPLIB "${RN_GPUI_HERMES_IMPORT_LIBRARY}")
+endif()
+
 set(RN_GPUI_HERMES_LIBRARY_DIR "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
