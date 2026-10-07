@@ -179,16 +179,11 @@ if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   endif()
 endif()
 
-# The cargo build script always places the active bridge under the current
-# CMake build's sibling `cxxbridge/include`. Prefer it explicitly: the fallback
-# glob above can pick an older fingerprint when Cargo has multiple feature
-# builds in `target/debug/build`.
-include_directories(BEFORE "${CMAKE_BINARY_DIR}/../cxxbridge/include")
-
 # Shared glue headers for every ReactCommon subdirectory: the TextLayoutManager
-# override includes GpuiTextMeasure.h from here. The cxx bridge header is not
-# added directory-wide; only rn_gpui_core consumes it (see below), so the
-# ReactCommon targets build without RN_GPUI_CXXBRIDGE_INCLUDE_DIR.
+# override includes GpuiTextMeasure.h from here. This is fixed platform glue,
+# not an app or Cargo input, so it stays directory-wide. The cxx bridge header
+# is not added directory-wide; only rn_gpui_core consumes it (see below), so
+# the ReactCommon targets build without RN_GPUI_CXXBRIDGE_INCLUDE_DIR.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Header overrides (TODO 2.5). Must come before the ReactCommon subdirectories
@@ -524,9 +519,6 @@ target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeviewhost/NativeViewHost.cpp")
-if(RN_GPUI_GENERATED_MODULES_DIR)
-  target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_GENERATED_MODULES_DIR}")
-endif()
 if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
@@ -725,6 +717,14 @@ if(TARGET weak-node-api)
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
   list(APPEND RN_GPUI_EXTENSION_DEFINITIONS HERMES_NAPI_USE_CPP_LINKAGE=1)
+endif()
+
+# App Rust string modules (RustTurboModules.generated.hpp) exist only when the
+# app generated them into the Cargo OUT_DIR.
+if(RN_GPUI_GENERATED_MODULES_DIR)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiRustTurboModulesExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS rust_turbo_modules)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_GENERATED_MODULES_DIR}")
 endif()
 
 # The generated installer list depends on which packages are present, so it is

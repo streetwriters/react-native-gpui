@@ -24,6 +24,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace rngpui {
 
@@ -73,8 +74,9 @@ struct GpuiSafeAreaHooks {
   std::function<void(float top, GpuiMountedViews& views)> windowTopInset;
 };
 
-// Extra TurboModules (@react-native-node-api). Asked before the core modules;
-// returns nullptr when the module is not provided here.
+// Extra TurboModules (@react-native-node-api, Rust string modules). Asked in
+// registration order, after the app's own provider and before the core
+// modules; each returns nullptr when the module is not provided there.
 using GpuiTurboModuleFn =
     std::function<std::shared_ptr<facebook::react::TurboModule>(
         const std::string& name,
@@ -89,7 +91,7 @@ struct GpuiExtensionHooks {
   GpuiScreensOpFn screensOp;
   GpuiScreensFrameFn screensFrame;
   GpuiSafeAreaHooks safeArea;
-  GpuiTurboModuleFn turboModule;
+  std::vector<GpuiTurboModuleFn> turboModules;
   GpuiFrameFn frame;
 };
 

@@ -12,20 +12,21 @@ namespace rngpui {
 using namespace facebook::react;
 
 void rn_gpui_install_node_api_extension() {
-  gpuiExtensionHooks().turboModule =
+  gpuiExtensionHooks().turboModules.push_back(
       [](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
-      -> std::shared_ptr<TurboModule> {
-    if (name ==
-        callstack::react_native_node_api::CxxNodeApiHostModule::kModuleName) {
-      static std::once_flag injected;
-      std::call_once(injected, [] {
-        callstack::react_native_node_api::injectIntoWeakNodeApi();
+          -> std::shared_ptr<TurboModule> {
+        if (name ==
+            callstack::react_native_node_api::CxxNodeApiHostModule::
+                kModuleName) {
+          static std::once_flag injected;
+          std::call_once(injected, [] {
+            callstack::react_native_node_api::injectIntoWeakNodeApi();
+          });
+          return callstack::react_native_node_api::createNodeApiHostModule(
+              jsInvoker);
+        }
+        return nullptr;
       });
-      return callstack::react_native_node_api::createNodeApiHostModule(
-          jsInvoker);
-    }
-    return nullptr;
-  };
 }
 
 } // namespace rngpui
