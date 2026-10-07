@@ -103,9 +103,23 @@ if(NOT EXISTS "${_openssl_crypto_library}")
   else()
     message(FATAL_ERROR "No OpenSSL source-build target for ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
   endif()
+  # no-apps: GPUI links only libssl and libcrypto; the openssl CLI in apps/
+  # is not needed. The Xcode toolchain cc has no default sysroot, so
+  # <inttypes.h> is missing from every OpenSSL compile unless SDKROOT names
+  # the SDK; OpenSSL's Makefile does not pass -isysroot itself.
+  set(_openssl_env ${CMAKE_COMMAND} -E env)
+  if(APPLE)
+    execute_process(COMMAND xcrun --sdk macosx --show-sdk-path
+      OUTPUT_VARIABLE _openssl_sdk OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE _openssl_sdk_status)
+    if(NOT _openssl_sdk_status EQUAL 0 OR _openssl_sdk STREQUAL "")
+      message(FATAL_ERROR "xcrun could not locate the macOS SDK for OpenSSL")
+    endif()
+    set(_openssl_env ${CMAKE_COMMAND} -E env "SDKROOT=${_openssl_sdk}")
+  endif()
   execute_process(
-    COMMAND "${RN_GPUI_PERL_EXECUTABLE}" ./Configure "${_openssl_target}" no-shared no-tests
-      "--prefix=${RN_GPUI_OPENSSL_INSTALL}" --libdir=lib
+    COMMAND ${_openssl_env} "${RN_GPUI_PERL_EXECUTABLE}" ./Configure "${_openssl_target}" no-shared no-tests no-apps
+    "--prefix=${RN_GPUI_OPENSSL_INSTALL}" --libdir=lib
     WORKING_DIRECTORY "${RN_GPUI_OPENSSL_SOURCE_DIR}"
     RESULT_VARIABLE _openssl_configure_status)
   if(NOT _openssl_configure_status EQUAL 0)
@@ -118,7 +132,7 @@ if(NOT EXISTS "${_openssl_crypto_library}")
       RESULT_VARIABLE _openssl_build_status)
   else()
     execute_process(
-      COMMAND "${RN_GPUI_MAKE_EXECUTABLE}" -j2 build_libs
+      COMMAND ${_openssl_env} "${RN_GPUI_MAKE_EXECUTABLE}" -j2 build_libs
       WORKING_DIRECTORY "${RN_GPUI_OPENSSL_SOURCE_DIR}"
       RESULT_VARIABLE _openssl_build_status)
   endif()
@@ -126,7 +140,7 @@ if(NOT EXISTS "${_openssl_crypto_library}")
     message(FATAL_ERROR "Building cached OpenSSL source failed")
   endif()
   execute_process(
-    COMMAND "${RN_GPUI_MAKE_EXECUTABLE}" install_dev
+    COMMAND ${_openssl_env} "${RN_GPUI_MAKE_EXECUTABLE}" install_dev
     WORKING_DIRECTORY "${RN_GPUI_OPENSSL_SOURCE_DIR}"
     RESULT_VARIABLE _openssl_install_status)
   if(NOT _openssl_install_status EQUAL 0)
