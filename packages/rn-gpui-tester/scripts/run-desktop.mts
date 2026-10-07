@@ -3,6 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findScreen, screens } from '../screenCatalog.ts';
 
+// npm ships npx as npx.cmd on Windows, where child_process cannot resolve a
+// command without its extension, and Node refuses to spawn .cmd/.bat files
+// without a shell (the CVE-2024-27980 fix), so npx runs through the shell
+// there. A shell joins the arguments into one command line, so arguments with
+// spaces are quoted here first.
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const npxShell = process.platform === 'win32';
+const npxArgs = args =>
+  npxShell ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : args;
+
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -52,12 +62,13 @@ if (
 )
   args.push('--port', '8082');
 const result = spawnSync(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['--no-install', 'react-native', 'run-desktop', ...args],
+  npxCommand,
+  npxArgs(['--no-install', 'react-native', 'run-desktop', ...args]),
   {
     cwd: projectRoot,
     stdio: 'inherit',
     env: { ...process.env, RN_GPUI_MODULE: `RNGPUITester--${selected}` },
+    shell: npxShell,
   },
 );
 if (result.error) throw result.error;

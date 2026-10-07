@@ -1,6 +1,16 @@
 const { execFileSync, spawn } = require('node:child_process');
 const path = require('node:path');
 
+// npm ships npx as npx.cmd on Windows, where child_process cannot resolve a
+// command without its extension, and Node refuses to spawn .cmd/.bat files
+// without a shell (the CVE-2024-27980 fix), so npx runs through the shell
+// there. A shell joins the arguments into one command line, so arguments with
+// spaces are quoted here first.
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const npxShell = process.platform === 'win32';
+const npxArgs = args =>
+  npxShell ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : args;
+
 module.exports = async function (vitestProject) {
   if (vitestProject?.config?.snapshotOptions?.updateSnapshot === 'all')
     process.env.RN_GPUI_UPDATE_SNAPSHOTS = '1';
@@ -10,8 +20,8 @@ module.exports = async function (vitestProject) {
     process.env.RN_GPUI_TEST_PROJECT ?? process.cwd(),
   );
   execFileSync(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    [
+    npxCommand,
+    npxArgs([
       '--no-install',
       'react-native',
       'run-desktop',
@@ -22,8 +32,8 @@ module.exports = async function (vitestProject) {
       ...(process.env.RN_GPUI_TEST_ENTRY_FILE
         ? ['--entry-file', process.env.RN_GPUI_TEST_ENTRY_FILE]
         : []),
-    ],
-    { cwd: project, stdio: 'inherit' },
+    ]),
+    { cwd: project, stdio: 'inherit', shell: npxShell },
   );
   const metadata = JSON.parse(
     execFileSync(
@@ -78,8 +88,8 @@ async function startMetro() {
   delete metroEnv.VITEST_WORKER_ID;
   delete metroEnv.VITEST_POOL_ID;
   const child = spawn(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    [
+    npxCommand,
+    npxArgs([
       '--no-install',
       'react-native',
       'start',
@@ -87,8 +97,14 @@ async function startMetro() {
       String(port),
       '--config',
       path.join(project, 'desktop/metro.config.js'),
-    ],
-    { cwd: project, env: metroEnv, detached: true, stdio: ['ignore', fd, fd] },
+    ]),
+    {
+      cwd: project,
+      env: metroEnv,
+      detached: true,
+      stdio: ['ignore', fd, fd],
+      shell: npxShell,
+    },
   );
   fs.closeSync(fd);
   child.unref();

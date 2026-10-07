@@ -3,6 +3,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// npm ships npx as npx.cmd on Windows, where child_process cannot resolve a
+// command without its extension, and Node refuses to spawn .cmd/.bat files
+// without a shell (the CVE-2024-27980 fix), so npx runs through the shell
+// there. A shell joins the arguments into one command line, so arguments with
+// spaces are quoted here first.
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const npxShell = process.platform === 'win32';
+const npxArgs = args =>
+  npxShell ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : args;
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
@@ -96,8 +106,13 @@ function stopPreviousNetworkFixture() {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
 }
 
-function run(command, args, cwd, env = process.env) {
-  const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' });
+function run(command, args, cwd, env = process.env, shell = false) {
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    stdio: 'inherit',
+    shell,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0)
     throw new Error(
@@ -108,8 +123,8 @@ function run(command, args, cwd, env = process.env) {
 stopTestApps();
 stopPreviousNetworkFixture();
 run(
-  'npx',
-  [
+  npxCommand,
+  npxArgs([
     '--no-install',
     'react-native',
     'bundle',
@@ -127,12 +142,14 @@ run(
     'desktop/metro.config.js',
     '--max-workers',
     '2',
-  ],
+  ]),
   projectRoot,
+  process.env,
+  npxShell,
 );
 run(
-  'npx',
-  [
+  npxCommand,
+  npxArgs([
     '--no-install',
     'react-native',
     'run-desktop',
@@ -143,8 +160,10 @@ run(
     'e2e/entry.ts',
     '--port',
     '8082',
-  ],
+  ]),
   projectRoot,
+  process.env,
+  npxShell,
 );
 
 if (!fs.existsSync(binary)) throw new Error(`e2e binary not found: ${binary}`);

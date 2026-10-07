@@ -3,6 +3,16 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
+// npm ships npx as a .cmd shim on Windows, where child_process cannot resolve a
+// command without its extension, and Node refuses to spawn .cmd/.bat files
+// without a shell (the CVE-2024-27980 fix), so npx runs through the shell
+// there. A shell joins the arguments into one command line, so arguments with
+// spaces are quoted here first.
+export const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+export const npxShell = process.platform === 'win32';
+export const npxArgs = args =>
+  npxShell ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : args;
+
 const findCppSources = directory => {
   if (!directory || !fs.existsSync(directory)) return [];
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -234,9 +244,10 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const config = JSON.parse(
     configFile
       ? fs.readFileSync(path.resolve(configFile), 'utf8')
-      : execFileSync('npx', ['react-native', 'config'], {
+      : execFileSync(npxCommand, npxArgs(['react-native', 'config']), {
           cwd: projectRoot,
           encoding: 'utf8',
+          shell: npxShell,
         }),
   );
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));

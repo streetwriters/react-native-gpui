@@ -15,6 +15,17 @@ if(APPLE)
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  # React Native, folly and several bundled third-party projects carry
+  # clang/gcc assumptions. MSVC needs its own spellings: /utf-8 because fmt and
+  # ReactCommon contain non-ASCII string literals (fmt asserts with "Unicode
+  # support requires compiling with /utf-8"), and /EHsc because RN throws and
+  # catches exceptions while cl.exe leaves exception handling off by default.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"
+    "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
+    "$<$<COMPILE_LANGUAGE:CXX>:/GR>")
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # RN 0.87.1 has several headers that use uint*_t without including
   # <cstdint>. Android's libc++ headers expose these transitively; make the
@@ -694,6 +705,14 @@ endif()
 set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
 if(TARGET hermes-engine::hermesvm)
   get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
+  if(WIN32)
+    # The link line needs the import library; the DLL is a run-time artifact and
+    # is staged next to the executable by the app build script instead.
+    get_target_property(_hermes_implib hermes-engine::hermesvm IMPORTED_IMPLIB)
+    if(_hermes_implib)
+      set(_hermes_location "${_hermes_implib}")
+    endif()
+  endif()
   if(APPLE)
     set(_rn_gpui_hermes_link_name "libhermesvm.dylib")
   elseif(UNIX)
@@ -757,5 +776,56 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   string(APPEND RN_GPUI_LINK_LIBS "name:atomic\n")
 endif()
 
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
+# The content names target file directories, which differ per configuration on
+# multi-config generators (Visual Studio), so file(GENERATE) requires the
+# configuration in the file name. build.rs reads the one matching its profile.
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs-$<CONFIG>.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs-$<CONFIG>.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
+
+# --- MSVC compile-flag cleanup -------------------------------------------
+# React Native's shared flag list (cmake-utils/react-native-flags.cmake) is
+# written for clang/gcc and is applied to every ReactCommon target as
+# -Wall -Werror -fexceptions -frtti -std=c++20, and the bundled third-party
+# projects add more of the same (-Wwrite-strings, -Wno-unused-variable,
+# -Wpedantic). cl.exe reads those as /W options with non-numeric arguments and
+# aborts the build with, for example,
+#   cl : command line error D8021: invalid numeric argument '/Werror'
+# Every RN subdirectory includes that file itself, so the list cannot be
+# overridden from this file; the GCC-only spellings are removed from the
+# targets once they all exist, and the MSVC equivalents are added instead.
+if(MSVC)
+  function(rn_gpui_strip_gcc_only_flags directory)
+    get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+      foreach(_property IN ITEMS COMPILE_OPTIONS INTERFACE_COMPILE_OPTIONS)
+        get_target_property(_options "${_target}" "${_property}")
+        if(NOT _options)
+          continue()
+        endif()
+        set(_kept "")
+        set(_stripped FALSE)
+        foreach(_option IN LISTS _options)
+          # -W... is a clang/gcc warning flag (MSVC spells its own /W0-/W4,
+          # /Wall and /WX, which do not match this pattern); -f..., -std=...,
+          # -m... and -pthread have MSVC equivalents or are meaningless there.
+          if(_option MATCHES "^-W[a-zA-Z]" OR _option MATCHES "^-f"
+             OR _option MATCHES "^-std=" OR _option MATCHES "^-m[a-z]"
+             OR _option MATCHES "^-pthread")
+            set(_stripped TRUE)
+          else()
+            list(APPEND _kept "${_option}")
+          endif()
+        endforeach()
+        if(_stripped)
+          set_target_properties("${_target}" PROPERTIES "${_property}" "${_kept}")
+        endif()
+      endforeach()
+    endforeach()
+    get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdirectory IN LISTS _subdirectories)
+      rn_gpui_strip_gcc_only_flags("${_subdirectory}")
+    endforeach()
+  endfunction()
+
+  rn_gpui_strip_gcc_only_flags("${CMAKE_CURRENT_BINARY_DIR}")
+endif()
