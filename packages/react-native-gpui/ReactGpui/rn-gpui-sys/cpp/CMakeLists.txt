@@ -15,6 +15,68 @@ if(APPLE)
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  # React Native, folly and several bundled third-party projects carry
+  # clang/gcc assumptions. MSVC needs its own spellings: /utf-8 because fmt and
+  # ReactCommon contain non-ASCII string literals (fmt asserts with "Unicode
+  # support requires compiling with /utf-8"), and /EHsc because RN throws and
+  # catches exceptions while cl.exe leaves exception handling off by default.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"
+    "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
+    "$<$<COMPILE_LANGUAGE:CXX>:/GR>")
+  # folly and fmt inspect __cplusplus, which MSVC reports as 199711L unless
+  # /Zc:__cplusplus is given.
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>")
+  # MSBuild hands each project's sources to a single cl.exe, which compiles
+  # them one at a time unless /MP is given; project dependencies leave only
+  # one or two projects building at once. Half the cores per cl.exe keeps the
+  # machine busy without exhausting memory (each compiler can use ~1 GB).
+  cmake_host_system_information(RESULT _rn_gpui_cores QUERY NUMBER_OF_LOGICAL_CORES)
+  math(EXPR _rn_gpui_mp "(${_rn_gpui_cores} + 1) / 2")
+  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/MP${_rn_gpui_mp}>")
+  # ReactCommon headers do `#ifndef RN_EXPORT / #define RN_EXPORT
+  # __attribute__((visibility("default")))`, which cl.exe cannot parse. The
+  # guard means defining it empty here is enough.
+  add_compile_definitions(RN_EXPORT=)
+  # glog's headers declare every symbol __declspec(dllimport) on Windows unless
+  # GOOGLE_GLOG_DLL_DECL is already defined, while this build links glog
+  # statically. Its own `#ifndef` guard lets the static spelling win here.
+  add_compile_definitions(GOOGLE_GLOG_DLL_DECL=)
+  # ReactCommon relies on libc++'s transitive includes; force the common
+  # standard headers into every C++ translation unit on MSVC.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_SOURCE_DIR}/cmake/msvc-preinclude.h>")
+  # <windows.h> defines min/max macros that break std::min/std::max in
+  # ReactCommon and folly, and both expect the Windows 10 API surface.
+  add_compile_definitions(NOMINMAX)
+  add_compile_definitions(_WIN32_WINNT=0x0A00)
+  # Mirrors react-native-windows: __unused is an Apple attribute, JSI_EXPORT
+  # marks the dllimport storage class in jsi's headers (jsi exports come from
+  # WINDOWS_EXPORT_ALL_SYMBOLS below),
+  # _CRT_SECURE_NO_WARNINGS silences CRT deprecation warnings, and
+  # _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR avoids the MSVC 14.4x constexpr
+  # std::mutex problem. BOOST_ALL_NO_LIB stops boost headers from asking the
+  # linker for boost libraries we do not build.
+  add_compile_definitions("__unused=[[maybe_unused]]")
+  add_compile_definitions(JSI_EXPORT=)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+  add_compile_definitions(BOOST_ALL_NO_LIB=1)
+  # Lets boost compile its error_code/system facilities header-only so that
+  # nothing asks the linker for boost_system.lib; react-native-windows
+  # defines the same set.
+  add_compile_definitions(BOOST_ERROR_CODE_HEADER_ONLY)
+  add_compile_definitions(BOOST_SYSTEM_SOURCE)
+  add_compile_definitions(BOOST_NO_RTTI)
+  add_compile_definitions(BOOST_NO_TYPEID)
+  # <windows.h> pulls in wingdi.h, whose BLACK and TRANSPARENT macros collide
+  # with the names bundled libraries use for colour constants (reanimated's
+  # InterpolatorRegistry defines `const std::array<uint8_t, 4> BLACK`), and
+  # WIN32_LEAN_AND_MEAN keeps the rest of the Win32 surface out of reach.
+  add_compile_definitions(WIN32_LEAN_AND_MEAN)
+  add_compile_definitions(NOGDI)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # RN 0.87.1 has several headers that use uint*_t without including
   # <cstdint>. Android's libc++ headers expose these transitively; make the
@@ -331,6 +393,20 @@ else()
   message(WARNING
     "rn_gpui_core: DevServerHelper override not found (${RN_GPUI_DEV_SERVER_HELPER_OVERRIDE}); "
     "the dev server will be asked for the Android bundle")
+endif()
+
+# NativeDOM.cpp includes "NativeDOM.h" by quoted path, which always resolves to
+# the sibling upstream header, so the header override alone is not enough. The
+# copy override drops the backticks in its `#pragma mark` lines (MSVC rejects
+# them with C2018) and includes the header through the override include path.
+set(RN_GPUI_NATIVE_DOM_OVERRIDE
+    "${RN_GPUI_OVERRIDES_DIR}/react/nativemodule/dom/NativeDOM.cpp")
+if(TARGET react_nativemodule_dom)
+  get_target_property(_rn_gpui_dom_sources react_nativemodule_dom SOURCES)
+  list(FILTER _rn_gpui_dom_sources EXCLUDE REGEX "dom/NativeDOM\\.cpp$")
+  list(APPEND _rn_gpui_dom_sources "${RN_GPUI_NATIVE_DOM_OVERRIDE}")
+  set_property(TARGET react_nativemodule_dom
+               PROPERTY SOURCES "${_rn_gpui_dom_sources}")
 endif()
 
 add_react_cxx_platform_subdir(react/http)
@@ -694,6 +770,14 @@ endif()
 set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
 if(TARGET hermes-engine::hermesvm)
   get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
+  if(WIN32)
+    # The link line needs the import library; the DLL is a run-time artifact and
+    # is staged next to the executable by the app build script instead.
+    get_target_property(_hermes_implib hermes-engine::hermesvm IMPORTED_IMPLIB)
+    if(_hermes_implib)
+      set(_hermes_location "${_hermes_implib}")
+    endif()
+  endif()
   if(APPLE)
     set(_rn_gpui_hermes_link_name "libhermesvm.dylib")
   elseif(UNIX)
@@ -757,5 +841,83 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   string(APPEND RN_GPUI_LINK_LIBS "name:atomic\n")
 endif()
 
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
+# The content names target file directories, which differ per configuration on
+# multi-config generators (Visual Studio), so file(GENERATE) requires the
+# configuration in the file name. build.rs reads the one matching its profile.
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs-$<CONFIG>.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs-$<CONFIG>.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
+
+# --- MSVC compile-flag cleanup -------------------------------------------
+# React Native's shared flag list (cmake-utils/react-native-flags.cmake) is
+# written for clang/gcc and is applied to every ReactCommon target as
+# -Wall -Werror -fexceptions -frtti -std=c++20, and the bundled third-party
+# projects add more of the same (-Wwrite-strings, -Wno-unused-variable,
+# -Wpedantic). cl.exe reads those as /W options with non-numeric arguments and
+# aborts the build with, for example,
+#   cl : command line error D8021: invalid numeric argument '/Werror'
+# Every RN subdirectory includes that file itself, so the list cannot be
+# overridden from this file; the GCC-only spellings are removed from the
+# targets once they all exist, and the MSVC equivalents are added instead.
+if(MSVC)
+  function(rn_gpui_strip_gcc_only_flags directory)
+    get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+      foreach(_property IN ITEMS COMPILE_OPTIONS INTERFACE_COMPILE_OPTIONS)
+        get_target_property(_options "${_target}" "${_property}")
+        if(NOT _options)
+          continue()
+        endif()
+        set(_kept "")
+        set(_stripped FALSE)
+        foreach(_option IN LISTS _options)
+          # -W... is a clang/gcc warning flag (MSVC spells its own /W0-/W4,
+          # /Wall and /WX, which do not match this pattern); -f..., -std=...,
+          # -m... and -pthread have MSVC equivalents or are meaningless there.
+          if(_option MATCHES "^-W[a-zA-Z]" OR _option MATCHES "^-f"
+             OR _option MATCHES "^-std=" OR _option MATCHES "^-m[a-z]"
+             OR _option MATCHES "^-pthread"
+             # RN's glog CMakeLists hardcodes -DHAVE_PREAD=1 for Android.
+             OR _option MATCHES "^-DHAVE_PREAD")
+            set(_stripped TRUE)
+          else()
+            list(APPEND _kept "${_option}")
+          endif()
+        endforeach()
+        if(_stripped)
+          set_target_properties("${_target}" PROPERTIES "${_property}" "${_kept}")
+        endif()
+      endforeach()
+
+      # ReactCommon components glob their per-platform sources alongside the
+      # portable ones; the ios/android/apple trees only compile for those
+      # toolchains (our platform implementation lives in platform/cxx).
+      # rrc_textinput_gpui compiles RN's iostextinput shadow node and props on
+      # purpose (see its definition), so it keeps its platform/ios sources.
+      get_target_property(_of_sources "${_target}" SOURCES)
+      if(_of_sources AND NOT _target STREQUAL "rrc_textinput_gpui")
+        list(FILTER _of_sources EXCLUDE REGEX "/platform/(ios|android|apple)/")
+        set_target_properties("${_target}" PROPERTIES SOURCES "${_of_sources}")
+      endif()
+    endforeach()
+    get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdirectory IN LISTS _subdirectories)
+      rn_gpui_strip_gcc_only_flags("${_subdirectory}")
+    endforeach()
+  endfunction()
+
+  rn_gpui_strip_gcc_only_flags("${CMAKE_CURRENT_BINARY_DIR}")
+
+  # RN's jsi CMakeLists globs every jsi/*.cpp, which drags in the POSIX memory
+  # mapping implementation; Windows has jsilib-windows.cpp instead.
+  if(TARGET jsi)
+    get_target_property(_rn_gpui_jsi_sources jsi SOURCES)
+    if(_rn_gpui_jsi_sources)
+      list(FILTER _rn_gpui_jsi_sources EXCLUDE REGEX "jsilib-posix\\.cpp$")
+      set_target_properties(jsi PROPERTIES SOURCES "${_rn_gpui_jsi_sources}")
+    endif()
+    # jsi is a shared library, but JSI_EXPORT is empty above, so nothing is
+    # marked dllexport. Without exports link.exe writes no jsi.lib and the
+    # final Rust link fails with LNK1181. Export every jsi symbol instead.
+    set_target_properties(jsi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+  endif()
+endif()

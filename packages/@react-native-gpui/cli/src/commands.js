@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { autolink } from './autolink.js';
+import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -12,6 +12,7 @@ const run = (bin, args, options = {}) =>
     cwd: options.cwd ?? process.cwd(),
     stdio: 'inherit',
     env: options.env ?? process.env,
+    shell: options.shell ?? false,
   });
 
 function copyFontAssets(projectRoot, bundlePath, config) {
@@ -111,10 +112,11 @@ async function ensureMetro({ projectRoot, desktopRoot, host, port, config }) {
     '--no-interactive',
   ];
   if (config) args.push('--config', config);
-  const server = spawn('npx', args, {
+  const server = spawn(npxCommand, npxArgs(args), {
     cwd: projectRoot,
     detached: true,
     stdio: ['ignore', logFd, logFd],
+    shell: npxShell,
   });
   fs.closeSync(logFd);
   server.unref();
@@ -180,7 +182,7 @@ export async function runDesktop({
       'false',
     ];
     if (fs.existsSync(metroConfig)) bundleArgs.push('--config', metroConfig);
-    run('npx', bundleArgs, { cwd: projectRoot });
+    run(npxCommand, npxArgs(bundleArgs), { cwd: projectRoot, shell: npxShell });
   } else {
     const numericPort = Number(port);
     if (
@@ -464,8 +466,8 @@ export function initDesktop({
     if (!fs.existsSync(bundlePath)) {
       rememberDirectory(assetsRoot);
       run(
-        'npx',
-        [
+        npxCommand,
+        npxArgs([
           'react-native',
           'bundle',
           '--platform',
@@ -482,8 +484,8 @@ export function initDesktop({
           path.join(desktopRoot, 'metro.config.js'),
           '--dev',
           'false',
-        ],
-        { cwd: projectRoot },
+        ]),
+        { cwd: projectRoot, shell: npxShell },
       );
     }
     console.log(
@@ -539,8 +541,8 @@ export function initProject({ appName, destination, initArgs = [] }) {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   try {
     run(
-      'npx',
-      [
+      npxCommand,
+      npxArgs([
         '--yes',
         '@react-native-community/cli@^20.2.0',
         'init',
@@ -551,8 +553,8 @@ export function initProject({ appName, destination, initArgs = [] }) {
         '--directory',
         destination,
         ...initArgs,
-      ],
-      path.dirname(destination),
+      ]),
+      { shell: npxShell },
     );
     const packagePath = path.join(destination, 'package.json');
     const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));

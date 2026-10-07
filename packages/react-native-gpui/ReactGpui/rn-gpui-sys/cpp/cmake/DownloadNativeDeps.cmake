@@ -188,6 +188,19 @@ file(COPY "${_folly_root}/folly" DESTINATION "${_dst}")
 file(READ "${_rn_third_party}/folly/CMakeLists.txt" _folly_cmake)
 # ReactAndroid targets libc++; GPUI uses the host C++ standard library.
 string(REPLACE "        -DFOLLY_USE_LIBCPP=1\n" "" _folly_cmake "${_folly_cmake}")
+if(WIN32)
+  # The rest of ReactAndroid's folly flags describe a POSIX/Android host:
+  # MSVC has no pthreads, recvmmsg, XSI strerror_r or clock_gettime, and folly
+  # selects its Windows implementations when those are not defined.
+  foreach(_folly_flag IN ITEMS
+      "-DFOLLY_HAVE_PTHREAD=1"
+      "-DFOLLY_HAVE_RECVMMSG=1"
+      "-DFOLLY_HAVE_XSI_STRERROR_R=1"
+      "-DFOLLY_HAVE_CLOCK_GETTIME=1"
+      "-DFOLLY_MOBILE=1")
+    string(REPLACE "${_folly_flag}\n" "\n" _folly_cmake "${_folly_cmake}")
+  endforeach()
+endif()
 file(WRITE "${_dst}/CMakeLists.txt" "${_folly_cmake}")
 
 set(_dst "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog")
@@ -205,10 +218,26 @@ set(_glog_token_names
   ac_cv_have___uint16 ac_google_end_namespace ac_cv_have___builtin_expect ac_google_namespace
   ac_cv___attribute___noinline ac_cv___attribute___noreturn ac_cv___attribute___printf_4_5
   ac_cv_cxx_using_operator)
+if(WIN32)
+  # MSVC has no <unistd.h>, no __builtin_expect and no GNU __attribute__. The
+  # attribute tokens are commented out rather than emptied: CMake lists cannot
+  # carry empty elements reliably, and a comment keeps the declarations valid.
+  set(_glog_have_unistd_h 0)
+  set(_glog_have_builtin_expect 0)
+  set(_glog_attribute_noinline "/* noinline */")
+  set(_glog_attribute_noreturn "/* noreturn */")
+  set(_glog_attribute_printf "/* printf format attribute */")
+else()
+  set(_glog_have_unistd_h 1)
+  set(_glog_have_builtin_expect 1)
+  set(_glog_attribute_noinline "__attribute__ ((noinline))")
+  set(_glog_attribute_noreturn "__attribute__ ((noreturn))")
+  set(_glog_attribute_printf "__attribute__((__format__ (__printf__, 4, 5)))")
+endif()
 set(_glog_token_values
-  1 1 1 1 0 "namespace google {" 1 1 0 "}" 1 google
-  "__attribute__ ((noinline))" "__attribute__ ((noreturn))"
-  "__attribute__((__format__ (__printf__, 4, 5)))" 1)
+  ${_glog_have_unistd_h} 1 1 1 0 "namespace google {" 1 1 0 "}" ${_glog_have_builtin_expect} google
+  "${_glog_attribute_noinline}" "${_glog_attribute_noreturn}"
+  "${_glog_attribute_printf}" 1)
 foreach(_template IN LISTS _glog_templates)
   file(READ "${_template}" _glog_content)
   list(LENGTH _glog_token_names _glog_token_count)
@@ -224,7 +253,27 @@ endforeach()
 # config.h.in is an Autoconf template with #undef directives, not @name@
 # substitutions. ReactAndroid ships the configured platform header separately;
 # place it at both include locations because glog's sources search src/ first.
-configure_file("${_rn_third_party}/glog/config.h" "${_dst}/glog-0.3.5/src/config.h" COPYONLY)
+if(WIN32)
+  # ReactAndroid's config.h is generated for Android/Linux and describes
+  # headers and builtins MSVC does not have, so Windows gets its own.
+  configure_file("${CMAKE_CURRENT_LIST_DIR}/glog-windows-config.h"
+    "${_dst}/glog-0.3.5/src/config.h" COPYONLY)
+  configure_file("${CMAKE_CURRENT_LIST_DIR}/glog-windows-config.h"
+    "${_dst}/config.h" COPYONLY)
+  # <windows.h> defines an ERROR macro, and glog refuses to compile when it is
+  # set. glog's escape hatch (GLOG_NO_ABBREVIATED_SEVERITIES) would force every
+  # ReactCommon call site onto the GLOG_ERROR spelling, so drop the macro
+  # instead of the severities.
+  file(GLOB_RECURSE _glog_severity_headers "${_dst}/glog-0.3.5/src/*log_severity.h")
+  foreach(_glog_severity IN LISTS _glog_severity_headers)
+    file(READ "${_glog_severity}" _glog_severity_content)
+    string(REPLACE "#  error ERROR macro is defined." "#  undef ERROR /* patched for Windows */ //"
+      _glog_severity_content "${_glog_severity_content}")
+    file(WRITE "${_glog_severity}" "${_glog_severity_content}")
+  endforeach()
+else()
+  configure_file("${_rn_third_party}/glog/config.h" "${_dst}/glog-0.3.5/src/config.h" COPYONLY)
+endif()
 foreach(_header IN ITEMS stl_logging.h logging.h raw_logging.h vlog_is_on.h log_severity.h)
   if(EXISTS "${_dst}/glog-0.3.5/src/${_header}")
     configure_file("${_dst}/glog-0.3.5/src/${_header}" "${_dst}/exported/glog/${_header}" COPYONLY)
