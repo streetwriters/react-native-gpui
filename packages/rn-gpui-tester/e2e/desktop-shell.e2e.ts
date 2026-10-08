@@ -291,3 +291,68 @@ test('DevSettings toggles reach the perf monitor', async () => {
     .catch(() => {});
   expect((await app.getPerfMonitor()).enabled).toBe(false);
 });
+
+test('a tray icon opens its popover surface and closes it again', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  expect(await app.trayState()).toMatchObject({ installed: false });
+
+  await app.getByTestId('tray-install-popover').click();
+  await app.waitForIdle();
+  const installed = await app.trayState();
+  expect(installed.installed).toBe(true);
+  expect(installed.id).toBe('tester-tray');
+  expect(installed.popover).toBeNull();
+
+  // A click opens the popover as a second RN surface.
+  await app.trayClick({ x: 1200, y: 0, width: 24, height: 24 });
+  await app.waitForIdle();
+  const opened = await app.trayState();
+  expect(opened.popover).toBeGreaterThan(0);
+  const windows = await app.listWindows();
+  const popover = windows.windows.find(
+    entry => entry.windowId === opened.popover,
+  );
+  expect(popover?.role).toBe('trayPopover');
+  expect(popover?.component).toBe('TrayPopover');
+
+  // A second click hides it again.
+  await app.trayClick({ x: 1200, y: 0, width: 24, height: 24 });
+  await app.waitForIdle();
+  expect((await app.trayState()).popover).toBeNull();
+
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+  expect(await app.trayState()).toMatchObject({ installed: false });
+});
+
+test('a tray menu reports the chosen item', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-menu').click();
+  await app.waitForIdle();
+  const state = await app.trayState();
+  expect(state.hasMenu).toBe(true);
+  expect(JSON.stringify(state.menuItems)).toContain('tray-open');
+
+  // A right click shows the menu through the recording presenter.
+  await app.trayClick({
+    x: 1200,
+    y: 0,
+    width: 24,
+    height: 24,
+    button: 'right',
+  });
+  await app.waitForIdle();
+  const menu = await app.getContextMenu();
+  expect(JSON.stringify(menu?.items ?? [])).toContain('tray-open');
+
+  expect(await app.selectContextMenuItem('tray-open')).toBe(true);
+  await app.waitForIdle();
+  expect(await textOf('tray-menu-press')).toBe('menu press: tray-open');
+
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+});

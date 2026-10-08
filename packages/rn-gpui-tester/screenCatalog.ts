@@ -312,6 +312,12 @@ export const screens = [
     fixture: 'ContextMenuFixture',
   },
   {
+    id: 'tray',
+    title: 'Tray / menu bar',
+    group: 'Platform',
+    fixture: 'TrayFixture',
+  },
+  {
     id: 'perf-monitor',
     title: 'Perf monitor',
     group: 'Diagnostics',

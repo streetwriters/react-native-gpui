@@ -53,6 +53,11 @@ impl DesktopError {
     pub fn to_json(&self) -> String {
         serde_json::json!({"code": self.code, "message": self.message}).to_string()
     }
+
+    /// The same shape as a JSON value, for the test driver's answers.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        serde_json::json!({"error": {"code": self.code, "message": self.message}})
+    }
 }
 
 impl std::fmt::Display for DesktopError {

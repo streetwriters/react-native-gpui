@@ -907,6 +907,36 @@ async fn serve_commands(
                 })
             }
             "getPerfMonitor" => cx.update(|cx| crate::desktop::perf_monitor::metrics(cx)),
+            "trayInstall" => cx.update(|cx| {
+                crate::desktop::tray_install(cx, &serde_json::to_string(&params).unwrap_or_default())
+                    .unwrap_or_else(|error| error.to_json_value())
+            }),
+            "trayState" => cx.update(|cx| crate::desktop::tray::state(cx)),
+            "trayClick" => {
+                let rect = crate::desktop::tray::TrayRect {
+                    x: params.get("x").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                    y: params.get("y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                    width: params.get("width").and_then(Value::as_f64).unwrap_or(24.0) as f32,
+                    height: params.get("height").and_then(Value::as_f64).unwrap_or(24.0) as f32,
+                };
+                let button = match params.get("button").and_then(Value::as_str) {
+                    Some("right") => crate::desktop::tray::TrayButton::Right,
+                    Some("middle") => crate::desktop::tray::TrayButton::Middle,
+                    _ => crate::desktop::tray::TrayButton::Left,
+                };
+                cx.update(|cx| {
+                    crate::desktop::tray::handle_click(cx, rect, button);
+                    crate::desktop::tray::state(cx)
+                })
+            }
+            "trayHide" => cx.update(|cx| {
+                crate::desktop::tray::hide_popover(cx);
+                crate::desktop::tray::state(cx)
+            }),
+            "trayDestroy" => cx.update(|cx| {
+                crate::desktop::tray::destroy(cx)
+                    .unwrap_or_else(|error| error.to_json_value())
+            }),
             "getContextMenu" => cx.update(|cx| {
                 crate::desktop::context_menu::fake_model(cx).unwrap_or(Value::Null)
             }),

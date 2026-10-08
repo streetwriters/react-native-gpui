@@ -230,6 +230,8 @@ export const renderScreen: Record<
       require('./components/ContextMenuFixture').default,
       props,
     ),
+  tray: props =>
+    React.createElement(require('./components/TrayFixture').default, props),
   'perf-monitor': props =>
     React.createElement(
       require('./components/PerfMonitorFixture').default,

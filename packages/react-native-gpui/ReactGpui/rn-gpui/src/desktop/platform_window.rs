@@ -209,3 +209,25 @@ mod imp {
 
 #[cfg(not(target_os = "macos"))]
 pub use imp::*;
+
+/// Whether the app shows a Dock icon and owns the menu bar.
+///
+/// A menu-bar-only app runs as an accessory (plan 7.3), which also stops the
+/// launch from activating the app or switching Spaces.
+#[cfg(target_os = "macos")]
+pub fn set_accessory_app(accessory: bool) {
+    use objc::{class, msg_send, sel, sel_impl};
+    const REGULAR: isize = 0;
+    const ACCESSORY: isize = 1;
+    unsafe {
+        let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
+        let policy = if accessory { ACCESSORY } else { REGULAR };
+        let _: bool = msg_send![app, setActivationPolicy: policy];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_accessory_app(_accessory: bool) {
+    // Windows and Linux have no equivalent policy; a tray-only app there simply
+    // has no visible window.
+}

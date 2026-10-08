@@ -18,6 +18,7 @@ pub mod errors;
 pub mod menu_model;
 pub mod perf_monitor;
 pub mod platform_window;
+pub mod tray;
 pub mod windows;
 
 pub use errors::{DesktopError, DesktopResult};
@@ -121,6 +122,12 @@ pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &s
         ("perfMonitor", "setEnabled") => perf_set_enabled(cx, args_json),
         ("perfMonitor", "getMetrics") => Ok(perf_monitor::metrics(cx)),
         ("perfMonitor", "jsTicks") => perf_js_ticks(cx, args_json),
+        ("tray", "install") => tray_install(cx, args_json),
+        ("tray", "destroy") => tray::destroy(cx),
+        ("tray", "getState") => Ok(tray::state(cx)),
+        ("tray", method @ ("setTooltip" | "setVisible" | "setIcon" | "setMenu")) => {
+            tray::apply(cx, method, args_json)
+        }
         _ => Err(DesktopError::not_found(format!(
             "unknown desktop method: {domain}.{method}"
         ))),
@@ -180,6 +187,7 @@ fn window_open(cx: &mut App, args_json: &str) -> DesktopResult {
             .is_some_and(|value| value == "transparent"),
         traffic_light_position: None,
         role: windows::WindowRoleOverride::Secondary,
+        popup: false,
     };
     if let Some(position) = args.get("trafficLightPosition").and_then(|v| v.as_object()) {
         let x = position.get("x").and_then(serde_json::Value::as_f64);
@@ -289,6 +297,48 @@ fn dev_menu_perform(cx: &mut App, args_json: &str) -> DesktopResult {
         .ok_or_else(|| DesktopError::invalid_argument("devMenu.perform requires an id"))?;
     dev_menu::perform(cx, id);
     Ok(serde_json::json!({"id": id}))
+}
+
+/// Install a tray icon from JSON (also used by the test driver).
+pub fn tray_install(cx: &mut App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    let mut config = tray::TrayConfig::default();
+    if let Some(id) = args.get("id").and_then(serde_json::Value::as_str) {
+        config.id = id.to_string();
+    }
+    if let Some(tooltip) = args.get("tooltip").and_then(serde_json::Value::as_str) {
+        config.tooltip = Some(tooltip.to_string());
+    }
+    if let Some(title) = args.get("title").and_then(serde_json::Value::as_str) {
+        config.title = Some(title.to_string());
+    }
+    if let Some(component) = args.get("component").and_then(serde_json::Value::as_str) {
+        config.component = Some(component.to_string());
+    }
+    if let Some(items) = args.get("menu") {
+        config.menu = Some(menu_model::parse_menu(items)?);
+    }
+    if let Some(menu_on_left_click) = args
+        .get("menuOnLeftClick")
+        .and_then(serde_json::Value::as_bool)
+    {
+        config.menu_on_left_click = menu_on_left_click;
+    }
+    if let Some(quit) = args
+        .get("quitOnLastWindowClosed")
+        .and_then(serde_json::Value::as_bool)
+    {
+        config.quit_on_last_window_closed = quit;
+    }
+    if let Some(size) = args.get("size").and_then(|value| value.as_object()) {
+        if let (Some(width), Some(height)) = (
+            size.get("width").and_then(serde_json::Value::as_f64),
+            size.get("height").and_then(serde_json::Value::as_f64),
+        ) {
+            config = config.size(width as f32, height as f32);
+        }
+    }
+    tray::install(cx, config)
 }
 
 fn perf_set_enabled(cx: &mut App, args_json: &str) -> DesktopResult {
