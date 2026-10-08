@@ -148,7 +148,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             ca-certificates curl git gnupg xz-utils \
             build-essential cmake ninja-build ccache perl pkg-config \
-            python3 nasm autoconf automake libtool
+            python3 nasm autoconf automake libtool gh unzip
           # Node 22 is not in Debian 12; take the official tarball.
           curl -fsSL https://nodejs.org/dist/v22.13.1/node-v22.13.1-linux-${{ matrix.node_arch }}.tar.xz \
             | tar -xJ -C /usr/local --strip-components=1
@@ -215,6 +215,17 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
         working-directory: .
+
+      # Hermes binaries are gitignored; take them from the hermes-engine release.
+      - name: Fetch Hermes binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/@react-native-gpui/hermes/package.json').version")"
+          node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs \
+            --tag "@react-native-gpui/hermes@$version" --platform ${{ matrix.platform }}
 
       - name: Restore native-deps cache
         uses: actions/cache@v4
