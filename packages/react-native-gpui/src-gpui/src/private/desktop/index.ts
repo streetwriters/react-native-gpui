@@ -36,7 +36,16 @@ export const isDesktopAvailable = NativeGpuiDesktop != null;
  * message string.
  */
 function toDesktopError(error: unknown): DesktopError {
-  const raw = error instanceof Error ? error.message : String(error);
+  // The rejection may be an `Error`, a bare JSON string, or an object whose
+  // `message` holds the JSON, depending on how the promise was settled.
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' &&
+          error != null &&
+          typeof (error as { message?: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : String(error);
   try {
     const parsed = JSON.parse(raw) as { code?: string; message?: string };
     if (parsed && typeof parsed.code === 'string') {
