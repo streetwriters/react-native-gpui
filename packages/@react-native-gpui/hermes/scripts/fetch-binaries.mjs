@@ -127,7 +127,15 @@ function verify(options) {
 function extractArchive(archive, destination) {
   fs.mkdirSync(destination, { recursive: true });
   if (process.platform === 'win32') {
-    execFileSync('tar', ['-xf', archive, '-C', destination], {
+    // Use the bsdtar that ships with Windows; the GNU tar from Git for Windows
+    // (first on PATH in bash steps) cannot read zip files.
+    const systemTar = path.join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'tar.exe',
+    );
+    const tar = fs.existsSync(systemTar) ? systemTar : 'tar';
+    execFileSync(tar, ['-xf', archive, '-C', destination], {
       stdio: 'inherit',
     });
     return;
@@ -233,7 +241,7 @@ function downloadFromRelease(options) {
     '--dir',
     dir,
     '--pattern',
-    `${ARTIFACT_PREFIX}*.zip`,
+    `${ARTIFACT_PREFIX}${options.platform ?? '*'}.zip`,
     '--clobber',
   ]);
   for (const file of fs.readdirSync(dir))
