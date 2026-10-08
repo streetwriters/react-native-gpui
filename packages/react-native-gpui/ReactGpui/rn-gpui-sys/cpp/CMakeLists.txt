@@ -778,17 +778,25 @@ endif()
 if(TARGET weak-node-api)
   list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiNodeApiExtension.cpp")
   list(APPEND RN_GPUI_EXTENSION_INSTALLERS node_api)
+  # Engine-neutral pieces: the weak-node-api injection, the shadowed
+  # napi_fatal_error and the logger they share. The Node-API host module (which
+  # creates a napi_env and loads addons) is VM-specific and comes from the
+  # active engine package through RN_GPUI_JS_ENGINE_NODE_API_SOURCES.
+  get_property(RN_GPUI_JS_ENGINE_NODE_API_SOURCES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES)
   list(APPEND RN_GPUI_EXTENSION_NODE_API_SOURCES
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp"
+    ${RN_GPUI_JS_ENGINE_NODE_API_SOURCES})
   list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  list(APPEND RN_GPUI_EXTENSION_DEFINITIONS HERMES_NAPI_USE_CPP_LINKAGE=1)
+  list(APPEND RN_GPUI_EXTENSION_DEFINITIONS
+    HERMES_NAPI_USE_CPP_LINKAGE=1
+    # Tells an engine package that Node-API is available, so it registers its
+    # host module capability (see GpuiHermesEngine.cpp).
+    RN_GPUI_HAS_NODE_API=1)
 endif()
 
 # App Rust string modules (RustTurboModules.generated.hpp) exist only when the

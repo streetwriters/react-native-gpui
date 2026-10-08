@@ -26,7 +26,9 @@
 #include <vector>
 
 namespace facebook::react {
+class CallInvoker;
 class JSRuntimeFactory;
+class TurboModule;
 } // namespace facebook::react
 
 namespace rngpui {
@@ -62,19 +64,15 @@ struct GpuiJsEngine {
   std::function<std::shared_ptr<facebook::react::JSRuntimeFactory>()>
       makeRuntimeFactory;
 
-  // Optional. Node-API for `.node` addons: create/destroy an env for a runtime
-  // and load a module into it. When missing, core's Node-API TurboModule throws
-  // a JS Error naming the active engine.
+  // Optional. Node-API for `.node` addons. Creating a napi_env for a runtime
+  // and loading a module into it are VM-specific, so the engine provides the
+  // "NodeApiHost" TurboModule that JS calls `requireNodeAddon` on. When
+  // missing, core registers a module whose `requireNodeAddon` throws
+  // Error("Node-API is not supported by the <name> JS engine").
   struct NodeApi {
-    // napi_env for the given runtime. The engine owns its lifetime and destroys
-    // it when the runtime goes away.
-    std::function<void*(facebook::jsi::Runtime&, const std::string& addonName)>
-        createEnv;
-    std::function<facebook::jsi::Value(
-        facebook::jsi::Runtime&,
-        void* env,
-        const std::string& path)>
-        loadModule;
+    std::function<std::shared_ptr<facebook::react::TurboModule>(
+        std::shared_ptr<facebook::react::CallInvoker>)>
+        makeModule;
   };
   std::optional<NodeApi> nodeApi;
 

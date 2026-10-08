@@ -1,31 +1,76 @@
 // Node-API glue (@react-native-node-api). Compiled into rn_gpui_extensions
-// only when weak-node-api is built. Provides the CxxNodeApiHostModule
-// TurboModule and injects the weak Node-API framework on first use.
-#include "CxxNodeApiHostModule.hpp"
+// only when weak-node-api is built. Injects the weak Node-API framework on
+// first use and hands out the active engine's Node-API host module.
+//
+// The host module itself is a capability of the engine package: creating a
+// napi_env and loading an addon into it are VM-specific. Core only decides
+// whether the running engine provides one.
 #include "GpuiExtensions.h"
+#include "GpuiJsEngine.h"
 #include "WeakNodeApiInjector.hpp"
 
+#include <ReactCommon/TurboModule.h>
+#include <jsi/jsi.h>
+
 #include <mutex>
+#include <string>
+#include <utility>
 
 namespace rngpui {
+namespace {
 
-using namespace facebook::react;
+constexpr const char* kNodeApiHostModuleName = "NodeApiHost";
+
+// Registered instead of the engine's host when the active engine has no
+// Node-API support. Requiring an addon then fails with a message that names the
+// engine rather than a bare "module not found".
+class UnsupportedNodeApiModule final : public facebook::react::TurboModule {
+ public:
+  UnsupportedNodeApiModule(
+      std::shared_ptr<facebook::react::CallInvoker> jsInvoker,
+      std::string message)
+      : TurboModule(kNodeApiHostModuleName, std::move(jsInvoker)),
+        message_(std::move(message)) {
+    methodMap_["requireNodeAddon"] =
+        MethodMetadata{1, &UnsupportedNodeApiModule::requireNodeAddon};
+  }
+
+  static facebook::jsi::Value requireNodeAddon(
+      facebook::jsi::Runtime& rt,
+      facebook::react::TurboModule& turboModule,
+      const facebook::jsi::Value* /*args*/,
+      size_t /*count*/) {
+    throw facebook::jsi::JSError(
+        rt, static_cast<UnsupportedNodeApiModule&>(turboModule).message_);
+  }
+
+ private:
+  std::string message_;
+};
+
+} // namespace
 
 void rn_gpui_install_node_api_extension() {
   gpuiExtensionHooks().turboModules.push_back(
-      [](const std::string& name, const std::shared_ptr<CallInvoker>& jsInvoker)
-          -> std::shared_ptr<TurboModule> {
-        if (name ==
-            callstack::react_native_node_api::CxxNodeApiHostModule::
-                kModuleName) {
-          static std::once_flag injected;
-          std::call_once(injected, [] {
-            callstack::react_native_node_api::injectIntoWeakNodeApi();
-          });
-          return callstack::react_native_node_api::createNodeApiHostModule(
-              jsInvoker);
+      [](const std::string& name,
+         const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker)
+          -> std::shared_ptr<facebook::react::TurboModule> {
+        if (name != kNodeApiHostModuleName) {
+          return nullptr;
         }
-        return nullptr;
+        static std::once_flag injected;
+        std::call_once(injected, [] {
+          callstack::react_native_node_api::injectIntoWeakNodeApi();
+        });
+
+        const auto& engine = activeJsEngine();
+        if (!engine.nodeApi) {
+          return std::make_shared<UnsupportedNodeApiModule>(
+              jsInvoker,
+              "Node-API is not supported by the " + engine.info.name +
+                  " JS engine");
+        }
+        return engine.nodeApi->makeModule(jsInvoker);
       });
 }
 
