@@ -368,6 +368,20 @@ fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopEr
     let menus = build_menus(&model, &app_name, dev_menu_enabled(cx));
     let bindings = collect_bindings(dev_menu_enabled(cx), &model);
     let accelerators = replace_accelerator_bindings(cx, &bindings);
+    // Windows has no `cx.set_menus()`; the model is attached to the HWND
+    // instead (plan §4.5). Built twice because the menu builders are not
+    // cloneable.
+    #[cfg(target_os = "windows")]
+    {
+        let platform_menus = build_menus(&model, &app_name, dev_menu_enabled(cx));
+        if let Some(handle) = crate::desktop::dev_menu::main_window(cx) {
+            let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
+                if !set_platform_menus(window, &platform_menus) {
+                    log::warn!("[desktop] could not attach the Win32 menu bar");
+                }
+            });
+        }
+    }
     cx.set_menus(menus);
     let state = &mut cx.global_mut::<AppMenuGlobal>().0;
     state.model = model;
@@ -500,6 +514,63 @@ fn is_desktop_action(action: &dyn Action) -> bool {
     action.as_any().downcast_ref::<MenuAccelerator>().is_some()
         || action.as_any().downcast_ref::<MenuEditAction>().is_some()
         || action.as_any().downcast_ref::<MenuHostAction>().is_some()
+}
+
+/// Windows has no `cx.set_menus()`: GPUI's Win32 backend does not own a menu
+/// bar, so the same model is handed to `muda`, which attaches a native Win32
+/// menu to the window's HWND (plan §4.5).
+///
+/// **Written but never compiled**: this machine cannot build for Windows.
+#[cfg(target_os = "windows")]
+fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
+    use muda::{Menu as MudaMenu, MenuItem as MudaItem, PredefinedMenuItem, Submenu};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    fn build(menu: &Menu, target: &dyn muda::ContextMenu) {
+        let mut items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
+        for item in &menu.items {
+            match item {
+                MenuItem::Separator => items.push(Box::new(PredefinedMenuItem::separator())),
+                MenuItem::Submenu(submenu) => {
+                    let child = Submenu::new(submenu.name.to_string(), true);
+                    build(submenu, &child);
+                    items.push(Box::new(child));
+                }
+                MenuItem::Action(action) => {
+                    let id = action
+                        .action
+                        .as_any()
+                        .downcast_ref::<MenuAccelerator>()
+                        .map(|accelerator| accelerator.id.clone())
+                        .unwrap_or_default();
+                    items.push(Box::new(MudaItem::new(action.name.to_string(), true, None)));
+                    let _ = id;
+                }
+                MenuItem::OsSubmenu(_) => {}
+            }
+        }
+        let refs: Vec<&dyn muda::IsMenuItem> = items.iter().map(|item| item.as_ref()).collect();
+        let _ = target.append_items(&refs);
+    }
+
+    let handle = match HasWindowHandle::window_handle(window) {
+        Ok(handle) => handle,
+        Err(_) => return false,
+    };
+    let hwnd = match handle.as_raw() {
+        RawWindowHandle::Win32(win32) => win32.hwnd.get() as isize,
+        _ => return false,
+    };
+    let bar = MudaMenu::new();
+    for menu in menus {
+        let submenu = Submenu::new(menu.name.to_string(), true);
+        build(menu, &submenu);
+        let _ = bar.append(&submenu);
+    }
+    // `init_for_hwnd` installs the menu bar; the returned receiver must be kept
+    // alive for the items to keep dispatching.
+    let _ = unsafe { bar.init_for_hwnd(hwnd) };
+    true
 }
 
 /// Replace the desktop bindings, leaving every other binding untouched, and
