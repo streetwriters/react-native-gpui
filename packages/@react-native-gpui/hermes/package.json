@@ -25,7 +25,9 @@
     "include",
     "public",
     "bin",
+    "gpui",
     "scripts",
+    "react-native.config.js",
     "README.md",
     "LICENSE"
   ],

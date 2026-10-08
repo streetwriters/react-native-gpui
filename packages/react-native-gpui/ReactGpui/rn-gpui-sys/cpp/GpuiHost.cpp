@@ -23,7 +23,6 @@
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/PlatformTimerRegistryImpl.h>
 #include <react/runtime/ReactHost.h>
-#include <react/runtime/hermes/HermesInstance.h>
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
 
@@ -514,35 +513,6 @@ TurboModuleProviders gpui_turbo_module_providers() {
       }};
 }
 
-// Temporary until step 3 of .local/js-engines.md: Hermes is still wired into
-// core, so core registers it. It moves to @react-native-gpui/hermes, whose
-// `rn_gpui_register_js_engine_hermes` symbol autolink calls at startup instead.
-class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
- public:
-  std::unique_ptr<facebook::react::JSRuntime> createJSRuntime(
-      std::shared_ptr<facebook::react::MessageQueueThread>
-          msgQueueThread) noexcept override {
-    return facebook::react::HermesInstance::createJSRuntime(
-        nullptr, std::move(msgQueueThread), /* allocInOldGenBeforeTTI */ false);
-  }
-};
-
-// The pinned facebook/hermes commit the prebuilt VM in
-// @react-native-gpui/hermes was built from; step 3 reads it from that package's
-// package.json instead of hardcoding it here.
-constexpr const char* kHermesVersion = "10a40b5";
-
-void register_core_js_engine() {
-  static std::once_flag once;
-  std::call_once(once, [] {
-    rngpui::registerJsEngine(rngpui::GpuiJsEngine{
-        .info = {.name = "hermes", .version = kHermesVersion},
-        .makeRuntimeFactory =
-            [] { return std::make_shared<HermesRuntimeFactory>(); },
-    });
-  });
-}
-
 // Installs the OSS stable feature flags, which is what an OSS app on the new
 // (bridgeless) architecture does. `enableBridgelessArchitecture` is load
 // bearing for us: ReactHost here IS the bridgeless host, and the flag is what
@@ -619,12 +589,12 @@ GpuiHost::GpuiHost(
     rust::Str devHost,
     uint32_t devPort,
     rust::Str jsEngine) {
-  register_core_js_engine();
-  // Engine packages register themselves from their installers; the app's
-  // choice (`RN_GPUI_JS_ENGINE` / DesktopAppConfig::js_engine) is applied
-  // before anything asks for the active engine.
-  rngpui::selectJsEngine(std::string(jsEngine));
+  // Engine packages register themselves here (the generated
+  // rn_gpui_install_extensions()), so the registry is populated before the
+  // app's choice (`RN_GPUI_JS_ENGINE` / DesktopAppConfig::js_engine) is applied
+  // and before anything asks for the active engine.
   rngpui::rn_gpui_install_extensions();
+  rngpui::selectJsEngine(std::string(jsEngine));
   install_feature_flags();
   // Text measurement from the TextLayoutManager override goes through the
   // plain table in GpuiTextMeasure.h; wire it to the Rust bridge first.
