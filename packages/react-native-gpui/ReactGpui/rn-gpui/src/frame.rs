@@ -184,7 +184,7 @@ impl FrameHook {
                 self.is_active()
             );
         }
-        window.on_next_frame(move |window, _cx| {
+        window.on_next_frame(move |window, cx| {
             if hook.state.generation.get() != generation {
                 if std::env::var_os("RN_GPUI_DEBUG_ANIMATION").is_some() {
                     log::info!(
@@ -215,6 +215,9 @@ impl FrameHook {
                 hook.host.on_gesture_frame(crate::events::now_ms());
             } else {
                 hook.host.on_frame(crate::events::now_ms());
+                // Plan 7.6 — the Perf Monitor's UI FPS is what the window
+                // actually presented, so it is counted here.
+                crate::desktop::perf_monitor::record_frame(cx);
             }
             if hook.is_active() {
                 hook.schedule(window);

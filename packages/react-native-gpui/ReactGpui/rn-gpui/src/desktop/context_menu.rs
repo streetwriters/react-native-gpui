@@ -10,7 +10,7 @@
 //! click through, and the fake goes through the same model, event and callback
 //! path as the real one.
 
-use crate::desktop::errors::{DesktopError, DesktopResult};
+use crate::desktop::errors::DesktopError;
 use crate::desktop::menu_model::{self, MenuModel, MenuNode};
 use crate::desktop::windows::DesktopWindowsGlobal;
 use gpui::{AnyWindowHandle, App};

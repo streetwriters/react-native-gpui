@@ -1397,6 +1397,8 @@ pub struct SurfaceRootView {
     /// TODO 2.6 — set on the app surface only: the tracked child that paints
     /// LogBox (see [`OverlayHost`]) above this surface's children.
     pub overlay_host: Option<Entity<OverlayHost>>,
+    /// Plan 7.6 — the host-drawn Perf Monitor, painted above everything.
+    pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
     #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
 }
@@ -1407,6 +1409,7 @@ impl SurfaceRootView {
             surface_id,
             children: Vec::new(),
             overlay_host: None,
+            perf_monitor: None,
             #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
@@ -1513,6 +1516,11 @@ impl Render for SurfaceRootView {
             {
                 root = root.child(overlay_host.clone());
             }
+        }
+        // Plan 7.6 — the Perf Monitor paints above every surface (and above the
+        // LogBox overlay) so it never competes with what it measures.
+        if let Some(monitor) = self.perf_monitor.clone() {
+            root = root.child(monitor);
         }
         root
     }
