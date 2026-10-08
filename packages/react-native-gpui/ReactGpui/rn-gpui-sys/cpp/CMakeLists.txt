@@ -119,6 +119,19 @@ set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
 
+# React Native's own CMake projects are added from here in both modes: a source
+# build adds the ones core needs, and either mode adds the ones a JS engine
+# package declares (RN_GPUI_JS_ENGINE_SUBDIRECTORIES).
+function(add_react_common_subdir relative_path)
+  add_subdirectory(${REACT_COMMON_DIR}/${relative_path}
+                   ReactCommon/${relative_path})
+endfunction()
+
+function(add_react_cxx_platform_subdir relative_path)
+  add_subdirectory(${REACT_CXX_PLATFORM_DIR}/${relative_path}
+                   ReactCxxPlatform/${relative_path})
+endfunction()
+
 if(RN_GPUI_PREBUILT_DIR)
   # Prebuilt mode: rn_gpui_core, ReactCommon and third-party come from the
   # archive. Only the app-side targets below are compiled here.
@@ -198,16 +211,6 @@ add_subdirectory("${RN_GPUI_CURL_SOURCE_DIR}" "${RN_GPUI_NATIVE_DEPS_BUILD}/curl
 include(${REACT_COMMON_DIR}/cmake-utils/react-native-flags.cmake)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ThirdParty.cmake)
-
-function(add_react_common_subdir relative_path)
-  add_subdirectory(${REACT_COMMON_DIR}/${relative_path}
-                   ReactCommon/${relative_path})
-endfunction()
-
-function(add_react_cxx_platform_subdir relative_path)
-  add_subdirectory(${REACT_CXX_PLATFORM_DIR}/${relative_path}
-                   ReactCxxPlatform/${relative_path})
-endfunction()
 
 # --- cxx bridge include directory -------------------------------------------
 
@@ -525,11 +528,6 @@ add_library(rn_gpui_core STATIC
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp
   GpuiExtensions.cpp)
-# Out-of-tree addons can require native build targets without linking into core.
-get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
-foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
-  add_dependencies(rn_gpui_core ${_rn_gpui_native_target})
-endforeach()
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc")
@@ -727,6 +725,12 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     # it cannot be given a link to this archive, so the link order comes from
     # link_libs-<CONFIG>.txt instead (see the link_libs section).
     target_link_libraries(rn_gpui_app_turbo_modules PRIVATE rn_gpui_core)
+    # App sources may use the active engine's headers (react-native-worklets
+    # compiles a Hermes runtime binding), which the archive does not ship. The
+    # engine targets carry them.
+    if(RN_GPUI_JS_ENGINE_DEPS)
+      target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
+    endif()
   else()
     target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
     target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
@@ -878,6 +882,13 @@ endif()
 if(TARGET weak-node-api)
   add_dependencies(rn_gpui_extensions weak-node-api)
 endif()
+# Out-of-tree addons can require native build targets without linking into
+# core. They hang off this archive because it is built in both modes; an
+# imported rn_gpui_core cannot carry build dependencies.
+get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
+foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
+  add_dependencies(rn_gpui_extensions ${_rn_gpui_native_target})
+endforeach()
 
 # With a prebuilt runtime rn_gpui_core is imported, so the engine glue targets
 # cannot be linked into it; they are archived into this archive instead. The
@@ -927,6 +938,13 @@ function(rn_gpui_collect_link_targets root out_var)
 endfunction()
 
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
+# An imported rn_gpui_core only names the archive's own libraries in its
+# interface, so the active engine's shared libraries (its VM) are added to the
+# roots the linker directives are collected from. Their OBJECT libraries are
+# skipped by the loop below; those objects are archived into rn_gpui_extensions.
+if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
+  list(APPEND RN_GPUI_LINK_TARGETS ${RN_GPUI_JS_ENGINE_DEPS})
+endif()
 
 # Install rules and find_package() config for the prebuilt runtime (T4).
 if(NOT RN_GPUI_PREBUILT_DIR)

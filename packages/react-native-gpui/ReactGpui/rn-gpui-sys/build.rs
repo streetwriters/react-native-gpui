@@ -153,6 +153,19 @@ fn main() {
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
     println!("cargo:rerun-if-changed={}", autolink_cmake.display());
+    // Autolinked CMake projects live outside this crate, so Cargo does not see
+    // edits to them unless each directory is named here.
+    for line in fs::read_to_string(&autolink_cmake)
+        .unwrap_or_default()
+        .lines()
+    {
+        if let Some(directory) = line
+            .strip_prefix("add_subdirectory(\"")
+            .and_then(|rest| rest.split('"').next())
+        {
+            println!("cargo:rerun-if-changed={directory}");
+        }
+    }
     let cpp_provider = autolink_cmake
         .parent()
         .unwrap_or(&autolink_cmake)
@@ -238,6 +251,14 @@ fn main() {
     // --- 2. rn_gpui_core via CMake ------------------------------------------
 
     let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
+    // A prebuilt build keeps its own CMake directory. Sharing one with source
+    // builds leaves their librn_gpui_core.a on the linker search path, where it
+    // shadows the prebuilt archive and mixes two React Native ABIs.
+    let cmake_out_dir = if prebuilt_dir.is_some() {
+        cmake_out_dir.with_file_name(format!("{cmake_build_type}-prebuilt"))
+    } else {
+        cmake_out_dir
+    };
 
     fs::create_dir_all(&cmake_out_dir).expect("create shared CMake output directory");
     let cmake_lock = OpenOptions::new()

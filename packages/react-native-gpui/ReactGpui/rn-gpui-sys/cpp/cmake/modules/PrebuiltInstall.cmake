@@ -60,7 +60,9 @@ install(TARGETS ${_rn_gpui_built}
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-# Imported archives (OpenSSL, hermes) are copied from the path configure found.
+# Imported archives (OpenSSL and the third-party libraries) are copied from the
+# path configure found. An engine's own shared library is not part of the
+# archive: the installed engine package ships it.
 set(_rn_gpui_imported_paths "")
 foreach(_rn_gpui_imp IN LISTS _rn_gpui_imported)
   get_target_property(_rn_gpui_loc "${_rn_gpui_imp}" IMPORTED_LOCATION)
@@ -79,7 +81,7 @@ endif()
 # which consumers cannot produce without Perl). Every other header tree is named
 # by a root variable RN_GPUI_PREBUILT_ROOT_<name> that the consumer sets to the
 # source directory it already has (node_modules/react-native, the react-native-gpui
-# package, @react-native-gpui/hermes, its own cxxbridge and codegen output, and
+# package, its own cxxbridge and codegen output, an installed engine package, and
 # the native-deps downloads). The targets file refers to those roots, so the
 # config file checks they are set before anything is included.
 install(DIRECTORY "${RN_GPUI_OPENSSL_INSTALL}/include/"
