@@ -89,6 +89,13 @@ export type IdleOptions = {
 export class DesktopApp {
   readonly logs: string[];
   readonly logFile: string;
+  /**
+   * Display scale factor reported by the window (`hello` handshake). Screenshot
+   * baselines are rasterized at this scale, so they are stored per scale: the
+   * same window captures twice as many pixels on a Retina display as it does on
+   * a 1x display.
+   */
+  scale = 1;
   private readonly process: ChildProcess;
   private readonly socket: WebSocket;
   private readonly token: string;
@@ -219,9 +226,12 @@ export class DesktopApp {
     }
     logs.push(fs.readFileSync(logFile, 'utf8'));
     const app = new DesktopApp(child, socket, token, logs, logFile);
-    let hello: { protocol?: number };
+    let hello: { protocol?: number; scale?: number };
     try {
-      hello = (await app.request('hello')) as { protocol?: number };
+      hello = (await app.request('hello')) as {
+        protocol?: number;
+        scale?: number;
+      };
     } catch (error) {
       await app.close();
       throw error;
@@ -232,6 +242,8 @@ export class DesktopApp {
         `GPUI test-driver protocol mismatch (received ${hello.protocol ?? 'none'}); rebuild the app with --features test-driver`,
       );
     }
+    app.scale =
+      typeof hello.scale === 'number' && hello.scale > 0 ? hello.scale : 1;
     if (options.idleOptions) app.setIdleOptions(options.idleOptions);
     if (options.disableAnimations) await app.setAnimationsEnabled(false);
     try {
@@ -544,7 +556,7 @@ export class Locator {
   private readonly index?: number;
 
   constructor(
-    private readonly app: DesktopApp,
+    readonly app: DesktopApp,
     private readonly by: string,
     private readonly value: string,
     private readonly exact = false,
@@ -843,9 +855,10 @@ export function expect(target: Locator | DesktopApp) {
       return target.toHaveText(value, timeout);
     },
     toMatchScreenshot: (name: string, options?: ScreenshotOptions) => {
+      const scale = target instanceof Locator ? target.app.scale : target.scale;
       return target
         .screenshot()
-        .then(buffer => matchScreenshot(buffer, name, options));
+        .then(buffer => matchScreenshot(buffer, name, options, scale));
     },
   };
 }
@@ -948,13 +961,19 @@ export async function matchScreenshot(
   actualBuffer: Buffer,
   name: string,
   options: ScreenshotOptions = {},
+  scale = 1,
 ): Promise<void> {
   const testPath = getCurrentTestPath();
+  // Baselines are rasterized at the window's display scale, so a machine whose
+  // main display is 1x captures different pixels (and dimensions) than a Retina
+  // one. Keying the directory by scale keeps both exact instead of loosening
+  // the comparison.
+  const scaleSuffix = `@${scale}x`;
   const baselineRoot = path.join(
     path.dirname(testPath),
     '__screenshots__',
     'gpui',
-    `${process.platform}-${process.arch}`,
+    `${process.platform}-${process.arch}${scaleSuffix}`,
   );
   const snapshotName = name.endsWith('.png') ? name : `${name}.png`;
   const baselinePath = path.resolve(baselineRoot, snapshotName);
