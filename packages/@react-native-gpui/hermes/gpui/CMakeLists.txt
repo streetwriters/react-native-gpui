@@ -145,6 +145,13 @@ else()
   # The registration symbol itself comes from autolink, which reads it from this
   # package's react-native.config.js `jsEngine.register`.
 
+  # Node-API is this engine's capability: react-native-node-api's host module
+  # and the Hermes host integration behind it are compiled here, and core adds
+  # these sources only when weak-node-api is present.
+  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp")
+
   # `Platform.constants.jsEngine.version`: the pinned facebook/hermes commit this
   # package's VM was built from.
   file(READ "${_hermes_package_json}" _hermes_package_json_contents)
