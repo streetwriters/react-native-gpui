@@ -134,8 +134,12 @@ run(
     'e2e/entry.ts',
     '--bundle-output',
     'desktop/build/test-e2e.bundle',
+    // Must be the parent of the `assets/assets` directory the app resolves
+    // `file://assets/...` URIs against. The testing client derives that from
+    // the bundle path (`<bundle dir>/assets/assets`), so a different
+    // `--assets-dest` leaves the app reading stale assets.
     '--assets-dest',
-    'desktop/build/test-e2e-assets',
+    'desktop/build/assets',
     '--dev',
     'false',
     '--config',
