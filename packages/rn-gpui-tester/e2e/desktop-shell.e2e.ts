@@ -89,3 +89,64 @@ test('a transparent-title-bar window opens with its own window id', async () => 
   expect(await textOf('desktop-window-count')).toBe('open windows: 2');
   expect(await textOf('desktop-window-list')).toContain('DesktopShellChild');
 });
+
+test('an app menu sets, reads back and fires by accelerator', async () => {
+  await launch('DesktopMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('desktop-menu-read').click();
+  const described = await textOf('desktop-menu-json');
+  expect(described).toContain('tester-increment');
+  expect(described).toContain('tester-check');
+
+  // The accelerator is CmdOrCtrl+Shift+K; the driver maps `mod-` to cmd on
+  // macOS and ctrl elsewhere.
+  await app.press('mod-shift-k');
+  await app.waitForIdle();
+  expect(await textOf('desktop-menu-count')).toBe('increments: 1');
+  expect(await textOf('desktop-menu-last-press')).toBe(
+    'last press: tester-increment@1',
+  );
+
+  await app.press('mod-shift-k');
+  await app.waitForIdle();
+  expect(await textOf('desktop-menu-count')).toBe('increments: 2');
+});
+
+test('a menu item patch round-trips and the default menu can be restored', async () => {
+  await launch('DesktopMenuFixture');
+  await app.waitForIdle();
+
+  expect(await textOf('desktop-menu-checked')).toBe('checked: false');
+  await app.getByTestId('desktop-menu-update-check').click();
+  expect(await textOf('desktop-menu-checked')).toBe('checked: true');
+
+  await app.getByTestId('desktop-menu-reset').click();
+  await app.getByTestId('desktop-menu-read').click();
+  const described = await textOf('desktop-menu-json');
+  // The default menu has whole standard submenus, not the tester's items.
+  expect(described).toContain('"userSet":false');
+  expect(described).toContain('editMenu');
+});
+
+test('the Edit roles copy and paste in a text input', async () => {
+  await launch('DesktopMenuFixture');
+  await app.waitForIdle();
+
+  const source = app.getByTestId('menu-copy-source');
+  await source.click();
+  await source.type('hello edit roles');
+  expect(await source.textContent()).toBe('hello edit roles');
+
+  // Select all + copy through the menu's accelerators.
+  await app.press('mod-a');
+  await app.waitForIdle();
+  await app.press('mod-c');
+  await app.waitForIdle();
+
+  const target = app.getByTestId('menu-paste-target');
+  await target.click();
+  await app.press('mod-v');
+  await app.waitForIdle();
+  expect(await target.textContent()).toBe('hello edit roles');
+});

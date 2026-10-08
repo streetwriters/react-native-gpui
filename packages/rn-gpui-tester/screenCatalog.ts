@@ -300,6 +300,12 @@ export const screens = [
     fixture: 'WindowControlFixture',
   },
   {
+    id: 'desktop-menu',
+    title: 'Application menu',
+    group: 'Platform',
+    fixture: 'DesktopMenuFixture',
+  },
+  {
     id: 'errors',
     title: 'Error handling',
     group: 'Diagnostics',

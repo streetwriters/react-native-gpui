@@ -182,6 +182,67 @@ pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Co
     emit_selection(this, window, cx);
 }
 
+/// Copy the selected text to the system clipboard. Returns whether there was a
+/// selection to copy.
+pub(crate) fn copy_selection(this: &RNNodeView, cx: &mut gpui::App) -> bool {
+    if this.component != "TextInput" {
+        return false;
+    }
+    let range = selected_range(this);
+    if range.is_empty() {
+        return false;
+    }
+    let text = this.input_text[range].to_string();
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+    true
+}
+
+/// Cut the selection (plan §5.2's Edit role).
+pub(crate) fn cut_selection(
+    this: &mut RNNodeView,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) -> bool {
+    if !this.input_editable || !copy_selection(this, cx) {
+        return false;
+    }
+    let range = selected_range(this);
+    this.input_text.replace_range(range.clone(), "");
+    this.input_selection = range.start..range.start;
+    this.input_selection_anchor = None;
+    this.input_marked = None;
+    this.sync_input_paragraph();
+    emit_change(this, window, cx);
+    true
+}
+
+/// Paste the clipboard into the selection (plan §5.2's Edit role).
+pub(crate) fn paste_clipboard(
+    this: &mut RNNodeView,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) -> bool {
+    if !this.input_editable {
+        return false;
+    }
+    let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+        return false;
+    };
+    if text.is_empty() {
+        return false;
+    }
+    replace_plain_text(
+        &mut this.input_text,
+        &mut this.input_selection,
+        &mut this.input_marked,
+        None,
+        &text,
+    );
+    this.sync_input_paragraph();
+    emit_change(this, window, cx);
+    true
+}
+
 pub(crate) fn byte_at_utf16(text: &str, offset: usize) -> usize {
     let mut units = 0;
     for (byte, ch) in text.char_indices() {

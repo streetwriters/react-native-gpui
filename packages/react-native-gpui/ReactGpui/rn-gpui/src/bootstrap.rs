@@ -680,6 +680,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(
             config.quit_on_last_window_closed,
         ));
+        // The default application menu (plan §5.3): Cmd+Q / Cmd+C / Cmd+V work
+        // before the app sets a menu of its own. Installed before the bundle
+        // loads so a startup failure still leaves a working menu bar.
+        let menu_app_name = config
+            .title
+            .clone()
+            .unwrap_or_else(|| config.module.clone());
+        crate::desktop::app_menu::install(cx, &menu_app_name);
 
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).

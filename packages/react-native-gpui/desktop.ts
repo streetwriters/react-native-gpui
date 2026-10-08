@@ -49,6 +49,17 @@ export { TitleBar } from './src-gpui/src/private/desktop/TitleBar';
 
 export type { TitleBarProps } from './src-gpui/src/private/desktop/TitleBar';
 
+export { ApplicationMenu, Menu } from './src-gpui/src/private/desktop/menu';
+
+export type {
+  ApplicationMenuProps,
+  MenuDescription,
+  MenuItemPatch,
+  MenuItemSpec,
+  MenuPressEvent,
+  MenuRole,
+} from './src-gpui/src/private/desktop/menu';
+
 // Registers the desktopDragRegion / desktopWindowControl View prop types.
 import './src-gpui/src/private/desktop/types';
 
