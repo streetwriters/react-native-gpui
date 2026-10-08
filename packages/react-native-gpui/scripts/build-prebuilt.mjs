@@ -4,13 +4,15 @@
 //
 // Usage:
 //   node scripts/build-prebuilt.mjs --version <v> --out <dir> \
-//     --bridge <cxxbridge-include> --rncore <generated-rncore-dir> \
+//     [--bridge <cxxbridge-include> --rncore <generated-rncore-dir>] \
 //     [--build-dir <dir>] [--native-deps <dir>] [--skip-build] [--jobs <n>]
 //
-// The bridge and rncore dirs are Cargo OUT_DIR outputs of `cargo build -p
-// rn-gpui-sys` (out/cxxbridge-include and out/fbreactnativespec). The build dir
-// should already hold a native-deps cache (see check-standalone-cmake.mjs for
-// why a fresh dir fails on OpenSSL).
+// --bridge and --rncore are optional. When omitted, the cxxbridge headers and
+// FBReactNativeSpec sources are generated (scripts/generate-prebuilt-inputs.mjs),
+// so no tester build is needed. When given, they must be the Cargo OUT_DIR
+// outputs of `cargo build -p rn-gpui-sys` (out/cxxbridge-include and
+// out/fbreactnativespec). --native-deps reuses downloaded native dependencies
+// between runs.
 //
 // Output (under --out):
 //   <platform>/                 the cmake --install prefix (lib/, include/, cmake/)
