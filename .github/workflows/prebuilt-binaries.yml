@@ -119,13 +119,25 @@ jobs:
             container: ''
           - platform: win32-x64
             os: windows-2022
+            arch: x64
+            pdb: win32-x64
+            container: ''
+          - platform: win32-arm64
+            os: windows-11-arm
+            arch: arm64
+            pdb: win32-arm64
             container: ''
           - platform: linux-x64
             os: ubuntu-latest
             container: debian:12
+            node_arch: x64
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            container: debian:12
+            node_arch: arm64
     steps:
       - name: Install Linux build tools
-        if: matrix.platform == 'linux-x64'
+        if: startsWith(matrix.platform, 'linux-')
         run: |
           set -euo pipefail
           apt-get update
@@ -134,23 +146,23 @@ jobs:
             build-essential cmake ninja-build ccache perl pkg-config \
             python3 nasm autoconf automake libtool
           # Node 22 is not in Debian 12; take the official tarball.
-          curl -fsSL https://nodejs.org/dist/v22.13.1/node-v22.13.1-linux-x64.tar.xz \
+          curl -fsSL https://nodejs.org/dist/v22.13.1/node-v22.13.1-linux-${{ matrix.node_arch }}.tar.xz \
             | tar -xJ -C /usr/local --strip-components=1
           node --version
 
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
-        if: matrix.platform != 'linux-x64'
+        if: "!startsWith(matrix.platform, 'linux-')"
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        if: matrix.platform != 'linux-x64'
+        if: "!startsWith(matrix.platform, 'linux-')"
 
       - name: Install Rust (Linux container)
-        if: matrix.platform == 'linux-x64'
+        if: startsWith(matrix.platform, 'linux-')
         run: |
           set -euo pipefail
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
@@ -172,13 +184,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $component = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+          $arch = '${{ matrix.arch }}'
+          $component = if ($arch -eq 'arm64') {
+            'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+          } else {
+            'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+          }
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
           $instance = & $vswhere -latest -products * -requires $component -property installationPath
           if (-not $instance) { throw "No Visual Studio installation provides $component" }
           $vcvars = Join-Path $instance 'VC\Auxiliary\Build\vcvarsall.bat'
-          cmd /c "`"$vcvars`" x64 >nul 2>&1 && set" | ForEach-Object {
+          cmd /c "`"$vcvars`" $arch >nul 2>&1 && set" | ForEach-Object {
             $split = $_.IndexOf('=')
             if ($split -gt 0) {
               $name = $_.Substring(0, $split)
@@ -188,7 +205,7 @@ jobs:
             }
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
-          if (-not $cl) { throw 'cl.exe is not on PATH after vcvarsall x64' }
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
           Write-Host "MSVC compiler: $($cl.Source)"
 
       - name: Install dependencies
@@ -283,7 +300,7 @@ jobs:
           $count = (Get-ChildItem -Path $pdbDir -File).Count
           if ($count -eq 0) { throw 'No PDB files were produced by the MSVC build' }
           Write-Host "Collected $count PDB files"
-          tar -czf (Join-Path $out 'prebuilt-binaries-win32-x64-pdb.tar.gz') -C $pdbDir .
+          tar -czf (Join-Path $out 'prebuilt-binaries-${{ matrix.pdb }}-pdb.tar.gz') -C $pdbDir .
 
       - name: Stage archives
         if: always()
@@ -347,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
-            prebuilt-binaries-*.tar.gz prebuilt-binaries-win32-x64-pdb.tar.gz SHA256SUMS.txt
+            prebuilt-binaries-*.tar.gz prebuilt-binaries-*-pdb.tar.gz SHA256SUMS.txt
       - name: Publish the release
         run: |
           set -euo pipefail
