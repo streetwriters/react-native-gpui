@@ -510,7 +510,7 @@ target_include_directories(gpui_js_engine_test PRIVATE
 target_link_libraries(gpui_js_engine_test PRIVATE jsi)
 add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
 
-# The engine packages' own smoke tests (for example the Hermes VM test) are
+# The engine packages' own smoke tests (for example a VM smoke test) are
 # added by their gpui/CMakeLists.txt, which autolink includes below.
 
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
@@ -795,7 +795,7 @@ if(TARGET weak-node-api)
   list(APPEND RN_GPUI_EXTENSION_DEFINITIONS
     HERMES_NAPI_USE_CPP_LINKAGE=1
     # Tells an engine package that Node-API is available, so it registers its
-    # host module capability (see GpuiHermesEngine.cpp).
+    # host module capability in its registration function.
     RN_GPUI_HAS_NODE_API=1)
 endif()
 

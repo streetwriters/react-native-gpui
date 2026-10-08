@@ -622,9 +622,9 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     },
   });
 
-  // The JS engine decides how its own bundles must be transformed (Hermes
-  // bytecode needs the `hermes-stable` profile, for example), so the changes
-  // come from the active engine package rather than from this file.
+  // The JS engine decides how its own bundles must be transformed (a bytecode
+  // format needs an engine-specific transform profile, for example), so the
+  // changes come from the active engine package rather than from this file.
   const engineBundle = activeJsEngineBundle(projectRoot);
   if (!engineBundle || typeof engineBundle.metroConfig !== 'function') {
     return baseConfig;

@@ -1,8 +1,9 @@
 //! rpath metadata for the host executable and consuming desktop app.
 //!
-//! Two linked libraries have `@rpath/...` install names — `libjsi.dylib` built
-//! by our CMake build and the prebuilt `hermesvm.framework` binary — so an
-//! executable that links them needs those directories on its rpath at run time.
+//! Linked libraries built with `@rpath/...` install names — `libjsi.dylib` from
+//! our CMake build, and any shared library an installed JS engine package adds —
+//! so an executable that links them needs those directories on its rpath at run
+//! time.
 //! The sys crate exports paths as `DEP_RN_GPUI_CORE_RPATHS`. Re-export them as
 //! `DEP_RN_GPUI_RUNTIME_RPATHS` for the app-local desktop crate's build.rs; a
 //! downstream executable must carry its own rpath because the host runtime is

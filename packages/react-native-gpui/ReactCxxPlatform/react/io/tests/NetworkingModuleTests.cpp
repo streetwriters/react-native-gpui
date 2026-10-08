@@ -13,19 +13,22 @@
 #include <ReactCommon/TestCallInvoker.h>
 #include <folly/json.h>
 #include <gtest/gtest.h>
-#include <hermes/hermes.h>
 #include <jsi/JSIDynamic.h>
 #include <react/bridging/Base.h>
 #include <react/io/NetworkingModule.h>
 #include <memory>
+
+#include "TestJsRuntime.h"
 
 namespace facebook::react {
 
 class NetworkingModuleTests : public testing::Test {
  protected:
   void SetUp() override {
-    rt_ = facebook::hermes::makeHermesRuntime();
-    jsInvoker_ = std::make_shared<TestCallInvoker>(*rt_);
+    // The engine comes from the test binary's registration, not from this
+    // file, so the test only needs a JSI runtime.
+    runtime_ = tests::createTestRuntimeFromActiveEngine();
+    jsInvoker_ = std::make_shared<TestCallInvoker>(runtime_->getRuntime());
   }
 
   static void verifyFormData(
@@ -41,7 +44,7 @@ class NetworkingModuleTests : public testing::Test {
     }
   }
 
-  std::shared_ptr<facebook::hermes::HermesRuntime> rt_;
+  std::unique_ptr<JSRuntime> runtime_;
   std::shared_ptr<CallInvoker> jsInvoker_;
 };
 
