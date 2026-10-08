@@ -230,6 +230,11 @@ export const renderScreen: Record<
       require('./components/ContextMenuFixture').default,
       props,
     ),
+  'perf-monitor': props =>
+    React.createElement(
+      require('./components/PerfMonitorFixture').default,
+      props,
+    ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
   'benchmark-idle': props =>

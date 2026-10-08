@@ -15,6 +15,7 @@ pub mod capabilities;
 pub mod context_menu;
 pub mod errors;
 pub mod menu_model;
+pub mod perf_monitor;
 pub mod platform_window;
 pub mod windows;
 
@@ -110,6 +111,9 @@ pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &s
         ("menu", "set") => menu_set(cx, args_json),
         ("menu", "update") => menu_update(cx, args_json),
         ("menu", "get") => menu_get(cx, args_json),
+        ("perfMonitor", "setEnabled") => perf_set_enabled(cx, args_json),
+        ("perfMonitor", "getMetrics") => Ok(perf_monitor::metrics(cx)),
+        ("perfMonitor", "jsTicks") => perf_js_ticks(cx, args_json),
         _ => Err(DesktopError::not_found(format!(
             "unknown desktop method: {domain}.{method}"
         ))),
@@ -268,6 +272,25 @@ fn menu_set(cx: &mut App, args_json: &str) -> DesktopResult {
         Some(value) => Some(value),
     };
     app_menu::set_application_menu(cx, items)
+}
+
+fn perf_set_enabled(cx: &mut App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    let enabled = args
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| DesktopError::invalid_argument("a boolean `enabled` is required"))?;
+    Ok(perf_monitor::set_enabled(cx, enabled))
+}
+
+fn perf_js_ticks(cx: &App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    let count = args
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+    perf_monitor::record_js_ticks(cx, count);
+    Ok(serde_json::json!({"count": count}))
 }
 
 fn menu_get(cx: &App, args_json: &str) -> DesktopResult {

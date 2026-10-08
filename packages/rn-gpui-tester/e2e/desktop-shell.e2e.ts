@@ -43,6 +43,12 @@ async function textOf(testID: string): Promise<string> {
   return (await app.getByTestId(testID).textContent()) ?? '';
 }
 
+/** Read text without waiting for idle (the perf monitor never goes idle). */
+async function rawTextOf(testID: string): Promise<string> {
+  const [node] = await app.query('testID', testID);
+  return String(node?.text ?? '');
+}
+
 afterAll(async () => {
   app?.disconnect();
 });
@@ -198,4 +204,40 @@ test('the ContextMenuView wrapper and the menu polyfill open menus', async () =>
   expect(model).toContain('"enabled":false');
   expect(await app.selectContextMenuItem('poly-nested')).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: poly:poly-nested');
+});
+
+test('the perf monitor toggles and reports its counters', async () => {
+  await launch('PerfMonitorFixture');
+  await app.waitForIdle();
+
+  // The overlay's JS frame counter is a rAF loop by design, so the app stops
+  // being "idle" as soon as it is on. Every step here uses the raw driver, which
+  // does not wait for idle.
+  const clickTestId = async (testID: string) => {
+    const [node] = await app.query('testID', testID);
+    if (!node) {
+      throw new Error(`no node with testID ${testID}`);
+    }
+    await app.click(node.tag);
+    await app
+      .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
+      .catch(() => {});
+  };
+
+  expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
+  await clickTestId('perf-toggle');
+  expect(await rawTextOf('perf-enabled')).toBe('enabled: true');
+
+  // Let the JS frame counter report at least once.
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  await clickTestId('perf-read');
+  const metrics = await rawTextOf('perf-metrics');
+  expect(metrics).toContain('"enabled":true');
+  expect(metrics).toContain('"uiFps"');
+  expect(metrics).toContain('"mountedViews"');
+  expect(metrics).toContain('"lastMountMs"');
+  expect(metrics).not.toContain('"uiFps":0');
+
+  await clickTestId('perf-toggle');
+  expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
 });

@@ -56,6 +56,10 @@ export {
   ContextMenuView,
 } from './src-gpui/src/private/desktop/contextMenu';
 
+export { PerfMonitor } from './src-gpui/src/private/desktop/perfMonitor';
+
+export type { PerfMetrics } from './src-gpui/src/private/desktop/perfMonitor';
+
 export type {
   ContextMenuEvent,
   ContextMenuOptions,

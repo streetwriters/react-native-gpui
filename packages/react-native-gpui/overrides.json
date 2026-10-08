@@ -136,6 +136,10 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/contextMenu.tsx"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/perfMonitor.ts"
     }
   ]
 }

@@ -691,6 +691,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Context-menu presenter: the real one, or the driver's fake when
         // RN_GPUI_TEST_FAKE_NATIVE_UI=1 (plan §3.5).
         crate::desktop::context_menu::install(cx);
+        // Plan 7.6 — the Perf Monitor starts disabled; the Dev Menu toggles it.
+        crate::desktop::perf_monitor::install(cx);
 
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).
@@ -906,6 +908,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             }
         });
 
+        crate::desktop::perf_monitor::attach(cx, &root, 1);
         store.update(cx, |store, cx| {
             store.register_root(1, root);
             store.top_inset = top_inset;
@@ -1436,7 +1439,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
             while let Ok(event) = rx.recv().await {
                 match event {
                     MainEvent::Mount(batch) => {
+                        let started = std::time::Instant::now();
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
+                        let elapsed = started.elapsed().as_secs_f32() * 1000.0;
+                        cx.update(|cx| crate::desktop::perf_monitor::record_mount(cx, elapsed));
                         unsafe { rn_gpui_mount_batch_applied() };
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
