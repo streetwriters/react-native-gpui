@@ -54,13 +54,6 @@ const reactNativePkg = path.join(
   'react-native',
   'package.json',
 );
-const hermesPkg = path.join(
-  repoRoot,
-  'packages',
-  '@react-native-gpui',
-  'hermes',
-  'package.json',
-);
 const cargoLock = path.join(packageDir, 'ReactGpui', 'Cargo.lock');
 
 const args = parseArgs(process.argv.slice(2));
@@ -314,9 +307,6 @@ const manifest = {
     encoding: 'utf8',
   }).stdout.trim(),
   reactNative: pkgVersion(reactNativePkg, 'version'),
-  hermes: {
-    package: pkgVersion(hermesPkg, 'version'),
-  },
   triple: platform,
   cxxStdlib:
     process.platform === 'darwin'
@@ -335,14 +325,17 @@ const manifest = {
     path.join(bridgeDir, 'rn-gpui-sys', 'src', 'lib.rs.h'),
   ),
   overridesSha256: overridesSha256(),
-  defines: { HERMES_ENABLE_DEBUGGER: 1, REACT_NATIVE_DEBUG: 0 },
+  // Read by the consumer: the archive is Release, so its ReactCommon headers
+  // select the production ABI. No engine define belongs here; the engine glue
+  // is compiled by the app instead (see RN_GPUI_JS_ENGINE_* in cpp/CMakeLists.txt).
+  defines: { REACT_NATIVE_DEBUG: 0 },
   flags,
   minOs: process.platform === 'darwin' ? 'macos 11.0' : null,
   glibc: process.platform === 'linux' ? '2.36' : null,
   libraries: libraryFiles(platformDir),
   // Headers are not shipped: consumers take them from node_modules/react-native,
-  // this package, @react-native-gpui/hermes, their own build.rs output and the
-  // native-deps downloads listed here. OpenSSL's generated headers are the only
+  // this package, their own build.rs output, any installed engine package and
+  // the native-deps downloads listed here. OpenSSL's generated headers are the only
   // exception (include/openssl-generated).
   nativeDeps: nativeDepsArchives(buildDir),
   files,

@@ -15,7 +15,8 @@
 //   packages/react-native-gpui/ReactGpui/Cargo.lock  (pins cxx 1.0.202)
 //   packages/react-native-gpui/scripts/build-prebuilt.mjs and this file
 //   node_modules/react-native/package.json  (React Native version)
-//   packages/@react-native-gpui/hermes/package.json  (Hermes release)
+//   // An installed engine package is not an input: the archive contains no
+//   // engine, so updating one does not invalidate it.
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -36,7 +37,6 @@ const FILE_INPUTS = [
   'packages/react-native-gpui/scripts/build-prebuilt.mjs',
   'packages/react-native-gpui/scripts/prebuilt-inputs.mjs',
   'node_modules/react-native/package.json',
-  'packages/@react-native-gpui/hermes/package.json',
 ];
 
 // Build products and caches never feed the hash.

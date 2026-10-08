@@ -111,54 +111,52 @@ endif()
 #
 # RN's own CMake projects, compiled from node_modules/react-native exactly as
 # core used to compile them, only now declared by the engine package. Core adds
-# them (add_react_common_subdir) so the targets land in its scope and can be
-# linked into rn_gpui_core. They need ReactCommon's real build targets, which a
-# prebuilt core archive provides only as imported libraries; compiling the engine
-# glue against a prebuilt core is plan item 7.14 step 6. Until then a prebuilt
-# app has no engine and the host reports "no JS engine installed" at startup.
-if(RN_GPUI_PREBUILT_DIR)
-  message(WARNING
-    "@react-native-gpui/hermes: RN_GPUI_PREBUILT_DIR is set, so the React Native "
-    "Hermes glue is not compiled and this app has no JS engine. The prebuilt "
-    "engine runtime is plan item 7.14 step 6.")
-else()
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES
-    hermes/inspector-modern
-    hermes/executor
-    react/runtime/hermes)
+# them (add_react_common_subdir) so the targets land in its scope, then links
+# them into rn_gpui_core in a source build or into the app-side
+# rn_gpui_extensions archive when a prebuilt core is in use. In prebuilt mode
+# they are compiled against the archive's imported React Common targets, which
+# carry the same include folders and defines the archive was built with. That is
+# what keeps the core archive free of every engine while still letting an
+# installed engine run.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES
+  hermes/inspector-modern
+  hermes/executor
+  react/runtime/hermes)
 
-  # Core compiles these sources into rn_gpui_extensions, links these targets into
-  # rn_gpui_core, and calls the registration symbol from the generated
-  # rn_gpui_install_extensions().
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
-    "${CMAKE_CURRENT_LIST_DIR}/GpuiHermesEngine.cpp")
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${REACT_COMMON_DIR}")
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEPS
-    hermes-engine::hermesvm
-    # OBJECT libraries: a dependency on the parent does not archive their objects,
-    # so they are named explicitly (as core's RN_GPUI_CORE_DEPS did).
-    hermes_inspector_modern
-    bridgelesshermes)
+# Core compiles these sources into rn_gpui_extensions, links these targets, and
+# calls the registration symbol from the generated
+# rn_gpui_install_extensions().
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/GpuiHermesEngine.cpp")
+# React Common headers are not added here on purpose: they must reach the glue
+# through the linked targets, so that the ReactCommonOverrides copy still wins
+# (an upstream header first would change view-props layouts, and the archive was
+# built with the overrides).
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS
+  "${CMAKE_CURRENT_LIST_DIR}")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEPS
+  hermes-engine::hermesvm
+  # OBJECT libraries: a dependency on the parent does not archive their objects,
+  # so they are named explicitly (as core's RN_GPUI_CORE_DEPS did).
+  hermes_inspector_modern
+  bridgelesshermes)
 
-  # The registration symbol itself comes from autolink, which reads it from this
-  # package's react-native.config.js `jsEngine.register`.
+# The registration symbol itself comes from autolink, which reads it from this
+# package's react-native.config.js `jsEngine.register`.
 
-  # Node-API is this engine's capability: react-native-node-api's host module
-  # and the Hermes host integration behind it are compiled here, and core adds
-  # these sources only when weak-node-api is present.
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp")
+# Node-API is this engine's capability: react-native-node-api's host module and
+# the Hermes host integration behind it are compiled here, and core adds these
+# sources only when weak-node-api is present.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES
+  "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+  "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp")
 
-  # `Platform.constants.jsEngine.version`: the pinned facebook/hermes commit this
-  # package's VM was built from.
-  file(READ "${_hermes_package_json}" _hermes_package_json_contents)
-  string(JSON _hermes_commit GET "${_hermes_package_json_contents}" hermes commit)
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEFINITIONS
-    "RN_GPUI_HERMES_VERSION=\"${_hermes_commit}\"")
-endif()
+# `Platform.constants.jsEngine.version`: the pinned facebook/hermes commit this
+# package's VM was built from.
+file(READ "${_hermes_package_json}" _hermes_package_json_contents)
+string(JSON _hermes_commit GET "${_hermes_package_json_contents}" hermes commit)
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEFINITIONS
+  "RN_GPUI_HERMES_VERSION=\"${_hermes_commit}\"")
 
 # --- Hermes smoke tests ----------------------------------------------------
 #
