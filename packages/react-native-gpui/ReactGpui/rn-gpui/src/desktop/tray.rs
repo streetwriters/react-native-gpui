@@ -125,12 +125,6 @@ pub fn is_installed(cx: &App) -> bool {
     cx.try_global::<TrayGlobal>().is_some()
 }
 
-/// The id an event handler compares against.
-pub fn tray_id(cx: &App) -> Option<String> {
-    cx.try_global::<TrayGlobal>()
-        .map(|tray| tray.0.borrow().config.id.clone())
-}
-
 /// Create the tray icon. Called once, after the app has started, because
 /// `NSStatusItem` needs a running `NSApplication`.
 pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
@@ -478,23 +472,6 @@ pub fn emit_menu_press(cx: &App, id: &str) {
         .read(cx)
         .host
         .emit_device_event_json("gpuiDesktop:trayMenuPress", &json!({"id": id}).to_string());
-}
-
-/// The items a tray menu can hold, for tests.
-pub fn menu_ids(cx: &App) -> Vec<String> {
-    cx.try_global::<TrayGlobal>()
-        .and_then(|tray| {
-            tray.0.borrow().config.menu.as_ref().map(|menu| {
-                menu.items
-                    .iter()
-                    .filter_map(|node| match node {
-                        MenuNode::Item(item) => Some(item.id.clone()),
-                        _ => None,
-                    })
-                    .collect()
-            })
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
