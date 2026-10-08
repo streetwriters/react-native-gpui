@@ -58,6 +58,13 @@ export {
 
 export { PerfMonitor } from './src-gpui/src/private/desktop/perfMonitor';
 
+export { Tray } from './src-gpui/src/private/desktop/tray';
+
+export type {
+  TrayOptions,
+  TrayState,
+} from './src-gpui/src/private/desktop/tray';
+
 export type { PerfMetrics } from './src-gpui/src/private/desktop/perfMonitor';
 
 export type {

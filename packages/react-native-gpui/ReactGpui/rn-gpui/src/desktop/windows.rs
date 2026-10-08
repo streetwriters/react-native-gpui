@@ -170,6 +170,9 @@ pub struct OpenWindowOptions {
     pub appears_transparent: bool,
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
+    /// Create the window as a floating popup rather than a normal window
+    /// (tray popovers).
+    pub popup: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -227,7 +230,11 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         }),
         is_resizable: options.resizable,
         window_min_size: Some(size(px(120.0), px(120.0))),
-        kind: WindowKind::Normal,
+        kind: if options.popup {
+            WindowKind::PopUp
+        } else {
+            WindowKind::Normal
+        },
         // A transparent title bar means the app draws and moves the bar itself.
         app_owns_titlebar_drag: options.appears_transparent,
         ..Default::default()
@@ -636,6 +643,24 @@ fn install_activation_observer(
             "gpuiDesktop:windowBlur"
         };
         host.emit_device_event_json(name, &json!({"windowId": key}).to_string());
+        if !active {
+            // Plan 7.3 — a tray popover is dismissed when it loses activation,
+            // like a native menu-bar popover.
+            let is_popover = cx
+                .try_global::<crate::desktop::tray::TrayGlobal>()
+                .is_some_and(|tray| {
+                    let mut tray = tray.0.borrow_mut();
+                    if tray.popover == Some(key) {
+                        tray.popover = None;
+                        true
+                    } else {
+                        false
+                    }
+                });
+            if is_popover {
+                let _ = hide(cx, key);
+            }
+        }
     })
 }
 

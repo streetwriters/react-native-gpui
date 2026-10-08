@@ -430,6 +430,44 @@ export class DesktopApp {
     await this.waitForIdle();
   }
 
+  /** Install a tray icon (plan 7.3). */
+  async trayInstall(options: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request('trayInstall', options);
+  }
+
+  /** The tray's state, including whether its popover is open. */
+  async trayState(): Promise<{
+    installed: boolean;
+    id?: string;
+    popover?: number | null;
+    clicks?: number;
+    hasMenu?: boolean;
+    menuItems?: unknown[];
+  }> {
+    return this.request('trayState');
+  }
+
+  /** Simulate a click on the tray icon. */
+  async trayClick(
+    rect: {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      button?: string;
+    } = {},
+  ): Promise<unknown> {
+    return this.request('trayClick', rect);
+  }
+
+  async trayHide(): Promise<unknown> {
+    return this.request('trayHide');
+  }
+
+  async trayDestroy(): Promise<unknown> {
+    return this.request('trayDestroy');
+  }
+
   /** The Perf Monitor's counters. */
   async getPerfMonitor(): Promise<{
     enabled: boolean;

@@ -294,6 +294,16 @@ enum MainEvent {
     },
     /// A chosen Dev Menu item.
     DevMenuPerform(String),
+    /// A tray icon click, forwarded from the platform's event thread.
+    TrayClick {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        button: u8,
+    },
+    /// A chosen tray menu item.
+    TrayMenuPerform(String),
     /// A desktop-shell call from the JS thread (design §3.2). The drain loop
     /// answers it exactly once with `rn_gpui_desktop_result`.
     Desktop {
@@ -345,6 +355,8 @@ pub struct DesktopAppConfig {
     /// Whether the Dev Menu (plan 7.5) is available. `None` follows the build:
     /// on in a debug build, off in a release build.
     pub dev_menu: Option<bool>,
+    /// Run as a menu-bar (tray) app (plan 7.3).
+    pub tray: Option<crate::desktop::tray::TrayConfig>,
     /// macOS traffic-light position, when the title bar is transparent.
     pub traffic_light_position: Option<(f32, f32)>,
     pub configure_window: Option<WindowOptionsHook>,
@@ -375,6 +387,7 @@ impl DesktopAppConfig {
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
             dev_menu: None,
+            tray: None,
             traffic_light_position: None,
             configure_window: None,
             on_app_ready: None,
@@ -386,6 +399,13 @@ impl DesktopAppConfig {
     /// overrides this at launch.
     pub fn js_engine(mut self, name: impl Into<String>) -> Self {
         self.js_engine = name.into();
+        self
+    }
+
+    /// Run as a menu-bar (tray) app: an icon in the system tray whose click
+    /// opens `component` in a popover window, and no Dock icon by default.
+    pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
+        self.tray = Some(config);
         self
     }
 
@@ -661,6 +681,20 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::DEV_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = dev_perform_tx.send_blocking(MainEvent::DevMenuPerform(id));
     }));
+    let tray_click_tx = tx.clone();
+    let _ = rn_gpui_sys::TRAY_CLICK_HANDLER.set(Box::new(move |x, y, width, height, button| {
+        let _ = tray_click_tx.send_blocking(MainEvent::TrayClick {
+            x,
+            y,
+            width,
+            height,
+            button,
+        });
+    }));
+    let tray_menu_tx = tx.clone();
+    let _ = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
+        let _ = tray_menu_tx.send_blocking(MainEvent::TrayMenuPerform(id));
+    }));
     // The snapshot is read on the JS thread during module initialization, so it
     // has to be installed before the bundle loads.
     crate::desktop::install_snapshot(&app_id);
@@ -698,6 +732,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
         crate::text::install_measure_handler(cx);
+        // A menu-bar app owns no Dock icon and no menu bar (plan 7.3). This has
+        // to happen before the first window opens.
+        if let Some(tray) = &config.tray {
+            if tray.accessory {
+                crate::desktop::platform_window::set_accessory_app(true);
+            }
+        }
         if let Some(on_app_ready) = config.on_app_ready.take() {
             on_app_ready(cx);
         }
@@ -725,6 +766,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Context-menu presenter: the real one, or the driver's fake when
         // RN_GPUI_TEST_FAKE_NATIVE_UI=1 (plan §3.5).
         crate::desktop::context_menu::install(cx);
+        // The tray icon needs a running NSApplication, so it is created here
+        // rather than while parsing the config.
+        if let Some(tray) = config.tray.take() {
+            if let Err(error) = crate::desktop::tray::install(cx, tray) {
+                log::error!("[desktop][tray] {error}");
+            }
+        }
         // Plan 7.6 — the Perf Monitor starts disabled; the Dev Menu toggles it.
         crate::desktop::perf_monitor::install(cx);
 
@@ -1489,6 +1537,35 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     }
                     MainEvent::DevMenuShow => {
                         cx.update(|cx| crate::desktop::dev_menu::show(cx));
+                    }
+                    MainEvent::TrayClick {
+                        x,
+                        y,
+                        width,
+                        height,
+                        button,
+                    } => {
+                        cx.update(|cx| {
+                            crate::desktop::tray::handle_click(
+                                cx,
+                                crate::desktop::tray::TrayRect {
+                                    x,
+                                    y,
+                                    width,
+                                    height,
+                                },
+                                match button {
+                                    1 => crate::desktop::tray::TrayButton::Right,
+                                    2 => crate::desktop::tray::TrayButton::Middle,
+                                    _ => crate::desktop::tray::TrayButton::Left,
+                                },
+                            )
+                        });
+                    }
+                    MainEvent::TrayMenuPerform(id) => {
+                        cx.update(|cx| {
+                            crate::desktop::tray::emit_menu_press(cx, &id)
+                        });
                     }
                     MainEvent::DevMenuPerform(id) => {
                         cx.update(|cx| crate::desktop::dev_menu::perform(cx, &id));

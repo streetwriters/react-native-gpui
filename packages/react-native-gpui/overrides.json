@@ -156,6 +156,10 @@
     {
       "type": "platform",
       "file": "src-gpui/navigation/useDesktopForwardNavigation.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/tray.ts"
     }
   ]
 }

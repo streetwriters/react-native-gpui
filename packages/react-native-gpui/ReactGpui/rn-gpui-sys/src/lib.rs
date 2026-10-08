@@ -401,6 +401,13 @@ pub static DEV_SETTING_HANDLER: OnceLock<DevSettingHandler> = OnceLock::new();
 /// A chosen Dev Menu item id; the menu runs it on the GPUI main thread.
 pub type DevMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static DEV_MENU_PERFORM_HANDLER: OnceLock<DevMenuPerformHandler> = OnceLock::new();
+/// A tray icon click, from the platform's event thread:
+/// `(x, y, width, height, button)` in physical pixels.
+pub type TrayClickHandler = Box<dyn Fn(f32, f32, f32, f32, u8) + Send + Sync>;
+pub static TRAY_CLICK_HANDLER: OnceLock<TrayClickHandler> = OnceLock::new();
+/// A chosen tray menu item id.
+pub type TrayMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
+pub static TRAY_MENU_PERFORM_HANDLER: OnceLock<TrayMenuPerformHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
