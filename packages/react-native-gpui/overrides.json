@@ -140,6 +140,22 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/perfMonitor.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/NativeComponent/BaseViewConfig.gpui.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Network/RCTNetworking.gpui.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Renderer/shims/ReactNativeViewConfigRegistry.gpui.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/navigation/useDesktopForwardNavigation.ts"
     }
   ]
 }
