@@ -15,6 +15,7 @@ pub mod capabilities;
 pub mod context_menu;
 pub mod dev_menu;
 pub mod errors;
+pub mod gpui_menu;
 pub mod menu_model;
 pub mod perf_monitor;
 pub mod platform_window;

@@ -430,6 +430,34 @@ export class DesktopApp {
     await this.waitForIdle();
   }
 
+  /** Which context-menu presenter is installed (plan 6.3). */
+  async contextMenuPresenter(): Promise<{ presenter: string }> {
+    return this.request('contextMenuPresenter');
+  }
+
+  /** The GPUI-rendered menu popup that is open, if any. */
+  async gpuiMenuState(): Promise<{ open: boolean; items?: unknown[] }> {
+    return this.request('gpuiMenuState');
+  }
+
+  /** Choose an item in the GPUI-rendered menu. */
+  async selectGpuiMenuItem(id: string): Promise<boolean> {
+    const result = await this.request<{ selected: boolean }>(
+      'selectGpuiMenuItem',
+      { id },
+    );
+    await this.waitForIdle();
+    return result.selected;
+  }
+
+  async dismissGpuiMenu(): Promise<boolean> {
+    const result = await this.request<{ dismissed: boolean }>(
+      'dismissGpuiMenu',
+    );
+    await this.waitForIdle();
+    return result.dismissed;
+  }
+
   /** Install a tray icon (plan 7.3). */
   async trayInstall(options: Record<string, unknown> = {}): Promise<unknown> {
     return this.request('trayInstall', options);

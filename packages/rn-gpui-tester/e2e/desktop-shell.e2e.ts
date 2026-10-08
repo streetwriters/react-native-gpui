@@ -14,6 +14,7 @@ async function launch(
   module: string,
   scenario?: string,
   initialProps: Record<string, unknown> = {},
+  extraEnv: Record<string, string> = {},
 ) {
   if (app) await app.close();
   app = await launchApp({
@@ -30,6 +31,7 @@ async function launch(
       RN_GPUI_WINDOW_STATE: path.resolve(
         `.local/e2e-${module}-${scenario ?? 'default'}.json`,
       ),
+      ...extraEnv,
     },
     initialProps: { scenario, ...initialProps },
     disableAnimations: true,
@@ -355,4 +357,38 @@ test('a tray menu reports the chosen item', async () => {
 
   await app.getByTestId('tray-destroy').click();
   await app.waitForIdle();
+});
+
+test('the GPUI-rendered menu path opens, selects and dismisses', async () => {
+  // The Linux answer for 7.2, forced on so it is exercised on macOS.
+  // The fake presenter wins over the GPUI one, so it is switched off here.
+  await launch(
+    'ContextMenuFixture',
+    undefined,
+    {},
+    {
+      RN_GPUI_CONTEXT_MENU: 'gpui',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '0',
+    },
+  );
+  await app.waitForIdle();
+  expect((await app.contextMenuPresenter()).presenter).toBe('gpui');
+
+  await app.getByTestId('cm-target').rightClick();
+  await app.waitForIdle();
+  const opened = await app.gpuiMenuState();
+  expect(opened.open).toBe(true);
+  const items = JSON.stringify(opened.items ?? []);
+  expect(items).toContain('cm-open');
+  expect(items).toContain('Nested item');
+  expect(items).toContain('"checked":true');
+
+  expect(await app.selectGpuiMenuItem('cm-nested')).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
+
+  // A dismissed GPUI menu resolves null, the same as a native one.
+  await app.getByTestId('cm-target').rightClick();
+  await app.waitForIdle();
+  expect(await app.dismissGpuiMenu()).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: dismissed');
 });

@@ -937,6 +937,27 @@ async fn serve_commands(
                 crate::desktop::tray::destroy(cx)
                     .unwrap_or_else(|error| error.to_json_value())
             }),
+            "contextMenuPresenter" => {
+                cx.update(|cx| json!({"presenter": crate::desktop::context_menu::presenter_name(cx)}))
+            }
+            "gpuiMenuState" => cx.update(|cx| match crate::desktop::gpui_menu::MenuPopup::pending(cx) {
+                Some((_window, items)) => json!({
+                    "open": true,
+                    "items": crate::desktop::context_menu::nodes_json(&items),
+                }),
+                None => json!({"open": false}),
+            }),
+            "selectGpuiMenuItem" => {
+                let id = params
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| json!({"selected": crate::desktop::gpui_menu::MenuPopup::select(cx, &id)}))
+            }
+            "dismissGpuiMenu" => cx.update(|cx| {
+                json!({"dismissed": crate::desktop::gpui_menu::MenuPopup::dismiss(cx)})
+            }),
             "getContextMenu" => cx.update(|cx| {
                 crate::desktop::context_menu::fake_model(cx).unwrap_or(Value::Null)
             }),

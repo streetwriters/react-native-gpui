@@ -96,6 +96,9 @@ pub fn target_window(cx: &mut App) -> Result<(AnyWindowHandle, isize), DesktopEr
 /// Presents a context menu and settles the request.
 pub trait ContextMenuPresenter: 'static {
     fn show(&self, cx: &mut App, request: ContextMenuRequest, responder: Responder);
+
+    /// Which presenter is installed, for the test driver.
+    fn name(&self) -> &'static str;
 }
 
 pub struct ContextMenuPresenterGlobal(pub Rc<dyn ContextMenuPresenter>);
@@ -110,6 +113,8 @@ pub fn install(cx: &mut App) {
         let fake = Rc::new(FakeContextMenu::new());
         cx.set_global(FakeContextMenuGlobal(fake.clone()));
         cx.set_global(ContextMenuPresenterGlobal(fake));
+    } else if crate::desktop::gpui_menu::should_use_gpui() {
+        cx.set_global(ContextMenuPresenterGlobal(Rc::new(GpuiContextMenu)));
     } else {
         cx.set_global(ContextMenuPresenterGlobal(Rc::new(NativeContextMenu)));
     }
@@ -219,6 +224,10 @@ fn cursor_position(cx: &mut App, window: AnyWindowHandle) -> (f32, f32) {
 struct NativeContextMenu;
 
 impl ContextMenuPresenter for NativeContextMenu {
+    fn name(&self) -> &'static str {
+        "native"
+    }
+
     fn show(&self, cx: &mut App, request: ContextMenuRequest, responder: Responder) {
         // The native call runs a modal tracking loop, so it is deferred: GPUI
         // must not be inside an update while the menu is open.
@@ -227,6 +236,22 @@ impl ContextMenuPresenter for NativeContextMenu {
                 responder.reject(error);
             }
         });
+    }
+}
+
+/// The GPUI-rendered presenter (plan §6.3): the Linux answer, and selectable
+/// everywhere with `RN_GPUI_CONTEXT_MENU=gpui` so it can be tested on macOS.
+struct GpuiContextMenu;
+
+impl ContextMenuPresenter for GpuiContextMenu {
+    fn name(&self) -> &'static str {
+        "gpui"
+    }
+
+    fn show(&self, cx: &mut App, request: ContextMenuRequest, responder: Responder) {
+        if let Err(error) = crate::desktop::gpui_menu::present(cx, request, responder.clone()) {
+            responder.reject(DesktopError::failed(error));
+        }
     }
 }
 
@@ -360,6 +385,10 @@ impl FakeContextMenu {
 }
 
 impl ContextMenuPresenter for FakeContextMenu {
+    fn name(&self) -> &'static str {
+        "fake"
+    }
+
     fn show(&self, _cx: &mut App, request: ContextMenuRequest, responder: Responder) {
         let mut state = self.state.borrow_mut();
         // A second show dismisses the first with `null`.
@@ -396,6 +425,13 @@ pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
             }),
         })
         .collect()
+}
+
+/// Which presenter is installed, for the test driver.
+pub fn presenter_name(cx: &App) -> &'static str {
+    cx.try_global::<ContextMenuPresenterGlobal>()
+        .map(|presenter| presenter.0.name())
+        .unwrap_or("none")
 }
 
 /// The model the fake recorded, for `getContextMenu`.
