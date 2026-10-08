@@ -14,6 +14,7 @@
 
 namespace facebook::react {
 
+class JSRuntimeFactory;
 class PlatformTimerRegistry;
 class NativeAnimatedNodesManagerProvider;
 
@@ -29,6 +30,10 @@ struct ReactInstanceConfig {
 #endif
   std::string devServerHost{"localhost"};
   uint32_t devServerPort{8081};
+
+  // Factory used to create the JS runtime for every (re)load. Supplied by the
+  // active JS engine package; ReactHost throws when it is null.
+  std::shared_ptr<JSRuntimeFactory> jsRuntimeFactory{nullptr};
 
   // Optional factory used to create the PlatformTimerRegistry for the instance.
   // When unset, a default thread-based PlatformTimerRegistryImpl is used. This

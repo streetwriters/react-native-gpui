@@ -32,7 +32,6 @@
 #include <react/renderer/uimanager/IMountingManager.h>
 #include <react/runtime/JSRuntimeBindings.h>
 #include <react/runtime/PlatformTimerRegistryImpl.h>
-#include <react/runtime/hermes/HermesInstance.h>
 #include <react/threading/MessageQueueThreadImpl.h>
 
 #include "ReactCxxTurboModuleProvider.h"
@@ -200,10 +199,12 @@ void ReactHost::createReactInstance() {
       reactInstanceData_->contextContainer->at<MessageQueueThreadFactory>(
           MessageQueueThreadFactoryKey);
   reactInstanceData_->messageQueueThread = messageQueueThreadFactory();
-  std::unique_ptr<JSRuntime> runtime = HermesInstance::createJSRuntime(
-      nullptr,
-      reactInstanceData_->messageQueueThread,
-      /* allocInOldGenBeforeTTI */ false);
+  if (reactInstanceConfig_.jsRuntimeFactory == nullptr) {
+    throw std::runtime_error("No JSRuntimeFactory provided");
+  }
+  std::unique_ptr<JSRuntime> runtime =
+      reactInstanceConfig_.jsRuntimeFactory->createJSRuntime(
+          reactInstanceData_->messageQueueThread);
 
   if (reactInstanceConfig_.enableInspector) {
     react_native_assert(
