@@ -284,6 +284,20 @@ run('cmake', [
   platformDir,
 ]);
 
+// Native-deps archives the build downloaded (DownloadNativeDeps.cmake), with
+// their sha256, so consumers and CI can see exactly which sources a build used.
+function nativeDepsArchives(dir) {
+  const downloads = path.join(dir, 'native-deps', 'downloads');
+  if (!existsSync(downloads)) return [];
+  return readdirSync(downloads)
+    .filter(name => !name.endsWith('.part'))
+    .sort()
+    .map(name => ({
+      name,
+      sha256: sha256File(path.join(downloads, name)),
+    }));
+}
+
 // --- manifest ------------------------------------------------------------------------
 const inputs = inputHash();
 const files = {};
@@ -326,10 +340,12 @@ const manifest = {
   minOs: process.platform === 'darwin' ? 'macos 11.0' : null,
   glibc: process.platform === 'linux' ? '2.36' : null,
   libraries: libraryFiles(platformDir),
+  // Headers are not shipped: consumers take them from node_modules/react-native,
+  // this package, @react-native-gpui/hermes, their own build.rs output and the
+  // native-deps downloads listed here. OpenSSL's generated headers are the only
+  // exception (include/openssl-generated).
+  nativeDeps: nativeDepsArchives(buildDir),
   files,
-  dependencyDirs: {
-    boost: sizeOfDir(path.join(platformDir, 'include', 'third-party', 'boost')),
-  },
 };
 writeFileSync(
   path.join(platformDir, 'manifest.json'),
