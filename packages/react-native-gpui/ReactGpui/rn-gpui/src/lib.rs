@@ -24,6 +24,9 @@ pub(crate) mod text;
 
 mod bootstrap;
 pub use bootstrap::{run, run_with, DesktopAppConfig};
+// A menu-bar app's launch configuration (plan 7.3), so an app's `main.rs` can
+// build one without reaching into the module path.
+pub use desktop::tray::TrayConfig;
 pub use rn_gpui_macros::rn_module;
 
 /// Keep a locally declared `#[rn_module]`'s exported C ABI symbols linked into
