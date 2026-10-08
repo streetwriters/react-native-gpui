@@ -15,6 +15,8 @@
 //!                       (default index). The prebuilt bundle at RN_GPUI_BUNDLE
 //!                       is the fallback when the dev server is unreachable.
 //!   RN_GPUI_MODULE      optional registered component name override; apps default from app.json
+//!   RN_GPUI_JS_ENGINE   name of the installed JS engine package to run, e.g.
+//!                       "hermes"; overrides DesktopAppConfig::js_engine
 //!   RN_GPUI_WIDTH/HEIGHT  surface constraints (default 800/600)
 //!   (visual-capture) RN_GPUI_SCALE       overrides the Fabric display scale;
 //!                       default the window's `scale_factor()` is used, so a
@@ -297,6 +299,9 @@ pub type WindowOpenedHook = Box<dyn FnOnce(gpui::WindowId, &mut gpui::Window, &m
 pub struct DesktopAppConfig {
     pub app_id: String,
     pub module: String,
+    /// Name of the installed JS engine package to run, e.g. `"hermes"`. Empty
+    /// uses the only installed engine. `RN_GPUI_JS_ENGINE` overrides this.
+    pub js_engine: String,
     pub width: f32,
     pub height: f32,
     pub title: Option<String>,
@@ -321,6 +326,7 @@ impl DesktopAppConfig {
         Self {
             app_id: env_string("RN_GPUI_APP_ID", app_id),
             module: env_string("RN_GPUI_MODULE", module),
+            js_engine: String::new(),
             width: env_f32("RN_GPUI_WIDTH", 800.0),
             height: env_f32("RN_GPUI_HEIGHT", 600.0),
             title: None,
@@ -330,6 +336,13 @@ impl DesktopAppConfig {
             on_app_ready: None,
             on_window_opened: None,
         }
+    }
+
+    /// Choose the installed JS engine package to run. `RN_GPUI_JS_ENGINE`
+    /// overrides this at launch.
+    pub fn js_engine(mut self, name: impl Into<String>) -> Self {
+        self.js_engine = name.into();
+        self
     }
 
     pub fn window_title(mut self, title: impl Into<String>) -> Self {
@@ -411,6 +424,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
     // `DevServerHelper` composes `http://<host>:<port>/<source path>.bundle`.
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
+    // The env var is the run-time escape hatch for trying a second installed
+    // engine, so it outranks the app's own choice.
+    let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
     let module = config.module.clone();
@@ -718,7 +734,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .unwrap_or(2.0);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let host = Host::new(&app_id, &dev_host, dev_port);
+        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine);
         startup_trace("React host created");
         // NativeDeviceInfo is queried during JS module initialization; publish
         // the actual viewport before loading the bundle that imports Dimensions.

@@ -1,6 +1,6 @@
 //! Rust wrapper over the C++ `GpuiHost` (design doc §18.11).
 //!
-//! The host owns the ReactInstance: Hermes, the Fabric scheduler and the
+//! The host owns the ReactInstance: the JS engine, the Fabric scheduler and the
 //! mounting manager. It is created on the main thread, and every call is
 //! serialised through a mutex because the mount callback path (JS/Fabric
 //! thread) touches it too.
@@ -16,15 +16,16 @@ use std::sync::{Arc, Mutex};
 pub struct Host(Arc<Mutex<cxx::UniquePtr<ffi::GpuiHost>>>);
 
 impl Host {
-    pub fn new(app_id: &str, dev_host: &str, port: u32) -> Self {
+    /// `js_engine` names the engine package to run; empty uses the default.
+    pub fn new(app_id: &str, dev_host: &str, port: u32, js_engine: &str) -> Self {
         #[cfg(test)]
         {
-            let _ = (app_id, dev_host, port);
+            let _ = (app_id, dev_host, port, js_engine);
             return Self::test_stub();
         }
         #[cfg(not(test))]
         Self(Arc::new(Mutex::new(ffi::new_gpui_host(
-            app_id, dev_host, port,
+            app_id, dev_host, port, js_engine,
         ))))
     }
 

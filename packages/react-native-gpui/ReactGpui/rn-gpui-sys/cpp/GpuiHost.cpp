@@ -5,6 +5,7 @@
 #include <react/coremodules/DeviceInfoModule.h>
 #include "GpuiExtensions.h"
 #include "GpuiHttpClient.h"
+#include "GpuiJsEngine.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
 #include "MountBatchBuilder.h"
@@ -97,17 +98,6 @@ using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (*)(
     const std::string&,
     std::shared_ptr<CallInvoker>);
 std::atomic<AppCppTurboModuleProvider> appCppTurboModuleProvider{nullptr};
-
-class GpuiFeatureFlagsOverrides final
-    : public ReactNativeFeatureFlagsOverridesOSSStable {
- public:
-  // React Native's C++ AnimatedModule queues operations until
-  // finishOperationBatch(). GPUI is neither Android nor iOS, so RN's JS helper
-  // only sends those batch boundaries when this flag is enabled.
-  bool cxxNativeAnimatedEnabled() override {
-    return true;
-  }
-};
 
 std::mutex appearanceMutex;
 std::string systemAppearance{"light"};
@@ -525,8 +515,8 @@ TurboModuleProviders gpui_turbo_module_providers() {
 }
 
 // Temporary until step 3 of .local/js-engines.md: Hermes is still wired into
-// core, so core supplies this factory. It moves to @react-native-gpui/hermes,
-// which will register it through rngpui::registerJsEngine instead.
+// core, so core registers it. It moves to @react-native-gpui/hermes, whose
+// `rn_gpui_register_js_engine_hermes` symbol autolink calls at startup instead.
 class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
  public:
   std::unique_ptr<facebook::react::JSRuntime> createJSRuntime(
@@ -537,18 +527,43 @@ class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
   }
 };
 
+// The pinned facebook/hermes commit the prebuilt VM in
+// @react-native-gpui/hermes was built from; step 3 reads it from that package's
+// package.json instead of hardcoding it here.
+constexpr const char* kHermesVersion = "10a40b5";
+
+void register_core_js_engine() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    rngpui::registerJsEngine(rngpui::GpuiJsEngine{
+        .info = {.name = "hermes", .version = kHermesVersion},
+        .makeRuntimeFactory =
+            [] { return std::make_shared<HermesRuntimeFactory>(); },
+    });
+  });
+}
+
 // Installs the OSS stable feature flags, which is what an OSS app on the new
 // (bridgeless) architecture does. `enableBridgelessArchitecture` is load
 // bearing for us: ReactHost here IS the bridgeless host, and the flag is what
-// makes the Hermes runtime turn on its microtask queue
+// makes the runtime turn on its microtask queue
 // (ReactCommon/react/runtime/hermes/HermesInstance.cpp:73); without it, React's
 // rendering path fails with "Could not enqueue microtask because they are
 // disabled in this runtime".
 void install_feature_flags() {
   static std::once_flag once;
   std::call_once(once, [] {
-    ReactNativeFeatureFlags::override(
-        std::make_unique<GpuiFeatureFlagsOverrides>());
+    // An engine that needs flags of its own returns an overrides object
+    // deriving from rngpui::GpuiFeatureFlagsOverrides, so core's survive.
+    const auto& engine = rngpui::activeJsEngine();
+    std::unique_ptr<ReactNativeFeatureFlagsOverridesOSSStable> overrides;
+    if (engine.makeFeatureFlagsOverrides) {
+      overrides = engine.makeFeatureFlagsOverrides();
+    }
+    if (!overrides) {
+      overrides = std::make_unique<rngpui::GpuiFeatureFlagsOverrides>();
+    }
+    ReactNativeFeatureFlags::override(std::move(overrides));
   });
 }
 
@@ -591,12 +606,24 @@ void rn_gpui_clipboard_result(int32_t id, rust::String text) {
       });
 }
 
-std::unique_ptr<GpuiHost>
-new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
-  return std::make_unique<GpuiHost>(appId, devHost, devPort);
+std::unique_ptr<GpuiHost> new_gpui_host(
+    rust::Str appId,
+    rust::Str devHost,
+    uint32_t devPort,
+    rust::Str jsEngine) {
+  return std::make_unique<GpuiHost>(appId, devHost, devPort, jsEngine);
 }
 
-GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
+GpuiHost::GpuiHost(
+    rust::Str appId,
+    rust::Str devHost,
+    uint32_t devPort,
+    rust::Str jsEngine) {
+  register_core_js_engine();
+  // Engine packages register themselves from their installers; the app's
+  // choice (`RN_GPUI_JS_ENGINE` / DesktopAppConfig::js_engine) is applied
+  // before anything asks for the active engine.
+  rngpui::selectJsEngine(std::string(jsEngine));
   rngpui::rn_gpui_install_extensions();
   install_feature_flags();
   // Text measurement from the TextLayoutManager override goes through the
@@ -616,7 +643,7 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   config.platformTimerRegistryFactory = [] {
     return std::make_unique<PlatformTimerRegistryImpl>();
   };
-  config.jsRuntimeFactory = std::make_shared<HermesRuntimeFactory>();
+  config.jsRuntimeFactory = rngpui::activeJsEngine().makeRuntimeFactory();
 
   mountingManager_ =
       std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {

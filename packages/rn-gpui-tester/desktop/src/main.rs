@@ -90,6 +90,9 @@ fn main() {
     )
     .window_title(env!("RN_GPUI_APP_NAME"))
     .window_size(1280.0, 900.0)
+    // The tester installs Hermes; with a second engine package present it would
+    // otherwise be ambiguous. `RN_GPUI_JS_ENGINE` overrides this.
+    .js_engine("hermes")
     // Uncomment to choose a fixed initial top-left location (screen DIPs).
     // .window_position(120.0, 80.0)
     // .restore_window_state(false)

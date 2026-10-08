@@ -62,7 +62,11 @@ constexpr int32_t kAllSurfacesStopped = -1;
 
 class GpuiHost {
  public:
-  GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort);
+  GpuiHost(
+      rust::Str appId,
+      rust::Str devHost,
+      uint32_t devPort,
+      rust::Str jsEngine);
   ~GpuiHost();
 
   bool load_script(rust::Str bundlePath, rust::Str sourceUrl);
@@ -129,8 +133,11 @@ class GpuiHost {
   bool scriptLoaded_{false};
 };
 
-std::unique_ptr<GpuiHost>
-new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort);
+std::unique_ptr<GpuiHost> new_gpui_host(
+    rust::Str appId,
+    rust::Str devHost,
+    uint32_t devPort,
+    rust::Str jsEngine);
 std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(

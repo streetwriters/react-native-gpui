@@ -480,3 +480,17 @@ test('SVG primitives, SvgXml and remote SvgUri render from an SVG response', asy
   expect(tree).toContain('React Native SVG');
   expect((await app.screenshot()).length).toBeGreaterThan(1000);
 });
+
+test('Platform.constants reports the active JS engine package', async () => {
+  await launch('CoreModulesFixture');
+  // The engine is a property of the installed package, not of the test, so the
+  // expectation comes from the same override that selects it at run time.
+  const expectedEngine = process.env.RN_GPUI_JS_ENGINE || 'hermes';
+  const name = (await app.query('testID', 'core-js-engine', true))[0];
+  expect(name?.text).toBe(`JS engine: ${expectedEngine}`);
+  const version = (
+    await app.query('testID', 'core-js-engine-version', true)
+  )[0];
+  expect(version?.text).toMatch(/^JS engine version: \S/u);
+  expect(version?.text).not.toContain('unknown');
+});

@@ -4,6 +4,7 @@ import {
   Appearance,
   Dimensions,
   Linking,
+  Platform,
   Text,
   View,
   useColorScheme,
@@ -102,6 +103,12 @@ function CoreModulesFixture() {
       </Text>
       <Text style={styles.row}>Linking: {linkResult}</Text>
       <Text style={styles.row}>Clipboard: {clipboardResult}</Text>
+      <Text style={styles.row} testID="core-js-engine">
+        JS engine: {Platform.constants.jsEngine.name}
+      </Text>
+      <Text style={styles.row} testID="core-js-engine-version">
+        JS engine version: {Platform.constants.jsEngine.version}
+      </Text>
       <Text
         style={styles.button}
         onPress={async () => {
