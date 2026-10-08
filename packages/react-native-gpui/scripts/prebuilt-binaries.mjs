@@ -25,7 +25,7 @@
 // { "<platform>": { file, sha256, size } } }. An empty assets map means no
 // prebuilt is published yet.
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
@@ -101,7 +101,11 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--triple') args.triple = argv[++i];
     else if (arg.startsWith('--triple=')) args.triple = arg.slice(9);
-    else args._.push(arg);
+    else if (arg.startsWith('--')) {
+      // Generic --key value flags for subcommands such as pin.
+      const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      args[key] = argv[++i];
+    } else args._.push(arg);
   }
   return args;
 }
@@ -380,9 +384,70 @@ async function main() {
       log(`removed ${root}`);
       return;
     }
+    case 'pin': {
+      // Writes the pin file from a SHA256SUMS.txt and the archives beside it.
+      // CI calls this after the release is published; the file is then a PR.
+      const { version, inputHash, tag, repo, sums, out } = args;
+      for (const [k, v] of Object.entries({
+        version,
+        inputHash,
+        tag,
+        repo,
+        sums,
+        out,
+      })) {
+        if (!v)
+          die(
+            `pin needs --${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}`,
+            2,
+          );
+      }
+      const sumsDir = path.dirname(path.resolve(sums));
+      const assets = {};
+      let reactNative = null;
+      for (const line of readFileSync(sums, 'utf8').split('\n')) {
+        const match = line.match(
+          /^([0-9a-f]{64})\s+\*?(prebuilt-binaries-(.+)\.tar\.gz)$/u,
+        );
+        if (!match) continue;
+        const [, sha256, file, platform] = match;
+        const triple = Object.keys(TRIPLE_PLATFORMS).find(
+          t => TRIPLE_PLATFORMS[t] === platform,
+        );
+        if (!triple) continue;
+        const archive = path.join(sumsDir, file);
+        // The archive has one top-level <platform>/ dir; read its manifest.json
+        // directly so the same call works with GNU and BSD tar.
+        const manifest = JSON.parse(
+          execFileSync('tar', ['-xzOf', archive, `${platform}/manifest.json`], {
+            encoding: 'utf8',
+            // The manifest lists every file (about 18k entries), above the default buffer.
+            maxBuffer: 256 * 1024 * 1024,
+          }),
+        );
+        if (manifest.inputHash !== inputHash) {
+          die(
+            `${file} was built from input hash ${manifest.inputHash}, not ${inputHash}`,
+            1,
+          );
+        }
+        reactNative ??= manifest.reactNative;
+        assets[triple] = {
+          file,
+          sha256,
+          size: statSync(archive).size,
+        };
+      }
+      if (Object.keys(assets).length === 0)
+        die('no prebuilt archives in SHA256SUMS', 1);
+      const pin = { version, reactNative, inputHash, repo, tag, assets };
+      writeFileSync(path.resolve(out), `${JSON.stringify(pin, null, 2)}\n`);
+      log(`wrote ${out} with ${Object.keys(assets).length} asset(s)`);
+      return;
+    }
     default:
       die(
-        'usage: prebuilt-binaries.mjs <ensure|fetch|path|verify|clean> [--triple <triple>] [dir]',
+        'usage: prebuilt-binaries.mjs <ensure|fetch|path|verify|clean|pin> [--triple <triple>] [dir]',
         1,
       );
   }
