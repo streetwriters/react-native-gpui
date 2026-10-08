@@ -246,9 +246,29 @@ jobs:
           cmake_minimum_required(VERSION 3.22)
           project(consumer CXX)
           set(CMAKE_CXX_STANDARD 20)
+          # The archive ships no headers: point each root at the tree this
+          # checkout already has. Missing roots fail inside the config file.
+          set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${REPO}/packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp")
+          set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${REPO}/packages/react-native-gpui/ReactCommonOverrides")
+          set(RN_GPUI_PREBUILT_ROOT_react_common "${REPO}/node_modules/react-native/ReactCommon")
+          set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REPO}/packages/react-native-gpui/ReactCxxPlatform")
+          set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${GENERATED}/fbreactnativespec/jni")
+          set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${GENERATED}/cxxbridge-include")
+          set(RN_GPUI_PREBUILT_ROOT_hermes "${REPO}/packages/@react-native-gpui/hermes")
+          set(RN_GPUI_PREBUILT_ROOT_folly "${NATIVE_DEPS}/third-party-ndk/folly")
+          set(RN_GPUI_PREBUILT_ROOT_glog "${NATIVE_DEPS}/third-party-ndk/glog/exported")
+          set(RN_GPUI_PREBUILT_ROOT_fmt "${NATIVE_DEPS}/third-party-ndk/fmt/include")
+          set(RN_GPUI_PREBUILT_ROOT_double_conversion "${NATIVE_DEPS}/third-party-ndk/double-conversion")
+          set(RN_GPUI_PREBUILT_ROOT_fast_float "${NATIVE_DEPS}/third-party-ndk/fast_float/include")
+          set(RN_GPUI_PREBUILT_ROOT_nlohmann_json "${NATIVE_DEPS}/third-party-ndk/nlohmann_json/include")
+          set(RN_GPUI_PREBUILT_ROOT_boost "${NATIVE_DEPS}/third-party-ndk/boost/boost_1_83_0")
+          set(RN_GPUI_PREBUILT_ROOT_curl "${NATIVE_DEPS}/sources/curl/curl-8.11.1/include")
           find_package(react-native-gpui-prebuilt CONFIG REQUIRED PATHS "${PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
           EOF_CMAKE
-          cmake -S "$consumer" -B "$consumer/build" -DPREBUILT_DIR="$unpack" -DCMAKE_BUILD_TYPE=Release
+          cmake -S "$consumer" -B "$consumer/build" \
+            -DPREBUILT_DIR="$unpack" -DREPO="$GITHUB_WORKSPACE" \
+            -DGENERATED="$RUNNER_TEMP/generated-inputs" -DNATIVE_DEPS="$NATIVE_DEPS" \
+            -DCMAKE_BUILD_TYPE=Release
           echo "Consumer configured against $unpack"
 
       - name: Collect Windows PDBs
