@@ -114,8 +114,71 @@ set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 # RN Android stores source archives and prepared third-party sources under its
 # Gradle build directory. Mirror that layout under this target's CMake build
 # cache so independent desktop builds do not rely on host package managers.
+# Both modes download and prepare the pinned native-dep sources. Only source
+# mode builds OpenSSL and curl (cmake/DownloadNativeDeps.cmake guards those).
 set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
+
+if(RN_GPUI_PREBUILT_DIR)
+  # Prebuilt mode: rn_gpui_core, ReactCommon and third-party come from the
+  # archive. Only the app-side targets below are compiled here.
+  set(_rn_gpui_prebuilt_manifest "${RN_GPUI_PREBUILT_DIR}/manifest.json")
+  if(NOT EXISTS "${_rn_gpui_prebuilt_manifest}")
+    message(FATAL_ERROR "RN_GPUI_PREBUILT_DIR has no manifest.json: ${RN_GPUI_PREBUILT_DIR}")
+  endif()
+  file(READ "${_rn_gpui_prebuilt_manifest}" _rn_gpui_prebuilt_json)
+  string(JSON _rn_gpui_prebuilt_bridge_sha GET "${_rn_gpui_prebuilt_json}" cxxBridgeHeaderSha256)
+  string(JSON _rn_gpui_prebuilt_triple GET "${_rn_gpui_prebuilt_json}" triple)
+  if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rn-gpui-sys/src/lib.rs.h")
+    file(SHA256 "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rn-gpui-sys/src/lib.rs.h" _rn_gpui_bridge_sha)
+    if(NOT _rn_gpui_bridge_sha STREQUAL _rn_gpui_prebuilt_bridge_sha)
+      message(FATAL_ERROR
+        "RN_GPUI_PREBUILT_DIR was built for a different cxx bridge (manifest ${_rn_gpui_prebuilt_bridge_sha}, "
+        "current ${_rn_gpui_bridge_sha}). Rebuild the prebuilt or unset RN_GPUI_PREBUILT_DIR.")
+    endif()
+  endif()
+  # The archive is Release, so its ReactCommon headers select the production
+  # ABI (Sealable without a debug constructor). Consumers must compile the same
+  # way or they reference symbols the archive never exports.
+  string(JSON _rn_gpui_prebuilt_rn_debug ERROR_VARIABLE _rn_gpui_json_err GET "${_rn_gpui_prebuilt_json}" defines REACT_NATIVE_DEBUG)
+  if(NOT _rn_gpui_json_err AND _rn_gpui_prebuilt_rn_debug STREQUAL "0")
+    add_compile_definitions(REACT_NATIVE_PRODUCTION)
+  endif()
+  # ReactCommonOverrides is compiled into the archive. build.rs computes the
+  # current hash (CMake strings cannot hold the NUL separator) and passes it in
+  # as RN_GPUI_OVERRIDES_SHA256; a mismatch means the archive is stale.
+  string(JSON _rn_gpui_prebuilt_overrides_sha GET "${_rn_gpui_prebuilt_json}" overridesSha256)
+  if(RN_GPUI_OVERRIDES_SHA256 AND NOT RN_GPUI_OVERRIDES_SHA256 STREQUAL _rn_gpui_prebuilt_overrides_sha)
+    message(FATAL_ERROR
+      "RN_GPUI_PREBUILT_DIR was built from different ReactCommonOverrides (manifest "
+      "${_rn_gpui_prebuilt_overrides_sha}, current ${RN_GPUI_OVERRIDES_SHA256}). Rebuild the "
+      "prebuilt or unset RN_GPUI_PREBUILT_DIR.")
+  endif()
+  # Headers are not in the archive. Point each root the archive names at the
+  # tree this build already uses (the same variables source mode compiles with).
+  # Hermes comes from the @react-native-gpui/hermes package by default.
+  if(NOT RN_GPUI_HERMES_SOURCE_DIR)
+    set(RN_GPUI_HERMES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../packages/@react-native-gpui/hermes")
+  endif()
+  set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${CMAKE_CURRENT_SOURCE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${RN_GPUI_OVERRIDES_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_common "${REACT_COMMON_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REACT_CXX_PLATFORM_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${RN_GPUI_GENERATED_RNCORE_DIR}/jni")
+  set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_hermes "${RN_GPUI_HERMES_SOURCE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_folly "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly")
+  set(RN_GPUI_PREBUILT_ROOT_glog "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported")
+  set(RN_GPUI_PREBUILT_ROOT_fmt "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include")
+  set(RN_GPUI_PREBUILT_ROOT_double_conversion "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion")
+  set(RN_GPUI_PREBUILT_ROOT_fast_float "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include")
+  set(RN_GPUI_PREBUILT_ROOT_nlohmann_json "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include")
+  set(RN_GPUI_PREBUILT_ROOT_boost "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0")
+  set(RN_GPUI_PREBUILT_ROOT_curl "${RN_GPUI_CURL_SOURCE_DIR}/include")
+  message(STATUS "rn_gpui_core: using prebuilt runtime ${RN_GPUI_PREBUILT_DIR} (${_rn_gpui_prebuilt_triple})")
+  find_package(react-native-gpui-prebuilt CONFIG REQUIRED
+    PATHS "${RN_GPUI_PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
+else()
 
 # GpuiHttpClient uses libcurl. Build curl from its pinned source archive against
 # the OpenSSL copy prepared in the same CMake cache above.
@@ -160,8 +223,8 @@ endfunction()
 # back to the include directory of the most recent cargo build.
 #
 # This has to happen before the ReactCommon subdirectories are added: the
-# TextLayoutManager copy override is compiled inside one of them and
-# needs the bridge header, which it reaches through MountBatchBuilder.h.
+# rn_gpui_core glue (GpuiHost.cpp, MountBatchBuilder.cpp) needs the bridge
+# header. The ReactCommon override does not; it uses GpuiTextMeasure.h.
 if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   file(GLOB RN_GPUI_CXXBRIDGE_CANDIDATES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../target/*/build/rn-gpui-sys-*/out/cxxbridge/include/rust/cxx.h")
@@ -179,18 +242,12 @@ if(NOT RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
   endif()
 endif()
 
-# The cargo build script always places the active bridge under the current
-# CMake build's sibling `cxxbridge/include`. Prefer it explicitly: the fallback
-# glob above can pick an older fingerprint when Cargo has multiple feature
-# builds in `target/debug/build`.
-include_directories(BEFORE "${CMAKE_BINARY_DIR}/../cxxbridge/include")
-
-# Shared glue headers (MountBatchBuilder.h) and the bridge header, for every
-# ReactCommon subdirectory: the TextLayoutManager override includes both.
+# Shared glue headers for every ReactCommon subdirectory: the TextLayoutManager
+# override includes GpuiTextMeasure.h from here. This is fixed platform glue,
+# not an app or Cargo input, so it stays directory-wide. The cxx bridge header
+# is not added directory-wide; only rn_gpui_core consumes it (see below), so
+# the ReactCommon targets build without RN_GPUI_CXXBRIDGE_INCLUDE_DIR.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
-  include_directories(${RN_GPUI_CXXBRIDGE_INCLUDE_DIR})
-endif()
 
 # Header overrides (TODO 2.5). Must come before the ReactCommon subdirectories
 # below: this directory holds a replacement for
@@ -480,35 +537,13 @@ endif()
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
-if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
-  include("${RN_GPUI_AUTOLINK_CMAKE}")
-endif()
-
-if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
-   AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-   AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
-  add_library(weak-node-api SHARED
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
-  target_include_directories(weak-node-api PUBLIC
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  target_compile_features(weak-node-api PRIVATE cxx_std_20)
-  set_target_properties(weak-node-api PROPERTIES
-    FRAMEWORK TRUE
-    OUTPUT_NAME "weak-node-api"
-    FRAMEWORK_VERSION A
-    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
-
-
-endif()
-
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
-  MountBatchBuilder.cpp)
+  MountBatchBuilder.cpp
+  GpuiExtensions.cpp)
 # Out-of-tree addons can require native build targets without linking into core.
 get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
 foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
@@ -520,34 +555,10 @@ if(APPLE)
   target_sources(rn_gpui_core PRIVATE GpuiAccessibilityMac.mm)
   target_link_libraries(rn_gpui_core PUBLIC "-framework AppKit")
 endif()
-get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-  target_include_directories(rn_gpui_core PRIVATE "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SVG=1)
-endif()
-if(TARGET weak-node-api)
-  target_compile_definitions(rn_gpui_core PRIVATE
-    RN_GPUI_HAS_NODE_API=1
-    HERMES_NAPI_USE_CPP_LINKAGE=1)
-  target_sources(rn_gpui_core PRIVATE
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
-  target_include_directories(rn_gpui_core PRIVATE
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
-    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  add_dependencies(rn_gpui_core weak-node-api)
-endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeviewhost/NativeViewHost.cpp")
-if(RN_GPUI_GENERATED_MODULES_DIR)
-  target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_GENERATED_MODULES_DIR}")
-endif()
 if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
@@ -668,6 +679,33 @@ foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
   endif()
 endforeach()
 
+endif()  # NOT RN_GPUI_PREBUILT_DIR (source build of rn_gpui_core and its deps)
+
+# Autolinked app packages and the Node-API shim are needed in both modes:
+# they only add sources to global properties and app-side targets.
+if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
+  include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
+
+if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
+   AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+   AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  add_library(weak-node-api SHARED
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
+  target_include_directories(weak-node-api PUBLIC
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  target_compile_features(weak-node-api PRIVATE cxx_std_20)
+  set_target_properties(weak-node-api PROPERTIES
+    FRAMEWORK TRUE
+    OUTPUT_NAME "weak-node-api"
+    FRAMEWORK_VERSION A
+    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
+
+
+endif()
+
 # App TurboModules are generated under desktop/autolink and linked as a
 # separate archive. The platform runtime only owns the registration hook.
 if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE}")
@@ -686,27 +724,132 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     ${RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS})
   target_compile_definitions(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_DEFINITIONS})
   target_compile_options(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_COMPILE_OPTIONS})
-  target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
-  target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+  if(RN_GPUI_PREBUILT_DIR)
+    # The imported rn_gpui_core already carries ReactCommon, folly and the rest;
+    # it cannot be given a link to this archive, so the link order comes from
+    # link_libs-<CONFIG>.txt instead (see the link_libs section).
+    target_link_libraries(rn_gpui_app_turbo_modules PRIVATE rn_gpui_core)
+  else()
+    target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CORE_DEPS})
+    target_link_libraries(rn_gpui_core PUBLIC rn_gpui_app_turbo_modules)
+  endif()
 endif()
 
-get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
-if(RN_GPUI_HAS_WORKLETS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_WORKLETS=1)
-endif()
+# --- rn_gpui_extensions: optional library glue (cpp/GpuiExtensions.h) -------
+#
+# Glue for optional packages is compiled here, in the app's build, rather than
+# into rn_gpui_core, so rn_gpui_core compiles the same files with the same flags
+# for every app. Each present package adds one source file and one installer.
+# rn_gpui_install_extensions() (generated below) calls the installers once, and
+# GpuiHost calls it from its constructor.
+set(RN_GPUI_EXTENSION_SOURCES)
+set(RN_GPUI_EXTENSION_NODE_API_SOURCES)
+set(RN_GPUI_EXTENSION_INSTALLERS)
+set(RN_GPUI_EXTENSION_INCLUDE_DIRS)
+set(RN_GPUI_EXTENSION_DEFINITIONS)
 
-get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SAFE_AREA_CONTEXT=1)
-  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
+get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSvgExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS svg)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
 endif()
 
 get_property(RN_GPUI_HAS_SCREENS GLOBAL PROPERTY RN_GPUI_HAS_SCREENS)
 if(RN_GPUI_HAS_SCREENS)
   get_property(RN_GPUI_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
-  target_compile_definitions(rn_gpui_core PRIVATE RN_GPUI_HAS_SCREENS=1)
-  target_include_directories(rn_gpui_core PRIVATE ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiScreensExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS screens)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
+endif()
+
+get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
+  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSafeAreaExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS safe_area)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
+endif()
+
+get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
+if(RN_GPUI_HAS_WORKLETS)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiWorkletsExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS worklets)
+endif()
+
+if(TARGET weak-node-api)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiNodeApiExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS node_api)
+  list(APPEND RN_GPUI_EXTENSION_NODE_API_SOURCES
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS
+    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
+    "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
+  list(APPEND RN_GPUI_EXTENSION_DEFINITIONS HERMES_NAPI_USE_CPP_LINKAGE=1)
+endif()
+
+# App Rust string modules (RustTurboModules.generated.hpp) exist only when the
+# app generated them into the Cargo OUT_DIR.
+if(RN_GPUI_GENERATED_MODULES_DIR)
+  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiRustTurboModulesExtension.cpp")
+  list(APPEND RN_GPUI_EXTENSION_INSTALLERS rust_turbo_modules)
+  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_GENERATED_MODULES_DIR}")
+endif()
+
+# The generated installer list depends on which packages are present, so it is
+# written at configure time. file(CONFIGURE) only rewrites it when it changes.
+set(RN_GPUI_EXTENSION_DECLARATIONS "")
+set(RN_GPUI_EXTENSION_CALLS "")
+foreach(_rn_gpui_installer IN LISTS RN_GPUI_EXTENSION_INSTALLERS)
+  string(APPEND RN_GPUI_EXTENSION_DECLARATIONS "void rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+  string(APPEND RN_GPUI_EXTENSION_CALLS "    rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+endforeach()
+set(RN_GPUI_INSTALL_EXTENSIONS_CPP "${CMAKE_BINARY_DIR}/generated/rn_gpui_install_extensions.cpp")
+file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
+// Generated by rn-gpui-sys cpp/CMakeLists.txt. Do not edit.
+#include "GpuiExtensions.h"
+
+#include <mutex>
+
+namespace rngpui {
+
+@RN_GPUI_EXTENSION_DECLARATIONS@
+void rn_gpui_install_extensions() {
+  static std::once_flag installed;
+  std::call_once(installed, [] {
+@RN_GPUI_EXTENSION_CALLS@  });
+}
+
+} // namespace rngpui
+]=])
+
+# Always defined, even when no package is present, so link_libs.txt is stable.
+add_library(rn_gpui_extensions STATIC
+  "${RN_GPUI_INSTALL_EXTENSIONS_CPP}"
+  ${RN_GPUI_EXTENSION_SOURCES}
+  ${RN_GPUI_EXTENSION_NODE_API_SOURCES})
+target_compile_definitions(rn_gpui_extensions PRIVATE ${RN_GPUI_EXTENSION_DEFINITIONS})
+target_include_directories(rn_gpui_extensions PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${REACT_CXX_PLATFORM_DIR}"
+  ${RN_GPUI_EXTENSION_INCLUDE_DIRS})
+if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
+  target_include_directories(rn_gpui_extensions PRIVATE "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+endif()
+target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_CORE_DEPS})
+target_link_libraries(rn_gpui_extensions PUBLIC rn_gpui_core)
+# The app archive is not linked into rn_gpui_core in prebuilt mode, so make the
+# build produce it explicitly; link_libs-<CONFIG>.txt still references it.
+if(RN_GPUI_PREBUILT_DIR AND TARGET rn_gpui_app_turbo_modules)
+  add_dependencies(rn_gpui_extensions rn_gpui_app_turbo_modules)
+endif()
+if(TARGET weak-node-api)
+  add_dependencies(rn_gpui_extensions weak-node-api)
 endif()
 
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------
@@ -749,6 +892,11 @@ function(rn_gpui_collect_link_targets root out_var)
 endfunction()
 
 rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
+
+# Install rules and find_package() config for the prebuilt runtime (T4).
+if(NOT RN_GPUI_PREBUILT_DIR)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/PrebuiltInstall.cmake)
+endif()
 
 set(RN_GPUI_LINK_LIBS "")
 # Directories that must end up on the executable's rpath: Rust does not turn
@@ -802,6 +950,8 @@ if(TARGET hermes-engine::hermesvm)
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_SHIM_LIB_DIR}\n")
 endif()
 
+# rn_gpui_extensions appears before and after rn_gpui_core (see below).
+string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
 foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   if(_target STREQUAL "hermes-engine::hermesvm")
     continue()
@@ -832,6 +982,12 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   # archive and before the ReactCommon archives it depends on.
   if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_app_turbo_modules)
     string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_app_turbo_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_app_turbo_modules>\n")
+  endif()
+  # Installers read rn_gpui_core's hook storage and call into the app archive,
+  # so the extensions archive comes after both (static archives resolve left
+  # to right).
+  if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_extensions)
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
   endif()
 endforeach()
 

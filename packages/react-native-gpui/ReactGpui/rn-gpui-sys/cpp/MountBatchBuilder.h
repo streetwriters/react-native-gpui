@@ -22,4 +22,7 @@ TextFragmentFlat flattenTextFragment(
     const facebook::react::TextAttributes& attributes,
     const std::string& text);
 
+// Points the text measurement table (GpuiTextMeasure.h) at the Rust bridge.
+void installGpuiTextMeasureTable();
+
 } // namespace rngpui

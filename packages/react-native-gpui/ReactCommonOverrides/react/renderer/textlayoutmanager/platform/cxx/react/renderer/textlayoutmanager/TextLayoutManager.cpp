@@ -26,8 +26,23 @@
 // (`${platform_DIR}` = .../textlayoutmanager/platform/cxx/).
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 
-#include "MountBatchBuilder.h" // rngpui::flattenTextFragment
-#include "rn-gpui-sys/src/lib.rs.h" // rngpui::ParagraphFlat / rn_gpui_measure_text
+#include "GpuiTextMeasure.h" // rngpui::gpuiTextMeasureTable (design doc §18.9)
+
+namespace rngpui {
+
+namespace {
+GpuiTextMeasureTable gTextMeasureTable{};
+} // namespace
+
+void setGpuiTextMeasureTable(const GpuiTextMeasureTable& table) {
+  gTextMeasureTable = table;
+}
+
+const GpuiTextMeasureTable* gpuiTextMeasureTable() {
+  return gTextMeasureTable.measureParagraph ? &gTextMeasureTable : nullptr;
+}
+
+} // namespace rngpui
 
 namespace facebook::react {
 
@@ -42,7 +57,6 @@ TextMeasurement TextLayoutManager::measure(
     const LayoutConstraints& layoutConstraints) const {
   const auto& fragments = attributedStringBox.getValue().getFragments();
 
-  rngpui::ParagraphFlat paragraph{};
   TextMeasurement::Attachments attachments;
   for (const auto& fragment : fragments) {
     if (fragment.isAttachment()) {
@@ -51,35 +65,21 @@ TextMeasurement TextLayoutManager::measure(
               .frame = {.origin = {.x = 0, .y = 0}, .size = {.width = 0, .height = 0}},
               .isClipped = false});
     }
-    paragraph.fragments.push_back(rngpui::flattenTextFragment(fragment.textAttributes, fragment.string));
   }
 
-  // Alignment lives on TextAttributes, not on ParagraphAttributes; the
-  // TextAlignment enum values already match the ParagraphFlat encoding.
-  if (!fragments.empty() && fragments.front().textAttributes.alignment) {
-    paragraph.text_align = static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
+  // Without a table (GpuiHost not started yet) measure to zero, the same
+  // result the Rust side returns when no measure handler is registered.
+  rngpui::GpuiTextSize size{.width = 0, .height = 0};
+  if (const auto* table = rngpui::gpuiTextMeasureTable()) {
+    size = table->measureParagraph(
+        attributedStringBox.getValue(),
+        paragraphAttributes,
+        layoutConstraints.maximumSize.width,
+        layoutConstraints.maximumSize.height);
   }
-  paragraph.max_lines = paragraphAttributes.maximumNumberOfLines;
-  switch (paragraphAttributes.ellipsizeMode) {
-    case EllipsizeMode::Clip:
-      paragraph.ellipsize = 3;
-      break;
-    case EllipsizeMode::Head:
-      paragraph.ellipsize = 1;
-      break;
-    case EllipsizeMode::Middle:
-      paragraph.ellipsize = 2;
-      break;
-    case EllipsizeMode::Tail:
-      paragraph.ellipsize = 0;
-      break;
-  }
-
-  const auto result = rngpui::rn_gpui_measure_text(
-      paragraph, layoutConstraints.maximumSize.width, layoutConstraints.maximumSize.height);
 
   return TextMeasurement{
-      .size = layoutConstraints.clamp({.width = result.width, .height = result.height}),
+      .size = layoutConstraints.clamp({.width = size.width, .height = size.height}),
       .attachments = std::move(attachments)};
 }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import {
   createLibrary,
   initDesktop,
@@ -65,9 +66,9 @@ if (command === 'init') {
   process.exit(0);
 }
 
-if (!['autolink', 'bundle', 'run'].includes(command)) {
+if (!['autolink', 'bundle', 'prebuilt', 'run'].includes(command)) {
   console.error(
-    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|run> [options]',
+    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|prebuilt|run> [options]',
   );
   process.exit(2);
 }
@@ -116,4 +117,36 @@ if (command === 'bundle') {
 if (command === 'autolink') {
   autolink({ projectRoot, configFile: option('--config-json') });
   process.exit(0);
+}
+
+if (command === 'prebuilt') {
+  // The prebuilt helper ships with react-native-gpui; resolve it from the app.
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  let gpuiPackageJson;
+  try {
+    gpuiPackageJson = appRequire.resolve('react-native-gpui/package.json');
+  } catch {
+    console.error(
+      'react-native-gpui is not installed in this project; run `npm install react-native-gpui`.',
+    );
+    process.exit(1);
+  }
+  const script = path.join(
+    path.dirname(gpuiPackageJson),
+    'scripts',
+    'prebuilt-binaries.mjs',
+  );
+  const subcommand = process.argv[3];
+  const allowed = ['fetch', 'path', 'verify', 'clean'];
+  if (!allowed.includes(subcommand)) {
+    console.error(
+      `usage: react-native-gpui prebuilt <${allowed.join('|')}> [--triple <triple>] [dir]`,
+    );
+    process.exit(1);
+  }
+  const forwarded = process.argv.slice(3);
+  const result = spawnSync(process.execPath, [script, ...forwarded], {
+    stdio: 'inherit',
+  });
+  process.exit(result.status ?? 1);
 }
