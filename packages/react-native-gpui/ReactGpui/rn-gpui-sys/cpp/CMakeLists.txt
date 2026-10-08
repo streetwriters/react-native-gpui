@@ -521,6 +521,7 @@ add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
 # transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
 add_library(rn_gpui_core STATIC
+  GpuiDesktopModule.cpp
   GpuiHost.cpp
   GpuiHttpClient.cpp
   GpuiJsEngine.cpp

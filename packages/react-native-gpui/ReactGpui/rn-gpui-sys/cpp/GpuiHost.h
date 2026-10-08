@@ -87,6 +87,9 @@ class GpuiHost {
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void emit_device_event(rust::Str event_name) const;
   void emit_device_event_bool(rust::Str event_name, bool value) const;
+  /// Device event whose payload is a JSON object (design §3.2 step 4).
+  void emit_device_event_json(rust::Str event_name, rust::Str payload_json)
+      const;
   void emit_accessibility_setting_event(
       const std::string& event_name,
       bool enabled) const;
@@ -146,5 +149,10 @@ void register_gpui_gesture_pointer_processor(
     GpuiGesturePointerProcessor processor);
 void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
 void rn_gpui_clipboard_result(int32_t id, rust::String text);
+/// Settle one `GpuiDesktop.call` promise (design §3.2 step 3).
+void rn_gpui_desktop_result(int32_t id, bool ok, rust::String json);
+/// Reject every in-flight `GpuiDesktop.call` (a reload tore the JS instance
+/// down). Defined in `GpuiDesktopModule.cpp`.
+void reject_pending_desktop_calls();
 
 } // namespace rngpui

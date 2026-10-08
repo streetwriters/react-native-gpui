@@ -246,6 +246,12 @@ pub mod ffi {
         fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>);
         fn rn_gpui_read_clipboard(id: i32);
         fn rn_gpui_write_clipboard(text: String);
+        /// Called on the JS thread when `GpuiDesktop.call` receives a request.
+        /// Must not block: it forwards to the GPUI main thread.
+        fn rn_gpui_desktop_call(id: i32, domain: String, method: String, args_json: String);
+        /// Synchronous snapshot read for `GpuiDesktop.getSnapshot`. Called on
+        /// the JS thread; must never touch the GPUI main thread.
+        fn rn_gpui_desktop_snapshot(key: &str) -> String;
         /// Called on the JS/Fabric thread during layout. Thread-safe.
         fn rn_gpui_measure_text(
             p: &ParagraphFlat,
@@ -291,6 +297,11 @@ pub mod ffi {
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_alert_result(id: i32, button_index: i32);
         fn rn_gpui_clipboard_result(id: i32, text: String);
+        /// Settle one `GpuiDesktop.call` promise (design §3.2 step 3).
+        fn rn_gpui_desktop_result(id: i32, ok: bool, json: String);
+        /// Reject every in-flight desktop call (a reload tore the JS instance
+        /// down).
+        fn reject_pending_desktop_calls();
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
         /// Wake RN's EventBeat after input or a mount batch on the main thread.
         fn on_render(self: &GpuiHost) -> Result<()>;
@@ -301,6 +312,8 @@ pub mod ffi {
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);
         fn emit_device_event_bool(self: &GpuiHost, event_name: &str, value: bool);
+        /// Device event whose payload is a JSON object string (design §3.2).
+        fn emit_device_event_json(self: &GpuiHost, event_name: &str, payload_json: &str);
         /// Send raw GPUI pointer input to an optional native recognizer before RN touch dispatch.
         fn dispatch_pointer_event(
             self: &GpuiHost,
@@ -348,6 +361,12 @@ pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
 pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
+/// `(request id, domain, method, args json)` — called on the JS thread.
+pub type DesktopCallHandler = Box<dyn Fn(i32, String, String, String) + Send + Sync>;
+pub static DESKTOP_CALL_HANDLER: OnceLock<DesktopCallHandler> = OnceLock::new();
+/// `key -> json` — called on the JS thread; must be non-blocking.
+pub type DesktopSnapshotHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
+pub static DESKTOP_SNAPSHOT_HANDLER: OnceLock<DesktopSnapshotHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
@@ -475,6 +494,29 @@ fn rn_gpui_write_clipboard(text: String) {
     if let Some(handler) = CLIPBOARD_WRITE_HANDLER.get() {
         handler(text);
     }
+}
+
+fn rn_gpui_desktop_call(id: i32, domain: String, method: String, args_json: String) {
+    match DESKTOP_CALL_HANDLER.get() {
+        Some(handler) => handler(id, domain, method, args_json),
+        None => {
+            // No main thread is listening (startup, or a build without the
+            // desktop module). Answer so the JS promise cannot hang.
+            ffi::rn_gpui_desktop_result(
+                id,
+                false,
+                "{\"code\":\"failed\",\"message\":\"the desktop module is not initialized\"}"
+                    .to_string(),
+            );
+        }
+    }
+}
+
+fn rn_gpui_desktop_snapshot(key: &str) -> String {
+    DESKTOP_SNAPSHOT_HANDLER
+        .get()
+        .map(|handler| handler(key))
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn rn_gpui_measure_text(

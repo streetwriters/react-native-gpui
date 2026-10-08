@@ -285,6 +285,14 @@ enum MainEvent {
     },
     ClipboardRead(i32),
     ClipboardWrite(String),
+    /// A desktop-shell call from the JS thread (design §3.2). The drain loop
+    /// answers it exactly once with `rn_gpui_desktop_result`.
+    Desktop {
+        id: i32,
+        domain: String,
+        method: String,
+        args_json: String,
+    },
 }
 
 pub type WindowOptionsHook = Box<dyn FnOnce(&mut WindowOptions) + 'static>;
@@ -571,6 +579,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::CLIPBOARD_WRITE_HANDLER.set(Box::new(move |text| {
         let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
     }));
+    let desktop_tx = tx.clone();
+    let _ =
+        rn_gpui_sys::DESKTOP_CALL_HANDLER.set(Box::new(move |id, domain, method, args_json| {
+            let _ = desktop_tx.send_blocking(MainEvent::Desktop {
+                id,
+                domain,
+                method,
+                args_json,
+            });
+        }));
+    // The snapshot is read on the JS thread during module initialization, so it
+    // has to be installed before the bundle loads.
+    crate::desktop::install_snapshot(&app_id);
 
     #[cfg(feature = "visual-capture")]
     let headless = env_bool("RN_GPUI_HEADLESS", false);
@@ -1327,7 +1348,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         unsafe { rn_gpui_mount_batch_applied() };
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
+                        if surface_id == rn_gpui_sys::ALL_SURFACES {
+                            // The JS instance is gone: a pending desktop call
+                            // can never be answered by the old instance.
+                            rn_gpui_sys::ffi::reject_pending_desktop_calls();
+                        }
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
+                    }
+                    MainEvent::Desktop {
+                        id,
+                        domain,
+                        method,
+                        args_json,
+                    } => {
+                        cx.update(|cx| {
+                            crate::desktop::dispatch(cx, id, &domain, &method, &args_json)
+                        });
                     }
                     MainEvent::AnimatedProps(props) => {
                         if props.has_opacity
@@ -1485,7 +1521,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
         })
         .detach();
 
-        cx.activate(true);
+        // A hidden test run must not take focus or pull the user to the
+        // desktop the app launched on.
+        #[cfg(feature = "test-driver")]
+        let background = env_bool("RN_GPUI_TEST_OFFSCREEN", false);
+        #[cfg(not(feature = "test-driver"))]
+        let background = false;
+        if background {
+            #[cfg(all(target_os = "macos", feature = "test-driver"))]
+            run_as_accessory_app();
+        } else {
+            cx.activate(true);
+        }
         log::info!("waiting for mount batches");
     });
 }
@@ -1537,5 +1584,17 @@ async fn capture_and_quit(
         log::info!("screenshot saved; keeping the GPUI window open");
     } else {
         cx.update(|cx| cx.quit());
+    }
+}
+
+/// Removes the Dock icon and menu bar ownership (`NSApplicationActivationPolicyAccessory`),
+/// so launching the app does not activate it or switch Spaces.
+#[cfg(all(target_os = "macos", feature = "test-driver"))]
+fn run_as_accessory_app() {
+    use objc::{class, msg_send, sel, sel_impl};
+    const ACCESSORY: isize = 1;
+    unsafe {
+        let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
+        let _: bool = msg_send![app, setActivationPolicy: ACCESSORY];
     }
 }

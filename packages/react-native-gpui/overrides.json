@@ -104,6 +104,14 @@
       "baseFile": "packages/react-native/ReactCommon/react/renderer/components/textinput/BaseTextInputShadowNode.h",
       "baseHash": "a94e72f4836e257f6cd1fe9cb21ede410169e267",
       "issue": 0
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/specs/NativeGpuiDesktop.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/index.ts"
     }
   ]
 }

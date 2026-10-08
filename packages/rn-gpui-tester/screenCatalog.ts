@@ -288,6 +288,12 @@ export const screens = [
     fixture: 'ReloadFixture',
   },
   {
+    id: 'desktop-shell',
+    title: 'Desktop shell',
+    group: 'Platform',
+    fixture: 'DesktopShellFixture',
+  },
+  {
     id: 'errors',
     title: 'Error handling',
     group: 'Diagnostics',

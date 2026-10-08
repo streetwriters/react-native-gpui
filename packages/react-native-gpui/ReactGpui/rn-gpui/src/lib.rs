@@ -5,6 +5,7 @@
 
 pub(crate) mod accessibility;
 pub(crate) mod animation_policy;
+pub(crate) mod desktop;
 pub(crate) mod events;
 pub(crate) mod frame;
 pub(crate) mod host;
