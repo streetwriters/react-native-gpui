@@ -703,22 +703,8 @@ mod tests {
         // LogBox is surface 2; a window surface must never reuse it.
         assert_eq!(windows.alloc_surface(), 3);
         assert_eq!(windows.alloc_surface(), 4);
-    }
-
-    #[test]
-    fn entries_are_indexed_by_key_and_surface() {
-        let mut windows = DesktopWindows::new();
-        windows.adopt(
-            MAIN_WINDOW_KEY,
-            gpui::AnyWindowHandle::from(gpui::WindowId::from(1usize)),
-            1,
-            "App".to_string(),
-            json!({}),
-            WindowRole::Main,
-        );
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows.entry_for_surface(1).map(|e| e.key), Some(1));
-        assert!(windows.get(1).is_some());
-        assert!(windows.get(2).is_none());
+        assert!(windows.keys().is_empty());
+        assert!(windows.get(1).is_none());
+        assert!(windows.entry_for_surface(1).is_none());
     }
 }

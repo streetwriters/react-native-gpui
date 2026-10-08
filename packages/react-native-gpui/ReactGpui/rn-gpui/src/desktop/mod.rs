@@ -10,8 +10,10 @@
 //! * [`errors`] — the one error shape (`{code, message}`).
 //! * [`capabilities`] — platform capability flags for `getSnapshot`.
 
+pub mod app_menu;
 pub mod capabilities;
 pub mod errors;
+pub mod menu_model;
 pub mod platform_window;
 pub mod windows;
 
@@ -97,6 +99,9 @@ pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &s
         ("window", "hide") => window_plain(cx, args_json, windows::hide),
         ("window", "startDragging") => window_plain(cx, args_json, windows::start_dragging),
         ("window", "interceptClose") => window_intercept_close(cx, args_json),
+        ("menu", "set") => menu_set(cx, args_json),
+        ("menu", "update") => menu_update(cx, args_json),
+        ("menu", "get") => menu_get(cx, args_json),
         _ => Err(DesktopError::not_found(format!(
             "unknown desktop method: {domain}.{method}"
         ))),
@@ -245,6 +250,33 @@ fn window_position(cx: &mut App, args_json: &str) -> DesktopResult {
             .ok_or_else(|| DesktopError::invalid_argument("a numeric y is required"))?;
         windows::set_position(cx, key, x, y)
     })
+}
+
+fn menu_set(cx: &mut App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    // `items: null` restores the default menu.
+    let items = match args.get("items") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => Some(value),
+    };
+    app_menu::set_application_menu(cx, items)
+}
+
+fn menu_get(cx: &App, args_json: &str) -> DesktopResult {
+    let _ = parse_args(args_json)?;
+    Ok(app_menu::menu_json(cx))
+}
+
+fn menu_update(cx: &mut App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    let id = args
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| DesktopError::invalid_argument("menu.update requires an id"))?;
+    let patch = args
+        .get("patch")
+        .ok_or_else(|| DesktopError::invalid_argument("menu.update requires a patch"))?;
+    app_menu::update_item(cx, id, patch)
 }
 
 fn window_intercept_close(cx: &mut App, args_json: &str) -> DesktopResult {

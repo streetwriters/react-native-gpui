@@ -220,6 +220,11 @@ export const renderScreen: Record<
       require('./components/WindowControlFixture').default,
       props,
     ),
+  'desktop-menu': props =>
+    React.createElement(
+      require('./components/DesktopMenuFixture').default,
+      props,
+    ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
   'benchmark-idle': props =>
