@@ -62,6 +62,73 @@ Handwritten sources and include directories go in `componentSources` and
 `componentIncludeDirs`. Missing or duplicate descriptors are reported during
 autolinking or at startup.
 
+## JavaScript engine
+
+React Native GPUI has no built-in JS engine. An engine is an ordinary installed
+package that autolinks like any other native library, so installing one is how
+you opt in. `@react-native-gpui/hermes` is the default in new apps; a QuickJS,
+JavaScriptCore or V8 package registers the same way without changes to core.
+
+### Choosing an engine
+
+| Where                                                            | Effect                                                     |
+| ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `RN_GPUI_JS_ENGINE=<name>`                                       | Run this engine for one launch; overrides the app's choice |
+| `DesktopAppConfig::js_engine("<name>")` in `desktop/src/main.rs` | The app's choice                                           |
+| the installed set                                                | With one engine installed it is the default                |
+
+With several engines installed and none chosen, startup fails with a message
+listing them. There is no `app.json` key for this.
+
+```ts
+import { Platform } from 'react-native';
+
+console.log(Platform.constants.jsEngine); // {name: 'hermes', version: '10a40b5…'}
+```
+
+`name` is the engine package's `jsEngine.name`; `version` is whatever the engine
+reports (Hermes reports the pinned `facebook/hermes` commit).
+
+### Writing an engine package
+
+The contract is `ReactGpui/rn-gpui-sys/cpp/GpuiJsEngine.h` in
+`react-native-gpui`. An engine package declares itself in its
+`react-native.config.js` GPUI entry:
+
+```js
+gpui: {
+  cmake: 'gpui',
+  jsEngine: {
+    name: 'hermes',
+    register: 'rn_gpui_register_js_engine_hermes', // C symbol, called at startup
+    bundle: './gpui/bundle.js',                   // optional JS tooling hooks
+    runtimeFiles: './gpui/runtime-files.js',      // optional shared libraries to ship
+  },
+}
+```
+
+Its `gpui/CMakeLists.txt` adds whatever the engine needs and tells core about it
+through global properties: `RN_GPUI_JS_ENGINE_SUBDIRECTORIES`,
+`RN_GPUI_JS_ENGINE_SOURCES`, `RN_GPUI_JS_ENGINE_INCLUDE_DIRS`,
+`RN_GPUI_JS_ENGINE_DEFINITIONS`, `RN_GPUI_JS_ENGINE_DEPS` and
+`RN_GPUI_JS_ENGINE_NODE_API_SOURCES`.
+
+The registration function calls `rngpui::registerJsEngine` with the engine's
+info, a required `makeRuntimeFactory`, and optionally a Node-API host module and
+feature-flag overrides. `@react-native-gpui/hermes/gpui` is a worked example.
+
+`bundle.js` may export any of:
+
+- `metroConfig(config)` — Metro changes the engine needs, e.g. Hermes'
+  `transformer.unstable_transformProfile = 'hermes-stable'`.
+- `compile({input, output, sourcemapInput, sourcemapOutput, dev})` — turn a
+  bundle into the engine's shipping format (`hermesc -emit-binary` for Hermes).
+  Without it, release builds ship the plain JS bundle.
+- `bundleExtension` — the file name the runtime loads, e.g. `'.hbc'`.
+
+A prebuilt runtime does not yet compile an engine's glue per app; use a source
+build until that lands.
+
 ## Supported libraries
 
 | Package                                | Adds GPUI support for            |
@@ -73,6 +140,7 @@ autolinking or at startup.
 | `@react-native-gpui/safe-area-context` | `react-native-safe-area-context` |
 | `@react-native-gpui/svg`               | `react-native-svg`               |
 | `@react-native-gpui/fonts`             | Custom font loading              |
+| `@react-native-gpui/hermes`            | The Hermes JS engine             |
 | `@react-native-gpui/testing`           | Desktop test presets and driver  |
 
 ## Prebuilt C++ runtime
