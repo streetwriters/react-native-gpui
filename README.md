@@ -125,7 +125,15 @@ The exact compiler version of each archive is recorded in its `manifest.json`
   cxxbridge headers and `FBReactNativeSpec` sources are generated when
   `--bridge` and `--rncore` are omitted, so no tester build is needed. The
   archive is `prebuilt-binaries-<platform>.tar.gz` with a `manifest.json` and
-  `.sha256` next to it.
+  `.sha256` next to it. It holds `lib/`, `cmake/`, `manifest.json` and only
+  OpenSSL's generated headers (`include/openssl-generated`). Every other header
+  comes from the consumer's own tree: `node_modules/react-native` (ReactCommon,
+  ReactCxxPlatform), the react-native-gpui package (ReactCommonOverrides and the
+  rn-gpui-sys headers), `@react-native-gpui/hermes`, the consumer's cxxbridge and
+  FBReactNativeSpec output, and the native-deps downloads. The consumer sets
+  `RN_GPUI_PREBUILT_ROOT_<name>` for each root before `find_package`; the config
+  file fails if one is missing. The manifest lists the native-deps archives with
+  sha256 and the react-native version the archive was built against.
 
 ## Fabric components in native packages
 
