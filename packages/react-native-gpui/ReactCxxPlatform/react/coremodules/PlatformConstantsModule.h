@@ -8,6 +8,7 @@
 #pragma once
 
 #include <FBReactNativeSpec/FBReactNativeSpecJSI.h>
+#include <jsi/jsi.h>
 #include <optional>
 
 namespace facebook::react {
@@ -50,7 +51,10 @@ class PlatformConstantsModule : public NativePlatformConstantsAndroidCxxSpec<Pla
     return "";
   }
 
-  PlatformConstantsAndroid getConstants(jsi::Runtime &rt);
+  // Returns the generated constants plus a `jsEngine: { name, version }` field
+  // reported by the active engine package. The generated Android constants
+  // struct cannot carry the extra field, so the object is built here.
+  jsi::Object getConstants(jsi::Runtime &rt);
 };
 
 } // namespace facebook::react

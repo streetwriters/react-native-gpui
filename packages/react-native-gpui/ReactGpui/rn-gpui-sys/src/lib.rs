@@ -268,6 +268,7 @@ pub mod ffi {
             app_id: &str,
             dev_server_host: &str,
             dev_server_port: u32,
+            js_engine: &str,
         ) -> UniquePtr<GpuiHost>;
         fn load_script(self: Pin<&mut GpuiHost>, bundle_path: &str, source_url: &str) -> bool;
         fn start_surface(

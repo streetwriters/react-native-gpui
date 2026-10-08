@@ -7,11 +7,12 @@
 
 #include "PlatformConstantsModule.h"
 
+#include "GpuiJsEngine.h"
+
 namespace facebook::react {
 
-PlatformConstantsAndroid PlatformConstantsModule::getConstants(
-    jsi::Runtime& /*rt*/) {
-  return PlatformConstantsAndroid{
+jsi::Object PlatformConstantsModule::getConstants(jsi::Runtime& rt) {
+  const PlatformConstantsAndroid constants{
       .isTesting = false,
       .isDisableAnimations = false,
       .reactNativeVersion =
@@ -30,6 +31,17 @@ PlatformConstantsAndroid PlatformConstantsModule::getConstants(
       .Brand = "",
       .Manufacturer = "",
   };
+  auto result = bridging::toJs(rt, constants, jsInvoker_);
+
+  // `Platform.constants.jsEngine`, reported by the active engine package. An
+  // engine without a version still reports its name.
+  const auto& engine = rngpui::activeJsEngine().info;
+  auto jsEngine = jsi::Object(rt);
+  jsEngine.setProperty(rt, "name", jsi::String::createFromUtf8(rt, engine.name));
+  jsEngine.setProperty(
+      rt, "version", jsi::String::createFromUtf8(rt, engine.version));
+  result.setProperty(rt, "jsEngine", std::move(jsEngine));
+  return result;
 }
 
 } // namespace facebook::react

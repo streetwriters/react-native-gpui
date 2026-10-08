@@ -498,6 +498,10 @@ add_react_cxx_platform_subdir(react/renderer/uimanager)
 add_react_cxx_platform_subdir(react/threading)
 add_react_cxx_platform_subdir(react/utils)
 add_react_cxx_platform_subdir(react/runtime)
+# PlatformConstantsModule reports the active engine as
+# `Platform.constants.jsEngine`, so it includes GpuiJsEngine.h from here.
+target_include_directories(react_cxx_platform_react_coremodules PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # --- Hermes runtime smoke test ------------------------------------
 
@@ -511,8 +515,8 @@ set_target_properties(hermes_runtime_test PROPERTIES
   INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
 
 # Proves the custom Hermes build can load a real Node-API addon.
+enable_testing()
 if(NOT WIN32)
-  enable_testing()
   add_library(gpui_node_api_smoke MODULE test/node_api_smoke_addon.c)
   target_link_libraries(gpui_node_api_smoke PRIVATE hermes-engine::hermesvm)
   set_target_properties(gpui_node_api_smoke PROPERTIES
@@ -533,6 +537,20 @@ if(NOT WIN32)
 
 endif()
 
+# --- JS engine registry test ----------------------------------------------
+#
+# Covers the engine selection rules (none, one, several with a selection, an
+# unknown name). Compiles GpuiJsEngine.cpp on its own: it needs no React Native
+# runtime, only the feature-flag header.
+add_executable(gpui_js_engine_test
+  test/gpui_js_engine_test.cpp
+  GpuiJsEngine.cpp)
+target_include_directories(gpui_js_engine_test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${REACT_COMMON_DIR}")
+target_link_libraries(gpui_js_engine_test PRIVATE jsi)
+add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
+
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
 # GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
@@ -540,6 +558,7 @@ endif()
 add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
+  GpuiJsEngine.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   MountBatchBuilder.cpp
