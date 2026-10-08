@@ -78,7 +78,9 @@ if(WIN32)
 else()
   set(_openssl_crypto_library "${RN_GPUI_OPENSSL_INSTALL}/lib/libcrypto.a")
 endif()
-if(NOT EXISTS "${_openssl_crypto_library}")
+# Prebuilt mode: the archive carries OpenSSL's libraries and generated headers,
+# so only download and extract here (the blocks below are source-mode only).
+if(NOT RN_GPUI_PREBUILT_DIR AND NOT EXISTS "${_openssl_crypto_library}")
   find_program(RN_GPUI_PERL_EXECUTABLE perl REQUIRED)
   if(WIN32)
     if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")

@@ -470,8 +470,16 @@ fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
     if env_flag("RN_GPUI_BUILD_FROM_SOURCE") {
         return None;
     }
+    let require = env_flag("RN_GPUI_REQUIRE_PREBUILT");
     if let Some(dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
-        return Some(PathBuf::from(dir));
+        let dir = PathBuf::from(dir);
+        return match check_prebuilt_react_native(&dir, package_dir) {
+            Ok(()) => Some(dir),
+            Err(reason) => {
+                fallback_or_panic(require, &reason);
+                None
+            }
+        };
     }
     let in_repo = !package_dir
         .components()
@@ -481,7 +489,6 @@ fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
     }
 
     let script = package_dir.join("scripts").join("prebuilt-binaries.mjs");
-    let require = env_flag("RN_GPUI_REQUIRE_PREBUILT");
     let output = Command::new("node")
         .arg(&script)
         .arg("ensure")
@@ -495,7 +502,14 @@ fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
                 fallback_or_panic(require, "prebuilt-binaries.mjs printed no directory");
                 return None;
             }
-            Some(PathBuf::from(dir))
+            let dir = PathBuf::from(dir);
+            match check_prebuilt_react_native(&dir, package_dir) {
+                Ok(()) => Some(dir),
+                Err(reason) => {
+                    fallback_or_panic(require, &reason);
+                    None
+                }
+            }
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -513,6 +527,55 @@ fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
             None
         }
     }
+}
+
+/// The archive's ReactCommon and react-native headers come from the consumer's
+/// own react-native install, so that install must be the version the archive
+/// was built against. Compares manifest.json `reactNative` with the installed
+/// react-native package.json `version`. Any mismatch (or unreadable input) is an
+/// error, which the caller turns into a source fallback.
+fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), String> {
+    let manifest_path = dir.join("manifest.json");
+    let manifest: serde_json::Value = fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))
+        .and_then(|text| {
+            serde_json::from_str(&text)
+                .map_err(|error| format!("invalid {}: {error}", manifest_path.display()))
+        })?;
+    let built_for = manifest
+        .get("reactNative")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| format!("{} has no reactNative version", manifest_path.display()))?;
+
+    // Consumers keep react-native beside the package (app/node_modules); this
+    // repository keeps it at <repo>/node_modules.
+    let repo_root = package_dir.parent().and_then(Path::parent);
+    let candidates = [
+        package_dir.parent().map(|dir| dir.join("react-native")),
+        repo_root.map(|root| root.join("node_modules").join("react-native")),
+    ];
+    let installed_pkg = candidates
+        .into_iter()
+        .flatten()
+        .map(|dir| dir.join("package.json"))
+        .find(|path| path.is_file())
+        .ok_or_else(|| "no react-native install found next to react-native-gpui".to_string())?;
+    let installed: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&installed_pkg)
+            .map_err(|error| format!("cannot read {}: {error}", installed_pkg.display()))?,
+    )
+    .map_err(|error| format!("invalid {}: {error}", installed_pkg.display()))?;
+    let installed_version = installed
+        .get("version")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+
+    if installed_version != built_for {
+        return Err(format!(
+            "prebuilt runtime was built for react-native {built_for}, installed react-native is {installed_version}"
+        ));
+    }
+    Ok(())
 }
 
 fn fallback_or_panic(require: bool, reason: &str) {

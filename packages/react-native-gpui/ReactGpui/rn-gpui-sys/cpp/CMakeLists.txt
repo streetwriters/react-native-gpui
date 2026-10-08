@@ -114,6 +114,11 @@ set(REACT_ANDROID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-shim")
 # RN Android stores source archives and prepared third-party sources under its
 # Gradle build directory. Mirror that layout under this target's CMake build
 # cache so independent desktop builds do not rely on host package managers.
+# Both modes download and prepare the pinned native-dep sources. Only source
+# mode builds OpenSSL and curl (cmake/DownloadNativeDeps.cmake guards those).
+set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
+
 if(RN_GPUI_PREBUILT_DIR)
   # Prebuilt mode: rn_gpui_core, ReactCommon and third-party come from the
   # archive. Only the app-side targets below are compiled here.
@@ -149,12 +154,31 @@ if(RN_GPUI_PREBUILT_DIR)
       "${_rn_gpui_prebuilt_overrides_sha}, current ${RN_GPUI_OVERRIDES_SHA256}). Rebuild the "
       "prebuilt or unset RN_GPUI_PREBUILT_DIR.")
   endif()
+  # Headers are not in the archive. Point each root the archive names at the
+  # tree this build already uses (the same variables source mode compiles with).
+  # Hermes comes from the @react-native-gpui/hermes package by default.
+  if(NOT RN_GPUI_HERMES_SOURCE_DIR)
+    set(RN_GPUI_HERMES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../packages/@react-native-gpui/hermes")
+  endif()
+  set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${CMAKE_CURRENT_SOURCE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${RN_GPUI_OVERRIDES_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_common "${REACT_COMMON_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REACT_CXX_PLATFORM_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${RN_GPUI_GENERATED_RNCORE_DIR}/jni")
+  set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_hermes "${RN_GPUI_HERMES_SOURCE_DIR}")
+  set(RN_GPUI_PREBUILT_ROOT_folly "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly")
+  set(RN_GPUI_PREBUILT_ROOT_glog "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported")
+  set(RN_GPUI_PREBUILT_ROOT_fmt "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include")
+  set(RN_GPUI_PREBUILT_ROOT_double_conversion "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion")
+  set(RN_GPUI_PREBUILT_ROOT_fast_float "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include")
+  set(RN_GPUI_PREBUILT_ROOT_nlohmann_json "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include")
+  set(RN_GPUI_PREBUILT_ROOT_boost "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0")
+  set(RN_GPUI_PREBUILT_ROOT_curl "${RN_GPUI_CURL_SOURCE_DIR}/include")
   message(STATUS "rn_gpui_core: using prebuilt runtime ${RN_GPUI_PREBUILT_DIR} (${_rn_gpui_prebuilt_triple})")
   find_package(react-native-gpui-prebuilt CONFIG REQUIRED
     PATHS "${RN_GPUI_PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
 else()
-set(REACT_ANDROID_SOURCE_DIR "${REACT_COMMON_DIR}/../ReactAndroid")
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadNativeDeps.cmake)
 
 # GpuiHttpClient uses libcurl. Build curl from its pinned source archive against
 # the OpenSSL copy prepared in the same CMake cache above.
