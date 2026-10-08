@@ -75,90 +75,40 @@ if(_rn_gpui_imported_paths)
 endif()
 
 # --- headers --------------------------------------------------------------------
-# Include roots (consumers see exactly these, and nothing from the source tree):
-#   include/react-native-gpui  glue headers from cpp/ (GpuiHost.h, ...)
-#   include/react-common       upstream ReactCommon, overrides applied on top
-#   include/react-cxx-platform ReactCxxPlatform
-#   include/generated          FBReactNativeSpec (codegen jni/ tree)
-#   include/cxxbridge          cxx.h and the cxx bridge header
-#   include/third-party        folly, glog, fmt, double-conversion, fast_float,
-#                              nlohmann, boost, openssl, curl
-# jsi, callinvoker and hermes keep their headers under their own roots: jsi.h is
-# at ReactCommon/jsi/jsi/jsi.h and CallInvoker.h at callinvoker/ReactCommon/, so
-# <jsi/jsi.h> and <ReactCommon/CallInvoker.h> need those roots on the path.
-set(_rn_gpui_include_roots
-  "\${_rn_gpui_prebuilt_root}/include/react-native-gpui"
-  "\${_rn_gpui_prebuilt_root}/include/react-common"
-  "\${_rn_gpui_prebuilt_root}/include/react-common/jsi"
-  "\${_rn_gpui_prebuilt_root}/include/react-common/callinvoker"
-  "\${_rn_gpui_prebuilt_root}/include/react-cxx-platform"
-  "\${_rn_gpui_prebuilt_root}/include/generated"
-  "\${_rn_gpui_prebuilt_root}/include/cxxbridge"
-  "\${_rn_gpui_prebuilt_root}/include/third-party"
-  "\${_rn_gpui_prebuilt_root}/include/hermes/include"
-  "\${_rn_gpui_prebuilt_root}/include/hermes/public"
-  "\${_rn_gpui_prebuilt_root}/include/hermes/API")
-
-# Hermes headers, as hermes-engine::hermesvm sees them in the source build.
-install(DIRECTORY "${RN_GPUI_HERMES_SOURCE_DIR}/include/"
-  DESTINATION include/hermes/include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_HERMES_SOURCE_DIR}/public/"
-  DESTINATION include/hermes/public FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_HERMES_SOURCE_DIR}/API/"
-  DESTINATION include/hermes/API FILES_MATCHING PATTERN "*.h")
-
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/"
-  DESTINATION include/react-native-gpui
-  FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${REACT_COMMON_DIR}/"
-  DESTINATION include/react-common
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl" PATTERN "*.tcc")
-# Overrides installed after upstream ReactCommon, so they replace its headers.
-install(DIRECTORY "${RN_GPUI_OVERRIDES_DIR}/"
-  DESTINATION include/react-common
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl" PATTERN "*.tcc")
-install(DIRECTORY "${REACT_CXX_PLATFORM_DIR}/"
-  DESTINATION include/react-cxx-platform
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl" PATTERN "*.tcc")
-if(RN_GPUI_GENERATED_RNCORE_DIR)
-  install(DIRECTORY "${RN_GPUI_GENERATED_RNCORE_DIR}/jni/"
-    DESTINATION include/generated
-    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
-endif()
-if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR)
-  install(DIRECTORY "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/"
-    DESTINATION include/cxxbridge
-    FILES_MATCHING PATTERN "*.h")
-endif()
-# Third-party headers come from the configure-time native-deps cache. Boost is
-# installed whole for now (pruning to depfile-used headers is a follow-up).
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/"
-  DESTINATION include/third-party/folly
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl" PATTERN "*.tcc")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported/glog/"
-  DESTINATION include/third-party/glog
-  FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include/"
-  DESTINATION include/third-party
-  FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion/"
-  DESTINATION include/third-party
-  FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include/"
-  DESTINATION include/third-party
-  FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include/"
-  DESTINATION include/third-party
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
-install(DIRECTORY "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0/boost/"
-  DESTINATION include/third-party/boost
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.ipp")
+# The archive ships no headers except OpenSSL's generated tree (Configure output,
+# which consumers cannot produce without Perl). Every other header tree is named
+# by a root variable RN_GPUI_PREBUILT_ROOT_<name> that the consumer sets to the
+# source directory it already has (node_modules/react-native, the react-native-gpui
+# package, @react-native-gpui/hermes, its own cxxbridge and codegen output, and
+# the native-deps downloads). The targets file refers to those roots, so the
+# config file checks they are set before anything is included.
 install(DIRECTORY "${RN_GPUI_OPENSSL_INSTALL}/include/"
-  DESTINATION include/third-party
+  DESTINATION include/openssl-generated
   FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${RN_GPUI_CURL_SOURCE_DIR}/include/curl/"
-  DESTINATION include/third-party/curl
-  FILES_MATCHING PATTERN "*.h")
+
+# Static include roots in search order. ReactCommonOverrides precedes ReactCommon
+# so the override headers shadow the upstream ones, as the source build does.
+set(_rn_gpui_include_roots
+  "\${RN_GPUI_PREBUILT_ROOT_react_native_gpui}"
+  "\${RN_GPUI_PREBUILT_ROOT_react_common_overrides}"
+  "\${RN_GPUI_PREBUILT_ROOT_react_common}"
+  "\${RN_GPUI_PREBUILT_ROOT_react_common}/jsi"
+  "\${RN_GPUI_PREBUILT_ROOT_react_common}/callinvoker"
+  "\${RN_GPUI_PREBUILT_ROOT_react_cxx_platform}"
+  "\${RN_GPUI_PREBUILT_ROOT_generated_rncore}"
+  "\${RN_GPUI_PREBUILT_ROOT_cxxbridge}"
+  "\${RN_GPUI_PREBUILT_ROOT_hermes}/include"
+  "\${RN_GPUI_PREBUILT_ROOT_hermes}/public"
+  "\${RN_GPUI_PREBUILT_ROOT_hermes}/API"
+  "\${RN_GPUI_PREBUILT_ROOT_folly}"
+  "\${RN_GPUI_PREBUILT_ROOT_glog}"
+  "\${RN_GPUI_PREBUILT_ROOT_fmt}"
+  "\${RN_GPUI_PREBUILT_ROOT_double_conversion}"
+  "\${RN_GPUI_PREBUILT_ROOT_fast_float}"
+  "\${RN_GPUI_PREBUILT_ROOT_nlohmann_json}"
+  "\${RN_GPUI_PREBUILT_ROOT_boost}"
+  "\${RN_GPUI_PREBUILT_ROOT_curl}"
+  "\${RN_GPUI_PREBUILT_ROOT_openssl_generated}")
 
 # --- folly compile flags ----------------------------------------------------------
 # The source build has no folly-config.h. folly's flags (FOLLY_NO_CONFIG,
@@ -185,32 +135,32 @@ endif()
 
 # --- include roots from the link closure ----------------------------------------
 # Source targets add their own include dirs (ReactCommon subdirectories such as
-# react/renderer/graphics/platform/cxx and react/nativemodule/core). The flat
-# roots above do not cover them, so map every dir that lies inside a source
-# tree to the location the install rules above put it at, and keep those.
-# Longest source prefix wins, so nested dirs resolve before the broad roots.
-# Pairs are "<source dir>" "<installed dir under the prefix>".
+# react/renderer/graphics/platform/cxx and react/nativemodule/core). Map every dir
+# that lies inside a source tree to "<root variable>/<path inside the tree>", so
+# the consumer resolves it against the tree it has. Longest source prefix wins.
+# Pairs are "<source dir>" "<root variable reference>".
 set(_rn_gpui_include_map
-  "${RN_GPUI_OVERRIDES_DIR}" "include/react-common"
-  "${REACT_COMMON_DIR}" "include/react-common"
-  "${REACT_CXX_PLATFORM_DIR}" "include/react-cxx-platform"
-  "${CMAKE_CURRENT_SOURCE_DIR}" "include/react-native-gpui"
-  "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" "include/cxxbridge"
-  "${RN_GPUI_GENERATED_RNCORE_DIR}/jni" "include/generated"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly" "include/third-party/folly"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported/glog" "include/third-party/glog"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include" "include/third-party"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "include/third-party"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include" "include/third-party"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include" "include/third-party"
-  "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0/boost" "include/third-party/boost"
-  "${RN_GPUI_OPENSSL_INSTALL}/include" "include/third-party"
-  "${RN_GPUI_CURL_SOURCE_DIR}/include/curl" "include/third-party/curl")
+  "${RN_GPUI_OVERRIDES_DIR}" "\${RN_GPUI_PREBUILT_ROOT_react_common_overrides}"
+  "${REACT_COMMON_DIR}" "\${RN_GPUI_PREBUILT_ROOT_react_common}"
+  "${REACT_CXX_PLATFORM_DIR}" "\${RN_GPUI_PREBUILT_ROOT_react_cxx_platform}"
+  "${CMAKE_CURRENT_SOURCE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_react_native_gpui}"
+  "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_cxxbridge}"
+  "${RN_GPUI_GENERATED_RNCORE_DIR}/jni" "\${RN_GPUI_PREBUILT_ROOT_generated_rncore}"
+  "${RN_GPUI_HERMES_SOURCE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_hermes}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly" "\${RN_GPUI_PREBUILT_ROOT_folly}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported" "\${RN_GPUI_PREBUILT_ROOT_glog}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include" "\${RN_GPUI_PREBUILT_ROOT_fmt}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/double-conversion" "\${RN_GPUI_PREBUILT_ROOT_double_conversion}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float/include" "\${RN_GPUI_PREBUILT_ROOT_fast_float}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include" "\${RN_GPUI_PREBUILT_ROOT_nlohmann_json}"
+  "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0" "\${RN_GPUI_PREBUILT_ROOT_boost}"
+  "${RN_GPUI_CURL_SOURCE_DIR}/include" "\${RN_GPUI_PREBUILT_ROOT_curl}"
+  "${RN_GPUI_OPENSSL_INSTALL}/include" "\${RN_GPUI_PREBUILT_ROOT_openssl_generated}")
 
-# rn_gpui_installed_include(<source dir> <out var>): sets <out var> to the
-# installed path (relative to the prebuilt root) of <source dir>, or "" when
-# the dir is not inside any mapped source tree.
-function(rn_gpui_installed_include dir out_var)
+# rn_gpui_prebuilt_include_ref(<source dir> <out var>): sets <out var> to the
+# root-variable reference for <source dir> (e.g. "${RN_GPUI_PREBUILT_ROOT_boost}/x"),
+# or "" when the dir is not inside any mapped source tree.
+function(rn_gpui_prebuilt_include_ref dir out_var)
   # Source trees are often named with "..", e.g. REACT_COMMON_DIR is
   # ${CMAKE_CURRENT_SOURCE_DIR}/../../..; targets report normalized paths.
   # Normalize both sides so the prefix comparison can match.
@@ -277,7 +227,7 @@ foreach(_rn_gpui_walk_name IN LISTS _rn_gpui_include_walk)
       elseif(_rn_gpui_dir MATCHES "\\$<")
         continue()
       endif()
-      rn_gpui_installed_include("${_rn_gpui_dir}" _rn_gpui_inst)
+      rn_gpui_prebuilt_include_ref("${_rn_gpui_dir}" _rn_gpui_inst)
       if(_rn_gpui_inst)
         list(APPEND _rn_gpui_mapped_includes "${_rn_gpui_inst}")
       endif()
@@ -289,14 +239,14 @@ endforeach()
 # INTERFACE properties. Map those too, so they stay on the consumer's path.
 get_property(_rn_gpui_dir_incs DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY INCLUDE_DIRECTORIES)
 foreach(_rn_gpui_dir IN LISTS _rn_gpui_dir_incs)
-  rn_gpui_installed_include("${_rn_gpui_dir}" _rn_gpui_inst)
+  rn_gpui_prebuilt_include_ref("${_rn_gpui_dir}" _rn_gpui_inst)
   if(_rn_gpui_inst)
     list(APPEND _rn_gpui_mapped_includes "${_rn_gpui_inst}")
   endif()
 endforeach()
 list(REMOVE_DUPLICATES _rn_gpui_mapped_includes)
 foreach(_rn_gpui_inc IN LISTS _rn_gpui_mapped_includes)
-  list(APPEND _rn_gpui_include_roots "\${_rn_gpui_prebuilt_root}/${_rn_gpui_inc}")
+  list(APPEND _rn_gpui_include_roots "${_rn_gpui_inc}")
 endforeach()
 # Static roots first, so overrides (installed into include/react-common, which
 # the mapped dirs also point at) keep their place ahead of upstream headers.
@@ -309,6 +259,8 @@ list(REMOVE_DUPLICATES _rn_gpui_include_roots)
 set(_rn_gpui_targets_text
 "# Generated by cpp/cmake/modules/PrebuiltInstall.cmake. Do not edit.
 get_filename_component(_rn_gpui_prebuilt_root \"\${CMAKE_CURRENT_LIST_DIR}/..\" ABSOLUTE)
+# OpenSSL's generated headers are the only headers in the archive.
+set(RN_GPUI_PREBUILT_ROOT_openssl_generated \"\${_rn_gpui_prebuilt_root}/include/openssl-generated\")
 set(_rn_gpui_prebuilt_include_roots \"${_rn_gpui_include_roots}\")
 ")
 
@@ -402,9 +354,25 @@ file(GENERATE OUTPUT "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-t
   CONTENT "${_rn_gpui_targets_text}")
 
 # --- config file --------------------------------------------------------------------
+# Every root the targets file can reference. The consumer must set each one to
+# an existing directory before find_package; openssl_generated is set by the
+# targets file itself.
+set(_rn_gpui_required_roots
+  react_native_gpui react_common_overrides react_common react_cxx_platform
+  generated_rncore cxxbridge hermes folly glog fmt double_conversion fast_float
+  nlohmann_json boost curl)
+set(_rn_gpui_root_checks "")
+foreach(_rn_gpui_root IN LISTS _rn_gpui_required_roots)
+  string(APPEND _rn_gpui_root_checks
+"if(NOT DEFINED RN_GPUI_PREBUILT_ROOT_${_rn_gpui_root} OR NOT EXISTS \"\${RN_GPUI_PREBUILT_ROOT_${_rn_gpui_root}}\")
+  message(FATAL_ERROR \"${RN_GPUI_PREBUILT_CONFIG_NAME}: RN_GPUI_PREBUILT_ROOT_${_rn_gpui_root} must be set to an existing directory\")
+endif()
+")
+endforeach()
 file(WRITE "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-config.cmake"
 "# Consumer entry point: find_package(${RN_GPUI_PREBUILT_CONFIG_NAME} CONFIG REQUIRED)
-include(\"\${CMAKE_CURRENT_LIST_DIR}/${RN_GPUI_PREBUILT_CONFIG_NAME}-targets.cmake\")
+# Set RN_GPUI_PREBUILT_ROOT_<name> for each name below before calling it.
+${_rn_gpui_root_checks}include(\"\${CMAKE_CURRENT_LIST_DIR}/${RN_GPUI_PREBUILT_CONFIG_NAME}-targets.cmake\")
 set(${RN_GPUI_PREBUILT_CONFIG_NAME}_FOUND TRUE)
 ")
 
