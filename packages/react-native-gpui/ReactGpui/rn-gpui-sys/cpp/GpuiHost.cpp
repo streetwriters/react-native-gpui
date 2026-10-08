@@ -22,6 +22,7 @@
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/PlatformTimerRegistryImpl.h>
 #include <react/runtime/ReactHost.h>
+#include <react/runtime/hermes/HermesInstance.h>
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
 
@@ -523,6 +524,19 @@ TurboModuleProviders gpui_turbo_module_providers() {
       }};
 }
 
+// Temporary until step 3 of .local/js-engines.md: Hermes is still wired into
+// core, so core supplies this factory. It moves to @react-native-gpui/hermes,
+// which will register it through rngpui::registerJsEngine instead.
+class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
+ public:
+  std::unique_ptr<facebook::react::JSRuntime> createJSRuntime(
+      std::shared_ptr<facebook::react::MessageQueueThread>
+          msgQueueThread) noexcept override {
+    return facebook::react::HermesInstance::createJSRuntime(
+        nullptr, std::move(msgQueueThread), /* allocInOldGenBeforeTTI */ false);
+  }
+};
+
 // Installs the OSS stable feature flags, which is what an OSS app on the new
 // (bridgeless) architecture does. `enableBridgelessArchitecture` is load
 // bearing for us: ReactHost here IS the bridgeless host, and the flag is what
@@ -602,6 +616,7 @@ GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
   config.platformTimerRegistryFactory = [] {
     return std::make_unique<PlatformTimerRegistryImpl>();
   };
+  config.jsRuntimeFactory = std::make_shared<HermesRuntimeFactory>();
 
   mountingManager_ =
       std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
