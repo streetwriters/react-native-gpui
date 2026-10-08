@@ -38,7 +38,13 @@ class HostPlatformViewProps : public BaseViewProps {
             rawProps,
             "desktopWindowControl",
             sourceProps.desktopWindowControl,
-            {})) {}
+            {})),
+        onContextMenu(convertRawProp(
+            context,
+            rawProps,
+            "onContextMenu",
+            sourceProps.onContextMenu,
+            false)) {}
 
   void setProp(
       const PropsParserContext& context,
@@ -51,6 +57,7 @@ class HostPlatformViewProps : public BaseViewProps {
       RAW_SET_PROP_SWITCH_CASE_BASIC(focusable);
       RAW_SET_PROP_SWITCH_CASE_BASIC(desktopDragRegion);
       RAW_SET_PROP_SWITCH_CASE_BASIC(desktopWindowControl);
+      RAW_SET_PROP_SWITCH_CASE_BASIC(onContextMenu);
     }
   }
 
@@ -60,6 +67,9 @@ class HostPlatformViewProps : public BaseViewProps {
   /// "minimize" | "maximize" | "close": a custom caption button. Windows uses
   /// it for snap layouts; elsewhere the press is an ordinary button.
   std::string desktopWindowControl{};
+  /// True when the view has an `onContextMenu` handler (RN turns a function
+  /// prop into this boolean marker).
+  bool onContextMenu{false};
 };
 
 } // namespace facebook::react

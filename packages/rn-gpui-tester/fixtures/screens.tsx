@@ -225,6 +225,11 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  'context-menu': props =>
+    React.createElement(
+      require('./components/ContextMenuFixture').default,
+      props,
+    ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
   'benchmark-idle': props =>

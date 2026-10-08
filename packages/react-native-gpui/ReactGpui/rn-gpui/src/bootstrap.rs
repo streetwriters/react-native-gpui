@@ -688,6 +688,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .clone()
             .unwrap_or_else(|| config.module.clone());
         crate::desktop::app_menu::install(cx, &menu_app_name);
+        // Context-menu presenter: the real one, or the driver's fake when
+        // RN_GPUI_TEST_FAKE_NATIVE_UI=1 (plan §3.5).
+        crate::desktop::context_menu::install(cx);
 
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).

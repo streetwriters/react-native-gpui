@@ -51,6 +51,17 @@ export type { TitleBarProps } from './src-gpui/src/private/desktop/TitleBar';
 
 export { ApplicationMenu, Menu } from './src-gpui/src/private/desktop/menu';
 
+export {
+  ContextMenu,
+  ContextMenuView,
+} from './src-gpui/src/private/desktop/contextMenu';
+
+export type {
+  ContextMenuEvent,
+  ContextMenuOptions,
+  ContextMenuViewProps,
+} from './src-gpui/src/private/desktop/contextMenu';
+
 export type {
   ApplicationMenuProps,
   MenuDescription,

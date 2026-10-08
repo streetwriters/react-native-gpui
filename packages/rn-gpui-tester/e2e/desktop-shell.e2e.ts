@@ -26,6 +26,7 @@ async function launch(
         'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
       ),
       RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
       RN_GPUI_WINDOW_STATE: path.resolve(
         `.local/e2e-${module}-${scenario ?? 'default'}.json`,
       ),
@@ -149,4 +150,52 @@ test('the Edit roles copy and paste in a text input', async () => {
   await app.press('mod-v');
   await app.waitForIdle();
   expect(await target.textContent()).toBe('hello edit roles');
+});
+
+test('a context menu shows, reports its model and selects an item', async () => {
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-target').rightClick();
+  await app.waitForIdle();
+  const menu = await app.getContextMenu();
+  expect(menu).not.toBeNull();
+  const model = JSON.stringify(menu?.items ?? []);
+  expect(model).toContain('cm-open');
+  expect(model).toContain('Nested item');
+  expect(model).toContain('"checked":true');
+  expect(model).toContain('"enabled":false');
+
+  expect(await app.selectContextMenuItem('cm-nested')).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
+});
+
+test('a dismissed context menu resolves null', async () => {
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+  await app.getByTestId('cm-target').rightClick();
+  await app.waitForIdle();
+  expect(await app.dismissContextMenu()).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: dismissed');
+});
+
+test('the ContextMenuView wrapper and the menu polyfill open menus', async () => {
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-view').rightClick();
+  await app.waitForIdle();
+  expect(await app.selectContextMenuItem('cm-open')).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: view:cm-open');
+
+  await app.getByTestId('cm-polyfill').rightClick();
+  await app.waitForIdle();
+  const model = JSON.stringify((await app.getContextMenu())?.items ?? []);
+  expect(model).toContain('Poly Open');
+  expect(model).toContain('Poly nested');
+  // Hidden actions are dropped, disabled ones are kept but disabled.
+  expect(model).not.toContain('Hidden');
+  expect(model).toContain('"enabled":false');
+  expect(await app.selectContextMenuItem('poly-nested')).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: poly:poly-nested');
 });

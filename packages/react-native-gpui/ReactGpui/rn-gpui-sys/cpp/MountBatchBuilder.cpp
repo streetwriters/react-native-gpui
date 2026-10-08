@@ -236,6 +236,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
     out.focusable = platformProps->focusable;
     out.desktop_drag_region = platformProps->desktopDragRegion;
     out.desktop_window_control = platformProps->desktopWindowControl;
+    out.on_context_menu = platformProps->onContextMenu;
   }
 
   const auto transform = props->resolveTransform(layoutMetrics);

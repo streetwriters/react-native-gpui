@@ -398,6 +398,57 @@ export class DesktopApp {
     return this.request('a11yTree');
   }
 
+  /** The application menu as the host has it (plan §3.5). */
+  async getAppMenu(): Promise<{
+    appName: string;
+    userSet: boolean;
+    items: unknown[];
+  }> {
+    return this.request('getAppMenu');
+  }
+
+  /** Perform a menu item exactly as a click on it would. */
+  async triggerMenuItem(id: string): Promise<void> {
+    await this.request('triggerMenuItem', { id });
+    await this.waitForIdle();
+  }
+
+  /** The context menu the fake presenter recorded. */
+  async getContextMenu(): Promise<{
+    items: unknown[];
+    x: number;
+    y: number;
+    shown: number;
+  } | null> {
+    return this.request('getContextMenu');
+  }
+
+  /** Choose an item in the fake context menu. */
+  async selectContextMenuItem(id: string): Promise<boolean> {
+    const result = await this.request<{ selected: boolean }>(
+      'selectContextMenuItem',
+      { id },
+    );
+    await this.waitForIdle();
+    return result.selected;
+  }
+
+  /** Dismiss the fake context menu (resolves the promise with null). */
+  async dismissContextMenu(): Promise<boolean> {
+    const result = await this.request<{ dismissed: boolean }>(
+      'dismissContextMenu',
+    );
+    await this.waitForIdle();
+    return result.dismissed;
+  }
+
+  /** Every open desktop window. */
+  async listWindows(): Promise<{
+    windows: { windowId: number; component: string; role: string }[];
+  }> {
+    return this.request('listWindows');
+  }
+
   async a11yNode(identifier: string): Promise<{
     name: string;
     role: string;

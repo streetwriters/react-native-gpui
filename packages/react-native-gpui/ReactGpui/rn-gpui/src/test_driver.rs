@@ -875,6 +875,37 @@ async fn serve_commands(
                     Err(error) => json!({"error": error.to_string()}),
                 }
             }
+            "getAppMenu" => cx.update(|cx| crate::desktop::app_menu::menu_json(cx)),
+            "triggerMenuItem" => {
+                let id = params
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    crate::desktop::app_menu::trigger_item(cx, &id);
+                    json!({"triggered": id})
+                })
+            }
+            "getContextMenu" => cx.update(|cx| {
+                crate::desktop::context_menu::fake_model(cx).unwrap_or(Value::Null)
+            }),
+            "selectContextMenuItem" => {
+                let id = params
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    json!({"selected": crate::desktop::context_menu::fake_select(cx, &id)})
+                })
+            }
+            "dismissContextMenu" => cx.update(|cx| {
+                json!({"dismissed": crate::desktop::context_menu::fake_dismiss(cx)})
+            }),
+            "listWindows" => cx.update(|cx| {
+                crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
+            }),
             _ => json!({"error": format!("unknown test-driver method: {method}")}),
         };
 

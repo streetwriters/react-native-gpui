@@ -306,6 +306,12 @@ export const screens = [
     fixture: 'DesktopMenuFixture',
   },
   {
+    id: 'context-menu',
+    title: 'Context menus',
+    group: 'Platform',
+    fixture: 'ContextMenuFixture',
+  },
+  {
     id: 'errors',
     title: 'Error handling',
     group: 'Diagnostics',

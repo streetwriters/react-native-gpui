@@ -37,6 +37,11 @@ rn-gpui-macros = { path = "../rn-gpui-macros" }
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
 
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# Native context menus (plan §6.3). On macOS this is an NSMenu shown for the
+# window's NSView; on Windows a Win32 popup menu on the HWND.
+muda = "0.15"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # `font-kit` makes gpui_macos build a real (CoreText) text system; without it
 # every glyph paints as nothing (TODO 1.11).
