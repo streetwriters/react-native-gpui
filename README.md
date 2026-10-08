@@ -129,6 +129,162 @@ feature-flag overrides. `@react-native-gpui/hermes/gpui` is a worked example.
 A prebuilt runtime does not yet compile an engine's glue per app; use a source
 build until that lands.
 
+## Desktop shell
+
+`react-native-gpui/desktop` is the desktop shell: the application menu bar,
+native context menus, windows and title bars, the Dev Menu and the Perf Monitor.
+Everything is optional; an app that imports none of it behaves as before.
+
+```ts
+import {
+  ApplicationMenu,
+  Menu,
+  ContextMenu,
+  ContextMenuView,
+  PerfMonitor,
+  DesktopWindow,
+  TitleBar,
+  useDesktopWindow,
+} from 'react-native-gpui/desktop';
+```
+
+### Application menu (7.1)
+
+```tsx
+<ApplicationMenu
+  items={[
+    { type: 'standard', role: 'appMenu' },
+    { type: 'standard', role: 'editMenu' },
+    {
+      type: 'submenu',
+      label: 'View',
+      items: [
+        { id: 'reload', label: 'Reload', accelerator: 'secondary-r' },
+        { type: 'separator' },
+        { id: 'zoom', label: 'Actual size', checked: true },
+      ],
+    },
+    { type: 'standard', role: 'windowMenu' },
+  ]}
+  onPress={({ nativeEvent }) => console.log(nativeEvent.id)}
+/>
+```
+
+Standard roles map to the platform's own menus (`about`, `hide`, `quit`,
+`undo`/`redo`/`cut`/`copy`/`paste`/`selectAll`, `minimize`, `zoom`,
+`toggleFullscreen`, `close`). Item presses arrive as `gpuiDesktop:menuPress`
+events and through `onPress`. Accelerators accept `secondary` (Command on
+macOS, Control elsewhere) and `mod`/`cmd`/`ctrl`/`alt`/`shift`. The imperative
+`Menu.setApplicationMenu(items)` / `Menu.getApplicationMenu()` pair is available
+for apps that already build their own UI.
+
+### Context menus (7.2)
+
+A `View` with `onContextMenu` reports the press in window points and the window
+id, so a menu can be shown for a window that is not the platform's active one:
+
+```tsx
+<ContextMenuView
+  items={[
+    { id: 'open', label: 'Open' },
+    {
+      type: 'submenu',
+      label: 'More',
+      items: [{ id: 'nested', label: 'Nested' }],
+    },
+    { type: 'separator' },
+    { id: 'pin', label: 'Pinned', checked: true },
+  ]}
+  onPress={id => console.log(id)}
+>
+  <Text>Right-click me</Text>
+</ContextMenuView>
+```
+
+`ContextMenu.show(items, {x, y, windowId})` resolves with the chosen item id, or
+`null` when the menu is dismissed. A secondary click on macOS includes
+Control+click.
+
+`@react-native-menu/menu` consumers can keep their imports by mapping the package
+name to the bundled polyfill:
+
+```js
+// metro.config.js
+resolver: {
+  extraNodeModules: {
+    '@react-native-menu/menu': require.resolve('react-native-gpui/polyfills/menu'),
+  },
+}
+```
+
+It supports `actions` (`subactions`, `state: 'on'`, `attributes.disabled`,
+`attributes.hidden`), `onPressAction` and `shouldOpenOnLongPress`. Icons and
+`themeVariant` are ignored.
+
+### Windows and title bars (7.4)
+
+```tsx
+const window = useDesktopWindow(); // or DesktopWindow.current()
+
+await window.setTitle('Editor');
+await window.setSize(1200, 800);
+await window.minimize();
+await window.toggleFullscreen();
+await DesktopWindow.open('Settings', { width: 480, height: 320 });
+```
+
+`window.setCloseVetoHandler(handler)` lets a window refuse to close (a 3 second
+guard prevents an app that never answers from trapping the user). Focus, blur,
+resize, move and close-requested events arrive as `gpuiDesktop:*` device events.
+
+For a fully custom title bar, launch the window with
+`DesktopAppConfig::window_title_bar(WindowTitleBar::Transparent { traffic_lights })`
+and mark drag areas with the `desktopDragRegion` View prop, or render
+`<TitleBar>` and use `desktopWindowControl` for the buttons.
+
+### Dev Menu (7.5)
+
+Cmd/Ctrl+D, or the Developer group in the Help menu, opens a native popup with
+Reload, Open DevTools, Toggle Element Inspector, Toggle Perf Monitor and Fast
+Refresh. It is available in debug builds, or when the app asks for it:
+
+```rust
+DesktopAppConfig::from_env().dev_menu(true)
+```
+
+The `DevMenu` TurboModule (`show`, `reload`, `setProfilingEnabled`,
+`setHotLoadingEnabled`) and `DevSettings`'s `setProfilingEnabled`,
+`setHotLoadingEnabled` and `toggleElementInspector` are wired to the same
+handlers. Note that React Native's `DevSettings` JS module is a no-op outside
+`__DEV__`.
+
+### Perf Monitor (7.6)
+
+```ts
+await PerfMonitor.setEnabled(true);
+const metrics = await PerfMonitor.getMetrics();
+// { enabled, uiFps, jsFps, memoryBytes, mountedViews, lastMountMs }
+```
+
+The overlay is drawn by GPUI above every surface, so it does not disturb what it
+measures. While it is visible the app never goes idle, which matters for tests
+that wait for idle.
+
+### Platform support
+
+| Feature             | macOS                        | Windows                                  | Linux                                       |
+| ------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------------- |
+| Application menu    | GPUI `NSMenu`                | `muda` (written, unverified)             | not implemented                             |
+| Context menus       | `muda` on the `NSView`       | `muda` on the HWND (written, unverified) | not implemented                             |
+| Windows / title bar | AppKit                       | not implemented                          | not implemented                             |
+| Tray apps (7.3)     | not implemented              | not implemented                          | not implemented                             |
+| Dev Menu            | yes                          | yes (menu popup as above)                | popup only                                  |
+| Perf Monitor        | yes (memory via `task_info`) | counters yes, memory `n/a`               | counters yes, memory via `/proc/self/statm` |
+
+`react-native-gpui/desktop` reports what the current platform supports through
+`GpuiDesktop.getSnapshot('capabilities')`, so an app can degrade gracefully
+instead of calling into an unsupported path.
+
 ## Supported libraries
 
 | Package                                | Adds GPUI support for            |
