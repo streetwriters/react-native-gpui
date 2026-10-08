@@ -258,6 +258,33 @@ The `DevMenu` TurboModule (`show`, `reload`, `setProfilingEnabled`,
 handlers. Note that React Native's `DevSettings` JS module is a no-op outside
 `__DEV__`.
 
+### Launch configuration from `app.json`
+
+`npx react-native init-desktop` reads the `desktop` key and writes it into
+`desktop/src/main.rs`:
+
+```json
+{
+  "name": "Demo",
+  "desktop": {
+    "appId": "com.example.demo",
+    "window": {
+      "title": "Demo",
+      "width": 1280,
+      "height": 800,
+      "position": { "x": 40, "y": 60 },
+      "restoreState": false,
+      "resizable": false
+    },
+    "devMenu": false,
+    "tray": { "component": "MenuBarPanel", "tooltip": "Demo" }
+  }
+}
+```
+
+Without those keys the template's own `main.rs` is kept. Invalid values are
+rejected with the `app.json` path in the message.
+
 ### Tray / menu-bar apps (7.3)
 
 ```ts
