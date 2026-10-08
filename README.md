@@ -343,6 +343,19 @@ this machine cannot build for that platform.
 `GpuiDesktop.getSnapshot('capabilities')`, so an app can degrade gracefully
 instead of calling into an unsupported path.
 
+## Testing a desktop app
+
+```sh
+npm run test:e2e                     # the tester's whole suite
+npm run test:e2e -- desktop-shell    # one file
+```
+
+The suite launches real app processes against a Metro server on port 8082, so
+it needs an **unlocked** macOS session: a locked session has no displays, GPUI
+waits for one before entering AppKit, and every test would time out. The runner
+checks for that up front and says so; `RN_GPUI_ALLOW_LOCKED_SCREEN=1` skips the
+check. Restart Metro after changing `metro.config.js` or `package.json`.
+
 ## Supported libraries
 
 | Package                                | Adds GPUI support for            |
