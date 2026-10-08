@@ -222,7 +222,9 @@ fn emit(cx: &App, name: &str, payload: Value) {
         .emit_device_event_json(name, &payload.to_string());
 }
 
-/// The main window, for presenters that need one.
+/// The main window, for presenters that need one. Only the Windows menu-bar
+/// path needs it today, so it is allowed to be unused elsewhere.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn main_window(cx: &App) -> Option<gpui::AnyWindowHandle> {
     cx.try_global::<DesktopWindowsGlobal>()
         .and_then(|windows| windows.0.get(MAIN_WINDOW_KEY).map(|entry| entry.handle))

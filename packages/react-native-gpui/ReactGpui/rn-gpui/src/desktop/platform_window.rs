@@ -171,7 +171,279 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::*;
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: `SetWindowPos` / `ShowWindow` / `IsIconic` / `IsZoomed` on the
+/// HWND (plan step 10).
+///
+/// **Written but never compiled**: this machine cannot build for Windows, so
+/// treat it as unverified until a Windows run proves it (plan §12.1).
+#[cfg(target_os = "windows")]
+mod imp {
+    use gpui::Window;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsIconic, IsZoomed, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
+    };
+
+    const UNSUPPORTED_MIN_MAX: &str =
+        "a runtime minimum/maximum size needs a WM_GETMINMAXINFO handler in GPUI's window procedure";
+
+    fn hwnd(window: &Window) -> Result<HWND, String> {
+        let handle = HasWindowHandle::window_handle(window)
+            .map_err(|error| format!("no platform window handle: {error}"))?;
+        match handle.as_raw() {
+            RawWindowHandle::Win32(win32) => Ok(win32.hwnd.get() as HWND),
+            _ => Err("unexpected platform window handle".to_string()),
+        }
+    }
+
+    pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
+        let hwnd = hwnd(window)?;
+        // GPUI's bounds are physical pixels, which is what SetWindowPos takes.
+        let result = unsafe {
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                x.round() as i32,
+                y.round() as i32,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        };
+        if result == 0 {
+            Err("SetWindowPos failed".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
+        let hwnd = hwnd(window)?;
+        let insert_after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST };
+        let result = unsafe {
+            SetWindowPos(
+                hwnd,
+                insert_after,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+        if result == 0 {
+            Err("SetWindowPos failed".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn set_min_size(_window: &mut Window, _width: f32, _height: f32) -> Result<(), String> {
+        Err(UNSUPPORTED_MIN_MAX.to_string())
+    }
+
+    pub fn set_max_size(_window: &mut Window, _width: f32, _height: f32) -> Result<(), String> {
+        Err(UNSUPPORTED_MIN_MAX.to_string())
+    }
+
+    /// Toggle the resize frame. GPUI applies the style flags it knows at
+    /// creation, so the change is pushed with `SWP_FRAMECHANGED`.
+    pub fn set_resizable(window: &mut Window, resizable: bool) -> Result<(), String> {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_MAXIMIZEBOX, WS_THICKFRAME,
+        };
+        let hwnd = hwnd(window)?;
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+            let style = if resizable {
+                style | WS_THICKFRAME | WS_MAXIMIZEBOX
+            } else {
+                style & !(WS_THICKFRAME | WS_MAXIMIZEBOX)
+            };
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style as isize);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        Ok(())
+    }
+
+    pub fn show(window: &mut Window) -> Result<(), String> {
+        let hwnd = hwnd(window)?;
+        unsafe { ShowWindow(hwnd, SW_SHOW) };
+        Ok(())
+    }
+
+    pub fn hide(window: &mut Window) -> Result<(), String> {
+        let hwnd = hwnd(window)?;
+        unsafe { ShowWindow(hwnd, SW_HIDE) };
+        Ok(())
+    }
+
+    pub fn is_minimized(window: &Window) -> bool {
+        match hwnd(window) {
+            Ok(hwnd) => unsafe { IsIconic(hwnd) != 0 },
+            Err(_) => false,
+        }
+    }
+
+    pub fn is_maximized(window: &Window) -> bool {
+        match hwnd(window) {
+            Ok(hwnd) => unsafe { IsZoomed(hwnd) != 0 },
+            Err(_) => false,
+        }
+    }
+}
+
+/// X11: the window calls GPUI does not expose, over a second X connection
+/// (plan step 10). Wayland has no absolute positioning or raise, so a Wayland
+/// session reports `unsupported` — the honest answer, not a silent no-op.
+///
+/// **Written but never compiled** on this machine; treat it as unverified
+/// until a Linux run proves it (plan §12.1).
+#[cfg(target_os = "linux")]
+mod imp {
+    use gpui::Window;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11_dl::xlib;
+
+    const UNSUPPORTED_WAYLAND: &str =
+        "Wayland has no absolute window positioning or raise; use X11 for these calls";
+
+    fn wayland() -> bool {
+        crate::desktop::capabilities::is_wayland()
+    }
+
+    fn window_id(window: &Window) -> Result<u64, String> {
+        let handle = HasWindowHandle::window_handle(window)
+            .map_err(|error| format!("no platform window handle: {error}"))?;
+        match handle.as_raw() {
+            RawWindowHandle::Xlib(xlib_handle) => Ok(xlib_handle.window as u64),
+            RawWindowHandle::Xcb(xcb) => Ok(xcb.window.get() as u64),
+            _ => Err("the session is not X11".to_string()),
+        }
+    }
+
+    /// Run `f` with a fresh X connection. GPUI owns its own connection and does
+    /// not expose it, and the X protocol allows a second client to move and
+    /// raise another client's window.
+    fn with_display<R>(f: impl FnOnce(*mut xlib::Display, xlib::Window) -> R) -> Result<R, String> {
+        if wayland() {
+            return Err(UNSUPPORTED_WAYLAND.to_string());
+        }
+        let xlib = xlib::Xlib::open().map_err(|error| format!("no X11 library: {error}"))?;
+        unsafe {
+            let display = (xlib.XOpenDisplay)(std::ptr::null());
+            if display.is_null() {
+                return Err("could not open an X11 display".to_string());
+            }
+            let result = f(display, 0);
+            (xlib.XCloseDisplay)(display);
+            Ok(result)
+        }
+    }
+
+    fn with_window<R>(
+        window: &Window,
+        f: impl FnOnce(*mut xlib::Display, xlib::Window, xlib::Window) -> R,
+    ) -> Result<R, String> {
+        let id = window_id(window)?;
+        with_display(|display, _| f(display, id as xlib::Window, id as xlib::Window))
+    }
+
+    pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            (xlib::XMoveWindow)(display, id, x.round() as i32, y.round() as i32);
+            (xlib::XFlush)(display);
+        })
+    }
+
+    /// Raising is the part of always-on-top X11 itself can do. Staying above
+    /// other windows also needs the `_NET_WM_STATE_ABOVE` window-manager hint,
+    /// which is not written yet, so `on == false` is a no-op and `on == true`
+    /// only raises the window once.
+    pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            if on {
+                (xlib::XRaiseWindow)(display, id);
+                (xlib::XFlush)(display);
+            }
+        })
+    }
+
+    pub fn set_min_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            let mut hints: xlib::XSizeHints = std::mem::zeroed();
+            hints.flags = xlib::PMinSize;
+            hints.min_width = width.round() as i32;
+            hints.min_height = height.round() as i32;
+            (xlib::XSetWMNormalHints)(display, id, &mut hints);
+            (xlib::XFlush)(display);
+        })
+    }
+
+    pub fn set_max_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            let mut hints: xlib::XSizeHints = std::mem::zeroed();
+            hints.flags = xlib::PMaxSize;
+            hints.max_width = width.round() as i32;
+            hints.max_height = height.round() as i32;
+            (xlib::XSetWMNormalHints)(display, id, &mut hints);
+            (xlib::XFlush)(display);
+        })
+    }
+
+    pub fn set_resizable(_window: &mut Window, _resizable: bool) -> Result<(), String> {
+        // GPUI sets the size hints from `WindowOptions::is_resizable`; changing
+        // them at runtime needs the WM_NORMAL_HINTS pair above plus a
+        // `_MOTIF_WM_HINTS` update, which is not written yet.
+        Err("changing resizability at runtime is not implemented on X11 yet".to_string())
+    }
+
+    pub fn show(window: &mut Window) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            (xlib::XMapWindow)(display, id);
+            (xlib::XFlush)(display);
+        })
+    }
+
+    pub fn hide(window: &mut Window) -> Result<(), String> {
+        with_window(window, |display, _root, id| unsafe {
+            (xlib::XUnmapWindow)(display, id);
+            (xlib::XFlush)(display);
+        })
+    }
+
+    pub fn is_minimized(window: &Window) -> bool {
+        // `XGetWindowAttributes` reports `IsUnmapped` for a hidden window, but
+        // X11 has no "minimized" state of its own (the WM owns it).
+        with_window(window, |display, _root, id| unsafe {
+            let mut attributes: xlib::XWindowAttributes = std::mem::zeroed();
+            if (xlib::XGetWindowAttributes)(display, id, &mut attributes) == 0 {
+                return false;
+            }
+            attributes.map_state == xlib::IsUnmapped
+        })
+        .unwrap_or(false)
+    }
+
+    pub fn is_maximized(_window: &Window) -> bool {
+        // Only the window manager knows; it would need a `_NET_WM_STATE` read.
+        false
+    }
+}
+
+/// Platforms with no implementation yet (and Wayland's window calls, which the
+/// X11 module above reports as unsupported at runtime).
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod imp {
     use gpui::Window;
 

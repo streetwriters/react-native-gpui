@@ -57,6 +57,14 @@ raw-window-handle = "0.6"
 # gpui_platform intentionally has no default features. Enable both backends so
 # Linux users can run under either X11 or Wayland.
 gpui_platform = { workspace = true, features = ["x11", "wayland"] }
+# X11 window calls GPUI does not expose (plan step 10). Wayland has no
+# equivalent, so those sessions stay `unsupported`.
+x11-dl = "2.21"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui_platform = { workspace = true }
+# Win32 window calls GPUI does not expose (plan step 10).
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
