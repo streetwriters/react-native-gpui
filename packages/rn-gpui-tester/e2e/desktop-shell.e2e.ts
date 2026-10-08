@@ -241,3 +241,53 @@ test('the perf monitor toggles and reports its counters', async () => {
   await clickTestId('perf-toggle');
   expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
 });
+
+test('the Dev Menu opens from its accelerator and runs items', async () => {
+  await launch('DesktopShellFixture');
+  await app.waitForIdle();
+
+  // Cmd+D goes through the same accelerator interceptor as the app menu.
+  await app.press('mod-d');
+  await app.waitForIdle();
+  const opened = await app.getContextMenu();
+  const openedItems = JSON.stringify(opened?.items ?? []);
+  expect(openedItems).toContain('dev:reload');
+  expect(openedItems).toContain('dev:openDevTools');
+  expect(openedItems).toContain('Toggle Perf Monitor');
+  expect(openedItems).toContain('Fast Refresh');
+
+  expect(await app.selectContextMenuItem('dev:perfMonitor')).toBe(true);
+  await app.waitForIdle();
+  const metrics = await app.getPerfMonitor();
+  expect(metrics.enabled).toBe(true);
+
+  // Choosing it again turns the monitor back off, and the model reflects it.
+  await app.showDevMenu();
+  const devMenu = await app.getDevMenu();
+  const perfItem = (devMenu.items as { id?: string; checked?: boolean }[]).find(
+    item => item.id === 'dev:perfMonitor',
+  );
+  expect(perfItem?.checked).toBe(true);
+  expect(await app.selectContextMenuItem('dev:perfMonitor')).toBe(true);
+  await app.waitForIdle();
+  expect((await app.getPerfMonitor()).enabled).toBe(false);
+});
+
+test('DevSettings toggles reach the perf monitor', async () => {
+  await launch('PerfMonitorFixture');
+  await app.waitForIdle();
+
+  const [enable] = await app.query('testID', 'perf-devdettings-on');
+  await app.click(enable.tag);
+  await app
+    .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
+    .catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(true);
+
+  const [disable] = await app.query('testID', 'perf-devdettings-off');
+  await app.click(disable.tag);
+  await app
+    .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
+    .catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(false);
+});

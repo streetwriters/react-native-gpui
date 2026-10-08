@@ -285,6 +285,15 @@ enum MainEvent {
     },
     ClipboardRead(i32),
     ClipboardWrite(String),
+    /// `DevMenu.show()` (plan 7.5), from the JS thread.
+    DevMenuShow,
+    /// A `DevMenu` / `DevSettings` toggle, from the JS thread.
+    DevSetting {
+        name: String,
+        enabled: bool,
+    },
+    /// A chosen Dev Menu item.
+    DevMenuPerform(String),
     /// A desktop-shell call from the JS thread (design §3.2). The drain loop
     /// answers it exactly once with `rn_gpui_desktop_result`.
     Desktop {
@@ -333,6 +342,9 @@ pub struct DesktopAppConfig {
     pub quit_on_last_window_closed: bool,
     /// Title-bar style of the launch window (plan §8.2).
     pub title_bar: WindowTitleBar,
+    /// Whether the Dev Menu (plan 7.5) is available. `None` follows the build:
+    /// on in a debug build, off in a release build.
+    pub dev_menu: Option<bool>,
     /// macOS traffic-light position, when the title bar is transparent.
     pub traffic_light_position: Option<(f32, f32)>,
     pub configure_window: Option<WindowOptionsHook>,
@@ -362,6 +374,7 @@ impl DesktopAppConfig {
             restore_window_state: true,
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
+            dev_menu: None,
             traffic_light_position: None,
             configure_window: None,
             on_app_ready: None,
@@ -373,6 +386,12 @@ impl DesktopAppConfig {
     /// overrides this at launch.
     pub fn js_engine(mut self, name: impl Into<String>) -> Self {
         self.js_engine = name.into();
+        self
+    }
+
+    /// Force the Dev Menu on or off, overriding the build default.
+    pub fn dev_menu(mut self, enabled: bool) -> Self {
+        self.dev_menu = Some(enabled);
         self
     }
 
@@ -630,6 +649,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 args_json,
             });
         }));
+    let dev_menu_tx = tx.clone();
+    let _ = rn_gpui_sys::DEV_MENU_SHOW_HANDLER.set(Box::new(move || {
+        let _ = dev_menu_tx.send_blocking(MainEvent::DevMenuShow);
+    }));
+    let dev_setting_tx = tx.clone();
+    let _ = rn_gpui_sys::DEV_SETTING_HANDLER.set(Box::new(move |name, enabled| {
+        let _ = dev_setting_tx.send_blocking(MainEvent::DevSetting { name, enabled });
+    }));
+    let dev_perform_tx = tx.clone();
+    let _ = rn_gpui_sys::DEV_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
+        let _ = dev_perform_tx.send_blocking(MainEvent::DevMenuPerform(id));
+    }));
     // The snapshot is read on the JS thread during module initialization, so it
     // has to be installed before the bundle loads.
     crate::desktop::install_snapshot(&app_id);
@@ -687,7 +718,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .title
             .clone()
             .unwrap_or_else(|| config.module.clone());
-        crate::desktop::app_menu::install(cx, &menu_app_name);
+        // Plan 7.5 — the Dev Menu is on in debug builds, or when the app opts in.
+        let dev_menu = config.dev_menu.unwrap_or(cfg!(debug_assertions));
+        crate::desktop::dev_menu::install(cx, dev_menu);
+        crate::desktop::app_menu::install(cx, &menu_app_name, dev_menu);
         // Context-menu presenter: the real one, or the driver's fake when
         // RN_GPUI_TEST_FAKE_NATIVE_UI=1 (plan §3.5).
         crate::desktop::context_menu::install(cx);
@@ -1452,6 +1486,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             rn_gpui_sys::ffi::reject_pending_desktop_calls();
                         }
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
+                    }
+                    MainEvent::DevMenuShow => {
+                        cx.update(|cx| crate::desktop::dev_menu::show(cx));
+                    }
+                    MainEvent::DevMenuPerform(id) => {
+                        cx.update(|cx| crate::desktop::dev_menu::perform(cx, &id));
+                    }
+                    MainEvent::DevSetting { name, enabled } => {
+                        cx.update(|cx| {
+                            crate::desktop::dev_menu::apply_setting(cx, &name, enabled)
+                        });
                     }
                     MainEvent::Desktop {
                         id,

@@ -116,6 +116,22 @@ impl Host {
             .set_window_metrics(w, h, scale)
     }
 
+    /// Reload the JS instance (the Dev Menu's Reload).
+    pub fn request_reload(&self) {
+        #[cfg(test)]
+        let _ = self;
+        #[cfg(not(test))]
+        self.0.lock().unwrap().pin_mut().request_reload()
+    }
+
+    /// Open React Native DevTools through the Metro inspector proxy.
+    pub fn open_debugger(&self) {
+        #[cfg(test)]
+        let _ = self;
+        #[cfg(not(test))]
+        self.0.lock().unwrap().open_debugger()
+    }
+
     pub fn set_system_appearance(&self, appearance: &str) {
         #[cfg(test)]
         let _ = (self, appearance);

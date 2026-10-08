@@ -11,6 +11,12 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { PerfMonitor, type PerfMetrics } from 'react-native-gpui/desktop';
 
+// `DevSettings` is a no-op outside `__DEV__`, so the fixture drives the
+// `DevMenu` TurboModule directly: the same module RN's dev menu uses, and the
+// one the host registers (plan 7.5).
+const NativeDevMenu =
+  require('react-native/src/private/devsupport/devmenu/specs/NativeDevMenu').default;
+
 const styles = {
   page: { padding: 20, gap: 10, backgroundColor: '#f4f5f7', flex: 1 },
   heading: { fontSize: 22, fontWeight: '700' as const, color: '#18212f' },
@@ -70,6 +76,25 @@ function PerfMonitorFixture() {
       </Pressable>
       <Pressable testID="perf-read" onPress={read}>
         <Text style={styles.button}>Read metrics</Text>
+      </Pressable>
+      {/* The `DevMenu` TurboModule (plan 7.5). */}
+      <Pressable
+        testID="perf-devdettings-on"
+        onPress={() => NativeDevMenu.setProfilingEnabled(true)}
+      >
+        <Text style={styles.button}>DevMenu.setProfilingEnabled(true)</Text>
+      </Pressable>
+      <Pressable
+        testID="perf-devdettings-off"
+        onPress={() => NativeDevMenu.setProfilingEnabled(false)}
+      >
+        <Text style={styles.button}>DevMenu.setProfilingEnabled(false)</Text>
+      </Pressable>
+      <Pressable
+        testID="perf-devmenu-show"
+        onPress={() => NativeDevMenu.show()}
+      >
+        <Text style={styles.button}>DevMenu.show()</Text>
       </Pressable>
     </View>
   );

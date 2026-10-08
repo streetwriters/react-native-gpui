@@ -13,6 +13,7 @@
 pub mod app_menu;
 pub mod capabilities;
 pub mod context_menu;
+pub mod dev_menu;
 pub mod errors;
 pub mod menu_model;
 pub mod perf_monitor;
@@ -111,6 +112,12 @@ pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &s
         ("menu", "set") => menu_set(cx, args_json),
         ("menu", "update") => menu_update(cx, args_json),
         ("menu", "get") => menu_get(cx, args_json),
+        ("devMenu", "show") => {
+            dev_menu::show(cx);
+            Ok(serde_json::json!({"shown": true}))
+        }
+        ("devMenu", "perform") => dev_menu_perform(cx, args_json),
+        ("devMenu", "getMenu") => Ok(dev_menu::menu_model(cx).items.len().into()),
         ("perfMonitor", "setEnabled") => perf_set_enabled(cx, args_json),
         ("perfMonitor", "getMetrics") => Ok(perf_monitor::metrics(cx)),
         ("perfMonitor", "jsTicks") => perf_js_ticks(cx, args_json),
@@ -272,6 +279,16 @@ fn menu_set(cx: &mut App, args_json: &str) -> DesktopResult {
         Some(value) => Some(value),
     };
     app_menu::set_application_menu(cx, items)
+}
+
+fn dev_menu_perform(cx: &mut App, args_json: &str) -> DesktopResult {
+    let args = parse_args(args_json)?;
+    let id = args
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| DesktopError::invalid_argument("devMenu.perform requires an id"))?;
+    dev_menu::perform(cx, id);
+    Ok(serde_json::json!({"id": id}))
 }
 
 fn perf_set_enabled(cx: &mut App, args_json: &str) -> DesktopResult {
