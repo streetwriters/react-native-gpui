@@ -5,6 +5,7 @@
   "main": "index.gpui.js",
   "files": [
     "index.gpui.js",
+    "js-engine.js",
     "navigation.ts",
     "NativeViewHost.tsx",
     "NativeViewHostNativeComponent.ts",

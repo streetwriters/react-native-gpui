@@ -26,6 +26,8 @@ const { createRequire } = require('module');
 
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
+const { activeJsEngineBundle } = require('./js-engine');
+
 const GPUI_PACKAGE_NAME = 'react-native-gpui';
 const GPUI_PACKAGE_DIR = path.dirname(
   require.resolve(GPUI_PACKAGE_NAME + '/package.json'),
@@ -607,7 +609,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     ]),
   ];
 
-  return mergeConfig(defaultConfig, {
+  const baseConfig = mergeConfig(defaultConfig, {
     // These can be symlinked workspace packages; registering their real paths
     // keeps Metro's file map aware of the platform and upstream RN sources.
     watchFolders,
@@ -619,6 +621,15 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       resolveRequest: resolveWithGpuiPlatform(defaultConfig),
     },
   });
+
+  // The JS engine decides how its own bundles must be transformed (Hermes
+  // bytecode needs the `hermes-stable` profile, for example), so the changes
+  // come from the active engine package rather than from this file.
+  const engineBundle = activeJsEngineBundle(projectRoot);
+  if (!engineBundle || typeof engineBundle.metroConfig !== 'function') {
+    return baseConfig;
+  }
+  return mergeConfig(baseConfig, engineBundle.metroConfig(baseConfig) ?? {});
 }
 
 const config = makeMetroConfig();

@@ -15,6 +15,23 @@ const run = (bin, args, options = {}) =>
     shell: options.shell ?? false,
   });
 
+// The active engine's tooling hooks (`bundle.js`), loaded through the platform
+// package so the CLI never names an engine. The platform package is resolved
+// from the app, which is also where its autolink manifest lives.
+function loadEngineBundle(projectRoot) {
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  let platformPackageJson;
+  try {
+    platformPackageJson = appRequire.resolve('react-native-gpui/package.json');
+  } catch {
+    return null;
+  }
+  const { activeJsEngineBundle } = appRequire(
+    path.join(path.dirname(platformPackageJson), 'js-engine.js'),
+  );
+  return activeJsEngineBundle(projectRoot);
+}
+
 function copyFontAssets(projectRoot, bundlePath, config) {
   const destination = path.join(
     path.dirname(bundlePath),
@@ -165,6 +182,15 @@ export async function runDesktop({
     config ?? path.join(desktopRoot, 'metro.config.js'),
   );
 
+  // Autolink first: the manifest it writes tells the bundle path which engine is
+  // active, and therefore which Metro transform and shipping format to use.
+  const rnConfig = autolink({ projectRoot });
+  const engineBundle = loadEngineBundle(projectRoot);
+
+  // What the runtime loads: the plain Metro bundle, or the engine's compiled
+  // format (`.hbc` for Hermes).
+  let runtimeBundlePath = bundlePath;
+
   if (release) {
     fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
     const bundleArgs = [
@@ -183,6 +209,23 @@ export async function runDesktop({
     ];
     if (fs.existsSync(metroConfig)) bundleArgs.push('--config', metroConfig);
     run(npxCommand, npxArgs(bundleArgs), { cwd: projectRoot, shell: npxShell });
+
+    if (engineBundle && typeof engineBundle.compile === 'function') {
+      const extension =
+        typeof engineBundle.bundleExtension === 'string'
+          ? engineBundle.bundleExtension
+          : '.js';
+      const compiledPath = `${bundlePath.replace(/\.[^./\\]+$/u, '')}${extension}`;
+      const compiled = engineBundle.compile({
+        input: bundlePath,
+        output: compiledPath,
+        dev: false,
+      });
+      runtimeBundlePath = path.resolve(
+        projectRoot,
+        compiled?.output ?? compiledPath,
+      );
+    }
   } else {
     const numericPort = Number(port);
     if (
@@ -200,7 +243,6 @@ export async function runDesktop({
       config: fs.existsSync(metroConfig) ? metroConfig : undefined,
     });
   }
-  const rnConfig = autolink({ projectRoot });
   copyFontAssets(projectRoot, bundlePath, rnConfig);
 
   const appCargoManifest = path.join(desktopRoot, 'Cargo.toml');
@@ -223,7 +265,7 @@ export async function runDesktop({
   cargoArgs.push('--manifest-path', appCargoManifest);
   const cargoEnv = {
     ...process.env,
-    RN_GPUI_BUNDLE: bundlePath,
+    RN_GPUI_BUNDLE: runtimeBundlePath,
     RN_GPUI_ASSETS_DIR: path.join(path.dirname(bundlePath), 'assets', 'assets'),
     RN_GPUI_SOURCE_URL: entryFile.replace(/\.[^.]+$/u, ''),
     RN_GPUI_DEV_HOST: host,
