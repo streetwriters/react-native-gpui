@@ -11,34 +11,34 @@ on:
         description: Build and publish even when the pin file already matches the inputs
         type: boolean
         default: false
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/prebuilt-binaries.yml'
-      - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
-      - 'packages/react-native-gpui/ReactCxxPlatform/**'
-      - 'packages/react-native-gpui/ReactCommonOverrides/**'
-      - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
-      - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
-      - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
-      - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
-      - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
-      - 'packages/react-native-gpui/prebuilt-binaries.json'
-      - 'packages/@react-native-gpui/hermes/package.json'
-      - 'package-lock.json'
-  pull_request:
-    paths:
-      - '.github/workflows/prebuilt-binaries.yml'
-      - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
-      - 'packages/react-native-gpui/ReactCxxPlatform/**'
-      - 'packages/react-native-gpui/ReactCommonOverrides/**'
-      - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
-      - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
-      - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
-      - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
-      - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
-      - 'packages/@react-native-gpui/hermes/package.json'
-      - 'package-lock.json'
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - '.github/workflows/prebuilt-binaries.yml'
+  #     - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
+  #     - 'packages/react-native-gpui/ReactCxxPlatform/**'
+  #     - 'packages/react-native-gpui/ReactCommonOverrides/**'
+  #     - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
+  #     - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
+  #     - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
+  #     - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
+  #     - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
+  #     - 'packages/react-native-gpui/prebuilt-binaries.json'
+  #     - 'packages/@react-native-gpui/hermes/package.json'
+  #     - 'package-lock.json'
+  # pull_request:
+  #   paths:
+  #     - '.github/workflows/prebuilt-binaries.yml'
+  #     - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
+  #     - 'packages/react-native-gpui/ReactCxxPlatform/**'
+  #     - 'packages/react-native-gpui/ReactCommonOverrides/**'
+  #     - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
+  #     - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
+  #     - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
+  #     - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
+  #     - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
+  #     - 'packages/@react-native-gpui/hermes/package.json'
+  #     - 'package-lock.json'
 
 permissions:
   contents: read
