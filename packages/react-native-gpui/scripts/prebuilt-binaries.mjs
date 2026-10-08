@@ -13,6 +13,9 @@
 //       Check every files[].sha256 in <dir>/manifest.json.
 //   node scripts/prebuilt-binaries.mjs clean
 //       Remove the cache for this package version.
+//   node scripts/prebuilt-binaries.mjs pin --version <v> --input-hash <h> --tag <t>
+//       --repo <owner/name> --sums <SHA256SUMS.txt> --out <pin.json>
+//       Write the pin file from a release's SHA256SUMS.txt (used by CI).
 //
 // stdout carries only the result dir (or the verify result); diagnostics go to
 // stderr. Environment:

@@ -47,6 +47,86 @@ To add GPUI support to an existing React Native project, run
 `npx react-native create-library mmkv --type cpp` (C++). Both templates use
 React Native's `TurboModuleRegistry` API and TypeScript specs.
 
+## Prebuilt C++ runtime
+
+`rn-gpui-sys` needs the ReactCommon runtime, Hermes glue and the native
+dependencies (folly, boost, openssl and others). Building them takes most of a
+clean desktop build, so the runtime is also published as a prebuilt archive per
+platform.
+
+- **Apps.** When a prebuilt archive is published for the app's platform, the
+  build downloads it once, verifies it, and caches it. Otherwise the build falls
+  back to building the runtime from source and prints one `cargo:warning`.
+- **Inside this repository** the build builds from source unless
+  `RN_GPUI_USE_PREBUILT=1` is set.
+- **Build environment variables** (read by `rn-gpui-sys/build.rs`, checked in
+  this order):
+  - `RN_GPUI_BUILD_FROM_SOURCE=1`: always build from source.
+  - `RN_GPUI_PREBUILT_DIR=<dir>`: use an unpacked prebuilt directory; no download.
+  - `RN_GPUI_USE_PREBUILT=1`: allow the prebuilt download inside this repository.
+  - `RN_GPUI_REQUIRE_PREBUILT=1`: fail the build instead of falling back to source.
+- **Download environment variables** (read by `scripts/prebuilt-binaries.mjs`):
+  - `RN_GPUI_PREBUILT_CACHE=<dir>`: cache root (default: the OS cache directory,
+    `react-native-gpui/prebuilt/<version>/<platform>`).
+  - `RN_GPUI_PREBUILT_OFFLINE=1` or `CARGO_NET_OFFLINE=true`: use the cache only,
+    no network.
+  - `GITHUB_TOKEN` or `GH_TOKEN`: optional, sent with GitHub release downloads.
+
+The pin file `packages/react-native-gpui/prebuilt-binaries.json` names the
+release and each platform's file, SHA-256 and size. An empty `assets` map means
+no runtime is published yet, so apps build from source.
+
+The CLI manages the cache:
+
+```sh
+npx react-native-gpui prebuilt fetch [--triple <rust-triple>]   # download or reuse; prints the dir
+npx react-native-gpui prebuilt path [--triple <rust-triple>]    # print the cache dir, no download
+npx react-native-gpui prebuilt verify <dir>                     # check every file against manifest.json
+npx react-native-gpui prebuilt clean                            # remove this version's cache
+```
+
+### Toolchain of published archives
+
+| Platform     | Rust triple              | Built with                          | Minimum OS / glibc | C++ stdlib | C++ standard | CRT                      |
+| ------------ | ------------------------ | ----------------------------------- | ------------------ | ---------- | ------------ | ------------------------ |
+| darwin-arm64 | aarch64-apple-darwin     | Apple clang (macos-14 runner)       | macOS 11.0         | libc++     | C++20        | n/a                      |
+| darwin-x64   | x86_64-apple-darwin      | Apple clang (macos-15-intel runner) | macOS 11.0         | libc++     | C++20        | n/a                      |
+| win32-x64    | x86_64-pc-windows-msvc   | MSVC from VS 2022 (windows-2022)    | not recorded       | MSVC STL   | C++20        | `/MD` (MultiThreadedDLL) |
+| linux-x64    | x86_64-unknown-linux-gnu | GCC on Debian 12 container          | glibc 2.36         | libstdc++  | C++20        | n/a                      |
+
+The exact compiler version of each archive is recorded in its `manifest.json`
+(`compiler`, `cxxStdlib`, `minOs`, `glibc`, `msvcRuntime`).
+
+### For maintainers
+
+- **Release workflow.** `.github/workflows/prebuilt-binaries.yml` runs on push to
+  `main` when a C++ input changes (the input-hash paths) and on
+  `workflow_dispatch` (`force` builds even when the pin matches). Pull requests
+  build and check the archives but never publish. The `plan` job computes the
+  input hash with `scripts/prebuilt-inputs.mjs` and skips the build when it
+  matches the pin. Otherwise the version is a patch bump, or a minor bump when
+  the React Native version changes. The `release` job creates a draft release
+  `@react-native-gpui/prebuilt-binaries@<version>`, uploads the archives and
+  `SHA256SUMS.txt`, publishes it, and opens a PR that updates the pin
+  (`prebuilt-binaries/<version>` branch). Releases are never deleted.
+- **Publish guard.** `npm publish` runs `prepublishOnly`
+  (`scripts/check-prebuilt-pin.mjs`), which refuses to publish when the pin's
+  `inputHash` is not the current hash or the pin has no assets. Set
+  `RN_GPUI_SKIP_PREBUILT_PIN_CHECK=1` only for a deliberate source-only release.
+  Do not set it in CI.
+- **Build an archive locally.** From the repository root:
+
+  ```sh
+  node packages/react-native-gpui/scripts/build-prebuilt.mjs --version <v> --out <dir>
+  ```
+
+  Options: `--build-dir <dir>` (scratch build), `--native-deps <dir>` (native
+  dependency cache, reused between runs), `--jobs <n>`, `--skip-build`. The
+  cxxbridge headers and `FBReactNativeSpec` sources are generated when
+  `--bridge` and `--rncore` are omitted, so no tester build is needed. The
+  archive is `prebuilt-binaries-<platform>.tar.gz` with a `manifest.json` and
+  `.sha256` next to it.
+
 ## Fabric components in native packages
 
 A native package that provides Fabric components declares their descriptors
