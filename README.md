@@ -258,6 +258,33 @@ The `DevMenu` TurboModule (`show`, `reload`, `setProfilingEnabled`,
 handlers. Note that React Native's `DevSettings` JS module is a no-op outside
 `__DEV__`.
 
+### Tray / menu-bar apps (7.3)
+
+```ts
+await Tray.install({
+  component: 'MenuBarPanel', // the RN surface the popover runs
+  tooltip: 'My app',
+  menu: [{ id: 'quit', label: 'Quit' }],
+});
+const stop = Tray.onMenuPress(id => console.log(id));
+```
+
+Or from Rust:
+
+```rust
+DesktopAppConfig::from_env()
+    .tray(TrayConfig::default().component("MenuBarPanel").tooltip("My app"))
+```
+
+A tray app runs with no Dock icon (`NSApplicationActivationPolicyAccessory`) and
+keeps running when its last window closes; `TrayConfig` sets both by default. A
+click opens the popover under the icon, and it hides when it loses activation the
+way a native popover does.
+
+Platform caveats: Windows has no anchored popover, and on GNOME a Linux
+AppIndicator only supports menus, not click-to-popover, so a menu is the only
+reliable interaction there.
+
 ### Perf Monitor (7.6)
 
 ```ts
@@ -272,14 +299,18 @@ that wait for idle.
 
 ### Platform support
 
-| Feature             | macOS                        | Windows                                  | Linux                                       |
-| ------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------------- |
-| Application menu    | GPUI `NSMenu`                | `muda` (written, unverified)             | not implemented                             |
-| Context menus       | `muda` on the `NSView`       | `muda` on the HWND (written, unverified) | not implemented                             |
-| Windows / title bar | AppKit                       | not implemented                          | not implemented                             |
-| Tray apps (7.3)     | not implemented              | not implemented                          | not implemented                             |
-| Dev Menu            | yes                          | yes (menu popup as above)                | popup only                                  |
-| Perf Monitor        | yes (memory via `task_info`) | counters yes, memory `n/a`               | counters yes, memory via `/proc/self/statm` |
+| Feature                    | macOS                        | Windows                         | Linux                                       |
+| -------------------------- | ---------------------------- | ------------------------------- | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified) | not implemented (in-window bar)             |
+| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified) | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)     | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                       | not implemented                 | not implemented                             |
+| Tray apps (7.3)            | yes                          | yes (no anchored popover)       | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                          | menu popup as above             | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`      | counters yes, memory via `/proc/self/statm` |
+
+"Unverified" means the code is behind `cfg` and has never been compiled, because
+this machine cannot build for that platform.
 
 `react-native-gpui/desktop` reports what the current platform supports through
 `GpuiDesktop.getSnapshot('capabilities')`, so an app can degrade gracefully
