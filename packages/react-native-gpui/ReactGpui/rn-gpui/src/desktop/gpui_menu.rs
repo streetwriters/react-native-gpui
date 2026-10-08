@@ -188,8 +188,6 @@ pub struct MenuPopup {
     items: Vec<MenuNode>,
     responder: Responder,
     depth: usize,
-    /// The row the pointer is over, so it can be highlighted.
-    hovered: Option<usize>,
     /// Set when this popup resolved the request, so a parent popup does not
     /// resolve it a second time.
     resolved: bool,
@@ -201,7 +199,6 @@ impl MenuPopup {
             items,
             responder,
             depth,
-            hovered: None,
             resolved: false,
         }
     }
