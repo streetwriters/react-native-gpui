@@ -61,39 +61,29 @@ const hermesPkg = path.join(
 );
 const cargoLock = path.join(packageDir, 'ReactGpui', 'Cargo.lock');
 
-const DEFAULT_BRIDGE = path.join(
-  repoRoot,
-  'packages/rn-gpui-tester/desktop/build/target/debug/build/rn-gpui-sys-6b9039533cd6e1ed/out/cxxbridge-include',
-);
-const DEFAULT_NATIVE_DEPS = path.join(
-  repoRoot,
-  'packages/rn-gpui-tester/desktop/build/target/rn-gpui-cmake/aarch64-apple-darwin/Debug/build/native-deps',
-);
-const DEFAULT_RNCORE = path.join(
-  repoRoot,
-  'packages/rn-gpui-tester/desktop/build/target/debug/build/rn-gpui-sys-6b9039533cd6e1ed/out/fbreactnativespec',
-);
-
 const args = parseArgs(process.argv.slice(2));
 const version = args.version;
 const outDir = path.resolve(args.out ?? fail('--out is required'));
-const bridgeDir = path.resolve(args.bridge ?? DEFAULT_BRIDGE);
-const rncoreDir = path.resolve(args.rncore ?? DEFAULT_RNCORE);
+// Without --bridge/--rncore the generated inputs are produced into the build
+// dir (scripts/generate-prebuilt-inputs.mjs), so no tester build is needed.
+const generatedDir = path.resolve(
+  args['build-dir'] ?? path.join(os.tmpdir(), 'rn-gpui-prebuilt-build'),
+  '..',
+  'generated-inputs',
+);
+let bridgeDir = args.bridge ? path.resolve(args.bridge) : null;
+let rncoreDir = args.rncore ? path.resolve(args.rncore) : null;
 const buildDir = path.resolve(
   args['build-dir'] ?? path.join(os.tmpdir(), 'rn-gpui-prebuilt-build'),
 );
 // Source of the native-deps cache (OpenSSL, curl, folly sources). A fresh build
 // dir cannot build OpenSSL apps/ on macOS, so the cache is linked in.
-const nativeDepsSource = path.resolve(
-  args['native-deps'] ?? DEFAULT_NATIVE_DEPS,
-);
+const nativeDepsSource = args['native-deps']
+  ? path.resolve(args['native-deps'])
+  : null;
 const jobs =
   args.jobs ?? String(os.availableParallelism?.() ?? os.cpus().length);
 if (!version) fail('--version is required');
-if (!existsSync(path.join(bridgeDir, 'rust', 'cxx.h')))
-  fail(`missing ${path.join(bridgeDir, 'rust', 'cxx.h')}`);
-if (!existsSync(path.join(rncoreDir, 'jni')))
-  fail(`missing ${path.join(rncoreDir, 'jni')}`);
 
 const platform = hostPlatform();
 const platformDir = path.join(outDir, platform);
@@ -178,11 +168,70 @@ function libraryFiles(dir) {
 
 const configuration = 'Release';
 
+// Release with light debug info so stacks symbolize without the ~1.8 GB of
+// full debug libs. The consumer (build.rs) must match the runtime ABI:
+//   - MSVC: /MD (MultiThreadedDLL) and _ITERATOR_DEBUG_LEVEL=0; PDBs ship
+//     separately (prebuilt-binaries-win32-x64-pdb.tar.gz).
+//   - clang/gcc: NDEBUG from Release, line tables only.
+// These are recorded in the manifest `flags` field.
+function buildFlags() {
+  const isMsvc = process.platform === 'win32';
+  const isGcc = !isMsvc && process.platform === 'linux';
+  const debugCxx = isMsvc ? '/Zi' : isGcc ? '-g1' : '-gline-tables-only';
+  const common = ['-w'];
+  return {
+    cxx: [...common, debugCxx],
+    c: [...common, debugCxx],
+    msvcRuntimeLibrary: isMsvc ? 'MultiThreadedDLL' : null,
+    msvcIteratorDebugLevel: isMsvc ? '0' : null,
+    debugInfo: isMsvc ? 'pdb-separate' : 'embedded-line-tables',
+  };
+}
+const flags = buildFlags();
+// MSVC needs the iterator-debug level as a compile definition; other toolchains
+// get only the warning and debug flags.
+const cxxFlags = [
+  ...flags.cxx,
+  ...(flags.msvcIteratorDebugLevel !== null
+    ? [`/D_ITERATOR_DEBUG_LEVEL=${flags.msvcIteratorDebugLevel}`]
+    : []),
+].join(' ');
+const cFlags = [
+  ...flags.c,
+  ...(flags.msvcIteratorDebugLevel !== null
+    ? [`/D_ITERATOR_DEBUG_LEVEL=${flags.msvcIteratorDebugLevel}`]
+    : []),
+].join(' ');
+
+// --- generated inputs ---------------------------------------------------------------
+// The cxxbridge headers and FBReactNativeSpec are normally produced by build.rs
+// inside a cargo build. Produce them here with the same tools when not given.
+if (!bridgeDir || !rncoreDir) {
+  const generated = spawnSync(
+    process.execPath,
+    [path.join(scriptDir, 'generate-prebuilt-inputs.mjs'), generatedDir],
+    { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8' },
+  );
+  if (generated.status !== 0)
+    fail('generating cxxbridge/FBReactNativeSpec failed');
+  const [bridgeOut, rncoreOut] = generated.stdout.trim().split('\n');
+  bridgeDir ??= bridgeOut;
+  rncoreDir ??= rncoreOut;
+}
+if (!existsSync(path.join(bridgeDir, 'rust', 'cxx.h')))
+  fail(`missing ${path.join(bridgeDir, 'rust', 'cxx.h')}`);
+if (!existsSync(path.join(rncoreDir, 'jni')))
+  fail(`missing ${path.join(rncoreDir, 'jni')}`);
+
 // --- configure, build, install --------------------------------------------------
 if (!args['skip-build']) {
   mkdirSync(buildDir, { recursive: true });
   const linkedDeps = path.join(buildDir, 'native-deps');
-  if (!existsSync(linkedDeps) && existsSync(nativeDepsSource)) {
+  if (
+    nativeDepsSource &&
+    !existsSync(linkedDeps) &&
+    existsSync(nativeDepsSource)
+  ) {
     symlinkSync(nativeDepsSource, linkedDeps, 'dir');
   }
   run('cmake', [
@@ -193,8 +242,14 @@ if (!args['skip-build']) {
     `-DCMAKE_BUILD_TYPE=${configuration}`,
     // Cargo's cmake crate builds with -w (warnings suppressed); the prebuilt
     // matches it, since boost headers emit -Werror warnings under clang.
-    '-DCMAKE_CXX_FLAGS=-w',
-    '-DCMAKE_C_FLAGS=-w',
+    `-DCMAKE_CXX_FLAGS=${cxxFlags}`,
+    `-DCMAKE_C_FLAGS=${cFlags}`,
+    ...(flags.msvcRuntimeLibrary
+      ? [
+          `-DCMAKE_MSVC_RUNTIME_LIBRARY=${flags.msvcRuntimeLibrary}`,
+          '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW',
+        ]
+      : []),
     // curl's docs/man-page install rules need generated pages the source build
     // never makes. The prebuilt installs curl's headers and library itself.
     '-DCURL_DISABLE_INSTALL=ON',
@@ -265,6 +320,7 @@ const manifest = {
   ),
   overridesSha256: overridesSha256(),
   defines: { HERMES_ENABLE_DEBUGGER: 1, REACT_NATIVE_DEBUG: 0 },
+  flags,
   minOs: process.platform === 'darwin' ? 'macos 11.0' : null,
   glibc: process.platform === 'linux' ? '2.36' : null,
   libraries: libraryFiles(platformDir),
