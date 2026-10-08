@@ -1,0 +1,395 @@
+name: prebuilt-binaries
+
+# Builds the prebuilt C++ runtime (see .local/gpui-prebuilt-binaries.md, step 5).
+# A push to main only publishes when the C++ input hash differs from the pin
+# file. Pull requests build and check the archives but never publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build and publish even when the pin file already matches the inputs
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/prebuilt-binaries.yml'
+      - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
+      - 'packages/react-native-gpui/ReactCxxPlatform/**'
+      - 'packages/react-native-gpui/ReactCommonOverrides/**'
+      - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
+      - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
+      - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
+      - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
+      - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
+      - 'packages/react-native-gpui/prebuilt-binaries.json'
+      - 'packages/@react-native-gpui/hermes/package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/prebuilt-binaries.yml'
+      - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
+      - 'packages/react-native-gpui/ReactCxxPlatform/**'
+      - 'packages/react-native-gpui/ReactCommonOverrides/**'
+      - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
+      - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
+      - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
+      - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
+      - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
+      - 'packages/@react-native-gpui/hermes/package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  CXX_STANDARD: '20'
+
+jobs:
+  plan:
+    name: compute input hash and version
+    runs-on: ubuntu-24.04
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      version: ${{ steps.plan.outputs.version }}
+      input_hash: ${{ steps.plan.outputs.input_hash }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install dependencies for the reactNative version
+        run: npm ci --ignore-scripts
+      - name: Decide whether to build
+        id: plan
+        env:
+          FORCE: ${{ inputs.force == true && 'true' || 'false' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          pkg=packages/react-native-gpui
+          hash="$(node "$pkg/scripts/prebuilt-inputs.mjs")"
+          node_tree_rn="$(node -p "require('react-native/package.json').version")"
+          read -r pin_version pin_hash pin_rn < <(node -e '
+            const pin = require("./'"$pkg"'/prebuilt-binaries.json");
+            console.log(pin.version, pin.inputHash, pin.reactNative ?? "");
+          ')
+          # Compare the plan against the pin; first run leaves 0.0.0 with no hash.
+          if [ "$hash" = "$pin_hash" ] && [ "$FORCE" != "true" ] && [ "$EVENT" != "pull_request" ]; then
+            {
+              echo "needed=false"
+              echo "Input hash $hash matches the pin; nothing to build."
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Patch bump of the pin's version; minor bump when reactNative changed.
+          IFS=. read -r major minor patch <<< "$pin_version"
+          if [ -n "$pin_rn" ] && [ "$pin_rn" != "$node_tree_rn" ]; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+          version="$major.$minor.$patch"
+          {
+            echo "needed=true"
+            echo "version=$version"
+            echo "input_hash=$hash"
+            echo "tag=@react-native-gpui/prebuilt-binaries@$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Planned version $version for input hash $hash"
+
+  build:
+    name: build ${{ matrix.platform }}
+    needs: plan
+    if: needs.plan.outputs.needed == 'true'
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            os: macos-14
+            container: ''
+          - platform: darwin-x64
+            os: macos-15-intel
+            container: ''
+          - platform: win32-x64
+            os: windows-2022
+            arch: x64
+            pdb: win32-x64
+            container: ''
+          - platform: win32-arm64
+            os: windows-11-arm
+            arch: arm64
+            pdb: win32-arm64
+            container: ''
+          - platform: linux-x64
+            os: ubuntu-latest
+            container: debian:12
+            node_arch: x64
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            container: debian:12
+            node_arch: arm64
+    steps:
+      - name: Install Linux build tools
+        if: startsWith(matrix.platform, 'linux-')
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git gnupg xz-utils \
+            build-essential cmake ninja-build ccache perl pkg-config \
+            python3 nasm autoconf automake libtool
+          # Node 22 is not in Debian 12; take the official tarball.
+          curl -fsSL https://nodejs.org/dist/v22.13.1/node-v22.13.1-linux-${{ matrix.node_arch }}.tar.xz \
+            | tar -xJ -C /usr/local --strip-components=1
+          node --version
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: "!startsWith(matrix.platform, 'linux-')"
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        if: "!startsWith(matrix.platform, 'linux-')"
+
+      - name: Install Rust (Linux container)
+        if: startsWith(matrix.platform, 'linux-')
+        run: |
+          set -euo pipefail
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja ccache nasm
+
+      - name: Install Windows build tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y ninja ccache nasm strawberryperl
+          # Strawberry Perl ships its own bin directory; OpenSSL needs it on PATH.
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.arch }}'
+          $component = if ($arch -eq 'arm64') {
+            'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+          } else {
+            'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
+          $instance = & $vswhere -latest -products * -requires $component -property installationPath
+          if (-not $instance) { throw "No Visual Studio installation provides $component" }
+          $vcvars = Join-Path $instance 'VC\Auxiliary\Build\vcvarsall.bat'
+          cmd /c "`"$vcvars`" $arch >nul 2>&1 && set" | ForEach-Object {
+            $split = $_.IndexOf('=')
+            if ($split -gt 0) {
+              $name = $_.Substring(0, $split)
+              $value = $_.Substring($split + 1)
+              Set-Item -Path "env:$name" -Value $value
+              Add-Content -Path $env:GITHUB_ENV -Value "$name=$value" -Encoding utf8
+            }
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
+          Write-Host "MSVC compiler: $($cl.Source)"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        working-directory: .
+
+      - name: Restore native-deps cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rn-gpui-native-deps
+          key: native-deps-${{ matrix.platform }}-${{ needs.plan.outputs.input_hash }}
+          restore-keys: |
+            native-deps-${{ matrix.platform }}-
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-${{ matrix.platform }}-${{ needs.plan.outputs.input_hash }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-
+
+      - name: Build the prebuilt runtime
+        shell: bash
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          NATIVE_DEPS: ${{ runner.temp }}/rn-gpui-native-deps
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/prebuilt-out"
+          mkdir -p "$out" "$NATIVE_DEPS"
+          node packages/react-native-gpui/scripts/build-prebuilt.mjs \
+            --version "$VERSION" \
+            --out "$out" \
+            --build-dir "$RUNNER_TEMP/prebuilt-build" \
+            --native-deps "$NATIVE_DEPS"
+
+      - name: Smoke test the archive with a standalone consumer
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/prebuilt-out
+        run: |
+          set -euo pipefail
+          archive="$(ls "$OUT"/prebuilt-binaries-${{ matrix.platform }}.tar.gz)"
+          unpack="$RUNNER_TEMP/unpack"
+          rm -rf "$unpack" && mkdir -p "$unpack"
+          tar -xzf "$archive" -C "$unpack" --strip-components=1
+          # Every file in the manifest must hash to what it says.
+          node packages/react-native-gpui/scripts/prebuilt-binaries.mjs verify "$unpack"
+          # A minimal consumer that only sees the installed config.
+          consumer="$RUNNER_TEMP/consumer"
+          rm -rf "$consumer" && mkdir -p "$consumer"
+          cat > "$consumer/CMakeLists.txt" <<'EOF_CMAKE'
+          cmake_minimum_required(VERSION 3.22)
+          project(consumer CXX)
+          set(CMAKE_CXX_STANDARD 20)
+          # The archive ships no headers: point each root at the tree this
+          # checkout already has. Missing roots fail inside the config file.
+          set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${REPO}/packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp")
+          set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${REPO}/packages/react-native-gpui/ReactCommonOverrides")
+          set(RN_GPUI_PREBUILT_ROOT_react_common "${REPO}/node_modules/react-native/ReactCommon")
+          set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REPO}/packages/react-native-gpui/ReactCxxPlatform")
+          set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${GENERATED}/fbreactnativespec/jni")
+          set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${GENERATED}/cxxbridge-include")
+          set(RN_GPUI_PREBUILT_ROOT_hermes "${REPO}/packages/@react-native-gpui/hermes")
+          set(RN_GPUI_PREBUILT_ROOT_folly "${NATIVE_DEPS}/third-party-ndk/folly")
+          set(RN_GPUI_PREBUILT_ROOT_glog "${NATIVE_DEPS}/third-party-ndk/glog/exported")
+          set(RN_GPUI_PREBUILT_ROOT_fmt "${NATIVE_DEPS}/third-party-ndk/fmt/include")
+          set(RN_GPUI_PREBUILT_ROOT_double_conversion "${NATIVE_DEPS}/third-party-ndk/double-conversion")
+          set(RN_GPUI_PREBUILT_ROOT_fast_float "${NATIVE_DEPS}/third-party-ndk/fast_float/include")
+          set(RN_GPUI_PREBUILT_ROOT_nlohmann_json "${NATIVE_DEPS}/third-party-ndk/nlohmann_json/include")
+          set(RN_GPUI_PREBUILT_ROOT_boost "${NATIVE_DEPS}/third-party-ndk/boost/boost_1_83_0")
+          set(RN_GPUI_PREBUILT_ROOT_curl "${NATIVE_DEPS}/sources/curl/curl-8.11.1/include")
+          find_package(react-native-gpui-prebuilt CONFIG REQUIRED PATHS "${PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
+          EOF_CMAKE
+          cmake -S "$consumer" -B "$consumer/build" \
+            -DPREBUILT_DIR="$unpack" -DREPO="$GITHUB_WORKSPACE" \
+            -DGENERATED="$RUNNER_TEMP/generated-inputs" -DNATIVE_DEPS="$NATIVE_DEPS" \
+            -DCMAKE_BUILD_TYPE=Release
+          echo "Consumer configured against $unpack"
+
+      - name: Collect Windows PDBs
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'prebuilt-out'
+          $pdbDir = Join-Path $env:RUNNER_TEMP 'pdb'
+          New-Item -ItemType Directory -Force -Path $pdbDir | Out-Null
+          Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP 'prebuilt-build') -Filter *.pdb -Recurse -File |
+            Copy-Item -Destination $pdbDir -Force
+          $count = (Get-ChildItem -Path $pdbDir -File).Count
+          if ($count -eq 0) { throw 'No PDB files were produced by the MSVC build' }
+          Write-Host "Collected $count PDB files"
+          tar -czf (Join-Path $out 'prebuilt-binaries-${{ matrix.pdb }}-pdb.tar.gz') -C $pdbDir .
+
+      - name: Stage archives
+        if: always()
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/prebuilt-out
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage"
+          cp "$OUT"/prebuilt-binaries-*.tar.gz* "$RUNNER_TEMP/stage/" 2>/dev/null || true
+          ls -l "$RUNNER_TEMP/stage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.platform }}
+          path: ${{ runner.temp }}/stage/
+          if-no-files-found: error
+
+  release:
+    name: publish the release and pin file
+    needs: [plan, build]
+    # Pull requests and failed builds never reach this job.
+    if: >-
+      needs.plan.outputs.needed == 'true' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      INPUT_HASH: ${{ needs.plan.outputs.input_hash }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: prebuilt-*
+          merge-multiple: true
+      - name: Write SHA256SUMS
+        working-directory: artifacts
+        run: |
+          set -euo pipefail
+          ls -l
+          sha256sum prebuilt-binaries-*.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create the draft release
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "react-native-gpui prebuilt runtime $VERSION" \
+            --notes "Prebuilt C++ runtime for react-native-gpui (input hash $INPUT_HASH)."
+      - name: Upload every asset
+        working-directory: artifacts
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+            prebuilt-binaries-*.tar.gz SHA256SUMS.txt
+      - name: Publish the release
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+      - name: Write the pin file
+        run: |
+          set -euo pipefail
+          node packages/react-native-gpui/scripts/prebuilt-binaries.mjs pin \
+            --version "$VERSION" \
+            --input-hash "$INPUT_HASH" \
+            --tag "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --assets artifacts/SHA256SUMS.txt \
+            --out packages/react-native-gpui/prebuilt-binaries.json
+      - name: Open the pin-update pull request
+        run: |
+          set -euo pipefail
+          branch="prebuilt-binaries/$VERSION"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add packages/react-native-gpui/prebuilt-binaries.json
+          git commit -m "chore(react-native-gpui): pin prebuilt runtime $VERSION" \
+            -m "Co-Authored-By: github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
+          git push origin "$branch"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --title "chore(react-native-gpui): pin prebuilt runtime $VERSION" \
+            --body "Pins the prebuilt runtime published as $TAG (input hash $INPUT_HASH)."

@@ -8,6 +8,7 @@
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/uimanager/IMountingManager.h>
+#include "GpuiExtensions.h"
 #include "GpuiImageLoader.h"
 
 #include <array>
@@ -80,6 +81,12 @@ class GpuiMountingManager : public IMountingManager {
   void accessibleClickAction(Tag viewTag) override;
 
  private:
+  // Per-view state handed to the safe-area hooks (GpuiExtensions.h).
+  GpuiMountedViews mountedViews() {
+    return GpuiMountedViews{
+        emittersMutex_, emitters_, animatedViews_, safeAreaFrames_};
+  }
+
   std::function<void(SurfaceId)> onAfterMount_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();

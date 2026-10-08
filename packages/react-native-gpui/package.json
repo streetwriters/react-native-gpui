@@ -28,8 +28,16 @@
     "ReactGpui/rn-gpui-macros/src",
     "ReactGpui/rn-gpui-macros/tests",
     "react-native.config.js",
-    "overrides.json"
+    "overrides.json",
+    "prebuilt-binaries.json",
+    "scripts/prebuilt-binaries.mjs",
+    "scripts/prebuilt-inputs.mjs",
+    "scripts/check-prebuilt-pin.mjs",
+    "prebuilt-binaries.json"
   ],
+  "scripts": {
+    "prepublishOnly": "node scripts/check-prebuilt-pin.mjs"
+  },
   "peerDependencies": {
     "react": "19.2.3",
     "react-native": "0.87.1"

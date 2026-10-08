@@ -1,6 +1,8 @@
 // Fabric mutation flattening implementation (design doc §18.8). Field names
 // and types follow the React Native 0.87.1 headers (the headers win; see §19).
 #include "MountBatchBuilder.h"
+#include "GpuiExtensions.h"
+#include "GpuiTextMeasure.h"
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/image/ImageProps.h>
@@ -12,12 +14,6 @@
 #include <react/renderer/components/textinput/TextInputState.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/components/view/accessibilityPropsConversions.h>
-#if defined(RN_GPUI_HAS_SVG)
-#include <react/renderer/components/rnsvg/Props.h>
-#endif
-#if defined(RN_GPUI_HAS_SCREENS)
-#include <react/renderer/components/rnscreens/Props.h>
-#endif
 #include <react/renderer/core/ConcreteState.h>
 
 #include <folly/json.h>
@@ -40,106 +36,6 @@ uint32_t argb(const SharedColor& color) {
   return (to8(components.alpha) << 24) | (to8(components.red) << 16) |
       (to8(components.green) << 8) | to8(components.blue);
 }
-
-#if defined(RN_GPUI_HAS_SVG)
-template <typename T>
-folly::dynamic svgJsonValue(const T& value) {
-  return value;
-}
-
-folly::dynamic svgJsonValue(const Float& value) {
-  return value;
-}
-folly::dynamic svgJsonValue(const SharedColor& value) {
-  return value ? folly::dynamic(argb(value)) : folly::dynamic(nullptr);
-}
-folly::dynamic svgJsonValue(const std::vector<std::string>& values) {
-  folly::dynamic result = folly::dynamic::array();
-  for (const auto& value : values)
-    result.push_back(value);
-  return result;
-}
-folly::dynamic svgJsonValue(const std::vector<Float>& values) {
-  folly::dynamic result = folly::dynamic::array();
-  for (auto value : values)
-    result.push_back(value);
-  return result;
-}
-
-template <typename T>
-folly::dynamic svgPropsJson(const T& props) {
-  folly::dynamic result = folly::dynamic::object();
-#define RN_GPUI_COPY_SVG_PROP(name)       \
-  if constexpr (requires { props.name; }) \
-  result[#name] = svgJsonValue(props.name)
-  RN_GPUI_COPY_SVG_PROP(name);
-  RN_GPUI_COPY_SVG_PROP(d);
-  RN_GPUI_COPY_SVG_PROP(x);
-  RN_GPUI_COPY_SVG_PROP(y);
-  RN_GPUI_COPY_SVG_PROP(x1);
-  RN_GPUI_COPY_SVG_PROP(y1);
-  RN_GPUI_COPY_SVG_PROP(x2);
-  RN_GPUI_COPY_SVG_PROP(y2);
-  RN_GPUI_COPY_SVG_PROP(cx);
-  RN_GPUI_COPY_SVG_PROP(cy);
-  RN_GPUI_COPY_SVG_PROP(r);
-  RN_GPUI_COPY_SVG_PROP(rx);
-  RN_GPUI_COPY_SVG_PROP(ry);
-  RN_GPUI_COPY_SVG_PROP(width);
-  RN_GPUI_COPY_SVG_PROP(height);
-  RN_GPUI_COPY_SVG_PROP(vbWidth);
-  RN_GPUI_COPY_SVG_PROP(vbHeight);
-  RN_GPUI_COPY_SVG_PROP(minX);
-  RN_GPUI_COPY_SVG_PROP(minY);
-  RN_GPUI_COPY_SVG_PROP(align);
-  RN_GPUI_COPY_SVG_PROP(meetOrSlice);
-  RN_GPUI_COPY_SVG_PROP(opacity);
-  RN_GPUI_COPY_SVG_PROP(color);
-  RN_GPUI_COPY_SVG_PROP(propList);
-  RN_GPUI_COPY_SVG_PROP(fill);
-  RN_GPUI_COPY_SVG_PROP(fillOpacity);
-  RN_GPUI_COPY_SVG_PROP(fillRule);
-  RN_GPUI_COPY_SVG_PROP(stroke);
-  RN_GPUI_COPY_SVG_PROP(strokeOpacity);
-  RN_GPUI_COPY_SVG_PROP(strokeWidth);
-  RN_GPUI_COPY_SVG_PROP(strokeLinecap);
-  RN_GPUI_COPY_SVG_PROP(strokeLinejoin);
-  RN_GPUI_COPY_SVG_PROP(strokeDasharray);
-  RN_GPUI_COPY_SVG_PROP(strokeDashoffset);
-  RN_GPUI_COPY_SVG_PROP(strokeMiterlimit);
-  RN_GPUI_COPY_SVG_PROP(matrix);
-  RN_GPUI_COPY_SVG_PROP(mask);
-  RN_GPUI_COPY_SVG_PROP(clipPath);
-  RN_GPUI_COPY_SVG_PROP(offset);
-  RN_GPUI_COPY_SVG_PROP(stopColor);
-  RN_GPUI_COPY_SVG_PROP(stopOpacity);
-#undef RN_GPUI_COPY_SVG_PROP
-  return result;
-}
-
-folly::dynamic svgPropsJson(const std::string& component, const Props& props) {
-#define RN_GPUI_SVG_PROPS(tag, type)                    \
-  if (component == tag) {                               \
-    if (auto typed = dynamic_cast<const type*>(&props)) \
-      return svgPropsJson(*typed);                      \
-  }
-  RN_GPUI_SVG_PROPS("RNSVGSvgView", RNSVGSvgViewProps)
-  RN_GPUI_SVG_PROPS("RNSVGCircle", RNSVGCircleProps)
-  RN_GPUI_SVG_PROPS("RNSVGEllipse", RNSVGEllipseProps)
-  RN_GPUI_SVG_PROPS("RNSVGLine", RNSVGLineProps)
-  RN_GPUI_SVG_PROPS("RNSVGPath", RNSVGPathProps)
-  RN_GPUI_SVG_PROPS("RNSVGRect", RNSVGRectProps)
-  RN_GPUI_SVG_PROPS("RNSVGGroup", RNSVGGroupProps)
-  RN_GPUI_SVG_PROPS("RNSVGDefs", RNSVGDefsProps)
-  RN_GPUI_SVG_PROPS("RNSVGClipPath", RNSVGClipPathProps)
-  RN_GPUI_SVG_PROPS("RNSVGLinearGradient", RNSVGLinearGradientProps)
-  RN_GPUI_SVG_PROPS("RNSVGRadialGradient", RNSVGRadialGradientProps)
-  RN_GPUI_SVG_PROPS("RNSVGText", RNSVGTextProps)
-  RN_GPUI_SVG_PROPS("RNSVGTSpan", RNSVGTSpanProps)
-#undef RN_GPUI_SVG_PROPS
-  return folly::dynamic::object();
-}
-#endif
 
 TextFragmentFlat flattenTextFragment(
     const TextAttributes& attributes,
@@ -413,13 +309,12 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
-#if defined(RN_GPUI_HAS_SVG)
   const std::string componentName(op.component.c_str());
-  if (componentName.rfind("RNSVG", 0) == 0 && shadowView.props) {
+  if (gpuiExtensionHooks().svgPropsJson &&
+      componentName.rfind("RNSVG", 0) == 0 && shadowView.props) {
     op.svg_props_json =
-        folly::toJson(svgPropsJson(componentName, *shadowView.props));
+        gpuiExtensionHooks().svgPropsJson(componentName, *shadowView.props);
   }
-#endif
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
             shadowView.props)) {
@@ -432,33 +327,9 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
         std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
     op.modal_visible = modal && modal->visible;
   }
-#if defined(RN_GPUI_HAS_SCREENS)
-  if (op.component == "RNSScreenStackHeaderSubview") {
-    if (auto props =
-            std::dynamic_pointer_cast<const RNSScreenStackHeaderSubviewProps>(
-                shadowView.props)) {
-      op.screen_header_subview_type = toString(props->type);
-    }
-  } else if (op.component == "RNSScreenStackHeaderConfig") {
-    if (auto props =
-            std::dynamic_pointer_cast<const RNSScreenStackHeaderConfigProps>(
-                shadowView.props)) {
-      op.screen_header_title = props->title;
-      op.screen_header_background_color = argb(props->backgroundColor);
-      op.screen_header_title_color = argb(props->titleColor);
-      op.screen_header_tint_color = argb(props->color);
-      op.screen_header_hidden = props->hidden;
-      op.screen_header_hide_back = props->hideBackButton;
-    }
-  } else if (op.component == "RNSScreen") {
-    if (auto props =
-            std::dynamic_pointer_cast<const RNSScreenProps>(shadowView.props)) {
-      op.screen_activity_state = props->activityState;
-      op.screen_stack_animation = toString(props->stackAnimation);
-      op.screen_stack_presentation = toString(props->stackPresentation);
-    }
+  if (gpuiExtensionHooks().screensOp) {
+    gpuiExtensionHooks().screensOp(shadowView, op);
   }
-#endif
 
   const auto& frame = shadowView.layoutMetrics.frame;
   op.frame = {
@@ -467,14 +338,9 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       (mutation.type == ShadowViewMutation::Update &&
        mutation.oldChildShadowView.layoutMetrics.frame !=
            mutation.newChildShadowView.layoutMetrics.frame);
-#if defined(RN_GPUI_HAS_SCREENS)
-  if (op.component == "RNSScreenStackHeaderConfig") {
-    op.frame.h = op.screen_header_hidden ? 0.f : 56.f;
-  } else if (op.component == "RNSScreenContentWrapper") {
-    op.frame.y += 56.f;
-    op.frame.h = std::max(0.f, op.frame.h - 56.f);
+  if (gpuiExtensionHooks().screensFrame) {
+    gpuiExtensionHooks().screensFrame(op);
   }
-#endif
 
   if (mutation.type == ShadowViewMutation::Create ||
       mutation.type == ShadowViewMutation::Update) {
@@ -561,6 +427,53 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
     }
   }
   return op;
+}
+
+namespace {
+
+// Measures one paragraph through the Rust bridge. The override only sees the
+// plain table in GpuiTextMeasure.h, so the rust:: types stay in this file.
+GpuiTextSize measureParagraphThroughRust(
+    const AttributedString& text,
+    const ParagraphAttributes& attributes,
+    float maxWidth,
+    float maxHeight) {
+  ParagraphFlat paragraph = flattenInputText(text);
+
+  // Alignment lives on TextAttributes, not on ParagraphAttributes; the
+  // TextAlignment enum values already match the ParagraphFlat encoding.
+  const auto& fragments = text.getFragments();
+  if (!fragments.empty() && fragments.front().textAttributes.alignment) {
+    paragraph.text_align =
+        static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
+  }
+  paragraph.max_lines = attributes.maximumNumberOfLines;
+  switch (attributes.ellipsizeMode) {
+    case EllipsizeMode::Clip:
+      paragraph.ellipsize = 3;
+      break;
+    case EllipsizeMode::Head:
+      paragraph.ellipsize = 1;
+      break;
+    case EllipsizeMode::Middle:
+      paragraph.ellipsize = 2;
+      break;
+    case EllipsizeMode::Tail:
+      paragraph.ellipsize = 0;
+      break;
+  }
+
+  const auto result = rn_gpui_measure_text(paragraph, maxWidth, maxHeight);
+  return GpuiTextSize{.width = result.width, .height = result.height};
+}
+
+} // namespace
+
+// Installs the Rust-backed measurer. Called from the GpuiHost constructor,
+// before any surface starts.
+void installGpuiTextMeasureTable() {
+  setGpuiTextMeasureTable(
+      GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});
 }
 
 } // namespace rngpui

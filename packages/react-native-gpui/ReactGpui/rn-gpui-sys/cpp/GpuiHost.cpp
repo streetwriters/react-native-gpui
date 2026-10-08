@@ -1,16 +1,13 @@
 // React host implementation (design doc §18.7).
 #include "GpuiHost.h"
-#if defined(RN_GPUI_HAS_NODE_API)
-#include "CxxNodeApiHostModule.hpp"
-#include "WeakNodeApiInjector.hpp"
-#endif
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/coremodules/DeviceInfoModule.h>
+#include "GpuiExtensions.h"
 #include "GpuiHttpClient.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
-#include "RustTurboModules.generated.hpp"
+#include "MountBatchBuilder.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
 
 #include <folly/json.h>
@@ -77,12 +74,6 @@ extern "C" void rn_gpui_stop_accessibility_observing();
 
 using namespace facebook::react;
 
-#if defined(RN_GPUI_HAS_WORKLETS)
-namespace gpui_worklets {
-void onFrame(double timestampMs);
-}
-#endif
-
 namespace rngpui {
 namespace {
 std::mutex gesturePointerProcessorMutex;
@@ -105,47 +96,6 @@ using AppCppTurboModuleProvider = std::shared_ptr<TurboModule> (*)(
     const std::string&,
     std::shared_ptr<CallInvoker>);
 std::atomic<AppCppTurboModuleProvider> appCppTurboModuleProvider{nullptr};
-
-class RustStringTurboModule final : public TurboModule {
- public:
-  using StringMethod = char* (*)(const char*);
-  using StringFree = void (*)(char*);
-
-  RustStringTurboModule(
-      const char* moduleName,
-      std::shared_ptr<CallInvoker> jsInvoker,
-      const char* methodName,
-      StringMethod method,
-      StringFree freeString)
-      : TurboModule(moduleName, std::move(jsInvoker)),
-        method_(method),
-        freeString_(freeString) {
-    methodMap_.emplace(methodName, MethodMetadata{1, &invokeString});
-  }
-
- private:
-  static jsi::Value invokeString(
-      jsi::Runtime& runtime,
-      TurboModule& base,
-      const jsi::Value* args,
-      size_t count) {
-    if (count != 1 || !args[0].isString()) {
-      throw jsi::JSError(runtime, "Rust TurboModule method expects one string");
-    }
-    auto& self = static_cast<RustStringTurboModule&>(base);
-    const auto input = args[0].asString(runtime).utf8(runtime);
-    auto* raw = self.method_(input.c_str());
-    if (!raw) {
-      return jsi::String::createFromUtf8(runtime, "");
-    }
-    std::string result(raw);
-    self.freeString_(raw);
-    return jsi::String::createFromUtf8(runtime, result);
-  }
-
-  StringMethod method_;
-  StringFree freeString_;
-};
 
 class GpuiFeatureFlagsOverrides final
     : public ReactNativeFeatureFlagsOverridesOSSStable {
@@ -539,26 +489,12 @@ TurboModuleProviders gpui_turbo_module_providers() {
             return appModule;
           }
         }
-#if defined(RN_GPUI_HAS_NODE_API)
-        if (name ==
-            callstack::react_native_node_api::CxxNodeApiHostModule::
-                kModuleName) {
-          static std::once_flag injected;
-          std::call_once(injected, [] {
-            callstack::react_native_node_api::injectIntoWeakNodeApi();
-          });
-          return callstack::react_native_node_api::createNodeApiHostModule(
-              jsInvoker);
+        for (const auto& extensionProvider :
+             rngpui::gpuiExtensionHooks().turboModules) {
+          if (auto extensionModule = extensionProvider(name, jsInvoker)) {
+            return extensionModule;
+          }
         }
-#endif
-#define RN_GPUI_REGISTER_RUST_STRING_MODULE(                                \
-    module_name_fn, method_name_fn, method_fn, free_fn)                     \
-  if (name == module_name_fn()) {                                           \
-    return std::make_shared<RustStringTurboModule>(                         \
-        module_name_fn(), jsInvoker, method_name_fn(), method_fn, free_fn); \
-  }
-        RN_GPUI_RUST_TURBO_MODULES(RN_GPUI_REGISTER_RUST_STRING_MODULE)
-#undef RN_GPUI_REGISTER_RUST_STRING_MODULE
         if (name ==
             NativeAppearanceCxxSpec<GpuiAppearanceModule>::kModuleName) {
           return std::make_shared<GpuiAppearanceModule>(jsInvoker);
@@ -647,7 +583,11 @@ new_gpui_host(rust::Str appId, rust::Str devHost, uint32_t devPort) {
 }
 
 GpuiHost::GpuiHost(rust::Str appId, rust::Str devHost, uint32_t devPort) {
+  rngpui::rn_gpui_install_extensions();
   install_feature_flags();
+  // Text measurement from the TextLayoutManager override goes through the
+  // plain table in GpuiTextMeasure.h; wire it to the Rust bridge first.
+  rngpui::installGpuiTextMeasureTable();
 
   ReactInstanceConfig config;
   config.appId = std::string(appId);
@@ -1043,13 +983,13 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
     return;
   dispatchGestureTime(*mountingManager_, eventTimestampMs);
   on_render();
-#if defined(RN_GPUI_HAS_WORKLETS)
-  const auto frameTimestampMs =
-      std::chrono::duration<double, std::milli>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count();
-  gpui_worklets::onFrame(frameTimestampMs);
-#endif
+  if (const auto& frame = rngpui::gpuiExtensionHooks().frame) {
+    const auto frameTimestampMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    frame(frameTimestampMs);
+  }
   std::function<void()> animationFrame;
   {
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
