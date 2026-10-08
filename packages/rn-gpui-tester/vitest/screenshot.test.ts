@@ -5,11 +5,13 @@ import { expect, test } from 'vitest';
 import { matchScreenshot } from '@react-native-gpui/testing';
 
 test('matches desktop screenshot baselines from Vitest', async () => {
+  // `matchScreenshot` defaults to a 1x window, and baselines are keyed by the
+  // display scale, so the directory it writes to carries the @1x suffix.
   const baselineDir = path.join(
     __dirname,
     '__screenshots__',
     'gpui',
-    `${process.platform}-${process.arch}`,
+    `${process.platform}-${process.arch}@1x`,
   );
   const originalArgs = process.argv;
   const image = new PNG({ width: 1, height: 1 });
