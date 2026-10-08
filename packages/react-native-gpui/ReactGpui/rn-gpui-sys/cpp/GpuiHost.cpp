@@ -515,11 +515,10 @@ TurboModuleProviders gpui_turbo_module_providers() {
 
 // Installs the OSS stable feature flags, which is what an OSS app on the new
 // (bridgeless) architecture does. `enableBridgelessArchitecture` is load
-// bearing for us: ReactHost here IS the bridgeless host, and the flag is what
-// makes the runtime turn on its microtask queue
-// (ReactCommon/react/runtime/hermes/HermesInstance.cpp:73); without it, React's
-// rendering path fails with "Could not enqueue microtask because they are
-// disabled in this runtime".
+// bearing for us: ReactHost here IS the bridgeless host, and an engine is
+// expected to enable its microtask queue when that flag is on; without it,
+// React's rendering path fails with "Could not enqueue microtask because they
+// are disabled in this runtime".
 void install_feature_flags() {
   static std::once_flag once;
   std::call_once(once, [] {

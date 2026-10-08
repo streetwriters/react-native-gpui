@@ -188,7 +188,7 @@ export async function runDesktop({
   const engineBundle = loadEngineBundle(projectRoot);
 
   // What the runtime loads: the plain Metro bundle, or the engine's compiled
-  // format (`.hbc` for Hermes).
+  // format (`.hbc` bytecode, for example).
   let runtimeBundlePath = bundlePath;
 
   if (release) {
