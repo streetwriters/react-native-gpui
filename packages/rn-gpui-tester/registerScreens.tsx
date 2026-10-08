@@ -44,4 +44,13 @@ export function registerScreens(testMode = false) {
       <>{renderScreen.svg({ ...props, testMode })}</>
     ),
   );
+  // The component a secondary desktop window runs (plan 7.4).
+  AppRegistry.registerComponent(
+    'DesktopShellChild',
+    () => (props: { windowId?: number; label?: string }) =>
+      React.createElement(
+        require('./fixtures/components/DesktopShellChild').default,
+        props,
+      ),
+  );
 }

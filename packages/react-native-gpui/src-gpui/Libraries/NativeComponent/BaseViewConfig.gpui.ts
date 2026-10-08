@@ -12,6 +12,10 @@ export default {
     accessibilityLiveRegion: true,
     importantForAccessibility: true,
     focusable: true,
+    // Desktop shell window props (plan §8.3). Fabric carries them through
+    // HostPlatformViewProps to `RNNodeView`.
+    desktopDragRegion: true,
+    desktopWindowControl: true,
     // RN omits iOS listener flags when Platform.OS is an out-of-tree platform.
     // Fabric's AccessibilityProps needs these flags for native action routing.
     onAccessibilityAction: true,

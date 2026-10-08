@@ -76,6 +76,16 @@ class GpuiHost {
       float w,
       float h,
       float scale);
+  /// Same, with the `initialProps` object the root component receives. The
+  /// desktop window registry passes `windowId` (and the app's own props) this
+  /// way, so a secondary window's component can identify itself.
+  void start_surface_with_props(
+      int32_t surfaceId,
+      rust::Str moduleName,
+      rust::Str propsJson,
+      float w,
+      float h,
+      float scale);
   void set_surface_size(int32_t surfaceId, float w, float h, float scale);
   void set_window_metrics(float w, float h, float scale);
   void set_window_top_inset(float top);

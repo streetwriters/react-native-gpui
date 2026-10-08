@@ -57,6 +57,27 @@ impl Host {
             .start_surface(id, module, w, h, scale)
     }
 
+    /// Start a surface whose root component receives `props_json` as
+    /// `initialProps`. The desktop window registry passes `windowId` here.
+    pub fn start_surface_with_props(
+        &self,
+        id: i32,
+        module: &str,
+        props_json: &str,
+        w: f32,
+        h: f32,
+        scale: f32,
+    ) {
+        #[cfg(test)]
+        let _ = (self, id, module, props_json, w, h, scale);
+        #[cfg(not(test))]
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .start_surface_with_props(id, module, props_json, w, h, scale)
+    }
+
     pub fn set_surface_size(&self, id: i32, w: f32, h: f32, scale: f32) {
         #[cfg(test)]
         let _ = (self, id, w, h, scale);
@@ -66,6 +87,15 @@ impl Host {
             .unwrap()
             .pin_mut()
             .set_surface_size(id, w, h, scale)
+    }
+
+    /// Tear down one surface. C++ also tells the store to drop that surface's
+    /// tree (`rn_gpui_on_surface_stopped`), which arrives on the main thread.
+    pub fn stop_surface(&self, id: i32) {
+        #[cfg(test)]
+        let _ = (self, id);
+        #[cfg(not(test))]
+        self.0.lock().unwrap().pin_mut().stop_surface(id)
     }
 
     pub fn set_window_top_inset(&self, top: f32) {

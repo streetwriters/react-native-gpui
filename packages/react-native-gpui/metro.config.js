@@ -123,6 +123,11 @@ function collectSourceOverrides(upstreamRNDir = UPSTREAM_RN_DIR) {
 }
 
 const GPUI_SOURCE_OVERRIDES = collectSourceOverrides();
+// The files that actually shadow an upstream React Native module. Only those
+// keep upstream-relative imports; a new module that merely lives under
+// `src-gpui` (the desktop-shell implementation, for example) resolves its own
+// relative imports normally.
+const GPUI_OVERRIDE_FILES = new Set(GPUI_SOURCE_OVERRIDES.values());
 // RNGH's legacy handler path registers only the continuous event in its JS
 // module. GPUI dispatches the codegen state-change event directly, so expose
 // the same direct-event registrations from a GPUI-specific source shim.
@@ -189,6 +194,28 @@ if (GPUI_SOURCE_OVERRIDES.size > 0) {
       .map(file => path.relative(GPUI_PACKAGE_DIR, file))
       .join(', ')}`,
   );
+}
+
+/** Whether `filePath` is a `src-gpui` file that shadows an upstream RN module. */
+function isGpuiOverrideFile(filePath) {
+  if (GPUI_OVERRIDE_FILES.has(filePath)) {
+    return true;
+  }
+  try {
+    const canonical = fs.realpathSync(filePath);
+    for (const override of GPUI_OVERRIDE_FILES) {
+      try {
+        if (fs.realpathSync(override) === canonical) {
+          return true;
+        }
+      } catch {
+        // The override moved; ignore it.
+      }
+    }
+  } catch {
+    // The file disappeared; treat it as a normal module.
+  }
+  return false;
 }
 
 function applySourceOverride(resolution) {
@@ -392,9 +419,13 @@ function resolveModule(context, moduleName, platform) {
 
   // A patched RN module keeps upstream-relative imports. Resolve those from
   // its upstream location, then apply the normal GPUI override table below.
+  // Only real overrides do this: `src-gpui` also holds new modules that do not
+  // mirror an upstream file, and re-basing those would break their own relative
+  // imports (their sibling files do not exist under React Native).
   if (
     moduleName.startsWith('.') &&
-    context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep)
+    context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep) &&
+    isGpuiOverrideFile(context.originModulePath)
   ) {
     context = {
       ...context,
@@ -490,6 +521,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     activeUpstreamRNDir,
   )) {
     GPUI_SOURCE_OVERRIDES.set(source, override);
+    GPUI_OVERRIDE_FILES.add(override);
   }
   const defaultConfig = getDefaultConfig(projectRoot);
   const projectGestureHandlerDir = path.join(
