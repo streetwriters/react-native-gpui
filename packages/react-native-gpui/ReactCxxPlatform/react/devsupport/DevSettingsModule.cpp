@@ -9,6 +9,10 @@
 
 #include <glog/logging.h>
 
+/// Defined in `rn-gpui-sys/cpp/GpuiHost.cpp`: forwards a `DevSettings` toggle
+/// to the GPUI main thread, which owns the perf monitor and the Dev Menu.
+extern "C" void rn_gpui_dev_settings_changed(const char* name, bool enabled);
+
 namespace facebook::react {
 
 void DevSettingsModule::reload(jsi::Runtime& /*rt*/) {
@@ -36,6 +40,7 @@ void DevSettingsModule::setHotLoadingEnabled(
     bool isHotLoadingEnabled) {
   LOG(INFO) << "DevSettingsModule::setHotLoadingEnabled: "
             << (int)isHotLoadingEnabled;
+  rn_gpui_dev_settings_changed("hotLoading", isHotLoadingEnabled);
 }
 
 void DevSettingsModule::setIsDebuggingRemotely(
@@ -44,9 +49,14 @@ void DevSettingsModule::setIsDebuggingRemotely(
 
 void DevSettingsModule::setProfilingEnabled(
     jsi::Runtime& /*rt*/,
-    bool /*isProfilingEnabled*/) {}
+    bool isProfilingEnabled) {
+  // The Perf Monitor is the desktop's profiling surface (plan 7.6).
+  rn_gpui_dev_settings_changed("profiling", isProfilingEnabled);
+}
 
-void DevSettingsModule::toggleElementInspector(jsi::Runtime& rt) {}
+void DevSettingsModule::toggleElementInspector(jsi::Runtime& /*rt*/) {
+  rn_gpui_dev_settings_changed("inspectorToggle", true);
+}
 
 void DevSettingsModule::addMenuItem(
     jsi::Runtime& /*rt*/,

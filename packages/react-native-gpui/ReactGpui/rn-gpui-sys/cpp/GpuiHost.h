@@ -91,6 +91,8 @@ class GpuiHost {
   void set_window_top_inset(float top);
   void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);
+  /// Open React Native DevTools through the Metro inspector proxy.
+  void open_debugger() const;
   void on_render() const;
   void on_frame(double eventTimestampMs) const;
   void on_gesture_frame(double eventTimestampMs) const;

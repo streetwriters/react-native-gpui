@@ -29,25 +29,68 @@ pub struct ContextMenuRequest {
     pub native_view: isize,
 }
 
-/// Settles the JS promise. Exactly one of `resolve`/`reject` is called.
+/// Settles the caller. Exactly one of `resolve`/`reject` is called.
 #[derive(Clone)]
-pub struct Responder {
-    pub request_id: i32,
+pub enum Responder {
+    /// Settles the JS promise behind `ContextMenu.show`.
+    Desktop { request_id: i32 },
+    /// An internal caller (the Dev Menu, a tray menu).
+    Callback(Rc<RefCell<Option<Box<dyn FnMut(Option<String>)>>>>),
 }
 
 impl Responder {
+    pub fn desktop(request_id: i32) -> Self {
+        Self::Desktop { request_id }
+    }
+
+    pub fn callback(callback: Box<dyn FnMut(Option<String>)>) -> Self {
+        Self::Callback(Rc::new(RefCell::new(Some(callback))))
+    }
+
     /// Resolve with the chosen item id, or `null` when the menu was dismissed.
     pub fn resolve(&self, selection: Option<&str>) {
-        rn_gpui_sys::ffi::rn_gpui_desktop_result(
-            self.request_id,
-            true,
-            json!({"id": selection}).to_string(),
-        );
+        match self {
+            Self::Desktop { request_id } => rn_gpui_sys::ffi::rn_gpui_desktop_result(
+                *request_id,
+                true,
+                json!({"id": selection}).to_string(),
+            ),
+            Self::Callback(callback) => {
+                if let Some(mut callback) = callback.borrow_mut().take() {
+                    callback(selection.map(str::to_string));
+                }
+            }
+        }
     }
 
     pub fn reject(&self, error: DesktopError) {
-        rn_gpui_sys::ffi::rn_gpui_desktop_result(self.request_id, false, error.to_json());
+        match self {
+            Self::Desktop { request_id } => {
+                rn_gpui_sys::ffi::rn_gpui_desktop_result(*request_id, false, error.to_json());
+            }
+            Self::Callback(callback) => {
+                if let Some(mut callback) = callback.borrow_mut().take() {
+                    callback(None);
+                }
+            }
+        }
     }
+}
+
+/// The window a menu without a caller-supplied window targets: the active one,
+/// else the main window (a hidden or off-screen window is not "active").
+pub fn target_window(cx: &mut App) -> Result<(AnyWindowHandle, isize), DesktopError> {
+    let window = cx
+        .active_window()
+        .or_else(|| {
+            cx.global::<DesktopWindowsGlobal>()
+                .0
+                .get(crate::desktop::windows::MAIN_WINDOW_KEY)
+                .map(|entry| entry.handle)
+        })
+        .ok_or_else(|| DesktopError::failed("no window for the context menu"))?;
+    let native_view = native_view_of(cx, window);
+    Ok((window, native_view))
 }
 
 /// Presents a context menu and settles the request.
@@ -120,7 +163,7 @@ pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), Deskto
         model,
         native_view,
     };
-    let responder = Responder { request_id };
+    let responder = Responder::desktop(request_id);
     let presenter = cx.global::<ContextMenuPresenterGlobal>().0.clone();
     presenter.show(cx, request, responder);
     Ok(())
@@ -330,7 +373,8 @@ impl ContextMenuPresenter for FakeContextMenu {
     }
 }
 
-fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
+/// A menu model as JSON, the shape `getContextMenu` reports.
+pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
     items
         .iter()
         .map(|node| match node {

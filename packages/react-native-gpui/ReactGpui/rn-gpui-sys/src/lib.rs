@@ -258,6 +258,10 @@ pub mod ffi {
         /// Synchronous snapshot read for `GpuiDesktop.getSnapshot`. Called on
         /// the JS thread; must never touch the GPUI main thread.
         fn rn_gpui_desktop_snapshot(key: &str) -> String;
+        /// `DevMenu.show()` (plan 7.5).
+        fn rn_gpui_dev_menu_show();
+        /// `DevMenu` / `DevSettings` toggles, by name.
+        fn rn_gpui_dev_setting(name: &str, enabled: bool);
         /// Called on the JS/Fabric thread during layout. Thread-safe.
         fn rn_gpui_measure_text(
             p: &ParagraphFlat,
@@ -320,6 +324,10 @@ pub mod ffi {
         /// down).
         fn reject_pending_desktop_calls();
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
+        /// Reload the JS instance (the Dev Menu's Reload).
+        fn request_reload(self: Pin<&mut GpuiHost>);
+        /// Open React Native DevTools through the Metro inspector proxy.
+        fn open_debugger(self: &GpuiHost);
         /// Wake RN's EventBeat after input or a mount batch on the main thread.
         fn on_render(self: &GpuiHost) -> Result<()>;
         /// Animation ticks only from the display-frame hook, never mount batches.
@@ -384,6 +392,15 @@ pub static DESKTOP_CALL_HANDLER: OnceLock<DesktopCallHandler> = OnceLock::new();
 /// `key -> json` — called on the JS thread; must be non-blocking.
 pub type DesktopSnapshotHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
 pub static DESKTOP_SNAPSHOT_HANDLER: OnceLock<DesktopSnapshotHandler> = OnceLock::new();
+/// `DevMenu.show` — called on the JS thread.
+pub type DevMenuShowHandler = Box<dyn Fn() + Send + Sync>;
+pub static DEV_MENU_SHOW_HANDLER: OnceLock<DevMenuShowHandler> = OnceLock::new();
+/// `(name, enabled)` from `DevMenu` / `DevSettings`.
+pub type DevSettingHandler = Box<dyn Fn(String, bool) + Send + Sync>;
+pub static DEV_SETTING_HANDLER: OnceLock<DevSettingHandler> = OnceLock::new();
+/// A chosen Dev Menu item id; the menu runs it on the GPUI main thread.
+pub type DevMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
+pub static DEV_MENU_PERFORM_HANDLER: OnceLock<DevMenuPerformHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
@@ -526,6 +543,18 @@ fn rn_gpui_desktop_call(id: i32, domain: String, method: String, args_json: Stri
                     .to_string(),
             );
         }
+    }
+}
+
+fn rn_gpui_dev_menu_show() {
+    if let Some(handler) = DEV_MENU_SHOW_HANDLER.get() {
+        handler();
+    }
+}
+
+fn rn_gpui_dev_setting(name: &str, enabled: bool) {
+    if let Some(handler) = DEV_SETTING_HANDLER.get() {
+        handler(name.to_string(), enabled);
     }
 }
 

@@ -429,6 +429,37 @@ class GpuiAlertModule final
   std::shared_ptr<CallInvoker> jsInvoker_;
 };
 
+extern "C" void rn_gpui_request_reload();
+
+/// `DevMenu` (plan 7.5): the RN Dev Menu entry point. `show` is handled on the
+/// GPUI main thread, which owns the presenter.
+class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
+ public:
+  explicit GpuiDevMenuModule(std::shared_ptr<CallInvoker> jsInvoker)
+      : NativeDevMenuCxxSpec(std::move(jsInvoker)) {}
+
+  void show(facebook::jsi::Runtime& /*runtime*/) {
+    rn_gpui_dev_menu_show();
+  }
+
+  void reload(facebook::jsi::Runtime& /*runtime*/) {
+    rn_gpui_request_reload();
+  }
+
+  void setProfilingEnabled(facebook::jsi::Runtime& /*runtime*/, bool enabled) {
+    rn_gpui_dev_setting(rust::String("profiling"), enabled);
+  }
+
+  void setHotLoadingEnabled(facebook::jsi::Runtime& /*runtime*/, bool enabled) {
+    rn_gpui_dev_setting(rust::String("hotLoading"), enabled);
+  }
+
+  /// `DevSettings.toggleElementInspector` toggles, so it passes no value.
+  void toggleElementInspector(facebook::jsi::Runtime& /*runtime*/) {
+    rn_gpui_dev_setting(rust::String("inspectorToggle"), true);
+  }
+};
+
 class GpuiClipboardModule final
     : public NativeClipboardCxxSpec<GpuiClipboardModule> {
  public:
@@ -464,6 +495,14 @@ class GpuiClipboardModule final
  private:
   std::shared_ptr<CallInvoker> jsInvoker_;
 };
+
+/// Thin C shim so the vendored `DevSettingsModule` (ReactCxxPlatform) can reach
+/// the same Rust handler without depending on the cxx bridge header.
+extern "C" void rn_gpui_dev_settings_changed(const char* name, bool enabled) {
+  if (name != nullptr) {
+    rn_gpui_dev_setting(rust::String(name), enabled);
+  }
+}
 
 extern "C" void rn_gpui_set_app_cpp_turbo_module_provider(
     AppCppTurboModuleProvider provider) {
@@ -509,6 +548,9 @@ TurboModuleProviders gpui_turbo_module_providers() {
         }
         if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
           return std::make_shared<GpuiClipboardModule>(jsInvoker);
+        }
+        if (name == NativeDevMenuCxxSpec<GpuiDevMenuModule>::kModuleName) {
+          return std::make_shared<GpuiDevMenuModule>(jsInvoker);
         }
         if (auto desktop = create_gpui_desktop_module(name, jsInvoker)) {
           return desktop;
@@ -939,6 +981,10 @@ void GpuiHost::set_system_appearance(rust::Str appearance) {
     reactHost_->emitDeviceEvent(
         folly::dynamic::array("appearanceChanged", std::move(preferences)));
   }
+}
+
+void GpuiHost::open_debugger() const {
+  reactHost_->openDebugger();
 }
 
 void GpuiHost::stop_surface(int32_t id) {

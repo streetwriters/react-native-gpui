@@ -887,6 +887,26 @@ async fn serve_commands(
                     json!({"triggered": id})
                 })
             }
+            "showDevMenu" => cx.update(|cx| {
+                crate::desktop::dev_menu::show(cx);
+                json!({"shown": true})
+            }),
+            "getDevMenu" => cx.update(|cx| {
+                let model = crate::desktop::dev_menu::menu_model(cx);
+                json!({"items": crate::desktop::context_menu::nodes_json(&model.items)})
+            }),
+            "devMenuPerform" => {
+                let id = params
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    crate::desktop::dev_menu::perform(cx, &id);
+                    json!({"performed": id})
+                })
+            }
+            "getPerfMonitor" => cx.update(|cx| crate::desktop::perf_monitor::metrics(cx)),
             "getContextMenu" => cx.update(|cx| {
                 crate::desktop::context_menu::fake_model(cx).unwrap_or(Value::Null)
             }),

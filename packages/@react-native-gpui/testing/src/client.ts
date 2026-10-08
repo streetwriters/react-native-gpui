@@ -413,6 +413,35 @@ export class DesktopApp {
     await this.waitForIdle();
   }
 
+  /** Open the Dev Menu (plan 7.5). */
+  async showDevMenu(): Promise<void> {
+    await this.request('showDevMenu');
+    await this.waitForIdle();
+  }
+
+  /** The Dev Menu's items, without opening it. */
+  async getDevMenu(): Promise<{ items: unknown[] }> {
+    return this.request('getDevMenu');
+  }
+
+  /** Run a Dev Menu item exactly as choosing it would. */
+  async devMenuPerform(id: string): Promise<void> {
+    await this.request('devMenuPerform', { id });
+    await this.waitForIdle();
+  }
+
+  /** The Perf Monitor's counters. */
+  async getPerfMonitor(): Promise<{
+    enabled: boolean;
+    uiFps: number;
+    jsFps: number;
+    memoryBytes: number;
+    mountedViews: number;
+    lastMountMs: number;
+  }> {
+    return this.request('getPerfMonitor');
+  }
+
   /** The context menu the fake presenter recorded. */
   async getContextMenu(): Promise<{
     items: unknown[];

@@ -92,7 +92,8 @@ impl AppMenuGlobal {
 
 /// Install the global and the default menu. Called once at startup, before the
 /// bundle loads, so Cmd+Q / Cmd+C work without the app writing any menu code.
-pub fn install(cx: &mut App, app_name: &str) {
+pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
+    cx.set_global(DevMenuEnabled(dev_menu));
     cx.set_global(AppMenuGlobal::new(app_name.to_string()));
     let model = default_menu(app_name);
     let _ = apply(cx, model, false);
@@ -290,6 +291,14 @@ fn app_name(cx: &App) -> String {
     cx.global::<AppMenuGlobal>().0.app_name.clone()
 }
 
+/// Whether this build installs the Dev Menu (plan 7.5, dev builds only).
+pub struct DevMenuEnabled(pub bool);
+impl gpui::Global for DevMenuEnabled {}
+
+fn dev_menu_enabled(cx: &App) -> bool {
+    cx.try_global::<DevMenuEnabled>().is_some_and(|flag| flag.0)
+}
+
 /// The default menu (plan §5.3): app menu, Edit, Window, Help.
 pub fn default_menu(app_name: &str) -> MenuModel {
     let mut app_items = vec![
@@ -356,8 +365,8 @@ pub fn default_accelerator(role: MenuRole) -> Option<&'static str> {
 /// Build and install a menu model.
 fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopError> {
     let app_name = app_name(cx);
-    let menus = build_menus(&model, &app_name);
-    let bindings = collect_bindings(&model);
+    let menus = build_menus(&model, &app_name, dev_menu_enabled(cx));
+    let bindings = collect_bindings(dev_menu_enabled(cx), &model);
     let accelerators = replace_accelerator_bindings(cx, &bindings);
     cx.set_menus(menus);
     let state = &mut cx.global_mut::<AppMenuGlobal>().0;
@@ -403,9 +412,15 @@ fn rebuild_now(cx: &mut App) {
 }
 
 /// Every accelerator the model installs, as `(item id, keystroke)`.
-fn collect_bindings(model: &MenuModel) -> Vec<(String, String)> {
+fn collect_bindings(dev_menu: bool, model: &MenuModel) -> Vec<(String, String)> {
     let mut bindings = model.accelerators();
     collect_role_bindings(&model.items, &mut bindings);
+    if dev_menu {
+        bindings.push((
+            crate::desktop::dev_menu::ACCELERATOR_ID.to_string(),
+            crate::desktop::dev_menu::ACCELERATOR.to_string(),
+        ));
+    }
     bindings
 }
 
@@ -525,6 +540,10 @@ fn replace_accelerator_bindings(
 /// The action an item id binds: a role keeps its role behavior, anything else is
 /// a plain press.
 fn accelerator_action(id: &str) -> AcceleratorAction {
+    // Plan 7.5 — the Dev Menu's shortcut is not a menu item.
+    if id == crate::desktop::dev_menu::ACCELERATOR_ID {
+        return AcceleratorAction::Host("devMenu".to_string());
+    }
     if let Some(kind) = id.strip_prefix("role:") {
         if matches!(
             kind,
@@ -565,12 +584,12 @@ fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
     }
 }
 
-fn build_menus(model: &MenuModel, app_name: &str) -> Vec<Menu> {
+fn build_menus(model: &MenuModel, app_name: &str, dev_menu: bool) -> Vec<Menu> {
     model
         .items
         .iter()
         .filter_map(|node| match node {
-            MenuNode::StandardMenu(role) => Some(standard_menu(*role, app_name)),
+            MenuNode::StandardMenu(role) => Some(standard_menu(*role, app_name, dev_menu)),
             MenuNode::Submenu(submenu) => Some(
                 Menu::new(SharedString::from(submenu.label.clone()))
                     .items(build_items(&submenu.items))
@@ -584,7 +603,7 @@ fn build_menus(model: &MenuModel, app_name: &str) -> Vec<Menu> {
         .collect()
 }
 
-fn standard_menu(role: MenuRole, app_name: &str) -> Menu {
+fn standard_menu(role: MenuRole, app_name: &str, dev_menu: bool) -> Menu {
     let (name, items): (&str, Vec<MenuItem>) = match role {
         MenuRole::EditMenu => (
             "Edit",
@@ -609,7 +628,16 @@ fn standard_menu(role: MenuRole, app_name: &str) -> Menu {
                 role_menu_item(MenuRole::Close, None),
             ],
         ),
-        MenuRole::HelpMenu => ("Help", Vec::new()),
+        MenuRole::HelpMenu => (
+            "Help",
+            if dev_menu {
+                vec![MenuItem::submenu(
+                    Menu::new(SharedString::from("Developer")).items(dev_menu_items()),
+                )]
+            } else {
+                Vec::new()
+            },
+        ),
         MenuRole::AppMenu => (
             app_name,
             vec![role_menu_item(MenuRole::About, Some(app_name))],
@@ -627,6 +655,7 @@ fn build_items(items: &[MenuNode]) -> Vec<MenuItem> {
             MenuNode::StandardMenu(role) => Some(MenuItem::submenu(standard_menu(
                 *role,
                 role.default_label(),
+                false,
             ))),
             MenuNode::Submenu(submenu) => Some(
                 MenuItem::submenu(
@@ -638,6 +667,27 @@ fn build_items(items: &[MenuNode]) -> Vec<MenuItem> {
             MenuNode::Item(item) => Some(build_item(item)),
         })
         .collect()
+}
+
+/// The Developer submenu's items (plan §5.3: the dev group lives in Help).
+fn dev_menu_items() -> Vec<MenuItem> {
+    use crate::desktop::dev_menu as dev;
+    [
+        (dev::RELOAD, "Reload", false),
+        (dev::OPEN_DEVTOOLS, "Open DevTools", false),
+        (dev::ELEMENT_INSPECTOR, "Toggle Element Inspector", false),
+        (dev::PERF_MONITOR, "Toggle Perf Monitor", false),
+        (dev::FAST_REFRESH, "Fast Refresh", false),
+    ]
+    .into_iter()
+    .map(|(id, label, checked)| {
+        MenuItem::action(
+            SharedString::from(label),
+            MenuAccelerator { id: id.to_string() },
+        )
+        .checked(checked)
+    })
+    .collect()
 }
 
 fn build_item(item: &MenuItemDef) -> MenuItem {
@@ -811,6 +861,7 @@ fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowH
         "hideOthers" => cx.hide_other_apps(),
         "showAll" => cx.unhide_other_apps(),
         "about" => show_about_panel(cx),
+        "devMenu" => crate::desktop::dev_menu::show(cx),
         "minimize" | "zoom" | "toggleFullscreen" | "close" => {
             let kind = kind.to_string();
             cx.defer(move |cx| {
@@ -855,7 +906,7 @@ mod tests {
         // Edit roles are not individual nodes; their accelerators are still
         // installed.
         assert!(model.find("role:quit").is_some());
-        let bindings = collect_bindings(&model);
+        let bindings = collect_bindings(false, &model);
         assert!(bindings
             .iter()
             .any(|(id, key)| id == "role:copy" && key == "secondary-c"));
@@ -869,7 +920,7 @@ mod tests {
         let model = MenuModel {
             items: vec![MenuNode::StandardMenu(MenuRole::EditMenu)],
         };
-        let bindings = collect_bindings(&model);
+        let bindings = collect_bindings(false, &model);
         assert_eq!(bindings.len(), 6);
         assert!(bindings.iter().any(|(_, key)| key == "secondary-v"));
     }
@@ -879,7 +930,7 @@ mod tests {
         // `services` only exists on macOS; the model keeps it either way, but the
         // built item must not appear as a disabled entry elsewhere.
         let model = default_menu("Tester");
-        let menus = build_menus(&model, "Tester");
+        let menus = build_menus(&model, "Tester", false);
         assert!(!menus.is_empty());
     }
 }
