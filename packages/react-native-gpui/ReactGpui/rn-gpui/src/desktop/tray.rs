@@ -463,6 +463,12 @@ fn load_icon(path: &str) -> Result<tray_icon::Icon, DesktopError> {
         .map_err(|error| DesktopError::failed(format!("{error}")))
 }
 
+/// Whether a click opens the menu rather than the popover: a menu has to exist,
+/// and it opens on a right click unless the app asked for left clicks too.
+fn wants_menu(has_menu: bool, menu_on_left_click: bool, button: TrayButton) -> bool {
+    has_menu && (button == TrayButton::Right || menu_on_left_click)
+}
+
 /// A tray menu item was chosen: report it to JS.
 pub fn emit_menu_press(cx: &App, id: &str) {
     let Some(store) = crate::store::store_from(cx) else {
@@ -491,6 +497,21 @@ mod tests {
         assert!(config.menu.is_none());
         assert!(!config.quit_on_last_window_closed);
         assert_eq!(config.id, "tray");
+    }
+
+    #[test]
+    fn a_right_click_opens_the_menu_only_when_one_exists() {
+        assert!(wants_menu(true, false, TrayButton::Right));
+        assert!(!wants_menu(false, false, TrayButton::Right));
+        assert!(!wants_menu(true, false, TrayButton::Left));
+        assert!(!wants_menu(true, false, TrayButton::Middle));
+    }
+
+    #[test]
+    fn menu_on_left_click_moves_the_menu_to_the_primary_button() {
+        assert!(wants_menu(true, true, TrayButton::Left));
+        assert!(wants_menu(true, true, TrayButton::Right));
+        assert!(!wants_menu(false, true, TrayButton::Left));
     }
 
     #[test]
