@@ -364,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
-            prebuilt-binaries-*.tar.gz prebuilt-binaries-*-pdb.tar.gz SHA256SUMS.txt
+            prebuilt-binaries-*.tar.gz SHA256SUMS.txt
       - name: Publish the release
         run: |
           set -euo pipefail
