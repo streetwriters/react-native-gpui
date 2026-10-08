@@ -212,6 +212,14 @@ jobs:
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall $arch" }
           Write-Host "MSVC compiler: $($cl.Source)"
+          # Bash steps put Git's /usr/bin/link ahead of MSVC's link.exe; pin
+          # cargo's linker to the MSVC one so cargo install works there too.
+          $link = (Get-Command link.exe -ErrorAction Stop).Source
+          if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
+          Write-Host "MSVC linker: $link"
+          foreach ($triple in 'X86_64_PC_WINDOWS_MSVC', 'AARCH64_PC_WINDOWS_MSVC') {
+            Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_${triple}_LINKER=$link" -Encoding utf8
+          }
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
