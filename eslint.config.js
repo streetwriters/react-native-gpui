@@ -78,4 +78,8 @@ module.exports = [
     files: ['packages/react-native-gpui/src-gpui/**/*.js'],
     rules: { 'no-unreachable': 'off' },
   },
+  {
+    files: ['packages/rn-gpui-tester/**/*.{ts,tsx,js}'],
+    rules: { 'react-native/no-inline-styles': 'off' },
+  },
 ];
