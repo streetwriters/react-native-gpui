@@ -786,6 +786,16 @@ void GpuiHost::start_surface(
     float w,
     float h,
     float scale) {
+  start_surface_with_props(id, module, rust::Str("{}"), w, h, scale);
+}
+
+void GpuiHost::start_surface_with_props(
+    int32_t id,
+    rust::Str module,
+    rust::Str propsJson,
+    float w,
+    float h,
+    float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
@@ -802,6 +812,13 @@ void GpuiHost::start_surface(
     mountingManager_->setWindowSize(w, h);
   }
   folly::dynamic initialProps = folly::dynamic::object();
+  const auto props = std::string(propsJson);
+  if (!props.empty()) {
+    auto parsed = folly::parseJson(props);
+    if (!parsed.isObject())
+      throw std::invalid_argument("Surface initialProps must be an object");
+    initialProps = std::move(parsed);
+  }
   if (id == kAppSurfaceId && std::getenv("RN_GPUI_TEST_DRIVER")) {
     if (const char* value = std::getenv("RN_GPUI_TEST_INITIAL_PROPS")) {
       initialProps = folly::parseJson(value);

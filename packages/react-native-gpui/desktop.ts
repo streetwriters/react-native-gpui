@@ -25,6 +25,33 @@ export type {
   DesktopErrorCode,
 } from './src-gpui/src/private/desktop';
 
+export {
+  DesktopWindow,
+  useDesktopWindow,
+} from './src-gpui/src/private/desktop/windows';
+
+export type {
+  OpenWindowOptions,
+  Subscription,
+  WindowBounds,
+  WindowEvent,
+  WindowEventName,
+  WindowState,
+} from './src-gpui/src/private/desktop/windows';
+
+export {
+  installDesktopWindowContext,
+  MAIN_WINDOW_ID,
+  useDesktopWindowId,
+} from './src-gpui/src/private/desktop/windowContext';
+
+export { TitleBar } from './src-gpui/src/private/desktop/TitleBar';
+
+export type { TitleBarProps } from './src-gpui/src/private/desktop/TitleBar';
+
+// Registers the desktopDragRegion / desktopWindowControl View prop types.
+import './src-gpui/src/private/desktop/types';
+
 import { call, capabilities } from './src-gpui/src/private/desktop';
 
 export interface DesktopAppInfo {

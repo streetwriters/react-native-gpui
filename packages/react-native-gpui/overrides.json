@@ -112,6 +112,22 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/index.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/windowContext.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/windows.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/TitleBar.tsx"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/types.ts"
     }
   ]
 }

@@ -299,6 +299,19 @@ pub type WindowOptionsHook = Box<dyn FnOnce(&mut WindowOptions) + 'static>;
 pub type AppReadyHook = Box<dyn FnOnce(&mut App) + 'static>;
 pub type WindowOpenedHook = Box<dyn FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static>;
 
+/// How the launch window's title bar is drawn (plan §8.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowTitleBar {
+    /// The system title bar.
+    #[default]
+    Default,
+    /// Hidden, with the content drawing under the traffic lights.
+    Transparent,
+    /// No system title bar at all. GPUI only has "transparent" on macOS, so
+    /// this is the same as [`WindowTitleBar::Transparent`] there.
+    Hidden,
+}
+
 /// Per-project launch settings for a GPUI desktop app.
 ///
 /// The defaults preserve the runtime's existing behavior, including restoring
@@ -315,6 +328,13 @@ pub struct DesktopAppConfig {
     pub title: Option<String>,
     pub position: Option<(f32, f32)>,
     pub restore_window_state: bool,
+    /// Whether closing the last window quits the app (plan §3.3). Tray-only
+    /// apps turn this off.
+    pub quit_on_last_window_closed: bool,
+    /// Title-bar style of the launch window (plan §8.2).
+    pub title_bar: WindowTitleBar,
+    /// macOS traffic-light position, when the title bar is transparent.
+    pub traffic_light_position: Option<(f32, f32)>,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
     pub on_window_opened: Option<WindowOpenedHook>,
@@ -340,6 +360,9 @@ impl DesktopAppConfig {
             title: None,
             position: None,
             restore_window_state: true,
+            quit_on_last_window_closed: true,
+            title_bar: WindowTitleBar::Default,
+            traffic_light_position: None,
             configure_window: None,
             on_app_ready: None,
             on_window_opened: None,
@@ -374,6 +397,24 @@ impl DesktopAppConfig {
     /// start from the configured initial geometry.
     pub fn restore_window_state(mut self, restore: bool) -> Self {
         self.restore_window_state = restore;
+        self
+    }
+
+    /// Keep the app alive after its last window closes (tray-only apps).
+    pub fn quit_on_last_window_closed(mut self, quit: bool) -> Self {
+        self.quit_on_last_window_closed = quit;
+        self
+    }
+
+    /// Draw the launch window with a transparent title bar (plan §8.2).
+    pub fn title_bar(mut self, title_bar: WindowTitleBar) -> Self {
+        self.title_bar = title_bar;
+        self
+    }
+
+    /// Place the macOS traffic lights at a content-relative position.
+    pub fn traffic_light_position(mut self, x: f32, y: f32) -> Self {
+        self.traffic_light_position = Some((x, y));
         self
     }
 
@@ -630,6 +671,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
             on_app_ready(cx);
         }
 
+        // The window registry and the launch-time close policy (plan §3.3) must
+        // exist before the main window opens: the registry adopts it below, and
+        // the close hook reads the policy while the window is live.
+        cx.set_global(crate::desktop::windows::DesktopWindowsGlobal(
+            crate::desktop::windows::DesktopWindows::new(),
+        ));
+        cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(
+            config.quit_on_last_window_closed,
+        ));
+
         // The root view is created before the window so the store can register
         // it for surface 1 right away (design doc §18.12: one root per surface).
         // TODO 2.6 — the overlay slot (LogBox) has to exist in the app root's
@@ -679,6 +730,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
+        // The launch window's title bar (plan §8.2). `configure_window` below
+        // still wins for apps that need the raw GPUI options.
+        if config.title_bar != WindowTitleBar::Default {
+            let titlebar = window_options.titlebar.get_or_insert_with(Default::default);
+            titlebar.appears_transparent = true;
+            if let Some((x, y)) = config.traffic_light_position {
+                titlebar.traffic_light_position = Some(point(px(x), px(y)));
+            }
+            // The app draws and moves the bar itself, so AppKit must not also
+            // treat the content view as titlebar chrome.
+            window_options.app_owns_titlebar_drag = true;
+        }
         #[cfg(feature = "test-driver")]
         if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
             // AppKit clamps remote coordinates into the visible desktop.
@@ -839,6 +902,21 @@ pub fn run_with(mut config: DesktopAppConfig) {
             store.window_appearance_subscription = Some(appearance_subscription);
             cx.notify();
         });
+
+        // Adopt the main window into the registry (plan §3.3: the main window is
+        // always key 1 and surface 1). Its app-surface observers live above; the
+        // registry only needs the identity so `DesktopWindow.all/current` and
+        // close policy can see it.
+        cx.global_mut::<crate::desktop::windows::DesktopWindowsGlobal>()
+            .0
+            .adopt(
+                crate::desktop::windows::MAIN_WINDOW_KEY,
+                (*window).into(),
+                1,
+                module.clone(),
+                serde_json::json!({}),
+                crate::desktop::windows::WindowRole::Main,
+            );
 
         // TODO 2.4 — headless input: `RN_GPUI_CLICK` dispatches real mouse
         // events through GPUI's own input path (`Window::dispatch_event`), the
@@ -1237,7 +1315,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     if changed {
                         last_surface_size.set((width, height, scale));
                         log::info!("window resized to {width}x{height}@{scale}x");
-                        store.update(cx, |store, _cx| store.resize(width, height, scale));
+                        let handle: gpui::AnyWindowHandle = window.window_handle().into();
+                        store.update(cx, |store, _cx| {
+                            store.resize_window(handle, width, height, scale)
+                        });
                         // A resize is native -> JS work: keep the per-frame hook
                         // ticking while Fabric re-lays out (TODO 2.3).
                         frame_hook.arm(window);

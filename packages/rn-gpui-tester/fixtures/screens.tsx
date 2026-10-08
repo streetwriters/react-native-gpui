@@ -215,6 +215,11 @@ export const renderScreen: Record<
       require('./components/DesktopShellFixture').default,
       props,
     ),
+  'window-control': props =>
+    React.createElement(
+      require('./components/WindowControlFixture').default,
+      props,
+    ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
   'benchmark-idle': props =>

@@ -294,6 +294,12 @@ export const screens = [
     fixture: 'DesktopShellFixture',
   },
   {
+    id: 'window-control',
+    title: 'Window control',
+    group: 'Platform',
+    fixture: 'WindowControlFixture',
+  },
+  {
     id: 'errors',
     title: 'Error handling',
     group: 'Diagnostics',

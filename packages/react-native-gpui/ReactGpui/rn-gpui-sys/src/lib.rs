@@ -114,6 +114,10 @@ pub mod ffi {
         pub accessibility_large_content_enabled: bool,
         pub accessibility_large_content_title: String,
         pub focusable: bool,
+        /// Custom title bar: the view drags the window (plan §8.3).
+        pub desktop_drag_region: bool,
+        /// "minimize" | "maximize" | "close" for a custom caption button.
+        pub desktop_window_control: String,
     }
 
     #[derive(Clone, Debug, Default)]
@@ -281,6 +285,17 @@ pub mod ffi {
             self: Pin<&mut GpuiHost>,
             surface_id: i32,
             module_name: &str,
+            width: f32,
+            height: f32,
+            scale: f32,
+        );
+        /// Start a surface whose root component receives `props_json` as
+        /// `initialProps` (used to pass each window its `windowId`).
+        fn start_surface_with_props(
+            self: Pin<&mut GpuiHost>,
+            surface_id: i32,
+            module_name: &str,
+            props_json: &str,
             width: f32,
             height: f32,
             scale: f32,

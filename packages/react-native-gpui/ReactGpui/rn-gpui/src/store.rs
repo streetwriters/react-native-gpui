@@ -54,7 +54,14 @@ pub struct ViewStore {
     /// the store so mount batches and native events can extend its activity
     /// window while the chain itself lives in the window's frame callbacks.
     pub frame_hook: FrameHook,
+    /// The window showing the primary (app) surface. Kept for the single-window
+    /// paths that predate the window registry; multi-window code uses
+    /// [`ViewStore::window_for`].
     pub window: AnyWindowHandle,
+    /// Surface id -> the GPUI window that shows that surface's root. The app
+    /// surface and the LogBox overlay share the main window; every other
+    /// surface belongs to a window opened through the desktop registry.
+    pub windows: HashMap<i32, AnyWindowHandle>,
     /// Fabric tag -> node view. One map per window: Fabric tags are unique
     /// across surfaces of the same React instance.
     pub nodes: HashMap<i32, Entity<RNNodeView>>,
@@ -102,10 +109,12 @@ impl ViewStore {
         frame_hook: FrameHook,
         overlay_host: Entity<OverlayHost>,
     ) -> Self {
+        let window = window.into();
         Self {
             host,
             frame_hook,
-            window: window.into(),
+            window,
+            windows: HashMap::from([(APP_SURFACE_ID, window)]),
             nodes: HashMap::new(),
             accessibility_modal_tags: BTreeSet::new(),
             roots: HashMap::new(),
@@ -127,6 +136,36 @@ impl ViewStore {
         self.roots.insert(surface_id, root);
     }
 
+    /// Bind a surface's root to the window that shows it (the window registry
+    /// calls this when it opens or adopts a window).
+    pub fn register_window(&mut self, surface_id: i32, window: AnyWindowHandle) {
+        self.windows.insert(surface_id, window);
+    }
+
+    /// Forget a surface's window binding. The nodes and root are dropped by
+    /// [`ViewStore::surface_stopped`], which C++ triggers when the surface is
+    /// torn down.
+    pub fn unregister_window(&mut self, surface_id: i32) {
+        self.windows.remove(&surface_id);
+    }
+
+    /// The window showing `surface_id`, if it is still open.
+    pub fn window_for(&self, surface_id: i32) -> Option<AnyWindowHandle> {
+        self.windows
+            .get(&surface_id)
+            .copied()
+            .or_else(|| (surface_id == APP_SURFACE_ID).then_some(self.window))
+    }
+
+    /// Every surface shown by `window`.
+    pub fn surfaces_in_window(&self, window: AnyWindowHandle) -> Vec<i32> {
+        self.windows
+            .iter()
+            .filter(|(_, handle)| **handle == window)
+            .map(|(surface, _)| *surface)
+            .collect()
+    }
+
     /// The root view of `surface_id`, created on first use.
     ///
     /// Fabric's transactions reference the `RootView` as a parent that is never
@@ -140,7 +179,11 @@ impl ViewStore {
         }
         let root = cx.new(|_| SurfaceRootView::new(surface_id));
         self.roots.insert(surface_id, root.clone());
-        if surface_id != self.primary_surface_id {
+        // A surface with no registered window belongs to the main window. That
+        // covers LogBox (surface 2), which C++ starts directly, and any surface
+        // that mounted before the window registry adopted it.
+        let window = self.window_for(surface_id).unwrap_or(self.window);
+        if surface_id != self.primary_surface_id && window == self.window {
             log::info!("[store] surface {surface_id} registered as an overlay");
             self.overlay_host.update(cx, |host, cx| {
                 host.insert(surface_id, root.clone());
@@ -219,6 +262,9 @@ impl ViewStore {
                 cx.notify();
             });
         }
+        // The window binding goes with the surface; the window itself is closed
+        // by the registry (or was already gone).
+        self.windows.remove(&surface_id);
         log::info!("[store] surface {surface_id} stopped: dropped {dropped} nodes");
         cx.notify();
     }
@@ -235,6 +281,18 @@ impl ViewStore {
         let surfaces: Vec<i32> = self.roots.keys().copied().collect();
         for surface_id in surfaces {
             log::info!("[store] surface {surface_id} resized to {width}x{height}@{scale}x");
+            self.host.set_surface_size(surface_id, width, height, scale);
+        }
+    }
+
+    /// Resize only the surfaces shown by `window`. Every window has its own
+    /// bounds observer, so a secondary window's resize must not re-constrain the
+    /// main window's surfaces (or vice versa).
+    pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
+        for surface_id in self.surfaces_in_window(window) {
+            log::info!(
+                "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
+            );
             self.host.set_surface_size(surface_id, width, height, scale);
         }
     }
@@ -915,7 +973,8 @@ impl ViewStore {
         // triggers (a timer or animation that keeps committing does not need a
         // native event to keep it going).
         let hook = self.frame_hook.clone();
-        let _ = cx.update_window(self.window, |_root, window, _cx| {
+        let target = self.window_for(surface_id).unwrap_or(self.window);
+        let _ = cx.update_window(target, |_root, window, _cx| {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });

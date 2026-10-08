@@ -1569,6 +1569,19 @@ impl Render for RNNodeView {
         if self.component == "RNSScreenStack" {
             element = element.overflow_hidden();
         }
+        // Custom title bar (plan §8.3): mark the hitbox as a platform window
+        // control area. macOS uses Drag to move the window; Windows uses the
+        // caption areas for snap layouts.
+        if self.view.desktop_drag_region {
+            element = element.window_control_area(gpui::WindowControlArea::Drag);
+        } else {
+            match self.view.desktop_window_control.as_str() {
+                "minimize" => element = element.window_control_area(gpui::WindowControlArea::Min),
+                "maximize" => element = element.window_control_area(gpui::WindowControlArea::Max),
+                "close" => element = element.window_control_area(gpui::WindowControlArea::Close),
+                _ => {}
+            }
+        }
         let accessibility_id = if self.view.accessibility_native_id.is_empty() {
             &self.view.test_id
         } else {
@@ -2466,6 +2479,39 @@ impl Render for RNNodeView {
         // `none` ancestor, so the whole subtree stays untouchable; the other
         // modes are resolved there too, because a `box-only` ancestor overrides
         // the hit node.
+        // Custom title bar (plan §8.3). Registered before the RN touch handler
+        // so the drag region sees the press; a pressable child runs its own
+        // handler first and stops propagation, so buttons inside the bar keep
+        // working.
+        if self.view.desktop_drag_region || !self.view.desktop_window_control.is_empty() {
+            let control = self.view.desktop_window_control.clone();
+            let drag_region = self.view.desktop_drag_region;
+            element = element.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |_this, event: &MouseDownEvent, window, cx| {
+                    if !control.is_empty() {
+                        match control.as_str() {
+                            "minimize" => window.minimize_window(),
+                            "maximize" => window.zoom_window(),
+                            "close" => window.remove_window(),
+                            _ => {}
+                        }
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if drag_region {
+                        if event.click_count >= 2 {
+                            // Honors the macOS "double-click to zoom or
+                            // minimize" setting.
+                            window.titlebar_double_click();
+                        } else {
+                            window.start_window_move();
+                        }
+                        cx.stop_propagation();
+                    }
+                }),
+            );
+        }
         if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
             element = element
                 .on_mouse_down(

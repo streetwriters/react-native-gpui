@@ -234,6 +234,8 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   if (auto platformProps =
           std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
     out.focusable = platformProps->focusable;
+    out.desktop_drag_region = platformProps->desktopDragRegion;
+    out.desktop_window_control = platformProps->desktopWindowControl;
   }
 
   const auto transform = props->resolveTransform(layoutMetrics);
