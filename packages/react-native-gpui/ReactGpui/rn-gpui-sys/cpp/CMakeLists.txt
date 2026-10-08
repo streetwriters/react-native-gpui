@@ -156,17 +156,12 @@ if(RN_GPUI_PREBUILT_DIR)
   endif()
   # Headers are not in the archive. Point each root the archive names at the
   # tree this build already uses (the same variables source mode compiles with).
-  # Hermes comes from the @react-native-gpui/hermes package by default.
-  if(NOT RN_GPUI_HERMES_SOURCE_DIR)
-    set(RN_GPUI_HERMES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../packages/@react-native-gpui/hermes")
-  endif()
   set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${CMAKE_CURRENT_SOURCE_DIR}")
   set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${RN_GPUI_OVERRIDES_DIR}")
   set(RN_GPUI_PREBUILT_ROOT_react_common "${REACT_COMMON_DIR}")
   set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REACT_CXX_PLATFORM_DIR}")
   set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${RN_GPUI_GENERATED_RNCORE_DIR}/jni")
   set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
-  set(RN_GPUI_PREBUILT_ROOT_hermes "${RN_GPUI_HERMES_SOURCE_DIR}")
   set(RN_GPUI_PREBUILT_ROOT_folly "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly")
   set(RN_GPUI_PREBUILT_ROOT_glog "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported")
   set(RN_GPUI_PREBUILT_ROOT_fmt "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include")
@@ -295,8 +290,6 @@ add_react_common_subdir(jsinspector-modern)
 add_react_common_subdir(jsinspector-modern/cdp)
 add_react_common_subdir(jsinspector-modern/network)
 add_react_common_subdir(jsinspector-modern/tracing)
-add_react_common_subdir(hermes/executor)
-add_react_common_subdir(hermes/inspector-modern)
 add_react_common_subdir(react/cxxstableapi)
 add_react_common_subdir(react/renderer/runtimescheduler)
 add_react_common_subdir(react/debug)
@@ -419,7 +412,6 @@ add_react_common_subdir(react/nativemodule/webperformance)
 add_react_common_subdir(react/networking)
 add_react_common_subdir(jserrorhandler)
 add_react_common_subdir(react/runtime)
-add_react_common_subdir(react/runtime/hermes)
 add_react_common_subdir(react/runtime/nativeviewconfig)
 add_react_common_subdir(react/timing)
 
@@ -503,45 +495,12 @@ add_react_cxx_platform_subdir(react/runtime)
 target_include_directories(react_cxx_platform_react_coremodules PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# --- Hermes runtime smoke test ------------------------------------
-
-# Links libhermesvm and creates a Hermes runtime to prove the
-# source-built VM is usable from this build.
-add_executable(hermes_runtime_test test/hermes_runtime_test.cpp)
-target_link_libraries(hermes_runtime_test PRIVATE hermes-engine::hermesvm jsi)
-# The test needs the source-built dylib directory on its runpath.
-set_target_properties(hermes_runtime_test PROPERTIES
-  BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
-  INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
-
-# Proves the custom Hermes build can load a real Node-API addon.
-enable_testing()
-if(NOT WIN32)
-  add_library(gpui_node_api_smoke MODULE test/node_api_smoke_addon.c)
-  target_link_libraries(gpui_node_api_smoke PRIVATE hermes-engine::hermesvm)
-  set_target_properties(gpui_node_api_smoke PROPERTIES
-    PREFIX ""
-    SUFFIX ".node"
-    OUTPUT_NAME "gpui_node_api_smoke"
-    BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
-    INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
-
-  add_executable(hermes_node_api_addon_test test/hermes_node_api_addon_test.cpp)
-  target_link_libraries(hermes_node_api_addon_test PRIVATE
-    hermes-engine::hermesvm jsi)
-  set_target_properties(hermes_node_api_addon_test PROPERTIES
-    BUILD_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}"
-    INSTALL_RPATH "${RN_GPUI_HERMES_LIBRARY_DIR}")
-  add_test(NAME hermes_node_api_addon_smoke
-    COMMAND hermes_node_api_addon_test $<TARGET_FILE:gpui_node_api_smoke>)
-
-endif()
-
 # --- JS engine registry test ----------------------------------------------
 #
 # Covers the engine selection rules (none, one, several with a selection, an
 # unknown name). Compiles GpuiJsEngine.cpp on its own: it needs no React Native
 # runtime, only the feature-flag header.
+enable_testing()
 add_executable(gpui_js_engine_test
   test/gpui_js_engine_test.cpp
   GpuiJsEngine.cpp)
@@ -550,6 +509,9 @@ target_include_directories(gpui_js_engine_test PRIVATE
   "${REACT_COMMON_DIR}")
 target_link_libraries(gpui_js_engine_test PRIVATE jsi)
 add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
+
+# The engine packages' own smoke tests (for example the Hermes VM test) are
+# added by their gpui/CMakeLists.txt, which autolink includes below.
 
 # --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
 
@@ -607,13 +569,13 @@ set(RN_GPUI_CORE_DEPS
   jsitooling
   oscompat
   jsinspector
-  # jsinspector and hermes_inspector_modern are OBJECT libraries; a dependency
-  # on the parent does not archive the children's objects, so they are named
-  # explicitly (otherwise cdp::jsonRequest/NetworkHandler stay undefined).
+  # jsinspector is an OBJECT library; a dependency on the parent does not
+  # archive the children's objects, so they are named explicitly (otherwise
+  # cdp::jsonRequest/NetworkHandler stay undefined). An engine package names its
+  # own OBJECT libraries the same way in RN_GPUI_JS_ENGINE_DEPS.
   jsinspector_cdp
   jsinspector_network
   jsinspector_tracing
-  hermes_inspector_modern
   logger
   react_bridging
   react_codegen_rncore
@@ -636,7 +598,6 @@ set(RN_GPUI_CORE_DEPS
   react_utils
   reactperflogger
   bridgeless
-  bridgelesshermes
   # renderer
   react_renderer_animated
   react_renderer_animationbackend
@@ -704,6 +665,24 @@ endif()  # NOT RN_GPUI_PREBUILT_DIR (source build of rn_gpui_core and its deps)
 # they only add sources to global properties and app-side targets.
 if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
   include("${RN_GPUI_AUTOLINK_CMAKE}")
+endif()
+
+# JS engine packages (GpuiJsEngine.h) declare the React Native glue they need and
+# the targets the app must link. The glue is added here, in core's scope, so its
+# targets can be linked into rn_gpui_core (source builds archive their objects).
+get_property(RN_GPUI_JS_ENGINE_SUBDIRECTORIES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES)
+foreach(_rn_gpui_engine_subdir IN LISTS RN_GPUI_JS_ENGINE_SUBDIRECTORIES)
+  add_react_common_subdir(${_rn_gpui_engine_subdir})
+endforeach()
+
+# With a prebuilt runtime rn_gpui_core is imported, so the engine targets go to
+# rn_gpui_extensions instead (see below). In a source build they join
+# RN_GPUI_CORE_DEPS so every consumer of core's dependency list — the app archive
+# and the extensions archive — also sees the engine's include directories.
+get_property(RN_GPUI_JS_ENGINE_DEPS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_DEPS)
+if(RN_GPUI_JS_ENGINE_DEPS AND NOT RN_GPUI_PREBUILT_DIR)
+  list(APPEND RN_GPUI_CORE_DEPS ${RN_GPUI_JS_ENGINE_DEPS})
+  target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
 if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
@@ -820,6 +799,18 @@ if(RN_GPUI_GENERATED_MODULES_DIR)
   list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_GENERATED_MODULES_DIR}")
 endif()
 
+# JS engine packages (GpuiJsEngine.h): the registration shim is compiled into
+# this archive, and the generated installer below calls its symbol before the
+# other installers so the registry is populated before the host selects an
+# engine.
+get_property(RN_GPUI_JS_ENGINE_SOURCES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_SOURCES)
+get_property(RN_GPUI_JS_ENGINE_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS)
+get_property(RN_GPUI_JS_ENGINE_DEFINITIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_DEFINITIONS)
+get_property(RN_GPUI_JS_ENGINE_REGISTRATIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_REGISTRATIONS)
+list(APPEND RN_GPUI_EXTENSION_SOURCES ${RN_GPUI_JS_ENGINE_SOURCES})
+list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_JS_ENGINE_INCLUDE_DIRS})
+list(APPEND RN_GPUI_EXTENSION_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
+
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.
 set(RN_GPUI_EXTENSION_DECLARATIONS "")
@@ -827,6 +818,12 @@ set(RN_GPUI_EXTENSION_CALLS "")
 foreach(_rn_gpui_installer IN LISTS RN_GPUI_EXTENSION_INSTALLERS)
   string(APPEND RN_GPUI_EXTENSION_DECLARATIONS "void rn_gpui_install_${_rn_gpui_installer}_extension();\n")
   string(APPEND RN_GPUI_EXTENSION_CALLS "    rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+endforeach()
+set(RN_GPUI_ENGINE_DECLARATIONS "")
+set(RN_GPUI_ENGINE_CALLS "")
+foreach(_rn_gpui_engine IN LISTS RN_GPUI_JS_ENGINE_REGISTRATIONS)
+  string(APPEND RN_GPUI_ENGINE_DECLARATIONS "extern \"C\" void ${_rn_gpui_engine}();\n")
+  string(APPEND RN_GPUI_ENGINE_CALLS "    ${_rn_gpui_engine}();\n")
 endforeach()
 set(RN_GPUI_INSTALL_EXTENSIONS_CPP "${CMAKE_BINARY_DIR}/generated/rn_gpui_install_extensions.cpp")
 file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
@@ -837,11 +834,14 @@ file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
 
 namespace rngpui {
 
+@RN_GPUI_ENGINE_DECLARATIONS@
 @RN_GPUI_EXTENSION_DECLARATIONS@
 void rn_gpui_install_extensions() {
   static std::once_flag installed;
   std::call_once(installed, [] {
-@RN_GPUI_EXTENSION_CALLS@  });
+    // Engine packages first: the host selects an engine from the registry right
+    // after this call, and extension installers may also register one.
+@RN_GPUI_ENGINE_CALLS@@RN_GPUI_EXTENSION_CALLS@  });
 }
 
 } // namespace rngpui
@@ -869,6 +869,14 @@ if(RN_GPUI_PREBUILT_DIR AND TARGET rn_gpui_app_turbo_modules)
 endif()
 if(TARGET weak-node-api)
   add_dependencies(rn_gpui_extensions weak-node-api)
+endif()
+
+# With a prebuilt runtime rn_gpui_core is imported, so the engine glue targets
+# cannot be linked into it; they are archived into this archive instead. The
+# registration shim lives here too, so the objects reach the executable through
+# the archive the app already links.
+if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
+  target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
 # --- link_libs.txt for build.rs (design doc §18.4) --------------------------
@@ -925,56 +933,18 @@ set(RN_GPUI_RPATH_DIRS "")
 if(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR AND EXISTS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}")
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}\n")
 endif()
-if(DEFINED RN_GPUI_HERMES_LIBRARY_DIR)
-  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_HERMES_LIBRARY_DIR}\n")
-endif()
 if(TARGET weak-node-api)
   string(APPEND RN_GPUI_RPATH_DIRS "${CMAKE_BINARY_DIR}/node-api-frameworks\n")
 endif()
 
-# Use a symlink with a stable linkable name so Cargo's linker directives remain
-# independent of the source build's concrete library filename.
-set(RN_GPUI_SHIM_LIB_DIR "${CMAKE_BINARY_DIR}/rn_gpui-shim-libs")
-if(TARGET hermes-engine::hermesvm)
-  get_target_property(_hermes_location hermes-engine::hermesvm IMPORTED_LOCATION)
-  if(WIN32)
-    # The link line needs the import library; the DLL is a run-time artifact and
-    # is staged next to the executable by the app build script instead.
-    get_target_property(_hermes_implib hermes-engine::hermesvm IMPORTED_IMPLIB)
-    if(_hermes_implib)
-      set(_hermes_location "${_hermes_implib}")
-    endif()
-  endif()
-  if(APPLE)
-    set(_rn_gpui_hermes_link_name "libhermesvm.dylib")
-  elseif(UNIX)
-    set(_rn_gpui_hermes_link_name "libhermesvm.so")
-  else()
-    set(_rn_gpui_hermes_link_name "hermesvm.lib")
-  endif()
-  if(_hermes_location)
-    file(MAKE_DIRECTORY "${RN_GPUI_SHIM_LIB_DIR}")
-    # Recreate unconditionally so switching Hermes build directories cannot
-    # leave a stale link behind.
-    if(EXISTS "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
-      file(REMOVE "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
-    endif()
-    if(WIN32)
-      file(COPY_FILE "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}")
-    else()
-      file(CREATE_LINK "${_hermes_location}" "${RN_GPUI_SHIM_LIB_DIR}/${_rn_gpui_hermes_link_name}" SYMBOLIC)
-    endif()
-  endif()
-  string(APPEND RN_GPUI_LINK_LIBS "search:${RN_GPUI_SHIM_LIB_DIR}\nname:${_rn_gpui_hermes_link_name}\n")
-  string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_SHIM_LIB_DIR}\n")
-endif()
-
+# Shared libraries an engine package adds (its VM, for example) are ordinary
+# imported targets: the loop below finds them by walking rn_gpui_core's link
+# interfaces and emits both the linker directive and the rpath. No engine is
+# special-cased here.
+#
 # rn_gpui_extensions appears before and after rn_gpui_core (see below).
 string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
 foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
-  if(_target STREQUAL "hermes-engine::hermesvm")
-    continue()
-  endif()
   get_target_property(_type "${_target}" TYPE)
   get_target_property(_is_framework "${_target}" FRAMEWORK)
   if(_is_framework)

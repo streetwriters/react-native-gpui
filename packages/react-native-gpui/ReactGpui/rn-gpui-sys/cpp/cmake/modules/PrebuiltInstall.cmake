@@ -97,9 +97,6 @@ set(_rn_gpui_include_roots
   "\${RN_GPUI_PREBUILT_ROOT_react_cxx_platform}"
   "\${RN_GPUI_PREBUILT_ROOT_generated_rncore}"
   "\${RN_GPUI_PREBUILT_ROOT_cxxbridge}"
-  "\${RN_GPUI_PREBUILT_ROOT_hermes}/include"
-  "\${RN_GPUI_PREBUILT_ROOT_hermes}/public"
-  "\${RN_GPUI_PREBUILT_ROOT_hermes}/API"
   "\${RN_GPUI_PREBUILT_ROOT_folly}"
   "\${RN_GPUI_PREBUILT_ROOT_glog}"
   "\${RN_GPUI_PREBUILT_ROOT_fmt}"
@@ -146,7 +143,6 @@ set(_rn_gpui_include_map
   "${CMAKE_CURRENT_SOURCE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_react_native_gpui}"
   "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_cxxbridge}"
   "${RN_GPUI_GENERATED_RNCORE_DIR}/jni" "\${RN_GPUI_PREBUILT_ROOT_generated_rncore}"
-  "${RN_GPUI_HERMES_SOURCE_DIR}" "\${RN_GPUI_PREBUILT_ROOT_hermes}"
   "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly" "\${RN_GPUI_PREBUILT_ROOT_folly}"
   "${RN_GPUI_NATIVE_DEPS_PREPARED}/glog/exported" "\${RN_GPUI_PREBUILT_ROOT_glog}"
   "${RN_GPUI_NATIVE_DEPS_PREPARED}/fmt/include" "\${RN_GPUI_PREBUILT_ROOT_fmt}"
@@ -359,7 +355,7 @@ file(GENERATE OUTPUT "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-t
 # targets file itself.
 set(_rn_gpui_required_roots
   react_native_gpui react_common_overrides react_common react_cxx_platform
-  generated_rncore cxxbridge hermes folly glog fmt double_conversion fast_float
+  generated_rncore cxxbridge folly glog fmt double_conversion fast_float
   nlohmann_json boost curl)
 set(_rn_gpui_root_checks "")
 foreach(_rn_gpui_root IN LISTS _rn_gpui_required_roots)

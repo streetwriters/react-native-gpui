@@ -26,6 +26,58 @@ const nodeApiMarker = 'react-native-node-api-module';
 const nodeApiSuffix = '.apple.node';
 const cppIdentifier = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const includePath = /^[A-Za-z0-9_./+-]+$/u;
+const jsEngineName = /^[a-z][a-z0-9-]*$/u;
+
+/**
+ * Validates a dependency's `platforms.gpui.jsEngine` entry. Installing a
+ * package that declares one is how an app opts into an engine; the entry names
+ * the C registration symbol core calls at startup and the optional JS tooling
+ * hooks the CLI uses.
+ */
+function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
+  if (
+    typeof jsEngine !== 'object' ||
+    jsEngine === null ||
+    Array.isArray(jsEngine)
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.jsEngine must be an object`,
+    );
+  }
+  const { name, register, bundle, runtimeFiles } = jsEngine;
+  if (typeof name !== 'string' || !jsEngineName.test(name)) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.jsEngine.name must be a lowercase engine name (${jsEngineName})`,
+    );
+  }
+  if (typeof register !== 'string' || !cppIdentifier.test(register)) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.jsEngine.register must be a C identifier`,
+    );
+  }
+  const resolveHook = (key, value) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error(
+        `${dependencyName}: platforms.gpui.jsEngine.${key} must be a path`,
+      );
+    }
+    const resolved = path.resolve(packageRoot, value);
+    if (!fs.existsSync(resolved)) {
+      throw new Error(
+        `${dependencyName}: platforms.gpui.jsEngine.${key} does not exist: ${resolved}`,
+      );
+    }
+    return resolved;
+  };
+  return {
+    dependencyName,
+    name,
+    register,
+    bundle: resolveHook('bundle', bundle),
+    runtimeFiles: resolveHook('runtimeFiles', runtimeFiles),
+  };
+}
 
 function componentConfigFor(dependencyName, gpui) {
   const descriptors = gpui.componentDescriptors ?? [];
@@ -292,6 +344,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const appComponentSources = [];
   const appComponentIncludeDirs = [];
   const componentNames = new Map();
+  const jsEngines = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
   const nodeApiModules = findNodeApiModules(
     projectRoot,
@@ -319,6 +372,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     );
     const gpui = dependency.platforms?.gpui;
     if (!gpui) continue;
+    if (gpui.jsEngine !== undefined) {
+      jsEngines.push(jsEngineConfigFor(dependencyName, root, gpui.jsEngine));
+    }
     const componentConfig = componentConfigFor(dependencyName, gpui);
     const componentSourceRoot = componentConfig.sourcePackage
       ? path.dirname(
@@ -496,6 +552,25 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
   }
 
+  // JS engines are installed packages: autolink links every one it finds, and
+  // the app picks between them at launch. Duplicate names would make that
+  // choice ambiguous, so they fail here rather than at startup.
+  const engineNames = new Map();
+  for (const engine of jsEngines) {
+    const previousDependency = engineNames.get(engine.name);
+    if (previousDependency) {
+      throw new Error(
+        `${engine.dependencyName}: JS engine '${engine.name}' is already declared by ${previousDependency}`,
+      );
+    }
+    engineNames.set(engine.name, engine.dependencyName);
+  }
+  if (jsEngines.length === 0) {
+    throw new Error(
+      'no JS engine installed; add @react-native-gpui/hermes (or another engine package) to the app dependencies',
+    );
+  }
+
   const generatedDir = autolinkRoot;
   fs.mkdirSync(generatedDir, { recursive: true });
   const manifest = {
@@ -509,6 +584,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     appComponentHeaders: [...new Set(appComponentHeaders)],
     appComponentSources: [...new Set(appComponentSources)],
     appComponentIncludeDirs: [...new Set(appComponentIncludeDirs)],
+    jsEngines,
   };
   fs.writeFileSync(
     path.join(generatedDir, 'autolink.json'),
@@ -671,13 +747,20 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     `set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS ${appComponentIncludeDirs.map(directory => `"${cmakePath(directory)}"`).join(' ')})`,
     `set(RN_GPUI_NODE_API_MODULE_NAMES ${nodeApiModules.map(({ libraryName }) => `"${libraryName}"`).join(' ')})`,
     `set(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR "${cmakePath(nodeApiFrameworksDir)}")`,
+    // Core calls each registration symbol from the generated
+    // rn_gpui_install_extensions(), so the engine registry is populated before
+    // the host selects an engine.
+    ...jsEngines.map(
+      engine =>
+        `set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_REGISTRATIONS "${engine.register}")`,
+    ),
   ].join('\n');
   fs.writeFileSync(
     path.join(generatedDir, 'autolink.cmake'),
     `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
   );
   console.log(
-    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), and ${cmakeProjects.length} CMake project(s).`,
+    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), ${cmakeProjects.length} CMake project(s), and ${jsEngines.length} JS engine(s) [${jsEngines.map(({ name }) => name).join(', ')}].`,
   );
   return config;
 }

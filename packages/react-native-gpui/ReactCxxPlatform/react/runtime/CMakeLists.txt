@@ -17,7 +17,6 @@ target_include_directories(react_cxx_platform_react_runtime
 
 target_link_libraries(react_cxx_platform_react_runtime
       bridgeless
-      bridgelesshermes
       callinvoker
       glog
       jserrorhandler

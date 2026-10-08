@@ -355,6 +355,9 @@ function scaffoldDesktop(
       ...packageJson.dependencies,
       'react-native-gpui':
         packageJson.dependencies?.['react-native-gpui'] ?? '^0.1.0',
+      // Every GPUI app needs a JS engine package; Hermes is the default one.
+      '@react-native-gpui/hermes':
+        packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
     },
     scripts: {
       ...packageJson.scripts,

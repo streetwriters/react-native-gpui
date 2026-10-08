@@ -24,8 +24,6 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_SOURCE_DIR");
-    println!("cargo:rerun-if-env-changed=RN_GPUI_HERMES_BIN_ROOT");
     for var in [
         "RN_GPUI_PREBUILT_DIR",
         "RN_GPUI_BUILD_FROM_SOURCE",
@@ -293,23 +291,11 @@ fn main() {
             .define("CMAKE_POLICY_DEFAULT_CMP0091", "NEW")
             .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
     }
-    if let Some(source_dir) = env::var_os("RN_GPUI_HERMES_SOURCE_DIR") {
-        cmake_config.define(
-            "RN_GPUI_HERMES_SOURCE_DIR",
-            cmake_path(PathBuf::from(source_dir)),
-        );
-    }
     // A prebuilt runtime replaces the ReactCommon/third-party build. CMake
     // then only compiles the app-side targets against the archive's config.
     if let Some(dir) = &prebuilt_dir {
         cmake_config.define("RN_GPUI_PREBUILT_DIR", cmake_path(dir));
         cmake_config.define("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir));
-    }
-    if let Some(bin_root) = env::var_os("RN_GPUI_HERMES_BIN_ROOT") {
-        cmake_config.define(
-            "RN_GPUI_HERMES_BIN_ROOT",
-            cmake_path(PathBuf::from(bin_root)),
-        );
     }
     // rn_gpui_extensions links PUBLIC to rn_gpui_core, so this builds core too.
     let dst = cmake_config.build_target("rn_gpui_extensions").build();

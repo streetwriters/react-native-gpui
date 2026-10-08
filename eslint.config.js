@@ -34,6 +34,8 @@ module.exports = [
       '**/*.cjs',
       '**/*.config.js',
       '**/react-native.config.js',
+      // Package tooling hooks (an engine package's bundle/runtime-files hooks).
+      'packages/@react-native-gpui/*/gpui/**/*.js',
     ],
     languageOptions: {
       sourceType: 'module',

@@ -13,6 +13,7 @@
   "dependencies": {
     "@react-native-gpui/fonts": "file:../@react-native-gpui/fonts",
     "@react-native-gpui/gesture-handler": "file:../@react-native-gpui/gesture-handler",
+    "@react-native-gpui/hermes": "file:../@react-native-gpui/hermes",
     "@react-native-gpui/reanimated": "file:../@react-native-gpui/reanimated",
     "@react-native-gpui/safe-area-context": "file:../@react-native-gpui/safe-area-context",
     "@react-native-gpui/screens": "file:../@react-native-gpui/screens",
