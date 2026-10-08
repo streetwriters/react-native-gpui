@@ -11,11 +11,11 @@ on:
         description: Optional release tag to attach the built binaries to
         type: string
         required: false
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/hermes-engine.yml'
-      - 'packages/@react-native-gpui/hermes/**'
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - '.github/workflows/hermes-engine.yml'
+  #     - 'packages/@react-native-gpui/hermes/**'
 
 permissions:
   contents: read
