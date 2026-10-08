@@ -68,13 +68,18 @@ export function collectInputs() {
     .sort();
 }
 
+// Hash with CRLF folded to LF so a Windows checkout with core.autocrlf
+// produces the same hashes as macOS and Linux.
+function contentSha256(file) {
+  const text = readFileSync(file).toString('latin1').replace(/\r\n/gu, '\n');
+  return createHash('sha256').update(text, 'latin1').digest('hex');
+}
+
 export function inputHash() {
   const hash = createHash('sha256');
   const perFile = [];
   for (const rel of collectInputs()) {
-    const digest = createHash('sha256')
-      .update(readFileSync(path.join(repoRoot, rel)))
-      .digest('hex');
+    const digest = contentSha256(path.join(repoRoot, rel));
     perFile.push({ path: rel, sha256: digest });
     hash.update(`${rel}\0${digest}\n`);
   }
@@ -114,9 +119,7 @@ export function overridesSha256() {
     .map(f => path.relative(dir, f).split(path.sep).join('/'))
     .sort()
     .map(rel => {
-      const digest = createHash('sha256')
-        .update(readFileSync(path.join(dir, rel)))
-        .digest('hex');
+      const digest = contentSha256(path.join(dir, rel));
       return `${rel}\0${digest}`;
     });
   return createHash('sha256').update(lines.join('\n')).digest('hex');
