@@ -210,6 +210,11 @@ export const renderScreen: Record<
     ),
   reload: props =>
     React.createElement(require('./components/ReloadFixture').default, props),
+  'desktop-shell': props =>
+    React.createElement(
+      require('./components/DesktopShellFixture').default,
+      props,
+    ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
   'benchmark-idle': props =>

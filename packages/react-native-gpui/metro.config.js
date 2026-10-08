@@ -439,6 +439,16 @@ function resolveModule(context, moduleName, platform) {
         platform,
       );
     }
+    // `react-native-gpui/desktop` is a public entry point (plan 7.1–7.6), not
+    // an upstream subpath, so it must be mapped here or the catch-all below
+    // would rewrite it to `react-native/desktop`.
+    if (moduleName === `${GPUI_PACKAGE_NAME}/desktop`) {
+      return resolveWithPlatformFallback(
+        context,
+        path.join(GPUI_PACKAGE_DIR, 'desktop.ts'),
+        platform,
+      );
+    }
     // `react-native-gpui/<subpath>` -> upstream `react-native/<subpath>`,
     // for the deep `Libraries/...` imports the CLI's bundle preamble uses,
     // and for `react-native-gpui/setup-env`.

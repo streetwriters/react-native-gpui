@@ -98,6 +98,11 @@ fn main() {
     );
     watch_tree(&react_native_dir.join("src"));
     watch_tree(&react_native_dir.join("scripts/codegen"));
+    // The platform's own core TurboModule specs (design §3.2) are merged into
+    // the same FBReactNativeSpec bundle so a core module can have a generated
+    // CxxSpec base class without a hand-written methodMap_.
+    let core_specs_dir = package_dir.join("src-gpui/src/private/specs");
+    watch_tree(&core_specs_dir);
     let codegen_package = repo_root.join("node_modules/@react-native/codegen");
     println!(
         "cargo:rerun-if-changed={}",
@@ -112,6 +117,7 @@ fn main() {
         .arg(&fb_spec_codegen)
         .arg(&react_native_dir)
         .arg(&generated_rncore_scratch)
+        .arg(&core_specs_dir)
         .status()
         .expect("run React Native core Codegen; Node.js must be installed");
     assert!(

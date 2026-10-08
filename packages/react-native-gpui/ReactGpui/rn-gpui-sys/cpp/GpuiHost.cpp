@@ -3,6 +3,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/coremodules/DeviceInfoModule.h>
+#include "GpuiDesktopModule.h"
 #include "GpuiExtensions.h"
 #include "GpuiHttpClient.h"
 #include "GpuiJsEngine.h"
@@ -509,6 +510,9 @@ TurboModuleProviders gpui_turbo_module_providers() {
         if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
           return std::make_shared<GpuiClipboardModule>(jsInvoker);
         }
+        if (auto desktop = create_gpui_desktop_module(name, jsInvoker)) {
+          return desktop;
+        }
         return nullptr;
       }};
 }
@@ -861,6 +865,25 @@ void GpuiHost::emit_device_event_bool(rust::Str eventName, bool value) const {
     reactHost_->emitDeviceEvent(
         folly::dynamic::array(std::string(eventName), value));
   }
+}
+
+void GpuiHost::emit_device_event_json(
+    rust::Str eventName,
+    rust::Str payloadJson) const {
+  if (!scriptLoaded_)
+    return;
+  folly::dynamic payload = folly::dynamic::object();
+  try {
+    auto parsed = folly::parseJson(std::string(payloadJson));
+    if (parsed.isObject()) {
+      payload = std::move(parsed);
+    }
+  } catch (const std::exception& error) {
+    LOG(WARNING) << "emit_device_event_json(" << std::string(eventName)
+                 << "): invalid payload: " << error.what();
+  }
+  reactHost_->emitDeviceEvent(
+      folly::dynamic::array(std::string(eventName), std::move(payload)));
 }
 
 void GpuiHost::emit_accessibility_setting_event(

@@ -3,10 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const [reactNativeRoot, outputDir] = process.argv.slice(2);
+// Extra spec directories are the platform's own core specs (design §3.2). They
+// are merged into the same in-memory schema, so a `NativeGpuiDesktop.ts` here
+// produces the `NativeGpuiDesktopCxxSpec` base class next to RN's own modules.
+const [reactNativeRoot, outputDir, ...extraSpecDirs] = process.argv.slice(2);
 if (!reactNativeRoot || !outputDir) {
   throw new Error(
-    'usage: generate-fbreactnativespec.cjs <react-native-root> <output-dir>',
+    'usage: generate-fbreactnativespec.cjs <react-native-root> <output-dir> [extra-spec-dir ...]',
   );
 }
 const reactNativeDir = path.resolve(reactNativeRoot);
@@ -29,7 +32,13 @@ const executor = require(
 );
 const schema = codegenUtils
   .getCombineJSToSchema()
-  .combineSchemasInFileList([path.join(reactNativeDir, 'src')], 'android');
+  .combineSchemasInFileList(
+    [
+      path.join(reactNativeDir, 'src'),
+      ...extraSpecDirs.map(dir => path.resolve(dir)),
+    ],
+    'android',
+  );
 
 const generatedDir = path.resolve(outputDir);
 fs.rmSync(generatedDir, { recursive: true, force: true });

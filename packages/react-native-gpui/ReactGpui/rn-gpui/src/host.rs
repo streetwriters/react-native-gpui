@@ -149,6 +149,19 @@ impl Host {
             .emit_device_event_bool(event_name, value)
     }
 
+    /// Device event with a JSON object payload (design §3.2 step 4). The string
+    /// must be a JSON object; the native side drops a malformed payload with a
+    /// warning rather than throwing on the main thread.
+    pub fn emit_device_event_json(&self, event_name: &str, payload_json: &str) {
+        #[cfg(test)]
+        let _ = (self, event_name, payload_json);
+        #[cfg(not(test))]
+        self.0
+            .lock()
+            .unwrap()
+            .emit_device_event_json(event_name, payload_json)
+    }
+
     pub fn dispatch_pointer_event(
         &self,
         target_chain: &[i32],
