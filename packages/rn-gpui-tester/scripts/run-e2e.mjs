@@ -44,6 +44,33 @@ const passthrough = process.argv
   .slice(2)
   .filter(arg => arg !== '--keep-app' && arg !== '--headed');
 
+/**
+ * A locked macOS session has no displays: GPUI asks the window server for them
+ * and `bootstrap` waits for one before entering AppKit, so every test fails
+ * with "Timed out waiting for the GPUI test-driver port" after 30 s each. Check
+ * once, up front, and say why.
+ */
+function assertScreenIsUnlocked() {
+  if (process.platform !== 'darwin') return;
+  if (process.env.RN_GPUI_ALLOW_LOCKED_SCREEN === '1') return;
+  let output;
+  try {
+    output = execFileSync('ioreg', ['-n', 'Root', '-d1', '-a'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    // No ioreg, or it refused: let the run report whatever it finds.
+    return;
+  }
+  if (!/<key>CGSSessionScreenIsLocked<\/key>\s*<true\/>/u.test(output)) return;
+  throw new Error(
+    'the macOS session is locked, so GPUI cannot see a display and no test ' +
+      'app can start (every test would time out after 30 s). Unlock the ' +
+      'screen and re-run, or set RN_GPUI_ALLOW_LOCKED_SCREEN=1 to try anyway.',
+  );
+}
+
 /** Kill every test app process, including detached ones from earlier runs. */
 function stopTestApps() {
   const candidates = new Set();
@@ -151,6 +178,8 @@ run(
   process.env,
   npxShell,
 );
+assertScreenIsUnlocked();
+
 run(
   npxCommand,
   npxArgs([
