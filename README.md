@@ -89,7 +89,7 @@ npx react-native-gpui prebuilt clean                            # remove this ve
 
 | Platform     | Rust triple               | Built with                                          | Minimum OS / glibc | C++ stdlib | C++ standard | CRT                      |
 | ------------ | ------------------------- | --------------------------------------------------- | ------------------ | ---------- | ------------ | ------------------------ |
-| darwin-arm64 | aarch64-apple-darwin      | Apple clang (macos-14 runner)                       | macOS 11.0         | libc++     | C++20        | n/a                      |
+| darwin-arm64 | aarch64-apple-darwin      | Apple clang (macos-15 runner)                       | macOS 11.0         | libc++     | C++20        | n/a                      |
 | darwin-x64   | x86_64-apple-darwin       | Apple clang (macos-15-intel runner)                 | macOS 11.0         | libc++     | C++20        | n/a                      |
 | win32-x64    | x86_64-pc-windows-msvc    | MSVC from VS 2022 (windows-2022)                    | not recorded       | MSVC STL   | C++20        | `/MD` (MultiThreadedDLL) |
 | linux-x64    | x86_64-unknown-linux-gnu  | GCC on Debian 12 container                          | glibc 2.36         | libstdc++  | C++20        | n/a                      |

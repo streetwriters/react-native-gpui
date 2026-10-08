@@ -116,7 +116,8 @@ jobs:
       matrix:
         include:
           - platform: darwin-arm64
-            os: macos-14
+            # macos-14's Xcode 15 finds Boost.Beast's async_teardown ambiguous.
+            os: macos-15
             container: ''
           - platform: darwin-x64
             os: macos-15-intel
