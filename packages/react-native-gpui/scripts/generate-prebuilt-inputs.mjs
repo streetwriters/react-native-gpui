@@ -63,7 +63,7 @@ function lockedCxxVersion() {
     path.join(packageDir, 'ReactGpui', 'Cargo.lock'),
     'utf8',
   );
-  const match = lock.match(/name = "cxx"\nversion = "([^"]+)"/u);
+  const match = lock.match(/name = "cxx"\r?\nversion = "([^"]+)"/u);
   if (!match) fail('cxx is not in ReactGpui/Cargo.lock');
   if (match[1] !== CXX_VERSION) {
     fail(`Cargo.lock pins cxx ${match[1]}; update CXX_VERSION to match`);
