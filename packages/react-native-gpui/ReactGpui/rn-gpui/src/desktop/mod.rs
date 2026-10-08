@@ -12,6 +12,7 @@
 
 pub mod app_menu;
 pub mod capabilities;
+pub mod context_menu;
 pub mod errors;
 pub mod menu_model;
 pub mod platform_window;
@@ -67,6 +68,13 @@ fn snapshot_value(key: &str) -> String {
 /// Handle one `GpuiDesktop.call` on the GPUI main thread and answer it exactly
 /// once.
 pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &str) {
+    // A context menu answers when it closes, not now.
+    if (domain, method) == ("contextMenu", "show") {
+        if let Err(error) = context_menu::show(cx, id, args_json) {
+            answer(cx, id, Err(error));
+        }
+        return;
+    }
     let result = match (domain, method) {
         ("app", "getInfo") => app_info(),
         ("app", "getCapabilities") => Ok(capabilities::capabilities()),

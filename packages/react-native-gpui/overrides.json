@@ -132,6 +132,10 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/menu.ts"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/src/private/desktop/contextMenu.tsx"
     }
   ]
 }

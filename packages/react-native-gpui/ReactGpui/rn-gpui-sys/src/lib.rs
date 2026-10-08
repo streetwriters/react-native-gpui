@@ -118,6 +118,8 @@ pub mod ffi {
         pub desktop_drag_region: bool,
         /// "minimize" | "maximize" | "close" for a custom caption button.
         pub desktop_window_control: String,
+        /// The view has an `onContextMenu` handler (plan §6.2).
+        pub on_context_menu: bool,
     }
 
     #[derive(Clone, Debug, Default)]

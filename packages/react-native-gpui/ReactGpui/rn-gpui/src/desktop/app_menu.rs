@@ -117,6 +117,16 @@ pub fn install(cx: &mut App, app_name: &str) {
     cx.global_mut::<AppMenuGlobal>().0._interceptor = Some(interceptor);
 }
 
+/// Perform a menu item by id, exactly as a click on it would. Used by the test
+/// driver so e2e can exercise item presses without a native menu.
+pub fn trigger_item(cx: &mut App, id: &str) {
+    match accelerator_action(id) {
+        AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
+        AcceleratorAction::Edit(kind) => perform_edit(cx, &kind, None),
+        AcceleratorAction::Host(kind) => perform_host_action(cx, &kind, None),
+    }
+}
+
 /// Run the accelerator bound to `keystroke`, if any. Returns whether it fired.
 pub fn handle_accelerator(
     cx: &mut App,

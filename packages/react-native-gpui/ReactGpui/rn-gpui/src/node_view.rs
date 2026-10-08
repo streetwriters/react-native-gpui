@@ -2479,6 +2479,46 @@ impl Render for RNNodeView {
         // `none` ancestor, so the whole subtree stays untouchable; the other
         // modes are resolved there too, because a `box-only` ancestor overrides
         // the hit node.
+        // Native context menu (plan §6.2): a secondary click on a view that has
+        // an `onContextMenu` handler reports the pointer position in window
+        // points and stops propagation, so the innermost handler wins. macOS
+        // turns Ctrl+click into a secondary click before it reaches here.
+        if self.view.on_context_menu {
+            element = element.on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    let x = f32::from(event.position.x);
+                    let y = f32::from(event.position.y);
+                    // The window id lets JS show the menu for this window even
+                    // when it is not the platform's active window.
+                    let window_id = cx
+                        .try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
+                        .and_then(|windows| {
+                            windows
+                                .0
+                                .entry_for_surface(this.surface_id)
+                                .map(|entry| entry.key)
+                        })
+                        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
+                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                        let store = store.0.read(cx);
+                        store.host.dispatch_event(
+                            this.tag,
+                            "topContextMenu",
+                            &serde_json::json!({
+                                "x": x,
+                                "y": y,
+                                "pageX": x,
+                                "pageY": y,
+                                "windowId": window_id,
+                            }),
+                        );
+                        store.frame_hook.arm(window);
+                    }
+                    cx.stop_propagation();
+                }),
+            );
+        }
         // Custom title bar (plan §8.3). Registered before the RN touch handler
         // so the drag region sees the press; a pressable child runs its own
         // handler first and stops propagation, so buttons inside the bar keep

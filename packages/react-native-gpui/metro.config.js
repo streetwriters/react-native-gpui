@@ -480,6 +480,13 @@ function resolveModule(context, moduleName, platform) {
         platform,
       );
     }
+    if (moduleName === `${GPUI_PACKAGE_NAME}/polyfills/menu`) {
+      return resolveWithPlatformFallback(
+        context,
+        path.join(GPUI_PACKAGE_DIR, 'polyfills/menu.tsx'),
+        platform,
+      );
+    }
     // `react-native-gpui/<subpath>` -> upstream `react-native/<subpath>`,
     // for the deep `Libraries/...` imports the CLI's bundle preamble uses,
     // and for `react-native-gpui/setup-env`.
