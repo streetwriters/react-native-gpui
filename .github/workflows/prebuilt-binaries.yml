@@ -107,6 +107,10 @@ jobs:
     if: needs.plan.outputs.needed == 'true'
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
+    # Container jobs default to sh, which has no pipefail.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
