@@ -258,19 +258,21 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   expect(openedItems).toContain('Toggle Perf Monitor');
   expect(openedItems).toContain('Fast Refresh');
 
-  expect(await app.selectContextMenuItem('dev:perfMonitor')).toBe(true);
-  await app.waitForIdle();
+  // Enabling the overlay starts frames immediately, so this call cannot wait
+  // for idle either: the app is not idle again until the monitor is off.
+  const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
+  expect(await app.selectContextMenuItem('dev:perfMonitor', idle)).toBe(true);
   const metrics = await app.getPerfMonitor();
   expect(metrics.enabled).toBe(true);
 
   // Choosing it again turns the monitor back off, and the model reflects it.
-  await app.showDevMenu();
+  await app.showDevMenu(idle);
   const devMenu = await app.getDevMenu();
   const perfItem = (devMenu.items as { id?: string; checked?: boolean }[]).find(
     item => item.id === 'dev:perfMonitor',
   );
   expect(perfItem?.checked).toBe(true);
-  expect(await app.selectContextMenuItem('dev:perfMonitor')).toBe(true);
+  expect(await app.selectContextMenuItem('dev:perfMonitor', idle)).toBe(true);
   await app.waitForIdle();
   expect((await app.getPerfMonitor()).enabled).toBe(false);
 });
@@ -430,4 +432,52 @@ test('the GPUI menu bar renders the app menu and runs an item', async () => {
 
   // The surface is laid out below the strip, so the page keeps its padding.
   expect(bar.inset).toBeGreaterThanOrEqual(24);
+});
+
+test('the main window vetoes a close until it is forced', async () => {
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+
+  // A second window keeps the app alive when the main one closes, which is also
+  // the quit policy: closing a window only quits when nothing is left.
+  await app.getByTestId('desktop-open-window').click();
+  await app.waitForIdle();
+
+  // The fixture subscribes to `closeRequested`, which is what turns
+  // interception on. A plain close asks first: the window stays open and JS
+  // sees the request.
+  await app.windowClose(1, false);
+  await app.waitForIdle();
+  expect(await textOf('window-close-requests')).toContain('closeRequested: 1');
+  expect((await app.listWindows()).windows.some(w => w.windowId === 1)).toBe(
+    true,
+  );
+
+  // Forcing it closes the main window, and the app survives on the other one.
+  // Known issue (see .local/desktop-shell-progress.md): after the *main* window
+  // is closed the remaining window keeps presenting frames, so neither call can
+  // wait for idle. The registry state below is what this test is about.
+  await app.windowClose(1, true, { ignore: ['frames'], timeout: 1500 });
+  const remaining = await app.listWindows();
+  expect(remaining.windows.some(w => w.windowId === 1)).toBe(false);
+  expect(remaining.windows.length).toBeGreaterThan(0);
+});
+
+test('a window closed by the platform is removed from the registry', async () => {
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('desktop-open-window').click();
+  await app.waitForIdle();
+  const opened = (await app.listWindows()).windows.find(
+    w => w.component === 'DesktopShellChild',
+  );
+  expect(opened).toBeDefined();
+
+  expect(await app.osCloseWindow(opened!.windowId)).toBe(true);
+  const remaining = await app.listWindows();
+  expect(remaining.windows.some(w => w.windowId === opened!.windowId)).toBe(
+    false,
+  );
+  expect(remaining.windows.some(w => w.windowId === 1)).toBe(true);
 });

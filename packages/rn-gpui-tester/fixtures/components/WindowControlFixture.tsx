@@ -42,6 +42,7 @@ function WindowControlFixture() {
   const [state, setState] = useState('unknown');
   const [error, setError] = useState('');
   const [childId, setChildId] = useState<number | null>(null);
+  const [closeRequests, setCloseRequests] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -60,6 +61,15 @@ function WindowControlFixture() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Subscribing to `closeRequested` is what makes the host intercept the OS
+  // close button, so this is also the veto ("unsaved changes") path.
+  useEffect(() => {
+    const subscription = win.addListener('closeRequested', () => {
+      setCloseRequests(count => count + 1);
+    });
+    return () => subscription.remove();
+  }, [win]);
 
   const openChild = useCallback(async () => {
     try {
@@ -129,6 +139,9 @@ function WindowControlFixture() {
       </Text>
       <Text testID="desktop-window-list" style={styles.row}>
         {windows.map(entry => `${entry.windowId}:${entry.component}`).join(',')}
+      </Text>
+      <Text testID="window-close-requests" style={styles.row}>
+        closeRequested: {closeRequests}
       </Text>
       <Text testID="desktop-window-state" style={styles.row}>
         state: {state}

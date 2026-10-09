@@ -413,10 +413,13 @@ export class DesktopApp {
     await this.waitForIdle();
   }
 
-  /** Open the Dev Menu (plan 7.5). */
-  async showDevMenu(): Promise<void> {
+  /**
+   * Open the Dev Menu (plan 7.5). `idle` is passed through, because the menu can
+   * be opened while the Perf Monitor is keeping the app from going idle.
+   */
+  async showDevMenu(idle: IdleOptions = {}): Promise<void> {
     await this.request('showDevMenu');
-    await this.waitForIdle();
+    await this.waitForIdle(idle);
   }
 
   /** The Dev Menu's items, without opening it. */
@@ -536,13 +539,20 @@ export class DesktopApp {
     return this.request('getContextMenu');
   }
 
-  /** Choose an item in the fake context menu. */
-  async selectContextMenuItem(id: string): Promise<boolean> {
+  /**
+   * Choose an item in the fake context menu. `idle` is passed through, because
+   * an item can turn on something that keeps the app from going idle (the Perf
+   * Monitor).
+   */
+  async selectContextMenuItem(
+    id: string,
+    idle: IdleOptions = {},
+  ): Promise<boolean> {
     const result = await this.request<{ selected: boolean }>(
       'selectContextMenuItem',
       { id },
     );
-    await this.waitForIdle();
+    await this.waitForIdle(idle);
     return result.selected;
   }
 
@@ -553,6 +563,29 @@ export class DesktopApp {
     );
     await this.waitForIdle();
     return result.dismissed;
+  }
+
+  /** Close a window through the JS path, with or without `force`. */
+  async windowClose(
+    windowId: number,
+    force = false,
+    idle: IdleOptions = {},
+  ): Promise<void> {
+    await this.request('windowClose', { windowId, force });
+    await this.waitForIdle(idle);
+  }
+
+  /**
+   * Close a window the way the platform's close button does: the registry entry
+   * goes away, the surface stops and `windowClosed` fires, but the veto path is
+   * skipped (the OS already decided).
+   */
+  async osCloseWindow(windowId: number): Promise<boolean> {
+    const result = await this.request<{ closed: boolean }>('osCloseWindow', {
+      windowId,
+    });
+    await this.waitForIdle();
+    return result.closed;
   }
 
   /** Every open desktop window. */

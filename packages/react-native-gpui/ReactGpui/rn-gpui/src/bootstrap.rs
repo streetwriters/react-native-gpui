@@ -1026,6 +1026,15 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 crate::desktop::windows::WindowRole::Main,
             );
 
+        // The launch window needs the same close hook as a window opened with
+        // `DesktopWindow.open`, otherwise `closeRequested` never fires for the
+        // app's main window and its "unsaved changes" veto cannot work.
+        crate::desktop::windows::install_close_hook_for(
+            cx,
+            (*window).into(),
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+        );
+
         // TODO 2.4 — headless input: `RN_GPUI_CLICK` dispatches real mouse
         // events through GPUI's own input path (`Window::dispatch_event`), the
         // same way the accesskit click fallback does. The app runs off-screen in
@@ -1387,7 +1396,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // the React surface covers.
         // The subscription unsubscribes the moment it drops, so it is handed to
         // the store (this closure returns right after setup).
-        let last_surface_size = Rc::new(Cell::new((width, height, scale)));
+        // (width, height, scale, origin.x, origin.y) of the last observed bounds.
+        let last_surface_size = Rc::new(Cell::new((width, height, scale, 0.0, 0.0)));
         let bounds_subscription = window
             .update(cx, |_root, window, cx| {
                 let store = cx.global::<StoreGlobal>().0.clone();
@@ -1395,33 +1405,54 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 let window_state_path = window_state_path.clone();
                 let last_surface_size = last_surface_size.clone();
                 cx.observe_window_bounds(window, move |_root, window, cx| {
+                    // GPUI calls bounds observers often (every platform resize
+                    // notification, and again whenever the window is laid out),
+                    // so nothing here may write to disk or log unless a value
+                    // actually changed: the state file used to be rewritten on
+                    // every call, which cost a file write per observation.
                     let size = window.viewport_size();
-                    save_window_bounds(&window_state_path, window.bounds(), size);
+                    let scale = scale_override.unwrap_or_else(|| window.scale_factor());
+                    let (width, height) = (f32::from(size.width), f32::from(size.height));
+                    let bounds = window.bounds();
+                    let origin = (
+                        f32::from(bounds.origin.x),
+                        f32::from(bounds.origin.y),
+                    );
+                    let previous = last_surface_size.get();
+                    let resized = (previous.0 - width).abs() > 0.01
+                        || (previous.1 - height).abs() > 0.01
+                        || (previous.2 - scale).abs() > 0.001;
+                    let moved = (previous.3 - origin.0).abs() > 0.01
+                        || (previous.4 - origin.1).abs() > 0.01;
                     #[cfg(target_os = "macos")]
-                    {
-                        let top = crate::native_view::window_top_inset(window);
+                    let top = crate::native_view::window_top_inset(window);
+                    #[cfg(not(target_os = "macos"))]
+                    let top = 0.0;
+                    let inset_changed = cx
+                        .try_global::<StoreGlobal>()
+                        .is_some_and(|global| (global.0.read(cx).top_inset - top).abs() > 0.01);
+                    if !resized && !moved && !inset_changed {
+                        return;
+                    }
+                    last_surface_size.set((width, height, scale, origin.0, origin.1));
+                    save_window_bounds(&window_state_path, bounds, size);
+                    if inset_changed {
                         store.update(cx, |store, cx| {
-                            if store.top_inset != top {
-                                store.top_inset = top;
-                                store.host.set_window_top_inset(top);
-                                store.frame_hook.arm(window);
-                                for node in store.nodes.values() {
-                                    if node.read(cx).component == "RNSScreenStackHeaderConfig" {
-                                        node.update(cx, |_, cx| cx.notify());
-                                    }
+                            store.top_inset = top;
+                            store.host.set_window_top_inset(top);
+                            store.frame_hook.arm(window);
+                            for node in store.nodes.values() {
+                                if node.read(cx).component == "RNSScreenStackHeaderConfig" {
+                                    node.update(cx, |_, cx| cx.notify());
                                 }
                             }
                         });
-                        log::info!("[safe-area] native window top inset={top} fullscreen={}", window.is_fullscreen());
+                        log::info!(
+                            "[safe-area] native window top inset={top} fullscreen={}",
+                            window.is_fullscreen()
+                        );
                     }
-                    let scale = scale_override.unwrap_or_else(|| window.scale_factor());
-                    let (width, height) = (f32::from(size.width), f32::from(size.height));
-                    let old = last_surface_size.get();
-                    let changed = (old.0 - width).abs() > 0.01
-                        || (old.1 - height).abs() > 0.01
-                        || (old.2 - scale).abs() > 0.001;
-                    if changed {
-                        last_surface_size.set((width, height, scale));
+                    if resized {
                         log::info!("window resized to {width}x{height}@{scale}x");
                         let handle: gpui::AnyWindowHandle = window.window_handle().into();
                         store.update(cx, |store, _cx| {

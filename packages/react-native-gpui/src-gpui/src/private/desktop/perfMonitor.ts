@@ -24,6 +24,43 @@ let ticking = false;
 let frames = 0;
 let ticker: ReturnType<typeof setInterval> | null = null;
 
+let nativeBridgeInstalled = false;
+
+/**
+ * The native side can turn the overlay on by itself (the Dev Menu's "Toggle Perf
+ * Monitor", `DevSettings.setProfilingEnabled`). JS owns the frame counter that
+ * reports JS FPS, so it has to follow.
+ */
+function installNativeBridge(): void {
+  if (nativeBridgeInstalled) {
+    return;
+  }
+  nativeBridgeInstalled = true;
+  // Resolved lazily: the desktop entry loads this module while `react-native`
+  // is still initializing, and the package's exports are not populated yet.
+  const { DeviceEventEmitter } = require('react-native');
+  DeviceEventEmitter.addListener(
+    'gpuiDesktop:perfMonitor',
+    (event: { enabled?: boolean }) => {
+      if (event?.enabled) {
+        startJsTicker();
+      } else {
+        stopJsTicker();
+      }
+    },
+  );
+}
+
+/**
+ * Install the listener for the native toggle. Called from the desktop entry's
+ * startup path rather than at import time: this module is imported while
+ * `react-native` is still initializing, and `DeviceEventEmitter` is not
+ * available on the package export until then.
+ */
+export function installPerfMonitorBridge(): void {
+  installNativeBridge();
+}
+
 function startJsTicker(): void {
   if (ticking) {
     return;

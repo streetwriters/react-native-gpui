@@ -726,6 +726,17 @@ impl ViewStore {
                         // mounted itself — the root view is created on first use
                         // (TODO 2.6 also brings up the LogBox overlay this way).
                         let root = self.root_for(surface_id, cx);
+                        let (root_surface, before) = {
+                            let root_ref = root.read(cx);
+                            (root_ref.surface_id, root_ref.children.len())
+                        };
+                        log::info!(
+                            "[store-debug] root child tag={} batch_surface={} root_surface={} children={}",
+                            op.tag,
+                            surface_id,
+                            root_surface,
+                            before
+                        );
                         root.update(cx, |root, cx| {
                             root.insert_child(index, op.tag, child.clone());
                             cx.notify();

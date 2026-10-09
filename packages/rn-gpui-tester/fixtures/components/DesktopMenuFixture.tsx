@@ -125,7 +125,17 @@ function DesktopMenuFixture() {
         testID="desktop-menu-update-check"
         onPress={() => {
           setChecked(value => !value);
-          void Menu.update('tester-check', { checked: !checked });
+          // "Reset to the default menu" removes the tester's items, so an update
+          // after that rejects with `not_found`. Put the menu back first, and
+          // report anything that still fails instead of leaving an unhandled
+          // rejection to LogBox.
+          void Menu.update('tester-check', { checked: !checked })
+            .catch(() =>
+              Menu.setApplicationMenu(items()).then(() =>
+                Menu.update('tester-check', { checked: !checked }),
+              ),
+            )
+            .catch(cause => setError(String(cause)));
         }}
       >
         <Text style={styles.button}>Toggle checked via update</Text>
@@ -133,7 +143,10 @@ function DesktopMenuFixture() {
       <Pressable
         testID="desktop-menu-reset"
         onPress={() => {
-          void Menu.setApplicationMenu(null);
+          setError('');
+          void Menu.setApplicationMenu(null).catch(cause =>
+            setError(String(cause)),
+          );
         }}
       >
         <Text style={styles.button}>Reset to the default menu</Text>
