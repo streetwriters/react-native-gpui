@@ -891,6 +891,10 @@ async fn serve_commands(
                 crate::desktop::dev_menu::show(cx);
                 json!({"shown": true})
             }),
+            "closeDevMenu" => cx.update(|cx| {
+                crate::desktop::dev_menu::hide(cx);
+                json!({"closed": true})
+            }),
             "devMenuState" => cx.update(|cx| {
                 let open = cx
                     .try_global::<crate::desktop::dev_menu::DevMenuPanelGlobal>()

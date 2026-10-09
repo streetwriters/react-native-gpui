@@ -503,3 +503,32 @@ pub fn set_accessory_app(_accessory: bool) {
     // Windows and Linux have no equivalent policy; a tray-only app there simply
     // has no visible window.
 }
+
+/// Suppress the platform's open/close animation for a window.
+///
+/// The Dev Menu panel is a sheet on macOS, and sheets animate in by default;
+/// `NSWindowAnimationBehaviorNone` makes it appear at once.
+#[cfg(target_os = "macos")]
+pub fn disable_window_animation(window: &mut gpui::Window) {
+    use cocoa::base::id;
+    use objc::{msg_send, sel, sel_impl};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    /// `NSWindowAnimationBehaviorNone`.
+    const NONE: i64 = 2;
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+        unsafe {
+            let ns_view = appkit.ns_view.as_ptr() as id;
+            let native: id = msg_send![ns_view, window];
+            if !native.is_null() {
+                let _: () = msg_send![native, setAnimationBehavior: NONE];
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn disable_window_animation(_window: &mut gpui::Window) {}

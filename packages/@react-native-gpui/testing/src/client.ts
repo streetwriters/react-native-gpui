@@ -422,6 +422,12 @@ export class DesktopApp {
     await this.waitForIdle(idle);
   }
 
+  /** Close the Dev Menu panel, as its Close row does. */
+  async closeDevMenu(): Promise<void> {
+    await this.request('closeDevMenu');
+    await this.waitForIdle();
+  }
+
   /** Whether the Dev Menu panel is open, and its items. */
   async devMenuState(): Promise<{
     installed: boolean;
