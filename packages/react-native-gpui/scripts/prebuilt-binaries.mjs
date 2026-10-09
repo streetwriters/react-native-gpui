@@ -105,7 +105,6 @@ function parseArgs(argv) {
     if (arg === '--triple') args.triple = argv[++i];
     else if (arg.startsWith('--triple=')) args.triple = arg.slice(9);
     else if (arg.startsWith('--')) {
-      // Generic --key value flags for subcommands such as pin.
       const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
       args[key] = argv[++i];
     } else args._.push(arg);
@@ -224,7 +223,6 @@ function assetUrl(pin, asset) {
   )}/${asset.file}`;
 }
 
-// Takes an exclusive lock file so two builds do not download the same archive.
 function acquireLock(lockPath) {
   for (let attempt = 0; attempt < 600; attempt += 1) {
     try {
@@ -240,9 +238,7 @@ function acquireLock(lockPath) {
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > 600_000)
           unlinkSync(lockPath);
-      } catch {
-        // The owner released it between the checks.
-      }
+      } catch {}
     }
   }
   throw new Error(`timed out waiting for lock ${lockPath}`);
@@ -388,8 +384,6 @@ async function main() {
       return;
     }
     case 'pin': {
-      // Writes the pin file from a SHA256SUMS.txt and the archives beside it.
-      // CI calls this after the release is published; the file is then a PR.
       const { version, inputHash, tag, repo, sums, out } = args;
       for (const [k, v] of Object.entries({
         version,
@@ -457,7 +451,5 @@ async function main() {
 }
 
 main().catch(error => {
-  // ensure() already reports its own reason through die(); anything else is
-  // unexpected and gets its message on stderr with a non-zero status.
   die(error?.message ?? String(error), 1);
 });

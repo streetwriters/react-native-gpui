@@ -1,6 +1,3 @@
-//! Background image fetching shared by GPUI's RN image rendering and
-//! React Native's `ImageLoader` TurboModule.
-
 use gpui::{
     http_client::{HttpClient, Url},
     App,

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Builds the desktop Hermes VM and compiler for macOS and stages them into
-# packages/@react-native-gpui/hermes/bin/<platform>/.
-#
-# Prefer the hermes-engine GitHub workflow; this script is the local/offline
-# path and expects a facebook/hermes checkout at the commit pinned in
-# packages/@react-native-gpui/hermes/package.json.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

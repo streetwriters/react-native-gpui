@@ -1,4 +1,3 @@
-// Fabric mounting manager (design doc §18.8).
 #pragma once
 
 #include <folly/dynamic.h>
@@ -19,7 +18,6 @@
 #include <unordered_map>
 
 namespace rngpui {
-
 extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept;
 extern "C" void rn_gpui_mount_batch_applied() noexcept;
 
@@ -61,7 +59,7 @@ class GpuiMountingManager : public IMountingManager {
     return imageLoader_;
   }
 
-  // TODO 2.6 — ReactHost calls this with a real executor once a fresh instance
+  // ReactHost calls this with a real executor once a fresh instance
   // is up (`ReactHost.cpp`, createReactInstance) and with `nullptr` when it
   // tears the instance down (destroyReactInstance, i.e. every reload). The
   // teardown call is the only surface-lifecycle signal the C++ platform gets:
@@ -81,7 +79,6 @@ class GpuiMountingManager : public IMountingManager {
   void accessibleClickAction(Tag viewTag) override;
 
  private:
-  // Per-view state handed to the safe-area hooks (GpuiExtensions.h).
   GpuiMountedViews mountedViews() {
     return GpuiMountedViews{
         emittersMutex_, emitters_, animatedViews_, safeAreaFrames_};

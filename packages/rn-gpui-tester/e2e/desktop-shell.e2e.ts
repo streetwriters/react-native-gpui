@@ -2,12 +2,6 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
 
-/**
- * Desktop shell e2e (plan 7.1–7.6, verification §12.1).
- *
- * The window tests run against the real app: `DesktopWindow.open` opens a real
- * GPUI window with its own React surface, and the fixture reports what JS sees.
- */
 let app: DesktopApp;
 
 async function launch(
@@ -45,7 +39,6 @@ async function textOf(testID: string): Promise<string> {
   return (await app.getByTestId(testID).textContent()) ?? '';
 }
 
-/** Read text without waiting for idle (the perf monitor never goes idle). */
 async function rawTextOf(testID: string): Promise<string> {
   const [node] = await app.query('testID', testID);
   return String(node?.text ?? '');
@@ -69,7 +62,6 @@ test('a second window opens with its own surface and closes again', async () => 
   await launch('WindowControlFixture');
   await app.waitForIdle();
 
-  // The fixture runs in the main window, which is always window 1.
   expect(await textOf('desktop-window-id')).toBe('this window: 1');
   expect(await textOf('desktop-window-count')).toBe('open windows: 1');
 
@@ -133,7 +125,6 @@ test('a menu item patch round-trips and the default menu can be restored', async
   await app.getByTestId('desktop-menu-reset').click();
   await app.getByTestId('desktop-menu-read').click();
   const described = await textOf('desktop-menu-json');
-  // The default menu has whole standard submenus, not the tester's items.
   expect(described).toContain('"userSet":false');
   expect(described).toContain('editMenu');
 });
@@ -147,7 +138,6 @@ test('the Edit roles copy and paste in a text input', async () => {
   await source.type('hello edit roles');
   expect(await source.textContent()).toBe('hello edit roles');
 
-  // Select all + copy through the menu's accelerators.
   await app.press('mod-a');
   await app.waitForIdle();
   await app.press('mod-c');
@@ -201,7 +191,6 @@ test('the ContextMenuView wrapper and the menu polyfill open menus', async () =>
   const model = JSON.stringify((await app.getContextMenu())?.items ?? []);
   expect(model).toContain('Poly Open');
   expect(model).toContain('Poly nested');
-  // Hidden actions are dropped, disabled ones are kept but disabled.
   expect(model).not.toContain('Hidden');
   expect(model).toContain('"enabled":false');
   expect(await app.selectContextMenuItem('poly-nested')).toBe(true);
@@ -212,9 +201,8 @@ test('the perf monitor toggles and reports its counters', async () => {
   await launch('PerfMonitorFixture');
   await app.waitForIdle();
 
-  // The overlay's JS frame counter is a rAF loop by design, so the app stops
-  // being "idle" as soon as it is on. Every step here uses the raw driver, which
-  // does not wait for idle.
+  // The overlay keeps the app drawing, so it is never "idle" while it is on:
+  // every step here uses the raw driver, which does not wait for idle.
   const clickTestId = async (testID: string) => {
     const [node] = await app.query('testID', testID);
     if (!node) {
@@ -230,7 +218,6 @@ test('the perf monitor toggles and reports its counters', async () => {
   await clickTestId('perf-toggle');
   expect(await rawTextOf('perf-enabled')).toBe('enabled: true');
 
-  // Let the JS frame counter report at least once.
   await new Promise(resolve => setTimeout(resolve, 1200));
   await clickTestId('perf-read');
   const metrics = await rawTextOf('perf-metrics');
@@ -248,8 +235,6 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   await launch('DesktopShellFixture');
   await app.waitForIdle();
 
-  // Cmd+D goes through the same accelerator interceptor as the app menu, and
-  // opens the dialog, not a popup menu.
   expect((await app.devMenuState()).open).toBe(false);
   await app.press('mod-d');
   await app.waitForIdle();
@@ -261,12 +246,9 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   expect(openedItems).toContain('Toggle Perf Monitor');
   expect(openedItems).toContain('Fast Refresh');
 
-  // Enabling the overlay starts frames immediately, so this cannot wait for
-  // idle: the app is not idle again until the monitor is off.
   const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
   await app.devMenuPerform('dev:perfMonitor', idle);
   expect((await app.getPerfMonitor()).enabled).toBe(true);
-  // The dialog reflects the toggle it just applied.
   const afterToggle = await app.devMenuState();
   const checkedItem = (
     afterToggle.items as { id?: string; checked?: boolean }[]
@@ -276,8 +258,6 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   await app.devMenuPerform('dev:perfMonitor', idle);
   expect((await app.getPerfMonitor()).enabled).toBe(false);
 
-  // Closing it must let it open again: a stale "already open" flag is what made
-  // Cmd+D work only once per launch.
   await app.closeDevMenu();
   expect((await app.devMenuState()).open).toBe(false);
   await app.press('mod-d');
@@ -317,7 +297,6 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   expect(installed.id).toBe('tester-tray');
   expect(installed.popover).toBeNull();
 
-  // A click opens the popover as a second RN surface.
   await app.trayClick({ x: 1200, y: 0, width: 24, height: 24 });
   await app.waitForIdle();
   const opened = await app.trayState();
@@ -329,7 +308,6 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   expect(popover?.role).toBe('trayPopover');
   expect(popover?.component).toBe('TrayPopover');
 
-  // A second click hides it again.
   await app.trayClick({ x: 1200, y: 0, width: 24, height: 24 });
   await app.waitForIdle();
   expect((await app.trayState()).popover).toBeNull();
@@ -349,7 +327,6 @@ test('a tray menu reports the chosen item', async () => {
   expect(state.hasMenu).toBe(true);
   expect(JSON.stringify(state.menuItems)).toContain('tray-open');
 
-  // A right click shows the menu through the recording presenter.
   await app.trayClick({
     x: 1200,
     y: 0,
@@ -370,8 +347,6 @@ test('a tray menu reports the chosen item', async () => {
 });
 
 test('the GPUI-rendered menu path opens, selects and dismisses', async () => {
-  // The Linux answer for 7.2, forced on so it is exercised on macOS.
-  // The fake presenter wins over the GPUI one, so it is switched off here.
   await launch(
     'ContextMenuFixture',
     undefined,
@@ -396,7 +371,6 @@ test('the GPUI-rendered menu path opens, selects and dismisses', async () => {
   expect(await app.selectGpuiMenuItem('cm-nested')).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
 
-  // A dismissed GPUI menu resolves null, the same as a native one.
   await app.getByTestId('cm-target').rightClick();
   await app.waitForIdle();
   expect(await app.dismissGpuiMenu()).toBe(true);
@@ -404,7 +378,6 @@ test('the GPUI-rendered menu path opens, selects and dismisses', async () => {
 });
 
 test('the GPUI menu bar renders the app menu and runs an item', async () => {
-  // The Linux answer for 7.1, forced on so it is exercised on macOS.
   await launch(
     'DesktopMenuFixture',
     undefined,
@@ -419,13 +392,10 @@ test('the GPUI menu bar renders the app menu and runs an item', async () => {
   const bar = await app.menuBarState();
   expect(bar.enabled).toBe(true);
   expect(bar.inset).toBeGreaterThan(0);
-  // The app's own submenu plus the standard groups the default menu adds.
   expect(bar.titles).toContain('Tester');
   expect(bar.titles).toContain('Edit');
   expect(bar.titles).toContain('Window');
 
-  // Opening the app's submenu shows its items, and choosing one runs it
-  // through the same dispatch as a native menu click.
   expect(await app.openMenuBarMenu('Tester')).toBe(true);
   const menu = await app.gpuiMenuState();
   expect(menu.open).toBe(true);
@@ -438,7 +408,6 @@ test('the GPUI menu bar renders the app menu and runs an item', async () => {
   await app.waitForIdle();
   expect(await textOf('desktop-menu-count')).toContain('increments: 1');
 
-  // The surface is laid out below the strip, so the page keeps its padding.
   expect(bar.inset).toBeGreaterThanOrEqual(24);
 });
 
@@ -461,10 +430,8 @@ test('the main window vetoes a close until it is forced', async () => {
     true,
   );
 
-  // Forcing it closes the main window, and the app survives on the other one.
-  // Known issue (see .local/desktop-shell-progress.md): after the *main* window
-  // is closed the remaining window keeps presenting frames, so neither call can
-  // wait for idle. The registry state below is what this test is about.
+  // TODO: after the main window is closed the remaining window keeps
+  // presenting frames, so neither call can wait for idle.
   await app.windowClose(1, true, { ignore: ['frames'], timeout: 1500 });
   const remaining = await app.listWindows();
   expect(remaining.windows.some(w => w.windowId === 1)).toBe(false);

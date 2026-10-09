@@ -1,5 +1,5 @@
 /**
- * `Tray` — menu-bar (tray) apps (plan item 7.3, §7).
+ * `Tray` — menu-bar (tray) apps.
  *
  * ```ts
  * await Tray.install({ component: 'MenuBarPanel', tooltip: 'My app' });
@@ -24,14 +24,10 @@ export interface TrayOptions {
   /** Stable id; defaults to `tray`. */
   id?: string;
   tooltip?: string;
-  /** macOS-only text label. */
   title?: string;
-  /** The component the popover runs. */
   component?: string;
   size?: { width: number; height: number };
-  /** A menu to show instead of the popover. */
   menu?: MenuItemSpec[];
-  /** Open the menu on a left click instead of the popover. */
   menuOnLeftClick?: boolean;
   /** Keep the app alive when its last window closes. Defaults to true. */
   quitOnLastWindowClosed?: boolean;
@@ -43,7 +39,6 @@ export interface TrayState {
   tooltip?: string | null;
   visible?: boolean;
   component?: string | null;
-  /** The popover window id while it is open. */
   popover?: number | null;
   clicks?: number;
   hasMenu?: boolean;
@@ -53,12 +48,10 @@ export interface TrayState {
 const MENU_PRESS_EVENT = 'gpuiDesktop:trayMenuPress';
 
 export const Tray = {
-  /** Create the tray icon. Rejects when one is already installed. */
   install(options: TrayOptions = {}): Promise<{ id: string }> {
     return call<{ id: string }>('tray', 'install', options);
   },
 
-  /** Remove the icon and close its popover. */
   destroy(): Promise<{ id: string; destroyed: boolean }> {
     return call('tray', 'destroy', {});
   },
@@ -71,12 +64,10 @@ export const Tray = {
     return call('tray', 'setVisible', { visible });
   },
 
-  /** Replace the icon with a PNG on disk. */
   setIcon(path: string): Promise<unknown> {
     return call('tray', 'setIcon', { path });
   },
 
-  /** Replace the click menu; `null` removes it. */
   setMenu(items: MenuItemSpec[] | null): Promise<unknown> {
     return call('tray', 'setMenu', { items });
   },
@@ -85,7 +76,6 @@ export const Tray = {
     return call<TrayState>('tray', 'getState', {});
   },
 
-  /** Called with the chosen item id whenever a tray menu item is picked. */
   onMenuPress(handler: (id: string) => void): { remove: () => void } {
     const subscription = DeviceEventEmitter.addListener(
       MENU_PRESS_EVENT,

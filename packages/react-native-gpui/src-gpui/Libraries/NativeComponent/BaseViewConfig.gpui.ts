@@ -7,7 +7,7 @@ import iosConfig from 'react-native/Libraries/NativeComponent/BaseViewConfig.ios
 export default {
   ...iosConfig,
   // A native `topContextMenu` event reaches the view's `onContextMenu` handler
-  // (plan §6.2). It is registered the same way RN registers `onPointerEnter`
+  //. It is registered the same way RN registers `onPointerEnter`
   // (a bubbling event plus a `validAttributes` marker), because Fabric converts
   // the JS handler function into the boolean marker that creates the listener.
   bubblingEventTypes: {
@@ -25,8 +25,6 @@ export default {
     accessibilityLiveRegion: true,
     importantForAccessibility: true,
     focusable: true,
-    // Desktop shell window props (plan §8.3). Fabric carries them through
-    // HostPlatformViewProps to `RNNodeView`.
     desktopDragRegion: true,
     desktopWindowControl: true,
     onContextMenu: true,

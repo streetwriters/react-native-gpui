@@ -1,5 +1,5 @@
 /**
- * JS side of the core `GpuiDesktop` TurboModule (plan §3.2).
+ * JS side of the core `GpuiDesktop` TurboModule.
  *
  * The public modules in `react-native-gpui/desktop` are thin typed wrappers over
  * `call()`. Nothing here reaches into GPUI; it only serialises a command and
@@ -13,7 +13,6 @@ import type { Spec } from '../specs/NativeGpuiDesktop';
 
 const NativeGpuiDesktop = TurboModuleRegistry.get<Spec>('GpuiDesktop');
 
-/** The error codes from the plan's table (§3.4). */
 export type DesktopErrorCode =
   'unsupported' | 'invalid_argument' | 'not_found' | 'reloaded' | 'failed';
 
@@ -27,7 +26,6 @@ export class DesktopError extends Error {
   }
 }
 
-/** False in a build that does not ship the desktop shell (or on another platform). */
 export const isDesktopAvailable = NativeGpuiDesktop != null;
 
 /**
@@ -54,13 +52,10 @@ function toDesktopError(error: unknown): DesktopError {
         parsed.message ?? raw,
       );
     }
-  } catch {
-    // Not our JSON: fall through to a generic failure.
-  }
+  } catch {}
   return new DesktopError('failed', raw);
 }
 
-/** Run one desktop command and parse its JSON result. */
 export async function call<T = unknown>(
   domain: string,
   method: string,
@@ -84,7 +79,6 @@ export async function call<T = unknown>(
   }
 }
 
-/** Read a value that must be available synchronously. */
 export function snapshot<T = unknown>(key: string): T | null {
   if (NativeGpuiDesktop == null) {
     return null;
@@ -106,7 +100,6 @@ export interface DesktopCapabilities {
   transparentTitlebar: boolean;
 }
 
-/** The platform capability flags (plan §3.4). */
 export function capabilities(): DesktopCapabilities {
   return (
     snapshot<DesktopCapabilities>('capabilities') ?? {

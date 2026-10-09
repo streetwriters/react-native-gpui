@@ -1,10 +1,3 @@
-/*
- * GPUI extends the C++ platform's base view props with keyboard focusability
- * and the desktop-shell window props (plan §6.2, §8.3).
- * Upstream's CXX platform aliases this type directly to BaseViewProps, while
- * Android/iOS provide focusable as a platform prop. Keep parsing it here so
- * Fabric carries the public RN `focusable` prop to the desktop renderer.
- */
 #pragma once
 
 #include <react/renderer/components/view/BaseViewProps.h>
@@ -12,7 +5,6 @@
 #include <react/renderer/core/propsConversions.h>
 
 namespace facebook::react {
-
 class HostPlatformViewProps : public BaseViewProps {
  public:
   HostPlatformViewProps() = default;
@@ -62,7 +54,6 @@ class HostPlatformViewProps : public BaseViewProps {
   }
 
   bool focusable{false};
-  /// This view is part of a custom title bar and drags the window (plan §8.3).
   bool desktopDragRegion{false};
   /// "minimize" | "maximize" | "close": a custom caption button. Windows uses
   /// it for snap layouts; elsewhere the press is an ordinary button.

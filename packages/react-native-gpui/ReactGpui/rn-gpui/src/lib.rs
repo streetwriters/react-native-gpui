@@ -1,8 +1,3 @@
-//! react-native-gpui: GPUI-backed React Native runtime.
-//!
-//! `run` boots the shared platform runtime; per-app launch logic lives under
-//! the consuming app's `desktop/src/`.
-
 pub(crate) mod accessibility;
 pub(crate) mod animation_policy;
 pub(crate) mod desktop;
@@ -16,6 +11,8 @@ pub mod native_view;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]
 pub(crate) mod native_view_probe;
 pub(crate) mod node_view;
+pub(crate) mod pointer_area;
+pub(crate) mod scroll_indicator;
 pub(crate) mod store;
 pub(crate) mod style;
 #[cfg(feature = "test-driver")]
@@ -24,8 +21,6 @@ pub(crate) mod text;
 
 mod bootstrap;
 pub use bootstrap::{run, run_with, DesktopAppConfig};
-// A menu-bar app's launch configuration (plan 7.3), so an app's `main.rs` can
-// build one without reaching into the module path.
 pub use desktop::tray::TrayConfig;
 pub use rn_gpui_macros::rn_module;
 

@@ -1,5 +1,5 @@
 /**
- * Perf Monitor (plan item 7.6, §9.1).
+ * Perf Monitor.
  *
  * Toggles the host-drawn overlay and reports the counters it exposes. The
  * overlay itself is GPUI-painted, so this screen only drives it.
@@ -13,7 +13,7 @@ import { PerfMonitor, type PerfMetrics } from 'react-native-gpui/desktop';
 
 // `DevSettings` is a no-op outside `__DEV__`, so the fixture drives the
 // `DevMenu` TurboModule directly: the same module RN's dev menu uses, and the
-// one the host registers (plan 7.5).
+// one the host registers.
 const NativeDevMenu =
   require('react-native/src/private/devsupport/devmenu/specs/NativeDevMenu').default;
 
@@ -77,7 +77,6 @@ function PerfMonitorFixture() {
       <Pressable testID="perf-read" onPress={read}>
         <Text style={styles.button}>Read metrics</Text>
       </Pressable>
-      {/* The `DevMenu` TurboModule (plan 7.5). */}
       <Pressable
         testID="perf-devdettings-on"
         onPress={() => NativeDevMenu.setProfilingEnabled(true)}

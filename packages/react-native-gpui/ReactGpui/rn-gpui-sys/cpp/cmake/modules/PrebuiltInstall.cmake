@@ -1,18 +1,3 @@
-# Install rules and consumer config for the prebuilt C++ runtime (plan step 3,
-# see .local/gpui-prebuilt-binaries.md "Archive layout").
-#
-# Included from cpp/CMakeLists.txt after rn_gpui_collect_link_targets ran, so
-# RN_GPUI_LINK_TARGETS lists rn_gpui_core's link closure. Only `cmake --install`
-# uses these rules; the source build does not change.
-#
-# OBJECT libraries have no archive of their own: their objects are already
-# inside librn_gpui_core.a. So the prebuilt ships real archives and dylibs only
-# (the set build.rs reads from link_libs-<CONFIG>.txt). Every OBJECT or
-# INTERFACE name becomes an INTERFACE target that links rn_gpui_core, so a
-# consumer linking e.g. react_nativemodule_core compiles and links unchanged
-# and does not get a second copy of the objects. install(EXPORT) cannot
-# describe OBJECT libraries, so the targets file is written by hand.
-
 include(GNUInstallDirs)
 
 set(RN_GPUI_PREBUILT_CONFIG_NAME "react-native-gpui-prebuilt")
@@ -54,7 +39,6 @@ endforeach()
 list(REMOVE_DUPLICATES _rn_gpui_built)
 list(REMOVE_DUPLICATES _rn_gpui_imported)
 
-# --- archives and dylibs ----------------------------------------------------------
 install(TARGETS ${_rn_gpui_built}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

@@ -1,25 +1,7 @@
-//! TODO 2.3 — the per-frame hook that ticks React Native's `EventBeat`.
-//!
-//! Fabric's scheduler asks the platform for a "beat" (`EventBeat::request()`)
-//! when it has work that only the JS thread can finish, and the platform is
-//! expected to call `onRender()` once per run-loop iteration to deliver it
-//! (design doc §18.8's frame tick row: "Call `onRender()` once per GPUI
-//! frame"). `ViewStore::apply_batch` already ticks it right after a mount
-//! batch, but that only covers native -> JS transitions that happen to
-//! produce a batch; the frame hook covers the rest.
-//!
-//! GPUI's frame hook is one-shot (`Window::on_next_frame` pushes a single
-//! callback and asks the platform window for a frame), so the chain re-arms
-//! itself from inside the callback — and only for as long as React Native has
-//! work. RN's NativeAnimated frame callback also has a 16 ms foreground timer
-//! fallback: a platform can go idle with an outstanding one-shot callback, so
-//! its display-frame chain alone cannot guarantee that native animations
-//! advance. Both paths stop after RN reports that animation has ended.
-//!
-//! Everything here runs on the GPUI main thread: the frame callbacks, and the
-//! mount drain / native event dispatches that call `arm`. That is also why the
-//! state is `Rc<Cell<..>>` rather than atomic: it is shared mutable state, not
-//! a thread-safe mailbox.
+//! GPUI's frame hook is one-shot (`Window::on_next_frame`), so the chain
+//! re-arms itself from inside the callback, only while React Native has work.
+//! A platform can go idle with an outstanding one-shot callback, so
+//! NativeAnimated also has a 16 ms foreground timer.
 
 use crate::host::Host;
 use gpui::Window;
@@ -27,10 +9,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-/// How long the frame chain keeps ticking after the last sign of RN work.
-/// Comfortably longer than a frame (16.7 ms at 60 Hz), so the chain is still
-/// running when the next commit lands, and so an animation driven from a timer
-/// or `requestAnimationFrame` never misses a frame.
 const ACTIVITY_WINDOW: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
@@ -41,21 +19,14 @@ pub struct FrameHook {
 
 struct State {
     epoch: Instant,
-    /// Milliseconds since `epoch` until which the chain re-arms.
     active_until_ms: Cell<u64>,
-    /// Whether a frame callback is currently outstanding.
     armed: Cell<bool>,
     /// Identifies the newest scheduled callback. A callback whose generation
     /// was superseded (because `arm` had to re-schedule a stalled chain) stops
     /// instead of re-arming, so at most one chain is ever ticking.
     generation: Cell<u64>,
-    /// Native Animated owns a real frame callback until RN reports it stopped.
     animation_active: Cell<bool>,
-    /// A foreground timer keeps NativeAnimated progressing if the platform
-    /// drops its one-shot display-frame request while the window is idle.
     animation_ticker_running: Cell<bool>,
-    /// Keep delivering frames while a pointer is down so time-based native
-    /// gestures (such as RNGH LongPress) can cross their activation threshold.
     gesture_active: Cell<bool>,
     /// When the outstanding callback was last run, in milliseconds since
     /// `epoch`. Used to detect a chain the platform never delivered a frame
@@ -80,7 +51,6 @@ impl FrameHook {
         }
     }
 
-    /// Keeps the chain alive for the next `ACTIVITY_WINDOW`.
     fn note_activity(&self) {
         self.state
             .active_until_ms
@@ -152,7 +122,6 @@ impl FrameHook {
                 if cx
                     .update(|_window, _| {
                         host.on_frame(crate::events::now_ms());
-                        // Mount notifications invalidate only changed views.
                     })
                     .is_err()
                 {
@@ -184,7 +153,7 @@ impl FrameHook {
                 self.is_active()
             );
         }
-        window.on_next_frame(move |window, cx| {
+        window.on_next_frame(move |window, _cx| {
             if hook.state.generation.get() != generation {
                 if std::env::var_os("RN_GPUI_DEBUG_ANIMATION").is_some() {
                     log::info!(
@@ -215,9 +184,6 @@ impl FrameHook {
                 hook.host.on_gesture_frame(crate::events::now_ms());
             } else {
                 hook.host.on_frame(crate::events::now_ms());
-                // Plan 7.6 — the Perf Monitor's UI FPS is what the window
-                // actually presented, so it is counted here.
-                crate::desktop::perf_monitor::record_frame(cx);
             }
             if hook.is_active() {
                 hook.schedule(window);

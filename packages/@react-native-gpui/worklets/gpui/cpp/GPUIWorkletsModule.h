@@ -14,7 +14,6 @@
 #include <vector>
 
 namespace gpui_worklets {
-
 bool isOnMainThread();
 void noteMainThread();
 
@@ -29,7 +28,6 @@ class Module final : public facebook::react::TurboModule,
   std::shared_ptr<worklets::WorkletRuntime> uiRuntime() const;
   std::shared_ptr<worklets::UIScheduler> uiScheduler() const;
 
-  // Called by the static TurboModule method trampolines.
   bool installTurboModule(
       facebook::jsi::Runtime& runtime,
       bool bundleModeEnabled);

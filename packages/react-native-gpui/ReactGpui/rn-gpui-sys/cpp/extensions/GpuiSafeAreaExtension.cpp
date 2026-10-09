@@ -1,6 +1,3 @@
-// Safe-area glue (@react-native-gpui/safe-area-context). Compiled into
-// rn_gpui_extensions only when the package is present. Emits insetsChange
-// to RNCSafeAreaProvider views and applies the window top inset.
 #include "GPUISafeAreaInsets.h"
 #include "GpuiExtensions.h"
 
@@ -13,7 +10,6 @@
 #include <string_view>
 
 namespace rngpui {
-
 using namespace facebook::react;
 
 void rn_gpui_install_safe_area_extension() {

@@ -1,16 +1,8 @@
-//! The window-side view store (design doc §18.12).
-//!
-//! `ViewStore` owns the per-surface view trees and the React host. Fabric's
-//! mount batches arrive on the JS thread and are forwarded to this store on the
-//! main thread, where they are applied to GPUI entities.
-//!
-//! Mount operations are applied to `RNNodeView`s in the `SurfaceRootView` for
-//! each React Native surface.
-
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::{
-    screen_transition_mode, RNNodeView, ScreenTransition, ScreenTransitionRole,
+    inherit, screen_transition_mode, InheritInput, Inherited, RNNodeView, ScreenTransition,
+    ScreenTransitionRole,
 };
 #[cfg(target_os = "macos")]
 use gpui::deferred;
@@ -19,6 +11,7 @@ use gpui::{
     MouseButton, NavigationDirection, Pixels, Point, Subscription, Window,
 };
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -41,8 +34,6 @@ fn unsupported_screens_component(name: &str) -> bool {
     ) || name.starts_with("RNSSplitView")
 }
 
-/// Surface id of the app surface the window shows (TODO 2.6: every other
-/// surface — currently only LogBox — is painted as an overlay above it).
 pub const APP_SURFACE_ID: i32 = 1;
 
 pub struct StoreGlobal(pub Entity<ViewStore>);
@@ -50,39 +41,19 @@ impl Global for StoreGlobal {}
 
 pub struct ViewStore {
     pub host: Host,
-    /// TODO 2.3 — the per-frame `on_render()` chain (see `frame.rs`). Kept by
-    /// the store so mount batches and native events can extend its activity
-    /// window while the chain itself lives in the window's frame callbacks.
     pub frame_hook: FrameHook,
-    /// The window showing the primary (app) surface. Kept for the single-window
-    /// paths that predate the window registry; multi-window code uses
-    /// [`ViewStore::window_for`].
     pub window: AnyWindowHandle,
-    /// Surface id -> the GPUI window that shows that surface's root. The app
-    /// surface and the LogBox overlay share the main window; every other
-    /// surface belongs to a window opened through the desktop registry.
     pub windows: HashMap<i32, AnyWindowHandle>,
-    /// Fabric tag -> node view. One map per window: Fabric tags are unique
-    /// across surfaces of the same React instance.
+    /// Fabric tags are unique across the surfaces of one React instance.
     pub nodes: HashMap<i32, Entity<RNNodeView>>,
     pub(crate) accessibility_modal_tags: BTreeSet<i32>,
-    /// Surface id -> the window's root view for that surface.
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
-    /// TODO 2.6 — the surface the window shows ([`APP_SURFACE_ID`]). Roots of
-    /// any other surface are registered with [`ViewStore::overlay_host`], so
-    /// LogBox paints on top of the app instead of replacing it.
     pub primary_surface_id: i32,
-    /// TODO 2.6 — the tracked child entity of the app root that paints the
-    /// surfaces in `roots` other than the app surface (LogBox). Created in
-    /// `main` before the window opens; see [`OverlayHost`].
     pub overlay_host: Entity<OverlayHost>,
-    /// TODO 2.5 — the tags of the current hover chain, innermost node first
-    /// (RN's `PointerHoverTracker` path). Empty when the pointer is not over any
-    /// RN node; `events::hover` diffs it to emit enter/leave.
-    pub hovered: Vec<i32>,
-    /// TODO 2.5 — the last pointer position, so a leave that is not caused by a
-    /// move (the pointer left the window) still reports where it came from.
-    pub pointer: Point<Pixels>,
+    /// Interior mutability on purpose: pointer movement must not update the store
+    /// entity, which nearly every node reads while rendering.
+    pub hovered: RefCell<Vec<i32>>,
+    pub pointer: Cell<Point<Pixels>>,
     pub top_inset: f32,
     /// Target fixed at primary-button down. RN keeps a touch's target stable
     /// across drags, so responder moves/releases must still reach this node
@@ -91,13 +62,9 @@ pub struct ViewStore {
     /// The screen whose Escape dismissal already announced its lifecycle
     /// events. The following Fabric Remove should not announce it twice.
     pub native_dismiss_lifecycle_pending: Option<i32>,
-    /// Suppress per-mutation logging during the 10k-node performance probe.
     log_mount_ops: bool,
-    /// The window-bounds observer. A dropped `Subscription`
-    /// unsubscribes, and the setup closure in `main` returns right after
-    /// wiring, so the store owns it for the lifetime of the window.
+    /// A dropped `Subscription` unsubscribes, so the store owns it.
     pub window_bounds_subscription: Option<Subscription>,
-    /// Tracks native light/dark changes for RN's Appearance event emitter.
     pub window_appearance_subscription: Option<Subscription>,
     pub navigation_keyboard_subscription: Option<Subscription>,
 }
@@ -120,8 +87,8 @@ impl ViewStore {
             roots: HashMap::new(),
             primary_surface_id: APP_SURFACE_ID,
             overlay_host,
-            hovered: Vec::new(),
-            pointer: point(px(0.), px(0.)),
+            hovered: RefCell::new(Vec::new()),
+            pointer: Cell::new(point(px(0.), px(0.))),
             top_inset: 0.0,
             active_touch_target: None,
             native_dismiss_lifecycle_pending: None,
@@ -136,20 +103,14 @@ impl ViewStore {
         self.roots.insert(surface_id, root);
     }
 
-    /// Bind a surface's root to the window that shows it (the window registry
-    /// calls this when it opens or adopts a window).
     pub fn register_window(&mut self, surface_id: i32, window: AnyWindowHandle) {
         self.windows.insert(surface_id, window);
     }
 
-    /// Forget a surface's window binding. The nodes and root are dropped by
-    /// [`ViewStore::surface_stopped`], which C++ triggers when the surface is
-    /// torn down.
     pub fn unregister_window(&mut self, surface_id: i32) {
         self.windows.remove(&surface_id);
     }
 
-    /// The window showing `surface_id`, if it is still open.
     pub fn window_for(&self, surface_id: i32) -> Option<AnyWindowHandle> {
         self.windows
             .get(&surface_id)
@@ -157,7 +118,6 @@ impl ViewStore {
             .or_else(|| (surface_id == APP_SURFACE_ID).then_some(self.window))
     }
 
-    /// Every surface shown by `window`.
     pub fn surfaces_in_window(&self, window: AnyWindowHandle) -> Vec<i32> {
         self.windows
             .iter()
@@ -166,13 +126,8 @@ impl ViewStore {
             .collect()
     }
 
-    /// The root view of `surface_id`, created on first use.
-    ///
-    /// Fabric's transactions reference the `RootView` as a parent that is never
-    /// itself mounted, so the root view is created the first time a node is
-    /// spliced into it. Every surface other than the app surface (TODO 2.6:
-    /// surface 2, LogBox) is added as an overlay of the app surface (see
-    /// `SurfaceRootView::overlays`).
+    /// Fabric references the `RootView` as a parent that is never itself mounted,
+    /// so the root view is created the first time a node is spliced into it.
     fn root_for(&mut self, surface_id: i32, cx: &mut Context<Self>) -> Entity<SurfaceRootView> {
         if let Some(root) = self.roots.get(&surface_id) {
             return root.clone();
@@ -193,16 +148,8 @@ impl ViewStore {
         root
     }
 
-    /// TODO 2.6 — C++ told us a surface is gone. Fabric emits no `Delete`
-    /// mutations for a dying surface (`SurfaceManager::stopSurface` only clears
-    /// the surface's `UIManager`), so the tree has to be dropped here:
-    ///
-    /// * [`rn_gpui_sys::ALL_SURFACES`] — the whole React instance is going away
-    ///   (a reload). Every node is dropped, otherwise the reloaded instance
-    ///   would reuse Fabric tags and mount on top of the stale tree.
-    /// * a surface id — that surface (LogBox) is hidden: its nodes go away and
-    ///   its root leaves the app root's overlay list, because an empty
-    ///   full-size overlay would swallow every hover and click.
+    /// Fabric emits no `Delete` mutations for a dying surface. On a reload every
+    /// node must go, or the new instance would reuse tags on top of the stale tree.
     pub fn surface_stopped(&mut self, surface_id: i32, cx: &mut Context<Self>) {
         if surface_id == rn_gpui_sys::ALL_SURFACES {
             log::info!(
@@ -211,7 +158,7 @@ impl ViewStore {
             );
             self.nodes.clear();
             self.accessibility_modal_tags.clear();
-            self.hovered.clear();
+            self.hovered.borrow_mut().clear();
             self.active_touch_target = None;
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
             for root in roots {
@@ -251,7 +198,7 @@ impl ViewStore {
             });
         }
         let live: HashSet<i32> = self.nodes.keys().copied().collect();
-        self.hovered.retain(|tag| live.contains(tag));
+        self.hovered.borrow_mut().retain(|tag| live.contains(tag));
         if let Some(root) = self.roots.remove(&surface_id) {
             self.overlay_host.update(cx, |host, cx| {
                 host.remove(surface_id);
@@ -262,21 +209,11 @@ impl ViewStore {
                 cx.notify();
             });
         }
-        // The window binding goes with the surface; the window itself is closed
-        // by the registry (or was already gone).
         self.windows.remove(&surface_id);
         log::info!("[store] surface {surface_id} stopped: dropped {dropped} nodes");
         cx.notify();
     }
 
-    /// The window changed size: hand Fabric the new surface
-    /// constraints so it re-lays out and emits a fresh mount batch (which the
-    /// drain task in `main` applies like any other transaction).
-    ///
-    /// `width`/`height` are the window's viewport (content) size in logical
-    /// pixels — the title bar is not part of the React surface — and `scale` is
-    /// the display scale factor (TODO 2.2 feeds the same value to
-    /// `start_surface`).
     pub fn resize(&mut self, width: f32, height: f32, scale: f32) {
         let surfaces: Vec<i32> = self.roots.keys().copied().collect();
         for surface_id in surfaces {
@@ -286,9 +223,6 @@ impl ViewStore {
         }
     }
 
-    /// Resize only the surfaces shown by `window`. Every window has its own
-    /// bounds observer, so a secondary window's resize must not re-constrain the
-    /// main window's surfaces (or vice versa).
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
         for surface_id in self.surfaces_in_window(window) {
             let height = height - crate::desktop::gpui_menu::menu_bar_inset();
@@ -299,11 +233,8 @@ impl ViewStore {
         }
     }
 
-    /// Apply one Fabric transaction.
-    ///
-    /// Ops are always applied in order: Fabric emits `Create`/`Update` before
-    /// the `Insert` that splices the node into the tree, so a parent always
-    /// exists by the time its children arrive.
+    /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
+    /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
@@ -718,13 +649,8 @@ impl ViewStore {
                                 });
                             }
                         }
-                        // TODO 2.4 — remember the chain so `locationX/Y` can be
-                        // computed relative to the node that was hit.
                         child.update(cx, |child, _cx| child.parent = Some(parent_ref));
                     } else {
-                        // A child of the surface's RootView, which is never
-                        // mounted itself — the root view is created on first use
-                        // (TODO 2.6 also brings up the LogBox overlay this way).
                         let root = self.root_for(surface_id, cx);
                         let (root_surface, before) = {
                             let root_ref = root.read(cx);
@@ -741,7 +667,6 @@ impl ViewStore {
                             root.insert_child(index, op.tag, child.clone());
                             cx.notify();
                         });
-                        // A root child has no parent node to offset against.
                         child.update(cx, |child, _cx| child.parent = None);
                     }
                 }
@@ -850,6 +775,10 @@ impl ViewStore {
                                                     "[screens] pop finished outgoing={screen_tag}"
                                                 );
                                             }
+                                            // The outgoing screen is gone from its
+                                            // parent's children, which is one of
+                                            // the modal-sibling inputs.
+                                            store.refresh_inherited(surface_id, cx);
                                             dispatch_screen_lifecycle_did(
                                                 &store.host,
                                                 Some(screen_tag),
@@ -979,18 +908,86 @@ impl ViewStore {
                 );
             }
         }
-        // A batch means RN just committed, so tick its `EventBeat` right away
-        // instead of waiting for the next frame (TODO 2.3, see `frame.rs`).
+        self.refresh_inherited(surface_id, cx);
         self.host.on_render();
-        // ...and keep the per-frame chain alive for the frames this commit
-        // triggers (a timer or animation that keeps committing does not need a
-        // native event to keep it going).
         let hook = self.frame_hook.clone();
         let target = self.window_for(surface_id).unwrap_or(self.window);
         let _ = cx.update_window(target, |_root, window, _cx| {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+    }
+
+    /// Writes a node only when its value changed, and notifies it only when a
+    /// value its own `render` reads changed.
+    pub(crate) fn refresh_inherited(&mut self, surface_id: i32, cx: &mut Context<Self>) {
+        let mut roots: Vec<Entity<RNNodeView>> = Vec::new();
+        if let Some(root) = self.roots.get(&surface_id) {
+            roots.extend(root.read(cx).children.iter().map(|(_, node)| node.clone()));
+        }
+        // A ModalHostView or RNSFullWindowOverlay is spliced with no RN parent
+        // and painted by the overlay host instead, so it is a second root.
+        for (_, modal) in self.overlay_host.read(cx).modals.iter() {
+            if modal.read(cx).surface_id == surface_id && modal.read(cx).parent.is_none() {
+                roots.push(modal.clone());
+            }
+        }
+        // The pass runs while this entity is being updated, so `origin_frame`
+        // cannot read the store back out of the global; hand it the value.
+        let top_inset = self.top_inset;
+        for root in roots {
+            refresh_inherited_tree(root, top_inset, None, cx);
+        }
+    }
+}
+
+fn refresh_inherited_tree(
+    node: Entity<RNNodeView>,
+    top_inset: f32,
+    parent: Option<(Inherited, InheritInput)>,
+    cx: &mut Context<ViewStore>,
+) {
+    let own = {
+        let view = node.read(cx);
+        view.inherit_input(top_inset)
+    };
+    let inherited = inherit(parent.as_ref().map(|(parent, input)| (parent, input)), &own);
+    let (children, modal_children, changed, render_affecting) = {
+        let view = node.read(cx);
+        let children: Vec<Entity<RNNodeView>> = view
+            .children
+            .iter()
+            .map(|(_, child)| child.clone())
+            .collect();
+        let modal_children = children
+            .iter()
+            .filter(|child| child.read(cx).view.accessibility_modal)
+            .count();
+        (
+            children,
+            modal_children,
+            !view.inherited.same(&inherited),
+            !view.inherited.same_render_affecting(&inherited),
+        )
+    };
+    if changed {
+        node.update(cx, |view, cx| {
+            view.inherited = inherited.clone();
+            if render_affecting {
+                cx.notify();
+            }
+        });
+    }
+    for child in children {
+        let child_is_modal = child.read(cx).view.accessibility_modal;
+        let mut parent_input = own.clone();
+        parent_input.other_modal_child = modal_children > usize::from(child_is_modal);
+        refresh_inherited_tree(
+            child,
+            top_inset,
+            Some((inherited.clone(), parent_input)),
+            cx,
+        );
     }
 }
 
@@ -1010,9 +1007,6 @@ fn set_header_ancestor_hidden(node: Entity<RNNodeView>, hidden: bool, cx: &mut C
     }
 }
 
-/// Translate react-native-screens' activity-state edges into its lifecycle
-/// event contract. State 1 is the transition boundary: entering it announces
-/// will-appear/disappear; leaving it toward 2/0 completes appear/disappear.
 fn screen_lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
     match (previous < 1.0, previous >= 2.0, next < 1.0, next >= 2.0) {
         (true, _, false, true) => &["topWillAppear", "topAppear"],
@@ -1158,6 +1152,7 @@ mod test_app_context_tests {
             content_height: 0.0,
             scroll_horizontal: false,
             scroll_enabled: false,
+            scroll_indicator: false,
             layout_changed: false,
         }
     }
@@ -1200,7 +1195,7 @@ mod test_app_context_tests {
             );
         })
         .unwrap();
-        let hit = cx.read_entity(&store, |store, _| store.hovered.first().copied());
+        let hit = cx.read_entity(&store, |store, _| store.hovered.borrow().first().copied());
         assert_eq!(hit, Some(101));
     }
 
@@ -1336,19 +1331,9 @@ fn kind_name(kind: MountKind) -> &'static str {
     }
 }
 
-/// TODO 2.6 — the LogBox host: a window-sized slot painted above the app
-/// surface, holding the roots of every non-app surface that is currently
-/// visible (surface 2 = LogBox).
-///
-/// Why a separate entity instead of appending to the app root's children: GPUI
-/// only re-runs an entity's `render` when that entity is *tracked* by the window
-/// (see `App::notify` — an untracked entity's notify only fires observers, it
-/// never invalidates the frame). The window's root view is the app surface, and
-/// invalidating it after the first frame turned out to be a no-op, so an overlay
-/// pushed into its `render` never appeared. A child entity that is present in
-/// the element tree from the very first frame *is* tracked — the same mechanism
-/// RN nodes use to repaint on `Update` — so this host is created before the
-/// window opens and only ever toggles its own contents.
+/// A separate entity because GPUI only re-runs `render` for entities the window
+/// tracked while drawing, and the root view is not invalidated after its first
+/// frame. Created before the window opens; it only toggles its own contents.
 pub struct OverlayHost {
     overlays: Vec<(i32, Entity<SurfaceRootView>)>,
     modals: Vec<(i32, Entity<RNNodeView>)>,
@@ -1403,17 +1388,11 @@ impl Render for OverlayHost {
     }
 }
 
-/// The window's root view. One per React Native surface.
 pub struct SurfaceRootView {
     surface_id: i32,
     pub children: Vec<(i32, Entity<RNNodeView>)>,
-    /// TODO 2.6 — set on the app surface only: the tracked child that paints
-    /// LogBox (see [`OverlayHost`]) above this surface's children.
     pub overlay_host: Option<Entity<OverlayHost>>,
-    /// Plan 7.6 — the host-drawn Perf Monitor, painted above everything.
     pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
-    /// Plan 7.1 — the GPUI-rendered menu bar, on the platforms without a native
-    /// one. It takes its height from the surface, which is laid out shorter.
     pub menu_bar: Option<Entity<crate::desktop::gpui_menu::MenuBar>>,
     #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
@@ -1432,8 +1411,6 @@ impl SurfaceRootView {
         }
     }
 
-    /// The app surface hands its root the overlay slot created in `main` before
-    /// the window opened (see [`OverlayHost`] for why it has to exist up front).
     pub fn with_overlay_host(mut self, overlay_host: Entity<OverlayHost>) -> Self {
         self.overlay_host = Some(overlay_host);
         self
@@ -1448,8 +1425,6 @@ impl SurfaceRootView {
         self
     }
 
-    /// Splice in a root child (a Fabric node whose parent is the surface's
-    /// `RootView`), keeping RN's ordering.
     pub fn insert_child(&mut self, index: usize, tag: i32, child: Entity<RNNodeView>) {
         let index = index.min(self.children.len());
         self.children.insert(index, (tag, child));
@@ -1470,10 +1445,8 @@ impl Render for SurfaceRootView {
         let mut root = div()
             .size_full()
             .relative()
-            // TODO 2.5 — the pointer left the window: RN's "pointer left the
-            // root" case, which leaves every node on the hover chain. The root
-            // stays hovered while any descendant is hit, so this only fires when
-            // the cursor really is gone.
+            // The root stays hovered while any descendant is hit, so this only fires when
+            // the pointer left the window.
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
@@ -1507,7 +1480,6 @@ impl Render for SurfaceRootView {
         if let Some(native_view_probe) = &self.native_view_probe {
             root = root.child(native_view_probe.clone());
         }
-        // TODO 2.6 — LogBox (surface 2) paints after the app surface.
         if let Some(overlay_host) = &self.overlay_host {
             #[cfg(target_os = "macos")]
             {
@@ -1534,14 +1506,9 @@ impl Render for SurfaceRootView {
                 root = root.child(overlay_host.clone());
             }
         }
-        // Plan 7.6 — the Perf Monitor paints above every surface (and above the
-        // LogBox overlay) so it never competes with what it measures.
         if let Some(monitor) = self.perf_monitor.clone() {
             root = root.child(monitor);
         }
-        // Plan 7.1 — the GPUI menu bar sits above the surface, which Fabric
-        // lays out `menu_bar_inset()` shorter, so the strip takes its space
-        // from the window instead of covering the app.
         if let Some(menu_bar) = self.menu_bar.clone() {
             return div()
                 .size_full()
@@ -1565,7 +1532,6 @@ fn node_tree_contains_native_view(node: &Entity<RNNodeView>, cx: &App) -> bool {
             .any(|(_, child)| node_tree_contains_native_view(child, cx))
 }
 
-/// Keeps `App` in scope for callers that only need the store's helpers.
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {
     cx.try_global::<StoreGlobal>()
         .map(|global| global.0.clone())

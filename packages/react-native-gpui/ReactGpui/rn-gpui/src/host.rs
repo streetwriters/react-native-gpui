@@ -1,10 +1,3 @@
-//! Rust wrapper over the C++ `GpuiHost` (design doc §18.11).
-//!
-//! The host owns the ReactInstance: the JS engine, the Fabric scheduler and the
-//! mounting manager. It is created on the main thread, and every call is
-//! serialised through a mutex because the mount callback path (JS/Fabric
-//! thread) touches it too.
-
 use rn_gpui_sys::ffi;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +9,6 @@ use std::sync::{Arc, Mutex};
 pub struct Host(Arc<Mutex<cxx::UniquePtr<ffi::GpuiHost>>>);
 
 impl Host {
-    /// `js_engine` names the engine package to run; empty uses the default.
     pub fn new(app_id: &str, dev_host: &str, port: u32, js_engine: &str) -> Self {
         #[cfg(test)]
         {
@@ -34,8 +26,6 @@ impl Host {
         Self(Arc::new(Mutex::new(cxx::UniquePtr::null())))
     }
 
-    /// Loads the JS bundle. `bundle` is a file path used when Metro is not
-    /// reachable; `url` is the source URL RN reports to JS.
     pub fn load_script(&self, bundle: &str, url: &str) -> bool {
         #[cfg(test)]
         {
@@ -57,8 +47,6 @@ impl Host {
             .start_surface(id, module, w, h, scale)
     }
 
-    /// Start a surface whose root component receives `props_json` as
-    /// `initialProps`. The desktop window registry passes `windowId` here.
     pub fn start_surface_with_props(
         &self,
         id: i32,
@@ -89,8 +77,6 @@ impl Host {
             .set_surface_size(id, w, h, scale)
     }
 
-    /// Tear down one surface. C++ also tells the store to drop that surface's
-    /// tree (`rn_gpui_on_surface_stopped`), which arrives on the main thread.
     pub fn stop_surface(&self, id: i32) {
         #[cfg(test)]
         let _ = (self, id);
@@ -116,7 +102,6 @@ impl Host {
             .set_window_metrics(w, h, scale)
     }
 
-    /// Reload the JS instance (the Dev Menu's Reload).
     pub fn request_reload(&self) {
         #[cfg(test)]
         let _ = self;
@@ -124,12 +109,51 @@ impl Host {
         self.0.lock().unwrap().pin_mut().request_reload()
     }
 
-    /// Open React Native DevTools through the Metro inspector proxy.
+    pub fn set_dev_server(&self, host: &str, port: u32) -> bool {
+        #[cfg(test)]
+        {
+            let _ = (self, host, port);
+            false
+        }
+        #[cfg(not(test))]
+        self.0.lock().unwrap().pin_mut().set_dev_server(host, port)
+    }
+
+    pub fn dev_server_address(&self) -> String {
+        #[cfg(test)]
+        {
+            let _ = self;
+            String::new()
+        }
+        #[cfg(not(test))]
+        self.0.lock().unwrap().dev_server_address()
+    }
+
     pub fn open_debugger(&self) {
         #[cfg(test)]
         let _ = self;
         #[cfg(not(test))]
         self.0.lock().unwrap().open_debugger()
+    }
+
+    pub fn js_frame_probe(&self) -> u64 {
+        #[cfg(test)]
+        {
+            let _ = self;
+            0
+        }
+        #[cfg(not(test))]
+        self.0.lock().unwrap().js_frame_probe()
+    }
+
+    pub fn js_heap_bytes(&self) -> u64 {
+        #[cfg(test)]
+        {
+            let _ = self;
+            0
+        }
+        #[cfg(not(test))]
+        self.0.lock().unwrap().js_heap_bytes()
     }
 
     pub fn set_system_appearance(&self, appearance: &str) {
@@ -195,7 +219,7 @@ impl Host {
             .emit_device_event_bool(event_name, value)
     }
 
-    /// Device event with a JSON object payload (design §3.2 step 4). The string
+    /// Device event with a JSON object payload. The string
     /// must be a JSON object; the native side drops a malformed payload with a
     /// warning rather than throwing on the main thread.
     pub fn emit_device_event_json(&self, event_name: &str, payload_json: &str) {

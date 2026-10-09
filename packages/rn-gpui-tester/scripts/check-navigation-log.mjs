@@ -10,8 +10,6 @@ if (scenario === 'nav-drawer' || scenario === 'nav-drawer-back') {
     log,
     /WorkletsError|Tried to synchronously call a Remote Function/,
   );
-  // With RN_GPUI_DEBUG_ANIMATION=1, detect the former mount/animation
-  // feedback loop (60 ticks in ~3 ms rather than display cadence).
   const frameWindows = [
     ...log.matchAll(/native frame cadence frames=60 elapsed_ms=([\d.]+)/g),
   ];

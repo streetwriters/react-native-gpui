@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Formats or checks the repo's own C, C++, Objective-C and Rust sources.
-//
-//   node scripts/format-native.mjs [--check] [files...]
-//
-// With no files, every tracked and untracked repo native source is processed.
-// Vendored React Native sources and third-party code are skipped so upstream
-// diffs stay clean.
 import { existsSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';

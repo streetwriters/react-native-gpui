@@ -1,9 +1,3 @@
-//! AppKit native views embedded in Fabric's `NativeViewHost` component.
-//!
-//! A factory returns one owned `NSView` reference. The runtime attaches it to
-//! a GPUI composition surface, tracks Fabric layout bounds, and releases it
-//! when the host node unmounts or its factory props change.
-
 use anyhow::Context as _;
 use cocoa::{
     appkit::{NSView, NSViewHeightSizable, NSViewWidthSizable},
@@ -25,18 +19,14 @@ pub use anyhow::Result;
 pub use cocoa as appkit;
 pub use objc as objective_c;
 
-/// Information a native view factory may use when constructing its AppKit
-/// view. `native_props` is the JSON value passed to `<NativeViewHost />`.
 pub struct NativeViewContext {
     pub native_props: Value,
 }
 
-/// Creates the `NSView` hosted at a Fabric `NativeViewHost` node.
 pub trait NativeViewFactory: Send + Sync + 'static {
     fn create_view(&self, context: &NativeViewContext) -> Result<NativeViewHandle>;
 }
 
-/// An owned AppKit view returned by a [`NativeViewFactory`].
 pub struct NativeViewHandle {
     view: id,
 }
@@ -55,7 +45,6 @@ struct NativeViewFactories(Arc<Mutex<HashMap<String, Arc<dyn NativeViewFactory>>
 
 impl gpui::Global for NativeViewFactories {}
 
-/// Register a library's native view factory during `DesktopAppConfig::on_app_ready`.
 pub fn register_native_view_factory(
     cx: &mut App,
     name: impl Into<String>,
@@ -240,8 +229,6 @@ pub(crate) fn window_top_inset(window: &Window) -> f32 {
     }
 }
 
-/// Request the real AppKit provider tree for accessibility probe assertions.
-/// This activates AccessKit without changing the user's VoiceOver setting.
 #[cfg(feature = "visual-capture")]
 pub(crate) fn activate_accessibility_probe(window: &Window) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -281,7 +268,6 @@ pub(crate) fn set_probe_titlebar_transparent(window: &Window, transparent: bool)
     }
 }
 
-/// Inspect the platform's actual accessibility element by its RN identifier.
 #[cfg(feature = "test-driver")]
 pub(crate) fn test_accessibility_node(
     window: &Window,

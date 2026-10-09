@@ -152,8 +152,6 @@ fn collect_font_files(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Register fonts bundled by the desktop CLI and expose runtime font loading
-/// to the out-of-tree `@react-native-gpui/fonts` TurboModule.
 pub(crate) fn install_fonts(cx: &mut App) {
     let directory = std::env::var_os("RN_GPUI_ASSETS_DIR")
         .map(PathBuf::from)
@@ -552,7 +550,6 @@ impl TextService {
     }
 }
 
-/// Install the synchronized shaper before creating a React surface.
 pub fn install_measure_handler(cx: &mut App) {
     let service = Arc::new(TextService {
         text_system: cx.text_system().clone(),
@@ -568,7 +565,6 @@ pub fn install_measure_handler(cx: &mut App) {
     }));
 }
 
-/// Paint the lines produced by the same cached GPUI layout used during Yoga measurement.
 pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> impl IntoElement {
     let shaped = TEXT_SERVICE
         .get()

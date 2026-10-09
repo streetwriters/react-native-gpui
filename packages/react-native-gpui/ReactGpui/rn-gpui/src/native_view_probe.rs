@@ -1,7 +1,3 @@
-//! macOS composition fixtures for Phase 4.1/4.2. An AppKit NSView or WKWebView
-//! is attached to a GPUI native composition surface while deferred GPUI content
-//! paints on the overlay surface.
-
 use anyhow::{Context as _, Result};
 use cocoa::{
     appkit::{NSView, NSViewHeightSizable, NSViewWidthSizable},
@@ -131,7 +127,6 @@ impl Drop for NativeViewCompositionProbe {
     }
 }
 
-/// GPUI entity that creates the test surface only after its window is live.
 pub struct NativeViewCompositionProbeView {
     fixture: Option<Rc<NativeViewCompositionProbe>>,
     overlay_visible: bool,

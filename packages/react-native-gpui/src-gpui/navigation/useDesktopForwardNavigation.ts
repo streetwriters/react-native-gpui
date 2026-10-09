@@ -42,7 +42,6 @@ function stackRoutes(state: NavigationState | undefined) {
   return stacks;
 }
 
-/** Restores popped routes with PUSH, including repeated names and nested stacks. */
 export function useDesktopForwardNavigation(navigationRef: NavigationRef) {
   const previousStacks = useRef(new Map<string, Route[]>());
   const history = useRef<Array<{ target: string; route: Route }>>([]);

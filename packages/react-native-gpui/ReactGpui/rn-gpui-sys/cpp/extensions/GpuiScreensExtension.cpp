@@ -1,6 +1,3 @@
-// Screens glue (@react-native-gpui/screens). Compiled into rn_gpui_extensions
-// only when the screens package is present. Fills the header and screen
-// fields of MountOp and adjusts their frames.
 #include "GpuiExtensions.h"
 #include "MountBatchBuilder.h"
 
@@ -9,7 +6,6 @@
 #include <algorithm>
 
 namespace rngpui {
-
 using namespace facebook::react;
 
 void rn_gpui_install_screens_extension() {

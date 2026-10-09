@@ -1,5 +1,5 @@
 /**
- * `Menu` — the application menu bar (plan item 7.1, §5.1).
+ * `Menu` — the application menu bar.
  *
  * @format
  */
@@ -9,7 +9,6 @@ import { DeviceEventEmitter } from 'react-native';
 import { call } from './index';
 import type { Subscription } from './windows';
 
-/** The roles from the plan's `MenuRole` union. */
 export type MenuRole =
   | 'about'
   | 'services'
@@ -81,17 +80,14 @@ export const Menu = {
     return call<void>('menu', 'set', { items });
   },
 
-  /** Patch one item by id (label, enabled, checked). */
   update(id: string, patch: MenuItemPatch): Promise<void> {
     return call<void>('menu', 'update', { id, patch });
   },
 
-  /** The menu as the host has it. */
   get(): Promise<MenuDescription> {
     return call<MenuDescription>('menu', 'get');
   },
 
-  /** Listen for item presses (accelerator or click). */
   addListener(
     event: 'press',
     listener: (event: MenuPressEvent) => void,
@@ -116,7 +112,6 @@ export interface ApplicationMenuProps {
  * menu on unmount, and patches single-item changes instead of rebuilding.
  */
 export function ApplicationMenu({ items, onPress }: ApplicationMenuProps) {
-  /** The menu that was installed before this component mounted. */
   const restore = React.useRef<MenuItemSpec[] | null>(null);
   const last = React.useRef<MenuItemSpec[] | null>(null);
   const [ready, setReady] = React.useState(false);
@@ -129,7 +124,6 @@ export function ApplicationMenu({ items, onPress }: ApplicationMenuProps) {
     return undefined;
   }, [onPress]);
 
-  // Capture the menu to restore on unmount.
   React.useEffect(() => {
     let cancelled = false;
     Menu.get()
@@ -158,18 +152,17 @@ export function ApplicationMenu({ items, onPress }: ApplicationMenuProps) {
       previous != null && items != null ? diffItems(previous, items) : null;
     if (patches) {
       for (const patch of patches) {
-        void Menu.update(patch.id, patch.patch);
+        Menu.update(patch.id, patch.patch);
       }
     } else {
-      void Menu.setApplicationMenu(items);
+      Menu.setApplicationMenu(items);
     }
     last.current = items;
   }, [items, ready]);
 
   React.useEffect(() => {
     return () => {
-      // Restore whatever was installed before this component mounted.
-      void Menu.setApplicationMenu(restore.current);
+      Menu.setApplicationMenu(restore.current);
     };
   }, []);
 

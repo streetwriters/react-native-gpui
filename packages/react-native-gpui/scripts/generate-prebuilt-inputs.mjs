@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Generates the two C++ inputs of the prebuilt runtime that otherwise come from
-// a Cargo build of rn-gpui-sys: the cxx bridge headers and FBReactNativeSpec.
-// Both use the same tools as build.rs so the prebuilt matches a source build.
-//
-// Usage: node scripts/generate-prebuilt-inputs.mjs <out-dir>
-//   <out-dir>/cxxbridge-include/rust/cxx.h
-//   <out-dir>/cxxbridge-include/rn-gpui-sys/src/lib.rs.h
-//   <out-dir>/fbreactnativespec/   (stdout: nothing; diagnostics on stderr)
-//
-// The cxxbridge CLI is cxxbridge-cmd at the exact version locked in
-// ReactGpui/Cargo.lock (cxx 1.0.202). It is installed into a scratch dir with
-// `cargo install --locked`, so no tester or workspace build is needed.
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -71,7 +59,6 @@ function lockedCxxVersion() {
   return match[1];
 }
 
-// Install cxxbridge-cmd once into a cache dir beside the build; reused after.
 function ensureCxxbridge(toolRoot) {
   const bin = path.join(
     toolRoot,
@@ -106,7 +93,6 @@ lockedCxxVersion();
 const toolRoot = path.join(os.tmpdir(), `rn-gpui-cxxbridge-${CXX_VERSION}`);
 const cxxbridge = ensureCxxbridge(toolRoot);
 
-// 1. cxxbridge headers, as cxx_build emits them for src/lib.rs.
 const bridgeInclude = path.join(outDir, 'cxxbridge-include');
 rmSync(bridgeInclude, { recursive: true, force: true });
 mkdirSync(path.join(bridgeInclude, 'rust'), { recursive: true });
@@ -119,7 +105,6 @@ const libRsH = run(cxxbridge, [
 ]);
 writeFile(path.join(bridgeInclude, 'rn-gpui-sys', 'src', 'lib.rs.h'), libRsH);
 
-// 2. FBReactNativeSpec, generated with the same script build.rs runs.
 const rncoreDir = path.join(outDir, 'fbreactnativespec');
 rmSync(rncoreDir, { recursive: true, force: true });
 run(process.execPath, [fbSpecCodegen, reactNativeDir, rncoreDir], {

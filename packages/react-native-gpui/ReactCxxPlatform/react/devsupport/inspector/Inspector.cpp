@@ -171,6 +171,14 @@ void Inspector::connectDebugger(const std::string& inspectorUrl) noexcept {
   });
 }
 
+void Inspector::disconnectDebugger() noexcept {
+  invokeElsePost([weakThis = weak_from_this()]() {
+    if (auto self = weakThis.lock()) {
+      self->packagerConnection_.reset();
+    }
+  });
+}
+
 void Inspector::ensureHostTarget(
     LiveReloadCallbackFn&& liveReloadCallbackFn,
     ToggleDebuggerOverlayFn&& toggleDebuggerOverlayFn) noexcept {

@@ -49,6 +49,25 @@ class DevServerHelper {
 
   void setupHMRClient() const;
 
+  // react-native-gpui: the Dev Menu's "Configure Bundler". Every URL this
+  // helper hands out is built from these on demand, so the next bundle load
+  // and the connections made after it use the new server.
+  void setDevServer(std::string host, uint32_t port)
+  {
+    devServerHost_ = std::move(host);
+    devServerPort_ = port;
+  }
+
+  const std::string &devServerHost() const
+  {
+    return devServerHost_;
+  }
+
+  uint32_t devServerPort() const
+  {
+    return devServerPort_;
+  }
+
  private:
   std::string appId_;
   std::string deviceName_;

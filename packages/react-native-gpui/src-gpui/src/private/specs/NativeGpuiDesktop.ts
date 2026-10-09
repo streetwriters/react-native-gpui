@@ -1,5 +1,5 @@
 /**
- * Core desktop-shell TurboModule (plan 7.1–7.6, design §3.2).
+ * Core desktop-shell TurboModule.
  *
  * One module carries every desktop-shell call as a `(domain, method, argsJson)`
  * triple so the native surface stays small and all logic lives in Rust, where
@@ -21,7 +21,7 @@ import { TurboModuleRegistry } from 'react-native';
 export interface Spec extends TurboModule {
   /**
    * Run one desktop-shell command. Resolves with a JSON string; rejects with
-   * `{code, message}` (see the error table in the plan, §3.4).
+   * `{code, message}`.
    */
   call(domain: string, method: string, argsJson: string): Promise<string>;
 

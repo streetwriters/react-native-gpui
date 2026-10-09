@@ -1,5 +1,5 @@
 /**
- * `DesktopWindow` — window and title-bar control (plan item 7.4, §8.1).
+ * `DesktopWindow` — window and title-bar control.
  *
  * Every method is a thin wrapper over the `GpuiDesktop` bridge. Methods the OS
  * cannot implement reject with `DesktopError('unsupported')`.
@@ -66,7 +66,6 @@ const EVENT_NAMES: Record<WindowEventName, string> = {
 
 export class DesktopWindow {
   readonly id: number;
-  /** The `AppRegistry` key this window runs, when known. */
   readonly component: string | undefined;
 
   constructor(id: number, component?: string) {
@@ -81,13 +80,12 @@ export class DesktopWindow {
    * `useDesktopWindow()` is the same thing under a hook-shaped name.
    */
   static current(): DesktopWindow {
-    // `current()` is a hook in disguise (plan §8.1): it must be called during
+    // `current()` is a hook in disguise: it must be called during
     // render, exactly like `useDesktopWindow()`.
     // eslint-disable-next-line react-hooks/rules-of-hooks
     return new DesktopWindow(useDesktopWindowId());
   }
 
-  /** Open a new window running `options.component`. */
   static async open(options: OpenWindowOptions): Promise<DesktopWindow> {
     const result = await call<{ windowId: number }>('window', 'open', {
       ...options,
@@ -95,7 +93,6 @@ export class DesktopWindow {
     return new DesktopWindow(result.windowId);
   }
 
-  /** Every open window. */
   static async all(): Promise<DesktopWindow[]> {
     const result = await call<{
       windows: { windowId: number; component: string }[];
@@ -212,21 +209,19 @@ export class DesktopWindow {
       }
     });
     if (event === 'closeRequested') {
-      // JS wants to decide: turn interception on for this window.
-      void this.interceptClose(true);
+      this.interceptClose(true);
     }
     return {
       remove: () => {
         emitter.remove();
         if (event === 'closeRequested') {
-          void this.interceptClose(false);
+          this.interceptClose(false);
         }
       },
     };
   }
 }
 
-/** The window id of the component that calls this (hook form). */
 export function useDesktopWindow(): DesktopWindow {
   return new DesktopWindow(useDesktopWindowId());
 }

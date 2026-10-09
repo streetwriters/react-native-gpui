@@ -2,7 +2,6 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach } from 'vitest';
 import type { DesktopApp } from './client.js';
 
-/** Register once in a Vitest setup file or e2e test file. */
 export function setupDesktopTests(options: { keepApps?: boolean } = {}) {
   const apps = new Set<DesktopApp>();
   (

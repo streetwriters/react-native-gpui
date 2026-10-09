@@ -1,5 +1,3 @@
-// SVG glue (@react-native-gpui/svg). Compiled into rn_gpui_extensions only
-// when the svg package is present. Serializes RNSVG* props for MountOp.
 #include "GpuiExtensions.h"
 #include "MountBatchBuilder.h"
 
@@ -10,7 +8,6 @@
 #include <vector>
 
 namespace rngpui {
-
 using namespace facebook::react;
 
 namespace {

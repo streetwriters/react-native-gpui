@@ -1,5 +1,3 @@
-//! TextInput's bridge to GPUI's platform text-input session (including IME).
-
 use crate::node_view::RNNodeView;
 use crate::store::store_from;
 use gpui::{
@@ -145,9 +143,6 @@ pub(crate) fn handle_key(
     }
 }
 
-/// Place or extend the native text selection from a pointer position. GPUI's
-/// input handler supplies the shaped-text hit test, while RN receives the
-/// resulting UTF-16 selection event through the same path as keyboard moves.
 pub(crate) fn select_at_point(
     this: &mut RNNodeView,
     point: Point<Pixels>,
@@ -182,8 +177,6 @@ pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Co
     emit_selection(this, window, cx);
 }
 
-/// Copy the selected text to the system clipboard. Returns whether there was a
-/// selection to copy.
 pub(crate) fn copy_selection(this: &RNNodeView, cx: &mut gpui::App) -> bool {
     if this.component != "TextInput" {
         return false;
@@ -197,7 +190,6 @@ pub(crate) fn copy_selection(this: &RNNodeView, cx: &mut gpui::App) -> bool {
     true
 }
 
-/// Cut the selection (plan §5.2's Edit role).
 pub(crate) fn cut_selection(
     this: &mut RNNodeView,
     window: &mut Window,
@@ -216,7 +208,6 @@ pub(crate) fn cut_selection(
     true
 }
 
-/// Paste the clipboard into the selection (plan §5.2's Edit role).
 pub(crate) fn paste_clipboard(
     this: &mut RNNodeView,
     window: &mut Window,

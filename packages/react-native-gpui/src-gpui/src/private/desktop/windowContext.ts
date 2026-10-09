@@ -1,5 +1,5 @@
 /**
- * The React context that tells a window's JS which window it is (plan §3.3).
+ * The React context that tells a window's JS which window it is.
  *
  * `AppRegistry` renders the app's root component with the surface's
  * `initialProps`, and the host passes `windowId` in them. A wrapper component
@@ -14,22 +14,16 @@ import React, { createContext, useContext } from 'react';
 import { AppRegistry } from 'react-native';
 import { installPerfMonitorBridge } from './perfMonitor';
 
-/** The main window is always `1`. */
 export const MAIN_WINDOW_ID = 1;
 
 export const DesktopWindowContext = createContext<number>(MAIN_WINDOW_ID);
 
-/** The window id of the component that calls this. */
 export function useDesktopWindowId(): number {
   return useContext(DesktopWindowContext);
 }
 
 let installed = false;
 
-/**
- * Install the `AppRegistry` wrapper that provides [`DesktopWindowContext`].
- * Idempotent; called once from the platform entry point.
- */
 export function installDesktopWindowContext(): void {
   if (installed) {
     return;

@@ -1,5 +1,3 @@
-// Fabric mutation flattening implementation (design doc §18.8). Field names
-// and types follow the React Native 0.87.1 headers (the headers win; see §19).
 #include "MountBatchBuilder.h"
 #include "GpuiExtensions.h"
 #include "GpuiTextMeasure.h"
@@ -22,7 +20,6 @@
 #include <utility>
 
 namespace rngpui {
-
 using namespace facebook::react;
 
 uint32_t argb(const SharedColor& color) {
@@ -271,7 +268,7 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   const auto& attributes = data.paragraphAttributes;
   out.max_lines = attributes.maximumNumberOfLines;
   // EllipsizeMode is {Clip=0, Head=1, Tail=2, Middle=3} but the GPUI slot
-  // encodes {0 tail, 1 head, 2 middle, 3 clip} (design doc §18.6).
+  // encodes {0 tail, 1 head, 2 middle, 3 clip}.
   switch (attributes.ellipsizeMode) {
     case EllipsizeMode::Clip:
       out.ellipsize = 3;
@@ -416,6 +413,9 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
               shadowView.props)) {
         op.scroll_horizontal = props->horizontal;
         op.scroll_enabled = props->scrollEnabled;
+        op.scroll_indicator = props->horizontal
+            ? props->showsHorizontalScrollIndicator
+            : props->showsVerticalScrollIndicator;
       }
       if (auto state =
               std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(
@@ -433,9 +433,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 }
 
 namespace {
-
-// Measures one paragraph through the Rust bridge. The override only sees the
-// plain table in GpuiTextMeasure.h, so the rust:: types stay in this file.
 GpuiTextSize measureParagraphThroughRust(
     const AttributedString& text,
     const ParagraphAttributes& attributes,
@@ -472,8 +469,6 @@ GpuiTextSize measureParagraphThroughRust(
 
 } // namespace
 
-// Installs the Rust-backed measurer. Called from the GpuiHost constructor,
-// before any surface starts.
 void installGpuiTextMeasureTable() {
   setGpuiTextMeasureTable(
       GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});

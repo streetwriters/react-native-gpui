@@ -204,8 +204,7 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     await app.reload();
     await expect(app.getByText('Home')).toBeVisible();
     await expect(app.getByTestId('e2e-text-input')).toHaveValue('');
-    // Reload resets JS animation tags. Reusing the old native graph previously
-    // crashed here with an invalid mutex when connecting the new props node.
+    // Reload resets JS animation tags; the old native graph must not be reused.
     for (let cycle = 0; cycle < 3; cycle++) {
       await app.getByText('Open details').click();
       await expect(app.getByTestId('Details 1-title')).toBeVisible();

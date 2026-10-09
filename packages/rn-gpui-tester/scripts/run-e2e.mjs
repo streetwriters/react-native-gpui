@@ -39,7 +39,6 @@ const keepApp =
   process.env.RN_GPUI_KEEP_APP === '1' || process.argv.includes('--keep-app');
 const headed =
   process.env.RN_GPUI_HEADED === '1' || process.argv.includes('--headed');
-// Flags this runner handles itself must not reach Vitest.
 const passthrough = process.argv
   .slice(2)
   .filter(arg => arg !== '--keep-app' && arg !== '--headed');
@@ -60,7 +59,6 @@ function assertScreenIsUnlocked() {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {
-    // No ioreg, or it refused: let the run report whatever it finds.
     return;
   }
   if (!/<key>CGSSessionScreenIsLocked<\/key>\s*<true\/>/u.test(output)) return;
@@ -71,7 +69,6 @@ function assertScreenIsUnlocked() {
   );
 }
 
-/** Kill every test app process, including detached ones from earlier runs. */
 function stopTestApps() {
   const candidates = new Set();
   if (fs.existsSync(pidFile)) {
@@ -250,7 +247,6 @@ try {
       'run',
       '--config',
       path.join(repoRoot, 'vitest.e2e.config.ts'),
-      // A headed run is for watching, so show one app window at a time.
       ...(headed && !passthrough.some(arg => arg.startsWith('--maxWorkers'))
         ? ['--maxWorkers=1']
         : []),

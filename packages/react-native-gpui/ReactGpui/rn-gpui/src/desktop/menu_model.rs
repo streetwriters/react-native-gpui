@@ -1,11 +1,3 @@
-//! JSON menu description -> validated model (plan §4, §5).
-//!
-//! The JS API accepts Electron-style accelerators (`CmdOrCtrl+Shift+K`) and a
-//! small declarative item grammar. This module is the authoritative validator:
-//! a typo becomes an `invalid_argument` error instead of a silently ignored
-//! field, duplicate ids are rejected, and an unknown accelerator token names the
-//! token that was wrong.
-
 use crate::desktop::errors::DesktopError;
 use serde_json::Value;
 
@@ -13,13 +5,11 @@ use serde_json::Value;
 /// malformed payload cannot recurse without bound.
 pub const MAX_DEPTH: usize = 10;
 
-/// One entry in a menu.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MenuNode {
     Item(MenuItemDef),
     Submenu(SubmenuDef),
     Separator,
-    /// A whole standard submenu (`appMenu`, `editMenu`, …).
     StandardMenu(MenuRole),
 }
 
@@ -41,7 +31,6 @@ pub struct SubmenuDef {
     pub items: Vec<MenuNode>,
 }
 
-/// The roles from the plan's `MenuRole` union.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuRole {
     About,
@@ -95,7 +84,6 @@ impl MenuRole {
         })
     }
 
-    /// Whether the role stands for a whole standard submenu.
     pub fn is_standard_menu(self) -> bool {
         matches!(
             self,
@@ -103,7 +91,6 @@ impl MenuRole {
         )
     }
 
-    /// The default label for a role item.
     pub fn default_label(self) -> &'static str {
         match self {
             Self::About => "About",
@@ -131,10 +118,9 @@ impl MenuRole {
     }
 
     /// Whether this platform can implement the role. Roles with no meaning are
-    /// dropped from the built menu rather than shown disabled (plan §5.4).
+    /// dropped from the built menu rather than shown disabled.
     pub fn is_supported(self) -> bool {
         match self {
-            // Services and the app-menu group are macOS concepts.
             Self::Services | Self::Hide | Self::HideOthers | Self::ShowAll => {
                 cfg!(target_os = "macos")
             }
@@ -144,21 +130,18 @@ impl MenuRole {
     }
 }
 
-/// A validated menu.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct MenuModel {
     pub items: Vec<MenuNode>,
 }
 
 impl MenuModel {
-    /// Every id in the tree, in document order.
     pub fn ids(&self) -> Vec<String> {
         let mut ids = Vec::new();
         collect_ids(&self.items, &mut ids);
         ids
     }
 
-    /// The item with `id`, anywhere in the tree.
     pub fn find(&self, id: &str) -> Option<&MenuItemDef> {
         fn walk<'a>(items: &'a [MenuNode], id: &str) -> Option<&'a MenuItemDef> {
             for node in items {
@@ -177,15 +160,12 @@ impl MenuModel {
         walk(&self.items, id)
     }
 
-    /// Every accelerator in the tree with its item id.
     pub fn accelerators(&self) -> Vec<(String, String)> {
         let mut bindings = Vec::new();
         collect_accelerators(&self.items, &mut bindings);
         bindings
     }
 
-    /// The standard submenu role a top-level menu stands for, when it is a
-    /// `role` node rather than a plain submenu.
     pub fn has_help_menu(&self) -> bool {
         self.items.iter().any(|node| match node {
             MenuNode::StandardMenu(MenuRole::HelpMenu) => true,
@@ -224,7 +204,6 @@ fn collect_accelerators(items: &[MenuNode], out: &mut Vec<(String, String)>) {
     }
 }
 
-/// Parse the JS `MenuItem[]` JSON.
 pub fn parse_menu(value: &Value) -> Result<MenuModel, DesktopError> {
     let array = value
         .as_array()
@@ -413,10 +392,7 @@ fn optional_bool(
     }
 }
 
-/// Convert an Electron-style accelerator into a GPUI keystroke.
-///
-/// `CmdOrCtrl` becomes GPUI's `secondary`, which is Command on macOS and Control
-/// elsewhere, so one JS string means the right thing on every platform.
+/// `CmdOrCtrl` becomes GPUI's `secondary`: Command on macOS, Control elsewhere.
 pub fn parse_accelerator(spec: &str) -> Result<String, DesktopError> {
     let trimmed = spec.trim();
     if trimmed.is_empty() {
@@ -472,10 +448,8 @@ pub fn parse_accelerator(spec: &str) -> Result<String, DesktopError> {
     Ok(keystroke)
 }
 
-/// Map an Electron key token to the key name GPUI's keymap matches.
 fn accelerator_key(token: &str) -> Option<String> {
     let lower = token.to_ascii_lowercase();
-    // A single character is used as-is (letters, digits, punctuation).
     if token.chars().count() == 1 {
         let character = token.chars().next()?;
         if character.is_ascii_alphanumeric() {

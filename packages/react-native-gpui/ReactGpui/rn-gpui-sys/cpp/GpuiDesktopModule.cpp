@@ -1,4 +1,3 @@
-// Core desktop-shell TurboModule (plan 7.1–7.6, design §3.2).
 #include "GpuiDesktopModule.h"
 
 #include <react/bridging/Function.h>
@@ -18,9 +17,6 @@ using namespace facebook::react;
 
 namespace rngpui {
 namespace {
-
-/// One in-flight `call()`: the JS promise plus the invoker used to settle it on
-/// the JS thread. The runtime pointer is only dereferenced from that thread.
 struct DesktopPromise {
   std::shared_ptr<CallInvoker> jsInvoker;
   facebook::jsi::Runtime* runtime;
@@ -31,9 +27,6 @@ std::mutex desktopPromisesMutex;
 std::unordered_map<int32_t, std::shared_ptr<DesktopPromise>> desktopPromises;
 std::atomic<int32_t> nextDesktopRequestId{1};
 
-/// JSON-encode `{"code": ..., "message": ...}` for a rejection.
-/// `Promise::reject` only carries a string, so the wrapper parses this back
-/// into a typed error.
 std::string errorJson(const char* code, const std::string& message) {
   folly::dynamic payload =
       folly::dynamic::object("code", code)("message", message);
@@ -92,8 +85,6 @@ class GpuiDesktopModule final
 
 } // namespace
 
-/// Settle one pending call. `ok == false` rejects with `json`, which the JS
-/// wrapper turns back into a `{code, message}` error.
 void rn_gpui_desktop_result(int32_t id, bool ok, rust::String json) {
   std::shared_ptr<DesktopPromise> pending;
   {

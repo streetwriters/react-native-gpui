@@ -171,7 +171,7 @@ export default function ReanimatedDemo(): React.JSX.Element {
       console.log('[reanimated-demo] JS busy started');
       const finishAt = Date.now() + 3000;
       while (Date.now() < finishAt) {
-        // Explicit demo: all ongoing motion and scroll worklets stay on the UI runtime.
+        // Busy on purpose: motion and scroll worklets stay on the UI runtime.
       }
       console.log('[reanimated-demo] JS busy finished');
       setJsBusy(false);

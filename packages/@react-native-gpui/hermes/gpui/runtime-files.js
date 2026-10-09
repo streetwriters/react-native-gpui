@@ -1,6 +1,3 @@
-// Shared libraries this engine package must ship next to the app executable
-// (or in Contents/Frameworks). Core's packaging and rn-gpui's run-time staging
-// call this instead of knowing "hermesvm".
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -21,7 +18,6 @@ const LIBRARY_NAMES = {
   win32: 'hermesvm.dll',
 };
 
-/** Absolute paths of the shared libraries to stage for `platform`/`arch`. */
 module.exports = (platform, arch) => {
   const directory = PLATFORM_DIRECTORIES[`${platform}-${arch}`];
   if (!directory) return [];

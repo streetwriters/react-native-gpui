@@ -1,17 +1,3 @@
-# Builds the desktop Hermes VM and compiler for Windows and stages them into
-# packages\@react-native-gpui\hermes\bin\win32-<arch>\.
-#
-# Prefer the hermes-engine GitHub workflow; this script is the local/offline
-# path and expects a facebook/hermes checkout at the commit pinned in
-# packages\@react-native-gpui\hermes\package.json.
-#
-#   .\scripts\build-hermes-windows.ps1                  # host architecture
-#   .\scripts\build-hermes-windows.ps1 -Arch arm64      # on an ARM64 machine
-#
-# The MSVC environment is set up by the script itself, so it does not have to be
-# run from a Visual Studio Developer PowerShell. That matters: CMake otherwise
-# picks up whichever compiler it finds first, and an MSYS2 GCC on PATH produces
-# MinGW import libraries that break the build.
 param(
   [string]$HermesSource = $env:RN_GPUI_HERMES_SOURCE_DIR,
   [string]$HermesBuild = $env:RN_GPUI_HERMES_BUILD_DIR,
@@ -52,7 +38,6 @@ if ($Arch -ne $hostArch) {
   throw "Cross-compiling win32-$Arch on a $hostArch host is not supported by this script."
 }
 
-# Import the MSVC environment for the requested architecture.
 function Initialize-MsvcEnvironment {
   param([string]$TargetArch)
 

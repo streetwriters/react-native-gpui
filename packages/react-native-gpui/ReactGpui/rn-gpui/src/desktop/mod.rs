@@ -1,15 +1,3 @@
-//! Desktop shell: application menu, context menus, tray, windows, Dev Menu and
-//! the Perf Monitor (plan items 7.1–7.6).
-//!
-//! Everything here runs on the GPUI main thread. The JS side talks to it
-//! through one core TurboModule (`GpuiDesktop`): `call(domain, method, args)`
-//! becomes [`MainEvent::Desktop`](crate::bootstrap) and is answered with
-//! `rn_gpui_desktop_result`. See `.local/desktop-shell.md` §3.
-//!
-//! Module layout mirrors the plan:
-//! * [`errors`] — the one error shape (`{code, message}`).
-//! * [`capabilities`] — platform capability flags for `getSnapshot`.
-
 pub mod app_menu;
 pub mod capabilities;
 pub mod context_menu;
@@ -27,8 +15,6 @@ pub use errors::{DesktopError, DesktopResult};
 use gpui::App;
 use std::sync::OnceLock;
 
-/// Values `getSnapshot` can answer without the GPUI main thread. Written once
-/// at startup, before the JS bundle loads.
 #[derive(Clone)]
 pub struct Snapshot {
     pub app_id: String,
@@ -69,8 +55,6 @@ fn snapshot_value(key: &str) -> String {
     serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
 }
 
-/// Handle one `GpuiDesktop.call` on the GPUI main thread and answer it exactly
-/// once.
 pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &str) {
     // A context menu answers when it closes, not now.
     if (domain, method) == ("contextMenu", "show") {
@@ -136,7 +120,6 @@ pub fn dispatch(cx: &mut App, id: i32, domain: &str, method: &str, args_json: &s
     answer(cx, id, result);
 }
 
-/// Parse `args_json` as an object, rejecting anything else.
 fn parse_args(args_json: &str) -> Result<serde_json::Map<String, serde_json::Value>, DesktopError> {
     let value: serde_json::Value = serde_json::from_str(args_json)
         .map_err(|error| DesktopError::invalid_argument(format!("invalid args JSON: {error}")))?;
@@ -223,7 +206,6 @@ fn window_focus(cx: &mut App, args_json: &str) -> DesktopResult {
     windows::focus(cx, key)
 }
 
-/// `(cx, key, args)` handler shape for the simple window commands.
 fn window_simple(
     cx: &mut App,
     args_json: &str,
@@ -282,7 +264,6 @@ fn window_position(cx: &mut App, args_json: &str) -> DesktopResult {
 
 fn menu_set(cx: &mut App, args_json: &str) -> DesktopResult {
     let args = parse_args(args_json)?;
-    // `items: null` restores the default menu.
     let items = match args.get("items") {
         None | Some(serde_json::Value::Null) => None,
         Some(value) => Some(value),
@@ -300,7 +281,6 @@ fn dev_menu_perform(cx: &mut App, args_json: &str) -> DesktopResult {
     Ok(serde_json::json!({"id": id}))
 }
 
-/// Install a tray icon from JSON (also used by the test driver).
 pub fn tray_install(cx: &mut App, args_json: &str) -> DesktopResult {
     let args = parse_args(args_json)?;
     let mut config = tray::TrayConfig::default();
@@ -394,8 +374,6 @@ fn window_intercept_close(cx: &mut App, args_json: &str) -> DesktopResult {
     Ok(serde_json::json!({"windowId": key, "interceptClose": on}))
 }
 
-/// Answer a desktop request. Split out so every handler path answers exactly
-/// once, success or failure.
 pub fn answer(_cx: &mut App, id: i32, result: DesktopResult) {
     match result {
         Ok(value) => {
@@ -417,7 +395,6 @@ fn app_info() -> DesktopResult {
     }))
 }
 
-/// Debug helper used by the bridge's own tests: echoes a JSON object back.
 fn echo(args_json: &str) -> DesktopResult {
     let value: serde_json::Value = serde_json::from_str(args_json)
         .map_err(|error| DesktopError::invalid_argument(format!("invalid args JSON: {error}")))?;

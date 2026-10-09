@@ -1,15 +1,5 @@
-//! Window registry and multi-window RN surfaces (plan §3.3, item 7.4).
-//!
-//! One [`ViewStore`](crate::store::ViewStore) owns every window: Fabric tags are
-//! unique across surfaces of a React instance, so nodes stay in one map and the
-//! store routes a batch to the window that shows its surface. This registry owns
-//! the *window* lifecycle: it allocates window keys (small integers JS sees) and
-//! surface ids, opens GPUI windows bound to a root view, restarts their surfaces
-//! on reload and closes them again.
-//!
-//! The main window is always key `1` and surface `1`; it is adopted by
-//! `bootstrap.rs` after it opens, because the bootstrap path also installs the
-//! app-surface observers (appearance, navigation, safe area).
+//! One `ViewStore` owns every window: Fabric tags are unique across the
+//! surfaces of a React instance, so nodes stay in one map.
 
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::platform_window;
@@ -22,36 +12,25 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-/// What a window is for. Drives close behavior and which entry points see it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowRole {
-    /// The launch window (key `1`). Closing it quits unless the app opts out.
     Main,
-    /// A window opened through `DesktopWindow.open`.
     Secondary,
-    /// A tray popover; kept alive between shows.
     TrayPopover,
 }
 
-/// One registered window.
 pub struct WindowEntry {
     pub key: u32,
     pub handle: AnyWindowHandle,
     pub surface_id: i32,
-    /// `AppRegistry` key of the component this window shows.
     pub component: String,
-    /// The user props the surface was started with (without `windowId`).
     pub props: Value,
     pub role: WindowRole,
-    /// Whether a JS `closeRequested` listener wants to veto the close.
     pub intercept_close: bool,
     pub title: String,
-    /// Bounds/activation observers and the frame hook, kept alive for the
-    /// window's lifetime.
     pub subscriptions: Vec<Subscription>,
 }
 
-/// The window registry. A GPUI global, mutated only on the main thread.
 pub struct DesktopWindows {
     by_key: BTreeMap<u32, WindowEntry>,
     by_surface: HashMap<i32, u32>,
@@ -63,8 +42,6 @@ pub struct DesktopWindowsGlobal(pub DesktopWindows);
 impl Global for DesktopWindowsGlobal {}
 
 impl DesktopWindows {
-    /// `next_surface` starts above the LogBox surface id (2) so a window surface
-    /// can never collide with a surface React started itself.
     pub fn new() -> Self {
         Self {
             by_key: BTreeMap::new(),
@@ -80,9 +57,13 @@ impl DesktopWindows {
         key
     }
 
+    /// Surface ids are odd. A surface id is also the tag of its root view, and
+    /// React numbers the views it creates 2, 4, 6…: an even surface id is the
+    /// tag of some view of another surface, and the new window's content is
+    /// then mounted inside that view instead of in its own window.
     fn alloc_surface(&mut self) -> i32 {
         let surface = self.next_surface;
-        self.next_surface += 1;
+        self.next_surface += 2;
         surface
     }
 
@@ -108,7 +89,6 @@ impl DesktopWindows {
         self.by_key.len()
     }
 
-    /// Adopt an already-open window (the main window) under `key`.
     pub fn adopt(
         &mut self,
         key: u32,
@@ -153,10 +133,8 @@ impl Default for DesktopWindows {
     }
 }
 
-/// The main window's key (plan §3.3: "The main window is always `1`").
 pub const MAIN_WINDOW_KEY: u32 = 1;
 
-/// Options for [`open_window`], deserialized from the JS `window.open` args.
 #[derive(Clone, Debug, Default)]
 pub struct OpenWindowOptions {
     pub component: String,
@@ -170,8 +148,6 @@ pub struct OpenWindowOptions {
     pub appears_transparent: bool,
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
-    /// Create the window as a floating popup rather than a normal window
-    /// (tray popovers).
     pub popup: bool,
 }
 
@@ -191,7 +167,6 @@ impl OpenWindowOptions {
     }
 }
 
-/// Open a window running `component`, start its surface and register it.
 pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, DesktopError> {
     if options.component.is_empty() {
         return Err(DesktopError::invalid_argument(
@@ -221,7 +196,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         .unwrap_or_else(|| options.component.clone());
     let window_options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: Some(TitlebarOptions {
+        // A popup (a tray popover) is a bare panel: with a title bar it is
+        // just another window that happens to open under the icon.
+        titlebar: (!options.popup).then(|| TitlebarOptions {
             title: Some(title.clone().into()),
             appears_transparent: options.appears_transparent,
             traffic_light_position: options
@@ -229,6 +206,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 .map(|(x, y)| point(px(x), px(y))),
         }),
         is_resizable: options.resizable,
+        is_movable: !options.popup,
         window_min_size: Some(size(px(120.0), px(120.0))),
         kind: if options.popup {
             WindowKind::PopUp
@@ -254,8 +232,6 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         })
         .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
 
-    // The surface is laid out in the window's content area; `viewport_size` is
-    // the same value the bounds observer reports.
     let (w, h, scale) = handle
         .update(cx, |_root, window, _cx| {
             let size = window.viewport_size();
@@ -288,6 +264,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     let subscriptions = handle
         .update(cx, |_root, window, cx| {
             let mut subscriptions = Vec::new();
+            if options.popup {
+                crate::desktop::platform_window::style_as_popover(window);
+            }
             frame_hook.arm(window);
             subscriptions.push(install_bounds_observer(window, cx));
             subscriptions.push(install_activation_observer(window, cx, key));
@@ -320,11 +299,8 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     Ok(key)
 }
 
-/// Close a window and stop its surface.
-///
 /// Without `force`, a window whose JS listener registered a veto emits
-/// `closeRequested` and stays open; JS closes it again with `force` once it has
-/// decided. With `force` (or no veto listener) the window goes away.
+/// `closeRequested` and stays open.
 pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     let entry = {
         let windows = &mut cx.global_mut::<DesktopWindowsGlobal>().0;
@@ -352,12 +328,8 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     Ok(json!({"windowId": key}))
 }
 
-/// Tear a window down: drop its registry entry, stop its surface, tell JS, and
-/// apply the quit policy.
-///
-/// `remove_window` is false when the platform is already closing the window (the
-/// `on_window_should_close` hook), because asking GPUI to remove it again from
-/// inside that callback is not allowed.
+/// `remove_window` is false when the platform is already closing the window:
+/// GPUI must not be asked to remove it again from inside that callback.
 fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
     let surface_id = entry.surface_id;
     let handle = entry.handle;
@@ -378,7 +350,6 @@ fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool)
     maybe_quit(cx);
 }
 
-/// Quit once nothing is left to show, when the launch policy allows it.
 fn maybe_quit(cx: &mut App) {
     if !quit_on_last_window_closed(cx) {
         return;
@@ -392,12 +363,6 @@ fn maybe_quit(cx: &mut App) {
     }
 }
 
-/// Run the teardown the platform's close hook runs: the window is already going
-/// away, so the registry entry, its surface and the JS event are all this has to
-/// handle. Returns false when the window was not registered.
-///
-/// Split out so the test driver can exercise the OS-close path: GPUI's
-/// `on_window_should_close` cannot be triggered from a test.
 pub fn os_close(cx: &mut App, key: u32) -> bool {
     let entry = if cx.has_global::<DesktopWindowsGlobal>() {
         cx.global_mut::<DesktopWindowsGlobal>().0.remove(key)
@@ -411,8 +376,6 @@ pub fn os_close(cx: &mut App, key: u32) -> bool {
     true
 }
 
-/// Install the close hook on a window the registry did not open (the launch
-/// window), so `closeRequested` reaches JS there too.
 pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     // `AnyWindowHandle::update` hands back an `AnyView`; the hook needs the
     // window's own context, so the handle is downcast to the root view first.
@@ -424,24 +387,18 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     });
 }
 
-/// Whether closing the last window should quit the app. The launch config can
-/// turn this off for tray apps.
 fn quit_on_last_window_closed(cx: &App) -> bool {
     !cx.try_global::<QuitOnLastWindowClosed>()
         .is_some_and(|flag| !flag.0)
 }
 
-/// Launch-config flag (`DesktopAppConfig::quit_on_last_window_closed`).
 pub struct QuitOnLastWindowClosed(pub bool);
 impl Global for QuitOnLastWindowClosed {}
 
-/// `window.close` from JS. A close request from the OS (`closeRequested`) is
-/// routed through [`request_close`].
 pub fn close(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     close_window(cx, key, force)
 }
 
-/// Bring a window to the front.
 pub fn focus(cx: &mut App, key: u32) -> DesktopResult {
     let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
@@ -453,8 +410,6 @@ pub fn focus(cx: &mut App, key: u32) -> DesktopResult {
     Ok(json!({"windowId": key, "focused": true}))
 }
 
-/// Run `action` against a window's GPUI `Window`, mapping a stale handle to
-/// `not_found` and a platform failure to `unsupported`.
 fn with_window(
     cx: &mut App,
     key: u32,
@@ -575,7 +530,6 @@ pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
     })
 }
 
-/// Begin a window move from a drag region's mouse-down.
 pub fn start_dragging(cx: &mut App, key: u32) -> DesktopResult {
     with_window(cx, key, |window| {
         window.start_window_move();
@@ -583,7 +537,6 @@ pub fn start_dragging(cx: &mut App, key: u32) -> DesktopResult {
     })
 }
 
-/// Emit a `gpuiDesktop:*` device event with a JSON payload.
 pub fn emit_window_event(cx: &App, name: &str, payload: Value) {
     let Some(store) = store_from(cx) else {
         return;
@@ -592,7 +545,6 @@ pub fn emit_window_event(cx: &App, name: &str, payload: Value) {
     host.emit_device_event_json(name, &payload.to_string());
 }
 
-/// State of a window, as `DesktopWindow.getState` reports it.
 pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
     let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
@@ -619,7 +571,6 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))
 }
 
-/// Every open window, as `DesktopWindow.all` reports it.
 pub fn list_windows(cx: &App) -> DesktopResult {
     let windows = &cx.global::<DesktopWindowsGlobal>().0;
     let list: Vec<Value> = windows
@@ -666,8 +617,6 @@ fn install_bounds_observer(
         });
         let frame_hook = store.read(cx).frame_hook.clone();
         frame_hook.arm(window);
-        // One event per bounds change; GPUI delivers one observer call per
-        // platform resize/move, which is already coalesced to a frame.
         if let Some(key) = window_key_for_handle(cx, handle) {
             let host = store.read(cx).host.clone();
             host.emit_device_event_json(
@@ -682,7 +631,6 @@ fn install_bounds_observer(
     })
 }
 
-/// The registry key of the window with this handle.
 fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {
     let windows = cx.try_global::<DesktopWindowsGlobal>()?;
     windows
@@ -715,21 +663,25 @@ fn install_activation_observer(
         };
         host.emit_device_event_json(name, &json!({"windowId": key}).to_string());
         if !active {
-            // Plan 7.3 — a tray popover is dismissed when it loses activation,
-            // like a native menu-bar popover.
             let is_popover = cx
                 .try_global::<crate::desktop::tray::TrayGlobal>()
                 .is_some_and(|tray| {
                     let mut tray = tray.0.borrow_mut();
                     if tray.popover == Some(key) {
                         tray.popover = None;
+                        tray.popover_dismissed_at = Some(std::time::Instant::now());
                         true
                     } else {
                         false
                     }
                 });
             if is_popover {
-                let _ = hide(cx, key);
+                // Deferred: this observer runs inside the activation change's
+                // window update, and closing a window from there re-enters it,
+                // which GPUI reports as "RefCell already borrowed".
+                cx.defer(move |cx| {
+                    let _ = close_window(cx, key, true);
+                });
             }
         }
     })
@@ -788,7 +740,6 @@ fn emit_close_requested(cx: &mut App, window: &mut gpui::Window, key: u32) {
     store.0.read(cx).frame_hook.arm(window);
 }
 
-/// The JS-visible window id for a surface (used by `DesktopWindow.current`).
 pub fn window_id_for_surface(cx: &App, surface_id: i32) -> Option<u32> {
     cx.try_global::<DesktopWindowsGlobal>().and_then(|windows| {
         windows
@@ -807,9 +758,9 @@ mod tests {
         let mut windows = DesktopWindows::new();
         assert_eq!(windows.alloc_key(), 2);
         assert_eq!(windows.alloc_key(), 3);
-        // LogBox is surface 2; a window surface must never reuse it.
         assert_eq!(windows.alloc_surface(), 3);
-        assert_eq!(windows.alloc_surface(), 4);
+        assert_eq!(windows.alloc_surface(), 5);
+        assert_eq!(windows.alloc_surface(), 7);
         assert!(windows.keys().is_empty());
         assert!(windows.get(1).is_none());
         assert!(windows.entry_for_surface(1).is_none());

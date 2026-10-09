@@ -1,52 +1,3 @@
-//! GPUI window and React Native runtime bootstrap.
-//!
-//! Shape follows the design doc §18.10, with the API adjustments the pinned
-//! gpui rev needs (`gpui_platform::application()` instead of the doc's
-//! `Application::new()`).
-//!
-//! Environment:
-//!   RN_GPUI_APP_ID      optional app id override; generated apps default from app.json
-//!   RN_GPUI_DEV_HOST    dev server host (default localhost)
-//!   RN_GPUI_DEV_PORT    dev server port (default 8081)
-//!   RN_GPUI_BUNDLE      path to the JS bundle file
-//!   RN_GPUI_SOURCE_URL  source path handed to `ReactHost::loadScript`, i.e. the
-//!                       dev server bundle to fetch as
-//!                       `http://<host>:<port>/<source path>.bundle?platform=gpui`
-//!                       (default index). The prebuilt bundle at RN_GPUI_BUNDLE
-//!                       is the fallback when the dev server is unreachable.
-//!   RN_GPUI_MODULE      optional registered component name override; apps default from app.json
-//!   RN_GPUI_JS_ENGINE   name of the installed JS engine package to run, e.g.
-//!                       "hermes"; overrides DesktopAppConfig::js_engine
-//!   RN_GPUI_WIDTH/HEIGHT  surface constraints (default 800/600)
-//!   (visual-capture) RN_GPUI_SCALE       overrides the Fabric display scale;
-//!                       default the window's `scale_factor()` is used, so a
-//!                       Retina display gets `@2x` and a 1x display `@1x`
-//!   (visual-capture) RN_GPUI_RUN_MS      close the window after N ms
-//!   (visual-capture) RN_GPUI_RESIZE_MS   after N ms resize the window to
-//!                       RN_GPUI_RESIZE_WIDTH x RN_GPUI_RESIZE_HEIGHT
-//!                       (defaults 1200x400); 0 (default) = never. This is the
-//!                       verification hook that drives the same `on_resize`
-//!                       path as a mouse drag.
-//!   RN_GPUI_SCREENSHOT  with `--features visual-capture`: render the window's
-//!                       scene to this PNG path after the first mount batch,
-//!                       then quit (see the feature docs in Cargo.toml)
-//!   (visual-capture) RN_GPUI_WINDOW_STATE override the persisted window-state path
-//!   RN_GPUI_STARTUP_TRACE (visual-capture) print startup stages to stderr
-//!   (visual-capture) RN_GPUI_SCREENSHOT_DELAY_MS  wait after the first batch
-//!                       before capturing (default 500). Raise it past
-//!                       RN_GPUI_RESIZE_MS to capture the resized scene.
-//!   (visual-capture) RN_GPUI_CLICK       `"x,y;x,y"` synthetic left clicks
-//!   (visual-capture) RN_GPUI_DRAG        `"x,y:x,y[:cancel];..."` drags
-//!                       coordinates, dispatched as real GPUI mouse events
-//!                       (TODO 2.4)
-//!   (visual-capture) RN_GPUI_CLICK_MS    delay before each click (default 1500)
-//!   (visual-capture) RN_GPUI_HOVER       `"x,y;x,y"` synthetic pointer moves
-//!                       GPUI mouse-move events (TODO 2.5)
-//!   (visual-capture) RN_GPUI_HOVER_MS    delay before each move (default 1500)
-//!
-//! Synthetic input and visual capture settings are only read when built with
-//! `--features visual-capture`; normal app builds do not include those hooks.
-
 use crate::host::Host;
 use crate::store::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore, APP_SURFACE_ID};
 use gpui::{point, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
@@ -176,8 +127,6 @@ fn env_opt_f32(key: &str) -> Option<f32> {
     std::env::var(key).ok().and_then(|value| value.parse().ok())
 }
 
-/// `RN_GPUI_CLICK="400,150;400,200"` — synthetic clicks at window coordinates,
-/// for the headless "Done when" checks (TODO 2.4: the Pressable counter).
 #[cfg(feature = "visual-capture")]
 fn env_points(key: &str) -> Vec<(f32, f32)> {
     std::env::var(key)
@@ -194,7 +143,6 @@ fn env_points(key: &str) -> Vec<(f32, f32)> {
         .unwrap_or_default()
 }
 
-/// `RN_GPUI_DRAG="100,120:420,160;200,200:240,240:cancel"` — primary drags.
 #[cfg(feature = "visual-capture")]
 fn env_drags(key: &str) -> Vec<(f32, f32, f32, f32, bool)> {
     std::env::var(key)
@@ -237,15 +185,8 @@ fn env_scrolls(key: &str) -> Vec<(f32, f32, f32, f32)> {
         .collect()
 }
 
-/// Flushes React Native's queued JS work the way a frame tick does.
-///
-/// `Host::on_render` drives the run-loop observer `RuntimeScheduler` runs its
-/// work from; the app calls it once per GPUI frame through `FrameHook`. macOS
-/// stops delivering frames while the display is asleep, and the JS work a
-/// synthetic click or hover queued then never runs — observed as `Pressed 0
-/// times` in a capture whose forced draw still painted correctly. Verification
-/// must not depend on the display being awake, so the synthetic input loops in
-/// `main` call this after each dispatch.
+/// macOS stops delivering frames while the display is asleep, so JS work a
+/// synthetic click queued would never run; the input loops call this instead.
 #[cfg(feature = "visual-capture")]
 async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
     for _ in 0..6 {
@@ -256,20 +197,11 @@ async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
     }
 }
 
-/// Everything C++ (JS/Fabric thread) sends to the GPUI main thread over one
-/// channel, so the drain task applies it in the order it happened.
 enum MainEvent {
-    /// A Fabric transaction. `apply_batch` mounts it.
     Mount(MountBatch),
-    /// TODO 2.6 — a surface went away (or, with `rn_gpui_sys::ALL_SURFACES`, the
-    /// whole instance: a reload). The store drops that tree.
     SurfaceStopped(i32),
-    /// A direct native animated props update (currently opacity only).
     AnimatedProps(rn_gpui_sys::ffi::AnimatedPropsFlat),
-    /// Keep GPUI's one-shot frame chain running while RN has active animation.
     AnimatedActivity(bool),
-    /// RN TextInput commands are dispatched from Fabric and applied on GPUI's
-    /// main thread, where the target entity's focus handle is owned.
     TextInputCommand {
         tag: i32,
         focus: bool,
@@ -285,16 +217,12 @@ enum MainEvent {
     },
     ClipboardRead(i32),
     ClipboardWrite(String),
-    /// `DevMenu.show()` (plan 7.5), from the JS thread.
     DevMenuShow,
-    /// A `DevMenu` / `DevSettings` toggle, from the JS thread.
     DevSetting {
         name: String,
         enabled: bool,
     },
-    /// A chosen Dev Menu item.
     DevMenuPerform(String),
-    /// A tray icon click, forwarded from the platform's event thread.
     TrayClick {
         x: f32,
         y: f32,
@@ -302,12 +230,8 @@ enum MainEvent {
         height: f32,
         button: u8,
     },
-    /// A chosen tray menu item.
     TrayMenuPerform(String),
-    /// A chosen item from the GPUI-rendered menu bar.
     MenuBarPerform(String),
-    /// A desktop-shell call from the JS thread (design §3.2). The drain loop
-    /// answers it exactly once with `rn_gpui_desktop_result`.
     Desktop {
         id: i32,
         domain: String,
@@ -320,24 +244,16 @@ pub type WindowOptionsHook = Box<dyn FnOnce(&mut WindowOptions) + 'static>;
 pub type AppReadyHook = Box<dyn FnOnce(&mut App) + 'static>;
 pub type WindowOpenedHook = Box<dyn FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static>;
 
-/// How the launch window's title bar is drawn (plan §8.2).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WindowTitleBar {
-    /// The system title bar.
     #[default]
     Default,
-    /// Hidden, with the content drawing under the traffic lights.
     Transparent,
     /// No system title bar at all. GPUI only has "transparent" on macOS, so
     /// this is the same as [`WindowTitleBar::Transparent`] there.
     Hidden,
 }
 
-/// Per-project launch settings for a GPUI desktop app.
-///
-/// The defaults preserve the runtime's existing behavior, including restoring
-/// the last window size and position. Setters below let `desktop/src/main.rs`
-/// override those defaults without forking the runtime bootstrap.
 pub struct DesktopAppConfig {
     pub app_id: String,
     pub module: String,
@@ -349,17 +265,12 @@ pub struct DesktopAppConfig {
     pub title: Option<String>,
     pub position: Option<(f32, f32)>,
     pub restore_window_state: bool,
-    /// Whether closing the last window quits the app (plan §3.3). Tray-only
-    /// apps turn this off.
     pub quit_on_last_window_closed: bool,
-    /// Title-bar style of the launch window (plan §8.2).
     pub title_bar: WindowTitleBar,
-    /// Whether the Dev Menu (plan 7.5) is available. `None` follows the build:
-    /// on in a debug build, off in a release build.
+    /// Whether the Dev Menu is available. `None` follows the build: on in a
+    /// debug build, off in a release build.
     pub dev_menu: Option<bool>,
-    /// Run as a menu-bar (tray) app (plan 7.3).
     pub tray: Option<crate::desktop::tray::TrayConfig>,
-    /// macOS traffic-light position, when the title bar is transparent.
     pub traffic_light_position: Option<(f32, f32)>,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
@@ -367,15 +278,10 @@ pub struct DesktopAppConfig {
 }
 
 impl DesktopAppConfig {
-    /// Read app identity and initial surface dimensions from environment
-    /// overrides, using generic defaults for applications that do not provide
-    /// build-time app metadata.
     pub fn from_env() -> Self {
         Self::from_env_with_defaults("App", "com.example.rngpui")
     }
 
-    /// Read runtime overrides while using the app name and identifier parsed
-    /// from the consuming project's `app.json` by its desktop build script.
     pub fn from_env_with_defaults(module: &str, app_id: &str) -> Self {
         Self {
             app_id: env_string("RN_GPUI_APP_ID", app_id),
@@ -397,21 +303,16 @@ impl DesktopAppConfig {
         }
     }
 
-    /// Choose the installed JS engine package to run. `RN_GPUI_JS_ENGINE`
-    /// overrides this at launch.
     pub fn js_engine(mut self, name: impl Into<String>) -> Self {
         self.js_engine = name.into();
         self
     }
 
-    /// Run as a menu-bar (tray) app: an icon in the system tray whose click
-    /// opens `component` in a popover window, and no Dock icon by default.
     pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
         self.tray = Some(config);
         self
     }
 
-    /// Force the Dev Menu on or off, overriding the build default.
     pub fn dev_menu(mut self, enabled: bool) -> Self {
         self.dev_menu = Some(enabled);
         self
@@ -428,38 +329,31 @@ impl DesktopAppConfig {
         self
     }
 
-    /// Set the initial top-left position in GPUI screen coordinates.
     pub fn window_position(mut self, x: f32, y: f32) -> Self {
         self.position = Some((x, y));
         self
     }
 
-    /// Disable persistent size and position restore when the app should always
-    /// start from the configured initial geometry.
     pub fn restore_window_state(mut self, restore: bool) -> Self {
         self.restore_window_state = restore;
         self
     }
 
-    /// Keep the app alive after its last window closes (tray-only apps).
     pub fn quit_on_last_window_closed(mut self, quit: bool) -> Self {
         self.quit_on_last_window_closed = quit;
         self
     }
 
-    /// Draw the launch window with a transparent title bar (plan §8.2).
     pub fn title_bar(mut self, title_bar: WindowTitleBar) -> Self {
         self.title_bar = title_bar;
         self
     }
 
-    /// Place the macOS traffic lights at a content-relative position.
     pub fn traffic_light_position(mut self, x: f32, y: f32) -> Self {
         self.traffic_light_position = Some((x, y));
         self
     }
 
-    /// Customize GPUI window options, including titlebar and resize behavior.
     pub fn configure_window(
         mut self,
         configure: impl FnOnce(&mut WindowOptions) + 'static,
@@ -468,14 +362,11 @@ impl DesktopAppConfig {
         self
     }
 
-    /// Install GPUI app-level services before the React Native window opens.
     pub fn on_app_ready(mut self, callback: impl FnOnce(&mut App) + 'static) -> Self {
         self.on_app_ready = Some(Box::new(callback));
         self
     }
 
-    /// Access the live GPUI window to adjust its title or use other GPUI window
-    /// APIs once the native window exists.
     pub fn on_window_opened(
         mut self,
         callback: impl FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static,
@@ -495,7 +386,6 @@ pub fn run() {
     run_with(DesktopAppConfig::from_env());
 }
 
-/// Launch the React Native desktop runtime with project-specific GPUI settings.
 pub fn run_with(mut config: DesktopAppConfig) {
     #[cfg(not(feature = "test-driver"))]
     if std::env::var_os("RN_GPUI_TEST_DRIVER").is_some_and(|value| value != "0") {
@@ -510,12 +400,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         "RN_GPUI_BUNDLE",
         "packages/rn-gpui-tester/desktop/build/index.bundle",
     );
-    // TODO 2.1: this is the dev server's bundle path, not a URL — the cxx
-    // `DevServerHelper` composes `http://<host>:<port>/<source path>.bundle`.
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
-    // The env var is the run-time escape hatch for trying a second installed
-    // engine, so it outranks the app's own choice.
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
@@ -523,8 +409,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let width = config.width;
     let height = config.height;
     let window_state_path = window_state_path(&app_id);
-    // TODO 2.2: the display scale comes from the window (see below); the env
-    // var is an escape hatch for tests on a machine with a different display.
     #[cfg(feature = "visual-capture")]
     let scale_override = env_opt_f32("RN_GPUI_SCALE");
     #[cfg(not(feature = "visual-capture"))]
@@ -543,8 +427,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let resize_width = env_f32("RN_GPUI_RESIZE_WIDTH", 1200.0);
     #[cfg(feature = "visual-capture")]
     let resize_height = env_f32("RN_GPUI_RESIZE_HEIGHT", 400.0);
-    // TODO 2.4 — synthetic clicks, spaced `RN_GPUI_CLICK_MS` apart, starting
-    // after the first batch is on screen.
     #[cfg(feature = "visual-capture")]
     let clicks = env_points("RN_GPUI_CLICK");
     #[cfg(feature = "visual-capture")]
@@ -559,8 +441,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let drag_start_ms = env_u32("RN_GPUI_DRAG_START_MS", drag_ms);
     #[cfg(feature = "visual-capture")]
     let skip_synthetic_input_flush = env_bool("RN_GPUI_SKIP_INPUT_FLUSH", false);
-    // TODO 2.5 — synthetic hover: `RN_GPUI_HOVER="400,150;400,200"` moves the
-    // pointer without holding a button, `RN_GPUI_HOVER_MS` apart.
     #[cfg(feature = "visual-capture")]
     let hovers = env_points("RN_GPUI_HOVER");
     #[cfg(feature = "visual-capture")]
@@ -595,7 +475,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let screenshot = std::env::var("RN_GPUI_SCREENSHOT").ok();
     #[cfg(feature = "visual-capture")]
     let screenshot_delay_ms = env_u32("RN_GPUI_SCREENSHOT_DELAY_MS", 500);
-    // Capture interaction phases in one persistent run: "delay:path;delay:path".
     #[cfg(feature = "visual-capture")]
     let screenshots: Vec<(u32, String)> = std::env::var("RN_GPUI_SCREENSHOTS")
         .unwrap_or_default()
@@ -606,11 +485,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         })
         .collect();
 
-    // Metro can supply the initial script without a prebuilt bundle. The
-    // host reports a load failure if both Metro and the fallback are absent.
-
-    // C++ (JS/Fabric thread) -> main thread. Installed before any surface
-    // starts, otherwise the first mount batch would be dropped.
+    // Installed before any surface starts, otherwise the first mount batch would
+    // be dropped.
     let (tx, rx) = async_channel::unbounded::<MainEvent>();
     let mount_tx = tx.clone();
     let _ = rn_gpui_sys::MOUNT_HANDLER.set(Box::new(move |batch: MountBatch| {
@@ -738,8 +614,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
         crate::text::install_measure_handler(cx);
-        // A menu-bar app owns no Dock icon and no menu bar (plan 7.3). This has
-        // to happen before the first window opens.
+        // Has to happen before the first window opens.
         if let Some(tray) = &config.tray {
             if tray.accessory {
                 crate::desktop::platform_window::set_accessory_app(true);
@@ -749,28 +624,23 @@ pub fn run_with(mut config: DesktopAppConfig) {
             on_app_ready(cx);
         }
 
-        // The window registry and the launch-time close policy (plan §3.3) must
-        // exist before the main window opens: the registry adopts it below, and
-        // the close hook reads the policy while the window is live.
+        // Both must exist before the main window opens: the registry adopts it
+        // below, and the close hook reads the policy while the window is live.
         cx.set_global(crate::desktop::windows::DesktopWindowsGlobal(
             crate::desktop::windows::DesktopWindows::new(),
         ));
         cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(
             config.quit_on_last_window_closed,
         ));
-        // The default application menu (plan §5.3): Cmd+Q / Cmd+C / Cmd+V work
-        // before the app sets a menu of its own. Installed before the bundle
-        // loads so a startup failure still leaves a working menu bar.
+        // Installed before the bundle loads so a startup failure still leaves a
+        // working menu bar.
         let menu_app_name = config
             .title
             .clone()
             .unwrap_or_else(|| config.module.clone());
-        // Plan 7.5 — the Dev Menu is on in debug builds, or when the app opts in.
         let dev_menu = config.dev_menu.unwrap_or(cfg!(debug_assertions));
         crate::desktop::dev_menu::install(cx, dev_menu);
         crate::desktop::app_menu::install(cx, &menu_app_name, dev_menu);
-        // Context-menu presenter: the real one, or the driver's fake when
-        // RN_GPUI_TEST_FAKE_NATIVE_UI=1 (plan §3.5).
         crate::desktop::context_menu::install(cx);
         // The tray icon needs a running NSApplication, so it is created here
         // rather than while parsing the config.
@@ -779,15 +649,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 log::error!("[desktop][tray] {error}");
             }
         }
-        // Plan 7.6 — the Perf Monitor starts disabled; the Dev Menu toggles it.
         crate::desktop::perf_monitor::install(cx);
 
-        // The root view is created before the window so the store can register
-        // it for surface 1 right away (design doc §18.12: one root per surface).
-        // TODO 2.6 — the overlay slot (LogBox) has to exist in the app root's
-        // element tree from the first frame too: GPUI only re-renders entities
-        // the window tracked while drawing, and the root view itself is not
-        // invalidated after that first frame.
+        // The overlay slot (LogBox) has to be in the app root's element tree from the
+        // first frame: GPUI only re-renders entities the window tracked while drawing.
         let overlay_host = cx.new(|_| OverlayHost::new());
         let root_view = SurfaceRootView::new(APP_SURFACE_ID).with_overlay_host(overlay_host.clone());
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
@@ -831,8 +696,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
-        // The launch window's title bar (plan §8.2). `configure_window` below
-        // still wins for apps that need the raw GPUI options.
         if config.title_bar != WindowTitleBar::Default {
             let titlebar = window_options.titlebar.get_or_insert_with(Default::default);
             titlebar.appears_transparent = true;
@@ -884,8 +747,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 .expect("failed to configure the opened GPUI window");
         }
 
-        // Proves the window really exists: `update` reads the live root view
-        // and `bounds()` the OS window's frame.
         let window_bounds = window
             .update(cx, |_root, window, _cx| {
                 let bounds = window.bounds();
@@ -905,15 +766,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .unwrap_or_else(|error| format!("<unavailable: {error}>"));
         log::info!("window {window_id:?} open at {window_bounds}");
 
-        // `ViewStore::new` consumes the typed handle; keep the type-erased
-        // copy (`AnyWindowHandle` is `Copy`) for the resize hook below.
         #[cfg(any(feature = "visual-capture", feature = "perf-timing"))]
         let any_window = *window;
 
-        // TODO 2.2 — the surface is laid out in DIPs and Fabric rounds to device
-        // pixels with this factor, so it has to be the display's real scale:
-        // `window.scale_factor()` reads it from the platform window (and is
-        // refreshed on every bounds change, which `ViewStore::resize` picks up).
         let window_scale = window
             .update(cx, |_root, window, _cx| window.scale_factor())
             .unwrap_or(2.0);
@@ -944,8 +799,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
         startup_trace("React bundle loaded");
         log::info!("loaded {bundle}");
 
-        // Plan 7.1 — a GPUI-rendered menu bar takes its height from the
-        // surface, so the surface is laid out shorter than the window.
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
         host.start_surface(1, &module, width, height - menu_bar_inset, scale);
         startup_trace("React surface started");
@@ -955,9 +808,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             height - menu_bar_inset
         );
 
-        // TODO 2.3 — tick RN's `EventBeat` once per GPUI frame. The hook is
-        // shared with the store (mount batches extend its activity window) and
-        // the bounds observer below (resizes are native -> JS work too).
         let frame_hook = crate::frame::FrameHook::new(host.clone());
         window
             .update(cx, |_root, window, _cx| frame_hook.arm(window))
@@ -975,8 +825,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             })
             .expect("failed to observe window appearance");
 
-        // Kept for the synthetic input loops below: `ViewStore::new` consumes
-        // the host handle.
         #[cfg(feature = "visual-capture")]
         let host_for_input = host.clone();
         let store = cx.new(|_| ViewStore::new(host, window, frame_hook.clone(), overlay_host));
@@ -1006,15 +854,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
         store.update(cx, |store, cx| {
             store.register_root(1, root);
             store.top_inset = top_inset;
+            store.refresh_inherited(1, cx);
             store.navigation_keyboard_subscription = Some(navigation_keyboard_subscription);
             store.window_appearance_subscription = Some(appearance_subscription);
             cx.notify();
         });
 
-        // Adopt the main window into the registry (plan §3.3: the main window is
-        // always key 1 and surface 1). Its app-surface observers live above; the
-        // registry only needs the identity so `DesktopWindow.all/current` and
-        // close policy can see it.
         cx.global_mut::<crate::desktop::windows::DesktopWindowsGlobal>()
             .0
             .adopt(
@@ -1026,19 +871,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 crate::desktop::windows::WindowRole::Main,
             );
 
-        // The launch window needs the same close hook as a window opened with
-        // `DesktopWindow.open`, otherwise `closeRequested` never fires for the
-        // app's main window and its "unsaved changes" veto cannot work.
+        // Without the close hook `closeRequested` never fires for the main window.
         crate::desktop::windows::install_close_hook_for(
             cx,
             (*window).into(),
             crate::desktop::windows::MAIN_WINDOW_KEY,
         );
 
-        // TODO 2.4 — headless input: `RN_GPUI_CLICK` dispatches real mouse
-        // events through GPUI's own input path (`Window::dispatch_event`), the
-        // same way the accesskit click fallback does. The app runs off-screen in
-        // this environment, so this is how the Pressable counter is exercised.
         #[cfg(feature = "visual-capture")]
         if !clicks.is_empty() {
             let host = host_for_input.clone();
@@ -1053,8 +892,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     let clicked = cx.update_window(
                         any_window,
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
-                            // Draw first so hit testing sees the mounted tree
-                            // (see the hover loop below for why).
                             let arena_clear_needed = window.draw(cx);
                             arena_clear_needed.clear(cx);
                             let down = gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
@@ -1094,9 +931,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
-        // TODO 7.8 — exercise touch responder negotiation with native mouse
-        // input. Each drag is split into several move events so PanResponder's
-        // gesture state and move callback see a path outside the origin.
         #[cfg(feature = "visual-capture")]
         if !drags.is_empty() {
             let host = host_for_input.clone();
@@ -1194,9 +1028,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
-        // TODO 2.5 — headless hover: `RN_GPUI_HOVER` moves the pointer through
-        // the same GPUI input path as a real one (`Window::dispatch_event`), so
-        // `pointerEvents`, `cursor` and enter/leave are exercised off-screen.
         #[cfg(feature = "visual-capture")]
         if !hovers.is_empty() {
             let frame_hook = frame_hook.clone();
@@ -1213,12 +1044,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     let hovered = cx.update_window(
                         any_window,
                         move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
-                            // Hit testing uses the last drawn frame, and this
-                            // headless setup cannot rely on the platform asking
-                            // for a frame after a mount batch (see
-                            // `capture_and_quit`), so draw first: otherwise the
-                            // pointer is tested against the empty first frame and
-                            // no React mouse listener is ever reached.
+                            // Hit testing uses the last drawn frame, and a
+                            // headless run cannot rely on the platform asking
+                            // for one after a mount batch, so draw first.
                             let arena_clear_needed = window.draw(cx);
                             arena_clear_needed.clear(cx);
                             let input = gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
@@ -1390,13 +1218,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
             }).detach();
         }
 
-        // Window resizes drive Fabric. gpui calls the bounds
-        // observers from the platform's `on_resize` hook (the same path a mouse
-        // drag takes), and `viewport_size()` is the content area, which is what
-        // the React surface covers.
-        // The subscription unsubscribes the moment it drops, so it is handed to
-        // the store (this closure returns right after setup).
-        // (width, height, scale, origin.x, origin.y) of the last observed bounds.
+        // The subscription unsubscribes the moment it drops, so it is handed to the
+        // store.
         let last_surface_size = Rc::new(Cell::new((width, height, scale, 0.0, 0.0)));
         let bounds_subscription = window
             .update(cx, |_root, window, cx| {
@@ -1405,11 +1228,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 let window_state_path = window_state_path.clone();
                 let last_surface_size = last_surface_size.clone();
                 cx.observe_window_bounds(window, move |_root, window, cx| {
-                    // GPUI calls bounds observers often (every platform resize
-                    // notification, and again whenever the window is laid out),
-                    // so nothing here may write to disk or log unless a value
-                    // actually changed: the state file used to be rewritten on
-                    // every call, which cost a file write per observation.
+                    // GPUI calls bounds observers on every resize notification and layout, so
+                    // nothing here may write to disk or log unless a value changed.
                     let size = window.viewport_size();
                     let scale = scale_override.unwrap_or_else(|| window.scale_factor());
                     let (width, height) = (f32::from(size.width), f32::from(size.height));
@@ -1446,6 +1266,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     node.update(cx, |_, cx| cx.notify());
                                 }
                             }
+                            store.refresh_inherited(1, cx);
                         });
                         log::info!(
                             "[safe-area] native window top inset={top} fullscreen={}",
@@ -1458,8 +1279,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         store.update(cx, |store, _cx| {
                             store.resize_window(handle, width, height, scale)
                         });
-                        // A resize is native -> JS work: keep the per-frame hook
-                        // ticking while Fabric re-lays out (TODO 2.3).
                         frame_hook.arm(window);
                     }
                 })
@@ -1538,10 +1357,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .detach();
         }
 
-        // Drain Fabric mount batches on the main thread and apply them.
-        // Capture timers start independently of the mount stream. If RN fails
-        // before its first Fabric transaction, the image still distinguishes
-        // a blank host from a mounted surface; later captures see resize updates.
         cx.spawn(async move |cx| {
             #[cfg(feature = "visual-capture")]
             for (delay_ms, path) in screenshots {
@@ -1572,8 +1387,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
                         if surface_id == rn_gpui_sys::ALL_SURFACES {
-                            // The JS instance is gone: a pending desktop call
-                            // can never be answered by the old instance.
                             rn_gpui_sys::ffi::reject_pending_desktop_calls();
                         }
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
@@ -1639,10 +1452,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             || props.has_text_color
                         {
                             let mut target = None;
-                            store.update(cx, |store, _cx| {
-                                target = store.nodes.get(&props.tag).cloned();
+                            store.update(cx, |store, cx| {
+                                target = store
+                                    .nodes
+                                    .get(&props.tag)
+                                    .cloned()
+                                    .map(|node| (node.read(cx).surface_id, node));
                             });
-                            if let Some(node) = target {
+                            if let Some((surface_id, node)) = target {
                                 node.update(cx, |node, cx| {
                                     if props.has_opacity {
                                         node.set_animated_opacity(props.opacity);
@@ -1660,6 +1477,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     }
                                     cx.notify();
                                 });
+                                if props.has_transform || props.reset_transform {
+                                    store.update(cx, |store, cx| {
+                                        store.refresh_inherited(surface_id, cx)
+                                    });
+                                }
                             }
                         }
                     }
@@ -1803,13 +1625,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     });
 }
 
-/// Render the window's own scene to a PNG and close the app.
-///
-/// This exists because the §19 "Done when" checks are visual and this
-/// environment cannot use `screencapture` (no Screen Recording permission).
-/// Rendering the scene off-screen through gpui's own Metal renderer verifies
-/// the same paint output without screen access. Requires
-/// `--features visual-capture`; see the feature docs in `Cargo.toml`.
 #[cfg(feature = "visual-capture")]
 async fn capture_and_quit(
     cx: &mut gpui::AsyncApp,
@@ -1817,7 +1632,6 @@ async fn capture_and_quit(
     path: &mut Option<String>,
     delay_ms: u32,
 ) {
-    // Give the tree time to settle (mount batches, LogBox surface, reloads).
     let timer = cx
         .background_executor()
         .timer(Duration::from_millis(u64::from(delay_ms)));
@@ -1828,10 +1642,8 @@ async fn capture_and_quit(
     let captured = cx.update_window(
         window,
         |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
-            // `render_to_image` only replays the last drawn scene, and frame
-            // demand is unreliable in this headless setup (the platform can go
-            // idle after the first frame, after which `FrameHook`'s `armed`
-            // latch blocks re-arming). Draw synchronously so the capture always
+            // `render_to_image` only replays the last drawn scene, and a headless
+            // run can go idle after the first frame. Draw synchronously so the capture
             // reflects the current element tree.
             let arena_clear_needed = window.draw(cx);
             arena_clear_needed.clear(cx);
@@ -1853,8 +1665,6 @@ async fn capture_and_quit(
     }
 }
 
-/// Removes the Dock icon and menu bar ownership (`NSApplicationActivationPolicyAccessory`),
-/// so launching the app does not activate it or switch Spaces.
 #[cfg(all(target_os = "macos", feature = "test-driver"))]
 fn run_as_accessory_app() {
     use objc::{class, msg_send, sel, sel_impl};

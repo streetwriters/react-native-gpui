@@ -1,10 +1,3 @@
-// The Hermes GPUI JS engine package (plan item 7.14).
-//
-// Core knows nothing about Hermes: it calls this registration symbol once at
-// startup (generated from the `jsEngine.register` entry in
-// react-native.config.js) and then asks the registry for the capabilities it
-// provides — the runtime factory, and Node-API when @react-native-node-api is
-// installed.
 #include "GpuiJsEngine.h"
 
 #include <react/runtime/hermes/HermesInstance.h>
@@ -19,14 +12,11 @@
 #include "CxxNodeApiHostModule.hpp"
 #endif
 
-// The pinned facebook/hermes commit, passed by gpui/CMakeLists.txt from this
-// package's package.json.
 #ifndef RN_GPUI_HERMES_VERSION
 #define RN_GPUI_HERMES_VERSION ""
 #endif
 
 namespace {
-
 class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
  public:
   std::unique_ptr<facebook::react::JSRuntime> createJSRuntime(

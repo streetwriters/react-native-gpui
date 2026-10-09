@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Computes the prebuilt-binaries input hash: a SHA-256 over every file that
-// decides the contents of a prebuilt archive. The release workflow and
-// build-prebuilt.mjs both call this, so a changed input always changes the hash.
-//
-// Usage:
-//   node scripts/prebuilt-inputs.mjs            # prints the hash
-//   node scripts/prebuilt-inputs.mjs --list     # prints each input and its hash
-//   node scripts/prebuilt-inputs.mjs --overrides-sha256  # prints the ReactCommonOverrides hash
-//
-// Inputs (repo-relative):
-//   packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**  (CMake sources, glue headers)
-//   packages/react-native-gpui/ReactCxxPlatform/**  (ReactCxxPlatform copy)
-//   packages/react-native-gpui/ReactCommonOverrides/**  (ReactCommon overrides)
-//   packages/react-native-gpui/ReactGpui/Cargo.lock  (pins cxx 1.0.202)
-//   packages/react-native-gpui/scripts/build-prebuilt.mjs and this file
-//   node_modules/react-native/package.json  (React Native version)
-//   // An installed engine package is not an input: the archive contains no
-//   // engine, so updating one does not invalidate it.
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -39,7 +21,6 @@ const FILE_INPUTS = [
   'node_modules/react-native/package.json',
 ];
 
-// Build products and caches never feed the hash.
 const SKIP_DIRS = new Set(['build', 'node_modules', '.git', 'native-deps']);
 
 function walk(dir, out) {

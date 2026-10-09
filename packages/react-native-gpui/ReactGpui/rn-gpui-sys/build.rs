@@ -1,20 +1,5 @@
-//! rn-gpui-sys build script (design doc §18.4).
-//!
-//! Two steps, in this order because the C++ glue includes the header that the
-//! first step generates:
-//!
-//! 1. `cxx_build::bridge` emits `cxxbridge/include/rust/cxx.h` and
-//!    `cxxbridge/include/rn-gpui-sys/src/lib.rs.h`, and compiles the generated
-//!    bridge `.cc` into `librn_gpui_cxx_bridge.a`.
-//! 2. CMake builds `rn_gpui_core` (GpuiHost + GpuiMountingManager +
-//!    MountBatchBuilder + every ReactCommon object they need) against that
-//!    include directory, then writes `link_libs.txt`, which this script turns
-//!    into `cargo:rustc-link-*` directives.
-//!
-//! Only `cargo:rustc-link-lib` / `cargo:rustc-link-search` are used: a
-//! `links = "..."` build script's link directives propagate to dependents,
-//! whereas `cargo:rustc-link-arg` would only apply to this package's own
-//! linkable targets (and rn-gpui-sys is an rlib).
+//! The cxx bridge is generated first: the C++ glue CMake compiles includes
+//! its header.
 
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -41,7 +26,6 @@ fn main() {
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
     watch_cpp_tree(&manifest_dir.join("cpp"));
-    // .../packages/react-native-gpui/ReactGpui/rn-gpui-sys
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
         .parent()
@@ -83,9 +67,6 @@ fn main() {
         .join(&target_triple)
         .join(cmake_build_type);
 
-    // Generate RN core Fabric props/events and C++ TurboModule specs into the
-    // Cargo build directory. These are version-specific @react-native/codegen
-    // outputs and must never be sourced from checked-in generated snapshots.
     let fb_spec_codegen = manifest_dir.join("scripts/generate-fbreactnativespec.cjs");
     println!("cargo:rerun-if-changed={}", fb_spec_codegen.display());
     println!(
@@ -98,9 +79,6 @@ fn main() {
     );
     watch_tree(&react_native_dir.join("src"));
     watch_tree(&react_native_dir.join("scripts/codegen"));
-    // The platform's own core TurboModule specs (design §3.2) are merged into
-    // the same FBReactNativeSpec bundle so a core module can have a generated
-    // CxxSpec base class without a hand-written methodMap_.
     let core_specs_dir = package_dir.join("src-gpui/src/private/specs");
     watch_tree(&core_specs_dir);
     let codegen_package = repo_root.join("node_modules/@react-native/codegen");
@@ -126,9 +104,6 @@ fn main() {
     );
     sync_tree(&generated_rncore_scratch, &generated_rncore);
 
-    // Generate the C++ TurboModule registry from the RN-style TS spec before
-    // CMake compiles the provider. Rust method wrappers themselves come from
-    // #[rn_module] in rn-gpui-macros.
     let module_codegen =
         repo_root.join("node_modules/@react-native-gpui/codegen/src/generate-rust-turbomodules.js");
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
@@ -236,8 +211,6 @@ fn main() {
         "@react-native-gpui/codegen failed while parsing app TurboModule specs"
     );
 
-    // --- 1. the cxx bridge ---------------------------------------------------
-
     cxx_build::bridge("src/lib.rs")
         .std("c++20")
         .include("cpp")
@@ -253,8 +226,6 @@ fn main() {
     // reads a mirror that only changes when the header contents do.
     let cxxbridge_include = out_dir.join("cxxbridge-include");
     sync_tree(&cxxbridge_generated, &cxxbridge_include);
-
-    // --- 2. rn_gpui_core via CMake ------------------------------------------
 
     let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
     // A prebuilt build keeps its own CMake directory. Sharing one with source
@@ -309,6 +280,21 @@ fn main() {
             "RN_GPUI_WEAK_NODE_API_PACKAGE_DIR",
             cmake_path(weak_node_api_package_dir),
         );
+    // CMake deletes its cache when the compiler path changes, and the configure
+    // it then re-runs has lost every -D argument and fails. Shells disagree on
+    // the path (the /usr/bin shim or the Xcode toolchain binary behind it), so
+    // name the shim unless the user chose a compiler.
+    if cfg!(target_os = "macos") && target_triple.contains("apple") {
+        for (variable, tool, env_name) in [
+            ("CMAKE_C_COMPILER", "/usr/bin/cc", "CC"),
+            ("CMAKE_CXX_COMPILER", "/usr/bin/c++", "CXX"),
+        ] {
+            println!("cargo:rerun-if-env-changed={env_name}");
+            if env::var_os(env_name).is_none() {
+                cmake_config.define(variable, tool);
+            }
+        }
+    }
     if msvc_target() {
         // Rust always links the release CRT (msvcrt). CMake's Debug config
         // would compile with /MDd and the final link then fails on
@@ -318,8 +304,6 @@ fn main() {
             .define("CMAKE_POLICY_DEFAULT_CMP0091", "NEW")
             .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
     }
-    // A prebuilt runtime replaces the ReactCommon/third-party build. CMake
-    // then only compiles the app-side targets against the archive's config.
     if let Some(dir) = &prebuilt_dir {
         cmake_config.define("RN_GPUI_PREBUILT_DIR", cmake_path(dir));
         cmake_config.define("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir));
@@ -334,8 +318,6 @@ fn main() {
         cmake_build_dir.display()
     );
     println!("cargo:rustc-link-lib=static:-bundle=rn_gpui_core");
-
-    // --- 3. the libraries rn_gpui_core needs at final link time -------------
 
     emit_link_libs(&cmake_manifest(
         &cmake_build_dir,
@@ -354,8 +336,6 @@ fn main() {
         cmake_build_type,
     ));
 
-    // C++ runtime. Apple Clang uses libc++, Linux and MinGW use libstdc++, and
-    // MSVC supplies the runtime through its linker configuration.
     match (
         env::var("CARGO_CFG_TARGET_OS").as_deref(),
         env::var("CARGO_CFG_TARGET_ENV").as_deref(),
@@ -380,8 +360,6 @@ fn main() {
     }
 }
 
-/// Mirrors `src` into `dst`, writing only files whose bytes differ and
-/// removing files that no longer exist in `src`, so mtimes stay stable.
 fn sync_tree(src: &Path, dst: &Path) {
     fs::create_dir_all(dst).expect("create generated output directory");
     let mut seen = std::collections::HashSet::new();
@@ -461,19 +439,6 @@ fn watch_cpp_tree(root: &Path) {
     }
 }
 
-/// Exports the rpath directories (written by CMake) as `links` metadata.
-///
-/// A `links = "..."` package's `cargo:KEY=VALUE` lines become
-/// `DEP_<LINKS>_<KEY>` environment variables in every dependent package, which
-/// is the only way a build script can hand data to another package's build
-/// script. Directories are joined with `|` because the key is emitted once.
-/// CMake treats backslashes as escapes, and paths that reach generated files
-/// such as `CMakeFiles/VerifyGlobs.cmake` fail there with "Invalid character
-/// escape '\\s'" for a path like `C:\\repo\\src/...`. CMake accepts forward
-/// slashes on every platform, so hand it those.
-/// Chooses the runtime for this build and returns the prebuilt directory, or
-/// `None` for a source build.
-///
 /// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` -> source; `RN_GPUI_PREBUILT_DIR` -> use
 /// it; inside this repository (not under `node_modules`) -> source, unless
 /// `RN_GPUI_USE_PREBUILT=1`; otherwise `prebuilt-binaries.mjs ensure` downloads
@@ -560,8 +525,6 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
         .and_then(|value| value.as_str())
         .ok_or_else(|| format!("{} has no reactNative version", manifest_path.display()))?;
 
-    // Consumers keep react-native beside the package (app/node_modules); this
-    // repository keeps it at <repo>/node_modules.
     let repo_root = package_dir.parent().and_then(Path::parent);
     let candidates = [
         package_dir.parent().map(|dir| dir.join("react-native")),
@@ -602,8 +565,6 @@ fn env_flag(name: &str) -> bool {
     matches!(env::var(name).as_deref(), Ok("1") | Ok("true"))
 }
 
-/// The current ReactCommonOverrides hash, computed by the same JS helper that
-/// wrote the manifest so CMake compares like with like.
 fn overrides_sha256(package_dir: &Path) -> String {
     let output = Command::new("node")
         .arg(package_dir.join("scripts").join("prebuilt-inputs.mjs"))
@@ -658,8 +619,6 @@ fn emit_rpaths(path: &Path) {
     println!("cargo:rpaths={}", dirs.join("|"));
 }
 
-/// Whether the crate is being built for an MSVC target, where `link.exe` adds
-/// only a `.lib` suffix to the names given with `-l` instead of `lib<name>.a`.
 fn msvc_target() -> bool {
     matches!(std::env::var("CARGO_CFG_TARGET_ENV").as_deref(), Ok("msvc"))
 }
@@ -711,7 +670,6 @@ fn emit_link_libs(path: &Path) {
             let name = if is_archive {
                 stem.trim_end_matches(".a").trim_end_matches(".lib")
             } else {
-                // libfoo.dylib / libfoo.so / libfoo.1.2.3.dylib
                 stem.split('.').next().unwrap_or(stem)
             };
             if name.is_empty() {
@@ -731,7 +689,7 @@ fn emit_link_libs(path: &Path) {
                 println!("cargo:rustc-link-lib={directive}");
             }
         } else {
-            // Design doc §18.4: a bare name is a static archive.
+            // A bare name is a static archive.
             let directive = format!("static:-bundle={line}");
             if seen.insert(directive.clone()) {
                 println!("cargo:rustc-link-lib={directive}");

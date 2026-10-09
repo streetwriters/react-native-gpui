@@ -1,15 +1,5 @@
-//! Perf Monitor (plan item 7.6, §9).
-//!
 //! A host-drawn GPUI overlay, not React Native views, so it does not disturb
-//! what it measures. It shows:
-//!
-//! * **UI FPS** — frames the GPUI window actually presented, counted from the
-//!   frame hook.
-//! * **JS FPS** — `requestAnimationFrame` ticks JS reports once a second, which
-//!   is the honest signal for "is the JS thread keeping up".
-//! * **Memory** — resident set size of this process.
-//! * **Views** — mounted Fabric nodes in the store.
-//! * **Mount ms** — how long the last mount batch took to apply.
+//! what it measures.
 
 use crate::store::{store_from, SurfaceRootView};
 use gpui::{
@@ -21,23 +11,37 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// One second of history is enough for a stable rate without a long tail.
 const WINDOW: Duration = Duration::from_secs(1);
-/// How often the overlay's numbers are recomputed. Frames are counted by the
-/// paint itself, so this is only the text refresh.
 const TEXT_REFRESH: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 pub struct PerfMonitorState {
     pub enabled: bool,
-    /// UI frames presented in the last second.
     ui_frames: VecDeque<Instant>,
-    /// `requestAnimationFrame` ticks JS reported for the current second.
     js_ticks: VecDeque<Instant>,
-    /// The most recent mount-batch duration, in milliseconds.
     pub last_mount_ms: f32,
-    /// The last rate JS reported, used until the next report arrives.
     pub js_fps: f32,
+    js_probes_seen: u64,
+    js_probes_primed: bool,
+    memory: Option<(Instant, u64)>,
+    last_frame: Option<Instant>,
+    /// The best rate seen since the monitor was enabled: the display's rate,
+    /// which is what a frame is late against.
+    peak_fps: f32,
+    dropped_frames: u64,
+    stutters: u64,
+}
+
+const MIN_PEAK_FPS: f32 = 30.0;
+/// React Native counts a stutter when at least this many frames drop at once.
+const STUTTER_FRAMES: u64 = 4;
+
+fn missed_frames(gap: Duration, display_fps: f32) -> u64 {
+    if display_fps < MIN_PEAK_FPS {
+        return 0;
+    }
+    let refreshes = (gap.as_secs_f32() * display_fps).round();
+    (refreshes - 1.0).max(0.0) as u64
 }
 
 pub struct PerfMonitorGlobal(pub RefCell<PerfMonitorState>);
@@ -62,12 +66,10 @@ impl PerfMonitorState {
     }
 }
 
-/// Install the monitor. It starts disabled: no frame bookkeeping, no overlay.
 pub fn install(cx: &mut App) {
     cx.set_global(PerfMonitorGlobal(RefCell::new(PerfMonitorState::default())));
 }
 
-/// `PerfMonitor.setEnabled`.
 pub fn set_enabled(cx: &mut App, enabled: bool) -> Value {
     let was_enabled = {
         let mut state = cx.global_mut::<PerfMonitorGlobal>().0.borrow_mut();
@@ -77,13 +79,14 @@ pub fn set_enabled(cx: &mut App, enabled: bool) -> Value {
             state.ui_frames.clear();
             state.js_ticks.clear();
             state.js_fps = 0.0;
+            state.js_probes_primed = false;
+            state.last_frame = None;
+            state.dropped_frames = 0;
+            state.stutters = 0;
         }
         previous
     };
     if enabled && !was_enabled {
-        // The overlay keeps the window drawing while it is visible: `render`
-        // asks for the next frame and counts it. This loop only refreshes the
-        // numbers, so the overlay's text is not re-shaped on every frame.
         cx.spawn(async move |cx| loop {
             cx.background_executor().timer(TEXT_REFRESH).await;
             let mut stop = false;
@@ -111,15 +114,11 @@ pub fn set_enabled(cx: &mut App, enabled: bool) -> Value {
         })
         .detach();
     }
-    // A native toggle (the Dev Menu, `DevSettings.setProfilingEnabled`) has to
-    // tell JS, because the JS frame counter is what reports JS FPS.
     emit_enabled(cx, enabled);
     let state = cx.global::<PerfMonitorGlobal>().0.borrow();
     json!({"enabled": state.enabled})
 }
 
-/// Tell JS that the overlay was toggled natively, so it can start or stop its
-/// own frame counter (`gpuiDesktop:perfMonitor`).
 fn emit_enabled(cx: &App, enabled: bool) {
     let Some(store) = store_from(cx) else {
         return;
@@ -135,12 +134,14 @@ pub fn is_enabled(cx: &App) -> bool {
         .is_some_and(|state| state.0.borrow().enabled)
 }
 
-/// A presented frame. Called from the frame hook, so it costs one push when the
-/// monitor is off.
-pub fn record_frame(cx: &App) {
+/// A presented frame. The overlay calls this once each time it is drawn, and
+/// it is drawn once per frame while it is visible, so nothing else may call it:
+/// a second caller would double the rate.
+fn record_frame(cx: &App) {
     let Some(global) = cx.try_global::<PerfMonitorGlobal>() else {
         return;
     };
+    let js_probes = store_from(cx).map(|store| store.read(cx).host.js_frame_probe());
     let mut state = global.0.borrow_mut();
     if !state.enabled {
         return;
@@ -148,26 +149,32 @@ pub fn record_frame(cx: &App) {
     let now = Instant::now();
     state.prune(now);
     state.ui_frames.push_back(now);
-}
-
-/// `PerfMonitor.jsTicks {count}`: JS reported `count` rAF ticks.
-pub fn record_js_ticks(cx: &App, count: u32) {
-    let Some(global) = cx.try_global::<PerfMonitorGlobal>() else {
-        return;
-    };
-    let mut state = global.0.borrow_mut();
-    if !state.enabled {
-        return;
+    state.peak_fps = state.peak_fps.max(state.ui_frames.len() as f32);
+    if let Some(previous) = state.last_frame.replace(now) {
+        let missed = missed_frames(now.duration_since(previous), state.peak_fps);
+        state.dropped_frames += missed;
+        if missed >= STUTTER_FRAMES {
+            state.stutters += 1;
+        }
     }
-    let now = Instant::now();
-    state.prune(now);
-    for _ in 0..count.min(1000) {
-        state.js_ticks.push_back(now);
+    // One probe is posted to the JS thread per frame, and none while the
+    // previous one waits. Counting the ones that ran gives the rate the JS
+    // thread keeps up with: the frame rate when idle, less when it is busy.
+    if let Some(total) = js_probes {
+        let ran = total.saturating_sub(state.js_probes_seen);
+        state.js_probes_seen = total;
+        if state.js_probes_primed {
+            for _ in 0..ran.min(1000) {
+                state.js_ticks.push_back(now);
+            }
+        }
+        state.js_probes_primed = true;
     }
     state.js_fps = state.js_ticks.len() as f32;
 }
 
-/// How long the last mount batch took, in milliseconds.
+pub fn record_js_ticks(_cx: &App, _count: u32) {}
+
 pub fn record_mount(cx: &App, millis: f32) {
     let Some(global) = cx.try_global::<PerfMonitorGlobal>() else {
         return;
@@ -178,36 +185,57 @@ pub fn record_mount(cx: &App, millis: f32) {
     }
 }
 
-/// `PerfMonitor.getMetrics`.
 pub fn metrics(cx: &App) -> Value {
     let now = Instant::now();
-    let (ui_fps, js_fps, mount_ms, enabled) = {
+    let (ui_fps, js_fps, mount_ms, enabled, dropped, stutters) = {
         let Some(global) = cx.try_global::<PerfMonitorGlobal>() else {
             return json!({"enabled": false});
         };
         let mut state = global.0.borrow_mut();
         state.prune(now);
+        // A JS thread that stopped running probes has no ticks left once the
+        // window passes; the stored rate would otherwise freeze at its last value.
+        state.js_fps = state.js_ticks.len() as f32;
         (
             state.ui_frames.len() as f32,
             state.js_fps,
             state.last_mount_ms,
             state.enabled,
+            state.dropped_frames,
+            state.stutters,
         )
     };
-    let views = store_from(cx)
-        .map(|store| store.read(cx).nodes.len())
-        .unwrap_or(0);
+    let memory = {
+        let global = cx.global::<PerfMonitorGlobal>();
+        let mut state = global.0.borrow_mut();
+        match state.memory {
+            Some((at, bytes)) if now.duration_since(at) < TEXT_REFRESH => bytes,
+            _ => {
+                let bytes = resident_memory_bytes();
+                state.memory = Some((now, bytes));
+                bytes
+            }
+        }
+    };
+    let (views, js_heap) = store_from(cx)
+        .map(|store| {
+            let store = store.read(cx);
+            (store.nodes.len(), store.host.js_heap_bytes())
+        })
+        .unwrap_or((0, 0));
     json!({
         "enabled": enabled,
         "uiFps": ui_fps,
         "jsFps": js_fps,
-        "memoryBytes": resident_memory_bytes(),
+        "memoryBytes": memory,
+        "jsHeapBytes": js_heap,
+        "droppedFrames": dropped,
+        "stutters": stutters,
         "mountedViews": views,
         "lastMountMs": mount_ms,
     })
 }
 
-/// Resident set size of this process.
 #[cfg(target_os = "macos")]
 pub fn resident_memory_bytes() -> u64 {
     // `task_info(TASK_BASIC_INFO)` reports `resident_size` in bytes.
@@ -254,12 +282,10 @@ pub fn resident_memory_bytes() -> u64 {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn resident_memory_bytes() -> u64 {
-    // Windows needs `GetProcessMemoryInfo`; not wired yet (plan step 10).
+    // TODO: read `GetProcessMemoryInfo` on Windows.
     0
 }
 
-/// The overlay itself. Created once per window and always in the element tree;
-/// it draws nothing while the monitor is disabled.
 pub struct PerfMonitor {
     window_id: u32,
 }
@@ -290,7 +316,6 @@ impl Render for PerfMonitor {
         // for the next frame here is what keeps them coming, and it is legal
         // from the paint phase (unlike from a timer).
         record_frame(cx);
-        window.on_next_frame(|_window, cx| record_frame(cx));
         window.request_animation_frame();
         let value = metrics(cx);
         let line = |label: &str, text: String| {
@@ -321,6 +346,14 @@ impl Render for PerfMonitor {
                 "JS FPS",
                 format!("{:.0}", value["jsFps"].as_f64().unwrap_or(0.0)),
             ))
+            .child(line(
+                "Dropped",
+                format!(
+                    "{} ({} stutters)",
+                    value["droppedFrames"].as_u64().unwrap_or(0),
+                    value["stutters"].as_u64().unwrap_or(0)
+                ),
+            ))
             .child(line("Views", format!("{}", value["mountedViews"])))
             .child(line(
                 "Mount",
@@ -330,11 +363,14 @@ impl Render for PerfMonitor {
                 "Memory",
                 format_bytes(value["memoryBytes"].as_u64().unwrap_or(0)),
             ))
+            .child(line(
+                "JS heap",
+                format_bytes(value["jsHeapBytes"].as_u64().unwrap_or(0)),
+            ))
             .child(line("Window", format!("#{}", self.window_id)))
     }
 }
 
-/// Attach the overlay to the main window's root (called from `bootstrap`).
 pub fn attach(cx: &mut App, root: &Entity<SurfaceRootView>, window_id: u32) {
     let monitor = cx.new(|_| PerfMonitor::new(window_id));
     root.update(cx, |root, cx| {
@@ -346,6 +382,15 @@ pub fn attach(cx: &mut App, root: &Entity<SurfaceRootView>, window_id: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missed_frames_counts_refreshes_without_a_frame() {
+        let frame = Duration::from_secs_f32(1.0 / 120.0);
+        assert_eq!(missed_frames(frame, 120.0), 0);
+        assert_eq!(missed_frames(frame * 2, 120.0), 1);
+        assert_eq!(missed_frames(frame * 5, 120.0), 4);
+        assert_eq!(missed_frames(frame * 5, 0.0), 0);
+    }
 
     #[test]
     fn format_bytes_reports_megabytes() {

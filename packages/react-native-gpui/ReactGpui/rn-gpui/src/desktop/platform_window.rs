@@ -1,16 +1,3 @@
-//! Window operations GPUI does not expose (plan §8.2).
-//!
-//! GPUI covers resize, title, minimize, zoom, fullscreen, activation and window
-//! dragging. Positioning, always-on-top, a runtime minimum size and explicit
-//! show/hide are platform calls, reached through `raw-window-handle`:
-//!
-//! * macOS: `NSWindow` (`setFrameTopLeftPoint:`, `setLevel:`,
-//!   `setContentMinSize:`, `orderFront:`/`orderOut:`, `isMiniaturized`).
-//! * Windows: `SetWindowPos` / `ShowWindow` (step 10).
-//! * X11: window properties (step 10). Wayland cannot position or raise a
-//!   window at all, so those calls stay `unsupported` there.
-
-/// Whether the session can position windows. Wayland cannot.
 pub fn supports_position() -> bool {
     crate::desktop::capabilities::window_position()
 }
@@ -22,9 +9,7 @@ mod imp {
     use objc::{msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    /// `NSFloatingWindowLevel`: above normal windows, below modal panels.
     const FLOATING_WINDOW_LEVEL: i64 = 3;
-    /// `NSNormalWindowLevel`.
     const NORMAL_WINDOW_LEVEL: i64 = 0;
 
     fn ns_window(window: &gpui::Window) -> Result<id, String> {
@@ -103,7 +88,6 @@ mod imp {
         Ok(())
     }
 
-    /// `NSWindowStyleMaskResizable`.
     const STYLE_MASK_RESIZABLE: u64 = 1 << 3;
 
     pub fn set_resizable(window: &mut gpui::Window, resizable: bool) -> Result<(), String> {
@@ -172,10 +156,9 @@ mod imp {
 pub use imp::*;
 
 /// Windows: `SetWindowPos` / `ShowWindow` / `IsIconic` / `IsZoomed` on the
-/// HWND (plan step 10).
+/// HWND.
 ///
-/// **Written but never compiled**: this machine cannot build for Windows, so
-/// treat it as unverified until a Windows run proves it (plan §12.1).
+/// TODO: never built or run on Windows.
 #[cfg(target_os = "windows")]
 mod imp {
     use gpui::Window;
@@ -303,12 +286,11 @@ mod imp {
     }
 }
 
-/// X11: the window calls GPUI does not expose, over a second X connection
-/// (plan step 10). Wayland has no absolute positioning or raise, so a Wayland
-/// session reports `unsupported` — the honest answer, not a silent no-op.
+/// X11: the window calls GPUI does not expose, over a second X connection.
+/// Wayland has no absolute positioning or raise, so a Wayland session reports
+/// `unsupported`.
 ///
-/// **Written but never compiled** on this machine; treat it as unverified
-/// until a Linux run proves it (plan §12.1).
+/// TODO: never built or run on Linux.
 #[cfg(target_os = "linux")]
 mod imp {
     use gpui::Window;
@@ -366,10 +348,10 @@ mod imp {
         })
     }
 
-    /// Raising is the part of always-on-top X11 itself can do. Staying above
-    /// other windows also needs the `_NET_WM_STATE_ABOVE` window-manager hint,
-    /// which is not written yet, so `on == false` is a no-op and `on == true`
-    /// only raises the window once.
+    /// Raising is the part of always-on-top X11 itself can do, so `on == true`
+    /// only raises the window once and `on == false` is a no-op.
+    ///
+    /// TODO: set the `_NET_WM_STATE_ABOVE` hint so the window stays above.
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
         with_window(window, |display, _root, id| unsafe {
             if on {
@@ -402,9 +384,9 @@ mod imp {
     }
 
     pub fn set_resizable(_window: &mut Window, _resizable: bool) -> Result<(), String> {
-        // GPUI sets the size hints from `WindowOptions::is_resizable`; changing
-        // them at runtime needs the WM_NORMAL_HINTS pair above plus a
-        // `_MOTIF_WM_HINTS` update, which is not written yet.
+        // TODO: GPUI sets the size hints from `WindowOptions::is_resizable`;
+        // changing them at runtime needs the WM_NORMAL_HINTS pair above plus a
+        // `_MOTIF_WM_HINTS` update.
         Err("changing resizability at runtime is not implemented on X11 yet".to_string())
     }
 
@@ -441,8 +423,6 @@ mod imp {
     }
 }
 
-/// Platforms with no implementation yet (and Wayland's window calls, which the
-/// X11 module above reports as unsupported at runtime).
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod imp {
     use gpui::Window;
@@ -482,10 +462,6 @@ mod imp {
 #[cfg(not(target_os = "macos"))]
 pub use imp::*;
 
-/// Whether the app shows a Dock icon and owns the menu bar.
-///
-/// A menu-bar-only app runs as an accessory (plan 7.3), which also stops the
-/// launch from activating the app or switching Spaces.
 #[cfg(target_os = "macos")]
 pub fn set_accessory_app(accessory: bool) {
     use objc::{class, msg_send, sel, sel_impl};
@@ -499,22 +475,14 @@ pub fn set_accessory_app(accessory: bool) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_accessory_app(_accessory: bool) {
-    // Windows and Linux have no equivalent policy; a tray-only app there simply
-    // has no visible window.
-}
+pub fn set_accessory_app(_accessory: bool) {}
 
-/// Suppress the platform's open/close animation for a window.
-///
-/// The Dev Menu panel is a sheet on macOS, and sheets animate in by default;
-/// `NSWindowAnimationBehaviorNone` makes it appear at once.
 #[cfg(target_os = "macos")]
 pub fn disable_window_animation(window: &mut gpui::Window) {
     use cocoa::base::id;
     use objc::{msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    /// `NSWindowAnimationBehaviorNone`.
     const NONE: i64 = 2;
     let Ok(handle) = HasWindowHandle::window_handle(window) else {
         return;
@@ -532,3 +500,62 @@ pub fn disable_window_animation(window: &mut gpui::Window) {
 
 #[cfg(not(target_os = "macos"))]
 pub fn disable_window_animation(_window: &mut gpui::Window) {}
+
+#[cfg(target_os = "macos")]
+pub fn style_as_popover(window: &mut gpui::Window) {
+    use cocoa::base::{id, NO, YES};
+    use objc::{msg_send, sel, sel_impl};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+        unsafe {
+            let ns_view = appkit.ns_view.as_ptr() as id;
+            let native: id = msg_send![ns_view, window];
+            if native.is_null() {
+                return;
+            }
+            let _: () = msg_send![native, setMovable: NO];
+            let _: () = msg_send![native, setMovableByWindowBackground: NO];
+            let _: () = msg_send![native, setHasShadow: YES];
+            // NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton.
+            for button in 0..3u64 {
+                let button: id = msg_send![native, standardWindowButton: button];
+                if !button.is_null() {
+                    let _: () = msg_send![button, setHidden: YES];
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn style_as_popover(_window: &mut gpui::Window) {}
+
+/// `tray-icon` reports physical pixels; windows and menus are placed in points.
+#[cfg(target_os = "macos")]
+pub fn primary_screen_scale() -> f32 {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    unsafe {
+        let screens: id = msg_send![class!(NSScreen), screens];
+        let screen: id = msg_send![screens, firstObject];
+        if screen.is_null() {
+            return 1.0;
+        }
+        let scale: f64 = msg_send![screen, backingScaleFactor];
+        if scale > 0.0 {
+            scale as f32
+        } else {
+            1.0
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn primary_screen_scale() -> f32 {
+    1.0
+}

@@ -24,7 +24,6 @@ module.exports = [
   // eslint-plugin-ft-flow still uses the ESLint 8 rule context API.
   ...fixupConfigRules(reactNativeConfig),
   {
-    // Node tooling: CLI, codegen, build scripts and config files.
     files: [
       '.prettierrc.js',
       '**/.prettierrc.js',
@@ -34,7 +33,6 @@ module.exports = [
       '**/*.cjs',
       '**/*.config.js',
       '**/react-native.config.js',
-      // Package tooling hooks (an engine package's bundle/runtime-files hooks).
       'packages/@react-native-gpui/*/gpui/**/*.js',
     ],
     languageOptions: {
@@ -62,7 +60,6 @@ module.exports = [
       parser: hermesParser,
       parserOptions: { sourceType: 'module' },
       globals: {
-        // Flow utility types.
         NonNullable: 'readonly',
         Readonly: 'readonly',
         ReadonlyArray: 'readonly',

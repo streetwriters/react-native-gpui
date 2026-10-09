@@ -31,7 +31,6 @@ if (screenOption !== -1) {
   args.splice(screenOption, 2);
 }
 findScreen(selected);
-// A new launch replaces the previous tester process; completed tests keep it open.
 if (process.platform === 'win32') {
   spawnSync('taskkill', ['/IM', 'rn-gpui-tester.exe', '/F'], {
     stdio: 'ignore',

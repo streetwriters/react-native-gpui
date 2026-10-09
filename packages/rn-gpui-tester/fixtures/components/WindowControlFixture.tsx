@@ -1,5 +1,5 @@
 /**
- * Window and title-bar control (plan item 7.4, §8.4).
+ * Window and title-bar control.
  *
  * Opens a secondary window running `DesktopShellChild`, reports the window list
  * and state, and drives the title-bar methods. The custom-title-bar window is
@@ -59,7 +59,7 @@ function WindowControlFixture() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    refresh();
   }, [refresh]);
 
   // Subscribing to `closeRequested` is what makes the host intercept the OS
@@ -169,7 +169,7 @@ function WindowControlFixture() {
       <Pressable
         testID="desktop-set-title"
         onPress={() => {
-          void win.setTitle('Renamed by JS');
+          win.setTitle('Renamed by JS');
         }}
       >
         <Text style={styles.button}>Set title</Text>
@@ -177,7 +177,7 @@ function WindowControlFixture() {
       <Pressable
         testID="desktop-set-size"
         onPress={() => {
-          void win.setSize({ width: 900, height: 640 });
+          win.setSize({ width: 900, height: 640 });
         }}
       >
         <Text style={styles.button}>Set size 900x640</Text>
@@ -185,7 +185,7 @@ function WindowControlFixture() {
       <Pressable
         testID="desktop-set-position"
         onPress={() => {
-          void win.setPosition({ x: 120, y: 120 }).catch(() => {});
+          win.setPosition({ x: 120, y: 120 }).catch(() => {});
         }}
       >
         <Text style={styles.button}>Set position</Text>
@@ -193,9 +193,7 @@ function WindowControlFixture() {
       <Pressable
         testID="desktop-toggle-fullscreen"
         onPress={() => {
-          void win
-            .getState()
-            .then(next => win.setFullscreen(!next.isFullscreen));
+          win.getState().then(next => win.setFullscreen(!next.isFullscreen));
         }}
       >
         <Text style={styles.button}>Toggle fullscreen</Text>
@@ -203,7 +201,7 @@ function WindowControlFixture() {
       <Pressable
         testID="desktop-always-on-top"
         onPress={() => {
-          void win.setAlwaysOnTop(true).catch(() => {});
+          win.setAlwaysOnTop(true).catch(() => {});
         }}
       >
         <Text style={styles.button}>Always on top</Text>

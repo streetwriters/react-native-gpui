@@ -1,20 +1,5 @@
-//! Menu-bar (tray) apps (plan item 7.3, §7).
-//!
-//! A `NSStatusItem` (macOS), a notification-area icon (Windows) or an
-//! AppIndicator/StatusNotifierItem (Linux) through `tray-icon`. Clicking it
-//! shows a GPUI popup window running its own React Native surface, and
-//! optionally a native menu.
-//!
-//! Platform caveats, per the plan:
-//!
-//! * Windows has no anchored popover: the window is placed at the click point
-//!   rather than under the icon.
-//! * Linux AppIndicator only supports menus on GNOME, not click-to-popover, so
-//!   the menu is the only reliable interaction there.
-//!
-//! The icon is created on the main thread once the app is running, and its
-//! events arrive on the platform's event thread, so they are forwarded to the
-//! GPUI main thread through the same queue as every other desktop call.
+//! Windows has no anchored popover: the window opens at the click point. Linux
+//! AppIndicator only supports menus, not click-to-popover.
 
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::menu_model::{self, MenuModel};
@@ -23,30 +8,20 @@ use gpui::{App, Global};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 
-/// A tray icon's configuration (plan §7.3).
 #[derive(Clone)]
 pub struct TrayConfig {
-    /// Stable id, so an app can run more than one icon later.
     pub id: String,
     pub tooltip: Option<String>,
-    /// macOS-only text label; other platforms ignore it.
     pub title: Option<String>,
     /// RGBA pixels for the icon. `None` uses a built-in template glyph.
     pub icon: Option<(Vec<u8>, u32, u32)>,
-    /// Whether the icon is a template image (macOS recolors it for the bar).
     pub icon_is_template: bool,
-    /// The RN component the popover surface runs.
     pub component: Option<String>,
     pub width: f32,
     pub height: f32,
-    /// A menu to show instead of (or as well as) the popover.
     pub menu: Option<MenuModel>,
-    /// Whether a left click opens the menu rather than the popover.
     pub menu_on_left_click: bool,
-    /// Keep the app alive when its last window closes.
     pub quit_on_last_window_closed: bool,
-    /// Run with no Dock icon and no menu-bar ownership
-    /// (`NSApplicationActivationPolicyAccessory` on macOS).
     pub accessory: bool,
 }
 
@@ -80,7 +55,6 @@ impl TrayConfig {
         self
     }
 
-    /// Run `component` in the popover window.
     pub fn component(mut self, component: impl Into<String>) -> Self {
         self.component = Some(component.into());
         self
@@ -102,7 +76,6 @@ impl TrayConfig {
         self
     }
 
-    /// Whether the app runs as an accessory (no Dock icon). Default true.
     pub fn accessory(mut self, accessory: bool) -> Self {
         self.accessory = accessory;
         self
@@ -112,11 +85,15 @@ impl TrayConfig {
 pub struct TrayState {
     icon: Option<tray_icon::TrayIcon>,
     config: TrayConfig,
-    /// The popover window's key, while it is open.
     pub popover: Option<u32>,
     visible: bool,
     clicks: u32,
+    pub popover_dismissed_at: Option<std::time::Instant>,
 }
+
+/// A click on the icon while the popover is open first dismisses it (it loses
+/// activation) and then arrives here; within this window it must not reopen it.
+const REOPEN_GUARD: std::time::Duration = std::time::Duration::from_millis(350);
 
 pub struct TrayGlobal(pub RefCell<TrayState>);
 impl Global for TrayGlobal {}
@@ -137,13 +114,14 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
         popover: None,
         visible: true,
         clicks: 0,
+        popover_dismissed_at: None,
     })));
     if !config.quit_on_last_window_closed {
-        // A tray-only app must survive its last window closing.
         cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(false));
     }
     match build_icon(&config) {
         Ok(icon) => {
+            attach_native_menu(&icon, &config);
             cx.global_mut::<TrayGlobal>().0.borrow_mut().icon = Some(icon);
             log::info!("[desktop][tray] installed `{}`", config.id);
             Ok(json!({"id": config.id}))
@@ -157,7 +135,6 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
     }
 }
 
-/// Remove the tray icon and close its popover.
 pub fn destroy(cx: &mut App) -> DesktopResult {
     let (config, popover) = {
         let Some(tray) = cx.try_global::<TrayGlobal>() else {
@@ -166,6 +143,7 @@ pub fn destroy(cx: &mut App) -> DesktopResult {
         let mut tray = tray.0.borrow_mut();
         let popover = tray.popover.take();
         tray.icon = None;
+        NATIVE_MENU.store(0, std::sync::atomic::Ordering::Relaxed);
         tray.visible = false;
         (tray.config.id.clone(), popover)
     };
@@ -176,7 +154,6 @@ pub fn destroy(cx: &mut App) -> DesktopResult {
     Ok(json!({"id": config, "destroyed": true}))
 }
 
-/// A tray click, forwarded from the platform's event thread.
 pub fn handle_click(cx: &mut App, rect: TrayRect, button: TrayButton) {
     let (config, menu) = {
         let Some(tray) = cx.try_global::<TrayGlobal>() else {
@@ -196,18 +173,24 @@ pub fn handle_click(cx: &mut App, rect: TrayRect, button: TrayButton) {
         toggle_popover(cx, rect);
         return;
     }
-    // No component and no menu: a click with nothing to show is a no-op.
     log::debug!("[desktop][tray] click with no popover component and no menu");
 }
 
-/// Show the popover, or hide it when it is already open.
 pub fn toggle_popover(cx: &mut App, rect: TrayRect) {
     let open = cx
         .try_global::<TrayGlobal>()
         .and_then(|tray| tray.0.borrow().popover);
-    if let Some(key) = open {
+    if open.is_some() {
         hide_popover(cx);
-        let _ = key;
+        return;
+    }
+    let just_dismissed = cx.try_global::<TrayGlobal>().is_some_and(|tray| {
+        tray.0
+            .borrow()
+            .popover_dismissed_at
+            .is_some_and(|at| at.elapsed() < REOPEN_GUARD)
+    });
+    if just_dismissed {
         return;
     }
     show_popover(cx, rect);
@@ -221,8 +204,6 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     let Some(component) = config.component.clone() else {
         return;
     };
-    // Below the icon, horizontally centred on it, clamped to the screen by the
-    // platform when the window is created.
     let x = rect.x + rect.width / 2.0 - config.width / 2.0;
     let y = rect.y + rect.height;
     let options = OpenWindowOptions {
@@ -242,9 +223,6 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     match windows::open_window(cx, options) {
         Ok(key) => {
             cx.global_mut::<TrayGlobal>().0.borrow_mut().popover = Some(key);
-            // A menu-bar popover goes away when it stops being the active
-            // window, the way a native popover does; `install_activation_observer`
-            // in `windows.rs` does that for the `TrayPopover` role.
             let _ = windows::focus(cx, key);
         }
         Err(error) => log::error!("[desktop][tray] could not open the popover: {error}"),
@@ -256,11 +234,15 @@ pub fn hide_popover(cx: &mut App) {
         .try_global::<TrayGlobal>()
         .and_then(|tray| tray.0.borrow_mut().popover.take());
     if let Some(key) = open {
-        let _ = windows::hide(cx, key);
+        // Closed, not hidden: every show opens a new window, and a hidden one
+        // would stay behind with its surface (and come back on screen when a
+        // pending activation reaches it).
+        let _ = windows::close_window(cx, key, true);
     }
 }
 
-/// Show `menu` as a native popup next to the icon.
+/// Show `menu` through the context-menu presenter. A real click on macOS and
+/// Windows never gets here: the status item shows its attached menu itself.
 pub fn show_menu(cx: &mut App, menu: MenuModel, rect: TrayRect) {
     let request = crate::desktop::context_menu::ContextMenuRequest {
         window: match crate::desktop::context_menu::target_window(cx) {
@@ -291,7 +273,6 @@ pub fn show_menu(cx: &mut App, menu: MenuModel, rect: TrayRect) {
     presenter.show(cx, request, responder);
 }
 
-/// `Tray.setTooltip` / `Tray.setIcon` / `Tray.setVisible`.
 pub fn apply(cx: &mut App, method: &str, args_json: &str) -> DesktopResult {
     let args: Value = serde_json::from_str(args_json).unwrap_or(Value::Null);
     let Some(tray) = cx.try_global::<TrayGlobal>() else {
@@ -339,13 +320,18 @@ pub fn apply(cx: &mut App, method: &str, args_json: &str) -> DesktopResult {
                 None => None,
             };
             tray.0.borrow_mut().config.menu = menu;
+            {
+                let tray = tray.0.borrow();
+                if let Some(icon) = &tray.icon {
+                    attach_native_menu(icon, &tray.config);
+                }
+            }
             Ok(json!({"items": args.get("items").map(|v| v.as_array().map(Vec::len)).flatten()}))
         }
         _ => Err(DesktopError::unsupported(format!("tray.{method}"))),
     }
 }
 
-/// `Tray.getState`, also used by the test driver.
 pub fn state(cx: &App) -> Value {
     let Some(tray) = cx.try_global::<TrayGlobal>() else {
         return json!({"installed": false});
@@ -369,7 +355,6 @@ pub fn state(cx: &App) -> Value {
     })
 }
 
-/// A tray click's rectangle, in GPUI points.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TrayRect {
     pub x: f32,
@@ -396,8 +381,6 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     let mut builder = TrayIconBuilder::new()
         .with_id(config.id.clone())
         .with_icon_templated(icon)
-        // The click is handled here rather than by the menu, so a left click
-        // can open the popover.
         .with_menu_on_left_click(false);
     if let Some(tooltip) = &config.tooltip {
         builder = builder.with_tooltip(tooltip.clone());
@@ -410,8 +393,15 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     // The handler runs on the platform's event thread; the click is forwarded
     // to the GPUI main thread through the shared queue.
     TrayIconEvent::set_event_handler(Some(move |event| {
+        // One click is a press and a release, and each is its own event; acting
+        // on both would open the popover and close it again.
         let (rect, button) = match event {
-            TrayIconEvent::Click { rect, button, .. } => (rect, button),
+            TrayIconEvent::Click {
+                rect,
+                button,
+                button_state: tray_icon::MouseButtonState::Up,
+                ..
+            } => (rect, button),
             _ => return,
         };
         let button = match button {
@@ -419,11 +409,21 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
             tray_icon::MouseButton::Right => TrayButton::Right,
             tray_icon::MouseButton::Middle => TrayButton::Middle,
         };
+        // The status item shows an attached menu itself, anchored to the icon;
+        // forwarding that click as well would show it a second time.
+        let native_menu = NATIVE_MENU.load(std::sync::atomic::Ordering::Relaxed);
+        if native_menu & MENU_ATTACHED != 0
+            && (button == TrayButton::Right || native_menu & MENU_ON_LEFT_CLICK != 0)
+        {
+            return;
+        }
+        // `tray-icon` reports physical pixels; everything here is in points.
+        let scale = crate::desktop::platform_window::primary_screen_scale() as f64;
         let rect = TrayRect {
-            x: rect.position.x as f32,
-            y: rect.position.y as f32,
-            width: rect.size.width as f32,
-            height: rect.size.height as f32,
+            x: (rect.position.x / scale) as f32,
+            y: (rect.position.y / scale) as f32,
+            width: (rect.size.width as f64 / scale) as f32,
+            height: (rect.size.height as f64 / scale) as f32,
         };
         if let Some(handler) = rn_gpui_sys::TRAY_CLICK_HANDLER.get() {
             handler(rect.x, rect.y, rect.width, rect.height, button as u8);
@@ -432,7 +432,118 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     Ok(tray)
 }
 
-/// A menu-bar-shaped template glyph, so the tester does not need an asset.
+/// Whether the status item has a native menu, and which button opens it. Read
+/// by the click handler, which runs on the platform's event thread.
+static NATIVE_MENU: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+const MENU_ATTACHED: u8 = 1;
+const MENU_ON_LEFT_CLICK: u8 = 2;
+
+/// The platform shows an attached menu itself, anchored to the icon.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
+    use std::sync::atomic::Ordering;
+    use tray_icon::menu::{Menu, MenuEvent};
+
+    let Some(model) = &config.menu else {
+        icon.set_menu(None);
+        NATIVE_MENU.store(0, Ordering::Relaxed);
+        return;
+    };
+    let menu = Menu::new();
+    if let Err(error) = build_tray_menu(&menu, &model.items) {
+        log::error!("[desktop][tray] could not build the menu: {error}");
+        icon.set_menu(None);
+        NATIVE_MENU.store(0, Ordering::Relaxed);
+        return;
+    }
+    icon.set_menu(Some(Box::new(menu)));
+    icon.set_show_menu_on_left_click(config.menu_on_left_click);
+    NATIVE_MENU.store(
+        MENU_ATTACHED
+            | if config.menu_on_left_click {
+                MENU_ON_LEFT_CLICK
+            } else {
+                0
+            },
+        Ordering::Relaxed,
+    );
+    MenuEvent::set_event_handler(Some(|event: MenuEvent| {
+        if let Some(handler) = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.get() {
+            handler(event.id.0.clone());
+        }
+    }));
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn attach_native_menu(_icon: &tray_icon::TrayIcon, _config: &TrayConfig) {}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+trait TrayMenuAppend {
+    fn append_all(&self, items: &[&dyn tray_icon::menu::IsMenuItem])
+        -> tray_icon::menu::Result<()>;
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl TrayMenuAppend for tray_icon::menu::Menu {
+    fn append_all(
+        &self,
+        items: &[&dyn tray_icon::menu::IsMenuItem],
+    ) -> tray_icon::menu::Result<()> {
+        self.append_items(items)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl TrayMenuAppend for tray_icon::menu::Submenu {
+    fn append_all(
+        &self,
+        items: &[&dyn tray_icon::menu::IsMenuItem],
+    ) -> tray_icon::menu::Result<()> {
+        self.append_items(items)
+    }
+}
+
+/// The tray's menu in `tray-icon`'s own menu types. It bundles a newer `muda`
+/// than the context menus use, so `context_menu`'s builder cannot be shared.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn build_tray_menu(
+    menu: &impl TrayMenuAppend,
+    items: &[menu_model::MenuNode],
+) -> Result<(), String> {
+    use menu_model::MenuNode;
+    use tray_icon::menu::{CheckMenuItem, IsMenuItem, MenuItem, PredefinedMenuItem, Submenu};
+
+    let mut children: Vec<Box<dyn IsMenuItem>> = Vec::new();
+    for node in items {
+        match node {
+            MenuNode::Separator => children.push(Box::new(PredefinedMenuItem::separator())),
+            MenuNode::StandardMenu(_) => {}
+            MenuNode::Item(item) if item.checked => {
+                children.push(Box::new(CheckMenuItem::with_id(
+                    item.id.clone(),
+                    item.label.clone(),
+                    item.enabled,
+                    true,
+                    None,
+                )))
+            }
+            MenuNode::Item(item) => children.push(Box::new(MenuItem::with_id(
+                item.id.clone(),
+                item.label.clone(),
+                item.enabled,
+                None,
+            ))),
+            MenuNode::Submenu(submenu) => {
+                let child = Submenu::new(submenu.label.clone(), submenu.enabled);
+                build_tray_menu(&child, &submenu.items)?;
+                children.push(Box::new(child));
+            }
+        }
+    }
+    let refs: Vec<&dyn IsMenuItem> = children.iter().map(|item| item.as_ref()).collect();
+    menu.append_all(&refs).map_err(|error| error.to_string())
+}
+
 fn default_icon() -> Result<tray_icon::Icon, String> {
     const SIZE: u32 = 22;
     let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
@@ -452,7 +563,6 @@ fn default_icon() -> Result<tray_icon::Icon, String> {
     tray_icon::Icon::from_rgba(rgba, SIZE, SIZE).map_err(|error| error.to_string())
 }
 
-/// Load a PNG from disk and hand it to `tray-icon` as RGBA.
 fn load_icon(path: &str) -> Result<tray_icon::Icon, DesktopError> {
     let image = image::open(path)
         .map_err(|error| DesktopError::invalid_argument(format!("could not read {path}: {error}")))?
@@ -462,13 +572,10 @@ fn load_icon(path: &str) -> Result<tray_icon::Icon, DesktopError> {
         .map_err(|error| DesktopError::failed(format!("{error}")))
 }
 
-/// Whether a click opens the menu rather than the popover: a menu has to exist,
-/// and it opens on a right click unless the app asked for left clicks too.
 fn wants_menu(has_menu: bool, menu_on_left_click: bool, button: TrayButton) -> bool {
     has_menu && (button == TrayButton::Right || menu_on_left_click)
 }
 
-/// A tray menu item was chosen: report it to JS.
 pub fn emit_menu_press(cx: &App, id: &str) {
     let Some(store) = crate::store::store_from(cx) else {
         return;

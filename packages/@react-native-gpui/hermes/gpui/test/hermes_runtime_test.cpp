@@ -1,8 +1,3 @@
-// The source-built libhermesvm (from the external Hermes
-// checkout, configured in cmake/modules/ThirdParty.cmake)
-// links into this test executable, which creates a Hermes
-// runtime and evaluates a script through JSI.
-
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 
@@ -13,11 +8,8 @@
 #include <string>
 
 int main(int argc, char** argv) {
-  // Create the Hermes runtime — proves libhermesvm links
-  // and initializes.
   auto runtime = facebook::hermes::makeHermesRuntime();
 
-  // Evaluate source or a hermesc-produced bytecode file through JSI.
   std::string source = "40 + 2";
   if (argc > 1) {
     std::ifstream bytecode(argv[1], std::ios::binary);

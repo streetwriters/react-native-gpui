@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/**
- * Installs the Hermes VM and compiler binaries built by the `hermes-engine`
- * GitHub workflow into this package's `bin/<platform>-<arch>/` directories.
- *
- *   node scripts/fetch-binaries.mjs                      latest successful workflow run
- *   node scripts/fetch-binaries.mjs --run <run-id>       a specific workflow run
- *   node scripts/fetch-binaries.mjs --tag <release-tag>  assets attached to a release
- *   node scripts/fetch-binaries.mjs --from <zip|dir>     an artifact downloaded by hand
- *   node scripts/fetch-binaries.mjs --verify             report what is installed
- *
- * Automatic modes need the GitHub CLI (`gh`, authenticated). `--from` works
- * offline and accepts either an artifact zip from the Actions UI or an already
- * unpacked directory.
- *
- * The workflow uploads `bin/<platform>-<arch>/`, which GitHub stores without the
- * `bin/` prefix, so anything downloaded from CI drops straight into this package.
- */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -30,7 +13,6 @@ const packageRoot = path.resolve(
 );
 const binRoot = path.join(packageRoot, 'bin');
 
-/** Files the build expects for each platform key. */
 const PLATFORMS = {
   'darwin-arm64': ['libhermesvm.dylib', 'hermesc'],
   'darwin-x64': ['libhermesvm.dylib', 'hermesc'],

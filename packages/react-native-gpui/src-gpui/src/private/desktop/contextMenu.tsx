@@ -1,5 +1,5 @@
 /**
- * `ContextMenu` — native context menus (plan item 7.2, §6.1).
+ * `ContextMenu` — native context menus.
  *
  * @format
  */
@@ -11,20 +11,17 @@ import { call } from './index';
 import type { MenuItemSpec } from './menu';
 
 export interface ContextMenuOptions {
-  /** Window points; the cursor position when omitted. */
   x?: number;
   y?: number;
   windowId?: number;
 }
 
-/** The native event RN passes to an `onContextMenu` handler. */
 export interface ContextMenuEvent {
   nativeEvent: {
     x: number;
     y: number;
     pageX: number;
     pageY: number;
-    /** The window the press happened in. */
     windowId?: number;
   };
 }
@@ -48,7 +45,6 @@ export const ContextMenu = {
 
 export interface ContextMenuViewProps extends ViewProps {
   items: MenuItemSpec[];
-  /** Called with the chosen item id. */
   onPress?: (id: string) => void;
   children?: React.ReactNode;
 }

@@ -1,15 +1,3 @@
-//! Native context menus (plan item 7.2, §6.3).
-//!
-//! macOS and Windows use `muda`: an `NSMenu` shown for the window's `NSView`,
-//! or a Win32 popup menu on the HWND. Selection arrives on muda's global menu
-//! event channel after the (blocking) call returns; no event means the menu was
-//! dismissed, which resolves `null`.
-//!
-//! Presenters sit behind [`ContextMenuPresenter`] so the test driver can swap in
-//! a recording fake: a native popup runs a modal tracking loop the driver cannot
-//! click through, and the fake goes through the same model, event and callback
-//! path as the real one.
-
 use crate::desktop::errors::DesktopError;
 use crate::desktop::menu_model::{self, MenuModel, MenuNode};
 use crate::desktop::windows::DesktopWindowsGlobal;
@@ -18,23 +6,17 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// One `ContextMenu.show` request.
 pub struct ContextMenuRequest {
     pub window: AnyWindowHandle,
-    /// Window points, the same space as `pageX`/`pageY`.
     pub x: f32,
     pub y: f32,
     pub model: MenuModel,
-    /// macOS: the window's `NSView`. Windows: the window's `HWND`.
     pub native_view: isize,
 }
 
-/// Settles the caller. Exactly one of `resolve`/`reject` is called.
 #[derive(Clone)]
 pub enum Responder {
-    /// Settles the JS promise behind `ContextMenu.show`.
     Desktop { request_id: i32 },
-    /// An internal caller (the Dev Menu, a tray menu).
     Callback(Rc<RefCell<Option<Box<dyn FnMut(Option<String>)>>>>),
 }
 
@@ -47,7 +29,6 @@ impl Responder {
         Self::Callback(Rc::new(RefCell::new(Some(callback))))
     }
 
-    /// Resolve with the chosen item id, or `null` when the menu was dismissed.
     pub fn resolve(&self, selection: Option<&str>) {
         match self {
             Self::Desktop { request_id } => rn_gpui_sys::ffi::rn_gpui_desktop_result(
@@ -77,8 +58,6 @@ impl Responder {
     }
 }
 
-/// The window a menu without a caller-supplied window targets: the active one,
-/// else the main window (a hidden or off-screen window is not "active").
 pub fn target_window(cx: &mut App) -> Result<(AnyWindowHandle, isize), DesktopError> {
     let window = cx
         .active_window()
@@ -93,19 +72,15 @@ pub fn target_window(cx: &mut App) -> Result<(AnyWindowHandle, isize), DesktopEr
     Ok((window, native_view))
 }
 
-/// Presents a context menu and settles the request.
 pub trait ContextMenuPresenter: 'static {
     fn show(&self, cx: &mut App, request: ContextMenuRequest, responder: Responder);
 
-    /// Which presenter is installed, for the test driver.
     fn name(&self) -> &'static str;
 }
 
 pub struct ContextMenuPresenterGlobal(pub Rc<dyn ContextMenuPresenter>);
 impl gpui::Global for ContextMenuPresenterGlobal {}
 
-/// Install the presenter. With the test-driver feature and
-/// `RN_GPUI_TEST_FAKE_NATIVE_UI=1` this is the recording fake.
 pub fn install(cx: &mut App) {
     let fake = cfg!(feature = "test-driver")
         && std::env::var("RN_GPUI_TEST_FAKE_NATIVE_UI").as_deref() == Ok("1");
@@ -120,10 +95,8 @@ pub fn install(cx: &mut App) {
     }
 }
 
-/// `ContextMenu.show(items, {x, y, windowId})`.
-///
-/// Answers validation errors immediately and leaves the promise pending on
-/// success: the presenter settles it when the menu closes.
+/// Leaves the promise pending on success: the presenter settles it when the
+/// menu closes.
 pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), DesktopError> {
     let args: Value = serde_json::from_str(args_json)
         .map_err(|error| DesktopError::invalid_argument(format!("invalid args JSON: {error}")))?;
@@ -174,7 +147,6 @@ pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), Deskto
     Ok(())
 }
 
-/// The window's platform view pointer, for the native presenter.
 fn native_view_of(cx: &mut App, window: AnyWindowHandle) -> isize {
     window
         .update(cx, |_root, window, _cx| raw_view(window))
@@ -210,7 +182,6 @@ fn raw_view(_window: &gpui::Window) -> isize {
     0
 }
 
-/// The pointer position in window points, when the caller did not pass one.
 fn cursor_position(cx: &mut App, window: AnyWindowHandle) -> (f32, f32) {
     window
         .update(cx, |_root, window, _cx| {
@@ -220,7 +191,6 @@ fn cursor_position(cx: &mut App, window: AnyWindowHandle) -> (f32, f32) {
         .unwrap_or((0.0, 0.0))
 }
 
-/// The real presenter: `muda` on macOS and Windows.
 struct NativeContextMenu;
 
 impl ContextMenuPresenter for NativeContextMenu {
@@ -239,8 +209,6 @@ impl ContextMenuPresenter for NativeContextMenu {
     }
 }
 
-/// The GPUI-rendered presenter (plan §6.3): the Linux answer, and selectable
-/// everywhere with `RN_GPUI_CONTEXT_MENU=gpui` so it can be tested on macOS.
 struct GpuiContextMenu;
 
 impl ContextMenuPresenter for GpuiContextMenu {
@@ -326,10 +294,7 @@ fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), Des
             MenuNode::Separator => {
                 children.push(Box::new(PredefinedMenuItem::separator()));
             }
-            MenuNode::StandardMenu(_) => {
-                // A whole standard submenu has no meaning inside a context
-                // menu; its individual roles are what an app asks for.
-            }
+            MenuNode::StandardMenu(_) => {}
             MenuNode::Item(item) => {
                 if item.checked {
                     children.push(Box::new(CheckMenuItem::with_id(
@@ -360,7 +325,6 @@ fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), Des
         .map_err(|error| DesktopError::failed(format!("could not build the context menu: {error}")))
 }
 
-/// The recording fake used by the test driver (plan §3.5).
 pub struct FakeContextMenu {
     state: RefCell<FakeContextMenuState>,
 }
@@ -402,7 +366,6 @@ impl ContextMenuPresenter for FakeContextMenu {
     }
 }
 
-/// A menu model as JSON, the shape `getContextMenu` reports.
 pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
     items
         .iter()
@@ -427,14 +390,12 @@ pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
         .collect()
 }
 
-/// Which presenter is installed, for the test driver.
 pub fn presenter_name(cx: &App) -> &'static str {
     cx.try_global::<ContextMenuPresenterGlobal>()
         .map(|presenter| presenter.0.name())
         .unwrap_or("none")
 }
 
-/// The model the fake recorded, for `getContextMenu`.
 pub fn fake_model(cx: &App) -> Option<Value> {
     let fake = cx.try_global::<FakeContextMenuGlobal>()?;
     let state = fake.0.state.borrow();
@@ -446,7 +407,6 @@ pub fn fake_model(cx: &App) -> Option<Value> {
     }))
 }
 
-/// `selectContextMenuItem {id}` for the fake.
 pub fn fake_select(cx: &App, id: &str) -> bool {
     let Some(fake) = cx.try_global::<FakeContextMenuGlobal>() else {
         return false;
@@ -461,7 +421,6 @@ pub fn fake_select(cx: &App, id: &str) -> bool {
     }
 }
 
-/// `dismissContextMenu` for the fake.
 pub fn fake_dismiss(cx: &App) -> bool {
     let Some(fake) = cx.try_global::<FakeContextMenuGlobal>() else {
         return false;

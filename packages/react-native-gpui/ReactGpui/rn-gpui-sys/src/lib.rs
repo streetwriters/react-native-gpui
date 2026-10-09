@@ -1,21 +1,9 @@
-//! react-native-gpui core FFI bindings (design doc §18.6).
-//!
-//! One cxx bridge, two directions:
-//!  * `extern "Rust"` — the C++ platform glue hands mount batches and text
-//!    measurement requests to Rust.
-//!  * `unsafe extern "C++"` — Rust drives the React host through `GpuiHost`.
-//!
-//! Everything crossing the boundary is flat (no smart pointers, no `folly`,
-//! no GPUI types): `rn-gpui` registers handlers through the `OnceLock`s below
-//! and never has to know about React.
-
 #[cxx::bridge(namespace = "rngpui")]
 pub mod ffi {
     unsafe extern "C++" {
         include!("GpuiImageLoader.h");
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
     }
-    // ---------- shared, flat data ----------
 
     #[derive(Clone, Copy, Debug, Default)]
     pub struct RectF {
@@ -57,7 +45,7 @@ pub mod ffi {
         pub label: String,
     }
 
-    /// Everything the painter needs from BaseViewProps. Colors are 0xAARRGGBB, 0 = none.
+    /// Colors are 0xAARRGGBB, 0 = none.
     #[derive(Clone, Debug, Default)]
     pub struct ViewPropsFlat {
         pub opacity: f32,
@@ -74,7 +62,7 @@ pub mod ffi {
         pub overflow_hidden: bool,
         pub display_none: bool, // Fabric layout visibility, including retained descendants
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
-        pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto (TODO 2.5)
+        pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto
         pub shadows: Vec<ShadowF>,
         pub transform: [f32; 16], // column-major 4x4, resolved with layout
         pub has_transform: bool,
@@ -114,11 +102,9 @@ pub mod ffi {
         pub accessibility_large_content_enabled: bool,
         pub accessibility_large_content_title: String,
         pub focusable: bool,
-        /// Custom title bar: the view drags the window (plan §8.3).
         pub desktop_drag_region: bool,
         /// "minimize" | "maximize" | "close" for a custom caption button.
         pub desktop_window_control: String,
-        /// The view has an `onContextMenu` handler (plan §6.2).
         pub on_context_menu: bool,
     }
 
@@ -198,6 +184,7 @@ pub mod ffi {
         pub content_height: f32,
         pub scroll_horizontal: bool,
         pub scroll_enabled: bool,
+        pub scroll_indicator: bool,
         pub layout_changed: bool,
     }
 
@@ -227,7 +214,6 @@ pub mod ffi {
         pub height: f32,
     }
 
-    // ---------- Rust functions callable from C++ ----------
     extern "Rust" {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
@@ -240,12 +226,9 @@ pub mod ffi {
         ) -> String;
         /// Called on the JS/Fabric thread. Must not block, must not touch GPUI.
         fn rn_gpui_on_mount(batch: MountBatch);
-        /// Called by RN's synchronous native animated props path.
         fn rn_gpui_on_animated_props(props: AnimatedPropsFlat);
-        /// Called by Fabric when RN's TextInput JS wrapper issues focus/blur.
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
-        /// Called by Fabric when the TextInput ref's clear command is issued.
         fn rn_gpui_on_text_input_clear(tag: i32);
         fn rn_gpui_set_animated_active(active: bool);
         fn rn_gpui_open_url(url: String);
@@ -258,9 +241,7 @@ pub mod ffi {
         /// Synchronous snapshot read for `GpuiDesktop.getSnapshot`. Called on
         /// the JS thread; must never touch the GPUI main thread.
         fn rn_gpui_desktop_snapshot(key: &str) -> String;
-        /// `DevMenu.show()` (plan 7.5).
         fn rn_gpui_dev_menu_show();
-        /// `DevMenu` / `DevSettings` toggles, by name.
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
         /// Called on the JS/Fabric thread during layout. Thread-safe.
         fn rn_gpui_measure_text(
@@ -268,14 +249,10 @@ pub mod ffi {
             max_width: f32,
             max_height: f32,
         ) -> MeasureResult;
-        /// Log output from C++.
         fn rn_gpui_log(level: i32, message: &str);
-        /// TODO 2.6 — a surface (or, with `ALL_SURFACES`, the whole React
-        /// instance) was torn down. Called on the JS/Fabric thread.
         fn rn_gpui_on_surface_stopped(surface_id: i32);
     }
 
-    // ---------- C++ functions callable from Rust ----------
     unsafe extern "C++" {
         include!("GpuiHost.h");
         type GpuiHost;
@@ -295,8 +272,6 @@ pub mod ffi {
             height: f32,
             scale: f32,
         );
-        /// Start a surface whose root component receives `props_json` as
-        /// `initialProps` (used to pass each window its `windowId`).
         fn start_surface_with_props(
             self: Pin<&mut GpuiHost>,
             surface_id: i32,
@@ -318,28 +293,23 @@ pub mod ffi {
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_alert_result(id: i32, button_index: i32);
         fn rn_gpui_clipboard_result(id: i32, text: String);
-        /// Settle one `GpuiDesktop.call` promise (design §3.2 step 3).
         fn rn_gpui_desktop_result(id: i32, ok: bool, json: String);
-        /// Reject every in-flight desktop call (a reload tore the JS instance
-        /// down).
         fn reject_pending_desktop_calls();
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
-        /// Reload the JS instance (the Dev Menu's Reload).
         fn request_reload(self: Pin<&mut GpuiHost>);
-        /// Open React Native DevTools through the Metro inspector proxy.
+        fn set_dev_server(self: Pin<&mut GpuiHost>, host: &str, port: u32) -> bool;
+        fn dev_server_address(self: &GpuiHost) -> String;
         fn open_debugger(self: &GpuiHost);
-        /// Wake RN's EventBeat after input or a mount batch on the main thread.
+        fn js_frame_probe(self: &GpuiHost) -> u64;
+        fn js_heap_bytes(self: &GpuiHost) -> u64;
         fn on_render(self: &GpuiHost) -> Result<()>;
-        /// Animation ticks only from the display-frame hook, never mount batches.
         fn on_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         fn on_gesture_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);
         fn emit_device_event_bool(self: &GpuiHost, event_name: &str, value: bool);
-        /// Device event whose payload is a JSON object string (design §3.2).
         fn emit_device_event_json(self: &GpuiHost, event_name: &str, payload_json: &str);
-        /// Send raw GPUI pointer input to an optional native recognizer before RN touch dispatch.
         fn dispatch_pointer_event(
             self: &GpuiHost,
             target_chain_json: &str,
@@ -359,11 +329,9 @@ pub use ffi::{
     TextFragmentFlat, ViewPropsFlat,
 };
 
-/// The `rn-gpui` crate installs its handlers here at startup.
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
 pub type MeasureHandler =
     Box<dyn Fn(&ffi::ParagraphFlat, f32, f32) -> ffi::MeasureResult + Send + Sync>;
-/// TODO 2.6 — `surface_id`, or [`ALL_SURFACES`] when the whole instance is gone.
 pub type SurfaceStoppedHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync>;
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
@@ -386,29 +354,20 @@ pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
 pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
-/// `(request id, domain, method, args json)` — called on the JS thread.
 pub type DesktopCallHandler = Box<dyn Fn(i32, String, String, String) + Send + Sync>;
 pub static DESKTOP_CALL_HANDLER: OnceLock<DesktopCallHandler> = OnceLock::new();
-/// `key -> json` — called on the JS thread; must be non-blocking.
 pub type DesktopSnapshotHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
 pub static DESKTOP_SNAPSHOT_HANDLER: OnceLock<DesktopSnapshotHandler> = OnceLock::new();
-/// `DevMenu.show` — called on the JS thread.
 pub type DevMenuShowHandler = Box<dyn Fn() + Send + Sync>;
 pub static DEV_MENU_SHOW_HANDLER: OnceLock<DevMenuShowHandler> = OnceLock::new();
-/// `(name, enabled)` from `DevMenu` / `DevSettings`.
 pub type DevSettingHandler = Box<dyn Fn(String, bool) + Send + Sync>;
 pub static DEV_SETTING_HANDLER: OnceLock<DevSettingHandler> = OnceLock::new();
-/// A chosen Dev Menu item id; the menu runs it on the GPUI main thread.
 pub type DevMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static DEV_MENU_PERFORM_HANDLER: OnceLock<DevMenuPerformHandler> = OnceLock::new();
-/// A tray icon click, from the platform's event thread:
-/// `(x, y, width, height, button)` in physical pixels.
 pub type TrayClickHandler = Box<dyn Fn(f32, f32, f32, f32, u8) + Send + Sync>;
 pub static TRAY_CLICK_HANDLER: OnceLock<TrayClickHandler> = OnceLock::new();
-/// A chosen tray menu item id.
 pub type TrayMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static TRAY_MENU_PERFORM_HANDLER: OnceLock<TrayMenuPerformHandler> = OnceLock::new();
-/// A chosen item from the GPUI-rendered menu bar (plan 7.1 on Linux).
 pub type MenuBarPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static MENU_BAR_PERFORM_HANDLER: OnceLock<MenuBarPerformHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
@@ -452,14 +411,10 @@ fn rn_gpui_image_is_cached(uri: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Sentinel surface id meaning "every surface": C++ passes it when React tears
-/// the whole instance down (a reload), which is when the platform has to forget
-/// every tree at once. Mirror of `rngpui::kAllSurfacesStopped` in `GpuiHost.h`.
 pub const ALL_SURFACES: i32 = -1;
 
-/// TODO 2.6 — called by C++ when a surface (or the whole instance) is torn
-/// down. Fabric emits no Delete mutations for a dying surface, so this is the
-/// only cleanup signal the view store gets.
+/// Fabric emits no Delete mutations for a dying surface, so this is the only
+/// cleanup signal.
 fn rn_gpui_on_surface_stopped(surface_id: i32) {
     match SURFACE_STOPPED_HANDLER.get() {
         Some(handler) => handler(surface_id),
@@ -469,14 +424,12 @@ fn rn_gpui_on_surface_stopped(surface_id: i32) {
     }
 }
 
-/// Called by the C++ mounting manager on the Fabric thread. Queues the batch
-/// for the GPUI main thread and returns at once, so mounting never blocks on
-/// rendering. Dropped (with a warning) if no handler is registered yet.
+/// Called on the Fabric thread. Queues the batch for the GPUI main thread and
+/// returns at once, so mounting never blocks on rendering.
 fn rn_gpui_on_mount(batch: ffi::MountBatch) {
     match MOUNT_HANDLER.get() {
         Some(handler) => handler(batch),
         None => {
-            // Bootstrap has not registered the GPUI mount handler yet; log and drop.
             log::debug!(
                 "rn_gpui_on_mount: dropping batch for surface {} ({} ops) — no handler registered",
                 batch.surface_id,

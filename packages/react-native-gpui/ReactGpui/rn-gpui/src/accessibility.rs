@@ -1,5 +1,3 @@
-//! Window-level modal accessibility and keyboard focus coordination.
-
 use crate::{node_view::RNNodeView, store::StoreGlobal};
 use gpui::{App, Entity, FocusHandle, Global, Window};
 use std::collections::HashSet;

@@ -15,9 +15,6 @@ const run = (bin, args, options = {}) =>
     shell: options.shell ?? false,
   });
 
-// The active engine's tooling hooks (`bundle.js`), loaded through the platform
-// package so the CLI never names an engine. The platform package is resolved
-// from the app, which is also where its autolink manifest lives.
 function loadEngineBundle(projectRoot) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
@@ -332,7 +329,6 @@ const desktopFiles = directory =>
       : [path.relative(path.join(templatesDir, 'app'), fullPath)];
   });
 
-/** Read a positive number from `app.json`, or fall back to `fallback`. */
 function desktopNumber(value, fallback, label, appConfigPath) {
   if (value === undefined) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
@@ -341,11 +337,6 @@ function desktopNumber(value, fallback, label, appConfigPath) {
   return value;
 }
 
-/**
- * The `desktop/src/main.rs` for an app whose `app.json` configures the desktop
- * shell. Returns `null` when nothing is configured, so the template's own
- * `main.rs` is kept.
- */
 export function desktopLaunchConfig(appConfig, appConfigPath) {
   const desktop = appConfig.desktop ?? {};
   const window = desktop.window;
@@ -516,7 +507,7 @@ function scaffoldDesktop(
     beforeWrite(cargoPath);
     fs.writeFileSync(
       cargoPath,
-      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n[profile.dev.package."*"]\ndebug = false\n\n[profile.release]\ndebug = false\nstrip = "debuginfo"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
+      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = false\nstrip = "debuginfo"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
   }
 
@@ -542,9 +533,6 @@ function scaffoldDesktop(
       `app.json desktop.appId must be a nonempty string: ${appConfigPath}`,
     );
   }
-  // `desktop.window`, `desktop.devMenu` and `desktop.tray` become the launch
-  // configuration in `desktop/src/main.rs` (plan section 11). Without them the
-  // template's defaults are left alone.
   const launchConfig = desktopLaunchConfig(appConfig, appConfigPath);
   if (launchConfig !== null) {
     const mainPath = path.join(projectRoot, 'desktop/src/main.rs');
@@ -569,7 +557,6 @@ function scaffoldDesktop(
       ...packageJson.dependencies,
       'react-native-gpui':
         packageJson.dependencies?.['react-native-gpui'] ?? '^0.1.0',
-      // Every GPUI app needs a JS engine package; Hermes is the default one.
       '@react-native-gpui/hermes':
         packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
     },

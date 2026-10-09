@@ -1,19 +1,12 @@
-// Text measurement hook for the TextLayoutManager override (design doc §18.9).
-//
-// The override is compiled as part of ReactCommon, which must not see the cxx
-// bridge headers (`rust/cxx.h`, `rn-gpui-sys/src/lib.rs.h`). It therefore calls
-// through this plain C++ function-pointer table. GpuiHost installs the table at
-// startup; the Rust-backed implementation is installed from
-// MountBatchBuilder.cpp (rn_gpui_core). The table storage and the two accessors
-// below are defined in the TextLayoutManager override itself, so ReactCommon
-// links without rn_gpui_core.
+// The TextLayoutManager override is compiled as part of ReactCommon, which
+// must not see the cxx bridge headers, so it calls through this plain
+// function-pointer table.
 #pragma once
 
 #include <react/renderer/attributedstring/AttributedString.h>
 #include <react/renderer/attributedstring/ParagraphAttributes.h>
 
 namespace rngpui {
-
 struct GpuiTextSize {
   float width;
   float height;
