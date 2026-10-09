@@ -186,8 +186,7 @@ pub fn handle_click(cx: &mut App, rect: TrayRect, button: TrayButton) {
         tray.clicks += 1;
         (tray.config.clone(), tray.config.menu.clone())
     };
-    let wants_menu = menu.is_some() && (button == TrayButton::Right || config.menu_on_left_click);
-    if wants_menu {
+    if wants_menu(menu.is_some(), config.menu_on_left_click, button) {
         if let Some(menu) = menu {
             show_menu(cx, menu, rect);
         }

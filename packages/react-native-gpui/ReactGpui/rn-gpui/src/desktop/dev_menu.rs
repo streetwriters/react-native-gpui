@@ -12,7 +12,6 @@
 //! Dev builds only: [`install`] is a no-op unless `enabled`, which the launch
 //! config sets from `debug_assertions` or an explicit override.
 
-use crate::desktop::context_menu::{self, ContextMenuRequest, Responder};
 use crate::desktop::menu_model::{MenuItemDef, MenuModel, MenuNode};
 use crate::desktop::perf_monitor;
 use crate::desktop::windows::{DesktopWindowsGlobal, MAIN_WINDOW_KEY};
@@ -89,43 +88,155 @@ pub fn menu_model(cx: &App) -> MenuModel {
     }
 }
 
-/// Show the Dev Menu.
+/// Show the Dev Menu as a modal panel.
+///
+/// React Native's dev menu is a modal, not a popup menu, so this opens a
+/// `WindowKind::Dialog` — a sheet on macOS, a modal dialog on Windows — sized
+/// like RN's and rendered by GPUI. The panel runs its items through the same
+/// dispatch as the menu items (`perform`).
 pub fn show(cx: &mut App) {
     if !is_installed(cx) {
         log::warn!("[desktop][devmenu] the Dev Menu is not enabled in this build");
         return;
     }
-    let model = menu_model(cx);
-    let (window, native_view) = match context_menu::target_window(cx) {
-        Ok(target) => target,
-        Err(error) => {
-            log::warn!("[desktop][devmenu] {error}");
-            return;
+    if cx
+        .try_global::<DevMenuPanelGlobal>()
+        .is_some_and(|panel| panel.0.borrow().is_some())
+    {
+        // Already open: focus it instead of stacking a second sheet.
+        return;
+    }
+    let options = gpui::WindowOptions {
+        window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds::centered(
+            None,
+            gpui::size(gpui::px(380.0), gpui::px(460.0)),
+            cx,
+        ))),
+        kind: gpui::WindowKind::Dialog,
+        is_resizable: false,
+        titlebar: Some(gpui::TitlebarOptions {
+            title: Some("Dev Menu".into()),
+            appears_transparent: false,
+            traffic_light_position: None,
+        }),
+        ..Default::default()
+    };
+    match cx.open_window(options, |_window, cx| {
+        gpui::AppContext::new(cx, |_cx| DevMenuPanel::new())
+    }) {
+        Ok(handle) => {
+            let handle: gpui::AnyWindowHandle = handle.into();
+            cx.set_global(DevMenuPanelGlobal(RefCell::new(Some(handle))));
+            log::info!("[desktop][devmenu] opened the panel");
         }
-    };
-    let request = ContextMenuRequest {
-        window,
-        x: 0.0,
-        y: 0.0,
-        model,
-        native_view,
-    };
-    // The dev menu has no JS promise behind it; the callback runs when an item
-    // is chosen.
-    let responder = Responder::callback(Box::new(|selection| {
-        if let Some(id) = selection {
-            // The presenter may be inside a modal native call, so the item runs
-            // on the main-thread queue rather than inline.
-            if let Some(handler) = rn_gpui_sys::DEV_MENU_PERFORM_HANDLER.get() {
-                handler(id);
+        Err(error) => log::error!("[desktop][devmenu] could not open the panel: {error}"),
+    }
+}
+
+/// The open Dev Menu panel, if any.
+pub struct DevMenuPanelGlobal(pub RefCell<Option<gpui::AnyWindowHandle>>);
+impl Global for DevMenuPanelGlobal {}
+
+/// The modal's contents: one row per item, with the toggles checked.
+pub struct DevMenuPanel;
+
+impl DevMenuPanel {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl gpui::Render for DevMenuPanel {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use gpui::{InteractiveElement, IntoElement, ParentElement, Styled};
+
+        let rows = menu_model(cx);
+        let mut elements: Vec<gpui::AnyElement> = Vec::new();
+        for node in rows.items {
+            match node {
+                MenuNode::Separator => {
+                    elements.push(
+                        gpui::div()
+                            .h(gpui::px(1.0))
+                            .my_1()
+                            .bg(gpui::rgba(0x00000022))
+                            .into_any_element() as gpui::AnyElement,
+                    );
+                }
+                MenuNode::Item(item) => {
+                    let id = item.id.clone();
+                    elements.push(
+                        gpui::div()
+                            .id(gpui::SharedString::from(format!("dev-menu-{}", item.id)))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .px_3()
+                            .py_2()
+                            .rounded(gpui::px(6.0))
+                            .text_size(gpui::px(14.0))
+                            .cursor_pointer()
+                            .hover(|style| style.bg(gpui::rgba(0x00000011)))
+                            .child(item.label.clone())
+                            .child(if item.checked { "✓" } else { "" })
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |_this, _event, window, _cx| {
+                                    if let Some(handler) =
+                                        rn_gpui_sys::DEV_MENU_PERFORM_HANDLER.get()
+                                    {
+                                        handler(id.clone());
+                                    }
+                                    window.remove_window();
+                                }),
+                            )
+                            .into_any_element(),
+                    );
+                }
+                MenuNode::Submenu(_) | MenuNode::StandardMenu(_) => {}
             }
         }
-    }));
-    let presenter = cx
-        .global::<context_menu::ContextMenuPresenterGlobal>()
-        .0
-        .clone();
-    presenter.show(cx, request, responder);
+
+        gpui::div()
+            .id(gpui::SharedString::from("dev-menu-panel"))
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_3()
+            .bg(gpui::rgb(0xf4f5f7))
+            .text_color(gpui::rgb(0x18212f))
+            .child(
+                gpui::div()
+                    .px_3()
+                    .py_2()
+                    .text_size(gpui::px(18.0))
+                    .child("Dev Menu"),
+            )
+            .children(elements)
+            .child(
+                gpui::div()
+                    .id(gpui::SharedString::from("dev-menu-close"))
+                    .mt_2()
+                    .px_3()
+                    .py_2()
+                    .rounded(gpui::px(6.0))
+                    .text_size(gpui::px(14.0))
+                    .text_color(gpui::rgba(0x00000099))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(gpui::rgba(0x00000011)))
+                    .child("Close")
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|_this, _event, window, _cx| window.remove_window()),
+                    ),
+            )
+    }
 }
 
 /// Run one dev menu item. `DevMenu` / `DevSettings` also route here by name.

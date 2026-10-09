@@ -422,15 +422,24 @@ export class DesktopApp {
     await this.waitForIdle(idle);
   }
 
+  /** Whether the Dev Menu panel is open, and its items. */
+  async devMenuState(): Promise<{
+    installed: boolean;
+    open: boolean;
+    items: unknown[];
+  }> {
+    return this.request('devMenuState');
+  }
+
   /** The Dev Menu's items, without opening it. */
   async getDevMenu(): Promise<{ items: unknown[] }> {
     return this.request('getDevMenu');
   }
 
   /** Run a Dev Menu item exactly as choosing it would. */
-  async devMenuPerform(id: string): Promise<void> {
+  async devMenuPerform(id: string, idle: IdleOptions = {}): Promise<void> {
     await this.request('devMenuPerform', { id });
-    await this.waitForIdle();
+    await this.waitForIdle(idle);
   }
 
   /** The GPUI-rendered menu bar's state and titles (plan 7.1 on Linux). */

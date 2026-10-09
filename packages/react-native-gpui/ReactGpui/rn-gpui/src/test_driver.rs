@@ -891,6 +891,17 @@ async fn serve_commands(
                 crate::desktop::dev_menu::show(cx);
                 json!({"shown": true})
             }),
+            "devMenuState" => cx.update(|cx| {
+                let open = cx
+                    .try_global::<crate::desktop::dev_menu::DevMenuPanelGlobal>()
+                    .is_some_and(|panel| panel.0.borrow().is_some());
+                let model = crate::desktop::dev_menu::menu_model(cx);
+                json!({
+                    "installed": crate::desktop::dev_menu::is_installed(cx),
+                    "open": open,
+                    "items": crate::desktop::context_menu::nodes_json(&model.items),
+                })
+            }),
             "getDevMenu" => cx.update(|cx| {
                 let model = crate::desktop::dev_menu::menu_model(cx);
                 json!({"items": crate::desktop::context_menu::nodes_json(&model.items)})
