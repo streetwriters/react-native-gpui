@@ -12,6 +12,7 @@
 
 import React, { createContext, useContext } from 'react';
 import { AppRegistry } from 'react-native';
+import { installPerfMonitorBridge } from './perfMonitor';
 
 /** The main window is always `1`. */
 export const MAIN_WINDOW_ID = 1;
@@ -42,6 +43,10 @@ export function installDesktopWindowContext(): void {
       const raw = props?.initialProps?.windowId;
       const windowId =
         typeof raw === 'number' && raw > 0 ? raw : MAIN_WINDOW_ID;
+      // The app root renders once `react-native` is initialized, which is the
+      // first point where the device-event emitter can be reached (the Perf
+      // Monitor follows native toggles from the Dev Menu through it).
+      installPerfMonitorBridge();
       return React.createElement(
         DesktopWindowContext.Provider,
         { value: windowId },

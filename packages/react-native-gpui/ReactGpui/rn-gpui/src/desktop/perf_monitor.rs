@@ -23,8 +23,9 @@ use std::time::{Duration, Instant};
 
 /// One second of history is enough for a stable rate without a long tail.
 const WINDOW: Duration = Duration::from_secs(1);
-/// How often the overlay is invalidated. Each redraw is one presented frame.
-const FRAME_TICK: Duration = Duration::from_millis(16);
+/// How often the overlay's numbers are recomputed. Frames are counted by the
+/// paint itself, so this is only the text refresh.
+const TEXT_REFRESH: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 pub struct PerfMonitorState {
@@ -80,50 +81,53 @@ pub fn set_enabled(cx: &mut App, enabled: bool) -> Value {
         previous
     };
     if enabled && !was_enabled {
-        // Keep the overlay updating while it is visible, and keep asking the
-        // window for frames: UI FPS is measured from the frames the window
-        // actually presented, so an idle app reports 0 (which is the truth).
-        cx.spawn(async move |cx| {
-            let mut ticks: u32 = 0;
-            loop {
-                cx.background_executor().timer(FRAME_TICK).await;
-                let mut stop = false;
-                let _ = cx.update(|cx| {
-                    if !is_enabled(cx) {
-                        stop = true;
-                        return;
-                    }
-                    let Some(store) = store_from(cx) else {
-                        stop = true;
-                        return;
-                    };
-                    let (window, monitor) = {
-                        let store = store.read(cx);
-                        let monitor = store
-                            .roots
-                            .get(&crate::store::APP_SURFACE_ID)
-                            .and_then(|root| root.read(cx).perf_monitor.clone());
-                        (store.window_for(crate::store::APP_SURFACE_ID), monitor)
-                    };
-                    let _ = window;
-                    // Notifying the overlay makes the window draw, and the draw
-                    // is what `record_frame` counts: UI FPS is the rate the
-                    // window can actually present while the overlay is visible.
-                    if let Some(monitor) = monitor {
-                        monitor.update(cx, |_monitor, cx| cx.notify());
-                    }
-                    ticks = ticks.wrapping_add(1);
-                    let _ = ticks;
-                });
-                if stop {
-                    break;
+        // The overlay keeps the window drawing while it is visible: `render`
+        // asks for the next frame and counts it. This loop only refreshes the
+        // numbers, so the overlay's text is not re-shaped on every frame.
+        cx.spawn(async move |cx| loop {
+            cx.background_executor().timer(TEXT_REFRESH).await;
+            let mut stop = false;
+            let _ = cx.update(|cx| {
+                if !is_enabled(cx) {
+                    stop = true;
+                    return;
                 }
+                let Some(store) = store_from(cx) else {
+                    stop = true;
+                    return;
+                };
+                let monitor = store
+                    .read(cx)
+                    .roots
+                    .get(&crate::store::APP_SURFACE_ID)
+                    .and_then(|root| root.read(cx).perf_monitor.clone());
+                if let Some(monitor) = monitor {
+                    monitor.update(cx, |_monitor, cx| cx.notify());
+                }
+            });
+            if stop {
+                break;
             }
         })
         .detach();
     }
+    // A native toggle (the Dev Menu, `DevSettings.setProfilingEnabled`) has to
+    // tell JS, because the JS frame counter is what reports JS FPS.
+    emit_enabled(cx, enabled);
     let state = cx.global::<PerfMonitorGlobal>().0.borrow();
     json!({"enabled": state.enabled})
+}
+
+/// Tell JS that the overlay was toggled natively, so it can start or stop its
+/// own frame counter (`gpuiDesktop:perfMonitor`).
+fn emit_enabled(cx: &App, enabled: bool) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    store.read(cx).host.emit_device_event_json(
+        "gpuiDesktop:perfMonitor",
+        &json!({"enabled": enabled}).to_string(),
+    );
 }
 
 pub fn is_enabled(cx: &App) -> bool {
@@ -276,14 +280,18 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 impl Render for PerfMonitor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !is_enabled(cx) {
             // Kept absolute so the hidden overlay is exactly 0x0 and cannot
             // swallow input meant for the app behind it.
             return gpui::div().absolute().top_0().left_0();
         }
-        // This runs once per presented frame while the overlay is visible.
+        // This runs once per presented frame while the overlay is visible. Asking
+        // for the next frame here is what keeps them coming, and it is legal
+        // from the paint phase (unlike from a timer).
         record_frame(cx);
+        window.on_next_frame(|_window, cx| record_frame(cx));
+        window.request_animation_frame();
         let value = metrics(cx);
         let line = |label: &str, text: String| {
             gpui::div()

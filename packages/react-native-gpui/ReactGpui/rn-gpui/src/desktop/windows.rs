@@ -321,6 +321,10 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
 }
 
 /// Close a window and stop its surface.
+///
+/// Without `force`, a window whose JS listener registered a veto emits
+/// `closeRequested` and stays open; JS closes it again with `force` once it has
+/// decided. With `force` (or no veto listener) the window goes away.
 pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     let entry = {
         let windows = &mut cx.global_mut::<DesktopWindowsGlobal>().0;
@@ -329,28 +333,95 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     let Some(entry) = entry else {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
     };
-    let _ = force;
-    if entry.intercept_close && entry.role != WindowRole::TrayPopover {
-        // The caller decided to close; a vetoing listener was already answered.
+    if !force && entry.intercept_close && entry.role != WindowRole::TrayPopover {
+        // Put it back and ask JS: the veto listener answers with
+        // `DesktopWindow.close({force: true})` or does nothing to keep it open.
+        let surface_id = entry.surface_id;
+        cx.global_mut::<DesktopWindowsGlobal>().0.insert(entry);
+        if let Some(store) = store_from(cx) {
+            let store = store.read(cx);
+            store.host.emit_device_event_json(
+                "gpuiDesktop:closeRequested",
+                &json!({"windowId": key}).to_string(),
+            );
+            log::info!("[desktop] window {key} close deferred to JS (surface {surface_id})");
+        }
+        return Ok(json!({"windowId": key, "deferred": true}));
     }
-    let is_main = entry.role == WindowRole::Main;
+    finish_close(cx, key, entry, true);
+    Ok(json!({"windowId": key}))
+}
+
+/// Tear a window down: drop its registry entry, stop its surface, tell JS, and
+/// apply the quit policy.
+///
+/// `remove_window` is false when the platform is already closing the window (the
+/// `on_window_should_close` hook), because asking GPUI to remove it again from
+/// inside that callback is not allowed.
+fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
     let surface_id = entry.surface_id;
     let handle = entry.handle;
-
     if let Some(store) = store_from(cx) {
         store.update(cx, |store, _cx| {
             store.unregister_window(surface_id);
             store.host.stop_surface(surface_id);
         });
     }
-    let _ = handle.update(cx, |_root, window, _cx| window.remove_window());
+    if remove_window {
+        let _ = handle.update(cx, |_root, window, _cx| window.remove_window());
+    }
     log::info!("[desktop] closed window {key} (surface {surface_id})");
     emit_window_event(cx, "gpuiDesktop:windowClosed", json!({"windowId": key}));
+    // The closed window may have been covering its siblings; repaint them so no
+    // stale pixels are left where it used to be.
+    cx.refresh_windows();
+    maybe_quit(cx);
+}
 
-    if is_main && quit_on_last_window_closed(cx) {
+/// Quit once nothing is left to show, when the launch policy allows it.
+fn maybe_quit(cx: &mut App) {
+    if !quit_on_last_window_closed(cx) {
+        return;
+    }
+    let remaining = cx
+        .try_global::<DesktopWindowsGlobal>()
+        .map(|windows| windows.0.len())
+        .unwrap_or(0);
+    if remaining == 0 {
         cx.quit();
     }
-    Ok(json!({"windowId": key}))
+}
+
+/// Run the teardown the platform's close hook runs: the window is already going
+/// away, so the registry entry, its surface and the JS event are all this has to
+/// handle. Returns false when the window was not registered.
+///
+/// Split out so the test driver can exercise the OS-close path: GPUI's
+/// `on_window_should_close` cannot be triggered from a test.
+pub fn os_close(cx: &mut App, key: u32) -> bool {
+    let entry = if cx.has_global::<DesktopWindowsGlobal>() {
+        cx.global_mut::<DesktopWindowsGlobal>().0.remove(key)
+    } else {
+        None
+    };
+    let Some(entry) = entry else {
+        return false;
+    };
+    finish_close(cx, key, entry, false);
+    true
+}
+
+/// Install the close hook on a window the registry did not open (the launch
+/// window), so `closeRequested` reaches JS there too.
+pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
+    // `AnyWindowHandle::update` hands back an `AnyView`; the hook needs the
+    // window's own context, so the handle is downcast to the root view first.
+    let Some(handle) = handle.downcast::<SurfaceRootView>() else {
+        return;
+    };
+    let _ = handle.update(cx, |_root, window, cx| {
+        install_close_hook(window, cx, key);
+    });
 }
 
 /// Whether closing the last window should quit the app. The launch config can
@@ -676,19 +747,30 @@ fn install_close_hook(
             .try_global::<DesktopWindowsGlobal>()
             .and_then(|windows| windows.0.get(key).map(|entry| entry.intercept_close))
             .unwrap_or(false);
-        if !intercept {
-            return true;
-        }
         // A second close request within three seconds closes the window even if
         // JS never answered, so a hung or mid-reload app can always be quit.
-        let now = std::time::Instant::now();
-        if last_request.get().is_some_and(|previous| {
-            now.duration_since(previous) < std::time::Duration::from_secs(3)
-        }) {
-            log::warn!("[desktop] window {key} close was not answered by JS; closing");
+        let unanswered = intercept
+            && last_request.get().is_some_and(|previous| {
+                std::time::Instant::now().duration_since(previous)
+                    < std::time::Duration::from_secs(3)
+            });
+        if !intercept || unanswered {
+            if unanswered {
+                log::warn!("[desktop] window {key} close was not answered by JS; closing");
+            }
+            // The OS is closing it: run the same teardown as `close_window`,
+            // without asking GPUI to remove a window it is already removing.
+            let entry = if cx.has_global::<DesktopWindowsGlobal>() {
+                cx.global_mut::<DesktopWindowsGlobal>().0.remove(key)
+            } else {
+                None
+            };
+            if let Some(entry) = entry {
+                finish_close(cx, key, entry, false);
+            }
             return true;
         }
-        last_request.set(Some(now));
+        last_request.set(Some(std::time::Instant::now()));
         emit_close_requested(cx, window, key);
         false
     });

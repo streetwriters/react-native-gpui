@@ -142,6 +142,25 @@ pub fn handle_accelerator(
             .find(|(bound, _)| bound == keystroke)
             .map(|(_, action)| action.clone())
     };
+    if std::env::var_os("RN_GPUI_DEBUG_DESKTOP").is_some() {
+        // `RN_GPUI_DEBUG_DESKTOP=1` shows every keystroke the menu interceptor
+        // sees, and whether one of the installed accelerators matched it. This
+        // is the only way to tell "the shortcut never reached GPUI" apart from
+        // "the shortcut reached GPUI but matched nothing".
+        let installed = cx
+            .global::<AppMenuGlobal>()
+            .0
+            .accelerators
+            .iter()
+            .map(|(bound, _)| bound.to_string())
+            .collect::<Vec<_>>();
+        log::info!(
+            "[desktop] keystroke {} matched={} installed=[{}]",
+            keystroke,
+            action.is_some(),
+            installed.join(", ")
+        );
+    }
     let Some(action) = action else {
         return false;
     };

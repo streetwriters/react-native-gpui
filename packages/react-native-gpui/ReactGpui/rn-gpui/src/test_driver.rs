@@ -994,6 +994,18 @@ async fn serve_commands(
             "dismissContextMenu" => cx.update(|cx| {
                 json!({"dismissed": crate::desktop::context_menu::fake_dismiss(cx)})
             }),
+            "windowClose" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
+                cx.update(|cx| {
+                    crate::desktop::windows::close_window(cx, key, force)
+                        .unwrap_or_else(|error| error.to_json_value())
+                })
+            }
+            "osCloseWindow" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
+                cx.update(|cx| json!({"closed": crate::desktop::windows::os_close(cx, key)}))
+            }
             "listWindows" => cx.update(|cx| {
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),
