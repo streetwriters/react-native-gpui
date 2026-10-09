@@ -178,6 +178,16 @@ macOS, Control elsewhere) and `mod`/`cmd`/`ctrl`/`alt`/`shift`. The imperative
 `Menu.setApplicationMenu(items)` / `Menu.getApplicationMenu()` pair is available
 for apps that already build their own UI.
 
+### Menu bar on Linux
+
+Linux has no menu bar GPUI can drive (`muda` needs a GTK window), so
+`react-native-gpui` draws one in the window: the titles sit in a strip at the
+top, and each menu opens as a GPUI popup. The surface is laid out below the
+strip, so the bar never covers the app.
+
+`RN_GPUI_MENU_BAR=gpui` forces the GPUI bar on a platform that also has a native
+one (useful for testing); `=native` forces it off. The default is Linux only.
+
 ### Context menus (7.2)
 
 A `View` with `onContextMenu` reports the press in window points and the window
@@ -326,15 +336,15 @@ that wait for idle.
 
 ### Platform support
 
-| Feature                    | macOS                        | Windows                         | Linux                                       |
-| -------------------------- | ---------------------------- | ------------------------------- | ------------------------------------------- |
-| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified) | not implemented (in-window bar)             |
-| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified) | GPUI-rendered popup                         |
-| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)     | X11 only; Wayland says `unsupported`        |
-| Custom title bar           | AppKit                       | not implemented                 | not implemented                             |
-| Tray apps (7.3)            | yes                          | yes (no anchored popover)       | yes (menu-only on GNOME)                    |
-| Dev Menu                   | yes                          | menu popup as above             | popup as above                              |
-| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`      | counters yes, memory via `/proc/self/statm` |
+| Feature                    | macOS                        | Windows                             | Linux                                       |
+| -------------------------- | ---------------------------- | ----------------------------------- | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
+| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                       | `desktopWindowControl` (unverified) | not implemented                             |
+| Tray apps (7.3)            | yes                          | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                          | menu popup as above                 | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform.
