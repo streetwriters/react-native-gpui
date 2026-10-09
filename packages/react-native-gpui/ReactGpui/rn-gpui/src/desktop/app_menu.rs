@@ -1044,7 +1044,11 @@ fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowH
         "hideOthers" => cx.hide_other_apps(),
         "showAll" => cx.unhide_other_apps(),
         "about" => show_about_panel(cx),
-        "devMenu" => crate::desktop::dev_menu::show(cx),
+        // Deferred like the window actions below: the accelerator runs inside
+        // the keystroke's window update, and showing the menu needs to read the
+        // window's platform view and open a popup, both of which re-enter the
+        // window and panic while that update is still on the stack.
+        "devMenu" => cx.defer(|cx| crate::desktop::dev_menu::show(cx)),
         "minimize" | "zoom" | "toggleFullscreen" | "close" => {
             let kind = kind.to_string();
             cx.defer(move |cx| {
