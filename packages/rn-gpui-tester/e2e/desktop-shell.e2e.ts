@@ -248,31 +248,33 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   await launch('DesktopShellFixture');
   await app.waitForIdle();
 
-  // Cmd+D goes through the same accelerator interceptor as the app menu.
+  // Cmd+D goes through the same accelerator interceptor as the app menu, and
+  // opens the panel (a sheet), not a popup menu.
+  expect((await app.devMenuState()).open).toBe(false);
   await app.press('mod-d');
   await app.waitForIdle();
-  const opened = await app.getContextMenu();
-  const openedItems = JSON.stringify(opened?.items ?? []);
+  const opened = await app.devMenuState();
+  expect(opened.open).toBe(true);
+  const openedItems = JSON.stringify(opened.items);
   expect(openedItems).toContain('dev:reload');
   expect(openedItems).toContain('dev:openDevTools');
   expect(openedItems).toContain('Toggle Perf Monitor');
   expect(openedItems).toContain('Fast Refresh');
 
-  // Enabling the overlay starts frames immediately, so this call cannot wait
-  // for idle either: the app is not idle again until the monitor is off.
+  // Enabling the overlay starts frames immediately, so this cannot wait for
+  // idle: the app is not idle again until the monitor is off.
   const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
-  expect(await app.selectContextMenuItem('dev:perfMonitor', idle)).toBe(true);
+  await app.devMenuPerform('dev:perfMonitor', idle);
   const metrics = await app.getPerfMonitor();
   expect(metrics.enabled).toBe(true);
 
-  // Choosing it again turns the monitor back off, and the model reflects it.
-  await app.showDevMenu(idle);
-  const devMenu = await app.getDevMenu();
-  const perfItem = (devMenu.items as { id?: string; checked?: boolean }[]).find(
+  // The panel reflects the toggles, and running the item again turns it off.
+  const panel = await app.devMenuState();
+  const perfItem = (panel.items as { id?: string; checked?: boolean }[]).find(
     item => item.id === 'dev:perfMonitor',
   );
   expect(perfItem?.checked).toBe(true);
-  expect(await app.selectContextMenuItem('dev:perfMonitor', idle)).toBe(true);
+  await app.devMenuPerform('dev:perfMonitor', idle);
   await app.waitForIdle();
   expect((await app.getPerfMonitor()).enabled).toBe(false);
 });
