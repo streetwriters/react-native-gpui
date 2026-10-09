@@ -430,6 +430,24 @@ export class DesktopApp {
     await this.waitForIdle();
   }
 
+  /** The GPUI-rendered menu bar's state and titles (plan 7.1 on Linux). */
+  async menuBarState(): Promise<{
+    enabled: boolean;
+    inset: number;
+    titles: string[];
+  }> {
+    return this.request('menuBarState');
+  }
+
+  /** Open a menu-bar menu by title, as a click on it would. */
+  async openMenuBarMenu(title: string): Promise<boolean> {
+    const result = await this.request<{ opened: boolean }>('openMenuBarMenu', {
+      title,
+    });
+    await this.waitForIdle();
+    return result.opened;
+  }
+
   /** Which context-menu presenter is installed (plan 6.3). */
   async contextMenuPresenter(): Promise<{ presenter: string }> {
     return this.request('contextMenuPresenter');

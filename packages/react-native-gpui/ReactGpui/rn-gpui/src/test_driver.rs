@@ -937,6 +937,26 @@ async fn serve_commands(
                 crate::desktop::tray::destroy(cx)
                     .unwrap_or_else(|error| error.to_json_value())
             }),
+            "menuBarState" => cx.update(|cx| {
+                json!({
+                    "enabled": crate::desktop::gpui_menu::should_use_gpui_menu_bar(),
+                    "inset": crate::desktop::gpui_menu::menu_bar_inset(),
+                    "titles": crate::desktop::gpui_menu::menu_bar_entries(cx)
+                        .into_iter()
+                        .map(|(label, _)| label)
+                        .collect::<Vec<_>>(),
+                })
+            }),
+            "openMenuBarMenu" => {
+                let title = params
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    json!({"opened": crate::desktop::gpui_menu::open_menu_bar_menu(cx, &title)})
+                })
+            }
             "contextMenuPresenter" => {
                 cx.update(|cx| json!({"presenter": crate::desktop::context_menu::presenter_name(cx)}))
             }

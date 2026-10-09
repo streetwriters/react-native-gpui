@@ -17,7 +17,7 @@
 //!   input instead.
 
 use crate::desktop::errors::{DesktopError, DesktopResult};
-use crate::desktop::menu_model::{self, MenuItemDef, MenuModel, MenuNode, MenuRole};
+use crate::desktop::menu_model::{self, MenuItemDef, MenuModel, MenuNode, MenuRole, SubmenuDef};
 use crate::desktop::windows::DesktopWindowsGlobal;
 use crate::node_view::RNNodeView;
 use crate::store::store_from;
@@ -283,12 +283,105 @@ fn find_item_mut<'a>(items: &'a mut [MenuNode], id: &str) -> Option<&'a mut Menu
     None
 }
 
-fn current_model(cx: &App) -> MenuModel {
+/// The menu the app has set (or the default), for the GPUI-rendered menu bar
+/// and the test driver.
+pub fn current_model(cx: &App) -> MenuModel {
     cx.global::<AppMenuGlobal>().0.model.clone()
 }
 
-fn app_name(cx: &App) -> String {
+pub fn app_name(cx: &App) -> String {
     cx.global::<AppMenuGlobal>().0.app_name.clone()
+}
+
+/// The items of a standard menu, in the shape the GPUI renderer draws.
+///
+/// The native path hands whole standard submenus to GPUI, which knows the
+/// platform's own items; a GPUI-rendered menu bar has to draw them itself, so
+/// the same role lists are spelled out here (plan §4.5).
+pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Vec<MenuNode> {
+    let item = |role: MenuRole| {
+        MenuNode::Item(MenuItemDef {
+            id: role_action_id(role).to_string(),
+            label: role.default_label().to_string(),
+            accelerator: default_accelerator(role).map(str::to_string),
+            enabled: true,
+            checked: false,
+            role: Some(role),
+        })
+    };
+    let items = |roles: &[MenuRole]| roles.iter().map(|role| item(*role)).collect();
+    match role {
+        MenuRole::AppMenu => vec![
+            MenuNode::Item(MenuItemDef {
+                id: role_action_id(MenuRole::About).to_string(),
+                label: format!("About {app_name}"),
+                accelerator: None,
+                enabled: true,
+                checked: false,
+                role: Some(MenuRole::About),
+            }),
+            MenuNode::Separator,
+            item(MenuRole::Hide),
+            item(MenuRole::HideOthers),
+            item(MenuRole::ShowAll),
+            MenuNode::Separator,
+            item(MenuRole::Quit),
+        ],
+        MenuRole::EditMenu => {
+            let mut nodes: Vec<MenuNode> = items(&[MenuRole::Undo, MenuRole::Redo]);
+            nodes.push(MenuNode::Separator);
+            nodes.extend(items(&[
+                MenuRole::Cut,
+                MenuRole::Copy,
+                MenuRole::Paste,
+                MenuRole::SelectAll,
+            ]));
+            nodes
+        }
+        MenuRole::WindowMenu => items(&[
+            MenuRole::Minimize,
+            MenuRole::Zoom,
+            MenuRole::ToggleFullscreen,
+            MenuRole::Close,
+        ]),
+        MenuRole::HelpMenu => {
+            let mut nodes = Vec::new();
+            if dev_menu {
+                nodes.push(MenuNode::Submenu(SubmenuDef {
+                    id: Some("dev".to_string()),
+                    label: "Developer".to_string(),
+                    enabled: true,
+                    items: [
+                        (crate::desktop::dev_menu::RELOAD, "Reload"),
+                        (crate::desktop::dev_menu::OPEN_DEVTOOLS, "Open DevTools"),
+                        (
+                            crate::desktop::dev_menu::ELEMENT_INSPECTOR,
+                            "Toggle Element Inspector",
+                        ),
+                        (
+                            crate::desktop::dev_menu::PERF_MONITOR,
+                            "Toggle Perf Monitor",
+                        ),
+                        (crate::desktop::dev_menu::FAST_REFRESH, "Fast Refresh"),
+                    ]
+                    .into_iter()
+                    .map(|(id, label)| {
+                        MenuNode::Item(MenuItemDef {
+                            id: id.to_string(),
+                            label: label.to_string(),
+                            accelerator: None,
+                            enabled: true,
+                            checked: false,
+                            role: None,
+                        })
+                    })
+                    .collect(),
+                }));
+            }
+            nodes
+        }
+        other => vec![item(other)],
+    }
 }
 
 /// Whether this build installs the Dev Menu (plan 7.5, dev builds only).

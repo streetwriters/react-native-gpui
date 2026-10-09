@@ -13,9 +13,14 @@ use crate::desktop::context_menu::{ContextMenuRequest, Responder};
 use crate::desktop::menu_model::{MenuModel, MenuNode};
 use gpui::{
     point, px, size, App, AppContext, Bounds, Context, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window, WindowBounds, WindowKind, WindowOptions,
+    ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use std::cell::RefCell;
+
+/// The height of the in-window menu bar. The surface is laid out this much
+/// shorter, so the strip takes its space from the window rather than covering
+/// the app.
+pub const MENU_BAR_HEIGHT: f32 = 26.0;
 
 /// One row is this tall; the popup window is sized from the item count.
 const ROW_HEIGHT: f32 = 26.0;
@@ -44,6 +49,199 @@ pub fn should_use_gpui() -> bool {
         Some("gpui") => true,
         Some("native") => false,
         _ => cfg!(target_os = "linux"),
+    }
+}
+
+/// Whether this build draws the menu bar in the window.
+///
+/// Linux has no native menu bar GPUI can drive — `muda` needs a GTK window —
+/// so the plan renders one with GPUI there. `RN_GPUI_MENU_BAR=gpui` forces it
+/// on and `=native` forces it off, which is how it is tested on macOS.
+pub fn should_use_gpui_menu_bar() -> bool {
+    match std::env::var("RN_GPUI_MENU_BAR").ok().as_deref() {
+        Some("gpui") => true,
+        Some("native") => false,
+        _ => cfg!(target_os = "linux"),
+    }
+}
+
+/// How much of the window the menu bar takes, in logical pixels.
+pub fn menu_bar_inset() -> f32 {
+    if should_use_gpui_menu_bar() {
+        MENU_BAR_HEIGHT
+    } else {
+        0.0
+    }
+}
+
+/// The in-window menu bar: the top-level titles, drawn by GPUI. Clicking one
+/// opens its items as a popup through the same renderer as a context menu.
+pub struct MenuBar {
+    /// The window this bar belongs to, for diagnostics.
+    #[allow(dead_code)]
+    window_id: u32,
+}
+
+impl MenuBar {
+    pub fn new(window_id: u32) -> Self {
+        Self { window_id }
+    }
+}
+
+/// Attach the menu bar to a window's root (called from `bootstrap`). Does
+/// nothing when the platform has a native menu bar.
+pub fn attach(cx: &mut App, root: &gpui::Entity<crate::store::SurfaceRootView>, window_id: u32) {
+    if !should_use_gpui_menu_bar() {
+        return;
+    }
+    let menu_bar = cx.new(|_| MenuBar::new(window_id));
+    root.update(cx, |root, cx| {
+        root.menu_bar = Some(menu_bar);
+        cx.notify();
+    });
+}
+
+/// The bar's titles and the items behind each of them, in menu order. Shared
+/// by the renderer and the test driver.
+pub fn menu_bar_entries(cx: &App) -> Vec<(String, Vec<MenuNode>)> {
+    use crate::desktop::app_menu;
+    use crate::desktop::menu_model::MenuRole;
+
+    let model = app_menu::current_model(cx);
+    let app_name = app_menu::app_name(cx);
+    let dev_menu = crate::desktop::dev_menu::is_installed(cx);
+    let mut titles: Vec<(String, Vec<MenuNode>)> = Vec::new();
+    for node in &model.items {
+        match node {
+            MenuNode::StandardMenu(role) => {
+                let label = match role {
+                    MenuRole::AppMenu => app_name.clone(),
+                    other => other.default_label().to_string(),
+                };
+                titles.push((
+                    label,
+                    app_menu::standard_menu_nodes(*role, &app_name, dev_menu),
+                ));
+            }
+            MenuNode::Submenu(submenu) => {
+                titles.push((submenu.label.clone(), submenu.items.clone()));
+            }
+            _ => {}
+        }
+    }
+    titles
+}
+
+/// The responder a menu-bar selection uses: the item runs through the same
+/// dispatch as a native menu click (roles included), on the main thread.
+fn menu_bar_responder() -> Responder {
+    Responder::callback(Box::new(|selection| {
+        if let Some(id) = selection {
+            if let Some(handler) = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.get() {
+                handler(id);
+            }
+        }
+    }))
+}
+
+/// Open the popup for `title`, as a click on it would. Used by the test driver,
+/// because a GPUI menu bar's titles are not React Native nodes.
+pub fn open_menu_bar_menu(cx: &mut App, title: &str) -> bool {
+    let entries = menu_bar_entries(cx);
+    let Some((_, items)) = entries.into_iter().find(|(label, _)| label == title) else {
+        return false;
+    };
+    let (window, _) = match crate::desktop::context_menu::target_window(cx) {
+        Ok(target) => target,
+        Err(error) => {
+            log::error!("[gpui-menu] {error}");
+            return false;
+        }
+    };
+    let responder = menu_bar_responder();
+    match open_menu_window(
+        cx,
+        window,
+        (0.0, MENU_BAR_HEIGHT),
+        items.clone(),
+        responder.clone(),
+        0,
+    ) {
+        Ok(window) => {
+            cx.set_global(PendingMenuGlobal(RefCell::new(Some(PendingMenu {
+                window,
+                items,
+                responder,
+            }))));
+            true
+        }
+        Err(error) => {
+            log::error!("[gpui-menu] {error}");
+            false
+        }
+    }
+}
+
+impl Render for MenuBar {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let titles = menu_bar_entries(cx);
+        let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        for (label, items) in titles {
+            let id = label.clone();
+            rows.push(
+                gpui::div()
+                    .id(SharedString::from(format!("menu-bar-{id}")))
+                    .px_2()
+                    .h(px(MENU_BAR_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .text_size(px(13.0))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(gpui::rgba(0x00000014)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                            let parent: gpui::AnyWindowHandle = window.window_handle();
+                            let responder = menu_bar_responder();
+                            let _ = this;
+                            if let Err(error) = open_menu_window(
+                                cx,
+                                parent,
+                                (f32::from(event.position.x), f32::from(event.position.y)),
+                                items.clone(),
+                                responder,
+                                0,
+                            ) {
+                                log::error!("[gpui-menu] {error}");
+                            }
+                        }),
+                    )
+                    .child(label)
+                    .into_any_element(),
+            );
+        }
+
+        gpui::div()
+            .id(SharedString::from("gpui-menu-bar"))
+            .w_full()
+            .h(px(MENU_BAR_HEIGHT))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_0p5()
+            .px_1()
+            .bg(gpui::rgba(0xf4f5f7ff))
+            .border_b_1()
+            .border_color(gpui::rgba(0x00000022))
+            .text_color(gpui::rgb(0x18212f))
+            .child(
+                gpui::div()
+                    .text_size(px(11.0))
+                    .text_color(gpui::rgba(0x00000055))
+                    .px_1()
+                    .child("‹window›"),
+            )
+            .children(rows)
     }
 }
 
@@ -427,6 +625,79 @@ mod tests {
         .expect("valid");
         let (width, _) = popup_size(&wide);
         assert_eq!(width, MAX_WIDTH);
+    }
+
+    #[test]
+    fn the_edit_menu_spells_out_its_roles() {
+        let nodes = crate::desktop::app_menu::standard_menu_nodes(
+            crate::desktop::menu_model::MenuRole::EditMenu,
+            "Tester",
+            false,
+        );
+        let ids: Vec<String> = nodes
+            .iter()
+            .filter_map(|node| match node {
+                MenuNode::Item(item) => Some(item.id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(ids.contains(&"role:copy".to_string()));
+        assert!(ids.contains(&"role:selectAll".to_string()));
+        // The roles keep their accelerators so the bar can draw them.
+        let copy = nodes
+            .iter()
+            .find_map(|node| match node {
+                MenuNode::Item(item) if item.id == "role:copy" => Some(item.clone()),
+                _ => None,
+            })
+            .expect("copy is in the Edit menu");
+        assert_eq!(copy.accelerator.as_deref(), Some("secondary-c"));
+    }
+
+    #[test]
+    fn the_app_menu_is_labelled_with_the_app_name() {
+        let nodes = crate::desktop::app_menu::standard_menu_nodes(
+            crate::desktop::menu_model::MenuRole::AppMenu,
+            "Tester",
+            false,
+        );
+        let about = nodes
+            .iter()
+            .find_map(|node| match node {
+                MenuNode::Item(item)
+                    if item.role == Some(crate::desktop::menu_model::MenuRole::About) =>
+                {
+                    Some(item.label.clone())
+                }
+                _ => None,
+            })
+            .expect("the app menu has About");
+        assert_eq!(about, "About Tester");
+    }
+
+    #[test]
+    fn the_help_menu_only_grows_a_developer_group_in_a_dev_build() {
+        use crate::desktop::menu_model::MenuRole;
+        let without = crate::desktop::app_menu::standard_menu_nodes(MenuRole::HelpMenu, "T", false);
+        assert!(without.is_empty());
+        let with = crate::desktop::app_menu::standard_menu_nodes(MenuRole::HelpMenu, "T", true);
+        assert_eq!(with.len(), 1);
+        match &with[0] {
+            MenuNode::Submenu(submenu) => {
+                assert_eq!(submenu.label, "Developer");
+                assert_eq!(submenu.items.len(), 5);
+            }
+            other => panic!("expected a submenu, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_menu_bar_inset_follows_the_mode() {
+        std::env::set_var("RN_GPUI_MENU_BAR", "gpui");
+        assert_eq!(menu_bar_inset(), MENU_BAR_HEIGHT);
+        std::env::set_var("RN_GPUI_MENU_BAR", "native");
+        assert_eq!(menu_bar_inset(), 0.0);
+        std::env::remove_var("RN_GPUI_MENU_BAR");
     }
 
     #[test]

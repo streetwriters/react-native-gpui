@@ -17,7 +17,7 @@
 //! GPUI main thread through the same queue as every other desktop call.
 
 use crate::desktop::errors::{DesktopError, DesktopResult};
-use crate::desktop::menu_model::{self, MenuModel, MenuNode};
+use crate::desktop::menu_model::{self, MenuModel};
 use crate::desktop::windows::{self, OpenWindowOptions, WindowRoleOverride};
 use gpui::{App, Global};
 use serde_json::{json, Value};
