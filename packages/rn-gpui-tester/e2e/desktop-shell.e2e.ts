@@ -392,3 +392,42 @@ test('the GPUI-rendered menu path opens, selects and dismisses', async () => {
   expect(await app.dismissGpuiMenu()).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: dismissed');
 });
+
+test('the GPUI menu bar renders the app menu and runs an item', async () => {
+  // The Linux answer for 7.1, forced on so it is exercised on macOS.
+  await launch(
+    'DesktopMenuFixture',
+    undefined,
+    {},
+    {
+      RN_GPUI_MENU_BAR: 'gpui',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '0',
+    },
+  );
+  await app.waitForIdle();
+
+  const bar = await app.menuBarState();
+  expect(bar.enabled).toBe(true);
+  expect(bar.inset).toBeGreaterThan(0);
+  // The app's own submenu plus the standard groups the default menu adds.
+  expect(bar.titles).toContain('Tester');
+  expect(bar.titles).toContain('Edit');
+  expect(bar.titles).toContain('Window');
+
+  // Opening the app's submenu shows its items, and choosing one runs it
+  // through the same dispatch as a native menu click.
+  expect(await app.openMenuBarMenu('Tester')).toBe(true);
+  const menu = await app.gpuiMenuState();
+  expect(menu.open).toBe(true);
+  const items = JSON.stringify(menu.items ?? []);
+  expect(items).toContain('tester-increment');
+  expect(items).toContain('tester-disabled');
+  expect(items).toContain('"enabled":false');
+
+  expect(await app.selectGpuiMenuItem('tester-increment')).toBe(true);
+  await app.waitForIdle();
+  expect(await textOf('desktop-menu-count')).toContain('increments: 1');
+
+  // The surface is laid out below the strip, so the page keeps its padding.
+  expect(bar.inset).toBeGreaterThanOrEqual(24);
+});

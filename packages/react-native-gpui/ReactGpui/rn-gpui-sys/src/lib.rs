@@ -408,6 +408,9 @@ pub static TRAY_CLICK_HANDLER: OnceLock<TrayClickHandler> = OnceLock::new();
 /// A chosen tray menu item id.
 pub type TrayMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static TRAY_MENU_PERFORM_HANDLER: OnceLock<TrayMenuPerformHandler> = OnceLock::new();
+/// A chosen item from the GPUI-rendered menu bar (plan 7.1 on Linux).
+pub type MenuBarPerformHandler = Box<dyn Fn(String) + Send + Sync>;
+pub static MENU_BAR_PERFORM_HANDLER: OnceLock<MenuBarPerformHandler> = OnceLock::new();
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;

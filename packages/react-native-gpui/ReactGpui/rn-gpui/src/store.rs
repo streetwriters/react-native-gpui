@@ -280,6 +280,7 @@ impl ViewStore {
     pub fn resize(&mut self, width: f32, height: f32, scale: f32) {
         let surfaces: Vec<i32> = self.roots.keys().copied().collect();
         for surface_id in surfaces {
+            let height = height - crate::desktop::gpui_menu::menu_bar_inset();
             log::info!("[store] surface {surface_id} resized to {width}x{height}@{scale}x");
             self.host.set_surface_size(surface_id, width, height, scale);
         }
@@ -290,6 +291,7 @@ impl ViewStore {
     /// main window's surfaces (or vice versa).
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
         for surface_id in self.surfaces_in_window(window) {
+            let height = height - crate::desktop::gpui_menu::menu_bar_inset();
             log::info!(
                 "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
             );
@@ -1399,6 +1401,9 @@ pub struct SurfaceRootView {
     pub overlay_host: Option<Entity<OverlayHost>>,
     /// Plan 7.6 — the host-drawn Perf Monitor, painted above everything.
     pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
+    /// Plan 7.1 — the GPUI-rendered menu bar, on the platforms without a native
+    /// one. It takes its height from the surface, which is laid out shorter.
+    pub menu_bar: Option<Entity<crate::desktop::gpui_menu::MenuBar>>,
     #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
 }
@@ -1410,6 +1415,7 @@ impl SurfaceRootView {
             children: Vec::new(),
             overlay_host: None,
             perf_monitor: None,
+            menu_bar: None,
             #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
@@ -1522,7 +1528,19 @@ impl Render for SurfaceRootView {
         if let Some(monitor) = self.perf_monitor.clone() {
             root = root.child(monitor);
         }
-        root
+        // Plan 7.1 — the GPUI menu bar sits above the surface, which Fabric
+        // lays out `menu_bar_inset()` shorter, so the strip takes its space
+        // from the window instead of covering the app.
+        if let Some(menu_bar) = self.menu_bar.clone() {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(menu_bar)
+                .child(div().flex_1().min_h_0().child(root))
+                .into_any_element();
+        }
+        root.into_any_element()
     }
 }
 

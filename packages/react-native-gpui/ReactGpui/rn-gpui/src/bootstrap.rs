@@ -304,6 +304,8 @@ enum MainEvent {
     },
     /// A chosen tray menu item.
     TrayMenuPerform(String),
+    /// A chosen item from the GPUI-rendered menu bar.
+    MenuBarPerform(String),
     /// A desktop-shell call from the JS thread (design §3.2). The drain loop
     /// answers it exactly once with `rn_gpui_desktop_result`.
     Desktop {
@@ -691,6 +693,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
             button,
         });
     }));
+    let menu_bar_tx = tx.clone();
+    let _ = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.set(Box::new(move |id| {
+        let _ = menu_bar_tx.send_blocking(MainEvent::MenuBarPerform(id));
+    }));
     let tray_menu_tx = tx.clone();
     let _ = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = tray_menu_tx.send_blocking(MainEvent::TrayMenuPerform(id));
@@ -938,10 +944,15 @@ pub fn run_with(mut config: DesktopAppConfig) {
         startup_trace("React bundle loaded");
         log::info!("loaded {bundle}");
 
-        host.start_surface(1, &module, width, height, scale);
+        // Plan 7.1 — a GPUI-rendered menu bar takes its height from the
+        // surface, so the surface is laid out shorter than the window.
+        let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
+        host.start_surface(1, &module, width, height - menu_bar_inset, scale);
         startup_trace("React surface started");
         log::info!(
-            "started surface 1 ({module}) at {width}x{height}@{scale}x (window scale {window_scale})"
+            "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
+             menu bar inset {menu_bar_inset})",
+            height - menu_bar_inset
         );
 
         // TODO 2.3 — tick RN's `EventBeat` once per GPUI frame. The hook is
@@ -991,6 +1002,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         });
 
         crate::desktop::perf_monitor::attach(cx, &root, 1);
+        crate::desktop::gpui_menu::attach(cx, &root, 1);
         store.update(cx, |store, cx| {
             store.register_root(1, root);
             store.top_inset = top_inset;
@@ -1561,6 +1573,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 },
                             )
                         });
+                    }
+                    MainEvent::MenuBarPerform(id) => {
+                        cx.update(|cx| crate::desktop::app_menu::trigger_item(cx, &id));
                     }
                     MainEvent::TrayMenuPerform(id) => {
                         cx.update(|cx| {
