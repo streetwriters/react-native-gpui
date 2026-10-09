@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Publish guard for react-native-gpui. Runs from prepublishOnly and refuses to
-// publish unless the prebuilt pin file describes the C++ being published:
-//   - the pin's inputHash equals the current prebuilt-inputs.mjs hash;
-//   - the pin lists at least one asset.
-//
-// Bypass: RN_GPUI_SKIP_PREBUILT_PIN_CHECK=1. Only for a deliberate source-only
-// release where consumers are expected to build the runtime from source. Do
-// not set it in CI; the release workflow keeps the pin current instead.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

@@ -1,4 +1,3 @@
-// TODO 2.6 — the LogBox surface (design doc §18.7, §19 2.6).
 #include "GpuiLogBoxSurfaceDelegate.h"
 
 #include "GpuiHost.h"
@@ -7,7 +6,6 @@
 #include <utility>
 
 namespace rngpui {
-
 void GpuiLogBoxSurfaceDelegate::createContentView(std::string appKey) {
   appKey_ = std::move(appKey);
   ready_ = true;

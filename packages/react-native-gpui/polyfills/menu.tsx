@@ -1,5 +1,5 @@
 /**
- * `@react-native-menu/menu` polyfill (plan §6.5).
+ * `@react-native-menu/menu` polyfill.
  *
  * Existing apps (and Zeego, which builds on this package) can keep importing
  * `@react-native-menu/menu` if their Metro config maps the package name here:
@@ -50,7 +50,6 @@ export interface MenuViewProps extends ViewProps {
   children?: React.ReactNode;
 }
 
-/** Map the package's action list onto the desktop menu model. */
 export function toMenuItems(actions: MenuAction[]): MenuItemSpec[] {
   const items: MenuItemSpec[] = [];
   for (const action of actions) {
@@ -118,7 +117,6 @@ export function MenuView({
     );
   }
 
-  // Open on a primary press instead of a long press / secondary click.
   return (
     <Pressable
       {...viewProps}

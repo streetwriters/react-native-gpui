@@ -120,7 +120,6 @@ if (command === 'autolink') {
 }
 
 if (command === 'prebuilt') {
-  // The prebuilt helper ships with react-native-gpui; resolve it from the app.
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let gpuiPackageJson;
   try {

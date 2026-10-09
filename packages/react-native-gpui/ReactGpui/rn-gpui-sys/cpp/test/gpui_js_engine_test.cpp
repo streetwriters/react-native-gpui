@@ -1,5 +1,5 @@
 // Unit test for the JS engine registry and its selection rules
-// (plan item 7.14, step 2).
+//.
 //
 // The registry is process-global and registration is startup-only, so the cases
 // run in the order the rules apply: no engine, one engine, several engines with

@@ -1,8 +1,3 @@
-// Rust string TurboModules (@react-native-gpui/codegen output). Compiled into
-// rn_gpui_extensions only when the app generated
-// RustTurboModules.generated.hpp. Each entry of RN_GPUI_RUST_TURBO_MODULES
-// registers one string-in, string-out module backed by an extern "C" function
-// pair.
 #include "GpuiExtensions.h"
 #include "RustTurboModules.generated.hpp"
 
@@ -11,11 +6,9 @@
 #include <string>
 
 namespace rngpui {
-
 using namespace facebook::react;
 
 namespace {
-
 namespace jsi = facebook::jsi;
 
 class RustStringTurboModule final : public TurboModule {

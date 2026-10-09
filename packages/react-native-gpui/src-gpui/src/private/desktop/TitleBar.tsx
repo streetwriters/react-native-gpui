@@ -1,5 +1,5 @@
 /**
- * A small custom title bar (plan §8.3) so apps do not rebuild one.
+ * A small custom title bar so apps do not rebuild one.
  *
  * The bar is a drag region: pressing it moves the window and a double click
  * zooms (or minimizes, per the user's macOS setting). On macOS the traffic
@@ -16,9 +16,7 @@ import { snapshot } from './index';
 
 export interface TitleBarProps {
   title?: string;
-  /** Left padding reserved for the macOS traffic lights. */
   trafficLightInset?: number;
-  /** Caption buttons on Windows/Linux; ignored on macOS. */
   showCaptionButtons?: boolean;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
@@ -30,7 +28,6 @@ const CAPTION_BUTTONS = [
   { control: 'close' as const, label: '\u00d7' },
 ];
 
-/** The host OS, synchronously, from the native snapshot. */
 function hostOs(): string {
   return snapshot<string>('platform') ?? 'macos';
 }

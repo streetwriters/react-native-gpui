@@ -48,7 +48,6 @@ export type LaunchOptions = {
   env?: NodeJS.ProcessEnv;
   timeout?: number;
   logFile?: string;
-  /** Disable GPUI-managed navigation transitions for deterministic, faster tests. */
   disableAnimations?: boolean;
 };
 
@@ -71,7 +70,6 @@ export type ClickOptions = {
 
 export type IdleOptions = {
   timeout?: number;
-  /** Ignore HTTP requests whose URL contains any listed substring. */
   ignoreUrls?: string[];
   ignore?: Array<
     | 'frames'
@@ -398,7 +396,6 @@ export class DesktopApp {
     return this.request('a11yTree');
   }
 
-  /** The application menu as the host has it (plan §3.5). */
   async getAppMenu(): Promise<{
     appName: string;
     userSet: boolean;
@@ -407,14 +404,13 @@ export class DesktopApp {
     return this.request('getAppMenu');
   }
 
-  /** Perform a menu item exactly as a click on it would. */
   async triggerMenuItem(id: string): Promise<void> {
     await this.request('triggerMenuItem', { id });
     await this.waitForIdle();
   }
 
   /**
-   * Open the Dev Menu (plan 7.5). `idle` is passed through, because the menu can
+   * Open the Dev Menu. `idle` is passed through, because the menu can
    * be opened while the Perf Monitor is keeping the app from going idle.
    */
   async showDevMenu(idle: IdleOptions = {}): Promise<void> {
@@ -422,13 +418,11 @@ export class DesktopApp {
     await this.waitForIdle(idle);
   }
 
-  /** Close the Dev Menu panel, as its Close row does. */
   async closeDevMenu(): Promise<void> {
     await this.request('closeDevMenu');
     await this.waitForIdle();
   }
 
-  /** Whether the Dev Menu panel is open, and its items. */
   async devMenuState(): Promise<{
     installed: boolean;
     open: boolean;
@@ -437,18 +431,15 @@ export class DesktopApp {
     return this.request('devMenuState');
   }
 
-  /** The Dev Menu's items, without opening it. */
   async getDevMenu(): Promise<{ items: unknown[] }> {
     return this.request('getDevMenu');
   }
 
-  /** Run a Dev Menu item exactly as choosing it would. */
   async devMenuPerform(id: string, idle: IdleOptions = {}): Promise<void> {
     await this.request('devMenuPerform', { id });
     await this.waitForIdle(idle);
   }
 
-  /** The GPUI-rendered menu bar's state and titles (plan 7.1 on Linux). */
   async menuBarState(): Promise<{
     enabled: boolean;
     inset: number;
@@ -457,7 +448,6 @@ export class DesktopApp {
     return this.request('menuBarState');
   }
 
-  /** Open a menu-bar menu by title, as a click on it would. */
   async openMenuBarMenu(title: string): Promise<boolean> {
     const result = await this.request<{ opened: boolean }>('openMenuBarMenu', {
       title,
@@ -466,17 +456,14 @@ export class DesktopApp {
     return result.opened;
   }
 
-  /** Which context-menu presenter is installed (plan 6.3). */
   async contextMenuPresenter(): Promise<{ presenter: string }> {
     return this.request('contextMenuPresenter');
   }
 
-  /** The GPUI-rendered menu popup that is open, if any. */
   async gpuiMenuState(): Promise<{ open: boolean; items?: unknown[] }> {
     return this.request('gpuiMenuState');
   }
 
-  /** Choose an item in the GPUI-rendered menu. */
   async selectGpuiMenuItem(id: string): Promise<boolean> {
     const result = await this.request<{ selected: boolean }>(
       'selectGpuiMenuItem',
@@ -494,12 +481,10 @@ export class DesktopApp {
     return result.dismissed;
   }
 
-  /** Install a tray icon (plan 7.3). */
   async trayInstall(options: Record<string, unknown> = {}): Promise<unknown> {
     return this.request('trayInstall', options);
   }
 
-  /** The tray's state, including whether its popover is open. */
   async trayState(): Promise<{
     installed: boolean;
     id?: string;
@@ -511,7 +496,6 @@ export class DesktopApp {
     return this.request('trayState');
   }
 
-  /** Simulate a click on the tray icon. */
   async trayClick(
     rect: {
       x?: number;
@@ -532,7 +516,6 @@ export class DesktopApp {
     return this.request('trayDestroy');
   }
 
-  /** The Perf Monitor's counters. */
   async getPerfMonitor(): Promise<{
     enabled: boolean;
     uiFps: number;
@@ -544,7 +527,6 @@ export class DesktopApp {
     return this.request('getPerfMonitor');
   }
 
-  /** The context menu the fake presenter recorded. */
   async getContextMenu(): Promise<{
     items: unknown[];
     x: number;
@@ -571,7 +553,6 @@ export class DesktopApp {
     return result.selected;
   }
 
-  /** Dismiss the fake context menu (resolves the promise with null). */
   async dismissContextMenu(): Promise<boolean> {
     const result = await this.request<{ dismissed: boolean }>(
       'dismissContextMenu',
@@ -580,7 +561,6 @@ export class DesktopApp {
     return result.dismissed;
   }
 
-  /** Close a window through the JS path, with or without `force`. */
   async windowClose(
     windowId: number,
     force = false,
@@ -603,7 +583,6 @@ export class DesktopApp {
     return result.closed;
   }
 
-  /** Every open desktop window. */
   async listWindows(): Promise<{
     windows: { windowId: number; component: string; role: string }[];
   }> {
@@ -712,8 +691,40 @@ export class DesktopApp {
     await this.request('hover', { tag });
   }
 
-  async scroll(tag: number, dx = 0, dy = 0): Promise<void> {
-    await this.request('scroll', { tag, dx, dy });
+  /**
+   * Scrolls the node under its centre. `drawMs` is how long the frame after the
+   * scroll took to draw, `renderedViews` how many node views it rebuilt and
+   * `renderedViewsTotal` how many it rebuilt over every one of the `repeat`
+   * frames. `repeat` scrolls that many times on consecutive frames; the single
+   * frame numbers are the last frame's.
+   */
+  async scroll(
+    tag: number,
+    dx = 0,
+    dy = 0,
+    repeat = 1,
+  ): Promise<{
+    drawMs: number;
+    renderedViews: number;
+    renderedViewsTotal: number;
+    a11yActive: boolean;
+  }> {
+    const result = (await this.request('scroll', {
+      tag,
+      dx,
+      dy,
+      repeat,
+    })) as {
+      drawMs?: number;
+      renderedViews?: number;
+      renderedViewsTotal?: number;
+    };
+    return {
+      drawMs: result?.drawMs ?? 0,
+      renderedViews: result?.renderedViews ?? 0,
+      renderedViewsTotal: result?.renderedViewsTotal ?? 0,
+      a11yActive: (result as { a11yActive?: boolean })?.a11yActive ?? false,
+    };
   }
 
   async mouseDown(
@@ -870,7 +881,6 @@ export class Locator {
 
   async type(text: string): Promise<void> {
     const match = await this.actionableMatch();
-    // Use click's native covering-node preflight before injecting text.
     await this.app.click(match.tag);
     await this.app.waitForIdle();
     await this.app.typeText(match.tag, text);
@@ -1091,7 +1101,6 @@ function normalizeAccessibleRole(role: string): string {
   );
 }
 
-/** Small semantic checks, based on the rendered AccessKit tree. */
 export async function expectNoA11yViolations(app: DesktopApp): Promise<void> {
   const tree = (await app.a11yTree()) as {
     nodes?: Record<

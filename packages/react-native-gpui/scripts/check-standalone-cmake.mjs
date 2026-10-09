@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Configures and builds rn_gpui_core with plain CMake: no Cargo, no autolink
-// input, no app TurboModules. Mirrors the defines build.rs passes, minus the
-// app-specific ones.
-//
-// Usage:
-//   node scripts/check-standalone-cmake.mjs <cxxbridge-include-dir> <generated-rncore-dir> [build-dir]
-//
-// The cxx bridge include dir is the `out/cxxbridge-include` of a previous
-// `cargo build -p rn-gpui-sys`, and the generated rncore dir is its
-// `out/fbreactnativespec`. Both are inputs CMake needs and do not carry app
-// specs.
-//
-// Pass a build dir that already has a native-deps cache, such as the cargo
-// CMake dir packages/rn-gpui-tester/desktop/build/target/rn-gpui-cmake/
-// aarch64-apple-darwin/Debug/build. A fresh dir fails while building the
-// OpenSSL apps/ tools (clang "'inttypes.h' file not found"), because the
-// native-deps cache lives at CMAKE_BINARY_DIR/native-deps. The default build
-// dir is a scratch directory under the OS temp dir and hits that failure.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';

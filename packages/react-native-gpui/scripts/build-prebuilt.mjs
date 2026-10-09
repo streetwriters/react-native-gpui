@@ -198,9 +198,6 @@ const cFlags = [
     : []),
 ].join(' ');
 
-// --- generated inputs ---------------------------------------------------------------
-// The cxxbridge headers and FBReactNativeSpec are normally produced by build.rs
-// inside a cargo build. Produce them here with the same tools when not given.
 if (!bridgeDir || !rncoreDir) {
   const generated = spawnSync(
     process.execPath,
@@ -218,7 +215,6 @@ if (!existsSync(path.join(bridgeDir, 'rust', 'cxx.h')))
 if (!existsSync(path.join(rncoreDir, 'jni')))
   fail(`missing ${path.join(rncoreDir, 'jni')}`);
 
-// --- configure, build, install --------------------------------------------------
 if (!args['skip-build']) {
   mkdirSync(buildDir, { recursive: true });
   const linkedDeps = path.join(buildDir, 'native-deps');
@@ -291,7 +287,6 @@ function nativeDepsArchives(dir) {
     }));
 }
 
-// --- manifest ------------------------------------------------------------------------
 const inputs = inputHash();
 const files = {};
 for (const rel of listFiles(platformDir)) {
@@ -345,7 +340,6 @@ writeFileSync(
   `${JSON.stringify(manifest, null, 2)}\n`,
 );
 
-// --- archive -------------------------------------------------------------------------------
 const archivePath = path.join(outDir, archiveName);
 rmSync(archivePath, { force: true });
 run('tar', ['-czf', archivePath, '-C', outDir, platform]);

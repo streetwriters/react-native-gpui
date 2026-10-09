@@ -1,10 +1,3 @@
-// Node-API glue (@react-native-node-api). Compiled into rn_gpui_extensions
-// only when weak-node-api is built. Injects the weak Node-API framework on
-// first use and hands out the active engine's Node-API host module.
-//
-// The host module itself is a capability of the engine package: creating a
-// napi_env and loading an addon into it are VM-specific. Core only decides
-// whether the running engine provides one.
 #include "GpuiExtensions.h"
 #include "GpuiJsEngine.h"
 #include "WeakNodeApiInjector.hpp"
@@ -18,7 +11,6 @@
 
 namespace rngpui {
 namespace {
-
 constexpr const char* kNodeApiHostModuleName = "NodeApiHost";
 
 // Registered instead of the engine's host when the active engine has no

@@ -215,6 +215,13 @@ void WebSocketClient::connect(
 
   impl_->onConnectCallback_ = std::move(callback);
   impl_->uri_ = folly::Uri{url};
+  // React Native hands its own clients http(s) URLs (Metro's HMR client opens
+  // `http://host:port/hot`) and every platform's socket takes them as ws(s).
+  if (impl_->uri_->scheme() == "http") {
+    impl_->uri_ = folly::Uri{"ws" + url.substr(4)};
+  } else if (impl_->uri_->scheme() == "https") {
+    impl_->uri_ = folly::Uri{"wss" + url.substr(5)};
+  }
   if (impl_->uri_->scheme() != "ws" && impl_->uri_->scheme() != "wss") {
     impl_->onConnectCallback(false, "WebSocket URL must use ws:// or wss://");
     return;
@@ -387,18 +394,22 @@ void WebSocketClient::Impl::onConnectionCompleted(
     return;
   }
 
-  auto ws = ws_.wlock();
-  if (std::holds_alternative<TlsWebSocket>(*ws)) {
-    std::get<TlsWebSocket>(*ws).next_layer().async_handshake(
-        boost::asio::ssl::stream_base::client,
-        [weakImpl =
-             weak_from_this()](boost::system::error_code handshakeError) {
-          if (auto impl = weakImpl.lock()) {
-            impl->onTlsHandshakeCompleted(handshakeError);
-          }
-        });
-    return;
+  {
+    auto ws = ws_.wlock();
+    if (std::holds_alternative<TlsWebSocket>(*ws)) {
+      std::get<TlsWebSocket>(*ws).next_layer().async_handshake(
+          boost::asio::ssl::stream_base::client,
+          [weakImpl =
+               weak_from_this()](boost::system::error_code handshakeError) {
+            if (auto impl = weakImpl.lock()) {
+              impl->onTlsHandshakeCompleted(handshakeError);
+            }
+          });
+      return;
+    }
   }
+  // Outside the lock: `onTlsHandshakeCompleted` takes it again, and it is not
+  // recursive, so a plain ws:// connection would stop here for good.
   onTlsHandshakeCompleted({});
 }
 
@@ -562,6 +573,9 @@ void WebSocketClient::Impl::write() {
 void WebSocketClient::Impl::onConnectCallback(
     bool connected,
     const std::string& error) {
+  if (!connected) {
+    LOG(WARNING) << "WebSocket " << (uri_ ? uri_->host() : "") << " did not connect: " << error;
+  }
   if (onConnectCallback_) {
     onConnectCallback_(connected, error);
   }

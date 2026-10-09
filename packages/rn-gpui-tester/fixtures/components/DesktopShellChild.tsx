@@ -1,5 +1,5 @@
 /**
- * The component a secondary window runs (plan §8.4). It reports the window id
+ * The component a secondary window runs. It reports the window id
  * it was started with, which proves `initialProps.windowId` and the
  * `DesktopWindowContext` wrapper work.
  *

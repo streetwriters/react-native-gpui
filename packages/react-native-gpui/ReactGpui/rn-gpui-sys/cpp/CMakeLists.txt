@@ -1,13 +1,3 @@
-# react-native-gpui core C++ build (design doc §18.5).
-#
-# Builds the ReactCommon libraries (from node_modules/react-native) and the
-# vendored ReactCxxPlatform (../../ReactCxxPlatform) as OBJECT libraries, the
-# same way ReactAndroid's jni/CMakeLists.txt does, adapted for the gpui
-# platform (no Android/JNI-only targets).
-#
-# Third-party C++ sources are downloaded from the same pinned tarballs used by
-# ReactAndroid into this CMake build tree and compiled from that cache.
-
 cmake_minimum_required(VERSION 3.18)
 project(rn_gpui_core CXX C)
 if(APPLE)
@@ -85,21 +75,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     "$<$<COMPILE_LANGUAGE:CXX>:-include>"
     "$<$<COMPILE_LANGUAGE:CXX>:cstdint>")
 endif()
-# --- paths -----------------------------------------------------------------
 
-# <repo>/node_modules/react-native/ReactCommon
 set(REACT_COMMON_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules/react-native/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
   message(FATAL_ERROR
     "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the Cargo OUT_DIR")
 endif()
-# The vendored ReactCxxPlatform copy override (TODO 0.3).
 set(REACT_CXX_PLATFORM_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
 
-# The ReactCommon copy overrides (design doc §18.5). build.rs passes this in;
-# default it so a hand-driven cmake build uses the same sources.
 if(NOT RN_GPUI_OVERRIDES_DIR)
   set(RN_GPUI_OVERRIDES_DIR
       "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCommonOverrides")
@@ -204,17 +189,11 @@ set(CURL_USE_ZSTD OFF CACHE BOOL "" FORCE)
 set(CURL_DISABLE_TESTS ON CACHE BOOL "" FORCE)
 add_subdirectory("${RN_GPUI_CURL_SOURCE_DIR}" "${RN_GPUI_NATIVE_DEPS_BUILD}/curl")
 
-# --- third-party imported targets -------------------------------------------
-
-# --- RN build helpers -------------------------------------------------------
-
 include(${REACT_COMMON_DIR}/cmake-utils/react-native-flags.cmake)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ThirdParty.cmake)
 
-# --- cxx bridge include directory -------------------------------------------
-
-# The cxx-generated bridge header (design doc §18.6) carries the flat
+# The cxx-generated bridge header carries the flat
 # structs and the `rn_gpui_*` entry point declarations. build.rs runs
 # `cxx_build::bridge` *before* configuring CMake and passes the directory here.
 # When CMake is driven by hand (the 1.3 workflow) the variable is unset, so fall
@@ -247,7 +226,7 @@ endif()
 # the ReactCommon targets build without RN_GPUI_CXXBRIDGE_INCLUDE_DIR.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-# Header overrides (TODO 2.5). Must come before the ReactCommon subdirectories
+# Header overrides. Must come before the ReactCommon subdirectories
 # below: this directory holds a replacement for
 # <react/renderer/components/view/HostPlatformViewTraitsInitializer.h> (a
 # platform header that RN finds through the platform include directory), and
@@ -263,11 +242,7 @@ list(SORT RN_GPUI_OVERRIDE_HEADERS)
 string(SHA256 RN_GPUI_OVERRIDE_HEADER_SET "${RN_GPUI_OVERRIDE_HEADERS}")
 add_compile_definitions("RN_GPUI_HEADER_OVERRIDES_${RN_GPUI_OVERRIDE_HEADER_SET}=1")
 
-# --- generated code (react_codegen_rncore, FBReactNativeSpec) ---------------
-
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/jni react_codegen_rncore)
-
-# --- ReactCommon (same list as ReactAndroid's jni/CMakeLists.txt) -----------
 
 add_react_common_subdir(yoga)
 
@@ -374,8 +349,6 @@ add_react_common_subdir(react/renderer/observers/intersection)
 add_react_common_subdir(react/renderer/observers/mutation)
 add_react_common_subdir(react/renderer/textlayoutmanager)
 
-# --- TextLayoutManager copy override (design doc §18.9) ---------------------
-
 # Upstream's cxx `TextLayoutManager::measure` returns the Yoga minimum size, so
 # every paragraph collapses to zero height. Compile our copy override
 # (ReactCommonOverrides/.../TextLayoutManager.cpp) in place of the upstream
@@ -418,12 +391,10 @@ add_react_common_subdir(react/runtime)
 add_react_common_subdir(react/runtime/nativeviewconfig)
 add_react_common_subdir(react/timing)
 
-# --- vendored ReactCxxPlatform (TODO 0.3 copy override) ---------------------
-
 add_react_cxx_platform_subdir(react/coremodules)
 add_react_cxx_platform_subdir(react/devsupport)
 
-# --- DevServerHelper patch override (TODO 2.1, design doc §19 2.1) ----------
+# --- DevServerHelper patch override ----------
 #
 # Upstream hardcodes the Android platform string, so Metro would be asked for
 # the Android JS surface. Compile the copy override that passes
@@ -498,11 +469,6 @@ add_react_cxx_platform_subdir(react/runtime)
 target_include_directories(react_cxx_platform_react_coremodules PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# --- JS engine registry test ----------------------------------------------
-#
-# Covers the engine selection rules (none, one, several with a selection, an
-# unknown name). Compiles GpuiJsEngine.cpp on its own: it needs no React Native
-# runtime, only the feature-flag header.
 enable_testing()
 add_executable(gpui_js_engine_test
   test/gpui_js_engine_test.cpp
@@ -516,10 +482,6 @@ add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
 # The engine packages' own smoke tests (for example a VM smoke test) are
 # added by their gpui/CMakeLists.txt, which autolink includes below.
 
-# --- rn_gpui_core: the gpui platform glue (design doc §18.5) ---------------
-
-# GpuiHost wraps ReactHost, GpuiMountingManager receives Fabric's mount
-# transactions, MountBatchBuilder flattens them into the FFI-shaped MountBatch.
 add_library(rn_gpui_core STATIC
   GpuiDesktopModule.cpp
   GpuiHost.cpp
@@ -543,7 +505,7 @@ if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
 
-# The cxx-generated bridge header (design doc §18.6) is located above,
+# The cxx-generated bridge header is located above,
 # before the ReactCommon subdirectories. rn_gpui_core consumes it directly.
 if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
   target_include_directories(rn_gpui_core PUBLIC "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
@@ -560,9 +522,7 @@ endif()
 # library. Targets listed in Fantom's tester build that do not
 # exist here are guard-skipped with a warning rather than dropped silently.
 set(RN_GPUI_CORE_DEPS
-  # third-party
   CURL::libcurl
-  # ReactCommon runtime + JSI
   jsi
   jserrorhandler
   jsitooling
@@ -597,7 +557,6 @@ set(RN_GPUI_CORE_DEPS
   react_utils
   reactperflogger
   bridgeless
-  # renderer
   react_renderer_animated
   react_renderer_animationbackend
   react_renderer_animations
@@ -624,7 +583,6 @@ set(RN_GPUI_CORE_DEPS
   react_renderer_uimanager
   react_renderer_uimanager_consistency
   react_renderer_viewtransition
-  # host components
   rrc_image
   rrc_legacyviewmanagerinterop
   rrc_modal
@@ -637,7 +595,6 @@ set(RN_GPUI_CORE_DEPS
   rrc_unimplementedview
   rrc_view
   yoga
-  # vendored ReactCxxPlatform
   react_cxx_platform_react_coremodules
   react_cxx_platform_react_devsupport
   react_cxx_platform_react_http
@@ -699,7 +656,6 @@ if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
     FRAMEWORK_VERSION A
     MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
-
 
 endif()
 
@@ -846,7 +802,6 @@ file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
 #include <mutex>
 
 namespace rngpui {
-
 @RN_GPUI_ENGINE_DECLARATIONS@
 @RN_GPUI_EXTENSION_DECLARATIONS@
 void rn_gpui_install_extensions() {
@@ -899,7 +854,7 @@ if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
   target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
-# --- link_libs.txt for build.rs (design doc §18.4) --------------------------
+# --- link_libs.txt for build.rs --------------------------
 #
 # Cargo propagates `rustc-link-search` / `rustc-link-lib` from a build script
 # that declares `links = "..."` to every dependent crate, whereas
@@ -947,7 +902,6 @@ if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
   list(APPEND RN_GPUI_LINK_TARGETS ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
-# Install rules and find_package() config for the prebuilt runtime (T4).
 if(NOT RN_GPUI_PREBUILT_DIR)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/PrebuiltInstall.cmake)
 endif()

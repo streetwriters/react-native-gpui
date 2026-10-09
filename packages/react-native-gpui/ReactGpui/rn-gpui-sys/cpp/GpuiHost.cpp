@@ -1,7 +1,7 @@
-// React host implementation (design doc §18.7).
 #include "GpuiHost.h"
 #include <react/runtime/GpuiDebug.h>
 
+#include <jsi/instrumentation.h>
 #include <react/coremodules/DeviceInfoModule.h>
 #include "GpuiDesktopModule.h"
 #include "GpuiExtensions.h"
@@ -10,7 +10,7 @@
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiMountingManager.h"
 #include "MountBatchBuilder.h"
-#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
 #include <folly/json.h>
 #include <react/bridging/Function.h>
@@ -431,8 +431,6 @@ class GpuiAlertModule final
 
 extern "C" void rn_gpui_request_reload();
 
-/// `DevMenu` (plan 7.5): the RN Dev Menu entry point. `show` is handled on the
-/// GPUI main thread, which owns the presenter.
 class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
  public:
   explicit GpuiDevMenuModule(std::shared_ptr<CallInvoker> jsInvoker)
@@ -454,7 +452,6 @@ class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
     rn_gpui_dev_setting(rust::String("hotLoading"), enabled);
   }
 
-  /// `DevSettings.toggleElementInspector` toggles, so it passes no value.
   void toggleElementInspector(facebook::jsi::Runtime& /*runtime*/) {
     rn_gpui_dev_setting(rust::String("inspectorToggle"), true);
   }
@@ -641,8 +638,6 @@ GpuiHost::GpuiHost(
   rngpui::rn_gpui_install_extensions();
   rngpui::selectJsEngine(std::string(jsEngine));
   install_feature_flags();
-  // Text measurement from the TextLayoutManager override goes through the
-  // plain table in GpuiTextMeasure.h; wire it to the Rust bridge first.
   rngpui::installGpuiTextMeasureTable();
 
   ReactInstanceConfig config;
@@ -667,12 +662,8 @@ GpuiHost::GpuiHost(
         });
       });
 
-  // ReactHost's constructor throws std::runtime_error("No HttpClientFactory
-  // provided") / ("No WebSocketClientFactory provided") unless both factories
-  // are in the ContextContainer. The WebSocket one comes from the vendored
-  // ReactCxxPlatform cxx client; the HTTP one is our placeholder until TODO 2.1
-  // brings Metro in (ContextContainer::insert is const, so the container can
-  // stay shared_ptr<const>).
+  // ReactHost's constructor throws unless both factories are in the
+  // ContextContainer.
   auto contextContainer = std::make_shared<const ContextContainer>();
   contextContainer->insert(HttpClientFactoryKey, gpui_http_client_factory());
   contextContainer->insert(
@@ -683,10 +674,6 @@ GpuiHost::GpuiHost(
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
-  // Supply RN's native animation provider for LogBox and native-driver views.
-  // GPUI stores RN's requested frame callback and invokes it from the window's
-  // frame hook while active; synchronouslyUpdateViewOnUIThread forwards each
-  // resulting prop patch to its retained node.
   config.animatedNodesManagerProviderFactory = [this] {
     return std::make_shared<NativeAnimatedNodesManagerProvider>(
         [this](std::function<void()>&& callback, bool /*isAsync*/) {
@@ -721,7 +708,7 @@ GpuiHost::GpuiHost(
     rn_gpui_set_animated_active(workletsRenderActive.load());
   };
 
-  // TODO 2.6 — the LogBox surface. ReactHost hands this to
+  // The LogBox surface. ReactHost hands this to
   // `ReactCxxTurboModuleProvider`, which builds `LogBoxModule` only when the
   // delegate is set (`ReactCxxTurboModuleProvider.cpp`); without it the JS side
   // logs "Failed to load TurboModule: LogBox" and no red box appears.
@@ -847,7 +834,6 @@ void GpuiHost::start_surface_with_props(
   LayoutContext context;
   context.pointScaleFactor = scale;
   if (id == kAppSurfaceId) {
-    // Remembered for the LogBox overlay surface (TODO 2.6).
     surfaceWidth_ = w;
     surfaceHeight_ = h;
     surfaceScale_ = scale;
@@ -876,13 +862,10 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
-  // SurfaceHandler asserts on Undefined; GPUI surfaces are LTR for now (an RTL
-  // flag would come from the GPUI window's text direction).
   constraints.layoutDirection = LayoutDirection::LeftToRight;
   LayoutContext context;
   context.pointScaleFactor = scale;
   if (id == kAppSurfaceId) {
-    // Remembered for the LogBox overlay surface (TODO 2.6).
     surfaceWidth_ = w;
     surfaceHeight_ = h;
     surfaceScale_ = scale;
@@ -987,16 +970,73 @@ void GpuiHost::open_debugger() const {
   reactHost_->openDebugger();
 }
 
+namespace {
+// Static, so a probe that outlives a reload or the host touches nothing that
+// has been destroyed.
+std::atomic<uint64_t> jsHeapBytes{0};
+
+/// The engine's own figure for "bytes allocated on the JS heap". JSI leaves
+/// the keys of `getHeapInfo` to each engine, which prefix them with their
+/// name, so this goes by the suffix instead of naming an engine.
+uint64_t sampleJsHeapBytes(facebook::jsi::Runtime& runtime) {
+  uint64_t allocated = 0;
+  uint64_t size = 0;
+  try {
+    for (const auto& [key, value] :
+         runtime.instrumentation().getHeapInfo(false)) {
+      if (value <= 0) {
+        continue;
+      }
+      if (key.ends_with("allocatedBytes")) {
+        allocated = static_cast<uint64_t>(value);
+      } else if (key.ends_with("heapSize")) {
+        size = static_cast<uint64_t>(value);
+      }
+    }
+  } catch (...) {
+  }
+  return allocated != 0 ? allocated : size;
+}
+} // namespace
+
+uint64_t GpuiHost::js_frame_probe() const {
+  static std::atomic<uint64_t> completed{0};
+  static std::atomic<bool> pending{false};
+  if (scriptLoaded_ && !reactHost_->isReloading() && !pending.exchange(true)) {
+    reactHost_->runOnRuntimeScheduler([](facebook::jsi::Runtime& runtime) {
+      static std::chrono::steady_clock::time_point sampledAt{};
+      const auto now = std::chrono::steady_clock::now();
+      if (now - sampledAt >= std::chrono::milliseconds(500)) {
+        sampledAt = now;
+        jsHeapBytes.store(
+            sampleJsHeapBytes(runtime), std::memory_order_relaxed);
+      }
+      completed.fetch_add(1, std::memory_order_relaxed);
+      pending.store(false);
+    });
+  }
+  return completed.load(std::memory_order_relaxed);
+}
+
+uint64_t GpuiHost::js_heap_bytes() const {
+  return jsHeapBytes.load(std::memory_order_relaxed);
+}
+
 void GpuiHost::stop_surface(int32_t id) {
   reactHost_->stopSurface(id);
   // Fabric emits no Delete mutations for a surface that is torn down, so the
-  // store has to drop it explicitly (TODO 2.6).
+  // store has to drop it explicitly.
   rn_gpui_on_surface_stopped(id);
 }
 
-/// TODO 2.6 — start the LogBox surface (see `GpuiLogBoxSurfaceDelegate`).
 void GpuiHost::request_reload() {
   reactHost_->requestReload();
+}
+bool GpuiHost::set_dev_server(rust::Str host, uint32_t port) {
+  return reactHost_->setDevServer(std::string(host), port);
+}
+rust::String GpuiHost::dev_server_address() const {
+  return rust::String(reactHost_->devServerAddress());
 }
 bool GpuiHost::reload_in_progress() const {
   return reactHost_->isReloading();
@@ -1026,7 +1066,7 @@ void GpuiHost::start_log_box_surface() {
       context);
 }
 
-/// TODO 2.6 — stop the LogBox surface again: `hide()` is what keeps a closed
+/// Stop the LogBox surface again: `hide()` is what keeps a closed
 /// LogBox from covering the app surface with an empty full-size overlay.
 void GpuiHost::stop_log_box_surface() {
   reactHost_->stopSurface(kLogBoxSurfaceId);

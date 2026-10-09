@@ -1,20 +1,8 @@
-//! Application menu bar (plan item 7.1, §5).
-//!
-//! macOS uses GPUI's `cx.set_menus()`, which builds a real `NSMenu`; Windows and
-//! Linux get their own presenters in step 10, and until then the model is stored
-//! so the test driver can read it back.
-//!
-//! Two things make this more than a translation layer:
-//!
-//! * **Accelerators.** GPUI derives an `NSMenuItem` key equivalent from the
-//!   keymap binding for the exact action value, so a data action carrying the
-//!   item id both shows the shortcut and dispatches it. `Keymap` has no
-//!   per-binding removal API, so the desktop bindings are filtered out and the
-//!   rest re-added whenever the menu changes.
-//! * **Edit roles.** `OsAction::Copy` maps to the AppKit `copy:` selector, which
-//!   needs an `NSTextView` first responder. RN's text inputs are drawn by GPUI,
-//!   so the Edit roles are host actions that operate on the focused RN text
-//!   input instead.
+//! GPUI derives an `NSMenuItem` key equivalent from the keymap binding for the
+//! exact action value, and `Keymap` has no per-binding removal, so the desktop
+//! bindings are filtered out and re-added whenever the menu changes. The Edit
+//! roles act on the focused RN text input: `OsAction::Copy` needs an
+//! `NSTextView` first responder, which GPUI-drawn inputs are not.
 
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::menu_model::{self, MenuItemDef, MenuModel, MenuNode, MenuRole, SubmenuDef};
@@ -24,52 +12,38 @@ use crate::store::store_from;
 use gpui::{Action, App, Entity, KeyBinding, Menu, MenuItem, SharedString, SystemMenuType};
 use serde_json::{json, Value};
 
-/// Action carrying a menu item id. Bound for each accelerator and stored in the
-/// macOS menu, so a click and a shortcut take the same path.
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = rn_gpui_desktop, no_json, no_register)]
 pub struct MenuAccelerator {
     pub id: String,
 }
 
-/// An Edit-menu role, performed on the focused RN text input.
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = rn_gpui_desktop, no_json, no_register)]
 pub struct MenuEditAction {
     pub kind: String,
 }
 
-/// A host role (quit, hide, minimize, zoom, fullscreen, close, about).
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = rn_gpui_desktop, no_json, no_register)]
 pub struct MenuHostAction {
     pub kind: String,
 }
 
-/// What an accelerator does when it fires.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AcceleratorAction {
-    /// A plain menu item press.
     Press(String),
-    /// An Edit role on the focused text input.
     Edit(String),
-    /// A host role (quit, hide, minimize, …).
     Host(String),
 }
 
-/// The current menu and the bindings it installed.
 pub struct AppMenuState {
     pub model: MenuModel,
-    /// True once JS called `setApplicationMenu`; a reload returns to the default.
     pub user_set: bool,
     pub app_name: String,
-    /// The item ids with an accelerator, for the test driver and for `update`.
     pub bindings: Vec<(String, String)>,
-    /// The same accelerators, ready to match against an incoming keystroke.
     pub accelerators: Vec<(gpui::Keystroke, AcceleratorAction)>,
-    /// Keeps the keystroke interceptor alive for the app's lifetime.
     pub _interceptor: Option<gpui::Subscription>,
-    /// One `set_menus` rebuild per frame when several `update` calls arrive.
     pub rebuild_scheduled: bool,
 }
 
@@ -90,8 +64,6 @@ impl AppMenuGlobal {
     }
 }
 
-/// Install the global and the default menu. Called once at startup, before the
-/// bundle loads, so Cmd+Q / Cmd+C work without the app writing any menu code.
 pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
     cx.set_global(DevMenuEnabled(dev_menu));
     cx.set_global(AppMenuGlobal::new(app_name.to_string()));
@@ -118,8 +90,6 @@ pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
     cx.global_mut::<AppMenuGlobal>().0._interceptor = Some(interceptor);
 }
 
-/// Perform a menu item by id, exactly as a click on it would. Used by the test
-/// driver so e2e can exercise item presses without a native menu.
 pub fn trigger_item(cx: &mut App, id: &str) {
     match accelerator_action(id) {
         AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
@@ -128,7 +98,6 @@ pub fn trigger_item(cx: &mut App, id: &str) {
     }
 }
 
-/// Run the accelerator bound to `keystroke`, if any. Returns whether it fired.
 pub fn handle_accelerator(
     cx: &mut App,
     window: &mut gpui::Window,
@@ -143,10 +112,7 @@ pub fn handle_accelerator(
             .map(|(_, action)| action.clone())
     };
     if std::env::var_os("RN_GPUI_DEBUG_DESKTOP").is_some() {
-        // `RN_GPUI_DEBUG_DESKTOP=1` shows every keystroke the menu interceptor
-        // sees, and whether one of the installed accelerators matched it. This
-        // is the only way to tell "the shortcut never reached GPUI" apart from
-        // "the shortcut reached GPUI but matched nothing".
+        // `RN_GPUI_DEBUG_DESKTOP=1` logs every keystroke the interceptor sees.
         let installed = cx
             .global::<AppMenuGlobal>()
             .0
@@ -179,7 +145,6 @@ pub fn handle_accelerator(
     true
 }
 
-/// `Menu.setApplicationMenu(items)` / `null` for the default menu.
 pub fn set_application_menu(cx: &mut App, items: Option<&Value>) -> DesktopResult {
     let model = match items {
         Some(value) => menu_model::parse_menu(value)?,
@@ -190,7 +155,6 @@ pub fn set_application_menu(cx: &mut App, items: Option<&Value>) -> DesktopResul
     Ok(json!({"items": current_model(cx).ids().len()}))
 }
 
-/// `Menu.update(id, patch)`.
 pub fn update_item(cx: &mut App, id: &str, patch: &Value) -> DesktopResult {
     let patch = patch
         .as_object()
@@ -223,7 +187,6 @@ pub fn update_item(cx: &mut App, id: &str, patch: &Value) -> DesktopResult {
     Ok(json!({"id": id}))
 }
 
-/// The menu as JSON, for `getAppMenu` and the driver's fake presenter.
 pub fn menu_json(cx: &App) -> Value {
     let state = &cx.global::<AppMenuGlobal>().0;
     json!({
@@ -302,8 +265,6 @@ fn find_item_mut<'a>(items: &'a mut [MenuNode], id: &str) -> Option<&'a mut Menu
     None
 }
 
-/// The menu the app has set (or the default), for the GPUI-rendered menu bar
-/// and the test driver.
 pub fn current_model(cx: &App) -> MenuModel {
     cx.global::<AppMenuGlobal>().0.model.clone()
 }
@@ -312,11 +273,6 @@ pub fn app_name(cx: &App) -> String {
     cx.global::<AppMenuGlobal>().0.app_name.clone()
 }
 
-/// The items of a standard menu, in the shape the GPUI renderer draws.
-///
-/// The native path hands whole standard submenus to GPUI, which knows the
-/// platform's own items; a GPUI-rendered menu bar has to draw them itself, so
-/// the same role lists are spelled out here (plan §4.5).
 pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Vec<MenuNode> {
     let item = |role: MenuRole| {
         MenuNode::Item(MenuItemDef {
@@ -403,7 +359,6 @@ pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Ve
     }
 }
 
-/// Whether this build installs the Dev Menu (plan 7.5, dev builds only).
 pub struct DevMenuEnabled(pub bool);
 impl gpui::Global for DevMenuEnabled {}
 
@@ -411,7 +366,6 @@ fn dev_menu_enabled(cx: &App) -> bool {
     cx.try_global::<DevMenuEnabled>().is_some_and(|flag| flag.0)
 }
 
-/// The default menu (plan §5.3): app menu, Edit, Window, Help.
 pub fn default_menu(app_name: &str) -> MenuModel {
     let mut app_items = vec![
         MenuNode::Item(role_item(MenuRole::About, &format!("About {app_name}"))),
@@ -455,7 +409,6 @@ fn role_item(role: MenuRole, label: &str) -> MenuItemDef {
     }
 }
 
-/// The conventional shortcut for a role, in GPUI keystroke form.
 pub fn default_accelerator(role: MenuRole) -> Option<&'static str> {
     Some(match role {
         MenuRole::Undo => "secondary-z",
@@ -474,14 +427,13 @@ pub fn default_accelerator(role: MenuRole) -> Option<&'static str> {
     })
 }
 
-/// Build and install a menu model.
 fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopError> {
     let app_name = app_name(cx);
     let menus = build_menus(&model, &app_name, dev_menu_enabled(cx));
     let bindings = collect_bindings(dev_menu_enabled(cx), &model);
     let accelerators = replace_accelerator_bindings(cx, &bindings);
     // Windows has no `cx.set_menus()`; the model is attached to the HWND
-    // instead (plan §4.5). Built twice because the menu builders are not
+    // instead. Built twice because the menu builders are not
     // cloneable.
     #[cfg(target_os = "windows")]
     {
@@ -504,7 +456,6 @@ fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopEr
     Ok(())
 }
 
-/// Rebuild once per frame, so a burst of `update` calls costs one `set_menus`.
 fn schedule_rebuild(cx: &mut App) {
     {
         let state = &mut cx.global_mut::<AppMenuGlobal>().0;
@@ -537,7 +488,6 @@ fn rebuild_now(cx: &mut App) {
     let _ = app_name;
 }
 
-/// Every accelerator the model installs, as `(item id, keystroke)`.
 fn collect_bindings(dev_menu: bool, model: &MenuModel) -> Vec<(String, String)> {
     let mut bindings = model.accelerators();
     collect_role_bindings(&model.items, &mut bindings);
@@ -571,8 +521,6 @@ fn collect_role_bindings(items: &[MenuNode], out: &mut Vec<(String, String)>) {
     }
 }
 
-/// The accelerators a standard submenu installs, so they can be unbound when the
-/// menu is replaced.
 fn standard_menu_bindings(role: MenuRole) -> Vec<(&'static str, &'static str)> {
     let roles: &[MenuRole] = match role {
         MenuRole::EditMenu => &[
@@ -600,7 +548,6 @@ fn standard_menu_bindings(role: MenuRole) -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
-/// The stable action id a role's accelerator binds.
 pub fn role_action_id(role: MenuRole) -> &'static str {
     match role {
         MenuRole::Undo => "role:undo",
@@ -628,11 +575,9 @@ fn is_desktop_action(action: &dyn Action) -> bool {
         || action.as_any().downcast_ref::<MenuHostAction>().is_some()
 }
 
-/// Windows has no `cx.set_menus()`: GPUI's Win32 backend does not own a menu
-/// bar, so the same model is handed to `muda`, which attaches a native Win32
-/// menu to the window's HWND (plan §4.5).
+/// Windows: `muda` attaches a native Win32 menu to the window's HWND.
 ///
-/// **Written but never compiled**: this machine cannot build for Windows.
+/// TODO: never built or run on Windows.
 #[cfg(target_os = "windows")]
 fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
     use muda::{Menu as MudaMenu, MenuItem as MudaItem, PredefinedMenuItem, Submenu};
@@ -685,8 +630,6 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
     true
 }
 
-/// Replace the desktop bindings, leaving every other binding untouched, and
-/// return the accelerators the keystroke interceptor matches.
 fn replace_accelerator_bindings(
     cx: &mut App,
     bindings: &[(String, String)],
@@ -720,10 +663,7 @@ fn replace_accelerator_bindings(
     accelerators
 }
 
-/// The action an item id binds: a role keeps its role behavior, anything else is
-/// a plain press.
 fn accelerator_action(id: &str) -> AcceleratorAction {
-    // Plan 7.5 — the Dev Menu's shortcut is not a menu item.
     if id == crate::desktop::dev_menu::ACCELERATOR_ID {
         return AcceleratorAction::Host("devMenu".to_string());
     }
@@ -752,7 +692,6 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
     AcceleratorAction::Press(id.to_string())
 }
 
-/// Bind a concrete action for the keymap, mirroring [`accelerator_action`].
 fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
     match action {
         AcceleratorAction::Press(id) => {
@@ -852,7 +791,6 @@ fn build_items(items: &[MenuNode]) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The Developer submenu's items (plan §5.3: the dev group lives in Help).
 fn dev_menu_items() -> Vec<MenuItem> {
     use crate::desktop::dev_menu as dev;
     [
@@ -920,7 +858,6 @@ fn role_menu_item(role: MenuRole, label: Option<&str>) -> MenuItem {
                 kind: role_action_id(role).trim_start_matches("role:").to_string(),
             },
         ),
-        // Whole submenus and the Help marker are handled by `standard_menu`.
         MenuRole::Help
         | MenuRole::AppMenu
         | MenuRole::EditMenu
@@ -934,7 +871,6 @@ fn role_menu_item(role: MenuRole, label: Option<&str>) -> MenuItem {
     }
 }
 
-/// `gpuiDesktop:menuPress {id, windowId}`.
 fn emit_menu_press(cx: &mut App, id: &str) {
     let Some(store) = store_from(cx) else {
         return;
@@ -957,11 +893,8 @@ fn active_window_key(cx: &App) -> Option<u32> {
         .find(|key| windows.0.get(*key).map(|entry| entry.handle) == Some(handle))
 }
 
-/// The focused RN text input in `window`, if any.
-///
-/// Must not be called from inside a window update: GPUI takes the window out of
-/// the app while an update runs, so a nested `update_window` fails. Every caller
-/// goes through [`App::defer`] for that reason.
+/// Must not be called from inside a window update: a nested `update_window`
+/// fails.
 fn focused_text_input(cx: &mut App, window: gpui::AnyWindowHandle) -> Option<Entity<RNNodeView>> {
     let debug = std::env::var_os("RN_GPUI_DEBUG_DESKTOP").is_some();
     let result = window.update(cx, |_root, window, cx| {
@@ -1021,8 +954,8 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
                 "selectAll" => {
                     crate::input::select_all(node, window, cx);
                 }
-                // Undo/redo have no edit history in the GPUI text input yet; the
-                // menu item is present so an app can handle the press itself.
+                // TODO: undo/redo need an edit history in the GPUI text input. The
+                // item is present so an app can handle the press itself.
                 _ => {}
             });
             if debug {
@@ -1044,10 +977,7 @@ fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowH
         "hideOthers" => cx.hide_other_apps(),
         "showAll" => cx.unhide_other_apps(),
         "about" => show_about_panel(cx),
-        // Deferred like the window actions below: the accelerator runs inside
-        // the keystroke's window update, and showing the menu needs to read the
-        // window's platform view and open a popup, both of which re-enter the
-        // window and panic while that update is still on the stack.
+        // Deferred: the accelerator runs inside the keystroke's window update.
         "devMenu" => cx.defer(|cx| crate::desktop::dev_menu::show(cx)),
         "minimize" | "zoom" | "toggleFullscreen" | "close" => {
             let kind = kind.to_string();
@@ -1089,9 +1019,6 @@ mod tests {
     fn default_menu_has_the_standard_groups() {
         let model = default_menu("Tester");
         assert!(model.has_help_menu());
-        // The default menu uses whole standard submenus for Edit/Window, so the
-        // Edit roles are not individual nodes; their accelerators are still
-        // installed.
         assert!(model.find("role:quit").is_some());
         let bindings = collect_bindings(false, &model);
         assert!(bindings
@@ -1114,8 +1041,6 @@ mod tests {
 
     #[test]
     fn unsupported_roles_are_dropped_from_the_built_menu() {
-        // `services` only exists on macOS; the model keeps it either way, but the
-        // built item must not appear as a disabled entry elsewhere.
         let model = default_menu("Tester");
         let menus = build_menus(&model, "Tester", false);
         assert!(!menus.is_empty());

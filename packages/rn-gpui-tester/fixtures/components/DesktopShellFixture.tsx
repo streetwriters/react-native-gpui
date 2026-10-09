@@ -1,5 +1,5 @@
 /**
- * Desktop shell (plan 7.1–7.6) tester screen.
+ * Desktop shell tester screen.
  *
  * This screen grows with each feature step; right now it only proves the
  * `GpuiDesktop` bridge: capability flags read synchronously and an `app.getInfo`

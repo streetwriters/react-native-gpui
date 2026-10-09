@@ -1,5 +1,3 @@
-//! Propagate dynamic native library runtime paths to this app's executable.
-
 fn main() {
     let desktop_root = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"),

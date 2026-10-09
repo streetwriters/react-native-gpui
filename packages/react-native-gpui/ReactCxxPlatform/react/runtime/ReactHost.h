@@ -9,6 +9,9 @@
 
 #include "ReactInstanceConfig.h"
 
+#include <utility>
+#include <optional>
+#include <mutex>
 #include <ReactCommon/CallInvoker.h>
 #include <ReactCommon/TurboModule.h>
 #include <cxxreact/MessageQueueThread.h>
@@ -94,6 +97,13 @@ class ReactHost {
 
   void emitDeviceEvent(folly::dynamic &&args);
 
+  // react-native-gpui: the Dev Menu's "Configure Bundler". Points the dev
+  // server connections at `host:port` and reloads from there. Returns false
+  // when this build has no dev server (dev mode off).
+  bool setDevServer(const std::string &host, uint32_t port);
+  // "host:port" of the dev server in use, or empty without one.
+  std::string devServerAddress() const;
+
  private:
   void createReactInstance();
   void destroyReactInstance();
@@ -117,6 +127,9 @@ class ReactHost {
   std::shared_ptr<std::string> sourceURL_ = std::make_shared<std::string>();
   std::shared_ptr<Inspector> inspector_;
   std::unique_ptr<PackagerConnection> packagerConnection_;
+  // Applied by the next reload, between the old instance and the new one.
+  std::mutex pendingDevServerMutex_;
+  std::optional<std::pair<std::string, uint32_t>> pendingDevServer_;
 
   std::shared_ptr<AnimatedMountingOverrideDelegate> animatedMountingOverrideDelegate_;
 };

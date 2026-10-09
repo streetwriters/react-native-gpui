@@ -39,6 +39,10 @@ class Inspector : public InspectorThread, public std::enable_shared_from_this<In
 
   void connectDebugger(const std::string &inspectorUrl) noexcept;
 
+  // react-native-gpui: drop the connection to the dev server, so the next
+  // `connectDebugger` connects to the URL it is given (the server changed).
+  void disconnectDebugger() noexcept;
+
   void ensureHostTarget(
       LiveReloadCallbackFn &&liveReloadCallbackFn,
       ToggleDebuggerOverlayFn &&toggleDebuggerOverlayFn) noexcept;

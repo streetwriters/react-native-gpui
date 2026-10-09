@@ -44,7 +44,6 @@ export function registerScreens(testMode = false) {
       <>{renderScreen.svg({ ...props, testMode })}</>
     ),
   );
-  // The component the tray popover runs (plan 7.3).
   AppRegistry.registerComponent(
     'TrayPopover',
     () => (props: { windowId?: number }) =>
@@ -53,7 +52,6 @@ export function registerScreens(testMode = false) {
         props,
       ),
   );
-  // The component a secondary desktop window runs (plan 7.4).
   AppRegistry.registerComponent(
     'DesktopShellChild',
     () => (props: { windowId?: number; label?: string }) =>

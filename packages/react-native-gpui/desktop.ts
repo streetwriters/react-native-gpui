@@ -1,5 +1,5 @@
 /**
- * `react-native-gpui/desktop` — the desktop-shell public API (plan 7.1–7.6).
+ * `react-native-gpui/desktop` — the desktop-shell public API.
  *
  * ```ts
  * import {Desktop} from 'react-native-gpui/desktop';
@@ -82,7 +82,6 @@ export type {
   MenuRole,
 } from './src-gpui/src/private/desktop/menu';
 
-// Registers the desktopDragRegion / desktopWindowControl View prop types.
 import './src-gpui/src/private/desktop/types';
 
 import { call, capabilities } from './src-gpui/src/private/desktop';
@@ -93,12 +92,8 @@ export interface DesktopAppInfo {
   capabilities: ReturnType<typeof capabilities>;
 }
 
-/** The underlying command bridge, for callers that need a domain directly. */
 export const Desktop = {
-  /** Platform, architecture and capability flags. */
   getInfo: () => call<DesktopAppInfo>('app', 'getInfo'),
-  /** Platform capability flags without a round trip to the main thread. */
   capabilities,
-  /** Run one desktop command. */
   call,
 };

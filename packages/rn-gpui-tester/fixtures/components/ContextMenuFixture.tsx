@@ -1,5 +1,5 @@
 /**
- * Native context menus (plan item 7.2, §6.6).
+ * Native context menus.
  *
  * Exercises the imperative `ContextMenu.show`, the `onContextMenu` View prop,
  * the `ContextMenuView` wrapper and the `@react-native-menu/menu` polyfill.

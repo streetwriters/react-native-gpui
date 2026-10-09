@@ -348,6 +348,22 @@ void ReactHost::reloadReactInstance() {
       }
     }
     destroyReactInstance();
+    {
+      std::optional<std::pair<std::string, uint32_t>> devServer;
+      {
+        std::lock_guard lock(pendingDevServerMutex_);
+        devServer.swap(pendingDevServer_);
+      }
+      if (devServer && devServerHelper_) {
+        // Both connections were opened to the old server and are kept across
+        // reloads; dropping them makes `createReactInstance` open new ones.
+        devServerHelper_->setDevServer(devServer->first, devServer->second);
+        packagerConnection_.reset();
+        if (inspector_ != nullptr) {
+          inspector_->disconnectDebugger();
+        }
+      }
+    }
     createReactInstance();
     loadScript(lastBundlePath_, lastSourcePath_);
     for (auto& surfaceProp : surfaceProps) {
@@ -360,6 +376,26 @@ void ReactHost::reloadReactInstance() {
     }
     isReloadingReactInstance_ = false;
   }).detach();
+}
+
+bool ReactHost::setDevServer(const std::string& host, uint32_t port) {
+  if (!devServerHelper_ || host.empty() || port == 0) {
+    return false;
+  }
+  {
+    std::lock_guard lock(pendingDevServerMutex_);
+    pendingDevServer_ = std::make_pair(host, port);
+  }
+  reloadReactInstance();
+  return true;
+}
+
+std::string ReactHost::devServerAddress() const {
+  if (!devServerHelper_) {
+    return "";
+  }
+  return devServerHelper_->devServerHost() + ":" +
+      std::to_string(devServerHelper_->devServerPort());
 }
 
 bool ReactHost::loadScript(

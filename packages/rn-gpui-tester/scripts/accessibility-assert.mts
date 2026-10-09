@@ -1,5 +1,3 @@
-// Validate the AccessibilityPropsFixture's real GPUI tree and generated AccessKit nodes.
-// Run after `npm run probe -- AccessibilityPropsFixture` has completed its key sequence.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 

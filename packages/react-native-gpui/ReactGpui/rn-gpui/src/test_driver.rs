@@ -1,5 +1,3 @@
-//! Feature-gated local JSON/WebSocket driver used by desktop e2e tests.
-
 use crate::{node_view::RNNodeView, store::ViewStore};
 use async_channel::{Receiver, Sender};
 use base64::Engine;
@@ -34,7 +32,6 @@ struct Request {
     reply: SyncSender<Value>,
 }
 
-/// Start the loopback server and route UI commands through GPUI's main thread.
 pub(crate) fn start(app: &mut App, store: Entity<ViewStore>, window: AnyWindowHandle) {
     let token = std::env::var("RN_GPUI_TEST_DRIVER_TOKEN")
         .expect("RN_GPUI_TEST_DRIVER=1 requires RN_GPUI_TEST_DRIVER_TOKEN");
@@ -192,6 +189,25 @@ async fn serve_commands(
                 })
             }
             "click" => {
+                // A screen transition paints its card away from the frame
+                // `node_visible_frame` reports, so a click dispatched now would
+                // land next to the node it names (`waitForIdle` waits for it, but
+                // a click that follows a push does not always reach that wait).
+                // `wait_for_frame` keeps drawing, which is what advances the
+                // transition.
+                let settle_until = Instant::now() + Duration::from_millis(1_000);
+                while Instant::now() < settle_until
+                    && cx.update_entity(&store, |store, cx| {
+                        store
+                            .nodes
+                            .values()
+                            .any(|node| node.read(cx).screen_transition_active(cx))
+                    })
+                {
+                    if !wait_for_frame(window, cx, Duration::from_millis(16)).await {
+                        break;
+                    }
+                }
                 let viewport = cx
                     .update_window(window, |_, window, _| {
                         let size = window.viewport_size();
@@ -257,8 +273,7 @@ async fn serve_commands(
                                 .unwrap_or(false),
                         };
                         let moved = cx.update_window(window, move |_root, window, app| {
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             window.dispatch_event(
                                 gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                                     position,
@@ -271,8 +286,8 @@ async fn serve_commands(
                         if let Err(error) = moved {
                             json!({"error": error.to_string()})
                         } else {
-                            let hit = cx.update_entity(&store, |store, _| {
-                                let hit_chain = store.hovered.clone();
+                            let hit = cx.read_entity(&store, |store, _| {
+                                let hit_chain = store.hovered.borrow().clone();
                                 (hit_chain.contains(&tag), hit_chain.first().copied())
                             });
                             if !hit.0 {
@@ -291,8 +306,7 @@ async fn serve_commands(
                             } else {
                                 let dispatched =
                                     cx.update_window(window, move |_root, window, app| {
-                                        let needs_clear = window.draw(app);
-                                        needs_clear.clear(app);
+                                        draw_frame(window, app);
                                         window.dispatch_event(
                                             gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                                 button,
@@ -338,7 +352,7 @@ async fn serve_commands(
                     })
                     .ok();
                 let target = viewport.and_then(|viewport| {
-                    cx.update_entity(&store, |store, cx| {
+                    cx.read_entity(&store, |store, cx| {
                         let tag = params.get("tag").and_then(Value::as_i64)? as i32;
                         let node = store.nodes.get(&tag)?;
                         if node.read(cx).view.accessibility_disabled {
@@ -361,8 +375,7 @@ async fn serve_commands(
                         let dx = params.get("dx").and_then(Value::as_f64).unwrap_or(0.0) as f32;
                         let dy = params.get("dy").and_then(Value::as_f64).unwrap_or(0.0) as f32;
                         let preflight = cx.update_window(window, move |_root, window, app| {
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             window.dispatch_event(
                                 gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                                     position,
@@ -373,19 +386,27 @@ async fn serve_commands(
                             );
                         });
                         let hit = if preflight.is_ok() {
-                            Some(cx.update_entity(&store, |store, _| {
-                                let chain = store.hovered.clone();
+                            Some(cx.read_entity(&store, |store, _| {
+                                let chain = store.hovered.borrow().clone();
                                 (chain.contains(&tag), chain.first().copied())
                             }))
                         } else {
                             None
                         };
+                        let mut draw_ms = 0.0f64;
+                        let mut rendered = 0usize;
+                        let mut rendered_total = 0usize;
+                        let mut a11y_active = false;
+                        let repeat = params
+                            .get("repeat")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(1)
+                            .clamp(1, 1000);
                         let result: Result<(), String> = match hit {
                             Some((true, _)) if kind == "hover" => Ok(()),
                             Some((true, _)) => cx
-                                .update_window(window, move |_root, window, app| {
-                                    let needs_clear = window.draw(app);
-                                    needs_clear.clear(app);
+                                .update_window(window, |_root, window, app| {
+                                    draw_frame(window, app);
                                     window.dispatch_event(
                                         gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                                             position,
@@ -394,6 +415,33 @@ async fn serve_commands(
                                         }),
                                         app,
                                     );
+                                    a11y_active = window.is_a11y_active();
+                                    for step in 0..repeat {
+                                        if step > 0 {
+                                            window.dispatch_event(
+                                                gpui::PlatformInput::ScrollWheel(
+                                                    gpui::ScrollWheelEvent {
+                                                        position,
+                                                        delta: gpui::ScrollDelta::Pixels(point(
+                                                            px(dx),
+                                                            px(dy),
+                                                        )),
+                                                        ..Default::default()
+                                                    },
+                                                ),
+                                                app,
+                                            );
+                                        }
+                                        let rendered_before = crate::node_view::RENDER_COUNT
+                                            .load(std::sync::atomic::Ordering::Relaxed);
+                                        let started = std::time::Instant::now();
+                                        draw_frame(window, app);
+                                        draw_ms = started.elapsed().as_secs_f64() * 1000.0;
+                                        rendered = crate::node_view::RENDER_COUNT
+                                            .load(std::sync::atomic::Ordering::Relaxed)
+                                            - rendered_before;
+                                        rendered_total += rendered;
+                                    }
                                 })
                                 .map_err(|error| error.to_string()),
                             Some((false, cover_tag)) => {
@@ -415,7 +463,7 @@ async fn serve_commands(
                             )),
                         };
                         match result {
-                            Ok(()) => json!({"dispatched": true}),
+                            Ok(()) => json!({"dispatched": true, "drawMs": draw_ms, "renderedViews": rendered, "renderedViewsTotal": rendered_total, "a11yActive": a11y_active}),
                             Err(error) => json!({"error": error}),
                         }
                     }
@@ -504,8 +552,7 @@ async fn serve_commands(
                 match gpui::Keystroke::parse(&key) {
                     Ok(keystroke) => {
                         let dispatched = cx.update_window(window, move |_root, window, app| {
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             window.dispatch_keystroke(keystroke.clone(), app);
                             window.dispatch_event(
                                 gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }),
@@ -541,8 +588,7 @@ async fn serve_commands(
                     None => json!({"error": "type requires a mounted, editable TextInput"}),
                     Some(position) => {
                         let dispatched = cx.update_window(window, move |_root, window, app| {
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             window.dispatch_event(
                                 gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                     button: gpui::MouseButton::Left,
@@ -562,8 +608,7 @@ async fn serve_commands(
                             // Focusing can install a new InputHandler during
                             // paint. Native OS input arrives on a later turn;
                             // synthetic typing must complete that paint first.
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             let keystroke = gpui::Keystroke {
                                 modifiers: Default::default(),
                                 key: "a".to_owned(),
@@ -603,8 +648,7 @@ async fn serve_commands(
                             .and_then(Value::as_i64)
                             .unwrap_or_default() as i32;
                         let preflight = cx.update_window(window, move |_root, window, app| {
-                            let needs_clear = window.draw(app);
-                            needs_clear.clear(app);
+                            draw_frame(window, app);
                             window.dispatch_event(
                                 gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                                     position: start,
@@ -617,8 +661,8 @@ async fn serve_commands(
                         if let Err(error) = preflight {
                             json!({"error": format!("drag pointer preflight failed: {error}")})
                         } else {
-                            let hit = cx.update_entity(&store, |store, _| {
-                                let chain = store.hovered.clone();
+                            let hit = cx.read_entity(&store, |store, _| {
+                                let chain = store.hovered.borrow().clone();
                                 (chain.contains(&from_tag), chain.first().copied())
                             });
                             if !hit.0 {
@@ -652,8 +696,7 @@ async fn serve_commands(
                                         .min(10_000)
                                 };
                                 let down = cx.update_window(window, move |_root, window, app| {
-                                    let needs_clear = window.draw(app);
-                                    needs_clear.clear(app);
+                                    draw_frame(window, app);
                                     window.dispatch_event(
                                         gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                             button: gpui::MouseButton::Left,
@@ -666,7 +709,7 @@ async fn serve_commands(
                                 if let Err(error) = down {
                                     json!({"error": error.to_string()})
                                 } else {
-                                    cx.update_entity(&store, |store, _| store.host.clone())
+                                    cx.read_entity(&store, |store, _| store.host.clone())
                                         .on_render();
                                     wait_for_frame(window, cx, Duration::from_millis(16)).await;
                                     let mut failure = None;
@@ -682,8 +725,7 @@ async fn serve_commands(
                                         );
                                         let moved =
                                             cx.update_window(window, move |_root, window, app| {
-                                                let needs_clear = window.draw(app);
-                                                needs_clear.clear(app);
+                                                draw_frame(window, app);
                                                 window.dispatch_event(
                                                     gpui::PlatformInput::MouseMove(
                                                         gpui::MouseMoveEvent {
@@ -702,7 +744,7 @@ async fn serve_commands(
                                             failure = Some(error.to_string());
                                             break;
                                         }
-                                        cx.update_entity(&store, |store, _| store.host.clone())
+                                        cx.read_entity(&store, |store, _| store.host.clone())
                                             .on_render();
                                         cx.background_executor()
                                             .timer(Duration::from_millis(
@@ -822,8 +864,7 @@ async fn serve_commands(
                     })
                 });
                 let captured = cx.update_window(window, |_root, window, app| {
-                    let needs_clear = window.draw(app);
-                    needs_clear.clear(app);
+                    draw_frame(window, app);
                     window.render_to_image()
                 });
                 match captured {
@@ -1039,12 +1080,33 @@ async fn serve_commands(
                 | "mouseMove"
                 | "drag"
         ) {
-            cx.update_entity(&store, |store, _| store.host.clone())
+            cx.read_entity(&store, |store, _| store.host.clone())
                 .on_render();
         }
         let _ = request
             .reply
             .send(json!({"jsonrpc":"2.0", "id": id, "result": result}));
+    }
+}
+
+/// A forced draw does not run the compositor's frame callbacks, so this also
+/// advances any host-driven screen transition.
+fn draw_frame(window: &mut gpui::Window, app: &mut App) {
+    let needs_clear = window.draw(app);
+    needs_clear.clear(app);
+    let Some(store) = app.try_global::<crate::store::StoreGlobal>() else {
+        return;
+    };
+    let store = store.0.clone();
+    let transitioning: Vec<Entity<RNNodeView>> = store
+        .read(app)
+        .nodes
+        .values()
+        .filter(|node| node.read(app).screen_transition_active(app))
+        .cloned()
+        .collect();
+    for node in transitioning {
+        node.update(app, |_, cx| cx.notify());
     }
 }
 
@@ -1055,8 +1117,7 @@ async fn wait_for_frame(
 ) -> bool {
     if cx
         .update_window(window, move |_root, window, app| {
-            let needs_clear = window.draw(app);
-            needs_clear.clear(app);
+            draw_frame(window, app);
             // A forced draw does not run the compositor's frame callbacks.
             // Deliver Fabric's EventBeat too, so buffered native events reach JS.
             let host = app
@@ -1421,7 +1482,11 @@ fn tree_node(
         .collect::<Vec<_>>();
     json!({"tag": node.tag, "component": node.component, "testID": node.view.test_id,
         "text": paragraph_text(node), "role": node.view.accessibility_role,
-        "label": node.view.accessibility_label, "children": children})
+        "label": node.view.accessibility_label,
+        "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
+        "contentSize": [node.content_size.0, node.content_size.1],
+        "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
+        "children": children})
 }
 
 fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -> Value {

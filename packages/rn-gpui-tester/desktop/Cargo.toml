@@ -12,8 +12,17 @@ test-driver = ["react-native-gpui/test-driver"]
 debug = "line-tables-only"
 split-debuginfo = "packed"
 
+# Dependencies are optimized even in a dev build. GPUI rebuilds and paints the
+# element tree on every frame, and unoptimized that alone takes about half of a
+# 120 Hz frame; they are compiled once, so this costs nothing while iterating.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
+
+# The C++ bridge picks its CMake build type from this crate's opt-level, and a
+# Release build of React Native has no dev server, inspector or Fast Refresh.
+[profile.dev.package.rn-gpui-sys]
+opt-level = 0
 
 [profile.release]
 debug = false

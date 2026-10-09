@@ -1,5 +1,5 @@
 /**
- * Type additions for the desktop-shell View props (plan §8.3).
+ * Type additions for the desktop-shell View props.
  *
  * `desktopDragRegion` and `desktopWindowControl` are parsed by
  * `HostPlatformViewProps` and listed in the GPUI `BaseViewConfig`, so Fabric

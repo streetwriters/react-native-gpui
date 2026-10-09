@@ -1,23 +1,19 @@
-// Storage and selection for the JS engine registry declared in GpuiJsEngine.h.
 #include "GpuiJsEngine.h"
 
 #include <mutex>
 
 namespace rngpui {
 namespace {
-
 std::mutex& registryMutex() {
   static std::mutex mutex;
   return mutex;
 }
 
-// Registration order is the order `registeredJsEngines()` reports.
 std::vector<GpuiJsEngine>& registry() {
   static std::vector<GpuiJsEngine> engines;
   return engines;
 }
 
-// Empty until `selectJsEngine` names one.
 std::string& selection() {
   static std::string name;
   return name;

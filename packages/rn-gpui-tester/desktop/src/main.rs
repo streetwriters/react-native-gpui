@@ -1,13 +1,3 @@
-//! Project-owned desktop launch configuration.
-//!
-//! Add `mod my_turbo_module;` here for local Rust TurboModules. Put matching
-//! `Native*.ts` specs beside this file; `run-desktop` discovers and codegens
-//! those specs automatically. The library provides the runtime defaults.
-//!
-//! To manually include one in this app, add e.g.:
-//!   mod greeting;
-//!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
-
 #[cfg(target_os = "macos")]
 struct BlueNativeProbe;
 
@@ -93,12 +83,7 @@ fn main() {
     // The tester installs Hermes; with a second engine package present it would
     // otherwise be ambiguous. `RN_GPUI_JS_ENGINE` overrides this.
     .js_engine("hermes")
-    // Uncomment to choose a fixed initial top-left location (screen DIPs).
-    // .window_position(120.0, 80.0)
-    // .restore_window_state(false)
     .configure_window(|options| {
-        // GPUI window options are public: titlebar, resizability, display,
-        // decorations, min size, and other native window behavior.
         options.is_resizable = true;
     })
     .on_app_ready(|_cx| {
@@ -116,14 +101,12 @@ fn main() {
         );
     });
 
-    // Temporary recording demo; ordinary launches retain window persistence.
     let config = if std::env::var_os("RN_GPUI_DEMO_WINDOW").is_some() {
         config
             .window_title("React Native GPUI — In motion")
             .window_size(1600.0, 900.0)
             .restore_window_state(false)
             .configure_window(|options| {
-                // Full-size content gives the recording an exact 1600x900 frame.
                 options.titlebar = None;
             })
     } else {

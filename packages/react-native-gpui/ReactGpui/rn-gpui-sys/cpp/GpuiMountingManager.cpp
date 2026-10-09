@@ -1,14 +1,11 @@
-// Fabric mounting manager implementation (design doc §18.8).
-// `executeMount()` flattens mutations and queues the batch for the GPUI main
-// thread, keeping Fabric's mounting thread free while GPUI applies the tree.
 #include "GpuiMountingManager.h"
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
-#include "GpuiHost.h" // TODO 2.6 — kAllSurfacesStopped
+#include "GpuiHost.h" // KAllSurfacesStopped
 #include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"
-#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge (design doc §18.6)
+#include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/FBReactNativeSpec/EventEmitters.h>
@@ -33,7 +30,6 @@
 #include <string_view>
 
 namespace rngpui {
-
 class GpuiModalHostViewComponentDescriptor final
     : public ConcreteComponentDescriptor<ModalHostViewShadowNode> {
  public:
@@ -105,7 +101,6 @@ void rn_gpui_on_image_load_result(
 }
 
 namespace {
-
 std::atomic<uint64_t> mountBatchesInFlight{0};
 
 const char* kindName(MountKind kind) {
@@ -210,7 +205,6 @@ void GpuiMountingManager::executeMount(
         if (emitter)
           emitter->onDismiss({});
       }
-      // Keep event emitters so the main thread can send events by tag.
       if (mutation.type == ShadowViewMutation::Create ||
           mutation.type == ShadowViewMutation::Update) {
         animatedViews_[mutation.newChildShadowView.tag] =
@@ -247,8 +241,6 @@ void GpuiMountingManager::executeMount(
     }
   }
 
-  // Hand the batch to Rust. `rn_gpui_on_mount` only queues it (the `rn-gpui`
-  // crate owns the queue); GPUI rendering happens later on the main thread.
   rn_gpui_log(
       0,
       "executeMount surface=" + std::to_string(surfaceId) +
@@ -259,7 +251,6 @@ void GpuiMountingManager::executeMount(
 
   mountBatchesInFlight.fetch_add(1, std::memory_order_relaxed);
   rn_gpui_on_mount(std::move(batch));
-  // Apply current geometry to newly mounted SafeAreaViews as well as providers.
   if (gpuiExtensionHooks().safeArea.afterMount) {
     auto views = mountedViews();
     gpuiExtensionHooks().safeArea.afterMount(views);
@@ -336,7 +327,6 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
               .matrix;
       update.has_transform = true;
     } else if (props.empty()) {
-      // Native Animated restores the original view after disconnecting.
       update.reset_transform = true;
     }
   }
@@ -414,8 +404,12 @@ void GpuiMountingManager::dispatchEvent(
   if (!emitter) {
     return;
   }
-  // Pointer events use RawEvent::Category::Continuous for move, Discrete for
-  // down/up; the default category is fine until TODO 3.x arrives.
+  if (type == "topScroll") {
+    // Only the latest scroll position matters: a queued scroll event that JS
+    // has not handled yet is replaced rather than piled up behind.
+    emitter->dispatchUniqueEvent(type, std::move(payload));
+    return;
+  }
   emitter->dispatchEvent(type, std::move(payload));
 }
 
@@ -445,7 +439,7 @@ void GpuiMountingManager::dispatchCommand(
 
 void GpuiMountingManager::setSchedulerTaskExecutor(
     SchedulerTaskExecutor&& executor) noexcept {
-  // TODO 2.6 — ReactHost calls this with a real executor when an instance is up
+  // ReactHost calls this with a real executor when an instance is up
   // (`ReactHost.cpp` createReactInstance) and with `nullptr` when it tears the
   // instance down (destroyReactInstance, which every reload runs through
   // `reloadReactInstance`). Teardown is the only signal the C++ platform gets:

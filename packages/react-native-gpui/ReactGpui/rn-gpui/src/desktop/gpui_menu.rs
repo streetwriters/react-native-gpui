@@ -1,13 +1,6 @@
-//! A GPUI-rendered context menu (plan §6.3, the Linux answer).
-//!
-//! Linux has no native popup menu GPUI can use: `muda` needs a GTK window, and
-//! GPUI's X11/Wayland windows are not GTK. The plan therefore renders the menu
-//! with GPUI. This is that renderer, and it is also selectable on macOS and
-//! Windows with `RN_GPUI_CONTEXT_MENU=gpui`, which is how it is tested.
-//!
-//! The menu is a parent-anchored popup window ([`gpui::WindowKind::AnchoredPopup`]),
-//! so the platform places it next to the anchor rectangle and keeps it on
-//! screen. Submenus open as popups parented to the menu that opened them.
+//! Linux has no native menu GPUI can use (`muda` needs a GTK window), so GPUI
+//! draws it. `RN_GPUI_CONTEXT_MENU=gpui` / `RN_GPUI_MENU_BAR=gpui` select it
+//! on other platforms, for tests.
 
 use crate::desktop::context_menu::{ContextMenuRequest, Responder};
 use crate::desktop::menu_model::{MenuModel, MenuNode};
@@ -17,20 +10,15 @@ use gpui::{
 };
 use std::cell::RefCell;
 
-/// The height of the in-window menu bar. The surface is laid out this much
-/// shorter, so the strip takes its space from the window rather than covering
-/// the app.
 pub const MENU_BAR_HEIGHT: f32 = 26.0;
 
-/// One row is this tall; the popup window is sized from the item count.
 const ROW_HEIGHT: f32 = 26.0;
 const PADDING: f32 = 6.0;
 const MIN_WIDTH: f32 = 160.0;
 const MAX_WIDTH: f32 = 420.0;
 
-/// The popup that is currently open, so the test driver can drive it: a GPUI
-/// popup window's elements are not React Native nodes, so the normal driver
-/// click path cannot reach them.
+/// A GPUI popup's elements are not RN nodes, so the test driver drives the
+/// open popup through this.
 pub struct PendingMenu {
     pub window: gpui::AnyWindowHandle,
     pub items: Vec<MenuNode>,
@@ -40,10 +28,6 @@ pub struct PendingMenu {
 pub struct PendingMenuGlobal(pub RefCell<Option<PendingMenu>>);
 impl gpui::Global for PendingMenuGlobal {}
 
-/// Whether this build draws context menus with GPUI.
-///
-/// `RN_GPUI_CONTEXT_MENU=gpui` forces it on, `=native` forces it off; the
-/// default is on for Linux, where there is no native alternative.
 pub fn should_use_gpui() -> bool {
     match std::env::var("RN_GPUI_CONTEXT_MENU").ok().as_deref() {
         Some("gpui") => true,
@@ -52,11 +36,6 @@ pub fn should_use_gpui() -> bool {
     }
 }
 
-/// Whether this build draws the menu bar in the window.
-///
-/// Linux has no native menu bar GPUI can drive — `muda` needs a GTK window —
-/// so the plan renders one with GPUI there. `RN_GPUI_MENU_BAR=gpui` forces it
-/// on and `=native` forces it off, which is how it is tested on macOS.
 pub fn should_use_gpui_menu_bar() -> bool {
     match std::env::var("RN_GPUI_MENU_BAR").ok().as_deref() {
         Some("gpui") => true,
@@ -65,7 +44,6 @@ pub fn should_use_gpui_menu_bar() -> bool {
     }
 }
 
-/// How much of the window the menu bar takes, in logical pixels.
 pub fn menu_bar_inset() -> f32 {
     if should_use_gpui_menu_bar() {
         MENU_BAR_HEIGHT
@@ -74,10 +52,7 @@ pub fn menu_bar_inset() -> f32 {
     }
 }
 
-/// The in-window menu bar: the top-level titles, drawn by GPUI. Clicking one
-/// opens its items as a popup through the same renderer as a context menu.
 pub struct MenuBar {
-    /// The window this bar belongs to, for diagnostics.
     #[allow(dead_code)]
     window_id: u32,
 }
@@ -88,8 +63,6 @@ impl MenuBar {
     }
 }
 
-/// Attach the menu bar to a window's root (called from `bootstrap`). Does
-/// nothing when the platform has a native menu bar.
 pub fn attach(cx: &mut App, root: &gpui::Entity<crate::store::SurfaceRootView>, window_id: u32) {
     if !should_use_gpui_menu_bar() {
         return;
@@ -101,8 +74,6 @@ pub fn attach(cx: &mut App, root: &gpui::Entity<crate::store::SurfaceRootView>, 
     });
 }
 
-/// The bar's titles and the items behind each of them, in menu order. Shared
-/// by the renderer and the test driver.
 pub fn menu_bar_entries(cx: &App) -> Vec<(String, Vec<MenuNode>)> {
     use crate::desktop::app_menu;
     use crate::desktop::menu_model::MenuRole;
@@ -132,8 +103,6 @@ pub fn menu_bar_entries(cx: &App) -> Vec<(String, Vec<MenuNode>)> {
     titles
 }
 
-/// The responder a menu-bar selection uses: the item runs through the same
-/// dispatch as a native menu click (roles included), on the main thread.
 fn menu_bar_responder() -> Responder {
     Responder::callback(Box::new(|selection| {
         if let Some(id) = selection {
@@ -144,8 +113,6 @@ fn menu_bar_responder() -> Responder {
     }))
 }
 
-/// Open the popup for `title`, as a click on it would. Used by the test driver,
-/// because a GPUI menu bar's titles are not React Native nodes.
 pub fn open_menu_bar_menu(cx: &mut App, title: &str) -> bool {
     let entries = menu_bar_entries(cx);
     let Some((_, items)) = entries.into_iter().find(|(label, _)| label == title) else {
@@ -245,7 +212,6 @@ impl Render for MenuBar {
     }
 }
 
-/// Show `request` as a GPUI popup window and settle `responder` when it closes.
 pub fn present(
     cx: &mut App,
     request: ContextMenuRequest,
@@ -323,8 +289,6 @@ fn open_menu_window(
         return Ok(window);
     }
 
-    // The anchor's position in screen coordinates, from the window it is
-    // relative to.
     let origin = parent
         .update(cx, |_root: gpui::AnyView, window, _cx| {
             let bounds = window.bounds();
@@ -353,7 +317,6 @@ fn open_menu_window(
     Ok(window)
 }
 
-/// The popup window's size, estimated from the widest label.
 fn popup_size(model: &MenuModel) -> (f32, f32) {
     let mut rows = 0usize;
     let mut widest = 0usize;
@@ -381,7 +344,6 @@ fn popup_size(model: &MenuModel) -> (f32, f32) {
     (width, height)
 }
 
-/// One dropdown, in its own popup window. `depth` is 0 for the top level.
 pub struct MenuPopup {
     items: Vec<MenuNode>,
     responder: Responder,
@@ -414,7 +376,6 @@ impl MenuPopup {
         Self::close(window);
     }
 
-    /// The open popup, for the driver: `(window, items)`.
     pub fn pending(cx: &App) -> Option<(gpui::AnyWindowHandle, Vec<MenuNode>)> {
         cx.try_global::<PendingMenuGlobal>().and_then(|pending| {
             pending
@@ -425,7 +386,6 @@ impl MenuPopup {
         })
     }
 
-    /// Settle the open popup as if `id` had been chosen, and close its window.
     pub fn select(cx: &mut App, id: &str) -> bool {
         let Some(pending) = cx.try_global::<PendingMenuGlobal>() else {
             return false;
@@ -441,7 +401,6 @@ impl MenuPopup {
         true
     }
 
-    /// Dismiss the open popup, resolving `null`.
     pub fn dismiss(cx: &mut App) -> bool {
         let Some(pending) = cx.try_global::<PendingMenuGlobal>() else {
             return false;
@@ -457,7 +416,6 @@ impl MenuPopup {
         true
     }
 
-    /// Open `items` as a popup anchored at the click that asked for it.
     fn open_submenu(
         &self,
         items: Vec<MenuNode>,
@@ -569,7 +527,6 @@ impl Render for MenuPopup {
             }
         }
 
-        // Escape dismisses the menu with `null`, like a native one.
         let responder = self.responder.clone();
         let resolved = self.resolved;
         let _ = window;
@@ -643,7 +600,6 @@ mod tests {
             .collect();
         assert!(ids.contains(&"role:copy".to_string()));
         assert!(ids.contains(&"role:selectAll".to_string()));
-        // The roles keep their accelerators so the bar can draw them.
         let copy = nodes
             .iter()
             .find_map(|node| match node {
@@ -702,7 +658,6 @@ mod tests {
 
     #[test]
     fn the_mode_follows_the_environment() {
-        // The default is platform-derived; the override is what tests use.
         std::env::set_var("RN_GPUI_CONTEXT_MENU", "gpui");
         assert!(should_use_gpui());
         std::env::set_var("RN_GPUI_CONTEXT_MENU", "native");

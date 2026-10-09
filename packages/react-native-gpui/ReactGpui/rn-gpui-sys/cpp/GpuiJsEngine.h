@@ -1,15 +1,5 @@
-// The JS engine contract (plan item 7.14).
-//
-// Core has no built-in JS engine. An engine is an ordinary installed package
-// that registers itself here, exactly like any other native library; the core
-// runtime only ever talks to the engine-neutral interfaces React Native already
-// defines (JSI, JSRuntimeFactory, JSRuntime). Hermes is the first such package,
-// @react-native-gpui/hermes; a QuickJS, JavaScriptCore or V8 package registers
-// the same way without touching core.
-//
-// Registration happens once, before the host starts. `activeJsEngine()` is then
-// the single place core asks for the engine's runtime factory and optional
-// capabilities.
+// Core has no built-in JS engine: an engine is an installed package that
+// registers itself here.
 #pragma once
 
 #include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
@@ -32,9 +22,6 @@ class TurboModule;
 } // namespace facebook::react
 
 namespace rngpui {
-
-// Core's own feature-flag overrides, exposed so an engine package can derive
-// from this class and add or replace individual flags without losing core's.
 class GpuiFeatureFlagsOverrides
     : public facebook::react::ReactNativeFeatureFlagsOverridesOSSStable {
  public:
@@ -47,11 +34,7 @@ class GpuiFeatureFlagsOverrides
 };
 
 struct GpuiJsEngineInfo {
-  // Lowercase engine name, e.g. "hermes". Reported to JS as
-  // `Platform.constants.jsEngine.name`.
   std::string name;
-  // Engine version reported to JS. Free-form: an engine may report a release
-  // number or the revision it was built from.
   std::string version;
 };
 
@@ -95,7 +78,6 @@ void registerJsEngine(GpuiJsEngine engine);
 // not registered.
 const GpuiJsEngine& activeJsEngine();
 
-// Registration order.
 std::vector<GpuiJsEngineInfo> registeredJsEngines();
 
 // Chooses the engine for this run, before the host starts. An empty name

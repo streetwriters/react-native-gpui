@@ -1,10 +1,6 @@
-// React host bridge declarations (design doc §18.7).
-//
-// Signature note: this header is what the cxx bridge `include!("GpuiHost.h")`
-// names in §18.6, so these are the exact types Rust sees. cxx takes the address
-// of each member function and compares the *exact* signature, so the `&str`
-// parameters must be `rust::Str` (a `const std::string&` fails with
-// "type mismatch at 1st parameter"); the bodies convert to std::string.
+// cxx compares the exact signature of each member function, so `&str`
+// parameters must be `rust::Str`; a `const std::string&` fails with
+// "type mismatch at 1st parameter".
 #pragma once
 
 #include "rust/cxx.h"
@@ -30,7 +26,6 @@ class dynamic;
 } // namespace folly
 
 namespace rngpui {
-
 class GpuiMountingManager;
 class GpuiLogBoxSurfaceDelegate;
 
@@ -52,12 +47,8 @@ using GpuiGesturePointerProcessor =
     std::function<std::vector<GpuiRecognizedGestureEvent>(
         const GpuiRawPointerEvent&)>;
 
-/// Surface ids (TODO 2.6). The window shows surface 1; React starts LogBox as a
-/// second surface with the app key "LogBox".
 constexpr int32_t kAppSurfaceId = 1;
 constexpr int32_t kLogBoxSurfaceId = 2;
-/// Passed to `rn_gpui_on_surface_stopped` when every surface is gone (a
-/// reload).
 constexpr int32_t kAllSurfacesStopped = -1;
 
 class GpuiHost {
@@ -76,9 +67,6 @@ class GpuiHost {
       float w,
       float h,
       float scale);
-  /// Same, with the `initialProps` object the root component receives. The
-  /// desktop window registry passes `windowId` (and the app's own props) this
-  /// way, so a secondary window's component can identify itself.
   void start_surface_with_props(
       int32_t surfaceId,
       rust::Str moduleName,
@@ -91,15 +79,15 @@ class GpuiHost {
   void set_window_top_inset(float top);
   void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);
-  /// Open React Native DevTools through the Metro inspector proxy.
   void open_debugger() const;
+  uint64_t js_frame_probe() const;
+  uint64_t js_heap_bytes() const;
   void on_render() const;
   void on_frame(double eventTimestampMs) const;
   void on_gesture_frame(double eventTimestampMs) const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void emit_device_event(rust::Str event_name) const;
   void emit_device_event_bool(rust::Str event_name, bool value) const;
-  /// Device event whose payload is a JSON object (design §3.2 step 4).
   void emit_device_event_json(rust::Str event_name, rust::Str payload_json)
       const;
   void emit_accessibility_setting_event(
@@ -118,8 +106,9 @@ class GpuiHost {
   void add_event_listener(
       std::shared_ptr<const facebook::react::EventListener> listener);
 
-  // Both developer and test reloads are owned by ReactHost.
   void request_reload();
+  bool set_dev_server(rust::Str host, uint32_t port);
+  rust::String dev_server_address() const;
   bool reload_in_progress() const;
   void start_log_box_surface();
   void stop_log_box_surface();
@@ -128,10 +117,10 @@ class GpuiHost {
   std::shared_ptr<GpuiMountingManager> mountingManager_;
   std::shared_ptr<facebook::react::RunLoopObserverManager>
       runLoopObserverManager_;
-  /// Passed to ReactHost as its `logBoxSurfaceDelegate` (TODO 2.6). Created
+  /// Passed to ReactHost as its `logBoxSurfaceDelegate`. Created
   /// before the host because ReactHost takes it in its constructor.
   std::shared_ptr<GpuiLogBoxSurfaceDelegate> logBoxDelegate_;
-  /// Passed to ReactHost as its `animatedNodesManagerProvider` (TODO 2.6). It
+  /// Passed to ReactHost as its `animatedNodesManagerProvider`. It
   /// is what makes `AnimatedModule` load; without it LogBox's inspector throws
   /// "Native animated module is not available" and no red box renders.
   std::shared_ptr<facebook::react::NativeAnimatedNodesManagerProvider>
@@ -141,7 +130,6 @@ class GpuiHost {
   std::unique_ptr<facebook::react::ReactHost> reactHost_;
   std::vector<std::shared_ptr<const facebook::react::EventListener>>
       eventListeners_;
-  /// The app surface's constraints, reused for the LogBox overlay surface.
   float surfaceWidth_{0.};
   float surfaceHeight_{0.};
   float surfaceScale_{1.};
@@ -161,10 +149,7 @@ void register_gpui_gesture_pointer_processor(
     GpuiGesturePointerProcessor processor);
 void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
 void rn_gpui_clipboard_result(int32_t id, rust::String text);
-/// Settle one `GpuiDesktop.call` promise (design §3.2 step 3).
 void rn_gpui_desktop_result(int32_t id, bool ok, rust::String json);
-/// Reject every in-flight `GpuiDesktop.call` (a reload tore the JS instance
-/// down). Defined in `GpuiDesktopModule.cpp`.
 void reject_pending_desktop_calls();
 
 } // namespace rngpui

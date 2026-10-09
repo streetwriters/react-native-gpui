@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// Override (TODO 2.1): resolved from the include root, because this copy is
+// Override: resolved from the include root, because this copy is
 // compiled from ReactCommonOverrides/ rather than next to the header.
 #include <react/devsupport/DevServerHelper.h>
 
@@ -20,7 +20,7 @@
 
 namespace {
 
-// Override (TODO 2.1, design doc §19 2.1): the cxx platform hardcodes the
+// Override: the cxx platform hardcodes the
 // Android bundle identifier, which makes Metro serve the Android JS surface.
 constexpr std::string_view DEFAULT_PLATFORM = "gpui";
 

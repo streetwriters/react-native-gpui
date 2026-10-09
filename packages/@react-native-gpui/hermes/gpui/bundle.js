@@ -1,8 +1,3 @@
-// Hermes tooling hooks for the GPUI CLI (plan item 7.14 step 5).
-//
-// The CLI loads this module when Hermes is the active engine. Nothing in core or
-// the CLI knows about `hermesc`: the compiler path, the Metro transform profile
-// and the shipping file name are all declared here.
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -43,15 +38,8 @@ module.exports = {
     transformer: { unstable_transformProfile: 'hermes-stable' },
   }),
 
-  // What the runtime loads after `compile`.
   bundleExtension: '.hbc',
 
-  /**
-   * Turns a Metro bundle into Hermes bytecode.
-   * `{ input, output, sourcemapInput, sourcemapOutput, dev }` -> `{ output }`.
-   * Release builds are optimized; development builds stay unoptimized so the
-   * output is closer to the source for debugging.
-   */
   compile: ({ input, output, sourcemapInput, sourcemapOutput, dev }) => {
     const args = ['-emit-binary', '-out', output];
     if (!dev) args.push('-O');

@@ -1,9 +1,3 @@
-//! RN view props -> GPUI `StyleRefinement` (design doc §18.13).
-//!
-//! Phase 1 only ever sets **paint** fields here; absolute position and size are
-//! added in `node_view::RNNodeView::render`. No flex property is ever set, so
-//! Taffy can never disagree with Yoga.
-
 use gpui::{point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, StyleRefinement};
 use rn_gpui_sys::ffi::ViewPropsFlat;
 
@@ -13,17 +7,8 @@ pub fn color(argb: u32) -> Hsla {
     rgba((argb << 8) | alpha).into()
 }
 
-/// RN's `cursor` style prop -> GPUI's `CursorStyle` (TODO 2.5).
-///
-/// `ViewPropsFlat::cursor` is `static_cast<uint8_t>` of RN's `Cursor`
-/// (`ReactCommon/react/renderer/components/view/primitives.h`), so the ordinals
-/// below are in exactly that order. `Auto` (0) leaves `mouse_cursor` unset, so
-/// GPUI inherits the ancestor's cursor (and the window default at the root).
-///
-/// The CSS cursor vocabulary is wider than GPUI's on macOS: the synonyms RN
-/// supports but GPUI does not (all-scroll, cell, help, move, progress, wait,
-/// zoom, `none`) fall back to `Arrow`, and `Copy`/`Alias` borrow the drag
-/// cursors.
+/// `ViewPropsFlat::cursor` is the ordinal of RN's `Cursor` enum; the arms
+/// below are in that order.
 fn cursor_style(ordinal: u8) -> Option<CursorStyle> {
     let style = match ordinal {
         0 => return None,                         // Auto
@@ -85,10 +70,6 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
         s.overflow.x = Some(Overflow::Hidden);
         s.overflow.y = Some(Overflow::Hidden);
     }
-    // TODO 2.5 — GPUI asks the platform to apply the cursor of the innermost
-    // hovered element, which is exactly RN's `cursor` prop semantics. Only the
-    // nodes that set a cursor log, so a headless run can show the prop arriving
-    // (the OS cursor itself is not part of a screenshot).
     if let Some(cursor) = cursor_style(v.cursor) {
         log::info!("[style] cursor ordinal {} -> {cursor:?}", v.cursor);
         s.mouse_cursor = Some(cursor);

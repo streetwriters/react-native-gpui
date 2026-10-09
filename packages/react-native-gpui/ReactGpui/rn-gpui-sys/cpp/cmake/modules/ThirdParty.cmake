@@ -1,5 +1,3 @@
-# Compile React Native's own pinned third-party targets from the archives
-# cached and prepared under this CMake build directory.
 add_subdirectory("${RN_GPUI_NATIVE_DEPS_PREPARED}/glog" "${RN_GPUI_NATIVE_DEPS_BUILD}/glog")
 if(WIN32)
   # glog's utilities.h includes "port.h" when OS_WINDOWS is defined, and that
@@ -41,7 +39,6 @@ if(WIN32)
   # references the leak annotations that clang folds away.
   file(GLOB _rn_gpui_folly_portability
     "${RN_GPUI_NATIVE_DEPS_PREPARED}/folly/folly/portability/*.cpp")
-  # ReactAndroid's list already has SysUio.cpp.
   list(FILTER _rn_gpui_folly_portability EXCLUDE REGEX "/SysUio\\.cpp$")
   target_sources(folly_runtime PRIVATE
     ${_rn_gpui_folly_portability}
@@ -65,13 +62,11 @@ if(WIN32)
     PROPERTIES COMPILE_DEFINITIONS "BOOST_THREAD_BUILD_LIB;BOOST_CHRONO_HEADER_ONLY")
 endif()
 
-# Boost is headers-only on GPUI (RN's additional assembly sources are Android-only).
 add_library(boost INTERFACE)
 target_include_directories(boost INTERFACE
   "${RN_GPUI_NATIVE_DEPS_PREPARED}/boost/boost_1_83_0"
   "${RN_GPUI_OPENSSL_INSTALL}/include")
 
-# nlohmann/json is header-only.
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE
   "${RN_GPUI_NATIVE_DEPS_PREPARED}/nlohmann_json/include")
@@ -82,7 +77,6 @@ add_library(double_conversion ALIAS double-conversion)
 add_library(glog_init INTERFACE)
 add_library(fbjni INTERFACE)
 
-# OpenSSL (ReactCxxPlatform devsupport links OpenSSL::Crypto).
 find_package(OpenSSL REQUIRED)
 
 # The Hermes VM and the React Native Hermes glue live in the engine package

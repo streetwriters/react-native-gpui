@@ -1,27 +1,3 @@
-/**
- * gpui platform implementation of React Native's `Platform` module.
- *
- * Derived from `Libraries/Utilities/Platform.ios.js` with the native-module
- * lookups replaced by statically known values: a gpui host is a desktop window.
- * The one value that is not static is `jsEngine`, which comes from the active
- * JS engine package through the core `PlatformConstants` TurboModule.
- *
- * This file shadows the upstream `Libraries/Utilities/Platform.js` through the
- * `src-gpui/**` override table in `metro.config.js`, and is registered as a
- * `platform` override in `overrides.json`. Without it the upstream file is a
- * self-referential re-export shim (`import Platform from './Platform'`) that
- * only works when a platform-specific `Platform.<platform>.js` outranks it.
- */
-
-/**
- * `Platform.constants.jsEngine` for the engine package that is running, e.g.
- * `{ name: 'hermes', version: '10a40b5' }`. Returns null when the TurboModule is
- * not reachable yet, so the caller can avoid caching a placeholder.
- *
- * The registry is required lazily: `Platform` is imported very early in app
- * startup, before the TurboModule registry is usable, and requiring it here
- * keeps it out of the module graph for code that never reads the constants.
- */
 function readJsEngine() {
   try {
     const { get } = require('../TurboModule/TurboModuleRegistry');
@@ -36,7 +12,6 @@ function readJsEngine() {
   return null;
 }
 
-// Everything except `jsEngine` is statically known for the desktop platform.
 const staticConstants = {
   forceTouchAvailable: false,
   interfaceIdiom: 'desktop',
@@ -57,8 +32,6 @@ const staticConstants = {
 const Platform = {
   __constants: null,
   OS: 'gpui',
-  // Desktop host this build targets. macOS first (see the phase plan); the
-  // Windows and Linux ports change this along with the renderer.
   hostOS: 'macos',
 
   get Version() {

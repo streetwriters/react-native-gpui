@@ -1,7 +1,3 @@
-# Download the same pinned C++ dependency source archives used by ReactAndroid
-# into the active CMake build tree, then prepare the source layout expected by
-# RN's third-party CMake targets. Nothing is installed into the host OS.
-
 set(RN_GPUI_NATIVE_DEPS_CACHE "${CMAKE_BINARY_DIR}/native-deps")
 set(RN_GPUI_NATIVE_DEPS_DOWNLOADS "${RN_GPUI_NATIVE_DEPS_CACHE}/downloads")
 set(RN_GPUI_NATIVE_DEPS_SOURCES "${RN_GPUI_NATIVE_DEPS_CACHE}/sources")
@@ -17,8 +13,10 @@ function(rn_gpui_download_extract name archive_name url out_source)
     foreach(_attempt RANGE 1 5)
       set(_partial_archive "${_archive}.part")
       file(REMOVE "${_partial_archive}")
+      # No overall TIMEOUT: Boost is 145 MB, and a cap on the whole transfer
+      # fails every attempt on a slow link however steadily it downloads.
       file(DOWNLOAD "${url}" "${_partial_archive}" SHOW_PROGRESS TLS_VERIFY ON
-        TIMEOUT 300 INACTIVITY_TIMEOUT 45 STATUS _download_status)
+        INACTIVITY_TIMEOUT 45 STATUS _download_status)
       list(GET _download_status 0 _download_code)
       if(_download_code EQUAL 0)
         file(RENAME "${_partial_archive}" "${_archive}")

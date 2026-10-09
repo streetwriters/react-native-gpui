@@ -8,15 +8,6 @@
  * @format
  */
 
-/**
- * GPUI override of the upstream Button.
- *
- * React Native styles the title with `Platform.select({ios, android})`, which
- * resolves to `undefined` on this platform: the label keeps the default black
- * text and disappears on a dark surface. This copy carries the upstream
- * implementation and adds `gpui` entries so buttons look intentional on
- * desktop out of the box.
- */
 'use strict';
 
 import type { TextStyleProp, ViewStyleProp } from '../StyleSheet/StyleSheet';

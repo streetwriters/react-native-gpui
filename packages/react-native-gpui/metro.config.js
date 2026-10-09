@@ -1,24 +1,3 @@
-// Metro configuration for this repo (the library's own tester app).
-//
-// `react-native.config.js` registers the `gpui` platform with
-// `npmPackageName: 'react-native-gpui'`. The React Native CLI turns that into
-// two Metro defaults before this file is loaded: `'gpui'` lands in
-// `resolver.platforms`, and every `react-native` import is rewritten to
-// `react-native-gpui` so apps can bundle unchanged. Two corrections on top of
-// those defaults are what `resolveWithGpuiPlatform` below implements:
-//
-//   1. `react-native-gpui`'s entry (`index.gpui.js`) re-exports the upstream
-//      JavaScript surface. Without a guard, that rewrite makes the file require
-//      itself, leaving `module.exports` empty at runtime (a Metro cycle). So
-//      modules that live inside the package resolve `react-native` to the real
-//      upstream package.
-//   2. `react-native/<subpath>` imports (e.g. `react-native/setup-env`, or the
-//      deep `Libraries/...` paths the CLI's bundle preamble uses) fall through
-//      to the upstream package, since the gpui package only overrides the entry
-//      point for now.
-//
-// Everything not rewritten is handed to Metro's own resolver, never back to
-// this function, so there is no recursion.
 const path = require('path');
 
 const fs = require('fs');
@@ -33,8 +12,6 @@ const GPUI_PACKAGE_DIR = path.dirname(
   require.resolve(GPUI_PACKAGE_NAME + '/package.json'),
 );
 const GPUI_ENTRY = path.join(GPUI_PACKAGE_DIR, 'index.gpui.js');
-// Absolute paths, so the rewrite the CLI installed can never send them back
-// into this package (which is what would close the cycle).
 const UPSTREAM_RN_ENTRY = require.resolve('react-native');
 const UPSTREAM_RN_DIR = path.dirname(UPSTREAM_RN_ENTRY);
 const UPSTREAM_RN_DIRS = new Set([UPSTREAM_RN_DIR]);
@@ -68,25 +45,12 @@ function resolveWithPlatformFallback(context, moduleName, platform) {
           `[rn-gpui] '${moduleName}' has no '${platform}' variant; using the '${fallback}' implementation`,
         );
         return resolution;
-      } catch {
-        // Try the next fallback; the original error is reported below.
-      }
+      } catch {}
     }
     throw error;
   }
 }
 
-// `src-gpui/**` holds gpui implementations of React Native's own JavaScript
-// modules, next to the upstream files they replace. Each
-// `src-gpui/<relative>.gpui.js` shadows the upstream files Metro could resolve
-// for `<relative>`: the platform-neutral `.js` and the `.native.js` variant,
-// plus the `ios`/`android` variants, so the platform fallback above can never
-// smuggle a mobile implementation past a gpui one.
-//
-// The table is keyed by the *resolved* upstream path, because React Native's
-// internal imports are relative (`Settings.js` does
-// `import Platform from '../Utilities/Platform'`) and never pass through the
-// specifier-level rewrite below.
 function collectSourceOverrides(upstreamRNDir = UPSTREAM_RN_DIR) {
   const overrides = new Map();
 
@@ -161,9 +125,7 @@ try {
   if (fs.existsSync(gpuiGestureButtons)) {
     GPUI_SOURCE_OVERRIDES.set(upstreamGestureButtons, gpuiGestureButtons);
   }
-} catch {
-  // Gesture Handler is an optional platform package.
-}
+} catch {}
 try {
   const screensDir = path.dirname(
     require.resolve('react-native-screens/package.json'),
@@ -184,9 +146,7 @@ try {
     path.join(screensDir, 'src/components/FullWindowOverlay.tsx'),
     gpuiFullWindowOverlay,
   );
-} catch {
-  // Screens is optional for apps that do not use native-stack.
-}
+} catch {}
 if (GPUI_SOURCE_OVERRIDES.size > 0) {
   const files = [...new Set(GPUI_SOURCE_OVERRIDES.values())];
   console.log(
@@ -196,7 +156,6 @@ if (GPUI_SOURCE_OVERRIDES.size > 0) {
   );
 }
 
-/** Whether `filePath` is a `src-gpui` file that shadows an upstream RN module. */
 function isGpuiOverrideFile(filePath) {
   if (GPUI_OVERRIDE_FILES.has(filePath)) {
     return true;
@@ -208,13 +167,9 @@ function isGpuiOverrideFile(filePath) {
         if (fs.realpathSync(override) === canonical) {
           return true;
         }
-      } catch {
-        // The override moved; ignore it.
-      }
+      } catch {}
     }
-  } catch {
-    // The file disappeared; treat it as a normal module.
-  }
+  } catch {}
   return false;
 }
 
@@ -274,9 +229,7 @@ function applySourceOverride(resolution) {
           break;
         }
       }
-    } catch {
-      // Keep normal Metro resolution when either path has disappeared.
-    }
+    } catch {}
   }
   if (override == null) {
     return resolution;
@@ -369,7 +322,6 @@ function preferVariantOverShim(resolution, platform) {
       continue;
     }
     if (!isReExportShim(filePath)) {
-      // A real implementation that happens to have a variant of its own.
       return resolution;
     }
 
@@ -470,7 +422,7 @@ function resolveModule(context, moduleName, platform) {
         platform,
       );
     }
-    // `react-native-gpui/desktop` is a public entry point (plan 7.1–7.6), not
+    // `react-native-gpui/desktop` is a public entry point, not
     // an upstream subpath, so it must be mapped here or the catch-all below
     // would rewrite it to `react-native/desktop`.
     if (moduleName === `${GPUI_PACKAGE_NAME}/desktop`) {
@@ -604,16 +556,12 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
         require.resolve('@react-native-gpui/gesture-handler/package.json'),
       ),
     );
-  } catch {
-    // Gesture Handler is optional for apps that only use the core GPUI package.
-  }
+  } catch {}
   try {
     platformPackageDirs.push(
       path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
     );
-  } catch {
-    // Screens is optional for apps that do not use native-stack.
-  }
+  } catch {}
   const gpuiPackages = new Set([
     ...Object.keys(appPackage.dependencies ?? {}),
     ...Object.keys(appPackage.devDependencies ?? {}),
@@ -624,9 +572,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       platformPackageDirs.push(
         path.dirname(appRequire.resolve(`${packageName}/package.json`)),
       );
-    } catch {
-      // Optional GPUI packages contribute Metro sources only when installed.
-    }
+    } catch {}
   }
   for (let directory = projectRoot; ; directory = path.dirname(directory)) {
     const candidate = path.join(directory, 'node_modules');

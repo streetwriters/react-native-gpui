@@ -5,31 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// React Native text measurement override (design doc §18.9).
-//
-// Copy override of ReactCommon's cxx platform TextLayoutManager. Upstream
-// returns `layoutConstraints.minimumSize` for every paragraph, so on the gpui
-// platform text collapses to zero height and never wraps. Measurement is
-// delegated to Rust (`rngpui::rn_gpui_measure_text`, design doc §18.6) through
-// the same flat description that the mount path paints from — both call
-// `rngpui::flattenTextFragment` so measure and paint can never drift apart
-// (design doc §6).
-//
-// The build compiles this file in place of the upstream platform/cxx source
-// (see the RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE block in
-// ReactGpui/rn-gpui-sys/cpp/CMakeLists.txt); `overrides.json` tracks it against
-// `packages/react-native/ReactCommon/.../TextLayoutManager.cpp` so upstream
-// drift is caught by `react-native-platform-override validate`.
+// Upstream's cxx `TextLayoutManager::measure` returns the Yoga minimum size;
+// this one measures through the table in GpuiTextMeasure.h.
 
 // This file is compiled from ReactCommonOverrides/, not from next to its
 // header, so the include is spelled relative to an include root
 // (`${platform_DIR}` = .../textlayoutmanager/platform/cxx/).
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 
-#include "GpuiTextMeasure.h" // rngpui::gpuiTextMeasureTable (design doc §18.9)
+#include "GpuiTextMeasure.h" // rngpui::gpuiTextMeasureTable
 
 namespace rngpui {
-
 namespace {
 GpuiTextMeasureTable gTextMeasureTable{};
 } // namespace
@@ -45,7 +31,6 @@ const GpuiTextMeasureTable* gpuiTextMeasureTable() {
 } // namespace rngpui
 
 namespace facebook::react {
-
 TextLayoutManager::TextLayoutManager(
     const std::shared_ptr<const ContextContainer>& contextContainer)
     : contextContainer_(contextContainer), textMeasureCache_(kSimpleThreadSafeCacheSizeCap) {}

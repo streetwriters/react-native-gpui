@@ -358,7 +358,6 @@ test('hidden windows resize, capture and receive keyboard input', async () => {
   await app.setWindowSize(640, 480);
   await app.focusWindow();
   expect(await app.getWindowSize()).toEqual({ width: 640, height: 480 });
-  // A headed run deliberately shows the window instead of hiding it.
   expect((await app.getWindowBounds()).hidden).toBe(
     process.env.RN_GPUI_TEST_HEADED !== '1',
   );

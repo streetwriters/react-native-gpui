@@ -1,17 +1,3 @@
-//! Dev Menu (plan item 7.5, §10).
-//!
-//! Cmd/Ctrl+D (and the Help menu's dev group) opens a native popup through the
-//! 7.2 context-menu presenter, with:
-//!
-//! * Reload
-//! * Open DevTools (React Native DevTools over the Metro inspector proxy)
-//! * Toggle Element Inspector
-//! * Toggle Perf Monitor
-//! * Fast Refresh on/off
-//!
-//! Dev builds only: [`install`] is a no-op unless `enabled`, which the launch
-//! config sets from `debug_assertions` or an explicit override.
-
 use crate::desktop::menu_model::{MenuItemDef, MenuModel, MenuNode};
 use crate::desktop::perf_monitor;
 use crate::desktop::windows::{DesktopWindowsGlobal, MAIN_WINDOW_KEY};
@@ -25,9 +11,7 @@ pub const OPEN_DEVTOOLS: &str = "dev:openDevTools";
 pub const ELEMENT_INSPECTOR: &str = "dev:elementInspector";
 pub const PERF_MONITOR: &str = "dev:perfMonitor";
 pub const FAST_REFRESH: &str = "dev:fastRefresh";
-/// The accelerator the Dev Menu opens with.
 pub const ACCELERATOR: &str = "secondary-d";
-/// The action id bound to [`ACCELERATOR`].
 pub const ACCELERATOR_ID: &str = "dev:menu";
 
 #[derive(Default)]
@@ -46,8 +30,6 @@ pub fn is_installed(cx: &App) -> bool {
         .is_some_and(|state| state.0.borrow().installed)
 }
 
-/// Install the Dev Menu handlers. Called once at startup; `enabled` is false in
-/// a release build unless the app asks for it.
 pub fn install(cx: &mut App, enabled: bool) {
     cx.set_global(DevSettingsGlobal(RefCell::new(DevSettings {
         installed: enabled,
@@ -56,7 +38,6 @@ pub fn install(cx: &mut App, enabled: bool) {
     })));
 }
 
-/// The dev menu's items, reflecting the current toggles.
 pub fn menu_model(cx: &App) -> MenuModel {
     let (hot_loading, inspector) = cx
         .try_global::<DevSettingsGlobal>()
@@ -88,31 +69,21 @@ pub fn menu_model(cx: &App) -> MenuModel {
     }
 }
 
-/// Show the Dev Menu as a modal panel.
-///
-/// React Native's dev menu is a modal, not a popup menu, so this opens a
-/// `WindowKind::Dialog` — a sheet on macOS, a modal dialog on Windows — sized
-/// like RN's and rendered by GPUI. The panel runs its items through the same
-/// dispatch as the menu items (`perform`).
 pub fn show(cx: &mut App) {
     if !is_installed(cx) {
         log::warn!("[desktop][devmenu] the Dev Menu is not enabled in this build");
         return;
     }
-    // The panel may have been closed since it was recorded (its own Close row,
-    // the sheet's close button, or Cmd+W), so liveness is asked of the window
-    // rather than remembered: a stale flag here is what made Cmd+D work only
-    // once per launch.
+    // The panel may have been closed since it was recorded, so liveness is
+    // asked of the window rather than remembered.
     if let Some(handle) = open_panel(cx) {
-        // Already open: bring it forward instead of stacking a second sheet.
         let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
             window.activate_window();
         });
         return;
     }
-    // A plain dialog window, not a sheet: `WindowKind::Dialog` is an
-    // `NSPanel` attached as a sheet on macOS, which is not what a dev menu
-    // should look like. This is centred over the app window instead.
+    // `WindowKind::Dialog` is a sheet on macOS, so this is a normal window
+    // centred over the app window.
     let size = gpui::size(gpui::px(380.0), gpui::px(460.0));
     let bounds = main_window(cx)
         .and_then(|handle| {
@@ -148,8 +119,6 @@ pub fn show(cx: &mut App) {
         Ok(handle) => {
             let handle: gpui::AnyWindowHandle = handle.into();
             cx.set_global(DevMenuPanelGlobal(RefCell::new(Some(handle))));
-            // Windows animate in on some platforms; the dev menu should just
-            // appear.
             let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
                 crate::desktop::platform_window::disable_window_animation(window);
             });
@@ -159,8 +128,6 @@ pub fn show(cx: &mut App) {
     }
 }
 
-/// Close the panel if it is open (its Close row, the window's own close button,
-/// or a caller that wants it gone).
 pub fn hide(cx: &mut App) {
     let Some(handle) = open_panel(cx) else {
         forget_panel(cx);
@@ -172,11 +139,9 @@ pub fn hide(cx: &mut App) {
     });
 }
 
-/// The open Dev Menu panel, if any.
 pub struct DevMenuPanelGlobal(pub RefCell<Option<gpui::AnyWindowHandle>>);
 impl Global for DevMenuPanelGlobal {}
 
-/// The panel's window, if it is still on screen.
 fn open_panel(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     let handle = cx
         .try_global::<DevMenuPanelGlobal>()
@@ -187,19 +152,170 @@ fn open_panel(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     Some(handle)
 }
 
-/// Forget the panel. Called when it closes, from every path that can close it.
 fn forget_panel(cx: &mut App) {
     if let Some(panel) = cx.try_global::<DevMenuPanelGlobal>() {
         panel.0.borrow_mut().take();
     }
 }
 
-/// The modal's contents: one row per item, with the toggles checked.
-pub struct DevMenuPanel;
+const DEFAULT_BUNDLER_PORT: u32 = 8081;
+
+fn parse_bundler(text: &str) -> Result<(String, u32), &'static str> {
+    let text = text.trim();
+    let text = text
+        .strip_prefix("http://")
+        .or_else(|| text.strip_prefix("https://"))
+        .unwrap_or(text)
+        .trim_end_matches('/');
+    let (host, port) = match text.rsplit_once(':') {
+        Some((host, port)) => (
+            host,
+            port.parse::<u32>()
+                .ok()
+                .filter(|port| (1..=65535).contains(port))
+                .ok_or("The port must be a number from 1 to 65535.")?,
+        ),
+        None => (text, DEFAULT_BUNDLER_PORT),
+    };
+    if host.is_empty() {
+        return Err("Enter the bundler's address as host:port.");
+    }
+    Ok((host.to_string(), port))
+}
+
+fn is_bundler_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | '_' | '/' | '[' | ']')
+}
+
+pub struct DevMenuPanel {
+    bundler: Option<String>,
+    bundler_error: Option<&'static str>,
+    focus: Option<gpui::FocusHandle>,
+}
 
 impl DevMenuPanel {
     pub fn new() -> Self {
-        Self
+        Self {
+            bundler: None,
+            bundler_error: None,
+            focus: None,
+        }
+    }
+
+    fn render_bundler(
+        &mut self,
+        text: String,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        use gpui::{InteractiveElement, ParentElement, Styled};
+
+        let focus = self.focus.get_or_insert_with(|| cx.focus_handle()).clone();
+        if !focus.is_focused(window) {
+            window.focus(&focus, cx);
+        }
+        gpui::div()
+            .id(gpui::SharedString::from("dev-menu-bundler"))
+            .track_focus(&focus)
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .bg(gpui::rgb(0xf4f5f7))
+            .text_color(gpui::rgb(0x18212f))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                let Some(text) = this.bundler.as_mut() else {
+                    return;
+                };
+                let keystroke = &event.keystroke;
+                let command = keystroke.modifiers.platform || keystroke.modifiers.control;
+                match keystroke.key.as_str() {
+                    "escape" => {
+                        this.bundler = None;
+                        this.bundler_error = None;
+                    }
+                    "backspace" => {
+                        text.pop();
+                        this.bundler_error = None;
+                    }
+                    "enter" => match parse_bundler(text) {
+                        Ok((host, port)) => {
+                            let applied = store_from(cx).is_some_and(|store| {
+                                store.read(cx).host.set_dev_server(&host, port)
+                            });
+                            if applied {
+                                log::info!(
+                                    "[desktop][devmenu] bundler set to {host}:{port}; reloading"
+                                );
+                                forget_panel(cx);
+                                window.remove_window();
+                                return;
+                            }
+                            this.bundler_error =
+                                Some("This build is not connected to a dev server.");
+                        }
+                        Err(error) => this.bundler_error = Some(error),
+                    },
+                    "v" if command => {
+                        if let Some(pasted) = cx.read_from_clipboard().and_then(|item| item.text())
+                        {
+                            text.extend(pasted.chars().filter(|c| is_bundler_char(*c)));
+                            this.bundler_error = None;
+                        }
+                    }
+                    _ if command => {}
+                    _ => {
+                        if let Some(typed) = keystroke.key_char.as_ref() {
+                            text.extend(typed.chars().filter(|c| is_bundler_char(*c)));
+                            this.bundler_error = None;
+                        }
+                    }
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            .child(
+                gpui::div()
+                    .px_3()
+                    .py_2()
+                    .text_size(gpui::px(18.0))
+                    .child("Configure Bundler"),
+            )
+            .child(
+                gpui::div()
+                    .px_3()
+                    .text_size(gpui::px(13.0))
+                    .text_color(gpui::rgba(0x000000aa))
+                    .child("The Metro server to load the bundle from, as host:port."),
+            )
+            .child(
+                gpui::div()
+                    .mx_3()
+                    .px_2()
+                    .py_2()
+                    .rounded(gpui::px(3.0))
+                    .border_1()
+                    .border_color(gpui::rgb(0x3b82f6))
+                    .bg(gpui::white())
+                    .text_size(gpui::px(14.0))
+                    // The caret: the field is always at the end of the text.
+                    .child(format!("{text}\u{2502}")),
+            )
+            .children(self.bundler_error.map(|error| {
+                gpui::div()
+                    .px_3()
+                    .text_size(gpui::px(13.0))
+                    .text_color(gpui::rgb(0xb91c1c))
+                    .child(error)
+            }))
+            .child(
+                gpui::div()
+                    .px_3()
+                    .text_size(gpui::px(13.0))
+                    .text_color(gpui::rgba(0x00000099))
+                    .child("Enter applies it and reloads. Escape goes back."),
+            )
     }
 }
 
@@ -211,12 +327,17 @@ impl gpui::Render for DevMenuPanel {
     ) -> impl gpui::IntoElement {
         use gpui::{InteractiveElement, IntoElement, ParentElement, Styled};
 
-        // Escape, Cmd+W and the sheet's own close button all land here, so the
-        // recorded handle is dropped wherever the panel goes away.
         window.on_window_should_close(cx, |_window, cx| {
             forget_panel(cx);
             true
         });
+
+        if let Some(text) = self.bundler.clone() {
+            return self.render_bundler(text, window, cx);
+        }
+        let bundler = store_from(cx)
+            .map(|store| store.read(cx).host.dev_server_address())
+            .unwrap_or_default();
 
         let rows = menu_model(cx);
         let mut elements: Vec<gpui::AnyElement> = Vec::new();
@@ -284,6 +405,36 @@ impl gpui::Render for DevMenuPanel {
                     .child("Dev Menu"),
             )
             .children(elements)
+            // Only with a dev server: a release bundle has nowhere else to
+            // load from.
+            .children((!bundler.is_empty()).then(|| {
+                gpui::div()
+                    .id(gpui::SharedString::from("dev-menu-bundler-row"))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .rounded(gpui::px(3.0))
+                    .text_size(gpui::px(14.0))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(gpui::rgba(0x00000011)))
+                    .child("Configure Bundler…")
+                    .child(
+                        gpui::div()
+                            .text_color(gpui::rgba(0x00000099))
+                            .child(bundler.clone()),
+                    )
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.bundler = Some(bundler.clone());
+                            this.bundler_error = None;
+                            cx.notify();
+                        }),
+                    )
+            }))
             .child(
                 gpui::div()
                     .id(gpui::SharedString::from("dev-menu-close"))
@@ -307,7 +458,6 @@ impl gpui::Render for DevMenuPanel {
     }
 }
 
-/// Run one dev menu item. `DevMenu` / `DevSettings` also route here by name.
 pub fn perform(cx: &mut App, id: &str) {
     match id {
         RELOAD => {
@@ -323,6 +473,9 @@ pub fn perform(cx: &mut App, id: &str) {
         }
         ELEMENT_INSPECTOR => {
             let enabled = toggle(cx, "inspector");
+            // The event React Native's `AppContainer` listens for; every
+            // platform's dev menu toggles the inspector by emitting it.
+            emit(cx, "toggleElementInspector", json!({}));
             emit(
                 cx,
                 "gpuiDesktop:elementInspector",
@@ -341,7 +494,6 @@ pub fn perform(cx: &mut App, id: &str) {
     }
 }
 
-/// `DevMenu` / `DevSettings` toggles, by name.
 pub fn apply_setting(cx: &mut App, name: &str, enabled: bool) {
     match name {
         "profiling" => {
@@ -356,6 +508,7 @@ pub fn apply_setting(cx: &mut App, name: &str, enabled: bool) {
         // `DevSettings.toggleElementInspector` has no value to pass.
         "inspectorToggle" => {
             let enabled = toggle(cx, "inspector");
+            emit(cx, "toggleElementInspector", json!({}));
             emit(
                 cx,
                 "gpuiDesktop:elementInspector",
@@ -401,8 +554,6 @@ fn emit(cx: &App, name: &str, payload: Value) {
         .emit_device_event_json(name, &payload.to_string());
 }
 
-/// The main window, for presenters that need one. Only the Windows menu-bar
-/// path needs it today, so it is allowed to be unused elsewhere.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn main_window(cx: &App) -> Option<gpui::AnyWindowHandle> {
     cx.try_global::<DesktopWindowsGlobal>()
@@ -417,6 +568,23 @@ mod tests {
     fn accelerator_is_command_or_control_d() {
         assert_eq!(ACCELERATOR, "secondary-d");
         assert_eq!(ACCELERATOR_ID, "dev:menu");
+    }
+
+    #[test]
+    fn bundler_addresses_parse_with_and_without_a_port() {
+        assert_eq!(
+            parse_bundler("localhost:8082"),
+            Ok(("localhost".into(), 8082))
+        );
+        assert_eq!(parse_bundler(" 10.0.0.5 "), Ok(("10.0.0.5".into(), 8081)));
+        assert_eq!(
+            parse_bundler("http://my-mac.local:9000/"),
+            Ok(("my-mac.local".into(), 9000))
+        );
+        assert!(parse_bundler("").is_err());
+        assert!(parse_bundler(":8081").is_err());
+        assert!(parse_bundler("localhost:0").is_err());
+        assert!(parse_bundler("localhost:port").is_err());
     }
 
     #[test]

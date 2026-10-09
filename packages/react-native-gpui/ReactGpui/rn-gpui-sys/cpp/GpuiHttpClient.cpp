@@ -1,5 +1,3 @@
-// TODO 2.1 — design doc §18.7 / §19 2.1. A libcurl-backed HTTP client; see the
-// header for why the process needs one at all.
 #include "GpuiHttpClient.h"
 #include <react/io/BlobModule.h>
 
@@ -23,9 +21,7 @@
 #include <vector>
 
 namespace rngpui {
-
 namespace {
-
 using namespace facebook::react;
 
 // curl_global_init() is not thread-safe and has to run before any other libcurl
@@ -104,8 +100,6 @@ class CurlRequestToken final : public http::IRequestToken {
   std::shared_ptr<Cancellation> cancellation_;
 };
 
-// Everything libcurl writes into during one transfer. The detached worker
-// thread owns it for the whole request.
 struct Transfer {
   std::shared_ptr<Cancellation> cancellation;
   http::NetworkCallbacks callbacks;

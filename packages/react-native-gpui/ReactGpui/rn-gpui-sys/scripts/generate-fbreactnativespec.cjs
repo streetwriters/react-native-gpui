@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Extra spec directories are the platform's own core specs (design §3.2). They
+// Extra spec directories are the platform's own core specs. They
 // are merged into the same in-memory schema, so a `NativeGpuiDesktop.ts` here
 // produces the `NativeGpuiDesktopCxxSpec` base class next to RN's own modules.
 const [reactNativeRoot, outputDir, ...extraSpecDirs] = process.argv.slice(2);

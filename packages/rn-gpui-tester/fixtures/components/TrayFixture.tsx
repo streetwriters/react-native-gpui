@@ -1,5 +1,5 @@
 /**
- * Tray / menu-bar apps (plan item 7.3, §7).
+ * Tray / menu-bar apps.
  *
  * Installs a tray icon whose click opens {@link TrayPopover} — a separate RN
  * surface in a popover window — or a menu, and reports what it did.
@@ -38,7 +38,6 @@ const MENU: MenuItemSpec[] = [
   { id: 'tray-quit', label: 'Quit' },
 ];
 
-/** The component the popover window runs. */
 export function TrayPopover() {
   return (
     <View style={styles.page}>

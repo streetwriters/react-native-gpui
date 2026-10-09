@@ -1,5 +1,5 @@
 /**
- * Application menu (plan item 7.1, §5.5).
+ * Application menu.
  *
  * Sets a menu with a Tester submenu: an item bound to CmdOrCtrl+Shift+K that
  * increments a counter, a checkable item whose state round-trips, and a disabled
@@ -70,7 +70,7 @@ function DesktopMenuFixture() {
   );
 
   useEffect(() => {
-    void Menu.setApplicationMenu(items()).catch(cause => {
+    Menu.setApplicationMenu(items()).catch(cause => {
       setError(String(cause));
     });
   }, [items]);
@@ -114,7 +114,7 @@ function DesktopMenuFixture() {
       <Pressable
         testID="desktop-menu-read"
         onPress={() => {
-          void Menu.get()
+          Menu.get()
             .then(description => setMenuJson(JSON.stringify(description)))
             .catch(cause => setError(String(cause)));
         }}
@@ -129,7 +129,7 @@ function DesktopMenuFixture() {
           // after that rejects with `not_found`. Put the menu back first, and
           // report anything that still fails instead of leaving an unhandled
           // rejection to LogBox.
-          void Menu.update('tester-check', { checked: !checked })
+          Menu.update('tester-check', { checked: !checked })
             .catch(() =>
               Menu.setApplicationMenu(items()).then(() =>
                 Menu.update('tester-check', { checked: !checked }),
@@ -144,9 +144,7 @@ function DesktopMenuFixture() {
         testID="desktop-menu-reset"
         onPress={() => {
           setError('');
-          void Menu.setApplicationMenu(null).catch(cause =>
-            setError(String(cause)),
-          );
+          Menu.setApplicationMenu(null).catch(cause => setError(String(cause)));
         }}
       >
         <Text style={styles.button}>Reset to the default menu</Text>

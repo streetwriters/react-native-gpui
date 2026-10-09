@@ -152,8 +152,8 @@ export default function Phase3AcceptanceFixture() {
       clearTimeout(closeModal);
       clearTimeout(showAlert);
       dimensionListener.remove();
-      void clipboardCheck;
-      void linkingCheck;
+      clipboardCheck;
+      linkingCheck;
     };
   }, [opacity, transformScale, transformTranslate]);
   const titleStyle = {

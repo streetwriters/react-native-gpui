@@ -1,13 +1,3 @@
-# @react-native-gpui/hermes as a GPUI JS engine package (plan item 7.14).
-#
-# Core has no engine of its own. This file creates the Hermes VM imported target,
-# compiles the React Native Hermes glue plus the engine registration shim, and
-# tells core (through the RN_GPUI_JS_ENGINE_* global properties) which symbol to
-# call at startup and which targets the app must link.
-#
-# The same contract is what any other engine package implements, so nothing here
-# is visible to core beyond those properties.
-
 get_filename_component(_hermes_package_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(_hermes_package_json "${_hermes_package_root}/package.json")
 if(NOT EXISTS "${_hermes_package_json}")
@@ -158,10 +148,6 @@ string(JSON _hermes_commit GET "${_hermes_package_json_contents}" hermes commit)
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEFINITIONS
   "RN_GPUI_HERMES_VERSION=\"${_hermes_commit}\"")
 
-# --- Hermes smoke tests ----------------------------------------------------
-#
-# They prove the packaged VM works and can load a real Node-API addon, so they
-# live with the VM rather than with core.
 add_executable(hermes_runtime_test
   "${CMAKE_CURRENT_LIST_DIR}/test/hermes_runtime_test.cpp")
 target_link_libraries(hermes_runtime_test PRIVATE hermes-engine::hermesvm jsi)
