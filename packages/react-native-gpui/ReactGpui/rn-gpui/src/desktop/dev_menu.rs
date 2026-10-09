@@ -99,21 +99,42 @@ pub fn show(cx: &mut App) {
         log::warn!("[desktop][devmenu] the Dev Menu is not enabled in this build");
         return;
     }
-    if cx
-        .try_global::<DevMenuPanelGlobal>()
-        .is_some_and(|panel| panel.0.borrow().is_some())
-    {
-        // Already open: focus it instead of stacking a second sheet.
+    // The panel may have been closed since it was recorded (its own Close row,
+    // the sheet's close button, or Cmd+W), so liveness is asked of the window
+    // rather than remembered: a stale flag here is what made Cmd+D work only
+    // once per launch.
+    if let Some(handle) = open_panel(cx) {
+        // Already open: bring it forward instead of stacking a second sheet.
+        let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
+            window.activate_window();
+        });
         return;
     }
+    // A plain dialog window, not a sheet: `WindowKind::Dialog` is an
+    // `NSPanel` attached as a sheet on macOS, which is not what a dev menu
+    // should look like. This is centred over the app window instead.
+    let size = gpui::size(gpui::px(380.0), gpui::px(460.0));
+    let bounds = main_window(cx)
+        .and_then(|handle| {
+            handle
+                .update(cx, |_root: gpui::AnyView, window, _cx| window.bounds())
+                .ok()
+        })
+        .map(|parent| {
+            gpui::Bounds::new(
+                gpui::point(
+                    parent.origin.x + (parent.size.width - size.width) / 2.0,
+                    parent.origin.y + (parent.size.height - size.height) / 2.0,
+                ),
+                size,
+            )
+        })
+        .unwrap_or_else(|| gpui::Bounds::centered(None, size, cx));
     let options = gpui::WindowOptions {
-        window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds::centered(
-            None,
-            gpui::size(gpui::px(380.0), gpui::px(460.0)),
-            cx,
-        ))),
-        kind: gpui::WindowKind::Dialog,
+        window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+        kind: gpui::WindowKind::Normal,
         is_resizable: false,
+        window_min_size: Some(size),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("Dev Menu".into()),
             appears_transparent: false,
@@ -127,15 +148,51 @@ pub fn show(cx: &mut App) {
         Ok(handle) => {
             let handle: gpui::AnyWindowHandle = handle.into();
             cx.set_global(DevMenuPanelGlobal(RefCell::new(Some(handle))));
+            // Windows animate in on some platforms; the dev menu should just
+            // appear.
+            let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
+                crate::desktop::platform_window::disable_window_animation(window);
+            });
             log::info!("[desktop][devmenu] opened the panel");
         }
         Err(error) => log::error!("[desktop][devmenu] could not open the panel: {error}"),
     }
 }
 
+/// Close the panel if it is open (its Close row, the window's own close button,
+/// or a caller that wants it gone).
+pub fn hide(cx: &mut App) {
+    let Some(handle) = open_panel(cx) else {
+        forget_panel(cx);
+        return;
+    };
+    forget_panel(cx);
+    let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
+        window.remove_window()
+    });
+}
+
 /// The open Dev Menu panel, if any.
 pub struct DevMenuPanelGlobal(pub RefCell<Option<gpui::AnyWindowHandle>>);
 impl Global for DevMenuPanelGlobal {}
+
+/// The panel's window, if it is still on screen.
+fn open_panel(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
+    let handle = cx
+        .try_global::<DevMenuPanelGlobal>()
+        .and_then(|panel| *panel.0.borrow())?;
+    handle
+        .update(cx, |_root: gpui::AnyView, _window, _cx| ())
+        .ok()?;
+    Some(handle)
+}
+
+/// Forget the panel. Called when it closes, from every path that can close it.
+fn forget_panel(cx: &mut App) {
+    if let Some(panel) = cx.try_global::<DevMenuPanelGlobal>() {
+        panel.0.borrow_mut().take();
+    }
+}
 
 /// The modal's contents: one row per item, with the toggles checked.
 pub struct DevMenuPanel;
@@ -149,10 +206,17 @@ impl DevMenuPanel {
 impl gpui::Render for DevMenuPanel {
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         use gpui::{InteractiveElement, IntoElement, ParentElement, Styled};
+
+        // Escape, Cmd+W and the sheet's own close button all land here, so the
+        // recorded handle is dropped wherever the panel goes away.
+        window.on_window_should_close(cx, |_window, cx| {
+            forget_panel(cx);
+            true
+        });
 
         let rows = menu_model(cx);
         let mut elements: Vec<gpui::AnyElement> = Vec::new();
@@ -178,7 +242,7 @@ impl gpui::Render for DevMenuPanel {
                             .justify_between()
                             .px_3()
                             .py_2()
-                            .rounded(gpui::px(6.0))
+                            .rounded(gpui::px(3.0))
                             .text_size(gpui::px(14.0))
                             .cursor_pointer()
                             .hover(|style| style.bg(gpui::rgba(0x00000011)))
@@ -186,12 +250,13 @@ impl gpui::Render for DevMenuPanel {
                             .child(if item.checked { "✓" } else { "" })
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
-                                cx.listener(move |_this, _event, window, _cx| {
+                                cx.listener(move |_this, _event, window, cx| {
                                     if let Some(handler) =
                                         rn_gpui_sys::DEV_MENU_PERFORM_HANDLER.get()
                                     {
                                         handler(id.clone());
                                     }
+                                    forget_panel(cx);
                                     window.remove_window();
                                 }),
                             )
@@ -225,7 +290,7 @@ impl gpui::Render for DevMenuPanel {
                     .mt_2()
                     .px_3()
                     .py_2()
-                    .rounded(gpui::px(6.0))
+                    .rounded(gpui::px(3.0))
                     .text_size(gpui::px(14.0))
                     .text_color(gpui::rgba(0x00000099))
                     .cursor_pointer()
@@ -233,7 +298,10 @@ impl gpui::Render for DevMenuPanel {
                     .child("Close")
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(|_this, _event, window, _cx| window.remove_window()),
+                        cx.listener(|_this, _event, window, cx| {
+                            forget_panel(cx);
+                            window.remove_window();
+                        }),
                     ),
             )
     }
