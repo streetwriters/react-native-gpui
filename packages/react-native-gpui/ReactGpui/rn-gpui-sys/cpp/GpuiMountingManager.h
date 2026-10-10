@@ -7,8 +7,8 @@
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/uimanager/IMountingManager.h>
-#include "GpuiExtensions.h"
 #include "GpuiImageLoader.h"
+#include "GpuiModules.h"
 
 #include <array>
 #include <atomic>

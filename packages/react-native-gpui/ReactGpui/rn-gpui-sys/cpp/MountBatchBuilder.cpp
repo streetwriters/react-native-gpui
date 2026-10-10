@@ -1,5 +1,5 @@
 #include "MountBatchBuilder.h"
-#include "GpuiExtensions.h"
+#include "GpuiModules.h"
 #include "GpuiTextMeasure.h"
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
@@ -310,10 +310,10 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
   const std::string componentName(op.component.c_str());
-  if (gpuiExtensionHooks().svgPropsJson &&
-      componentName.rfind("RNSVG", 0) == 0 && shadowView.props) {
+  if (gpuiModuleHooks().svgPropsJson && componentName.rfind("RNSVG", 0) == 0 &&
+      shadowView.props) {
     op.svg_props_json =
-        gpuiExtensionHooks().svgPropsJson(componentName, *shadowView.props);
+        gpuiModuleHooks().svgPropsJson(componentName, *shadowView.props);
   }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
@@ -327,8 +327,8 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
         std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
     op.modal_visible = modal && modal->visible;
   }
-  if (gpuiExtensionHooks().screensOp) {
-    gpuiExtensionHooks().screensOp(shadowView, op);
+  if (gpuiModuleHooks().screensOp) {
+    gpuiModuleHooks().screensOp(shadowView, op);
   }
 
   const auto& frame = shadowView.layoutMetrics.frame;
@@ -338,8 +338,8 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       (mutation.type == ShadowViewMutation::Update &&
        mutation.oldChildShadowView.layoutMetrics.frame !=
            mutation.newChildShadowView.layoutMetrics.frame);
-  if (gpuiExtensionHooks().screensFrame) {
-    gpuiExtensionHooks().screensFrame(op);
+  if (gpuiModuleHooks().screensFrame) {
+    gpuiModuleHooks().screensFrame(op);
   }
 
   if (mutation.type == ShadowViewMutation::Create ||

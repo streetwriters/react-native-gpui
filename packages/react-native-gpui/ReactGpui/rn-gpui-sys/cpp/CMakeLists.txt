@@ -479,18 +479,38 @@ target_include_directories(gpui_js_engine_test PRIVATE
 target_link_libraries(gpui_js_engine_test PRIVATE jsi)
 add_test(NAME gpui_js_engine_selection COMMAND gpui_js_engine_test)
 
+# GpuiTurboModule.cpp logs through glog, which a prebuilt configure only has as
+# an imported target when it is in the runtime's link closure.
+if(TARGET jsi AND TARGET glog)
+  add_executable(gpui_turbo_module_test
+    test/gpui_turbo_module_test.cpp
+    GpuiTurboModule.cpp)
+  target_include_directories(gpui_turbo_module_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${REACT_COMMON_DIR}"
+    "${REACT_COMMON_DIR}/callinvoker"
+    "${REACT_COMMON_DIR}/react/nativemodule/core"
+    "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  target_link_libraries(gpui_turbo_module_test PRIVATE jsi glog)
+  add_test(NAME gpui_turbo_module_queue COMMAND gpui_turbo_module_test)
+endif()
+
 # The engine packages' own smoke tests (for example a VM smoke test) are
 # added by their gpui/CMakeLists.txt, which autolink includes below.
 
 add_library(rn_gpui_core STATIC
-  GpuiDesktopModule.cpp
+  GpuiDynamic.cpp
+  # The Rust TurboModule provider is registered at run time, so it is always
+  # part of the platform: it looks a module up by name when JS asks for one.
+  GpuiRustTurboModules.cpp
   GpuiHost.cpp
   GpuiHttpClient.cpp
   GpuiJsEngine.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
+  GpuiTurboModule.cpp
   MountBatchBuilder.cpp
-  GpuiExtensions.cpp)
+  GpuiModules.cpp)
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc")
@@ -632,9 +652,9 @@ foreach(_rn_gpui_engine_subdir IN LISTS RN_GPUI_JS_ENGINE_SUBDIRECTORIES)
 endforeach()
 
 # With a prebuilt runtime rn_gpui_core is imported, so the engine targets go to
-# rn_gpui_extensions instead (see below). In a source build they join
+# rn_gpui_modules instead (see below). In a source build they join
 # RN_GPUI_CORE_DEPS so every consumer of core's dependency list — the app archive
-# and the extensions archive — also sees the engine's include directories.
+# and the modules archive — also sees the engine's include directories.
 get_property(RN_GPUI_JS_ENGINE_DEPS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_DEPS)
 if(RN_GPUI_JS_ENGINE_DEPS AND NOT RN_GPUI_PREBUILT_DIR)
   list(APPEND RN_GPUI_CORE_DEPS ${RN_GPUI_JS_ENGINE_DEPS})
@@ -672,7 +692,6 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     ${RN_GPUI_APP_CPP_SOURCES})
   target_include_directories(rn_gpui_app_turbo_modules PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${RN_GPUI_GENERATED_MODULES_DIR}"
     "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}"
     ${RN_GPUI_CMAKE_APP_CPP_INCLUDE_DIRS})
   target_compile_definitions(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_CMAKE_APP_CPP_DEFINITIONS})
@@ -694,79 +713,55 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
   endif()
 endif()
 
-# --- rn_gpui_extensions: optional library glue (cpp/GpuiExtensions.h) -------
+# --- rn_gpui_modules: optional library glue (cpp/GpuiModules.h) -------
 #
-# Glue for optional packages is compiled here, in the app's build, rather than
+# Glue for an optional package is compiled here, in the app's build, rather than
 # into rn_gpui_core, so rn_gpui_core compiles the same files with the same flags
-# for every app. Each present package adds one source file and one installer.
-# rn_gpui_install_extensions() (generated below) calls the installers once, and
+# for every app. The package that needs the glue ships it in its own `gpui/cpp/`
+# and declares it through the `RN_GPUI_PACKAGE_MODULE_*` properties below;
+# what stays here is the platform's own glue, which no package owns.
+# rn_gpui_install_modules() (generated below) calls each installer once, and
 # GpuiHost calls it from its constructor.
-set(RN_GPUI_EXTENSION_SOURCES)
-set(RN_GPUI_EXTENSION_NODE_API_SOURCES)
-set(RN_GPUI_EXTENSION_INSTALLERS)
-set(RN_GPUI_EXTENSION_INCLUDE_DIRS)
-set(RN_GPUI_EXTENSION_DEFINITIONS)
+set(RN_GPUI_MODULE_SOURCES)
+set(RN_GPUI_MODULE_NODE_API_SOURCES)
+set(RN_GPUI_MODULE_INSTALLERS)
+set(RN_GPUI_MODULE_INCLUDE_DIRS)
+set(RN_GPUI_MODULE_DEFINITIONS)
 
-get_property(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR GLOBAL PROPERTY RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-if(RN_GPUI_SVG_CODEGEN_INCLUDE_DIR)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSvgExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS svg)
-  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_SVG_CODEGEN_INCLUDE_DIR}")
-endif()
-
-get_property(RN_GPUI_HAS_SCREENS GLOBAL PROPERTY RN_GPUI_HAS_SCREENS)
-if(RN_GPUI_HAS_SCREENS)
-  get_property(RN_GPUI_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiScreensExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS screens)
-  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
-endif()
-
-get_property(RN_GPUI_HAS_SAFE_AREA_CONTEXT GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-if(RN_GPUI_HAS_SAFE_AREA_CONTEXT)
-  get_property(RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiSafeAreaExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS safe_area)
-  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS})
-endif()
-
-get_property(RN_GPUI_HAS_WORKLETS GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS)
-if(RN_GPUI_HAS_WORKLETS)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiWorkletsExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS worklets)
-endif()
+get_property(RN_GPUI_PACKAGE_MODULE_SOURCES GLOBAL PROPERTY RN_GPUI_PACKAGE_MODULE_SOURCES)
+get_property(RN_GPUI_PACKAGE_MODULE_INSTALLERS GLOBAL PROPERTY RN_GPUI_PACKAGE_MODULE_INSTALLERS)
+get_property(RN_GPUI_PACKAGE_MODULE_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_PACKAGE_MODULE_INCLUDE_DIRS)
+list(APPEND RN_GPUI_MODULE_SOURCES ${RN_GPUI_PACKAGE_MODULE_SOURCES})
+list(APPEND RN_GPUI_MODULE_INSTALLERS ${RN_GPUI_PACKAGE_MODULE_INSTALLERS})
+list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS ${RN_GPUI_PACKAGE_MODULE_INCLUDE_DIRS})
+# A module reads its library's Fabric props, which the app's codegen produced.
+get_property(RN_GPUI_APP_CPP_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS)
+list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS ${RN_GPUI_APP_CPP_INCLUDE_DIRS})
 
 if(TARGET weak-node-api)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiNodeApiExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS node_api)
+  list(APPEND RN_GPUI_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/GpuiNodeApiHost.cpp")
+  list(APPEND RN_GPUI_MODULE_INSTALLERS node_api)
   # Engine-neutral pieces: the weak-node-api injection, the shadowed
   # napi_fatal_error and the logger they share. The Node-API host module (which
   # creates a napi_env and loads addons) is VM-specific and comes from the
   # active engine package through RN_GPUI_JS_ENGINE_NODE_API_SOURCES.
   get_property(RN_GPUI_JS_ENGINE_NODE_API_SOURCES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES)
-  list(APPEND RN_GPUI_EXTENSION_NODE_API_SOURCES
+  list(APPEND RN_GPUI_MODULE_NODE_API_SOURCES
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp"
     ${RN_GPUI_JS_ENGINE_NODE_API_SOURCES})
-  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS
+  list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
-  list(APPEND RN_GPUI_EXTENSION_DEFINITIONS
+  list(APPEND RN_GPUI_MODULE_DEFINITIONS
     HERMES_NAPI_USE_CPP_LINKAGE=1
     # Tells an engine package that Node-API is available, so it registers its
     # host module capability in its registration function.
     RN_GPUI_HAS_NODE_API=1)
 endif()
 
-# App Rust string modules (RustTurboModules.generated.hpp) exist only when the
-# app generated them into the Cargo OUT_DIR.
-if(RN_GPUI_GENERATED_MODULES_DIR)
-  list(APPEND RN_GPUI_EXTENSION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/extensions/GpuiRustTurboModulesExtension.cpp")
-  list(APPEND RN_GPUI_EXTENSION_INSTALLERS rust_turbo_modules)
-  list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS "${RN_GPUI_GENERATED_MODULES_DIR}")
-endif()
 
 # JS engine packages (GpuiJsEngine.h): the registration shim is compiled into
 # this archive, and the generated installer below calls its symbol before the
@@ -776,17 +771,17 @@ get_property(RN_GPUI_JS_ENGINE_SOURCES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_SOURCES
 get_property(RN_GPUI_JS_ENGINE_INCLUDE_DIRS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS)
 get_property(RN_GPUI_JS_ENGINE_DEFINITIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_DEFINITIONS)
 get_property(RN_GPUI_JS_ENGINE_REGISTRATIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_REGISTRATIONS)
-list(APPEND RN_GPUI_EXTENSION_SOURCES ${RN_GPUI_JS_ENGINE_SOURCES})
-list(APPEND RN_GPUI_EXTENSION_INCLUDE_DIRS ${RN_GPUI_JS_ENGINE_INCLUDE_DIRS})
-list(APPEND RN_GPUI_EXTENSION_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
+list(APPEND RN_GPUI_MODULE_SOURCES ${RN_GPUI_JS_ENGINE_SOURCES})
+list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS ${RN_GPUI_JS_ENGINE_INCLUDE_DIRS})
+list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.
-set(RN_GPUI_EXTENSION_DECLARATIONS "")
-set(RN_GPUI_EXTENSION_CALLS "")
-foreach(_rn_gpui_installer IN LISTS RN_GPUI_EXTENSION_INSTALLERS)
-  string(APPEND RN_GPUI_EXTENSION_DECLARATIONS "void rn_gpui_install_${_rn_gpui_installer}_extension();\n")
-  string(APPEND RN_GPUI_EXTENSION_CALLS "    rn_gpui_install_${_rn_gpui_installer}_extension();\n")
+set(RN_GPUI_MODULE_DECLARATIONS "")
+set(RN_GPUI_MODULE_CALLS "")
+foreach(_rn_gpui_installer IN LISTS RN_GPUI_MODULE_INSTALLERS)
+  string(APPEND RN_GPUI_MODULE_DECLARATIONS "void rn_gpui_install_${_rn_gpui_installer}_module();\n")
+  string(APPEND RN_GPUI_MODULE_CALLS "    rn_gpui_install_${_rn_gpui_installer}_module();\n")
 endforeach()
 set(RN_GPUI_ENGINE_DECLARATIONS "")
 set(RN_GPUI_ENGINE_CALLS "")
@@ -794,56 +789,56 @@ foreach(_rn_gpui_engine IN LISTS RN_GPUI_JS_ENGINE_REGISTRATIONS)
   string(APPEND RN_GPUI_ENGINE_DECLARATIONS "extern \"C\" void ${_rn_gpui_engine}();\n")
   string(APPEND RN_GPUI_ENGINE_CALLS "    ${_rn_gpui_engine}();\n")
 endforeach()
-set(RN_GPUI_INSTALL_EXTENSIONS_CPP "${CMAKE_BINARY_DIR}/generated/rn_gpui_install_extensions.cpp")
-file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_EXTENSIONS_CPP}" CONTENT [=[
+set(RN_GPUI_INSTALL_MODULES_CPP "${CMAKE_BINARY_DIR}/generated/rn_gpui_install_modules.cpp")
+file(CONFIGURE OUTPUT "${RN_GPUI_INSTALL_MODULES_CPP}" CONTENT [=[
 // Generated by rn-gpui-sys cpp/CMakeLists.txt. Do not edit.
-#include "GpuiExtensions.h"
+#include "GpuiModules.h"
 
 #include <mutex>
 
 namespace rngpui {
 @RN_GPUI_ENGINE_DECLARATIONS@
-@RN_GPUI_EXTENSION_DECLARATIONS@
-void rn_gpui_install_extensions() {
+@RN_GPUI_MODULE_DECLARATIONS@
+void rn_gpui_install_modules() {
   static std::once_flag installed;
   std::call_once(installed, [] {
     // Engine packages first: the host selects an engine from the registry right
-    // after this call, and extension installers may also register one.
-@RN_GPUI_ENGINE_CALLS@@RN_GPUI_EXTENSION_CALLS@  });
+    // after this call, and module installers may also register one.
+@RN_GPUI_ENGINE_CALLS@@RN_GPUI_MODULE_CALLS@  });
 }
 
 } // namespace rngpui
 ]=])
 
 # Always defined, even when no package is present, so link_libs.txt is stable.
-add_library(rn_gpui_extensions STATIC
-  "${RN_GPUI_INSTALL_EXTENSIONS_CPP}"
-  ${RN_GPUI_EXTENSION_SOURCES}
-  ${RN_GPUI_EXTENSION_NODE_API_SOURCES})
-target_compile_definitions(rn_gpui_extensions PRIVATE ${RN_GPUI_EXTENSION_DEFINITIONS})
-target_include_directories(rn_gpui_extensions PRIVATE
+add_library(rn_gpui_modules STATIC
+  "${RN_GPUI_INSTALL_MODULES_CPP}"
+  ${RN_GPUI_MODULE_SOURCES}
+  ${RN_GPUI_MODULE_NODE_API_SOURCES})
+target_compile_definitions(rn_gpui_modules PRIVATE ${RN_GPUI_MODULE_DEFINITIONS})
+target_include_directories(rn_gpui_modules PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${REACT_CXX_PLATFORM_DIR}"
-  ${RN_GPUI_EXTENSION_INCLUDE_DIRS})
+  ${RN_GPUI_MODULE_INCLUDE_DIRS})
 if(RN_GPUI_CXXBRIDGE_INCLUDE_DIR AND EXISTS "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}/rust/cxx.h")
-  target_include_directories(rn_gpui_extensions PRIVATE "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
+  target_include_directories(rn_gpui_modules PRIVATE "${RN_GPUI_CXXBRIDGE_INCLUDE_DIR}")
 endif()
-target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_CORE_DEPS})
-target_link_libraries(rn_gpui_extensions PUBLIC rn_gpui_core)
+target_link_libraries(rn_gpui_modules PRIVATE ${RN_GPUI_CORE_DEPS})
+target_link_libraries(rn_gpui_modules PUBLIC rn_gpui_core)
 # The app archive is not linked into rn_gpui_core in prebuilt mode, so make the
 # build produce it explicitly; link_libs-<CONFIG>.txt still references it.
 if(RN_GPUI_PREBUILT_DIR AND TARGET rn_gpui_app_turbo_modules)
-  add_dependencies(rn_gpui_extensions rn_gpui_app_turbo_modules)
+  add_dependencies(rn_gpui_modules rn_gpui_app_turbo_modules)
 endif()
 if(TARGET weak-node-api)
-  add_dependencies(rn_gpui_extensions weak-node-api)
+  add_dependencies(rn_gpui_modules weak-node-api)
 endif()
 # Out-of-tree addons can require native build targets without linking into
 # core. They hang off this archive because it is built in both modes; an
 # imported rn_gpui_core cannot carry build dependencies.
 get_property(RN_GPUI_APP_NATIVE_TARGETS GLOBAL PROPERTY RN_GPUI_APP_NATIVE_TARGETS)
 foreach(_rn_gpui_native_target IN LISTS RN_GPUI_APP_NATIVE_TARGETS)
-  add_dependencies(rn_gpui_extensions ${_rn_gpui_native_target})
+  add_dependencies(rn_gpui_modules ${_rn_gpui_native_target})
 endforeach()
 
 # With a prebuilt runtime rn_gpui_core is imported, so the engine glue targets
@@ -851,7 +846,7 @@ endforeach()
 # registration shim lives here too, so the objects reach the executable through
 # the archive the app already links.
 if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
-  target_link_libraries(rn_gpui_extensions PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
+  target_link_libraries(rn_gpui_modules PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
 # --- link_libs.txt for build.rs --------------------------
@@ -897,7 +892,7 @@ rn_gpui_collect_link_targets(rn_gpui_core RN_GPUI_LINK_TARGETS)
 # An imported rn_gpui_core only names the archive's own libraries in its
 # interface, so the active engine's shared libraries (its VM) are added to the
 # roots the linker directives are collected from. Their OBJECT libraries are
-# skipped by the loop below; those objects are archived into rn_gpui_extensions.
+# skipped by the loop below; those objects are archived into rn_gpui_modules.
 if(RN_GPUI_PREBUILT_DIR AND RN_GPUI_JS_ENGINE_DEPS)
   list(APPEND RN_GPUI_LINK_TARGETS ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
@@ -923,8 +918,8 @@ endif()
 # interfaces and emits both the linker directive and the rpath. No engine is
 # special-cased here.
 #
-# rn_gpui_extensions appears before and after rn_gpui_core (see below).
-string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
+# rn_gpui_modules appears before and after rn_gpui_core (see below).
+string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_modules>\n")
 foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
   get_target_property(_type "${_target}" TYPE)
   get_target_property(_is_framework "${_target}" FRAMEWORK)
@@ -954,10 +949,10 @@ foreach(_target IN LISTS RN_GPUI_LINK_TARGETS)
     string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_app_turbo_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_app_turbo_modules>\n")
   endif()
   # Installers read rn_gpui_core's hook storage and call into the app archive,
-  # so the extensions archive comes after both (static archives resolve left
+  # so the modules archive comes after both (static archives resolve left
   # to right).
-  if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_extensions)
-    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_extensions>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_extensions>\n")
+  if(_target STREQUAL "rn_gpui_core" AND TARGET rn_gpui_modules)
+    string(APPEND RN_GPUI_LINK_LIBS "search:$<TARGET_LINKER_FILE_DIR:rn_gpui_modules>\nname:$<TARGET_LINKER_FILE_NAME:rn_gpui_modules>\n")
   endif()
 endforeach()
 

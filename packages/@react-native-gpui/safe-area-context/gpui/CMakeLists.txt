@@ -42,6 +42,11 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_safe_area_common}"
   "${_gpui_repo_root}/packages/react-native-gpui/ReactCxxPlatform"
   "${CMAKE_CURRENT_LIST_DIR}/cpp")
-set_property(GLOBAL PROPERTY RN_GPUI_HAS_SAFE_AREA_CONTEXT TRUE)
-set_property(GLOBAL APPEND PROPERTY RN_GPUI_SAFE_AREA_CONTEXT_INCLUDE_DIRS
-  "${CMAKE_CURRENT_LIST_DIR}/cpp")
+# Safe-area insets reach the mounting manager through this glue, which the
+# platform compiles only because the package is installed.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/cpp/GpuiSafeAreaModule.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_INSTALLERS safe_area)
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_INCLUDE_DIRS
+  "${CMAKE_CURRENT_LIST_DIR}/cpp"
+  "${RN_GPUI_PROJECT_ROOT}/desktop/autolink/codegen/safeareacontext")

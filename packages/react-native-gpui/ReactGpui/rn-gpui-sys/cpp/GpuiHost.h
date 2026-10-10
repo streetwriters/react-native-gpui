@@ -149,7 +149,8 @@ void register_gpui_gesture_pointer_processor(
     GpuiGesturePointerProcessor processor);
 void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
 void rn_gpui_clipboard_result(int32_t id, rust::String text);
-void rn_gpui_desktop_result(int32_t id, bool ok, rust::String json);
-void reject_pending_desktop_calls();
+/// Runs the task a module posted with `rngpui::dispatchMain`. Called on the
+/// GPUI main thread.
+void rn_gpui_run_main_task(uint64_t id);
 
 } // namespace rngpui

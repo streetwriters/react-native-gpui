@@ -1,5 +1,5 @@
-#include "GpuiExtensions.h"
 #include "GpuiJsEngine.h"
+#include "GpuiModules.h"
 #include "WeakNodeApiInjector.hpp"
 
 #include <ReactCommon/TurboModule.h>
@@ -42,8 +42,8 @@ class UnsupportedNodeApiModule final : public facebook::react::TurboModule {
 
 } // namespace
 
-void rn_gpui_install_node_api_extension() {
-  gpuiExtensionHooks().turboModules.push_back(
+void rn_gpui_install_node_api_module() {
+  gpuiModuleHooks().turboModules.push_back(
       [](const std::string& name,
          const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {

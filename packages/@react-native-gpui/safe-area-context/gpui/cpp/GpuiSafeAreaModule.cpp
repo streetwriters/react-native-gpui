@@ -1,5 +1,5 @@
 #include "GPUISafeAreaInsets.h"
-#include "GpuiExtensions.h"
+#include "GpuiModules.h"
 
 #include <react/renderer/components/safeareacontext/RNCSafeAreaViewState.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -12,8 +12,8 @@
 namespace rngpui {
 using namespace facebook::react;
 
-void rn_gpui_install_safe_area_extension() {
-  auto& hooks = gpuiExtensionHooks().safeArea;
+void rn_gpui_install_safe_area_module() {
+  auto& hooks = gpuiModuleHooks().safeArea;
   hooks.viewFrameChanged = [](SurfaceId surfaceId,
                               const ShadowView& view,
                               GpuiMountedViews& views) {
@@ -88,7 +88,7 @@ void rn_gpui_install_safe_area_extension() {
     }
   };
   hooks.afterMount = [](GpuiMountedViews& views) {
-    gpuiExtensionHooks().safeArea.windowTopInset(
+    gpuiModuleHooks().safeArea.windowTopInset(
         gpui_safe_area::windowTopInset.load(), views);
   };
 }

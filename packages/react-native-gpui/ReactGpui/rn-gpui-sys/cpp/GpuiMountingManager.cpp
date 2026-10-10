@@ -156,13 +156,13 @@ void GpuiMountingManager::executeMount(
     std::lock_guard<std::mutex> lock(emittersMutex_);
     for (const auto& mutation : transaction.getMutations()) {
       batch.ops.push_back(buildMountOp(mutation));
-      if (gpuiExtensionHooks().safeArea.viewFrameChanged &&
+      if (gpuiModuleHooks().safeArea.viewFrameChanged &&
           (mutation.type == ShadowViewMutation::Insert ||
            (mutation.type == ShadowViewMutation::Update &&
             mutation.oldChildShadowView.layoutMetrics.frame !=
                 mutation.newChildShadowView.layoutMetrics.frame))) {
         auto views = mountedViews();
-        gpuiExtensionHooks().safeArea.viewFrameChanged(
+        gpuiModuleHooks().safeArea.viewFrameChanged(
             surfaceId, mutation.newChildShadowView, views);
       }
       auto isVisible = [](const ShadowView& shadowView) {
@@ -227,9 +227,9 @@ void GpuiMountingManager::executeMount(
             modalStates_[mutation.newChildShadowView.tag] = std::move(state);
         }
       } else if (mutation.type == ShadowViewMutation::Delete) {
-        if (gpuiExtensionHooks().safeArea.viewDeleted) {
+        if (gpuiModuleHooks().safeArea.viewDeleted) {
           auto views = mountedViews();
-          gpuiExtensionHooks().safeArea.viewDeleted(
+          gpuiModuleHooks().safeArea.viewDeleted(
               mutation.oldChildShadowView.tag, views);
         }
         animatedViews_.erase(mutation.oldChildShadowView.tag);
@@ -251,9 +251,9 @@ void GpuiMountingManager::executeMount(
 
   mountBatchesInFlight.fetch_add(1, std::memory_order_relaxed);
   rn_gpui_on_mount(std::move(batch));
-  if (gpuiExtensionHooks().safeArea.afterMount) {
+  if (gpuiModuleHooks().safeArea.afterMount) {
     auto views = mountedViews();
-    gpuiExtensionHooks().safeArea.afterMount(views);
+    gpuiModuleHooks().safeArea.afterMount(views);
   }
 
   if (onAfterMount_) {
@@ -378,9 +378,9 @@ void GpuiMountingManager::setWindowSize(float width, float height) {
 }
 
 void GpuiMountingManager::setWindowTopInset(float top) {
-  if (gpuiExtensionHooks().safeArea.windowTopInset) {
+  if (gpuiModuleHooks().safeArea.windowTopInset) {
     auto views = mountedViews();
-    gpuiExtensionHooks().safeArea.windowTopInset(top, views);
+    gpuiModuleHooks().safeArea.windowTopInset(top, views);
   }
 }
 
