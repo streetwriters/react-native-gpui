@@ -140,7 +140,63 @@ async fn serve_commands(
                     .flatten()
                     .unwrap_or(Value::Null)
                 }
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(target_os = "linux")]
+                {
+                    // Resolve through GPUI's own AccessKit tree: the node whose
+                    // author id (Element::accessibility_id, set from the React
+                    // Native testID) matches. No AT-SPI client is needed.
+                    let identifier = params
+                        .get("identifier")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let tree = cx
+                        .update_window(window, |_, window, _| window.debug_a11y_tree_json())
+                        .ok()
+                        .flatten()
+                        .and_then(|tree| serde_json::from_str::<Value>(&tree).ok());
+                    match tree {
+                        None => {
+                            json!({"error":"the native accessibility tree is unavailable"})
+                        }
+                        Some(tree) => {
+                            let node = tree
+                                .get("nodes")
+                                .and_then(Value::as_object)
+                                .and_then(|nodes| {
+                                    nodes.values().find(|node| {
+                                        node.get("author_id").and_then(Value::as_str)
+                                            == Some(identifier)
+                                            && node
+                                                .get("aria")
+                                                .and_then(|aria| aria.get("hidden"))
+                                                .and_then(Value::as_bool)
+                                                != Some(true)
+                                    })
+                                })
+                                .cloned();
+                            match node {
+                                Some(node) => {
+                                    let aria =
+                                        node.get("aria").cloned().unwrap_or(Value::Null);
+                                    let text = |key: &str| {
+                                        aria.get(key).and_then(Value::as_str).unwrap_or("")
+                                    };
+                                    let label = text("label");
+                                    let value = text("value");
+                                    json!({
+                                        "identifier": identifier,
+                                        "name": if label.is_empty() { value } else { label },
+                                        "role": text("role"),
+                                        "hint": text("description"),
+                                        "enabled": aria.get("disabled").and_then(Value::as_bool) != Some(true),
+                                    })
+                                }
+                                None => Value::Null,
+                            }
+                        }
+                    }
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
                     json!({"error":"Native identifier lookup is pending platform testing; use a11yTree"})
                 }
