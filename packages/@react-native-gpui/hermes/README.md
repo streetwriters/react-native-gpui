@@ -81,6 +81,7 @@ The build flags are mirrored from `package.json`'s `hermes.buildFlags`:
 HERMES_ENABLE_NAPI=ON
 HERMES_ENABLE_DEBUGGER=ON
 HERMES_ENABLE_INTL=ON    # Apple only; OFF on Linux and Windows
+HERMES_ICU_RUNTIME_LOAD=ON    # Linux only; other platforms build without it
 HERMES_ENABLE_TEST_SUITE=OFF
 HERMES_BUILD_APPLE_FRAMEWORK=OFF
 ```
@@ -95,11 +96,15 @@ HERMES_BUILD_APPLE_FRAMEWORK=OFF
   nothing extra ships.
 - **Windows and Linux**: off. Upstream's backend for these platforms
   (`lib/Platform/Intl/PlatformIntlICU.cpp`) needs ICU's C++ API, which the ICU
-  built into Windows does not expose; on Linux it ties `libhermesvm.so` to the
-  build machine's ICU version; and its `NumberFormat` is a stub
+  built into Windows does not expose, and its `NumberFormat` is a stub
   (`std::to_string`). Bundling ICU would add about 30 MB. Intl comes back once
   Hermes has a backend that loads the OS's ICU at runtime.
 
-ICU is linked on Windows and Linux even with Intl off, because the
-non-Apple/Android Unicode backend uses it as well. Apple builds link only
-CoreFoundation.
+ICU is still used with Intl off, because the non-Apple/Android Unicode backend
+needs it for case conversion, `localeCompare`, `normalize` and
+`toLocaleDateString`. Windows links the OS ICU; Linux resolves whichever
+`libicui18n.so.N` the system has with `dlopen` at first use (see
+`patches/0001-linux-load-icu-at-runtime.patch` of the react-native-gpui
+repository this package is built from). Without a system ICU on Linux the VM
+keeps working with ASCII-only case mapping, code-unit collation and no-op
+normalization. Apple builds link only CoreFoundation.

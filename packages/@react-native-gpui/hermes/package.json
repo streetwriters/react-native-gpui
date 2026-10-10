@@ -16,6 +16,7 @@
       "HERMES_ENABLE_DEBUGGER=ON",
       "HERMES_ENABLE_TEST_SUITE=OFF",
       "HERMES_ENABLE_INTL=OFF",
+      "HERMES_ICU_RUNTIME_LOAD=ON  # Linux only; other platforms build without it",
       "HERMES_BUILD_APPLE_FRAMEWORK=OFF"
     ],
     "workflow": ".github/workflows/hermes-engine.yml"
@@ -26,6 +27,7 @@
     "public",
     "bin",
     "gpui",
+    "patches",
     "scripts",
     "react-native.config.js",
     "README.md",

@@ -27,12 +27,29 @@ if [[ -n "$pinned_commit" && "$head_commit" != "$pinned_commit" ]]; then
   echo "Warning: Hermes checkout is at ${head_commit:-unknown} but the package pins $pinned_commit." >&2
 fi
 
+# Every patch under the package's patches/ directory goes onto the checkout.
+# A patch that is already applied stays in place (the checkout may be dirty on
+# purpose); `git apply --reverse --check` tells the two cases apart.
+patches_dir="$hermes_package/patches"
+if [[ -d "$patches_dir" ]]; then
+  for patch in "$patches_dir"/*.patch; do
+    [[ -e "$patch" ]] || continue
+    if git -C "$hermes_source" apply --reverse --check "$patch" >/dev/null 2>&1; then
+      echo "Patch already applied: $(basename "$patch")"
+    else
+      git -C "$hermes_source" apply "$patch"
+      echo "Applied patch: $(basename "$patch")"
+    fi
+  done
+fi
+
 cmake -S "$hermes_source" -B "$hermes_build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DHERMES_ENABLE_NAPI=ON \
   -DHERMES_ENABLE_DEBUGGER=ON \
   -DHERMES_ENABLE_TEST_SUITE=OFF \
-  -DHERMES_ENABLE_INTL=OFF
+  -DHERMES_ENABLE_INTL=OFF \
+  -DHERMES_ICU_RUNTIME_LOAD=ON
 cmake --build "$hermes_build" --target hermesvm hermesc -j "$jobs"
 
 mkdir -p "$platform_bin_root/$platform"
