@@ -7,6 +7,7 @@ links = "rn_gpui_core"
 [dependencies]
 cxx = { workspace = true }
 log = { workspace = true }
+rn-gpui-module = { path = "../rn-gpui-module" }
 
 [build-dependencies]
 cxx-build = { workspace = true }

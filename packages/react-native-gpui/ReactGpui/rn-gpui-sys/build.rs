@@ -79,8 +79,6 @@ fn main() {
     );
     watch_tree(&react_native_dir.join("src"));
     watch_tree(&react_native_dir.join("scripts/codegen"));
-    let core_specs_dir = package_dir.join("src-gpui/src/private/specs");
-    watch_tree(&core_specs_dir);
     let codegen_package = repo_root.join("node_modules/@react-native/codegen");
     println!(
         "cargo:rerun-if-changed={}",
@@ -95,7 +93,6 @@ fn main() {
         .arg(&fb_spec_codegen)
         .arg(&react_native_dir)
         .arg(&generated_rncore_scratch)
-        .arg(&core_specs_dir)
         .status()
         .expect("run React Native core Codegen; Node.js must be installed");
     assert!(
@@ -104,8 +101,6 @@ fn main() {
     );
     sync_tree(&generated_rncore_scratch, &generated_rncore);
 
-    let module_codegen =
-        repo_root.join("node_modules/@react-native-gpui/codegen/src/generate-rust-turbomodules.js");
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.json"));
@@ -152,37 +147,25 @@ fn main() {
         .unwrap_or(&autolink_cmake)
         .join("CppTurboModules.generated.cpp");
     println!("cargo:rerun-if-changed={}", cpp_provider.display());
-    let generated_module_dir = out_dir.join("generated");
-    fs::create_dir_all(&generated_module_dir).expect("create generated module directory");
-    let generated_modules = generated_module_dir.join("RustTurboModules.generated.hpp");
-    println!("cargo:rerun-if-changed={}", module_codegen.display());
     println!("cargo:rerun-if-changed={}", autolink_manifest.display());
-    let mut module_specs = Vec::new();
     if let Ok(manifest) = fs::read_to_string(&autolink_manifest) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest) {
-            if let Some(specs) = manifest
-                .get("rustTurboModuleSpecs")
-                .or_else(|| manifest.get("turboModuleSpecs"))
-                .and_then(|value| value.as_array())
-            {
-                module_specs.extend(
-                    specs
-                        .iter()
-                        .filter_map(|spec| spec.as_str().map(PathBuf::from)),
-                );
-            }
             if let Some(modules) = manifest
                 .get("cppTurboModules")
                 .and_then(|value| value.as_array())
             {
-                for source in modules
-                    .iter()
-                    .filter_map(|module| module.get("sources"))
-                    .filter_map(serde_json::Value::as_array)
-                    .flatten()
-                    .filter_map(serde_json::Value::as_str)
-                {
-                    println!("cargo:rerun-if-changed={source}");
+                // The C++ sources, the specs and the headers generated from
+                // them: a spec edit only reaches the build through its header.
+                for key in ["sources", "specs", "headers"] {
+                    for source in modules
+                        .iter()
+                        .filter_map(|module| module.get(key))
+                        .filter_map(serde_json::Value::as_array)
+                        .flatten()
+                        .filter_map(serde_json::Value::as_str)
+                    {
+                        println!("cargo:rerun-if-changed={source}");
+                    }
                 }
             }
             if let Some(projects) = manifest
@@ -198,19 +181,6 @@ fn main() {
             }
         }
     }
-    let mut codegen = Command::new("node");
-    codegen
-        .arg(&module_codegen)
-        .args(&module_specs)
-        .arg(&generated_modules);
-    let status = codegen
-        .status()
-        .expect("run @react-native-gpui/codegen; Node.js must be installed");
-    assert!(
-        status.success(),
-        "@react-native-gpui/codegen failed while parsing app TurboModule specs"
-    );
-
     cxx_build::bridge("src/lib.rs")
         .std("c++20")
         .include("cpp")
@@ -266,10 +236,6 @@ fn main() {
             "RN_GPUI_GENERATED_RNCORE_DIR",
             cmake_path(&generated_rncore),
         )
-        .define(
-            "RN_GPUI_GENERATED_MODULES_DIR",
-            cmake_path(&generated_module_dir),
-        )
         .define("RN_GPUI_PROJECT_ROOT", cmake_path(&project_root))
         .define("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake))
         .define(
@@ -308,8 +274,8 @@ fn main() {
         cmake_config.define("RN_GPUI_PREBUILT_DIR", cmake_path(dir));
         cmake_config.define("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir));
     }
-    // rn_gpui_extensions links PUBLIC to rn_gpui_core, so this builds core too.
-    let dst = cmake_config.build_target("rn_gpui_extensions").build();
+    // rn_gpui_modules links PUBLIC to rn_gpui_core, so this builds core too.
+    let dst = cmake_config.build_target("rn_gpui_modules").build();
     drop(cmake_lock);
 
     let cmake_build_dir = dst.join("build");

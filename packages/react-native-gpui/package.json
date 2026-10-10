@@ -27,16 +27,18 @@
     "ReactGpui/rn-gpui-sys/src",
     "ReactGpui/rn-gpui-sys/cpp",
     "ReactGpui/rn-gpui-sys/scripts",
-    "ReactGpui/rn-gpui-macros/Cargo.toml",
-    "ReactGpui/rn-gpui-macros/src",
-    "ReactGpui/rn-gpui-macros/tests",
     "react-native.config.js",
     "overrides.json",
     "prebuilt-binaries.json",
     "scripts/prebuilt-binaries.mjs",
     "scripts/prebuilt-inputs.mjs",
     "scripts/check-prebuilt-pin.mjs",
-    "prebuilt-binaries.json"
+    "prebuilt-binaries.json",
+    "ReactGpui/rn-gpui-module/Cargo.toml",
+    "ReactGpui/rn-gpui-module/src",
+    "ReactGpui/rn-gpui-module/tests",
+    "ReactGpui/rn-gpui-module-build/Cargo.toml",
+    "ReactGpui/rn-gpui-module-build/src"
   ],
   "scripts": {
     "prepublishOnly": "node scripts/check-prebuilt-pin.mjs"

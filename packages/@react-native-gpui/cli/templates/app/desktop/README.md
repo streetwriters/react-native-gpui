@@ -28,21 +28,73 @@ opens. Window size and position restore from the previous run by default; call
 
 ## Project-local Rust TurboModules
 
-Declare local Rust source in `src/main.rs`, annotate its `NativeGreeting`
-implementation with `#[react_native_gpui::rn_module("NativeGreeting")]`, and
-keep its generated symbols linked with
-`react_native_gpui::register_turbo_module!(greeting::NATIVEGREETING_RN_GPUI_MODULES);`.
-Add `src/NativeGreeting.ts` with a
-`TurboModuleRegistry.getEnforcing<Spec>('NativeGreeting')` spec and the
-supported synchronous `(string) => string` method signature.
-`npx react-native run-desktop` discovers
-these local specs during its normal autolink step and generates the native
-provider automatically. Put Rust implementation dependencies in this folder's
-`Cargo.toml`.
+A local Rust TurboModule is a spec file plus a `mod` that implements the trait
+generated from it:
+
+1. Add `src/NativeGreeting.ts` with a
+   `TurboModuleRegistry.getEnforcing<Spec>('NativeGreeting')` spec.
+2. List it in `desktop/build.rs`:
+   `rn_gpui_module_build::generate(&["src/NativeGreeting.ts"]);`.
+3. Write the implementation in `desktop/src/greeting.rs`, deriving nothing by
+   hand: the generated file gives you `NativeGreetingSpec`, the events handle and
+   the value structs.
+
+   ```rust
+   use rn_gpui_module::{ModuleError, ModuleThread, Value};
+
+   pub struct Greeting;
+
+   impl NativeGreetingSpec for Greeting {
+       fn new(_events: NativeGreetingEvents) -> Self {
+           Self
+       }
+
+       fn greet(&self, name: String) -> Result<String, ModuleError> {
+           Ok(format!("Hello from Rust, {name}!"))
+       }
+   }
+   ```
+
+   A method that returns a value runs on the JS thread; a method that returns
+   `void` or a `Promise` runs on the module's own thread unless the impl adds
+   `const THREAD: ModuleThread = ModuleThread::Main;`.
+
+4. Declare `mod greeting;` in `src/main.rs` and register it before the app
+   starts:
+
+   ```rust
+   react_native_gpui::register_module(native_greeting_module::<greeting::Greeting>());
+   ```
+
+`include_specs!()` in `main.rs` pulls in the generated traits, structs and
+descriptors. A mistake against the spec is a compile error in this crate, not a
+runtime surprise. The runtime crate is `rn-gpui-module`, and
+`rn-gpui-module-build` runs the generator from `build.rs`.
 
 For a reusable TurboModule library, keep its TypeScript spec under `src/` and
 its native implementation under `gpui/`, with `codegenConfig` and
 `platforms.gpui` in `package.json`; `npx react-native create-library` creates
-that layout. `desktop/Info.plist` and `desktop/assets/` are the app-bundle
+that layout. Autolink runs React Native Codegen over the package's specs and
+writes `<codegenConfig.name>JSI.h` plus `<codegenConfig.name>.h`, the latter
+declaring one spec class per spec file (`src/NativeGreeting.ts` defines
+`NativeGreetingSpec`). A C++ implementation derives from that class and
+declares one method per spec method, with typed arguments (`std::string`,
+`double`, `bool`, `folly::dynamic`, `std::vector<T>`, `std::optional<T>`,
+`rngpui::Callback<...>`) and either a return value or, for a spec `Promise<T>`,
+a `void` method taking `rngpui::Promise<T>` last. `react/bridging` performs the
+conversion, so a signature that disagrees with the spec fails to compile.
+
+Methods that return a value run on the JS thread and take `jsi::Runtime&`
+first. Methods that return `void` or a `Promise` run on the module's own thread
+by default, so they never block the JS thread; set
+a `public static constexpr rngpui::ModuleThread kThread` to `Main` (the GPUI
+main thread) or `JS` (inline on the JS thread, taking `jsi::Runtime&` first) to
+choose another thread; the generated spec class reads `T::kThread`, so it has to
+be public. A method that does not run on the JS thread cannot take
+a JSI type. A spec `readonly onProgress: CodegenTypes.EventEmitter<number>`
+generates a protected `emitOnProgress(value)` that any thread may call, and
+`sendEvent("name", body)` covers modules used through `NativeEventEmitter`.
+
+`desktop/Info.plist` and `desktop/assets/` are the app-bundle
 metadata and icon slots used by Phase 5 packaging. Add the app icon as
 `desktop/assets/AppIcon.icns`.

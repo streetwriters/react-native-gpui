@@ -1,4 +1,9 @@
 fn main() {
+    // App-local Rust TurboModules: list one entry per `src/Native*.ts` spec,
+    // for example `&["src/NativeGreeting.ts"]`. Their glue is generated into
+    // this crate's OUT_DIR, and main.rs registers the modules.
+    rn_gpui_module_build::generate(&[]);
+
     let desktop_root = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"),
     );

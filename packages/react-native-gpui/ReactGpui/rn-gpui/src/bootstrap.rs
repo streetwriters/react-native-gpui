@@ -197,7 +197,7 @@ async fn flush_js(host: &Host, cx: &mut gpui::AsyncApp) {
     }
 }
 
-enum MainEvent {
+pub(crate) enum MainEvent {
     Mount(MountBatch),
     SurfaceStopped(i32),
     AnimatedProps(rn_gpui_sys::ffi::AnimatedPropsFlat),
@@ -232,12 +232,13 @@ enum MainEvent {
     },
     TrayMenuPerform(String),
     MenuBarPerform(String),
-    Desktop {
-        id: i32,
-        domain: String,
-        method: String,
-        args_json: String,
-    },
+    /// One desktop-shell command, run with the app context the main loop holds.
+    /// It answers through the channel it was built with, which may be later:
+    /// a context menu answers when it closes.
+    DesktopCommand(Box<dyn FnOnce(&mut gpui::App) + Send + 'static>),
+    MainTask(u64),
+    /// Work a Rust module asked to run on the main thread.
+    RustJob(rn_gpui_module::Job),
 }
 
 pub type WindowOptionsHook = Box<dyn FnOnce(&mut WindowOptions) + 'static>;
@@ -392,6 +393,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         panic!("RN_GPUI_TEST_DRIVER is enabled, but this app was not built with --features test-driver");
     }
     startup_trace("main entered");
+    rn_gpui_sys::note_main_thread();
+    rn_gpui_module::note_main_thread();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -538,15 +541,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
     }));
     let desktop_tx = tx.clone();
-    let _ =
-        rn_gpui_sys::DESKTOP_CALL_HANDLER.set(Box::new(move |id, domain, method, args_json| {
-            let _ = desktop_tx.send_blocking(MainEvent::Desktop {
-                id,
-                domain,
-                method,
-                args_json,
-            });
-        }));
+    crate::desktop::set_command_sender(desktop_tx);
+    let main_task_tx = tx.clone();
+    let _ = rn_gpui_sys::MAIN_TASK_HANDLER.set(Box::new(move |id| {
+        let _ = main_task_tx.send_blocking(MainEvent::MainTask(id));
+    }));
+    // Rust modules that ask for the main thread hand their work over here; the
+    // future is created and polled on the main thread, so it never has to be
+    // `Send`.
+    let rust_job_tx = tx.clone();
+    rn_gpui_module::set_main_spawner(move |job| {
+        let _ = rust_job_tx.send_blocking(MainEvent::RustJob(job));
+    });
     let dev_menu_tx = tx.clone();
     let _ = rn_gpui_sys::DEV_MENU_SHOW_HANDLER.set(Box::new(move || {
         let _ = dev_menu_tx.send_blocking(MainEvent::DevMenuShow);
@@ -580,6 +586,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
     // The snapshot is read on the JS thread during module initialization, so it
     // has to be installed before the bundle loads.
     crate::desktop::install_snapshot(&app_id);
+    // The desktop shell is a Rust TurboModule: JS asks for it by name.
+    crate::desktop::module::register();
 
     #[cfg(feature = "visual-capture")]
     let headless = env_bool("RN_GPUI_HEADLESS", false);
@@ -1387,7 +1395,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
                         if surface_id == rn_gpui_sys::ALL_SURFACES {
-                            rn_gpui_sys::ffi::reject_pending_desktop_calls();
+                            rn_gpui_sys::ffi::rn_gpui_rust_module_clear_pending();
                         }
                         store.update(cx, |store, cx| store.surface_stopped(surface_id, cx));
                     }
@@ -1434,15 +1442,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             crate::desktop::dev_menu::apply_setting(cx, &name, enabled)
                         });
                     }
-                    MainEvent::Desktop {
-                        id,
-                        domain,
-                        method,
-                        args_json,
-                    } => {
-                        cx.update(|cx| {
-                            crate::desktop::dispatch(cx, id, &domain, &method, &args_json)
-                        });
+                    MainEvent::DesktopCommand(command) => {
+                        cx.update(|cx| command(cx));
+                    }
+                    MainEvent::MainTask(id) => {
+                        rn_gpui_sys::ffi::rn_gpui_run_main_task(id);
+                    }
+                    MainEvent::RustJob(job) => {
+                        cx.spawn(async move |_| {
+                            job().await;
+                        })
+                        .detach();
                     }
                     MainEvent::AnimatedProps(props) => {
                         if props.has_opacity
