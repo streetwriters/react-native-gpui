@@ -13,6 +13,7 @@
     "packages/@react-native-gpui/reanimated",
     "packages/@react-native-gpui/svg",
     "packages/@react-native-gpui/fonts",
+    "packages/@react-native-gpui/vector-icons",
     "packages/@react-native-gpui/gesture-handler",
     "packages/@react-native-gpui/screens",
     "packages/rn-gpui-tester",

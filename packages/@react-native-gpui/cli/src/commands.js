@@ -804,6 +804,11 @@ export function createLibrary({
     .replaceAll(/([a-z0-9])([A-Z])/gu, '$1-$2')
     .toLowerCase()
     .replaceAll(/[^a-z0-9-]/gu, '-');
+  const snakeCase = value =>
+    value
+      .replaceAll(/([a-z0-9])([A-Z])/gu, '$1_$2')
+      .replaceAll(/([A-Z]+)([A-Z][a-z])/gu, '$1_$2')
+      .toLowerCase();
   const words = libraryName.match(/[A-Z]?[a-z0-9]+|[A-Z]+/gu) ?? [libraryName];
   const moduleStem = words
     .map(word => word[0].toUpperCase() + word.slice(1).toLowerCase())
@@ -815,6 +820,11 @@ export function createLibrary({
   const specName = `Native${moduleStem}`;
   const cppProvider = `create_${slug.replaceAll('-', '_')}_module`;
   const packageName = requestedPackageName ?? `react-native-${slug}`;
+  // Two names have to line up: `<codegenName>JSI.h` is the generated header, and
+  // the spec class is named after the spec file (`src/${specName}.ts`). The C++
+  // template writes `RNModuleSpec` and `NativeModuleCxxSpec`, which the
+  // replacements below turn into exactly these two names.
+  const codegenName = `${moduleName}Spec`;
   const templateRoot = path.join(templatesDir, `modules/${type}`);
   fs.mkdirSync(destination, { recursive: true });
   const moduleFiles =
@@ -822,6 +832,7 @@ export function createLibrary({
       ? {
           [`src/${specName}.ts`]: 'NativeModule.ts',
           'src/index.ts': 'index.ts',
+          'gpui/build.rs': 'build.rs',
           'gpui/src/lib.rs': 'lib.rs',
         }
       : {
@@ -836,6 +847,7 @@ export function createLibrary({
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     const contents = fs
       .readFileSync(path.join(templateRoot, source), 'utf8')
+      .replaceAll('RNMODULESNAKE', snakeCase(moduleStem))
       .replaceAll('NativeModule', specName)
       .replaceAll('RNMODULE', moduleName.toUpperCase())
       .replaceAll('RNModule', moduleName)
@@ -853,7 +865,7 @@ export function createLibrary({
     main: 'src/index.ts',
     files: ['src', 'gpui', 'react-native.config.js', 'README.md'],
     codegenConfig: {
-      name: `${moduleName}Spec`,
+      name: codegenName,
       type: 'modules',
       jsSrcsDir: 'src',
     },
@@ -885,13 +897,18 @@ export function createLibrary({
     const platformPackageJson = appRequire.resolve(
       'react-native-gpui/package.json',
     );
-    const macrosPath = path.relative(
-      path.join(destination, 'gpui'),
-      path.join(path.dirname(platformPackageJson), 'ReactGpui/rn-gpui-macros'),
+    const platformRustRoot = path.join(
+      path.dirname(platformPackageJson),
+      'ReactGpui',
     );
+    const cratePath = crate =>
+      path.relative(
+        path.join(destination, 'gpui'),
+        path.join(platformRustRoot, crate),
+      );
     fs.writeFileSync(
       path.join(destination, 'gpui/Cargo.toml'),
-      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-macros = { path = ${JSON.stringify(macrosPath)} }\n`,
+      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-module = { path = ${JSON.stringify(cratePath('rn-gpui-module'))} }\n\n[build-dependencies]\nrn-gpui-module-build = { path = ${JSON.stringify(cratePath('rn-gpui-module-build'))} }\n`,
     );
   }
   const exampleRoot = path.join(destination, 'example');
