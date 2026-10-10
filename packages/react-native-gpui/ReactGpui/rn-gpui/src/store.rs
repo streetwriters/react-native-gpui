@@ -1451,31 +1451,6 @@ impl Render for SurfaceRootView {
                 crate::events::leave_root(window, cx);
             }))
             .children(self.children.iter().map(|(_, child)| child.clone()));
-        if self.surface_id == APP_SURFACE_ID {
-            for (button, event_name) in [
-                (
-                    MouseButton::Navigate(NavigationDirection::Back),
-                    "hardwareBackPress",
-                ),
-                (
-                    MouseButton::Navigate(NavigationDirection::Forward),
-                    "hardwareForwardPress",
-                ),
-            ] {
-                root = root.on_mouse_down(
-                    button,
-                    cx.listener(move |_this, _event, window, cx| {
-                        if let Some(store) = cx.try_global::<StoreGlobal>() {
-                            let store = store.0.read(cx);
-                            store.host.emit_device_event(event_name);
-                            store.frame_hook.arm(window);
-                            log::info!("[navigation] emitted {event_name} from mouse button");
-                        }
-                        cx.stop_propagation();
-                    }),
-                );
-            }
-        }
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         if let Some(native_view_probe) = &self.native_view_probe {
             root = root.child(native_view_probe.clone());
@@ -1509,16 +1484,45 @@ impl Render for SurfaceRootView {
         if let Some(monitor) = self.perf_monitor.clone() {
             root = root.child(monitor);
         }
-        if let Some(menu_bar) = self.menu_bar.clone() {
-            return div()
+        // The hardware navigation buttons belong to the window, not the
+        // surface: the handlers go on the outermost element so the in-window
+        // menu bar (Linux) cannot swallow a press aimed at the app.
+        let mut window_root = if let Some(menu_bar) = self.menu_bar.clone() {
+            div()
                 .size_full()
                 .flex()
                 .flex_col()
                 .child(menu_bar)
                 .child(div().flex_1().min_h_0().child(root))
-                .into_any_element();
+        } else {
+            div().size_full().child(root)
+        };
+        if self.surface_id == APP_SURFACE_ID {
+            for (button, event_name) in [
+                (
+                    MouseButton::Navigate(NavigationDirection::Back),
+                    "hardwareBackPress",
+                ),
+                (
+                    MouseButton::Navigate(NavigationDirection::Forward),
+                    "hardwareForwardPress",
+                ),
+            ] {
+                window_root = window_root.on_mouse_down(
+                    button,
+                    cx.listener(move |_this, _event, window, cx| {
+                        if let Some(store) = cx.try_global::<StoreGlobal>() {
+                            let store = store.0.read(cx);
+                            store.host.emit_device_event(event_name);
+                            store.frame_hook.arm(window);
+                            log::info!("[navigation] emitted {event_name} from mouse button");
+                        }
+                        cx.stop_propagation();
+                    }),
+                );
+            }
         }
-        root.into_any_element()
+        window_root.into_any_element()
     }
 }
 

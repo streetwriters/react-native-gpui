@@ -752,22 +752,25 @@ mod tests {
 /// popping a focused screen must not disable subsequent shortcuts.
 pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'static str> {
     let modifiers = stroke.modifiers;
-    let (back, forward, enabled) = if cfg!(target_os = "macos") {
-        (
-            "[",
-            "]",
-            modifiers.platform && !modifiers.alt && !modifiers.control && !modifiers.shift,
-        )
+    let no_other = !modifiers.alt && !modifiers.platform && !modifiers.shift;
+    let chord_enabled = if cfg!(target_os = "macos") {
+        // Cmd+[ / Cmd+]
+        modifiers.platform && !modifiers.alt && !modifiers.control && !modifiers.shift
+    } else if modifiers.alt && !modifiers.control && !modifiers.platform && !modifiers.shift {
+        // GNOME-style Alt+Left / Alt+Right.
+        true
     } else {
-        (
-            "left",
-            "right",
-            modifiers.alt && !modifiers.control && !modifiers.platform && !modifiers.shift,
-        )
+        // Browser-style Ctrl+[ / Ctrl+] as well.
+        modifiers.control && no_other
     };
-    if !enabled {
+    if !chord_enabled {
         return None;
     }
+    let (back, forward) = if cfg!(target_os = "macos") || modifiers.control {
+        ("[", "]")
+    } else {
+        ("left", "right")
+    };
     if stroke.key == back {
         Some("hardwareBackPress")
     } else if stroke.key == forward {
