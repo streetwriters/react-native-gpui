@@ -1,6 +1,7 @@
 import type { NodeApiFixture } from '@react-native-gpui/node-api-fixture';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import CppTurboModuleFixture from './CppTurboModuleFixture';
 
 export default function NativeModulesFixture({
   kind = 'rust',
@@ -8,14 +9,14 @@ export default function NativeModulesFixture({
   kind?: 'rust' | 'cpp' | 'node-api';
 }) {
   const [result, setResult] = useState('Ready');
+  if (kind === 'cpp') {
+    return <CppTurboModuleFixture />;
+  }
   async function run() {
     try {
       if (kind === 'rust') {
         const module =
           require('@react-native-gpui/native-module-fixture').default;
-        setResult(module.greet('GPUI Tester'));
-      } else if (kind === 'cpp') {
-        const module = require('@react-native-gpui/cpp-module-fixture').default;
         setResult(module.greet('GPUI Tester'));
       } else {
         const addon: NodeApiFixture = require('../../gpui_node_api_smoke.node');

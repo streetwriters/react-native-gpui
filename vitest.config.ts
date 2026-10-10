@@ -7,7 +7,11 @@ export default mergeConfig(
   defineConfig({
     root: fileURLToPath(new URL('.', import.meta.url)),
     test: {
-      include: ['packages/rn-gpui-tester/vitest/**/*.test.{js,ts,tsx}'],
+      include: [
+        'packages/rn-gpui-tester/vitest/**/*.test.{js,ts,tsx}',
+        'packages/@react-native-gpui/cli/src/**/*.test.js',
+        'packages/@react-native-gpui/codegen/src/**/*.test.js',
+      ],
     },
   }),
 );

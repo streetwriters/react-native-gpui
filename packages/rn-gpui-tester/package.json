@@ -18,6 +18,7 @@
     "@react-native-gpui/safe-area-context": "file:../@react-native-gpui/safe-area-context",
     "@react-native-gpui/screens": "file:../@react-native-gpui/screens",
     "@react-native-gpui/svg": "file:../@react-native-gpui/svg",
+    "@react-native-gpui/vector-icons": "file:../@react-native-gpui/vector-icons",
     "@react-native-gpui/worklets": "file:../@react-native-gpui/worklets",
     "@react-native-vector-icons/common": "^11.0.0",
     "@react-native/assets-registry": "^0.87.1",
