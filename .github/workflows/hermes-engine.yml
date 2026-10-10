@@ -82,11 +82,11 @@ jobs:
             os: macos-15
             configure: -DCMAKE_OSX_ARCHITECTURES=x86_64
           - platform: linux-x64
-            os: ubuntu-24.04
-            configure: ''
+            os: ubuntu-22.04
+            configure: -DHERMES_ICU_RUNTIME_LOAD=ON
           - platform: linux-arm64
-            os: ubuntu-24.04-arm
-            configure: ''
+            os: ubuntu-22.04-arm
+            configure: -DHERMES_ICU_RUNTIME_LOAD=ON
           - platform: win32-x64
             os: windows-2022
             arch: x64
@@ -103,6 +103,17 @@ jobs:
           ref: ${{ inputs.hermes_commit || env.HERMES_COMMIT }}
           path: hermes
           fetch-depth: 1
+
+      - name: Check out react-native-gpui patches
+        uses: actions/checkout@v4
+        with:
+          path: rn-gpui
+          sparse-checkout: packages/@react-native-gpui/hermes/patches
+          fetch-depth: 1
+
+      - name: Apply react-native-gpui patches
+        shell: bash
+        run: git -C hermes apply ../rn-gpui/packages/@react-native-gpui/hermes/patches/*.patch
 
       - name: Install build dependencies
         if: runner.os == 'Linux'
@@ -218,6 +229,38 @@ jobs:
           cp "$(find hermes-build -name hermesc -type f -print -quit)" "bin/$platform/hermesc"
           chmod +x "bin/$platform/hermesc"
           "bin/$platform/hermesc" -version
+
+      - name: Check Linux ICU and glibc requirements
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib="bin/${{ matrix.platform }}/libhermesvm.so"
+          if readelf -d "$lib" | grep -q 'NEEDED.*libicu'; then
+            echo "$lib still links ICU:" >&2
+            readelf -d "$lib" | grep libicu >&2
+            exit 1
+          fi
+          highest="$(objdump -T "$lib" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -uV | tail -1)"
+          echo "Highest GLIBC symbol: $highest"
+          if [ "$(printf '%s\nGLIBC_2.35\n' "$highest" | sort -V | tail -1)" != "GLIBC_2.35" ]; then
+            echo "glibc floor $highest is above 2.35" >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/icu-smoke.js" <<'EOF'
+          print("ß".toUpperCase());
+          print("é".normalize("NFD").length);
+          print(["b","a","ä","z"].sort((x,y)=>x.localeCompare(y)).join(","));
+          print(typeof new Date(0).toLocaleDateString());
+          EOF
+          hermes_bin="$(find hermes-build -name hermes -type f -print -quit)"
+          actual="$("$hermes_bin" "$RUNNER_TEMP/icu-smoke.js")"
+          expected="$(printf 'SS\n2\na,ä,b,z\nstring')"
+          if [ "$actual" != "$expected" ]; then
+            echo "Unexpected smoke output:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
 
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
