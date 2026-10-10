@@ -41,6 +41,137 @@ npx react-native create-library mmkv --type cpp   # C++
 
 Both templates use React Native's `TurboModuleRegistry` API and TypeScript specs.
 
+### C++ TurboModules
+
+A C++ package declares a `codegenConfig` whose `name` is a C++ identifier and a
+`platforms.gpui.cppProvider` in its `react-native.config.js`. Autolinking runs
+React Native Codegen over the package's specs and writes two headers:
+`<codegenConfig.name>JSI.h` (React Native's own, for the struct helpers of named
+object types) and `<codegenConfig.name>.h`, which declares one spec class per
+spec file: `src/NativeGreeting.ts` defines `NativeGreetingSpec`. The
+implementation derives from that class and declares one method per spec method:
+
+```cpp
+#include <GPUIGreetingSpec.h>
+
+class GreetingModule final : public NativeGreetingSpec<GreetingModule> {
+ public:
+  explicit GreetingModule(std::shared_ptr<CallInvoker> jsInvoker)
+      : NativeGreetingSpec(std::move(jsInvoker)) {}
+
+  // A value method runs on the JS thread and takes the runtime first.
+  std::string greet(jsi::Runtime&, std::string name);
+
+  // A void or Promise method runs on the module's own thread.
+  void load(std::string uri, rngpui::Promise<bool> promise);
+  void record(std::string value);
+
+  // A callback may be called from any thread, at most once.
+  void lookup(std::string key, rngpui::Callback<std::string, bool> callback);
+};
+```
+
+Arguments arrive as the C++ type the spec maps to (`std::string`, `double`,
+`bool`, `std::optional<T>`, `std::vector<T>`, `std::vector<uint8_t>` for an
+`ArrayBuffer`, `folly::dynamic` for an untyped object, `rngpui::Callback<...>`
+for a function), and `rngpui::Promise<T>` replaces a spec `Promise<T>`
+(`Promise<void>` becomes `rngpui::Promise<>`). An `ArrayBuffer` is copied into
+bytes the module owns, so a method may keep them or run on any thread. A
+method that does not run on the JS thread cannot
+take a JSI type; that is a compile error. `promise.resolve(value)`,
+`promise.reject(message)` and `promise.reject(code, message)` may be called from
+any thread, and only the first call has an effect.
+
+A `public static constexpr rngpui::ModuleThread kThread` picks the thread a
+module's `void` and `Promise` methods run on: `Own` (the default) is a serial
+queue with its own thread, `Main` is the GPUI main thread, and `JS` runs them
+inline on the JS thread, where they take `jsi::Runtime&` first like value
+methods. It has to be public: the generated spec class reads `T::kThread`.
+
+Typed events come from the spec as well. `readonly onProgress:
+CodegenTypes.EventEmitter<number>` generates a protected `emitOnProgress(value)`
+that may be called from any thread; `addListener`/`removeListeners` methods and
+`sendEvent("name", folly::dynamic)` cover modules used through
+`NativeEventEmitter`.
+
+The provider returns a new instance for its own module name and `nullptr`
+otherwise, which `rngpui::provideTurboModule` in `GpuiTurboModule.h` does from
+`Module::kModuleName`.
+
+### Rust TurboModules
+
+A Rust package declares `platforms.gpui.crate` in its `react-native.config.js`
+and depends on `rn-gpui-module`, with `rn-gpui-module-build` as a build
+dependency. `gpui/build.rs` lists the package's specs:
+
+```rust
+fn main() {
+    rn_gpui_module_build::generate(&["../src/NativeGreeting.ts"]);
+}
+```
+
+The generator writes a trait per spec file into the crate's `OUT_DIR`;
+`gpui/src/lib.rs` includes it and implements the trait. The author writes no
+argument checks, no promise plumbing and no C++:
+
+```rust
+rn_gpui_module::include_specs!();
+
+pub struct Greeting;
+
+impl NativeGreetingSpec for Greeting {
+    fn new(events: NativeGreetingEvents) -> Self {
+        Self { events }
+    }
+
+    // A value method runs on the JS thread.
+    fn greet(&self, name: String) -> Result<String, ModuleError> {
+        Ok(format!("Hello from Rust, {name}!"))
+    }
+
+    // A void or Promise method runs on the module's own thread, or the GPUI
+    // main thread with `const THREAD: ModuleThread = ModuleThread::Main;`.
+    async fn load(&self, uri: String) -> Result<bool, ModuleError> {
+        Ok(true)
+    }
+    fn record(&self, value: String) {}
+
+    // A callback is consumed by calling it, so it can be called at most once.
+    // It may also be dropped instead, which releases the JS function.
+    fn lookup(&self, key: String, callback: Box<dyn FnOnce(String, bool) + Send>) {
+        callback(key, true);
+    }
+
+    // An ArrayBuffer arrives as bytes the module owns.
+    fn checksum(&self, data: ArrayBuffer) -> Result<f64, ModuleError> {
+        Ok(data.iter().map(|byte| f64::from(*byte)).sum())
+    }
+
+    // Typed spec events go through the generated handle.
+    fn start(&self, steps: f64) {
+        self.events.on_progress(steps);
+        self.events.send_event("tick", Value::Null);
+    }
+}
+
+pub fn rn_gpui_register() {
+    rn_gpui_module::register(native_greeting_module::<Greeting>());
+}
+```
+
+`spec` types map to Rust types: `string` to `String`, `number` to `f64`,
+`Int32` to `i32`, `boolean` to `bool`, `?T` to `Option<T>`, `Array<T>` to
+`Vec<T>`, `ArrayBuffer` to `rn_gpui_module::ArrayBuffer`, `Object` to
+`rn_gpui_module::Value`, a named object alias or an inline object to a generated
+struct, a string literal union or TS `enum` to a generated enum, and `Promise<T>`
+to an `async fn` returning `Result<T, ModuleError>`. An `ArrayBuffer` arrives as
+its bytes, so the method owns them.
+Values cross the bridge structurally, never as text. A mistake against the spec
+fails the library crate's own build.
+
+The app calls each crate's `rn_gpui_register()` from the autolink shim, so
+nothing has to be kept alive by hand.
+
 ### Fabric components
 
 A native package that provides Fabric components declares their descriptors
@@ -350,8 +481,11 @@ that wait for idle.
 this machine cannot build for that platform.
 
 `react-native-gpui/desktop` reports what the current platform supports through
-`GpuiDesktop.getSnapshot('capabilities')`, so an app can degrade gracefully
-instead of calling into an unsupported path.
+`capabilities()`, which reads the `GpuiDesktop` TurboModule synchronously, so an
+app can degrade gracefully instead of calling into an unsupported path. Every
+desktop-shell command is a method of that module, with the arguments and results
+the JS API uses; `rn-gpui` implements the trait generated from its spec, so the
+two sides cannot drift, and each command runs on the GPUI main thread.
 
 ## Testing a desktop app
 
@@ -377,6 +511,7 @@ check. Restart Metro after changing `metro.config.js` or `package.json`.
 | `@react-native-gpui/safe-area-context` | `react-native-safe-area-context` |
 | `@react-native-gpui/svg`               | `react-native-svg`               |
 | `@react-native-gpui/fonts`             | Custom font loading              |
+| `@react-native-gpui/vector-icons`      | Vector icon rasterization        |
 | `@react-native-gpui/hermes`            | The Hermes JS engine             |
 | `@react-native-gpui/testing`           | Desktop test presets and driver  |
 
