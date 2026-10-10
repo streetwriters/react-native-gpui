@@ -1,7 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "rn-gpui-sys", "rn-gpui", "rn-gpui-macros"
+  "rn-gpui-sys",
+  "rn-gpui",
+  "rn-gpui-module",
+  "rn-gpui-module-build",
+  "rn-gpui-module/tests/generated",
 ]
 
 # Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.

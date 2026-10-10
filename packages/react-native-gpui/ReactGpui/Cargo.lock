@@ -5578,7 +5578,8 @@ dependencies = [
  "objc",
  "raw-window-handle",
  "reqwest_client",
- "rn-gpui-macros",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
  "rn-gpui-sys",
  "serde_json",
  "tray-icon",
@@ -5755,12 +5756,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "rn-gpui-macros"
+name = "rn-gpui-module"
 version = "0.1.0"
 dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "futures",
+]
+
+[[package]]
+name = "rn-gpui-module-build"
+version = "0.1.0"
+
+[[package]]
+name = "rn-gpui-module-generated-test"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
 ]
 
 [[package]]
@@ -5771,6 +5783,7 @@ dependencies = [
  "cxx",
  "cxx-build",
  "log",
+ "rn-gpui-module",
  "serde_json",
 ]
 

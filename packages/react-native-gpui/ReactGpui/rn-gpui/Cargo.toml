@@ -16,8 +16,12 @@ test-driver = ["visual-capture", "dep:tungstenite"]
 # Enables Window's draw/present histograms for the 10k-node benchmark.
 perf-timing = ["gpui/profiler"]
 
+[build-dependencies]
+rn-gpui-module-build = { path = "../rn-gpui-module-build" }
+
 [dependencies]
 rn-gpui-sys = { path = "../rn-gpui-sys" }
+rn-gpui-module = { path = "../rn-gpui-module" }
 gpui = { workspace = true }
 cxx = { workspace = true }
 async-channel = { workspace = true }
@@ -35,7 +39,6 @@ base64 = "0.22"
 # on Windows, AppIndicator/StatusNotifierItem on Linux.
 tray-icon = "0.26"
 tungstenite = { version = "0.26", default-features = false, features = ["handshake"], optional = true }
-rn-gpui-macros = { path = "../rn-gpui-macros" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

@@ -22,17 +22,6 @@ pub(crate) mod text;
 mod bootstrap;
 pub use bootstrap::{run, run_with, DesktopAppConfig};
 pub use desktop::tray::TrayConfig;
-pub use rn_gpui_macros::rn_module;
-
-/// Keep a locally declared `#[rn_module]`'s exported C ABI symbols linked into
-/// the desktop executable so the generated C++ TurboModule provider can call
-/// them. Pass the generated `*_RN_GPUI_MODULES` constant from the module.
-#[macro_export]
-macro_rules! register_turbo_module {
-    ($modules:path) => {
-        const _: () = {
-            #[used]
-            static MODULES: &[&str] = $modules;
-        };
-    };
-}
+/// The runtime a Rust TurboModule is written against.
+pub use rn_gpui_module as module;
+pub use rn_gpui_module::{register as register_module, ModuleError, ModuleThread, Value};

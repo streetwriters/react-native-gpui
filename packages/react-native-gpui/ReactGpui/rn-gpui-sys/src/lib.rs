@@ -208,6 +208,26 @@ pub mod ffi {
         pub has_text_color: bool,
     }
 
+    #[derive(Clone, Debug)]
+    pub struct RustModuleMethod {
+        pub name: String,
+        pub arg_count: u32,
+        /// Arguments JS has to pass; the rest may be omitted.
+        pub required_args: u32,
+        /// 0 value, 1 void, 2 promise.
+        pub kind: u8,
+        /// Whether the spec returns `void`, which makes a promise resolve with
+        /// `undefined`.
+        pub returns_void: bool,
+        pub callback_args: Vec<u32>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct RustModuleEvent {
+        pub name: String,
+        pub has_value: bool,
+    }
+
     #[derive(Clone, Copy, Debug, Default)]
     pub struct MeasureResult {
         pub width: f32,
@@ -235,14 +255,14 @@ pub mod ffi {
         fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>);
         fn rn_gpui_read_clipboard(id: i32);
         fn rn_gpui_write_clipboard(text: String);
-        /// Called on the JS thread when `GpuiDesktop.call` receives a request.
-        /// Must not block: it forwards to the GPUI main thread.
-        fn rn_gpui_desktop_call(id: i32, domain: String, method: String, args_json: String);
-        /// Synchronous snapshot read for `GpuiDesktop.getSnapshot`. Called on
-        /// the JS thread; must never touch the GPUI main thread.
-        fn rn_gpui_desktop_snapshot(key: &str) -> String;
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
+        /// Called from a module thread to run a task on the GPUI main thread.
+        /// The task stays in C++ under `id`; the main loop calls
+        /// `rn_gpui_run_main_task` for it.
+        fn rn_gpui_run_on_main(id: u64);
+        /// Whether the calling thread is the GPUI main thread.
+        fn rn_gpui_is_main_thread() -> bool;
         /// Called on the JS/Fabric thread during layout. Thread-safe.
         fn rn_gpui_measure_text(
             p: &ParagraphFlat,
@@ -251,6 +271,96 @@ pub mod ffi {
         ) -> MeasureResult;
         fn rn_gpui_log(level: i32, message: &str);
         fn rn_gpui_on_surface_stopped(surface_id: i32);
+    }
+
+    extern "Rust" {
+        /// Returns the handle of a registered module, or 0 when no module has
+        /// that name.
+        fn rn_gpui_rust_module_create(name: &str) -> u64;
+        fn rn_gpui_rust_module_methods(handle: u64) -> Vec<RustModuleMethod>;
+        fn rn_gpui_rust_module_events(handle: u64) -> Vec<RustModuleEvent>;
+        /// Runs a value method on the calling (JS) thread. The result is written
+        /// into `scope` and returned, or `kDynamicNoNode` when `ok` is false.
+        fn rn_gpui_rust_module_call_value(
+            handle: u64,
+            method: u32,
+            scope: u32,
+            args: u32,
+            ok: &mut bool,
+            code: &mut String,
+            message: &mut String,
+        ) -> u32;
+        /// Converts the arguments on the calling thread, then queues the call on
+        /// the module's thread; `ok` reports a conversion failure.
+        fn rn_gpui_rust_module_call_void(
+            handle: u64,
+            method: u32,
+            scope: u32,
+            args: u32,
+            ok: &mut bool,
+            code: &mut String,
+            message: &mut String,
+        );
+        /// The same, settling the promise `request` identifies.
+        fn rn_gpui_rust_module_call_promise(
+            handle: u64,
+            method: u32,
+            scope: u32,
+            args: u32,
+            request: i32,
+        );
+        /// Drops the module instance, which stops its thread.
+        fn rn_gpui_rust_module_drop(handle: u64);
+    }
+
+    unsafe extern "C++" {
+        include!("GpuiDynamic.h");
+
+        /// Values cross as nodes in a C++-owned arena, one scope per call, so
+        /// nothing is serialised to text.
+        fn dynamic_scope_open() -> u32;
+        fn dynamic_scope_close(scope: u32);
+        fn dynamic_node_new(scope: u32, kind: u8) -> u32;
+        fn dynamic_node_set_bool(scope: u32, node: u32, value: bool);
+        fn dynamic_node_set_number(scope: u32, node: u32, value: f64);
+        fn dynamic_node_set_text(scope: u32, node: u32, text: &str);
+        fn dynamic_node_set_buffer(scope: u32, node: u32, bytes: &[u8]);
+        fn dynamic_node_append(scope: u32, parent: u32, child: u32, key: &str);
+        fn dynamic_node_kind(scope: u32, node: u32) -> u8;
+        fn dynamic_node_bool(scope: u32, node: u32) -> bool;
+        fn dynamic_node_number(scope: u32, node: u32) -> f64;
+        fn dynamic_node_text(scope: u32, node: u32) -> String;
+        fn dynamic_node_buffer_len(scope: u32, node: u32) -> usize;
+        fn dynamic_node_buffer(scope: u32, node: u32) -> Vec<u8>;
+        fn dynamic_node_len(scope: u32, node: u32) -> usize;
+        fn dynamic_node_child(scope: u32, node: u32, index: usize) -> u32;
+        fn dynamic_node_key(scope: u32, node: u32, index: usize) -> String;
+    }
+
+    unsafe extern "C++" {
+        include!("GpuiRustTurboModules.h");
+
+        fn rn_gpui_rust_module_result(
+            request: i32,
+            ok: bool,
+            scope: u32,
+            root: u32,
+            code: String,
+            message: String,
+        );
+        fn rn_gpui_rust_callback_invoke(id: u64, scope: u32, root: u32);
+        fn rn_gpui_rust_callback_drop(id: u64);
+        fn rn_gpui_rust_module_emit(
+            handle: u64,
+            event: &str,
+            has_value: bool,
+            scope: u32,
+            root: u32,
+        );
+        fn rn_gpui_rust_module_send_event(handle: u64, name: &str, scope: u32, root: u32);
+        /// Drops the promises and JS functions of the runtime that is going
+        /// away.
+        fn rn_gpui_rust_module_clear_pending();
     }
 
     unsafe extern "C++" {
@@ -293,8 +403,7 @@ pub mod ffi {
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_alert_result(id: i32, button_index: i32);
         fn rn_gpui_clipboard_result(id: i32, text: String);
-        fn rn_gpui_desktop_result(id: i32, ok: bool, json: String);
-        fn reject_pending_desktop_calls();
+        fn rn_gpui_run_main_task(id: u64);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
         fn request_reload(self: Pin<&mut GpuiHost>);
         fn set_dev_server(self: Pin<&mut GpuiHost>, host: &str, port: u32) -> bool;
@@ -321,6 +430,16 @@ pub mod ffi {
         fn set_scroll_offset(self: &GpuiHost, tag: i32, x: f32, y: f32);
     }
 }
+
+mod rust_module;
+
+// The `extern "Rust"` declarations in the bridge resolve in this module, so the
+// implementations are re-exported here.
+pub use rust_module::{
+    args_from_dynamic, rn_gpui_rust_module_call_promise, rn_gpui_rust_module_call_value,
+    rn_gpui_rust_module_call_void, rn_gpui_rust_module_create, rn_gpui_rust_module_drop,
+    rn_gpui_rust_module_events, rn_gpui_rust_module_methods, value_from_node, value_to_node,
+};
 
 use std::sync::OnceLock;
 
@@ -354,10 +473,15 @@ pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
 pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
-pub type DesktopCallHandler = Box<dyn Fn(i32, String, String, String) + Send + Sync>;
-pub static DESKTOP_CALL_HANDLER: OnceLock<DesktopCallHandler> = OnceLock::new();
-pub type DesktopSnapshotHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
-pub static DESKTOP_SNAPSHOT_HANDLER: OnceLock<DesktopSnapshotHandler> = OnceLock::new();
+pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
+pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
+pub static MAIN_THREAD_ID: OnceLock<std::thread::ThreadId> = OnceLock::new();
+
+/// Records the calling thread as the GPUI main thread. The main loop calls this
+/// before it can receive main-thread tasks.
+pub fn note_main_thread() {
+    let _ = MAIN_THREAD_ID.set(std::thread::current().id());
+}
 pub type DevMenuShowHandler = Box<dyn Fn() + Send + Sync>;
 pub static DEV_MENU_SHOW_HANDLER: OnceLock<DevMenuShowHandler> = OnceLock::new();
 pub type DevSettingHandler = Box<dyn Fn(String, bool) + Send + Sync>;
@@ -493,39 +617,36 @@ fn rn_gpui_write_clipboard(text: String) {
     }
 }
 
-fn rn_gpui_desktop_call(id: i32, domain: String, method: String, args_json: String) {
-    match DESKTOP_CALL_HANDLER.get() {
-        Some(handler) => handler(id, domain, method, args_json),
-        None => {
-            // No main thread is listening (startup, or a build without the
-            // desktop module). Answer so the JS promise cannot hang.
-            ffi::rn_gpui_desktop_result(
-                id,
-                false,
-                "{\"code\":\"failed\",\"message\":\"the desktop module is not initialized\"}"
-                    .to_string(),
-            );
-        }
-    }
-}
-
 fn rn_gpui_dev_menu_show() {
     if let Some(handler) = DEV_MENU_SHOW_HANDLER.get() {
         handler();
     }
 }
 
+fn rn_gpui_run_on_main(id: u64) {
+    match MAIN_TASK_HANDLER.get() {
+        Some(handler) => handler(id),
+        None => {
+            // No main loop is listening (startup, or a build without the
+            // desktop module), so the task would never run. Say so once.
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| {
+                log::warn!("rn_gpui_run_on_main: no main-thread handler installed; task dropped");
+            });
+        }
+    }
+}
+
+fn rn_gpui_is_main_thread() -> bool {
+    MAIN_THREAD_ID
+        .get()
+        .is_some_and(|id| *id == std::thread::current().id())
+}
+
 fn rn_gpui_dev_setting(name: &str, enabled: bool) {
     if let Some(handler) = DEV_SETTING_HANDLER.get() {
         handler(name.to_string(), enabled);
     }
-}
-
-fn rn_gpui_desktop_snapshot(key: &str) -> String {
-    DESKTOP_SNAPSHOT_HANDLER
-        .get()
-        .map(|handler| handler(key))
-        .unwrap_or_else(|| "null".to_string())
 }
 
 fn rn_gpui_measure_text(

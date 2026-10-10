@@ -1,17 +1,23 @@
 //! Project-owned desktop launch configuration.
 //!
-//! Add `mod my_turbo_module;` here for local Rust TurboModules. Put matching
-//! `Native*.ts` specs beside this file; `run-desktop` discovers and codegens
-//! those specs automatically. See `desktop/README.md` for the full example.
-//!
-//! To manually include one in this app, add e.g.:
-//!   mod greeting;
-//!   react_native_gpui::register_turbo_module!(greeting::GREETINGMODULE_RN_GPUI_MODULES);
+//! A local Rust TurboModule is a `Native*.ts` spec beside this file plus a
+//! `mod` that implements the trait generated from it. `build.rs` lists the
+//! specs, and `main` registers each module before the app starts. See
+//! `desktop/README.md` for the full example.
+
+rn_gpui_module::include_specs!();
+
+// mod greeting;
+// use greeting::{native_greeting_module, Greeting};
 
 fn main() {
     if std::env::var_os("RN_GPUI_BUNDLE").is_none() {
         std::env::set_var("RN_GPUI_BUNDLE", env!("RN_GPUI_DEFAULT_BUNDLE"));
     }
+    // App-local modules are registered before the app starts; a module the
+    // platform already provides would panic here.
+    // react_native_gpui::register_module(native_greeting_module::<Greeting>());
+
     let config = react_native_gpui::DesktopAppConfig::from_env_with_defaults(
         env!("RN_GPUI_APP_NAME"),
         env!("RN_GPUI_APP_ID"),
