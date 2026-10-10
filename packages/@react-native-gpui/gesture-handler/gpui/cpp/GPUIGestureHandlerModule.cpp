@@ -1,5 +1,6 @@
 #include "GpuiHost.h"
 
+#include <GPUIGestureHandlerSpec.h>
 #include <ReactCommon/TurboModule.h>
 #include <folly/dynamic.h>
 #include <folly/json.h>
@@ -49,9 +50,8 @@ struct Handler {
 std::mutex handlersMutex;
 std::unordered_map<int32_t, Handler> handlers;
 
-folly::dynamic parseObject(const std::string& json) {
-  auto value = folly::parseJson(json);
-  return value.isObject() ? std::move(value) : folly::dynamic::object();
+folly::dynamic configObject(folly::dynamic config) {
+  return config.isObject() ? std::move(config) : folly::dynamic::object();
 }
 
 float number(const folly::dynamic& object, const char* key, float fallback) {
@@ -371,194 +371,113 @@ std::vector<GpuiRecognizedGestureEvent> processPointer(
   return events;
 }
 
-std::string stringify(Runtime& runtime, const facebook::jsi::Value& value) {
-  auto jsonObject = runtime.global().getPropertyAsObject(runtime, "JSON");
-  auto stringifyFunction =
-      jsonObject.getPropertyAsFunction(runtime, "stringify");
-  auto json = stringifyFunction.call(runtime, value);
-  if (!json.isString())
-    return "{}";
-  return json.asString(runtime).utf8(runtime);
-}
-
-int32_t tagFrom(const facebook::jsi::Value& value) {
-  return value.isNumber() ? static_cast<int32_t>(value.asNumber()) : -1;
-}
-
-facebook::jsi::Value createGestureHandler(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count != 3 || !args[0].isString() || !args[1].isNumber())
-    throw facebook::jsi::JSError(
-        runtime, "createGestureHandler expects (name, tag, config)");
-  Handler handler;
-  handler.name = args[0].asString(runtime).utf8(runtime);
-  handler.config = parseObject(stringify(runtime, args[2]));
-  std::lock_guard<std::mutex> lock(handlersMutex);
-  handlers.insert_or_assign(tagFrom(args[1]), std::move(handler));
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value attachGestureHandler(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count != 3)
-    throw facebook::jsi::JSError(
-        runtime, "attachGestureHandler expects (tag, viewTag, actionType)");
-  std::lock_guard<std::mutex> lock(handlersMutex);
-  auto found = handlers.find(tagFrom(args[0]));
-  if (found != handlers.end()) {
-    found->second.viewTag = tagFrom(args[1]);
-    found->second.actionType = tagFrom(args[2]);
-    if (gestureTracingEnabled()) {
-      LOG(INFO) << "[gesture-handler] attached handler=" << tagFrom(args[0])
-                << " view=" << found->second.viewTag
-                << " action=" << found->second.actionType;
-    }
-  }
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value detachGestureHandler(
-    Runtime&,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count == 1) {
-    std::lock_guard<std::mutex> lock(handlersMutex);
-    auto found = handlers.find(tagFrom(args[0]));
-    if (found != handlers.end())
-      found->second.viewTag = -1;
-  }
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value setConfig(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count != 2)
-    throw facebook::jsi::JSError(
-        runtime, "setGestureHandlerConfig expects (tag, config)");
-  const auto tag = tagFrom(args[0]);
-  const auto config = parseObject(stringify(runtime, args[1]));
-  std::lock_guard<std::mutex> lock(handlersMutex);
-  auto found = handlers.find(tag);
-  if (found != handlers.end())
-    found->second.config = config;
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value updateConfig(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count != 2)
-    throw facebook::jsi::JSError(
-        runtime, "updateGestureHandlerConfig expects (tag, config)");
-  const auto tag = tagFrom(args[0]);
-  const auto config = parseObject(stringify(runtime, args[1]));
-  std::lock_guard<std::mutex> lock(handlersMutex);
-  auto found = handlers.find(tag);
-  if (found != handlers.end()) {
-    for (const auto& [key, value] : config.items())
-      found->second.config[key] = value;
-  }
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value configureRelations(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count != 2 || !args[0].isNumber()) {
-    throw facebook::jsi::JSError(
-        runtime, "configureRelations expects (handlerTag, relations)");
-  }
-  const auto handlerTag = tagFrom(args[0]);
-  const auto relations = parseObject(stringify(runtime, args[1]));
-  std::lock_guard<std::mutex> lock(handlersMutex);
-  const auto found = handlers.find(handlerTag);
-  if (found != handlers.end()) {
-    found->second.simultaneousHandlers =
-        relationTags(relations, "simultaneousHandlers");
-    found->second.waitFor = relationTags(relations, "waitFor");
-    found->second.blocksHandlers = relationTags(relations, "blocksHandlers");
-    if (gestureTracingEnabled()) {
-      auto formatTags = [](const std::vector<int32_t>& tags) {
-        std::string result;
-        for (const auto tag : tags) {
-          if (!result.empty())
-            result += ",";
-          result += std::to_string(tag);
-        }
-        return result;
-      };
-      LOG(INFO) << "[gesture-handler] relations handler=" << handlerTag
-                << " name=" << found->second.name << " simultaneous="
-                << formatTags(found->second.simultaneousHandlers)
-                << " waitFor=" << formatTags(found->second.waitFor)
-                << " blocks=" << formatTags(found->second.blocksHandlers);
-    }
-  }
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value dropGestureHandler(
-    Runtime&,
-    TurboModule&,
-    const facebook::jsi::Value* args,
-    size_t count) {
-  if (count == 1) {
-    std::lock_guard<std::mutex> lock(handlersMutex);
-    handlers.erase(tagFrom(args[0]));
-  }
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value
-flushOperations(Runtime&, TurboModule&, const facebook::jsi::Value*, size_t) {
-  return facebook::jsi::Value::undefined();
-}
-
-facebook::jsi::Value installUIRuntimeBindings(
-    Runtime& runtime,
-    TurboModule&,
-    const facebook::jsi::Value*,
-    size_t) {
-  return facebook::jsi::Value(true);
-}
-
-class GPUIGestureHandlerModule final : public TurboModule {
+class GPUIGestureHandlerModule final
+    : public facebook::react::NativeRNGestureHandlerModuleSpec<
+          GPUIGestureHandlerModule> {
  public:
   explicit GPUIGestureHandlerModule(
       std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
-      : TurboModule("RNGestureHandlerModule", std::move(jsInvoker)) {
-    methodMap_.emplace(
-        "createGestureHandler", MethodMetadata{3, &createGestureHandler});
-    methodMap_.emplace(
-        "attachGestureHandler", MethodMetadata{3, &attachGestureHandler});
-    methodMap_.emplace(
-        "detachGestureHandler", MethodMetadata{1, &detachGestureHandler});
-    methodMap_.emplace(
-        "setGestureHandlerConfig", MethodMetadata{2, &setConfig});
-    methodMap_.emplace(
-        "updateGestureHandlerConfig", MethodMetadata{2, &updateConfig});
-    methodMap_.emplace(
-        "configureRelations", MethodMetadata{2, &configureRelations});
-    methodMap_.emplace(
-        "dropGestureHandler", MethodMetadata{1, &dropGestureHandler});
-    methodMap_.emplace("flushOperations", MethodMetadata{0, &flushOperations});
-    methodMap_.emplace(
-        "installUIRuntimeBindings",
-        MethodMetadata{0, &installUIRuntimeBindings});
+      : NativeRNGestureHandlerModuleSpec(std::move(jsInvoker)) {}
+
+  // The JS side queues operations and flushes them in order, so every method
+  // has to observe the same order the JS thread produced.
+  static constexpr rngpui::ModuleThread kThread = rngpui::ModuleThread::JS;
+
+  void createGestureHandler(
+      Runtime&,
+      std::string handlerName,
+      double handlerTag,
+      folly::dynamic config) {
+    Handler handler;
+    handler.name = std::move(handlerName);
+    handler.config = configObject(std::move(config));
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    handlers.insert_or_assign(
+        static_cast<int32_t>(handlerTag), std::move(handler));
+  }
+
+  void attachGestureHandler(
+      Runtime&,
+      double handlerTag,
+      double viewTag,
+      double actionType) {
+    const auto tag = static_cast<int32_t>(handlerTag);
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    auto found = handlers.find(tag);
+    if (found != handlers.end()) {
+      found->second.viewTag = static_cast<int32_t>(viewTag);
+      found->second.actionType = static_cast<int32_t>(actionType);
+      if (gestureTracingEnabled()) {
+        LOG(INFO) << "[gesture-handler] attached handler=" << tag
+                  << " view=" << found->second.viewTag
+                  << " action=" << found->second.actionType;
+      }
+    }
+  }
+
+  void setGestureHandlerConfig(
+      Runtime&,
+      double handlerTag,
+      folly::dynamic newConfig) {
+    const auto tag = static_cast<int32_t>(handlerTag);
+    auto config = configObject(std::move(newConfig));
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    auto found = handlers.find(tag);
+    if (found != handlers.end())
+      found->second.config = std::move(config);
+  }
+
+  void updateGestureHandlerConfig(
+      Runtime&,
+      double handlerTag,
+      folly::dynamic newConfig) {
+    const auto tag = static_cast<int32_t>(handlerTag);
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    auto found = handlers.find(tag);
+    if (found != handlers.end() && newConfig.isObject()) {
+      for (const auto& [key, value] : newConfig.items())
+        found->second.config[key] = value;
+    }
+  }
+
+  void
+  configureRelations(Runtime&, double handlerTag, folly::dynamic relations) {
+    const auto tag = static_cast<int32_t>(handlerTag);
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    const auto found = handlers.find(tag);
+    if (found != handlers.end()) {
+      found->second.simultaneousHandlers =
+          relationTags(relations, "simultaneousHandlers");
+      found->second.waitFor = relationTags(relations, "waitFor");
+      found->second.blocksHandlers = relationTags(relations, "blocksHandlers");
+      if (gestureTracingEnabled()) {
+        auto formatTags = [](const std::vector<int32_t>& tags) {
+          std::string result;
+          for (const auto value : tags) {
+            if (!result.empty())
+              result += ",";
+            result += std::to_string(value);
+          }
+          return result;
+        };
+        LOG(INFO) << "[gesture-handler] relations handler=" << tag
+                  << " name=" << found->second.name << " simultaneous="
+                  << formatTags(found->second.simultaneousHandlers)
+                  << " waitFor=" << formatTags(found->second.waitFor)
+                  << " blocks=" << formatTags(found->second.blocksHandlers);
+      }
+    }
+  }
+
+  void dropGestureHandler(Runtime&, double handlerTag) {
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    handlers.erase(static_cast<int32_t>(handlerTag));
+  }
+
+  void flushOperations(Runtime&) {}
+
+  bool installUIRuntimeBindings(Runtime&) {
+    return true;
   }
 };
 } // namespace
@@ -567,8 +486,9 @@ std::shared_ptr<facebook::react::TurboModule>
 create_gpui_gesture_handler_module(
     const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
-  if (name != "RNGestureHandlerModule")
+  if (name != GPUIGestureHandlerModule::kModuleName) {
     return nullptr;
+  }
   rngpui::register_gpui_gesture_pointer_processor(&processPointer);
   if (gestureTracingEnabled()) {
     LOG(INFO) << "[gesture-handler] native pointer processor installed";

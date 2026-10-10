@@ -1,5 +1,6 @@
 #pragma once
 
+#include <GPUIWorkletsSpec.h>
 #include <ReactCommon/CallInvoker.h>
 #include <ReactCommon/TurboModule.h>
 #include <worklets/NativeModules/WorkletsModuleProxy.h>
@@ -17,8 +18,7 @@ namespace gpui_worklets {
 bool isOnMainThread();
 void noteMainThread();
 
-class Module final : public facebook::react::TurboModule,
-                     public std::enable_shared_from_this<Module> {
+class Module final : public facebook::react::NativeWorkletsModuleSpec<Module> {
  public:
   explicit Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
   ~Module() override;
@@ -31,14 +31,13 @@ class Module final : public facebook::react::TurboModule,
   bool installTurboModule(
       facebook::jsi::Runtime& runtime,
       bool bundleModeEnabled);
-  bool prepareBundleMode();
-  bool start();
-  bool toggleSlowAnimationsOnUIRuntime();
+  bool prepareBundleMode(facebook::jsi::Runtime& runtime);
+  bool start(facebook::jsi::Runtime& runtime);
+  bool toggleSlowAnimationsOnUIRuntime(facebook::jsi::Runtime& runtime);
 
  private:
   void initialize(facebook::jsi::Runtime& runtime);
 
-  std::shared_ptr<facebook::react::CallInvoker> jsInvoker_;
   std::shared_ptr<worklets::UIScheduler> uiScheduler_;
   std::shared_ptr<worklets::JSScheduler> jsScheduler_;
   std::shared_ptr<worklets::RNRuntimeStatus> runtimeStatus_;

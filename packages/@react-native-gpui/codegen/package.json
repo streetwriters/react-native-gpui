@@ -1,16 +1,18 @@
 {
   "name": "@react-native-gpui/codegen",
   "version": "0.1.0",
-  "description": "Rust code generator for react-native-gpui, plugged into @react-native/codegen.",
+  "description": "C++ and Rust code generators for react-native-gpui, plugged into @react-native/codegen.",
   "files": [
     "src"
   ],
   "type": "module",
   "exports": {
-    "./generate-rust-turbomodules": "./src/generate-rust-turbomodules.js"
+    "./generate-cxx-spec": "./src/generate-cxx-spec.js",
+    "./generate-rust-spec": "./src/generate-rust-spec.js"
   },
   "scripts": {
-    "generate-rust-turbomodules": "node ./src/generate-rust-turbomodules.js"
+    "generate-cxx-spec": "node ./src/generate-cxx-spec.js",
+    "generate-rust-spec": "node ./src/generate-rust-spec.js"
   },
   "dependencies": {
     "@react-native/codegen": "0.87.1"

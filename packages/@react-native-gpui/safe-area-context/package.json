@@ -11,5 +11,10 @@
     "react-native": "0.87.1",
     "react-native-safe-area-context": "5.10.x"
   },
+  "codegenConfig": {
+    "name": "GPUISafeAreaContextSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
   "license": "MIT"
 }
