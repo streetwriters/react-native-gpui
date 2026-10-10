@@ -149,6 +149,15 @@ export class DesktopApp {
     return this.process.pid;
   }
 
+  /**
+   * Whether the platform backend implements `render_to_image`. Only the Apple
+   * backends do today; gpui_linux returns "render_to_image not implemented for
+   * this platform", so capture-based assertions are skipped there.
+   */
+  get captureSupported(): boolean {
+    return process.platform === 'darwin';
+  }
+
   static async launch(options: LaunchOptions): Promise<DesktopApp> {
     options = {
       ...options,

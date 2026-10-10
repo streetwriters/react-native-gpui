@@ -48,6 +48,29 @@ if (process.platform === 'darwin') {
   env.DYLD_LIBRARY_PATH = [...runtimeDirs, env.DYLD_LIBRARY_PATH]
     .filter(Boolean)
     .join(path.delimiter);
+} else if (process.platform === 'linux') {
+  const targetTriple =
+    process.env.CARGO_BUILD_TARGET ??
+    execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(
+      /^host: (.+)$/mu,
+    )?.[1];
+  if (!targetTriple)
+    throw new Error('Could not determine the Rust target triple');
+
+  const hermesArch = process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
+  // The sys test binaries link the shared JSI library and the engine.
+  const runtimeDirs = [
+    path.join(repoRoot, 'packages/@react-native-gpui/hermes/bin', hermesArch),
+    path.join(
+      metadata.target_directory,
+      'rn-gpui-cmake',
+      targetTriple,
+      'Debug/build/ReactCommon/jsi',
+    ),
+  ];
+  env.LD_LIBRARY_PATH = [...runtimeDirs, env.LD_LIBRARY_PATH]
+    .filter(Boolean)
+    .join(path.delimiter);
 }
 
 const result = spawnSync(

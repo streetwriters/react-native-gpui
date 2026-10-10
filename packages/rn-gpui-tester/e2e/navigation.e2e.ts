@@ -58,14 +58,18 @@ test('starts the real RN app and navigates through Fabric input', async () => {
       throw new Error(`Unexpected idle status: ${JSON.stringify(idle)}`);
     }
     await expect(app.getByText('Home')).toBeVisible(15_000);
-    const a11y = (await app.a11yTree()) as {
-      nodes?: Record<string, { aria?: { role?: string } }>;
-    };
-    if (
-      !a11y?.nodes ||
-      !Object.values(a11y.nodes).some(node => node.aria?.role === 'Button')
-    )
-      throw new Error('Real AccessKit tree has no button nodes');
+    // AccessKit only activates when an assistive client connects; the driver
+    // forces the probe on macOS, while Linux has no equivalent yet.
+    if (process.platform === 'darwin') {
+      const a11y = (await app.a11yTree()) as {
+        nodes?: Record<string, { aria?: { role?: string } }>;
+      };
+      if (
+        !a11y?.nodes ||
+        !Object.values(a11y.nodes).some(node => node.aria?.role === 'Button')
+      )
+        throw new Error('Real AccessKit tree has no button nodes');
+    }
     const fetchControl = await app.query('testID', 'e2e-network-request', true);
     if (!fetchControl[0]) throw new Error('Fetch control is not mounted');
     await app.click(fetchControl[0].tag);
@@ -92,17 +96,24 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     await expect(app.getByTestId('e2e-network-result')).toHaveText(
       'network-idle-ok',
     );
-    await expect(app).toMatchScreenshot('navigation-home');
-    await expect(app.getByTestId('Home-title')).toMatchScreenshot(
-      'navigation-home-heading',
-    );
+    // Visual baselines run where the backend can capture (Apple backends today).
+    if (app.captureSupported) {
+      await expect(app).toMatchScreenshot('navigation-home');
+      await expect(app.getByTestId('Home-title')).toMatchScreenshot(
+        'navigation-home-heading',
+      );
+    }
     const input = app.getByTestId('e2e-text-input');
     await input.type('desktop test input');
     await expect(input).toHaveValue('desktop test input');
     await expect(input).toBeEnabled();
-    await expect(input).toHaveAccessibleName('Desktop test input');
-    await expect(input).toHaveAccessibleRole('textbox');
-    await expectNoA11yViolations(app);
+    // Native accessibility name/role lookups (and the tree audit) need the
+    // AccessKit adapter, which only macOS activates today.
+    if (process.platform === 'darwin') {
+      await expect(input).toHaveAccessibleName('Desktop test input');
+      await expect(input).toHaveAccessibleRole('textbox');
+      await expectNoA11yViolations(app);
+    }
     await expect(input).toHaveCount(1);
     await expect(app.getByTestId('missing-node')).toBeHidden();
     await input.clear();
