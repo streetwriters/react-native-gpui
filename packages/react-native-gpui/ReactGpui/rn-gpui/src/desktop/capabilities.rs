@@ -1,15 +1,3 @@
-use serde_json::{json, Value};
-
-pub const KEYS: [&str; 7] = [
-    "nativeAppMenu",
-    "nativeContextMenu",
-    "tray",
-    "trayPopoverAnchored",
-    "windowPosition",
-    "alwaysOnTop",
-    "transparentTitlebar",
-];
-
 pub const fn native_app_menu() -> bool {
     cfg!(any(target_os = "macos", target_os = "windows"))
 }
@@ -56,37 +44,9 @@ pub const fn transparent_titlebar() -> bool {
     cfg!(any(target_os = "macos", target_os = "windows"))
 }
 
-pub fn capabilities() -> Value {
-    json!({
-        "nativeAppMenu": native_app_menu(),
-        "nativeContextMenu": native_context_menu(),
-        "tray": tray(),
-        "trayPopoverAnchored": tray_popover_anchored(),
-        "windowPosition": window_position(),
-        "alwaysOnTop": always_on_top(),
-        "transparentTitlebar": transparent_titlebar(),
-    })
-}
-
-pub const SNAPSHOT_KEY: &str = "capabilities";
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn capabilities_has_every_documented_key() {
-        let value = capabilities();
-        let object = value.as_object().expect("capabilities is an object");
-        for key in KEYS {
-            assert!(object.contains_key(key), "missing capability {key}");
-            assert!(
-                object[key].is_boolean(),
-                "capability {key} must be a boolean"
-            );
-        }
-        assert_eq!(object.len(), KEYS.len());
-    }
 
     #[test]
     fn macos_supports_native_menus_and_anchored_popovers() {

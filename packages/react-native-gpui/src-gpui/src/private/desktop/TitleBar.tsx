@@ -12,7 +12,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { snapshot } from './index';
+import { platform } from './index';
 
 export interface TitleBarProps {
   title?: string;
@@ -29,7 +29,7 @@ const CAPTION_BUTTONS = [
 ];
 
 function hostOs(): string {
-  return snapshot<string>('platform') ?? 'macos';
+  return platform() ?? 'macos';
 }
 
 export function TitleBar({

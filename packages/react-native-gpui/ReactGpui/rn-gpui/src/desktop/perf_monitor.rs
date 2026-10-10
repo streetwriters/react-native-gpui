@@ -189,7 +189,19 @@ pub fn metrics(cx: &App) -> Value {
     let now = Instant::now();
     let (ui_fps, js_fps, mount_ms, enabled, dropped, stutters) = {
         let Some(global) = cx.try_global::<PerfMonitorGlobal>() else {
-            return json!({"enabled": false});
+            // The spec's metrics carry every field, so an app that never enabled
+            // the monitor reads zeros rather than a missing field.
+            return json!({
+                "enabled": false,
+                "uiFps": 0.0,
+                "jsFps": 0.0,
+                "memoryBytes": 0,
+                "jsHeapBytes": 0,
+                "droppedFrames": 0,
+                "stutters": 0,
+                "mountedViews": 0,
+                "lastMountMs": 0.0,
+            });
         };
         let mut state = global.0.borrow_mut();
         state.prune(now);

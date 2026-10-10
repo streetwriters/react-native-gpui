@@ -8,7 +8,7 @@
  */
 
 import { DeviceEventEmitter } from 'react-native';
-import { call } from './index';
+import { request } from './index';
 import { useDesktopWindowId } from './windowContext';
 
 export interface WindowBounds {
@@ -87,23 +87,21 @@ export class DesktopWindow {
   }
 
   static async open(options: OpenWindowOptions): Promise<DesktopWindow> {
-    const result = await call<{ windowId: number }>('window', 'open', {
-      ...options,
-    });
+    const result = await request(native => native.windowOpen(options));
     return new DesktopWindow(result.windowId);
   }
 
   static async all(): Promise<DesktopWindow[]> {
-    const result = await call<{
-      windows: { windowId: number; component: string }[];
-    }>('window', 'list');
+    const result = await request(native => native.windowList());
     return result.windows.map(
       entry => new DesktopWindow(entry.windowId, entry.component),
     );
   }
 
   getState(): Promise<WindowState> {
-    return call<WindowState>('window', 'getState', { windowId: this.id });
+    return request(native =>
+      native.windowGetState(this.id),
+    ) as Promise<WindowState>;
   }
 
   /**
@@ -111,90 +109,85 @@ export class DesktopWindow {
    * listener installed, the wrapper turns this on so JS can veto.
    */
   interceptClose(on: boolean): Promise<void> {
-    return call<void>('window', 'interceptClose', { windowId: this.id, on });
+    return request(native => native.windowInterceptClose(this.id, on));
   }
 
   close(options: { force?: boolean } = {}): Promise<void> {
-    return call<void>('window', 'close', {
-      windowId: this.id,
-      force: options.force ?? false,
-    });
+    return request(native =>
+      native.windowClose(this.id, options.force ?? false),
+    );
   }
 
   focus(): Promise<void> {
-    return call<void>('window', 'focus', { windowId: this.id });
+    return request(native => native.windowFocus(this.id));
   }
 
   setTitle(title: string): Promise<void> {
-    return call<void>('window', 'setTitle', { windowId: this.id, title });
+    return request(native => native.windowSetTitle(this.id, title));
   }
 
   setSize(size: { width: number; height: number }): Promise<void> {
-    return call<void>('window', 'setSize', { windowId: this.id, ...size });
+    return request(native =>
+      native.windowSetSize(this.id, size.width, size.height),
+    );
   }
 
   setPosition(position: { x: number; y: number }): Promise<void> {
-    return call<void>('window', 'setPosition', {
-      windowId: this.id,
-      ...position,
-    });
+    return request(native =>
+      native.windowSetPosition(this.id, position.x, position.y),
+    );
   }
 
   setMinSize(size: { width: number; height: number }): Promise<void> {
-    return call<void>('window', 'setMinSize', { windowId: this.id, ...size });
+    return request(native =>
+      native.windowSetMinSize(this.id, size.width, size.height),
+    );
   }
 
   setMaxSize(size: { width: number; height: number }): Promise<void> {
-    return call<void>('window', 'setMaxSize', { windowId: this.id, ...size });
+    return request(native =>
+      native.windowSetMaxSize(this.id, size.width, size.height),
+    );
   }
 
   setResizable(resizable: boolean): Promise<void> {
-    return call<void>('window', 'setResizable', {
-      windowId: this.id,
-      value: resizable,
-    });
+    return request(native => native.windowSetResizable(this.id, resizable));
   }
 
   minimize(): Promise<void> {
-    return call<void>('window', 'minimize', { windowId: this.id });
+    return request(native => native.windowMinimize(this.id));
   }
 
   maximize(): Promise<void> {
-    return call<void>('window', 'maximize', { windowId: this.id });
+    return request(native => native.windowMaximize(this.id));
   }
 
   unmaximize(): Promise<void> {
-    return call<void>('window', 'unmaximize', { windowId: this.id });
+    return request(native => native.windowUnmaximize(this.id));
   }
 
   toggleMaximize(): Promise<void> {
-    return call<void>('window', 'toggleMaximize', { windowId: this.id });
+    return request(native => native.windowToggleMaximize(this.id));
   }
 
   setFullscreen(fullscreen: boolean): Promise<void> {
-    return call<void>('window', 'setFullscreen', {
-      windowId: this.id,
-      value: fullscreen,
-    });
+    return request(native => native.windowSetFullscreen(this.id, fullscreen));
   }
 
   setAlwaysOnTop(onTop: boolean): Promise<void> {
-    return call<void>('window', 'setAlwaysOnTop', {
-      windowId: this.id,
-      value: onTop,
-    });
+    return request(native => native.windowSetAlwaysOnTop(this.id, onTop));
   }
 
   show(): Promise<void> {
-    return call<void>('window', 'show', { windowId: this.id });
+    return request(native => native.windowShow(this.id));
   }
 
   hide(): Promise<void> {
-    return call<void>('window', 'hide', { windowId: this.id });
+    return request(native => native.windowHide(this.id));
   }
 
   startDragging(): Promise<void> {
-    return call<void>('window', 'startDragging', { windowId: this.id });
+    return request(native => native.windowStartDragging(this.id));
   }
 
   addListener(

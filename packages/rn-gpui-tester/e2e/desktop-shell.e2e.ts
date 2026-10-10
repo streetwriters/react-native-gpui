@@ -317,6 +317,30 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   expect(await app.trayState()).toMatchObject({ installed: false });
 });
 
+test('a tray menu can be replaced and cleared', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-menu').click();
+  await app.waitForIdle();
+  expect(await app.trayState()).toMatchObject({
+    installed: true,
+    hasMenu: true,
+  });
+
+  await app.getByTestId('tray-set-menu').click();
+  await app.waitForIdle();
+  expect(await textOf('tray-state')).toContain('"hasMenu":true');
+
+  // Clearing sends no items at all; a null used to be rejected instead.
+  await app.getByTestId('tray-clear-menu').click();
+  await app.waitForIdle();
+  expect(await textOf('tray-state')).toContain('"hasMenu":false');
+
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+});
+
 test('a tray menu reports the chosen item', async () => {
   await launch('TrayFixture');
   await app.waitForIdle();

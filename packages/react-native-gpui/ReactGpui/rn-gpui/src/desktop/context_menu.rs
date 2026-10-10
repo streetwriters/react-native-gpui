@@ -14,15 +14,21 @@ pub struct ContextMenuRequest {
     pub native_view: isize,
 }
 
+/// Settles one context menu: the module's promise, or a caller's callback.
 #[derive(Clone)]
 pub enum Responder {
-    Desktop { request_id: i32 },
+    Desktop { reply: Rc<RefCell<Option<Reply>>> },
     Callback(Rc<RefCell<Option<Box<dyn FnMut(Option<String>)>>>>),
 }
 
+/// Answers the promise a `contextMenuShow` call is waiting on.
+pub type Reply = futures::channel::oneshot::Sender<Result<serde_json::Value, DesktopError>>;
+
 impl Responder {
-    pub fn desktop(request_id: i32) -> Self {
-        Self::Desktop { request_id }
+    pub fn desktop(reply: Reply) -> Self {
+        Self::Desktop {
+            reply: Rc::new(RefCell::new(Some(reply))),
+        }
     }
 
     pub fn callback(callback: Box<dyn FnMut(Option<String>)>) -> Self {
@@ -31,11 +37,11 @@ impl Responder {
 
     pub fn resolve(&self, selection: Option<&str>) {
         match self {
-            Self::Desktop { request_id } => rn_gpui_sys::ffi::rn_gpui_desktop_result(
-                *request_id,
-                true,
-                json!({"id": selection}).to_string(),
-            ),
+            Self::Desktop { reply } => {
+                if let Some(reply) = reply.borrow_mut().take() {
+                    let _ = reply.send(Ok(json!({"id": selection})));
+                }
+            }
             Self::Callback(callback) => {
                 if let Some(mut callback) = callback.borrow_mut().take() {
                     callback(selection.map(str::to_string));
@@ -46,8 +52,10 @@ impl Responder {
 
     pub fn reject(&self, error: DesktopError) {
         match self {
-            Self::Desktop { request_id } => {
-                rn_gpui_sys::ffi::rn_gpui_desktop_result(*request_id, false, error.to_json());
+            Self::Desktop { reply } => {
+                if let Some(reply) = reply.borrow_mut().take() {
+                    let _ = reply.send(Err(error));
+                }
             }
             Self::Callback(callback) => {
                 if let Some(mut callback) = callback.borrow_mut().take() {
@@ -95,23 +103,21 @@ pub fn install(cx: &mut App) {
     }
 }
 
-/// Leaves the promise pending on success: the presenter settles it when the
-/// menu closes.
-pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), DesktopError> {
-    let args: Value = serde_json::from_str(args_json)
-        .map_err(|error| DesktopError::invalid_argument(format!("invalid args JSON: {error}")))?;
-    let object = args
-        .as_object()
-        .ok_or_else(|| DesktopError::invalid_argument("args must be a JSON object"))?;
-    let items = object
-        .get("items")
-        .ok_or_else(|| DesktopError::invalid_argument("ContextMenu.show requires items"))?;
-    let model = menu_model::parse_menu(items)?;
-    let window = match object.get("windowId").and_then(Value::as_u64) {
+/// Answers through `reply` when the menu closes.
+pub fn show(
+    cx: &mut App,
+    items: Value,
+    x: Option<f64>,
+    y: Option<f64>,
+    window_id: Option<u32>,
+    responder: Responder,
+) -> Result<(), DesktopError> {
+    let model = menu_model::parse_menu(&items)?;
+    let window = match window_id {
         Some(key) => cx
             .global::<DesktopWindowsGlobal>()
             .0
-            .get(key as u32)
+            .get(key)
             .map(|entry| entry.handle)
             .ok_or_else(|| DesktopError::not_found(format!("window {key} is not open")))?,
         // A hidden or off-screen window is not the platform's active window, so
@@ -127,10 +133,7 @@ pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), Deskto
             .ok_or_else(|| DesktopError::failed("no window for the context menu"))?,
     };
     let native_view = native_view_of(cx, window);
-    let (x, y) = match (
-        object.get("x").and_then(Value::as_f64),
-        object.get("y").and_then(Value::as_f64),
-    ) {
+    let (x, y) = match (x, y) {
         (Some(x), Some(y)) => (x as f32, y as f32),
         _ => cursor_position(cx, window),
     };
@@ -141,7 +144,6 @@ pub fn show(cx: &mut App, request_id: i32, args_json: &str) -> Result<(), Deskto
         model,
         native_view,
     };
-    let responder = Responder::desktop(request_id);
     let presenter = cx.global::<ContextMenuPresenterGlobal>().0.clone();
     presenter.show(cx, request, responder);
     Ok(())

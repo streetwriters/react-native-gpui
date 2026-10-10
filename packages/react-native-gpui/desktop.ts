@@ -5,19 +5,21 @@
  * import {Desktop} from 'react-native-gpui/desktop';
  * ```
  *
- * `Menu`, `ContextMenu`, `Tray`, `DesktopWindow`, `DevMenu` and `PerfMonitor`
- * are added by the feature steps; `Desktop` is the underlying command bridge and
- * is useful on its own for capability checks.
+ * `Menu`, `ContextMenu`, `Tray`, `DesktopWindow` and `PerfMonitor` are added by
+ * the feature steps; `Desktop` covers app info and capability checks. Each of
+ * them calls a method of the `GpuiDesktop` TurboModule, whose spec lists every
+ * command the shell accepts.
  *
  * @format
  */
 
 export {
-  call as desktopCall,
   capabilities,
   DesktopError,
+  desktopModule,
   isDesktopAvailable,
-  snapshot as desktopSnapshot,
+  platform,
+  request,
 } from './src-gpui/src/private/desktop';
 
 export type {
@@ -84,16 +86,12 @@ export type {
 
 import './src-gpui/src/private/desktop/types';
 
-import { call, capabilities } from './src-gpui/src/private/desktop';
+import { capabilities, request } from './src-gpui/src/private/desktop';
+import type { DesktopAppInfo } from './src-gpui/src/private/specs/NativeGpuiDesktop';
 
-export interface DesktopAppInfo {
-  platform: string;
-  arch: string;
-  capabilities: ReturnType<typeof capabilities>;
-}
+export type { DesktopAppInfo };
 
 export const Desktop = {
-  getInfo: () => call<DesktopAppInfo>('app', 'getInfo'),
+  getInfo: () => request(native => native.appInfo()),
   capabilities,
-  call,
 };

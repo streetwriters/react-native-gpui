@@ -7,7 +7,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import type { ViewProps } from 'react-native';
-import { call } from './index';
+import { request } from './index';
 import type { MenuItemSpec } from './menu';
 
 export interface ContextMenuOptions {
@@ -35,10 +35,9 @@ export const ContextMenu = {
     items: MenuItemSpec[],
     options: ContextMenuOptions = {},
   ): Promise<string | null> {
-    const result = await call<{ id: string | null }>('contextMenu', 'show', {
-      items,
-      ...options,
-    });
+    const result = await request(native =>
+      native.contextMenuShow(items as unknown as Object[], options),
+    );
     return result.id ?? null;
   },
 };

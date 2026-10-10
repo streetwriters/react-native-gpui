@@ -7,7 +7,7 @@
  * @format
  */
 
-import { call } from './index';
+import { request } from './index';
 
 export interface PerfMetrics {
   enabled: boolean;
@@ -60,12 +60,8 @@ function stopJsTicker(): void {}
 
 export const PerfMonitor = {
   async setEnabled(enabled: boolean): Promise<boolean> {
-    const result = await call<{ enabled: boolean }>(
-      'perfMonitor',
-      'setEnabled',
-      {
-        enabled,
-      },
+    const result = await request(native =>
+      native.perfMonitorSetEnabled(enabled),
     );
     if (result.enabled) {
       startJsTicker();
@@ -76,12 +72,14 @@ export const PerfMonitor = {
   },
 
   async isEnabled(): Promise<boolean> {
-    const metrics = await call<PerfMetrics>('perfMonitor', 'getMetrics');
+    const metrics = await PerfMonitor.getMetrics();
     return metrics.enabled;
   },
 
   getMetrics(): Promise<PerfMetrics> {
-    return call<PerfMetrics>('perfMonitor', 'getMetrics');
+    return request(native =>
+      native.perfMonitorGetMetrics(),
+    ) as Promise<PerfMetrics>;
   },
 
   async toggle(): Promise<boolean> {

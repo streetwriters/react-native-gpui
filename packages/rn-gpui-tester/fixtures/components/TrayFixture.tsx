@@ -74,6 +74,18 @@ function TrayFixture() {
     [refresh],
   );
 
+  const setMenu = useCallback(
+    async (items: MenuItemSpec[] | null) => {
+      try {
+        await Tray.setMenu(items);
+        await refresh();
+      } catch (cause) {
+        setError(String(cause));
+      }
+    },
+    [refresh],
+  );
+
   const destroy = useCallback(async () => {
     try {
       await Tray.destroy();
@@ -121,6 +133,12 @@ function TrayFixture() {
         onPress={() => install({ id: 'tester-tray-menu', menu: MENU })}
       >
         <Text style={styles.button}>Install a menu tray</Text>
+      </Pressable>
+      <Pressable testID="tray-set-menu" onPress={() => setMenu(MENU)}>
+        <Text style={styles.button}>Set a menu</Text>
+      </Pressable>
+      <Pressable testID="tray-clear-menu" onPress={() => setMenu(null)}>
+        <Text style={styles.button}>Clear the menu</Text>
       </Pressable>
       <Pressable testID="tray-refresh" onPress={refresh}>
         <Text style={styles.button}>Refresh the state</Text>

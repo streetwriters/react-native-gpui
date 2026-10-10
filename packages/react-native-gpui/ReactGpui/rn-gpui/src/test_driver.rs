@@ -964,7 +964,29 @@ async fn serve_commands(
             }
             "getPerfMonitor" => cx.update(|cx| crate::desktop::perf_monitor::metrics(cx)),
             "trayInstall" => cx.update(|cx| {
-                crate::desktop::tray_install(cx, &serde_json::to_string(&params).unwrap_or_default())
+                let mut config = crate::desktop::tray::TrayConfig::default();
+                if let Some(id) = params.get("id").and_then(Value::as_str) {
+                    config.id = id.to_string();
+                }
+                if let Some(tooltip) = params.get("tooltip").and_then(Value::as_str) {
+                    config.tooltip = Some(tooltip.to_string());
+                }
+                if let Some(component) = params.get("component").and_then(Value::as_str) {
+                    config.component = Some(component.to_string());
+                }
+                if let Some(menu) = params.get("menu") {
+                    match crate::desktop::menu_model::parse_menu(menu) {
+                        Ok(menu) => config.menu = Some(menu),
+                        Err(error) => return error.to_json_value(),
+                    }
+                }
+                if let Some(quit) = params
+                    .get("quitOnLastWindowClosed")
+                    .and_then(Value::as_bool)
+                {
+                    config.quit_on_last_window_closed = quit;
+                }
+                crate::desktop::tray::install(cx, config)
                     .unwrap_or_else(|error| error.to_json_value())
             }),
             "trayState" => cx.update(|cx| crate::desktop::tray::state(cx)),
