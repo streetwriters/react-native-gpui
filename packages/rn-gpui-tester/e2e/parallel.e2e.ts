@@ -22,13 +22,9 @@ test('isolates a worker app and captures its hidden window', async () => {
   await desktopExpect(app.getByTestId('e2e-text-input')).toHaveValue(
     `worker-${worker}`,
   );
-  // gpui_linux maps test windows even under `show: false`, so the hidden
-  // window state is only observable where the platform honors it (macOS).
-  if (process.platform === 'darwin') {
-    expect((await app.getWindowBounds()).hidden).toBe(
-      process.env.RN_GPUI_TEST_HEADED !== '1',
-    );
-  }
+  expect((await app.getWindowBounds()).hidden).toBe(
+    process.env.RN_GPUI_TEST_HEADED !== '1',
+  );
   // Capture runs only where the backend implements `render_to_image`;
   // worker isolation, input and the hidden window still run everywhere.
   if (app.captureSupported) {
