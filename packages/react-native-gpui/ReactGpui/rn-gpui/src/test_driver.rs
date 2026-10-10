@@ -165,13 +165,39 @@ async fn serve_commands(
                 if !width.is_finite() || !height.is_finite() || width < 1.0 || height < 1.0 {
                     json!({"error": "setWindowSize requires positive finite width and height"})
                 } else {
-                    match cx.update_window(window, move |_root, window, _app| {
-                        window.resize(gpui::size(px(width), px(height)));
-                        let size = window.viewport_size();
-                        json!({"width": f32::from(size.width), "height": f32::from(size.height)})
-                    }) {
-                        Ok(size) => size,
+                    let requested = gpui::size(px(width), px(height));
+                    let resized = cx.update_window(window, move |_root, window, app| {
+                        window.resize(requested);
+                        window.bounds_changed(app);
+                    });
+                    match resized {
                         Err(error) => json!({"error": error.to_string()}),
+                        Ok(()) => {
+                            // A window manager applies the resize asynchronously,
+                            // so wait (bounded) until the new size takes effect. A
+                            // never-mapped window has it immediately.
+                            let deadline =
+                                std::time::Instant::now() + std::time::Duration::from_secs(2);
+                            loop {
+                                let size = cx
+                                    .update_window(window, |_, window, app| {
+                                        window.bounds_changed(app);
+                                        window.viewport_size()
+                                    })
+                                    .unwrap_or_default();
+                                if (f32::from(size.width), f32::from(size.height))
+                                    == (width, height)
+                                    || std::time::Instant::now() >= deadline
+                                {
+                                    break json!({
+                                        "width": f32::from(size.width),
+                                        "height": f32::from(size.height),
+                                    });
+                                }
+                                wait_for_frame(window, cx, std::time::Duration::from_millis(16))
+                                    .await;
+                            }
+                        }
                     }
                 }
             }

@@ -25,6 +25,9 @@ beforeAll(async () => {
       RN_GPUI_WINDOW_STATE: path.resolve('.local/7.16-e2e-window.json'),
     },
     disableAnimations: true,
+    // Every other suite launches offscreen; this one predates that and used
+    // to flash a real window (and sit at the centre of the display) on Linux.
+    offscreen: true,
     logFile: path.resolve('.local/7.16-e2e-app.log'),
   });
   if (app.pid) fs.writeFileSync('.local/7.16-e2e.pid', `${app.pid}\n`);
