@@ -9,10 +9,11 @@
 //
 // --bridge and --rncore are optional. When omitted, the cxxbridge headers and
 // FBReactNativeSpec sources are generated (scripts/generate-prebuilt-inputs.mjs),
-// so no tester build is needed. When given, they must be the Cargo OUT_DIR
-// outputs of `cargo build -p rn-gpui-sys` (out/cxxbridge-include and
-// out/fbreactnativespec). --native-deps reuses downloaded native dependencies
-// between runs.
+// so no tester build is needed. When given, they must be the generated
+// directories of a `cargo build -p rn-gpui-sys` (files under
+// `<target>/rn-gpui-cmake/<triple>/<build>/generated/`:
+// `cxxbridge-include` and `fbreactnativespec`). --native-deps reuses
+// downloaded native dependencies between runs.
 //
 // Output (under --out):
 //   <platform>/                 the cmake --install prefix (lib/, include/, cmake/)
