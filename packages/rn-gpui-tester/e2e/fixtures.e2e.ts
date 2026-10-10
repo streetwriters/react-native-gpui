@@ -50,7 +50,7 @@ async function poll(check: () => Promise<boolean>, timeout = 5000) {
 /** Capture smoke checks run only where the platform can render to an image. */
 async function expectCaptureSmoke() {
   if (!app.captureSupported) return;
-  await expectCaptureSmoke();
+  expect((await app.screenshot()).length).toBeGreaterThan(1000);
 }
 
 test('single-line input stays fixed, clips selection, and scrolls with its caret', async () => {
