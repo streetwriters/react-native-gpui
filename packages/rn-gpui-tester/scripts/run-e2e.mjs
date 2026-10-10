@@ -144,6 +144,46 @@ function run(command, args, cwd, env = process.env, shell = false) {
     );
 }
 
+/**
+ * The AccessKit adapters activate only while the session bus reports
+ * `org.a11y.Status.IsEnabled`. Without an assistive client connected it is
+ * false, so the native accessibility tree stays empty and the a11y assertions
+ * have nothing to read. Read the current value, enable it for the run, and put
+ * it back afterwards. Returns undefined when there is no AT-SPI bus.
+ */
+function readA11yEnabled() {
+  try {
+    const output = execFileSync(
+      'busctl',
+      [
+        '--user',
+        'get-property',
+        'org.a11y.Bus',
+        '/org/a11y/bus',
+        'org.a11y.Status',
+        'IsEnabled',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    return output.endsWith('true');
+  } catch {
+    return undefined;
+  }
+}
+
+function setA11yEnabled(value) {
+  execFileSync('busctl', [
+    '--user',
+    'set-property',
+    'org.a11y.Bus',
+    '/org/a11y/bus',
+    'org.a11y.Status',
+    'IsEnabled',
+    'b',
+    String(value),
+  ]);
+}
+
 stopTestApps();
 stopPreviousNetworkFixture();
 run(
@@ -196,6 +236,40 @@ run(
   npxShell,
 );
 
+let a11yPrevious;
+let nativeA11y = false;
+if (process.platform === 'linux') {
+  a11yPrevious = readA11yEnabled();
+  if (a11yPrevious === undefined) {
+    console.warn(
+      '[e2e] no AT-SPI session bus; native accessibility assertions will be skipped',
+    );
+  } else {
+    try {
+      setA11yEnabled(true);
+      nativeA11y = true;
+    } catch (error) {
+      console.warn(`[e2e] could not enable the AT-SPI bus: ${error.message}`);
+    }
+  }
+  const restoreA11y = () => {
+    if (a11yPrevious !== undefined) {
+      try {
+        setA11yEnabled(a11yPrevious);
+      } catch {}
+    }
+  };
+  process.on('exit', restoreA11y);
+  process.on('SIGINT', () => {
+    restoreA11y();
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    restoreA11y();
+    process.exit(143);
+  });
+}
+
 if (!fs.existsSync(binary)) throw new Error(`e2e binary not found: ${binary}`);
 const networkFixture = spawn(
   process.execPath,
@@ -235,6 +309,7 @@ try {
     RN_GPUI_TEST_METRO_PORT: '8082',
     RN_GPUI_TEST_KEEP_APP: keepApp ? '1' : '0',
     RN_GPUI_TEST_HEADED: headed ? '1' : '0',
+    RN_GPUI_TEST_NATIVE_A11Y: nativeA11y ? '1' : '0',
     RN_GPUI_UPDATE_SNAPSHOTS:
       process.argv.includes('-u') || process.argv.includes('--update')
         ? '1'
