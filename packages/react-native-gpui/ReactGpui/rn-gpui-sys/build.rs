@@ -67,6 +67,36 @@ fn main() {
         .join(&target_triple)
         .join(cmake_build_type);
 
+    // Generated sources live beside the CMake build tree instead of Cargo's
+    // OUT_DIR. The OUT_DIR hash changes with the workspace and feature set, and
+    // a changed include path would make CMake rebuild every C++ file.
+    let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
+    // A prebuilt build keeps its own CMake directory. Sharing one with source
+    // builds leaves their librn_gpui_core.a on the linker search path, where it
+    // shadows the prebuilt archive and mixes two React Native ABIs.
+    let cmake_out_dir = if prebuilt_dir.is_some() {
+        cmake_out_dir.with_file_name(format!("{cmake_build_type}-prebuilt"))
+    } else {
+        cmake_out_dir
+    };
+    let generated_dir = cmake_out_dir.join("generated");
+    let generated_rncore = generated_dir.join("fbreactnativespec");
+    let generated_rncore_scratch = generated_dir.join("fbreactnativespec.tmp");
+    let cxxbridge_include = generated_dir.join("cxxbridge-include");
+
+    fs::create_dir_all(&cmake_out_dir).expect("create shared CMake output directory");
+    // Two cargo invocations in one tree write the same generated directories
+    // now, so the lock covers codegen as well as the CMake build.
+    let cmake_lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(cmake_out_dir.join(".configure-build.lock"))
+        .expect("open shared CMake build lock");
+    cmake_lock
+        .lock()
+        .expect("lock shared CMake build directory");
+
     let fb_spec_codegen = manifest_dir.join("scripts/generate-fbreactnativespec.cjs");
     println!("cargo:rerun-if-changed={}", fb_spec_codegen.display());
     println!(
@@ -87,8 +117,6 @@ fn main() {
     watch_tree(&codegen_package.join("lib"));
     // Codegen recreates its output directory, so generate into a scratch dir
     // and sync. Rewriting unchanged headers would recompile most of RN.
-    let generated_rncore = out_dir.join("fbreactnativespec");
-    let generated_rncore_scratch = out_dir.join("fbreactnativespec.tmp");
     let status = Command::new("node")
         .arg(&fb_spec_codegen)
         .arg(&react_native_dir)
@@ -194,58 +222,34 @@ fn main() {
     );
     // cxx_build rewrites its headers every run (copies on Windows), so CMake
     // reads a mirror that only changes when the header contents do.
-    let cxxbridge_include = out_dir.join("cxxbridge-include");
     sync_tree(&cxxbridge_generated, &cxxbridge_include);
 
-    let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
-    // A prebuilt build keeps its own CMake directory. Sharing one with source
-    // builds leaves their librn_gpui_core.a on the linker search path, where it
-    // shadows the prebuilt archive and mixes two React Native ABIs.
-    let cmake_out_dir = if prebuilt_dir.is_some() {
-        cmake_out_dir.with_file_name(format!("{cmake_build_type}-prebuilt"))
-    } else {
-        cmake_out_dir
-    };
-
-    fs::create_dir_all(&cmake_out_dir).expect("create shared CMake output directory");
-    let cmake_lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(cmake_out_dir.join(".configure-build.lock"))
-        .expect("open shared CMake build lock");
-    cmake_lock
-        .lock()
-        .expect("lock shared CMake build directory");
-
-    let mut cmake_config = cmake::Config::new("cpp");
-    cmake_config
-        .out_dir(&cmake_out_dir)
-        .profile(cmake_build_type)
-        .define("REACT_COMMON_DIR", cmake_path(&react_common_dir))
-        .define(
+    let mut defines: Vec<(&str, String)> = vec![
+        ("REACT_COMMON_DIR", cmake_path(&react_common_dir)),
+        (
             "REACT_CXX_PLATFORM_DIR",
             cmake_path(&react_cxx_platform_dir),
-        )
-        .define("RN_GPUI_OVERRIDES_DIR", cmake_path(&overrides_dir))
-        .define(
+        ),
+        ("RN_GPUI_OVERRIDES_DIR", cmake_path(&overrides_dir)),
+        (
             "RN_GPUI_CXXBRIDGE_INCLUDE_DIR",
             cmake_path(&cxxbridge_include),
-        )
-        .define(
+        ),
+        (
             "RN_GPUI_GENERATED_RNCORE_DIR",
             cmake_path(&generated_rncore),
-        )
-        .define("RN_GPUI_PROJECT_ROOT", cmake_path(&project_root))
-        .define("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake))
-        .define(
+        ),
+        ("RN_GPUI_PROJECT_ROOT", cmake_path(&project_root)),
+        ("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake)),
+        (
             "RN_GPUI_NODE_API_PACKAGE_DIR",
             cmake_path(node_api_package_dir),
-        )
-        .define(
+        ),
+        (
             "RN_GPUI_WEAK_NODE_API_PACKAGE_DIR",
             cmake_path(weak_node_api_package_dir),
-        );
+        ),
+    ];
     // CMake deletes its cache when the compiler path changes, and the configure
     // it then re-runs has lost every -D argument and fails. Shells disagree on
     // the path (the /usr/bin shim or the Xcode toolchain binary behind it), so
@@ -257,7 +261,7 @@ fn main() {
         ] {
             println!("cargo:rerun-if-env-changed={env_name}");
             if env::var_os(env_name).is_none() {
-                cmake_config.define(variable, tool);
+                defines.push((variable, tool.to_string()));
             }
         }
     }
@@ -266,16 +270,41 @@ fn main() {
         // would compile with /MDd and the final link then fails on
         // _CrtDbgReport / _calloc_dbg, so pin every target, including
         // subprojects that declare an older cmake_minimum_required, to /MD.
-        cmake_config
-            .define("CMAKE_POLICY_DEFAULT_CMP0091", "NEW")
-            .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
+        defines.push(("CMAKE_POLICY_DEFAULT_CMP0091", "NEW".to_string()));
+        defines.push(("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL".to_string()));
     }
     if let Some(dir) = &prebuilt_dir {
-        cmake_config.define("RN_GPUI_PREBUILT_DIR", cmake_path(dir));
-        cmake_config.define("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir));
+        defines.push(("RN_GPUI_PREBUILT_DIR", cmake_path(dir)));
+        defines.push(("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir)));
     }
-    // rn_gpui_modules links PUBLIC to rn_gpui_core, so this builds core too.
-    let dst = cmake_config.build_target("rn_gpui_modules").build();
+
+    // A configure rewrites flags.make, and every object depends on it, so
+    // configuring on each build-script run would rebuild the whole C++ tree.
+    // Configure only when the inputs changed; otherwise run the build, whose
+    // own check still re-runs CMake when a CMakeLists or the cache changed.
+    let build_dir = cmake_out_dir.join("build");
+    let stamp = configure_stamp(&defines, cmake_build_type, &target_triple);
+    let stamp_path = cmake_out_dir.join(".configure-inputs");
+    let configure = !fs::read_to_string(&stamp_path).is_ok_and(|previous| previous == stamp)
+        || !build_dir.join("CMakeCache.txt").is_file()
+        || !build_dir.join("Makefile").is_file();
+
+    let dst = if configure {
+        let mut cmake_config = cmake::Config::new("cpp");
+        cmake_config
+            .out_dir(&cmake_out_dir)
+            .profile(cmake_build_type);
+        for (name, value) in &defines {
+            cmake_config.define(name, value);
+        }
+        // rn_gpui_modules links PUBLIC to rn_gpui_core, so this builds core too.
+        let dst = cmake_config.build_target("rn_gpui_modules").build();
+        fs::write(&stamp_path, &stamp).expect("write configure inputs stamp");
+        dst
+    } else {
+        run_cmake_build(&build_dir, cmake_build_type);
+        cmake_out_dir.clone()
+    };
     drop(cmake_lock);
 
     let cmake_build_dir = dst.join("build");
@@ -403,6 +432,62 @@ fn watch_cpp_tree(root: &Path) {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
+}
+
+/// Everything that changes what CMake configures. When it all matches the
+/// previous run, the configure step is skipped: a reconfigure rewrites
+/// `flags.make`, and make would then rebuild every object in the tree.
+fn configure_stamp(defines: &[(&str, String)], profile: &str, target: &str) -> String {
+    let mut stamp = String::new();
+    for (name, value) in defines {
+        stamp.push_str(name);
+        stamp.push('=');
+        stamp.push_str(value);
+        stamp.push('\n');
+    }
+    for variable in [
+        "CC",
+        "CXX",
+        "CFLAGS",
+        "CXXFLAGS",
+        "CMAKE_PREFIX_PATH",
+        "CMAKE_TOOLCHAIN_FILE",
+    ] {
+        stamp.push_str(variable);
+        stamp.push('=');
+        stamp.push_str(&env::var(variable).unwrap_or_default());
+        stamp.push('\n');
+    }
+    stamp.push_str("profile=");
+    stamp.push_str(profile);
+    stamp.push('\n');
+    stamp.push_str("target=");
+    stamp.push_str(target);
+    stamp.push('\n');
+    stamp
+}
+
+/// Builds without configuring. CMake's own staleness check re-runs the
+/// configure when a CMakeLists or the cache changed, so this is safe as long
+/// as the configure inputs match `configure_stamp`.
+fn run_cmake_build(build_dir: &Path, profile: &str) {
+    let mut command = Command::new("cmake");
+    command
+        .arg("--build")
+        .arg(build_dir)
+        .arg("--target")
+        .arg("rn_gpui_modules")
+        .arg("--config")
+        .arg(profile);
+    if let Some(makeflags) = env::var_os("CARGO_MAKEFLAGS") {
+        command.env("MAKEFLAGS", makeflags);
+    } else if let Ok(jobs) = env::var("NUM_JOBS") {
+        command.arg("--parallel").arg(jobs);
+    }
+    let status = command
+        .status()
+        .expect("run cmake --build; cmake must be on PATH");
+    assert!(status.success(), "CMake build of rn_gpui_modules failed");
 }
 
 /// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` -> source; `RN_GPUI_PREBUILT_DIR` -> use

@@ -80,7 +80,7 @@ set(REACT_COMMON_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules/react-native/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
   message(FATAL_ERROR
-    "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the Cargo OUT_DIR")
+    "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the shared CMake output directory")
 endif()
 set(REACT_CXX_PLATFORM_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
