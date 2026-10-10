@@ -103,7 +103,7 @@ endif()
 # core used to compile them, only now declared by the engine package. Core adds
 # them (add_react_common_subdir) so the targets land in its scope, then links
 # them into rn_gpui_core in a source build or into the app-side
-# rn_gpui_extensions archive when a prebuilt core is in use. In prebuilt mode
+# rn_gpui_modules archive when a prebuilt core is in use. In prebuilt mode
 # they are compiled against the archive's imported React Common targets, which
 # carry the same include folders and defines the archive was built with. That is
 # what keeps the core archive free of every engine while still letting an
@@ -113,9 +113,9 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES
   hermes/executor
   react/runtime/hermes)
 
-# Core compiles these sources into rn_gpui_extensions, links these targets, and
+# Core compiles these sources into rn_gpui_modules, links these targets, and
 # calls the registration symbol from the generated
-# rn_gpui_install_extensions().
+# rn_gpui_install_modules().
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/GpuiHermesEngine.cpp")
 # React Common headers are not added here on purpose: they must reach the glue

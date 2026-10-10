@@ -27,4 +27,8 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_worklets_root}")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_DEFINITIONS
   "WORKLETS_VERSION=0.13.0")
-set_property(GLOBAL PROPERTY RN_GPUI_HAS_WORKLETS TRUE)
+# The frame hook is how worklets see every frame; the platform compiles this
+# glue only because the package is installed.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/cpp/GpuiWorkletsFrameModule.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_INSTALLERS worklets)

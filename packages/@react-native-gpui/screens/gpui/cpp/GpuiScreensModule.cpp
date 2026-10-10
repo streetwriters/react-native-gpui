@@ -1,4 +1,4 @@
-#include "GpuiExtensions.h"
+#include "GpuiModules.h"
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/components/rnscreens/Props.h>
@@ -8,8 +8,8 @@
 namespace rngpui {
 using namespace facebook::react;
 
-void rn_gpui_install_screens_extension() {
-  auto& hooks = gpuiExtensionHooks();
+void rn_gpui_install_screens_module() {
+  auto& hooks = gpuiModuleHooks();
   hooks.screensOp = [](const ShadowView& shadowView, MountOp& op) {
     if (op.component == "RNSScreenStackHeaderSubview") {
       if (auto props =

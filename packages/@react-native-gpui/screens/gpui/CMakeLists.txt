@@ -39,4 +39,11 @@ endif()
 file(GLOB _screens_common_sources CONFIGURE_DEPENDS "${_screens_component_dir}/*.cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES ${_screens_common_sources})
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS "${_screens_common}")
-set_property(GLOBAL PROPERTY RN_GPUI_HAS_SCREENS TRUE)
+# The mount pipeline knows nothing about screens: this glue fills the header and
+# screen fields of a mount op, and the platform compiles it only because the
+# package is installed.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/cpp/GpuiScreensModule.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_INSTALLERS screens)
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_PACKAGE_MODULE_INCLUDE_DIRS
+  "${_screens_common}")

@@ -5,7 +5,7 @@
 #include <memory>
 #include <utility>
 
-// Set by core's rn_gpui_extensions when @react-native-node-api is present, in
+// Set by core's rn_gpui_modules when @react-native-node-api is present, in
 // which case this package also compiles the Node-API host module
 // (RN_GPUI_JS_ENGINE_NODE_API_SOURCES in gpui/CMakeLists.txt).
 #ifdef RN_GPUI_HAS_NODE_API

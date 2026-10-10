@@ -1,4 +1,4 @@
-#include "GpuiExtensions.h"
+#include "GpuiModules.h"
 #include "MountBatchBuilder.h"
 
 #include <react/renderer/components/rnsvg/Props.h>
@@ -111,9 +111,9 @@ folly::dynamic svgPropsJson(const std::string& component, const Props& props) {
 
 } // namespace
 
-void rn_gpui_install_svg_extension() {
-  gpuiExtensionHooks().svgPropsJson = [](const std::string& component,
-                                         const Props& props) {
+void rn_gpui_install_svg_module() {
+  gpuiModuleHooks().svgPropsJson = [](const std::string& component,
+                                      const Props& props) {
     return folly::toJson(svgPropsJson(component, props));
   };
 }

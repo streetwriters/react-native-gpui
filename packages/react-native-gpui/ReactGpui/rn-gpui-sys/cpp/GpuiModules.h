@@ -1,6 +1,8 @@
-// Code that depends on an optional package lives in cpp/extensions/ and is
-// compiled only when that package is present. An unset hook means core does
-// what it does when the library is absent.
+// Code that depends on an optional package is a module: it lives in the
+// package itself, under `gpui/cpp/`, and is compiled only when that package is
+// installed. The platform's own modules live in cpp/modules/. A module sets the
+// hooks it needs; an unset hook means core does what it does when the library
+// is absent.
 #pragma once
 
 #include "rn-gpui-sys/src/lib.rs.h" // MountOp
@@ -78,7 +80,7 @@ using GpuiTurboModuleFn =
 // (@react-native-gpui/worklets).
 using GpuiFrameFn = std::function<void(double timestampMs)>;
 
-struct GpuiExtensionHooks {
+struct GpuiModuleHooks {
   GpuiSvgPropsJsonFn svgPropsJson;
   GpuiScreensOpFn screensOp;
   GpuiScreensFrameFn screensFrame;
@@ -88,8 +90,8 @@ struct GpuiExtensionHooks {
 };
 
 // Hooks are set by the installers at startup, before any surface starts.
-GpuiExtensionHooks& gpuiExtensionHooks();
+GpuiModuleHooks& gpuiModuleHooks();
 
-void rn_gpui_install_extensions();
+void rn_gpui_install_modules();
 
 } // namespace rngpui
