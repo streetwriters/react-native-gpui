@@ -275,18 +275,21 @@ trait MudaAppend {
     fn append_all(&self, items: &[&dyn muda::IsMenuItem]) -> muda::Result<()>;
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl MudaAppend for muda::Menu {
     fn append_all(&self, items: &[&dyn muda::IsMenuItem]) -> muda::Result<()> {
         self.append_items(items)
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl MudaAppend for muda::Submenu {
     fn append_all(&self, items: &[&dyn muda::IsMenuItem]) -> muda::Result<()> {
         self.append_items(items)
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), DesktopError> {
     use muda::{CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 

@@ -376,8 +376,17 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     };
     let mut builder = TrayIconBuilder::new()
         .with_id(config.id.clone())
-        .with_icon_templated(icon)
         .with_menu_on_left_click(false);
+    // Template mode is a macOS menu-bar concept; every other platform draws
+    // the icon as-is.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.with_icon_templated(icon);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.with_icon(icon);
+    }
     if let Some(tooltip) = &config.tooltip {
         builder = builder.with_tooltip(tooltip.clone());
     }

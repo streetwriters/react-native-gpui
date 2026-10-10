@@ -317,7 +317,7 @@ mod imp {
     /// Run `f` with a fresh X connection. GPUI owns its own connection and does
     /// not expose it, and the X protocol allows a second client to move and
     /// raise another client's window.
-    fn with_display<R>(f: impl FnOnce(*mut xlib::Display, xlib::Window) -> R) -> Result<R, String> {
+    fn with_display<R>(f: impl FnOnce(&xlib::Xlib, *mut xlib::Display) -> R) -> Result<R, String> {
         if wayland() {
             return Err(UNSUPPORTED_WAYLAND.to_string());
         }
@@ -327,24 +327,26 @@ mod imp {
             if display.is_null() {
                 return Err("could not open an X11 display".to_string());
             }
-            let result = f(display, 0);
+            let result = f(&xlib, display);
             (xlib.XCloseDisplay)(display);
             Ok(result)
         }
     }
 
+    /// Xlib's functions live on the loaded library, so every call goes through
+    /// the `xlib` instance `with_display` hands to the closure.
     fn with_window<R>(
         window: &Window,
-        f: impl FnOnce(*mut xlib::Display, xlib::Window, xlib::Window) -> R,
+        f: impl FnOnce(&xlib::Xlib, *mut xlib::Display, xlib::Window) -> R,
     ) -> Result<R, String> {
         let id = window_id(window)?;
-        with_display(|display, _| f(display, id as xlib::Window, id as xlib::Window))
+        with_display(|xlib, display| f(xlib, display, id as xlib::Window))
     }
 
     pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
-            (xlib::XMoveWindow)(display, id, x.round() as i32, y.round() as i32);
-            (xlib::XFlush)(display);
+        with_window(window, |xlib, display, id| unsafe {
+            (xlib.XMoveWindow)(display, id, x.round() as i32, y.round() as i32);
+            (xlib.XFlush)(display);
         })
     }
 
@@ -353,33 +355,33 @@ mod imp {
     ///
     /// TODO: set the `_NET_WM_STATE_ABOVE` hint so the window stays above.
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
+        with_window(window, |xlib, display, id| unsafe {
             if on {
-                (xlib::XRaiseWindow)(display, id);
-                (xlib::XFlush)(display);
+                (xlib.XRaiseWindow)(display, id);
+                (xlib.XFlush)(display);
             }
         })
     }
 
     pub fn set_min_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
+        with_window(window, |xlib, display, id| unsafe {
             let mut hints: xlib::XSizeHints = std::mem::zeroed();
             hints.flags = xlib::PMinSize;
             hints.min_width = width.round() as i32;
             hints.min_height = height.round() as i32;
-            (xlib::XSetWMNormalHints)(display, id, &mut hints);
-            (xlib::XFlush)(display);
+            (xlib.XSetWMNormalHints)(display, id, &mut hints);
+            (xlib.XFlush)(display);
         })
     }
 
     pub fn set_max_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
+        with_window(window, |xlib, display, id| unsafe {
             let mut hints: xlib::XSizeHints = std::mem::zeroed();
             hints.flags = xlib::PMaxSize;
             hints.max_width = width.round() as i32;
             hints.max_height = height.round() as i32;
-            (xlib::XSetWMNormalHints)(display, id, &mut hints);
-            (xlib::XFlush)(display);
+            (xlib.XSetWMNormalHints)(display, id, &mut hints);
+            (xlib.XFlush)(display);
         })
     }
 
@@ -391,25 +393,25 @@ mod imp {
     }
 
     pub fn show(window: &mut Window) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
-            (xlib::XMapWindow)(display, id);
-            (xlib::XFlush)(display);
+        with_window(window, |xlib, display, id| unsafe {
+            (xlib.XMapWindow)(display, id);
+            (xlib.XFlush)(display);
         })
     }
 
     pub fn hide(window: &mut Window) -> Result<(), String> {
-        with_window(window, |display, _root, id| unsafe {
-            (xlib::XUnmapWindow)(display, id);
-            (xlib::XFlush)(display);
+        with_window(window, |xlib, display, id| unsafe {
+            (xlib.XUnmapWindow)(display, id);
+            (xlib.XFlush)(display);
         })
     }
 
     pub fn is_minimized(window: &Window) -> bool {
         // `XGetWindowAttributes` reports `IsUnmapped` for a hidden window, but
         // X11 has no "minimized" state of its own (the WM owns it).
-        with_window(window, |display, _root, id| unsafe {
+        with_window(window, |xlib, display, id| unsafe {
             let mut attributes: xlib::XWindowAttributes = std::mem::zeroed();
-            if (xlib::XGetWindowAttributes)(display, id, &mut attributes) == 0 {
+            if (xlib.XGetWindowAttributes)(display, id, &mut attributes) == 0 {
                 return false;
             }
             attributes.map_state == xlib::IsUnmapped
