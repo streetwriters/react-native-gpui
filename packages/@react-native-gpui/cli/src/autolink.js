@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -257,6 +258,113 @@ function generateComponentCodegen({
   return { sources, libraryName };
 }
 
+const findGeneratedFiles = directory => {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return findGeneratedFiles(entryPath);
+    return [entryPath];
+  });
+};
+
+/**
+ * Generates the C++ TurboModule specs for one package: our own spec class in
+ * `<libraryName>.h` and React Native's `<libraryName>JSI.h`, which carries the
+ * struct helpers for named object types.
+ *
+ * Codegen rewrites every file it is handed, and CMake compiles the headers'
+ * dependents whenever they change, so its output is staged in a temporary
+ * directory and only the files whose content differs are copied over.
+ */
+function generateModuleCodegen({
+  appRequire,
+  platformRequire,
+  packageJson,
+  dependencyName,
+  specPaths,
+  generatedRoot,
+  generatedLibraries,
+}) {
+  const libraryName = packageJson.codegenConfig?.name;
+  if (typeof libraryName !== 'string' || !cppIdentifier.test(libraryName)) {
+    throw new Error(
+      `${dependencyName}: codegenConfig.name is required for a C++ TurboModule`,
+    );
+  }
+  // Two packages cannot share one codegen directory: the second would overwrite
+  // the first's header.
+  if (generatedLibraries.has(libraryName)) {
+    throw new Error(
+      `${dependencyName}: codegenConfig.name ${libraryName} is already used by ${generatedLibraries.get(libraryName)}`,
+    );
+  }
+  generatedLibraries.set(libraryName, dependencyName);
+  const schema = appRequire(
+    '@react-native/codegen/lib/cli/combine/combine-js-to-schema',
+  ).combineSchemasInFileList(specPaths, 'gpui', null, libraryName);
+  for (const name of Object.keys(schema.modules ?? {})) {
+    if (schema.modules[name].type !== 'NativeModule') {
+      delete schema.modules[name];
+    }
+  }
+  const codegenPackage = appRequire.resolve(
+    '@react-native/codegen/package.json',
+  );
+  const codegenRoot = path.dirname(codegenPackage);
+  const rnCodegen = appRequire(
+    path.join(codegenRoot, 'lib/generators/RNCodegen.js'),
+  );
+  const outputDirectory = path.join(generatedRoot, libraryName);
+  const stagingDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'rn-gpui-codegen-'),
+  );
+  try {
+    const generated = rnCodegen.generate(
+      {
+        libraryName,
+        schema,
+        outputDirectory: stagingDirectory,
+        packageName: packageJson.name,
+        assumeNonnull: false,
+      },
+      { generators: ['modulesCxx'] },
+    );
+    if (generated !== true) {
+      throw new Error(
+        `${dependencyName}: React Native Codegen failed for the C++ TurboModule spec`,
+      );
+    }
+    for (const file of findGeneratedFiles(stagingDirectory)) {
+      const target = path.join(
+        outputDirectory,
+        path.relative(stagingDirectory, file),
+      );
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      writeIfChanged(target, fs.readFileSync(file, 'utf8'));
+    }
+  } finally {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+  const specPathByModule = new Map(
+    specPaths.map(specPath => [
+      path.basename(specPath).replace(/\.[^.]+$/u, ''),
+      specPath,
+    ]),
+  );
+  const { generateCxxSpec } = platformRequire(
+    '@react-native-gpui/codegen/generate-cxx-spec',
+  );
+  writeIfChanged(
+    path.join(outputDirectory, `${libraryName}.h`),
+    generateCxxSpec({
+      libraryName,
+      schema,
+      specPaths: Object.fromEntries(specPathByModule),
+    }),
+  );
+  return outputDirectory;
+}
+
 function findNodeApiModules(packageRoot, packageJson, dependencyName) {
   if (
     !packageJson.name ||
@@ -324,6 +432,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     );
   }
   const platformRoot = fs.realpathSync(path.dirname(platformPackageJson));
+  // The spec generator ships with the platform package, so resolve it from
+  // there rather than from the app.
+  const platformRequire = createRequire(platformPackageJson);
   const { TypeScriptParser } = appRequire(
     '@react-native/codegen/lib/parsers/typescript/parser',
   );
@@ -348,7 +459,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   }
   const rustCrates = [];
   const turboModuleSpecs = [];
-  const rustTurboModuleSpecs = [];
   const cmakeProjects = [];
   const cppTurboModules = [];
   const appComponentDescriptors = [];
@@ -358,6 +468,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const componentNames = new Map();
   const jsEngines = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
+  const generatedLibraries = new Map();
   const nodeApiModules = findNodeApiModules(
     projectRoot,
     JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')),
@@ -448,9 +559,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         );
       }
       const specDir = path.join(root, specDirectory);
+      const cppSpecPaths = [];
       for (const file of findSpecFiles(specDir)) {
         const specPath = path.join(specDir, file);
         const moduleName = moduleNameForSpec(specPath);
+        cppSpecPaths.push(specPath);
         cppTurboModules.push({
           dependencyName,
           moduleName,
@@ -463,6 +576,29 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
               : [],
         });
         turboModuleSpecs.push(specPath);
+      }
+      if (cppSpecPaths.length > 0) {
+        const moduleCodegenDirectory = generateModuleCodegen({
+          appRequire,
+          platformRequire,
+          packageJson,
+          dependencyName,
+          specPaths: cppSpecPaths,
+          generatedRoot: codegenRoot,
+          generatedLibraries,
+        });
+        appComponentIncludeDirs.push(moduleCodegenDirectory);
+        for (const entry of cppTurboModules) {
+          if (
+            entry.dependencyName === dependencyName &&
+            entry.specs === undefined
+          ) {
+            entry.specs = cppSpecPaths;
+            entry.headers = findGeneratedFiles(moduleCodegenDirectory).filter(
+              file => file.endsWith('.h'),
+            );
+          }
+        }
       }
     }
     if (!gpui.crate) {
@@ -491,7 +627,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         const moduleName = moduleNameForSpec(specPath);
         moduleTypes.push(moduleName);
         turboModuleSpecs.push(specPath);
-        rustTurboModuleSpecs.push(specPath);
       }
     }
     rustCrates.push({
@@ -557,7 +692,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       const specPath = path.join(localDesktopSource, file);
       moduleNameForSpec(specPath);
       turboModuleSpecs.push(specPath);
-      rustTurboModuleSpecs.push(specPath);
     }
   }
 
@@ -582,7 +716,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const manifest = {
     rustCrates,
     turboModuleSpecs,
-    rustTurboModuleSpecs,
     cppTurboModules,
     cmakeProjects,
     nodeApiModules,
@@ -613,11 +746,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     path.join(autolinkCrate, 'Cargo.toml'),
     `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ''}`,
   );
-  const ensureLinked = rustCrates.flatMap(({ alias, moduleTypes }) =>
-    moduleTypes.map(
-      type => `    let _ = ${alias}::${type.toUpperCase()}_RN_GPUI_MODULES;`,
-    ),
-  );
+  // A crate with specs registers its modules; the linker keeps them because
+  // `rn_gpui_register` is called here.
+  const ensureLinked = rustCrates
+    .filter(({ moduleTypes }) => moduleTypes.length > 0)
+    .map(({ alias }) => `    ${alias}::rn_gpui_register();`);
   const generatedEnsureLinked = [
     'pub fn ensure_linked() {',
     '    unsafe {',
@@ -670,6 +803,40 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     );
     if (!/^rn-gpui-autolink\s*=/mu.test(appCargo)) {
       appCargo += `\n[dependencies]\nrn-gpui-autolink = { path = "autolink" }\n`;
+    }
+  }
+  // The app's own Rust TurboModules: its build script generates the glue, and
+  // main.rs registers the modules it declares.
+  const moduleCrate = path
+    .relative(
+      desktopRoot,
+      path.join(path.dirname(runtimeCrate), 'rn-gpui-module'),
+    )
+    .split(path.sep)
+    .join('/');
+  const moduleBuildCrate = path
+    .relative(
+      desktopRoot,
+      path.join(path.dirname(runtimeCrate), 'rn-gpui-module-build'),
+    )
+    .split(path.sep)
+    .join('/');
+  const moduleDependency = `rn-gpui-module = { path = ${escapeToml(moduleCrate)} }`;
+  if (!/^rn-gpui-module\s*=/mu.test(appCargo)) {
+    appCargo = appCargo.replace(
+      /^\[dependencies\]\s*$/mu,
+      section => `${section}\n${moduleDependency}`,
+    );
+  }
+  const moduleBuildDependency = `rn-gpui-module-build = { path = ${escapeToml(moduleBuildCrate)} }`;
+  if (!/^rn-gpui-module-build\s*=/mu.test(appCargo)) {
+    if (/^\[build-dependencies\]\s*$/mu.test(appCargo)) {
+      appCargo = appCargo.replace(
+        /^\[build-dependencies\]\s*$/mu,
+        section => `${section}\n${moduleBuildDependency}`,
+      );
+    } else {
+      appCargo += `\n[build-dependencies]\n${moduleBuildDependency}\n`;
     }
   }
   if (!/^\[features\]\s*$/mu.test(appCargo)) {
@@ -754,7 +921,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     `set(RN_GPUI_NODE_API_MODULE_NAMES ${nodeApiModules.map(({ libraryName }) => `"${libraryName}"`).join(' ')})`,
     `set(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR "${cmakePath(nodeApiFrameworksDir)}")`,
     // Core calls each registration symbol from the generated
-    // rn_gpui_install_extensions(), so the engine registry is populated before
+    // rn_gpui_install_modules(), so the engine registry is populated before
     // the host selects an engine.
     ...jsEngines.map(
       engine =>
@@ -766,7 +933,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
   );
   console.log(
-    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${rustTurboModuleSpecs.length} Rust TurboModule spec(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), ${cmakeProjects.length} CMake project(s), and ${jsEngines.length} JS engine(s) [${jsEngines.map(({ name }) => name).join(', ')}].`,
+    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${cppTurboModules.length} C++ TurboModule(s), ${nodeApiModules.length} Node-API addon(s), ${cmakeProjects.length} CMake project(s), and ${jsEngines.length} JS engine(s) [${jsEngines.map(({ name }) => name).join(', ')}].`,
   );
   return config;
 }

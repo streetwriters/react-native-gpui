@@ -13,5 +13,10 @@
     "react-native-reanimated": "4.7.x",
     "react-native-worklets": "0.13.x"
   },
+  "codegenConfig": {
+    "name": "GPUIGestureHandlerSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
   "license": "MIT"
 }

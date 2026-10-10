@@ -1,6 +1,7 @@
 #include "GPUIWorkletsModule.h"
 #include "GpuiHost.h"
 
+#include <GPUIReanimatedSpec.h>
 #include <reanimated/NativeModules/ReanimatedModuleProxy.h>
 #include <reanimated/RuntimeDecorators/RNRuntimeDecorator.h>
 #include <reanimated/Tools/PlatformDepMethodsHolder.h>
@@ -13,7 +14,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 
 namespace {
@@ -77,28 +77,13 @@ PlatformDepMethodsHolder platformMethods(
   return methods;
 }
 
-class Module final : public facebook::react::TurboModule {
+class Module final
+    : public facebook::react::NativeReanimatedModuleSpec<Module> {
  public:
   explicit Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
-      : TurboModule("ReanimatedModule", jsInvoker),
-        jsInvoker_(std::move(jsInvoker)) {
-    methodMap_.emplace(
-        "installTurboModule", MethodMetadata{0, &Module::install});
-  }
+      : NativeReanimatedModuleSpec(std::move(jsInvoker)) {}
 
- private:
-  static facebook::jsi::Value install(
-      Runtime& runtime,
-      facebook::react::TurboModule& base,
-      const facebook::jsi::Value*,
-      size_t count) {
-    if (count != 0)
-      throw facebook::jsi::JSError(
-          runtime, "installTurboModule expects no arguments");
-    return facebook::jsi::Value(static_cast<Module&>(base).install(runtime));
-  }
-
-  bool install(Runtime& runtime) {
+  bool installTurboModule(Runtime& runtime) {
     if (proxy_)
       return true;
     auto worklets = gpui_worklets::currentModule();
@@ -166,14 +151,11 @@ class Module final : public facebook::react::TurboModule {
 
   std::shared_ptr<ReanimatedModuleProxy> proxy_;
   std::shared_ptr<const facebook::react::EventListener> eventListener_;
-  std::shared_ptr<facebook::react::CallInvoker> jsInvoker_;
 };
 } // namespace
 
 std::shared_ptr<facebook::react::TurboModule> create_gpui_reanimated_module(
     const std::string& name,
     std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
-  if (name != "ReanimatedModule")
-    return nullptr;
-  return std::make_shared<Module>(std::move(jsInvoker));
+  return rngpui::provideTurboModule<Module>(name, std::move(jsInvoker));
 }
