@@ -164,6 +164,18 @@ export class DesktopApp {
     return this.capture;
   }
 
+  /**
+   * Whether native accessibility nodes can be resolved by testID. macOS uses
+   * the AppKit probe; on Linux the AT-SPI bus has to be enabled, which the e2e
+   * runner does and reports through `RN_GPUI_TEST_NATIVE_A11Y`.
+   */
+  get nativeA11ySupported(): boolean {
+    if (process.platform === 'darwin') return true;
+    if (process.platform === 'linux')
+      return process.env.RN_GPUI_TEST_NATIVE_A11Y !== '0';
+    return false;
+  }
+
   static async launch(options: LaunchOptions): Promise<DesktopApp> {
     options = {
       ...options,

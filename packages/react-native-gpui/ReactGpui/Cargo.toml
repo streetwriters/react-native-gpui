@@ -21,8 +21,8 @@ debug = false
 strip = "debuginfo"
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "a161424f636f088e814863161f6c4440edde6e4e" }
-gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "a161424f636f088e814863161f6c4440edde6e4e" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "75603f3d9d9eb0b6f80e278e630f7c49e67eb13c" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "75603f3d9d9eb0b6f80e278e630f7c49e67eb13c" }
 cxx = "=1.0.202"
 cxx-build = "=1.0.202"
 cmake = "0.1"
@@ -32,6 +32,6 @@ log = "0.4"
 env_logger = "0.11"
 serde_json = "1"
 futures = "0.3"
-reqwest_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "a161424f636f088e814863161f6c4440edde6e4e" }
-http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "a161424f636f088e814863161f6c4440edde6e4e" }
+reqwest_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "75603f3d9d9eb0b6f80e278e630f7c49e67eb13c" }
+http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "75603f3d9d9eb0b6f80e278e630f7c49e67eb13c" }
 fontdue = "0.9"
