@@ -94,6 +94,12 @@ export class DesktopApp {
    * a 1x display.
    */
   scale = 1;
+  /**
+   * Whether the driver's platform backend implements `render_to_image`,
+   * reported by the `hello` handshake. Falls back to the Apple-only check for
+   * older binaries that do not send the field.
+   */
+  capture = process.platform === 'darwin';
   private readonly process: ChildProcess;
   private readonly socket: WebSocket;
   private readonly token: string;
@@ -150,12 +156,12 @@ export class DesktopApp {
   }
 
   /**
-   * Whether the platform backend implements `render_to_image`. Only the Apple
-   * backends do today; gpui_linux returns "render_to_image not implemented for
-   * this platform", so capture-based assertions are skipped there.
+   * Whether the platform backend implements `render_to_image` (capture is used
+   * by visual baselines and screenshot smoke checks). The driver reports this
+   * in the `hello` handshake.
    */
   get captureSupported(): boolean {
-    return process.platform === 'darwin';
+    return this.capture;
   }
 
   static async launch(options: LaunchOptions): Promise<DesktopApp> {
@@ -233,11 +239,12 @@ export class DesktopApp {
     }
     logs.push(fs.readFileSync(logFile, 'utf8'));
     const app = new DesktopApp(child, socket, token, logs, logFile);
-    let hello: { protocol?: number; scale?: number };
+    let hello: { protocol?: number; scale?: number; capture?: boolean };
     try {
       hello = (await app.request('hello')) as {
         protocol?: number;
         scale?: number;
+        capture?: boolean;
       };
     } catch (error) {
       await app.close();
@@ -251,6 +258,7 @@ export class DesktopApp {
     }
     app.scale =
       typeof hello.scale === 'number' && hello.scale > 0 ? hello.scale : 1;
+    if (typeof hello.capture === 'boolean') app.capture = hello.capture;
     if (options.idleOptions) app.setIdleOptions(options.idleOptions);
     if (options.disableAnimations) await app.setAnimationsEnabled(false);
     try {

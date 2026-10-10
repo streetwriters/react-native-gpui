@@ -8,8 +8,9 @@ links = "rn_gpui_runtime"
 # Test/probe controls: synthetic input, resize/scale/headless overrides, custom
 # window-state paths, startup tracing, native-view probes, and frame capture.
 # `RN_GPUI_SCREENSHOT` renders the window's own scene to a PNG off-screen.
-# gpui's `Window::render_to_image` is gated on `test-support` in gpui, gpui_macos
-# and gpui_apple, so the feature has to be enabled at the platform crate too.
+# gpui's `Window::render_to_image` is gated on `test-support` in gpui,
+# gpui_macos, gpui_apple and (with the Linux patches) gpui_linux, so the
+# feature has to be enabled at the platform crate too.
 visual-capture = ["gpui_platform/test-support"]
 # A local-only WebSocket test driver. It is absent from normal builds.
 test-driver = ["visual-capture", "dep:tungstenite"]
