@@ -15,6 +15,28 @@ one GPU-accelerated Rust renderer for **macOS, Windows and Linux**.
 - A C++20 compiler: Xcode command line tools on macOS, Visual Studio 2022
   Build Tools (MSVC) on Windows, GCC or Clang on Linux
 
+### Linux
+
+```sh
+sudo apt install libgtk-3-dev libayatana-appindicator3-dev
+```
+
+The Rust crates probe GTK 3 and AppIndicator through `pkg-config` at build
+time, and the tray icon loads `libayatana-appindicator3` at run time. If a
+non-system `pkg-config` is first on `PATH` (Linuxbrew and Nix do this), it
+hides the system libraries and the C++ build fails with confusing errors; add
+the system directories:
+
+```sh
+export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+```
+
+`run-desktop` checks both modules up front and says what to install.
+
+At run time Hermes resolves the system ICU (`libicuuc`/`libicui18n`, any
+version) with `dlopen`. Without any ICU the VM still runs, with ASCII-only
+case mapping, code-unit collation and no-op normalization.
+
 ## Create an app
 
 ```sh
@@ -476,6 +498,9 @@ that wait for idle.
 | Tray apps (7.3)            | yes                          | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
 | Dev Menu                   | yes                          | menu popup as above                 | popup as above                              |
 | Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
+| Window capture (tests)     | yes                          | yes (unverified)                    | yes, X11 tested; Wayland untested           |
+| Hidden (`show: false`)     | yes                          | unverified                          | yes (X11 stays unmapped until shown)        |
+| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform.
@@ -499,6 +524,11 @@ it needs an **unlocked** macOS session: a locked session has no displays, GPUI
 waits for one before entering AppKit, and every test would time out. The runner
 checks for that up front and says so; `RN_GPUI_ALLOW_LOCKED_SCREEN=1` skips the
 check. Restart Metro after changing `metro.config.js` or `package.json`.
+
+On Linux the runner turns on the session's AT-SPI flag
+(`org.a11y.Status.IsEnabled` on `org.a11y.Bus`) for the duration of the run and
+restores the previous value afterwards, so the native accessibility assertions
+have a tree to read. With no AT-SPI session bus those tests skip.
 
 ## Supported libraries
 
