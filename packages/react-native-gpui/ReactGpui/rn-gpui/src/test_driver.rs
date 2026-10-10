@@ -89,7 +89,12 @@ async fn serve_commands(
                 let bounds = window.bounds();
                     #[cfg(target_os = "macos")]
                     let hidden = !crate::native_view::test_window_visible(window);
-                    #[cfg(not(target_os = "macos"))]
+                    // Offscreen test windows are created unmapped on Linux, so
+                    // the X11 map state reports them as hidden; a real window
+                    // session stays viewable.
+                    #[cfg(target_os = "linux")]
+                    let hidden = crate::desktop::platform_window::is_minimized(window);
+                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
@@ -229,7 +234,7 @@ async fn serve_commands(
                         let frame = node_visible_frame(store, tag, viewport, cx);
                         Some(frame.map_or(Err("click target is not visible"), |frame| {
                             Ok((
-                                point(px(frame.x + frame.w / 2.0), px(frame.y + frame.h / 2.0)),
+                                frame_center(frame),
                                 tag,
                             ))
                         }))
@@ -363,7 +368,7 @@ async fn serve_commands(
                             |frame| {
                                 Ok((
                                     tag,
-                                    point(px(frame.x + frame.w / 2.0), px(frame.y + frame.h / 2.0)),
+                                    frame_center(frame),
                                 ))
                             },
                         ))
@@ -576,7 +581,7 @@ async fn serve_commands(
                         return None;
                     }
                     node_frame(store, tag, cx).map(|frame| {
-                        point(px(frame.x + frame.w / 2.0), px(frame.y + frame.h / 2.0))
+                        frame_center(frame)
                     })
                 });
                 let text = params
@@ -635,10 +640,7 @@ async fn serve_commands(
                     let to = params.get("toTag").and_then(Value::as_i64)? as i32;
                     let from = node_frame(store, from, cx)?;
                     let to = node_frame(store, to, cx)?;
-                    Some((
-                        point(px(from.x + from.w / 2.0), px(from.y + from.h / 2.0)),
-                        point(px(to.x + to.w / 2.0), px(to.y + to.h / 2.0)),
-                    ))
+                    Some((frame_center(from), frame_center(to)))
                 });
                 match points {
                     None => json!({"error": "drag requires mounted source and destination tags"}),
@@ -875,9 +877,12 @@ async fn serve_commands(
                             let image = if let Some(frame) = frame {
                                 let (image_width, image_height) = image.dimensions();
                                 let x = (frame.x * scale).floor().max(0.0) as u32;
-                                let y = (frame.y * scale).floor().max(0.0) as u32;
+                                let y =
+                                    ((frame.y + menu_bar_offset()) * scale).floor().max(0.0) as u32;
                                 let right = ((frame.x + frame.w) * scale).ceil().max(0.0) as u32;
-                                let bottom = ((frame.y + frame.h) * scale).ceil().max(0.0) as u32;
+                                let bottom = ((frame.y + menu_bar_offset() + frame.h) * scale)
+                                    .ceil()
+                                    .max(0.0) as u32;
                                 let right = right.min(image_width);
                                 let bottom = bottom.min(image_height);
                                 if x >= right || y >= bottom {
@@ -1340,6 +1345,22 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
         w: node.frame.w * scale_x,
         h: height * scale_y,
     })
+}
+
+/// The GPUI menu bar is drawn inside the window (Linux by default), so the RN
+/// surface starts below it: surface frames become window coordinates by adding
+/// the inset. It is zero on platforms whose menu bar is native.
+fn menu_bar_offset() -> f32 {
+    crate::desktop::gpui_menu::menu_bar_inset()
+}
+
+/// The window-space center of a surface-space frame. Pointer events dispatched
+/// with it land on the node the frame names, not `menu_bar_offset()` above it.
+fn frame_center(frame: RectF) -> gpui::Point<gpui::Pixels> {
+    point(
+        px(frame.x + frame.w / 2.0),
+        px(frame.y + menu_bar_offset() + frame.h / 2.0),
+    )
 }
 
 pub(crate) fn node_visible_frame(
