@@ -192,9 +192,12 @@ test.each(['stack', 'native-stack'])(
   },
 );
 
-// Native AccessKit activation and identifier lookup are macOS-only today:
-// gpui_linux never activates the adapter without an AT-SPI client.
-test.skipIf(process.platform !== 'darwin')(
+// Native accessibility runs where the platform can resolve nodes by testID:
+// macOS always, Linux when the e2e runner enabled the AT-SPI bus.
+const nativeA11y =
+  process.platform === 'darwin' || process.env.RN_GPUI_TEST_NATIVE_A11Y === '1';
+
+test.skipIf(!nativeA11y)(
   'native accessibility exposes labels, roles, state, values and hidden subtrees',
   async () => {
     await launch('AccessibilityFixture');
@@ -360,9 +363,10 @@ test('nested stack and modal preserve the tab input and scroll position', async 
 
 test('duplicate identifiers fail accessibility and ambiguous action checks', async () => {
   await launch('AccessibilityFixture', undefined, { duplicate: true });
-  // The duplicate-testID audit runs over the native tree, which only macOS
-  // activates today; the ambiguous-action check is RN-side and always runs.
-  if (process.platform === 'darwin') {
+  // The duplicate-testID audit runs over the native tree, which only exists
+  // where the platform can resolve nodes (macOS, or Linux with AT-SPI enabled);
+  // the ambiguous-action check is RN-side and always runs.
+  if (app.nativeA11ySupported) {
     await expect(expectNoA11yViolations(app)).rejects.toThrow(
       'Duplicate visible testID "duplicate"',
     );
@@ -374,17 +378,12 @@ test('duplicate identifiers fail accessibility and ambiguous action checks', asy
 
 test('hidden windows resize, capture and receive keyboard input', async () => {
   await launch('NavigationFixture', 'stack');
-  // gpui_linux maps test windows even under `show: false` and does not
-  // reflect resizes of never-mapped windows, so the hidden/resize half is
-  // macOS-only until the X11 backend lands both; hidden input runs everywhere.
-  if (process.platform === 'darwin') {
-    await app.setWindowSize(640, 480);
-    await app.focusWindow();
-    expect(await app.getWindowSize()).toEqual({ width: 640, height: 480 });
-    expect((await app.getWindowBounds()).hidden).toBe(
-      process.env.RN_GPUI_TEST_HEADED !== '1',
-    );
-  }
+  await app.setWindowSize(640, 480);
+  await app.focusWindow();
+  expect(await app.getWindowSize()).toEqual({ width: 640, height: 480 });
+  expect((await app.getWindowBounds()).hidden).toBe(
+    process.env.RN_GPUI_TEST_HEADED !== '1',
+  );
   await app.getByTestId('e2e-text-input').type('Hidden window input');
   await desktopExpect(app.getByTestId('e2e-text-input')).toHaveValue(
     'Hidden window input',

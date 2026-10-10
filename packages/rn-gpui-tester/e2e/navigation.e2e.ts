@@ -61,9 +61,10 @@ test('starts the real RN app and navigates through Fabric input', async () => {
       throw new Error(`Unexpected idle status: ${JSON.stringify(idle)}`);
     }
     await expect(app.getByText('Home')).toBeVisible(15_000);
-    // AccessKit only activates when an assistive client connects; the driver
-    // forces the probe on macOS, while Linux has no equivalent yet.
-    if (process.platform === 'darwin') {
+    // AccessKit only builds a tree while the platform reports it as active:
+    // macOS forces the probe, Linux needs the AT-SPI bus (enabled by the e2e
+    // runner).
+    if (app.nativeA11ySupported) {
       const a11y = (await app.a11yTree()) as {
         nodes?: Record<string, { aria?: { role?: string } }>;
       };
@@ -111,8 +112,8 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     await expect(input).toHaveValue('desktop test input');
     await expect(input).toBeEnabled();
     // Native accessibility name/role lookups (and the tree audit) need the
-    // AccessKit adapter, which only macOS activates today.
-    if (process.platform === 'darwin') {
+    // AccessKit tree (see the check above).
+    if (app.nativeA11ySupported) {
       await expect(input).toHaveAccessibleName('Desktop test input');
       await expect(input).toHaveAccessibleRole('textbox');
       await expectNoA11yViolations(app);
