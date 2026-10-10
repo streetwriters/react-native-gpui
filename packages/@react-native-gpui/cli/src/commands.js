@@ -7,6 +7,42 @@ import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
+
+/**
+ * The Rust side probes GTK and AppIndicator through pkg-config while Cargo
+ * builds. A non-system pkg-config first on PATH (Linuxbrew, Nix) cannot see the
+ * system packages, and the failure surfaces much later as a cryptic C++ build
+ * error, so check up front. Pure so it can be unit tested: `runPkgConfig`
+ * returns true, false, or 'missing-pkg-config'.
+ */
+export function linuxBuildDependencyProblem(platform, runPkgConfig) {
+  if (platform !== 'linux') return null;
+  const modules = [
+    { pc: 'gtk+-3.0', apt: 'libgtk-3-dev' },
+    { pc: 'ayatana-appindicator3-0.1', apt: 'libayatana-appindicator3-dev' },
+  ];
+  for (const { pc, apt } of modules) {
+    const result = runPkgConfig(pc);
+    if (result === 'missing-pkg-config') {
+      return (
+        'pkg-config is required to build the desktop app on Linux. ' +
+        'Install it with `sudo apt install pkg-config`, then re-run.'
+      );
+    }
+    if (!result) {
+      return (
+        `Linux build dependency ${pc} was not found. ` +
+        `Install it with \`sudo apt install ${apt}\`, then re-run. ` +
+        'If pkg-config cannot see the system packages (Linuxbrew or Nix ' +
+        'pkg-config first on PATH does this), set ' +
+        'PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig ' +
+        'and re-run.'
+      );
+    }
+  }
+  return null;
+}
+
 const run = (bin, args, options = {}) =>
   execFileSync(bin, args, {
     cwd: options.cwd ?? process.cwd(),
@@ -165,6 +201,18 @@ export async function runDesktop({
   noLaunch = false,
 }) {
   projectRoot = path.resolve(projectRoot);
+  const dependencyProblem = linuxBuildDependencyProblem(
+    process.platform,
+    pc => {
+      try {
+        execFileSync('pkg-config', ['--exists', pc], { stdio: 'ignore' });
+        return true;
+      } catch (error) {
+        return error?.code === 'ENOENT' ? 'missing-pkg-config' : false;
+      }
+    },
+  );
+  if (dependencyProblem) throw new Error(dependencyProblem);
   const desktopRoot = path.join(projectRoot, 'desktop');
   entryFile ??=
     ['index.js', 'index.ts', 'index.tsx'].find(file =>
