@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rn-gpui-macros = { path = "../../../react-native-gpui/ReactGpui/rn-gpui-macros" }
+rn-gpui-module = { path = "../../../react-native-gpui/ReactGpui/rn-gpui-module" }
+
+[build-dependencies]
+rn-gpui-module-build = { path = "../../../react-native-gpui/ReactGpui/rn-gpui-module-build" }

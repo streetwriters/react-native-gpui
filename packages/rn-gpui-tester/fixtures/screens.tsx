@@ -132,10 +132,12 @@ export const renderScreen: Record<
       scenario: 'nested',
     }),
   'rust-turbomodule': props =>
-    React.createElement(require('./components/NativeModulesFixture').default, {
-      ...props,
-      kind: 'rust',
-    }),
+    React.createElement(
+      require('./components/RustTurboModuleFixture').default,
+      {
+        ...props,
+      },
+    ),
   'cpp-turbomodule': props =>
     React.createElement(require('./components/NativeModulesFixture').default, {
       ...props,
