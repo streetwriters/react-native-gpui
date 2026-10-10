@@ -82,6 +82,7 @@ async fn serve_commands(
                     })
                     .unwrap_or((0.0, 0.0, 1.0));
                 json!({"protocol": PROTOCOL_VERSION, "platform": "gpui", "scale": scale,
+                    "capture": cfg!(feature = "visual-capture") && cfg!(any(target_os = "macos", target_os = "linux")),
                     "animationsDisabled": crate::animation_policy::animations_disabled(),
                     "windowSize": {"width": width, "height": height}, "appName": std::env::var("RN_GPUI_APP_ID").unwrap_or_default()})
             }
