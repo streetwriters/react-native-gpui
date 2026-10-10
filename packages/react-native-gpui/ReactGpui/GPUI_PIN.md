@@ -11,13 +11,16 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `b8f0c026553711c1e049fee501932d3801f23567` (upstream main @ 2026-10-09,
-  "ci: allow release dependency tests time to compile on Windows (#53)")
+- Commit: `5a547b9d1e6a7d331996605442d23f51b8bcb354` (upstream main @ 2026-10-09,
+  "ci: allow release dependency tests time to compile on Windows (#53)", plus
+  the Linux fixes below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Carried patches on top of upstream
 
-None yet. Linux fixes land on `rn-gpui-linux` as they are made.
+- `bb9bd86` `gpui: map X11 windows only when shown` (honour `show: false`)
+- `40aff79` `gpui_linux: apply resizes to unmapped X11 windows`
+- `5a547b9` `gpui_linux: log a missing XInput pointer as a warning`
 
 ## Upstream (from the repo's `UPSTREAM` file at that commit)
 
