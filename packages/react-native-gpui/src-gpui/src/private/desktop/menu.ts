@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { DeviceEventEmitter } from 'react-native';
-import { call } from './index';
+import { request } from './index';
 import type { Subscription } from './windows';
 
 export type MenuRole =
@@ -77,15 +77,17 @@ export const Menu = {
    * Edit, Window, Help).
    */
   setApplicationMenu(items: MenuItemSpec[] | null): Promise<void> {
-    return call<void>('menu', 'set', { items });
+    return request(native =>
+      native.menuSetApplicationMenu(items as unknown as Object[] | null),
+    );
   },
 
   update(id: string, patch: MenuItemPatch): Promise<void> {
-    return call<void>('menu', 'update', { id, patch });
+    return request(native => native.menuUpdate(id, patch));
   },
 
   get(): Promise<MenuDescription> {
-    return call<MenuDescription>('menu', 'get');
+    return request(native => native.menuGet()) as Promise<MenuDescription>;
   },
 
   addListener(

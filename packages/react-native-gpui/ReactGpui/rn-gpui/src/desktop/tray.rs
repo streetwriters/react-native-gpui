@@ -273,63 +273,59 @@ pub fn show_menu(cx: &mut App, menu: MenuModel, rect: TrayRect) {
     presenter.show(cx, request, responder);
 }
 
-pub fn apply(cx: &mut App, method: &str, args_json: &str) -> DesktopResult {
-    let args: Value = serde_json::from_str(args_json).unwrap_or(Value::Null);
-    let Some(tray) = cx.try_global::<TrayGlobal>() else {
-        return Err(DesktopError::not_found("no tray icon is installed"));
-    };
-    match method {
-        "setTooltip" => {
-            let tooltip = args.get("tooltip").and_then(Value::as_str);
-            let icon = tray.0.borrow().icon.clone();
-            if let Some(icon) = icon {
-                let _ = icon.set_tooltip(tooltip);
-            }
-            tray.0.borrow_mut().config.tooltip = tooltip.map(str::to_string);
-            Ok(json!({"tooltip": tooltip}))
-        }
-        "setVisible" => {
-            let visible = args
-                .get("visible")
-                .and_then(Value::as_bool)
-                .ok_or_else(|| DesktopError::invalid_argument("a boolean `visible` is required"))?;
-            let icon = tray.0.borrow().icon.clone();
-            if let Some(icon) = icon {
-                let _ = icon.set_visible(visible);
-            }
-            tray.0.borrow_mut().visible = visible;
-            Ok(json!({"visible": visible}))
-        }
-        "setIcon" => {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .ok_or_else(|| DesktopError::invalid_argument("Tray.setIcon requires a path"))?;
-            let icon = load_icon(path)?;
-            let handle = tray.0.borrow().icon.clone();
-            if let Some(handle) = handle {
-                handle
-                    .set_icon(Some(icon))
-                    .map_err(|error| DesktopError::failed(format!("{error}")))?;
-            }
-            Ok(json!({"path": path}))
-        }
-        "setMenu" => {
-            let menu = match args.get("items") {
-                Some(items) => Some(menu_model::parse_menu(items)?),
-                None => None,
-            };
-            tray.0.borrow_mut().config.menu = menu;
-            {
-                let tray = tray.0.borrow();
-                if let Some(icon) = &tray.icon {
-                    attach_native_menu(icon, &tray.config);
-                }
-            }
-            Ok(json!({"items": args.get("items").map(|v| v.as_array().map(Vec::len)).flatten()}))
-        }
-        _ => Err(DesktopError::unsupported(format!("tray.{method}"))),
+pub fn set_tooltip(cx: &mut App, tooltip: Option<&str>) -> DesktopResult {
+    let tray = installed(cx)?;
+    let icon = tray.0.borrow().icon.clone();
+    if let Some(icon) = icon {
+        let _ = icon.set_tooltip(tooltip);
     }
+    tray.0.borrow_mut().config.tooltip = tooltip.map(str::to_string);
+    Ok(json!({"tooltip": tooltip}))
+}
+
+pub fn set_visible(cx: &mut App, visible: bool) -> DesktopResult {
+    let tray = installed(cx)?;
+    let icon = tray.0.borrow().icon.clone();
+    if let Some(icon) = icon {
+        let _ = icon.set_visible(visible);
+    }
+    tray.0.borrow_mut().visible = visible;
+    Ok(json!({"visible": visible}))
+}
+
+pub fn set_icon(cx: &mut App, path: &str) -> DesktopResult {
+    let tray = installed(cx)?;
+    let icon = load_icon(path)?;
+    let handle = tray.0.borrow().icon.clone();
+    if let Some(handle) = handle {
+        handle
+            .set_icon(Some(icon))
+            .map_err(|error| DesktopError::failed(format!("{error}")))?;
+    }
+    Ok(json!({"path": path}))
+}
+
+/// `None` clears the menu.
+pub fn set_menu(cx: &mut App, items: Option<&Value>) -> DesktopResult {
+    let tray = installed(cx)?;
+    let menu = match items {
+        Some(items) => Some(menu_model::parse_menu(items)?),
+        None => None,
+    };
+    tray.0.borrow_mut().config.menu = menu;
+    {
+        let tray = tray.0.borrow();
+        if let Some(icon) = &tray.icon {
+            attach_native_menu(icon, &tray.config);
+        }
+    }
+    Ok(json!({"items": items.and_then(Value::as_array).map(Vec::len)}))
+}
+
+/// The tray global, or the error every setter reports when there is none.
+fn installed(cx: &App) -> Result<&TrayGlobal, DesktopError> {
+    cx.try_global::<TrayGlobal>()
+        .ok_or_else(|| DesktopError::not_found("no tray icon is installed"))
 }
 
 pub fn state(cx: &App) -> Value {

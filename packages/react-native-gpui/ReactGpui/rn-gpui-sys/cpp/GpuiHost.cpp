@@ -3,22 +3,22 @@
 
 #include <jsi/instrumentation.h>
 #include <react/coremodules/DeviceInfoModule.h>
-#include "GpuiDesktopModule.h"
-#include "GpuiExtensions.h"
 #include "GpuiHttpClient.h"
 #include "GpuiJsEngine.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
+#include "GpuiModules.h"
 #include "GpuiMountingManager.h"
+#include "GpuiRustTurboModules.h"
 #include "MountBatchBuilder.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
 #include <folly/json.h>
 #include <react/bridging/Function.h>
+#include <react/bridging/Promise.h>
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsOverridesOSSStable.h>
 #include <react/http/IHttpClient.h>
 #include <react/http/IWebSocketClient.h>
-#include <react/nativemodule/core/ReactCommon/TurboModuleUtils.h>
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include <react/renderer/components/FBReactNativeSpec/FBReactNativeSpecJSI.h>
 #include <react/renderer/scheduler/Scheduler.h>
@@ -112,14 +112,8 @@ std::mutex alertCallbacksMutex;
 std::unordered_map<int32_t, std::shared_ptr<AlertCallback>> alertCallbacks;
 std::atomic<int32_t> nextAlertId{1};
 
-struct ClipboardPromise {
-  std::shared_ptr<CallInvoker> jsInvoker;
-  facebook::jsi::Runtime* runtime;
-  std::shared_ptr<Promise> promise;
-};
 std::mutex clipboardPromisesMutex;
-std::unordered_map<int32_t, std::shared_ptr<ClipboardPromise>>
-    clipboardPromises;
+std::unordered_map<int32_t, AsyncPromise<std::string>> clipboardPromises;
 std::atomic<int32_t> nextClipboardRequestId{1};
 
 class GpuiAppearanceModule final
@@ -322,19 +316,19 @@ class GpuiLinkingModule final
   explicit GpuiLinkingModule(std::shared_ptr<CallInvoker> jsInvoker)
       : NativeLinkingManagerCxxSpec(std::move(jsInvoker)) {}
 
-  facebook::jsi::Value getInitialURL(facebook::jsi::Runtime& runtime) {
-    return createPromiseAsJSIValue(runtime, [](auto&, auto promise) {
-      promise->resolve(facebook::jsi::Value::null());
-    });
+  AsyncPromise<std::optional<std::string>> getInitialURL(
+      facebook::jsi::Runtime& runtime) {
+    AsyncPromise<std::optional<std::string>> promise(runtime, jsInvoker_);
+    promise.resolve(std::nullopt);
+    return promise;
   }
 
-  facebook::jsi::Value canOpenURL(
+  AsyncPromise<bool> canOpenURL(
       facebook::jsi::Runtime& runtime,
-      facebook::jsi::String value) {
-    auto url = value.utf8(runtime);
-    const auto separator = url.find(':');
+      std::string value) {
+    const auto separator = value.find(':');
     auto scheme = separator == std::string::npos ? std::string{}
-                                                 : url.substr(0, separator);
+                                                 : value.substr(0, separator);
     std::transform(
         scheme.begin(),
         scheme.end(),
@@ -344,29 +338,26 @@ class GpuiLinkingModule final
         });
     const bool supported = scheme == "http" || scheme == "https" ||
         scheme == "mailto" || scheme == "tel";
-    return createPromiseAsJSIValue(runtime, [supported](auto&, auto promise) {
-      promise->resolve(facebook::jsi::Value(supported));
-    });
+    AsyncPromise<bool> promise(runtime, jsInvoker_);
+    promise.resolve(supported);
+    return promise;
   }
 
-  facebook::jsi::Value openURL(
-      facebook::jsi::Runtime& runtime,
-      facebook::jsi::String value) {
-    auto url = value.utf8(runtime);
-    return createPromiseAsJSIValue(
-        runtime, [url = std::move(url)](auto&, auto promise) {
-          rn_gpui_open_url(url);
-          promise->resolve(facebook::jsi::Value::undefined());
-        });
+  AsyncPromise<> openURL(facebook::jsi::Runtime& runtime, std::string value) {
+    AsyncPromise<> promise(runtime, jsInvoker_);
+    rn_gpui_open_url(std::move(value));
+    promise.resolve();
+    return promise;
   }
 
-  facebook::jsi::Value openSettings(facebook::jsi::Runtime& runtime) {
-    return createPromiseAsJSIValue(runtime, [](auto&, auto promise) {
-      promise->reject("Opening application settings is not supported by GPUI.");
-    });
+  AsyncPromise<> openSettings(facebook::jsi::Runtime& runtime) {
+    AsyncPromise<> promise(runtime, jsInvoker_);
+    promise.reject(
+        Error("Opening application settings is not supported by GPUI."));
+    return promise;
   }
 
-  void addListener(facebook::jsi::Runtime&, facebook::jsi::String) {}
+  void addListener(facebook::jsi::Runtime&, std::string) {}
   void removeListeners(facebook::jsi::Runtime&, double) {}
 };
 
@@ -461,36 +452,27 @@ class GpuiClipboardModule final
     : public NativeClipboardCxxSpec<GpuiClipboardModule> {
  public:
   explicit GpuiClipboardModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeClipboardCxxSpec(jsInvoker), jsInvoker_(std::move(jsInvoker)) {}
+      : NativeClipboardCxxSpec(std::move(jsInvoker)) {}
 
   facebook::jsi::Object getConstants(facebook::jsi::Runtime& runtime) {
     return facebook::jsi::Object(runtime);
   }
 
-  facebook::jsi::Value getString(facebook::jsi::Runtime& runtime) {
+  AsyncPromise<std::string> getString(facebook::jsi::Runtime& runtime) {
     const auto id =
         nextClipboardRequestId.fetch_add(1, std::memory_order_relaxed);
-    auto invoker = jsInvoker_;
-    return createPromiseAsJSIValue(
-        runtime,
-        [id, invoker = std::move(invoker)](
-            auto& runtime, auto promise) mutable {
-          auto pending = std::make_shared<ClipboardPromise>(ClipboardPromise{
-              std::move(invoker), &runtime, std::move(promise)});
-          {
-            std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
-            clipboardPromises.emplace(id, std::move(pending));
-          }
-          rn_gpui_read_clipboard(id);
-        });
+    AsyncPromise<std::string> promise(runtime, jsInvoker_);
+    {
+      std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
+      clipboardPromises.emplace(id, promise);
+    }
+    rn_gpui_read_clipboard(id);
+    return promise;
   }
 
-  void setString(facebook::jsi::Runtime& runtime, facebook::jsi::String value) {
-    rn_gpui_write_clipboard(value.utf8(runtime));
+  void setString(facebook::jsi::Runtime&, std::string value) {
+    rn_gpui_write_clipboard(std::move(value));
   }
-
- private:
-  std::shared_ptr<CallInvoker> jsInvoker_;
 };
 
 /// Thin C shim so the vendored `DevSettingsModule` (ReactCxxPlatform) can reach
@@ -517,7 +499,7 @@ TurboModuleProviders gpui_turbo_module_providers() {
           }
         }
         for (const auto& extensionProvider :
-             rngpui::gpuiExtensionHooks().turboModules) {
+             rngpui::gpuiModuleHooks().turboModules) {
           if (auto extensionModule = extensionProvider(name, jsInvoker)) {
             return extensionModule;
           }
@@ -548,9 +530,6 @@ TurboModuleProviders gpui_turbo_module_providers() {
         }
         if (name == NativeDevMenuCxxSpec<GpuiDevMenuModule>::kModuleName) {
           return std::make_shared<GpuiDevMenuModule>(jsInvoker);
-        }
-        if (auto desktop = create_gpui_desktop_module(name, jsInvoker)) {
-          return desktop;
         }
         return nullptr;
       }};
@@ -601,21 +580,16 @@ void rn_gpui_alert_result(int32_t id, int32_t buttonIndex) {
 }
 
 void rn_gpui_clipboard_result(int32_t id, rust::String text) {
-  std::shared_ptr<ClipboardPromise> pending;
+  std::optional<AsyncPromise<std::string>> pending;
   {
     std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
     auto entry = clipboardPromises.find(id);
     if (entry == clipboardPromises.end())
       return;
-    pending = std::move(entry->second);
+    pending = entry->second;
     clipboardPromises.erase(entry);
   }
-  auto value = std::string(text);
-  pending->jsInvoker->invokeAsync(
-      [pending = std::move(pending), value = std::move(value)]() {
-        pending->promise->resolve(
-            facebook::jsi::String::createFromUtf8(*pending->runtime, value));
-      });
+  pending->resolve(std::string(text));
 }
 
 std::unique_ptr<GpuiHost> new_gpui_host(
@@ -632,10 +606,12 @@ GpuiHost::GpuiHost(
     uint32_t devPort,
     rust::Str jsEngine) {
   // Engine packages register themselves here (the generated
-  // rn_gpui_install_extensions()), so the registry is populated before the
+  // rn_gpui_install_modules()), so the registry is populated before the
   // app's choice (`RN_GPUI_JS_ENGINE` / DesktopAppConfig::js_engine) is applied
-  // and before anything asks for the active engine.
-  rngpui::rn_gpui_install_extensions();
+  // and before anything asks for the active engine. The Rust TurboModule
+  // provider is always present, so it installs its hook alongside them.
+  rngpui::install_rust_turbo_modules();
+  rngpui::rn_gpui_install_modules();
   rngpui::selectJsEngine(std::string(jsEngine));
   install_feature_flags();
   rngpui::installGpuiTextMeasureTable();
@@ -1120,7 +1096,7 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
     return;
   dispatchGestureTime(*mountingManager_, eventTimestampMs);
   on_render();
-  if (const auto& frame = rngpui::gpuiExtensionHooks().frame) {
+  if (const auto& frame = rngpui::gpuiModuleHooks().frame) {
     const auto frameTimestampMs =
         std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now().time_since_epoch())

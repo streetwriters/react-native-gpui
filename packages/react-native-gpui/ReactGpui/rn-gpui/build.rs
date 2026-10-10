@@ -10,6 +10,8 @@
 //! an rlib dependency.
 
 fn main() {
+    // The desktop-shell TurboModule: one method per command in the spec.
+    rn_gpui_module_build::generate(&["../../src-gpui/src/private/specs/NativeGpuiDesktop.ts"]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");
 

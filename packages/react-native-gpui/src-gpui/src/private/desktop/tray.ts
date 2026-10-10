@@ -17,7 +17,7 @@
  */
 
 import { DeviceEventEmitter } from 'react-native';
-import { call } from './index';
+import { request } from './index';
 import type { MenuItemSpec } from './menu';
 
 export interface TrayOptions {
@@ -49,31 +49,38 @@ const MENU_PRESS_EVENT = 'gpuiDesktop:trayMenuPress';
 
 export const Tray = {
   install(options: TrayOptions = {}): Promise<{ id: string }> {
-    return call<{ id: string }>('tray', 'install', options);
+    return request(native =>
+      native.trayInstall({
+        ...options,
+        menu: options.menu as unknown as Object[] | undefined,
+      }),
+    );
   },
 
-  destroy(): Promise<{ id: string; destroyed: boolean }> {
-    return call('tray', 'destroy', {});
+  destroy(): Promise<void> {
+    return request(native => native.trayDestroy());
   },
 
-  setTooltip(tooltip: string | null): Promise<unknown> {
-    return call('tray', 'setTooltip', { tooltip });
+  setTooltip(tooltip: string | null): Promise<void> {
+    return request(native => native.traySetTooltip(tooltip));
   },
 
-  setVisible(visible: boolean): Promise<unknown> {
-    return call('tray', 'setVisible', { visible });
+  setVisible(visible: boolean): Promise<void> {
+    return request(native => native.traySetVisible(visible));
   },
 
-  setIcon(path: string): Promise<unknown> {
-    return call('tray', 'setIcon', { path });
+  setIcon(path: string): Promise<void> {
+    return request(native => native.traySetIcon(path));
   },
 
-  setMenu(items: MenuItemSpec[] | null): Promise<unknown> {
-    return call('tray', 'setMenu', { items });
+  setMenu(items: MenuItemSpec[] | null): Promise<void> {
+    return request(native =>
+      native.traySetMenu(items as unknown as Object[] | null),
+    );
   },
 
   getState(): Promise<TrayState> {
-    return call<TrayState>('tray', 'getState', {});
+    return request(native => native.trayGetState()) as Promise<TrayState>;
   },
 
   onMenuPress(handler: (id: string) => void): { remove: () => void } {

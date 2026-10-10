@@ -1,16 +1,18 @@
 /**
  * Core desktop-shell TurboModule.
  *
- * One module carries every desktop-shell call as a `(domain, method, argsJson)`
- * triple so the native surface stays small and all logic lives in Rust, where
- * the GPUI main thread is. Public JS modules (`Menu`, `ContextMenu`, `Tray`,
- * `DesktopWindow`, `DevMenu`, `PerfMonitor`) are thin typed wrappers over this.
+ * Every desktop-shell command is a method here, with the arguments and results
+ * the JS API uses. `rn-gpui` implements the trait generated from this file, so
+ * the two sides cannot drift, and each command runs on the GPUI main thread.
+ * The public JS modules (`Menu`, `ContextMenu`, `Tray`, `DesktopWindow`,
+ * `PerfMonitor`) are typed wrappers over these methods.
  *
- * This file is the codegen spec: `rn-gpui-sys/scripts/generate-fbreactnativespec.cjs`
- * merges `src-gpui/src/private/specs` into the FBReactNativeSpec bundle so the
- * generated `NativeGpuiDesktopCxxSpec` base class exists for
- * `cpp/GpuiDesktopModule.cpp`. The JS wrapper never imports this module at
- * runtime (type-only import), so `getEnforcing` cannot throw during startup.
+ * Events are not typed events: the shell reports window, menu and tray activity
+ * as device events (`gpuiDesktop:*`), which the wrappers subscribe to with
+ * `DeviceEventEmitter`. `addListener`/`removeListeners` exist for that channel.
+ *
+ * The JS side only imports this file's types, so `getEnforcing` cannot throw
+ * during startup.
  *
  * @format
  */
@@ -18,19 +20,200 @@
 import type { TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
-export interface Spec extends TurboModule {
-  /**
-   * Run one desktop-shell command. Resolves with a JSON string; rejects with
-   * `{code, message}`.
-   */
-  call(domain: string, method: string, argsJson: string): Promise<string>;
+export type DesktopCapabilities = {
+  nativeAppMenu: boolean;
+  nativeContextMenu: boolean;
+  tray: boolean;
+  trayPopoverAnchored: boolean;
+  windowPosition: boolean;
+  alwaysOnTop: boolean;
+  transparentTitlebar: boolean;
+};
 
-  /**
-   * Read a value that must be available synchronously (capability flags, the
-   * calling surface's window id). Reads a snapshot; never touches the GPUI
-   * main thread. Returns a JSON string.
-   */
-  getSnapshot(key: string): string;
+export type DesktopAppInfo = {
+  platform: string;
+  arch: string;
+  capabilities: DesktopCapabilities;
+};
+
+export type WindowBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type WindowState = {
+  windowId: Int32;
+  bounds: WindowBounds;
+  isMaximized: boolean;
+  isFullscreen: boolean;
+  isFocused: boolean;
+  isMinimized: boolean;
+  scaleFactor: number;
+};
+
+export type WindowHandle = {
+  windowId: Int32;
+};
+
+export type WindowListEntry = {
+  windowId: Int32;
+  component: string;
+};
+
+export type WindowList = {
+  windows: Array<WindowListEntry>;
+};
+
+export type WindowTrafficLights = {
+  x: number;
+  y: number;
+};
+
+export type WindowOpenOptions = {
+  component: string;
+  props?: Object;
+  title?: string;
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
+  /** 'default' | 'transparent' | 'hidden'; anything else is 'default'. */
+  titleBar?: string;
+  trafficLightPosition?: WindowTrafficLights;
+  resizable?: boolean;
+  alwaysOnTop?: boolean;
+};
+
+export type MenuItemPatch = {
+  label?: string;
+  enabled?: boolean;
+  checked?: boolean;
+};
+
+export type MenuDescription = {
+  appName: string;
+  userSet: boolean;
+  items: Array<Object>;
+};
+
+export type TraySize = {
+  width: number;
+  height: number;
+};
+
+export type TrayOptions = {
+  id?: string;
+  tooltip?: string;
+  title?: string;
+  component?: string;
+  size?: TraySize;
+  menu?: Array<Object>;
+  menuOnLeftClick?: boolean;
+  quitOnLastWindowClosed?: boolean;
+};
+
+export type TrayHandle = {
+  id: string;
+};
+
+export type TrayState = {
+  installed: boolean;
+  id?: string;
+  tooltip?: string | null;
+  visible?: boolean;
+  component?: string | null;
+  popover?: number | null;
+  clicks?: number;
+  hasMenu?: boolean;
+  menuItems?: Array<Object>;
+};
+
+export type PerfMetrics = {
+  enabled: boolean;
+  uiFps: number;
+  jsFps: number;
+  memoryBytes: number;
+  jsHeapBytes: number;
+  droppedFrames: number;
+  stutters: number;
+  mountedViews: number;
+  lastMountMs: number;
+};
+
+export type PerfToggle = {
+  enabled: boolean;
+};
+
+export type ContextMenuOptions = {
+  x?: number;
+  y?: number;
+  windowId?: Int32;
+};
+
+export type ContextMenuSelection = {
+  id: string | null;
+};
+
+export interface Spec extends TurboModule {
+  /** Read synchronously; these never touch the GPUI main thread. */
+  capabilities(): DesktopCapabilities;
+  platform(): string;
+  appId(): string;
+
+  appInfo(): Promise<DesktopAppInfo>;
+
+  windowOpen(options: WindowOpenOptions): Promise<WindowHandle>;
+  windowList(): Promise<WindowList>;
+  windowGetState(windowId: Int32): Promise<WindowState>;
+  windowClose(windowId: Int32, force: boolean): Promise<void>;
+  windowFocus(windowId: Int32): Promise<void>;
+  windowSetTitle(windowId: Int32, title: string): Promise<void>;
+  windowSetSize(windowId: Int32, width: number, height: number): Promise<void>;
+  windowSetPosition(windowId: Int32, x: number, y: number): Promise<void>;
+  windowSetMinSize(
+    windowId: Int32,
+    width: number,
+    height: number,
+  ): Promise<void>;
+  windowSetMaxSize(
+    windowId: Int32,
+    width: number,
+    height: number,
+  ): Promise<void>;
+  windowSetResizable(windowId: Int32, resizable: boolean): Promise<void>;
+  windowSetFullscreen(windowId: Int32, fullscreen: boolean): Promise<void>;
+  windowSetAlwaysOnTop(windowId: Int32, onTop: boolean): Promise<void>;
+  windowMinimize(windowId: Int32): Promise<void>;
+  windowMaximize(windowId: Int32): Promise<void>;
+  windowUnmaximize(windowId: Int32): Promise<void>;
+  windowToggleMaximize(windowId: Int32): Promise<void>;
+  windowShow(windowId: Int32): Promise<void>;
+  windowHide(windowId: Int32): Promise<void>;
+  windowStartDragging(windowId: Int32): Promise<void>;
+  windowInterceptClose(windowId: Int32, on: boolean): Promise<void>;
+
+  /** `null` restores the default menu. */
+  menuSetApplicationMenu(items: Array<Object> | null): Promise<void>;
+  menuUpdate(id: string, patch: MenuItemPatch): Promise<void>;
+  menuGet(): Promise<MenuDescription>;
+
+  trayInstall(options: TrayOptions): Promise<TrayHandle>;
+  trayDestroy(): Promise<void>;
+  trayGetState(): Promise<TrayState>;
+  traySetTooltip(tooltip: string | null): Promise<void>;
+  traySetVisible(visible: boolean): Promise<void>;
+  traySetIcon(path: string): Promise<void>;
+  traySetMenu(items: Array<Object> | null): Promise<void>;
+
+  perfMonitorSetEnabled(enabled: boolean): Promise<PerfToggle>;
+  perfMonitorGetMetrics(): Promise<PerfMetrics>;
+
+  contextMenuShow(
+    items: Array<Object>,
+    options: ContextMenuOptions,
+  ): Promise<ContextMenuSelection>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;

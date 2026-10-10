@@ -1,15 +1,15 @@
 /**
  * JS side of the core `GpuiDesktop` TurboModule.
  *
- * The public modules in `react-native-gpui/desktop` are thin typed wrappers over
- * `call()`. Nothing here reaches into GPUI; it only serialises a command and
- * normalises the `{code, message}` rejection shape.
+ * Every command is a method on the module, and the public modules in
+ * `react-native-gpui/desktop` are thin typed wrappers over them. Nothing here
+ * reaches into GPUI; it only runs a method and normalises the rejection shape.
  *
  * @format
  */
 
 import { TurboModuleRegistry } from 'react-native';
-import type { Spec } from '../specs/NativeGpuiDesktop';
+import type { DesktopCapabilities, Spec } from '../specs/NativeGpuiDesktop';
 
 const NativeGpuiDesktop = TurboModuleRegistry.get<Spec>('GpuiDesktop');
 
@@ -28,15 +28,27 @@ export class DesktopError extends Error {
 
 export const isDesktopAvailable = NativeGpuiDesktop != null;
 
+const CODES: readonly string[] = [
+  'unsupported',
+  'invalid_argument',
+  'not_found',
+  'reloaded',
+  'failed',
+];
+
 /**
- * Turn a rejection into a `DesktopError`. The native side rejects with the JSON
- * encoding of `{code, message}`, because a JS promise rejection only carries a
- * message string.
+ * Turn a rejection into a `DesktopError`. A Rust module rejects with the error's
+ * code on the JS error object; anything else keeps its message.
  */
 function toDesktopError(error: unknown): DesktopError {
-  // The rejection may be an `Error`, a bare JSON string, or an object whose
-  // `message` holds the JSON, depending on how the promise was settled.
-  const raw =
+  if (error instanceof DesktopError) {
+    return error;
+  }
+  const code =
+    typeof error === 'object' && error != null
+      ? (error as { code?: unknown }).code
+      : undefined;
+  const message =
     error instanceof Error
       ? error.message
       : typeof error === 'object' &&
@@ -44,72 +56,54 @@ function toDesktopError(error: unknown): DesktopError {
           typeof (error as { message?: unknown }).message === 'string'
         ? (error as { message: string }).message
         : String(error);
-  try {
-    const parsed = JSON.parse(raw) as { code?: string; message?: string };
-    if (parsed && typeof parsed.code === 'string') {
-      return new DesktopError(
-        parsed.code as DesktopErrorCode,
-        parsed.message ?? raw,
-      );
-    }
-  } catch {}
-  return new DesktopError('failed', raw);
+  return new DesktopError(
+    typeof code === 'string' && CODES.includes(code)
+      ? (code as DesktopErrorCode)
+      : 'failed',
+    message,
+  );
 }
 
-export async function call<T = unknown>(
-  domain: string,
-  method: string,
-  args: Record<string, unknown> = {},
-): Promise<T> {
+/** The module, or an error when the app has no desktop shell. */
+export function desktopModule(): Spec {
   if (NativeGpuiDesktop == null) {
     throw new DesktopError(
       'unsupported',
       'the GpuiDesktop native module is not available',
     );
   }
+  return NativeGpuiDesktop;
+}
+
+/** Runs one module method, turning its rejection into a `DesktopError`. */
+export async function request<T>(
+  run: (native: Spec) => Promise<T>,
+): Promise<T> {
   try {
-    const result = await NativeGpuiDesktop.call(
-      domain,
-      method,
-      JSON.stringify(args),
-    );
-    return JSON.parse(result) as T;
+    return await run(desktopModule());
   } catch (error) {
     throw toDesktopError(error);
   }
 }
 
-export function snapshot<T = unknown>(key: string): T | null {
-  if (NativeGpuiDesktop == null) {
-    return null;
-  }
-  try {
-    return JSON.parse(NativeGpuiDesktop.getSnapshot(key)) as T;
-  } catch {
-    return null;
-  }
-}
+const NO_CAPABILITIES: DesktopCapabilities = {
+  nativeAppMenu: false,
+  nativeContextMenu: false,
+  tray: false,
+  trayPopoverAnchored: false,
+  windowPosition: false,
+  alwaysOnTop: false,
+  transparentTitlebar: false,
+};
 
-export interface DesktopCapabilities {
-  nativeAppMenu: boolean;
-  nativeContextMenu: boolean;
-  tray: boolean;
-  trayPopoverAnchored: boolean;
-  windowPosition: boolean;
-  alwaysOnTop: boolean;
-  transparentTitlebar: boolean;
-}
-
+/** Read synchronously; never touches the GPUI main thread. */
 export function capabilities(): DesktopCapabilities {
-  return (
-    snapshot<DesktopCapabilities>('capabilities') ?? {
-      nativeAppMenu: false,
-      nativeContextMenu: false,
-      tray: false,
-      trayPopoverAnchored: false,
-      windowPosition: false,
-      alwaysOnTop: false,
-      transparentTitlebar: false,
-    }
-  );
+  return NativeGpuiDesktop?.capabilities() ?? NO_CAPABILITIES;
 }
+
+/** The host platform, or `null` without a desktop shell. */
+export function platform(): string | null {
+  return NativeGpuiDesktop?.platform() ?? null;
+}
+
+export type { DesktopCapabilities };
