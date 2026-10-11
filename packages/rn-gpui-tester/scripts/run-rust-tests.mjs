@@ -56,6 +56,34 @@ const metadata = JSON.parse(
 );
 const env = { ...process.env };
 
+/**
+ * The tester's autolinked C++ lives in `packages/rn-gpui-tester/desktop`, and
+ * cargo learns about it from that directory's `.cargo/config.toml` `[env]`
+ * section. Those variables only apply when cargo is invoked *from* that
+ * directory, and this script runs from the repository root against
+ * `ReactGpui/Cargo.toml`, so without them the CMake configure finds no app
+ * provider and `rn_gpui_core`'s reference to `rn_gpui_register_app_components`
+ * is left unresolved when a test binary links. Set them explicitly, using the
+ * same values the config file holds.
+ */
+function setAutolinkEnv(targetEnv) {
+  const desktopRoot = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'desktop',
+  );
+  const variables = {
+    RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, 'autolink/autolink.json'),
+    RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, 'autolink/autolink.cmake'),
+  };
+  for (const [name, value] of Object.entries(variables)) {
+    if (targetEnv[name] === undefined && fs.existsSync(value)) {
+      targetEnv[name] = value;
+    }
+  }
+}
+setAutolinkEnv(env);
+
 if (process.platform === 'darwin') {
   const targetTriple =
     process.env.CARGO_BUILD_TARGET ??
@@ -100,7 +128,7 @@ if (process.platform === 'darwin') {
       path.join(metadata.target_directory, 'rn-gpui-cmake', targetTriple),
     ),
   ];
-  env.PATH = [...runtimeDirs, env.PATH].filter(Boolean).join(path.delimiter);
+  prependToPathVariable(env, 'PATH', runtimeDirs);
 } else if (process.platform === 'linux') {
   const targetTriple =
     process.env.CARGO_BUILD_TARGET ??
@@ -124,6 +152,23 @@ if (process.platform === 'darwin') {
   env.LD_LIBRARY_PATH = [...runtimeDirs, env.LD_LIBRARY_PATH]
     .filter(Boolean)
     .join(path.delimiter);
+}
+
+/**
+ * Prepends `directories` to a `PATH`-like variable. Windows exports the
+ * variable as `Path`, and `{...process.env}` keeps that spelling, so writing
+ * `env.PATH` would add a second key: the child then gets both and Node keeps
+ * only one of them, which drops `cargo` off the search path entirely
+ * (`spawnSync cargo ENOENT`). The existing key is therefore found
+ * case-insensitively and reused.
+ */
+function prependToPathVariable(env, name, directories) {
+  const key =
+    Object.keys(env).find(
+      candidate => candidate.toLowerCase() === name.toLowerCase(),
+    ) ?? name;
+  env[key] = [...directories, env[key]].filter(Boolean).join(path.delimiter);
+  return key;
 }
 
 const result = spawnSync(

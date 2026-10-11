@@ -63,6 +63,20 @@ extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept {
 }
 
 extern "C" bool rn_gpui_accessibility_active();
+#if defined(_MSC_VER)
+// This hook lives in the rn-gpui Rust crate, which rn-gpui-sys does not depend
+// on. An application links both, but rn-gpui-sys's own test binaries link only
+// this crate, and MSVC has no weak symbols, so the reference would be
+// unresolved (LNK2019). `alternatename` names a fallback used only while the
+// symbol is otherwise undefined, so a real definition still wins wherever the
+// crate is present.
+extern "C" bool rn_gpui_accessibility_active_default() {
+  return false;
+}
+#pragma comment( \
+    linker,      \
+    "/alternatename:rn_gpui_accessibility_active=rn_gpui_accessibility_active_default")
+#endif
 
 #if defined(__APPLE__)
 extern "C" bool rn_gpui_get_reduce_motion();
