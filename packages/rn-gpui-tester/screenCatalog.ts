@@ -210,6 +210,12 @@ export const screens = [
     fixture: 'NodeApiFixture',
   },
   {
+    id: 'node-api-packages',
+    title: 'npm Node-API packages',
+    group: 'Native modules',
+    fixture: 'NodeAddonPackagesFixture',
+  },
+  {
     id: 'native-view',
     title: 'Native NSView',
     group: 'Native modules',

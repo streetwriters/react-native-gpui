@@ -8,6 +8,7 @@ test('starts on overview and resolves directly launchable native module screens'
     'cpp-turbomodule',
     'gpui-component',
     'node-api',
+    'node-api-packages',
     'native-view',
     'webview',
   ]) {

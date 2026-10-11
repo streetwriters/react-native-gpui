@@ -232,6 +232,23 @@ test.skipIf(process.platform === 'win32')(
     expect(JSON.stringify(nodes)).toContain('42 / 42 / tsfn 42');
   },
 );
+test.skipIf(process.platform === 'win32')(
+  'unmodified npm Node-API packages load through every loader pattern',
+  async () => {
+    await launch('node-api-packages');
+    await app.getByTestId('native-module-run').click();
+    await app.waitForIdle();
+    const nodes = await app.query('testID', 'native-module-result', true);
+    const text = JSON.stringify(nodes);
+    // `@node-rs/crc32` (napi-rs generated loader) and `farmhash` (a static
+    // `build/Release` require) both hash the string "hello", so their values are
+    // fixed; `microtime` (`require('node-gyp-build')`) reports whether its
+    // clock read back a plausible timestamp.
+    expect(text).toContain('crc32=907060870');
+    expect(text).toContain('farmhash=3111026382');
+    expect(text).toContain('microtime=ok');
+  },
+);
 test('scrolling the menu composites instead of rebuilding its rows', async () => {
   await launch();
   // The menu's ScrollView has no testID of its own, so scroll a row inside it;
