@@ -1,8 +1,14 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
-import { autolink } from './autolink.js';
+import {
+  autolink,
+  findPrebuiltNodeApiModules,
+  isHostPrebuiltNodeAddon,
+} from './autolink.js';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -28,6 +34,7 @@ export default TurboModuleRegistry.getEnforcing<Spec>('Fake');
 function createProject({
   withCodegenConfig = true,
   duplicateLibrary = false,
+  collidingPrebuiltAddon = false,
 } = {}) {
   const projectRoot = fs.mkdtempSync(path.join(repoRoot, '.local/autolink-'));
   temporaryRoots.push(projectRoot);
@@ -75,6 +82,17 @@ function createProject({
     'node_modules/fake-module/react-native.config.js',
     "module.exports = {dependency: {platforms: {gpui: {cmake: 'gpui', cppProvider: 'create_fake_module'}}}};\n",
   );
+  if (collidingPrebuiltAddon) {
+    // Two Linux ELF addons whose stripped basenames collide.
+    writeElf(
+      path.join(projectRoot, 'node_modules/fake-module/prebuilds/a/addon.node'),
+      0x3e,
+    );
+    writeElf(
+      path.join(projectRoot, 'node_modules/fake-module/prebuilds/b/addon.node'),
+      0x3e,
+    );
+  }
   if (duplicateLibrary) {
     write(
       'node_modules/fake-module-two/package.json',
@@ -212,4 +230,148 @@ test('leaves both headers untouched when nothing changed', () => {
   autolink({ projectRoot, configFile: configPath });
   const after = headers.map(header => fs.statSync(header).mtimeMs);
   expect(after).toEqual(before);
+});
+
+/** A minimal ELF file: enough of a header for the host-architecture check. */
+function writeElf(filePath, machine) {
+  const header = Buffer.alloc(64);
+  Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(header, 0);
+  header[4] = 2; // 64-bit
+  header[5] = 1; // little-endian
+  header.writeUInt16LE(machine, 18);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, header);
+}
+
+test('detects only Linux addons built for the host architecture', () => {
+  const root = fs.mkdtempSync(path.join(repoRoot, '.local/autolink-elf-'));
+  temporaryRoots.push(root);
+  const addon = name => path.join(root, name);
+  writeElf(addon('prebuilds/linux-x64/prebuilt.node'), 0x3e);
+  writeElf(addon('prebuilds/linux-arm64/prebuilt.node'), 0xb7);
+  writeElf(addon('prebuilds/darwin-x64/prebuilt.node'), 0x3e);
+  writeElf(addon('prebuilds/linuxmusl-x64/prebuilt.node'), 0x3e);
+  writeElf(addon('prebuilds/win32-x64/prebuilt.node'), 0x3e);
+  fs.writeFileSync(
+    addon('prebuilds/linux-x64/not-elf.node'),
+    'not an elf file',
+  );
+
+  expect(
+    isHostPrebuiltNodeAddon(addon('prebuilds/linux-x64/prebuilt.node'), 'x64'),
+  ).toBe(true);
+  expect(
+    isHostPrebuiltNodeAddon(
+      addon('prebuilds/linux-arm64/prebuilt.node'),
+      'x64',
+    ),
+  ).toBe(false);
+  expect(
+    isHostPrebuiltNodeAddon(addon('prebuilds/darwin-x64/prebuilt.node'), 'x64'),
+  ).toBe(false);
+  expect(
+    isHostPrebuiltNodeAddon(
+      addon('prebuilds/linuxmusl-x64/prebuilt.node'),
+      'x64',
+    ),
+  ).toBe(false);
+  expect(
+    isHostPrebuiltNodeAddon(addon('prebuilds/win32-x64/prebuilt.node'), 'x64'),
+  ).toBe(false);
+  expect(
+    isHostPrebuiltNodeAddon(addon('prebuilds/linux-x64/not-elf.node'), 'x64'),
+  ).toBe(false);
+  // The arm64 host accepts the arm64 build and rejects the x64 one.
+  expect(
+    isHostPrebuiltNodeAddon(
+      addon('prebuilds/linux-arm64/prebuilt.node'),
+      'arm64',
+    ),
+  ).toBe(true);
+  expect(
+    isHostPrebuiltNodeAddon(
+      addon('prebuilds/linux-x64/prebuilt.node'),
+      'arm64',
+    ),
+  ).toBe(false);
+});
+
+test('names a discovered prebuilt addon as the Babel plugin would', () => {
+  const root = fs.mkdtempSync(path.join(repoRoot, '.local/autolink-name-'));
+  temporaryRoots.push(root);
+  const packageRoot = path.join(root, 'node_modules/example-prebuilt');
+  fs.mkdirSync(packageRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, 'package.json'),
+    `${JSON.stringify({ name: 'example-prebuilt', version: '0.0.1' })}\n`,
+  );
+  writeElf(path.join(packageRoot, 'prebuilds/linux-x64/libexample.node'), 0x3e);
+  // Resolved exactly as autolink does: from the app, by walking to the package
+  // root, because the package's `exports` map does not expose path-utils.
+  const appRequire = createRequire(path.join(repoRoot, 'package.json'));
+  const packageEntry = appRequire.resolve('react-native-node-api');
+  let directory = path.dirname(packageEntry);
+  while (true) {
+    const manifest = path.join(directory, 'package.json');
+    if (
+      fs.existsSync(manifest) &&
+      JSON.parse(fs.readFileSync(manifest, 'utf8')).name ===
+        'react-native-node-api'
+    ) {
+      break;
+    }
+    directory = path.dirname(directory);
+  }
+  const { getLibraryName } = appRequire(
+    path.join(directory, 'dist/node/path-utils.js'),
+  );
+  const modules = findPrebuiltNodeApiModules(
+    packageRoot,
+    { name: 'example-prebuilt' },
+    'example-prebuilt',
+    modulePath =>
+      getLibraryName(modulePath, { pathSuffix: 'strip', packageName: 'strip' }),
+  );
+  expect(modules).toHaveLength(1);
+  expect(modules[0].libraryName).toBe('example-prebuilt--example');
+});
+
+test('does not descend into a package node_modules', () => {
+  const root = fs.mkdtempSync(path.join(repoRoot, '.local/autolink-skip-'));
+  temporaryRoots.push(root);
+  const packageRoot = path.join(root, 'node_modules/example-prebuilt');
+  writeElf(path.join(packageRoot, 'prebuilds/linux-x64/prebuilt.node'), 0x3e);
+  writeElf(
+    path.join(
+      packageRoot,
+      'node_modules/transitive/prebuilds/linux-x64/x.node',
+    ),
+    0x3e,
+  );
+  const modules = findPrebuiltNodeApiModules(
+    packageRoot,
+    { name: 'example-prebuilt' },
+    'example-prebuilt',
+    modulePath => `name:${path.basename(modulePath, '.node')}`,
+  );
+  expect(modules.map(addon => addon.libraryName)).toEqual(['name:prebuilt']);
+});
+
+test('stages no Node-API directory for an app with no addons', () => {
+  const { projectRoot, configPath } = createProject();
+  autolink({ projectRoot, configFile: configPath });
+  expect(
+    fs.existsSync(path.join(projectRoot, 'desktop/autolink/node-api/linux')),
+  ).toBe(false);
+});
+
+test('reports two prebuilt addons that share a library name', () => {
+  const { projectRoot, configPath } = createProject({
+    collidingPrebuiltAddon: true,
+  });
+  // Both files strip to the same basename, so `getLibraryName` gives them the
+  // same name and autolink must refuse rather than stage one over the other.
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /Node-API addon name collision for fake-module--addon/u,
+  );
 });

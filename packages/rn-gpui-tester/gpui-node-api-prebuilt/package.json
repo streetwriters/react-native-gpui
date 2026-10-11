@@ -1,0 +1,9 @@
+{
+  "name": "@react-native-gpui/node-api-prebuilt-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "peerDependencies": {
+    "react-native-node-api": "^1.1.1"
+  }
+}

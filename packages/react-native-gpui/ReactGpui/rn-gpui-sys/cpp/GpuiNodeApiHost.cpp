@@ -4,6 +4,10 @@
 #include "Logger.hpp"
 #include "WeakNodeApiInjector.hpp"
 
+#if defined(__linux__)
+#include "GpuiNodeApiBuildDirs.generated.h"
+#endif
+
 #include <ReactCommon/TurboModule.h>
 #include <jsi/jsi.h>
 
@@ -64,11 +68,13 @@ rn_gpui_node_api_library_path(const char* name, char* out, std::size_t size) {
   const auto exeDir = executableDirectory();
   if (!exeDir.empty())
     directories.push_back(exeDir / "node-api");
-#ifdef RN_GPUI_NODE_API_BUILD_DIRS
-  for (const auto& directory : splitList(RN_GPUI_NODE_API_BUILD_DIRS, ";")) {
-    directories.emplace_back(directory);
+  // Directories baked in at configure time (build tree, staged addons). The
+  // list is a generated header because a semicolon-separated compile definition
+  // cannot survive CMake list and shell quoting.
+  for (unsigned int index = 0; index < rn_gpui_node_api_build_dirs_count;
+       ++index) {
+    directories.emplace_back(rn_gpui_node_api_build_dirs[index]);
   }
-#endif
   for (const auto& directory : directories) {
     const auto candidate = directory / fileName;
     std::error_code error;
