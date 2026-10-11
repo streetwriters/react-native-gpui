@@ -179,7 +179,9 @@ test('generates both spec headers for a C++ TurboModule package', () => {
   const includeDirs = cmake
     .split('\n')
     .find(line => line.includes('RN_GPUI_APP_CPP_INCLUDE_DIRS'));
-  expect(includeDirs).toContain(codegenDirectory);
+  // The generated CMake normalises every path to `/`, which is what CMake
+  // accepts on every platform (a Windows `\` is an escape in a CMake string).
+  expect(includeDirs).toContain(codegenDirectory.replaceAll('\\', '/'));
 });
 
 test('throws when a C++ TurboModule package has no codegenConfig.name', () => {

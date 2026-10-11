@@ -63,7 +63,26 @@ function hostAddonHeader() {
     header.writeUInt32LE(process.arch === 'arm64' ? 0x0100000c : 0x01000007, 4);
     return header;
   }
+  if (process.platform === 'win32') {
+    // A PE image for the host machine: `MZ`, the `PE\0\0` signature at the
+    // offset named at 0x3C, and the machine field right after it.
+    return peHeader(process.arch === 'arm64' ? 0xaa64 : 0x8664);
+  }
   return Buffer.from('not a real binary');
+}
+
+/** A PE image header for one machine value. */
+function peHeader(machine) {
+  const header = Buffer.alloc(64);
+  Buffer.from([0x4d, 0x5a]).copy(header, 0);
+  header.writeUInt32LE(0x40, 0x3c);
+  // The signature sits at 0x40, which is past the 64 bytes read here, so the
+  // smallest valid file the plugin can accept is 0x46 bytes; write enough.
+  const full = Buffer.alloc(0x48);
+  header.copy(full, 0);
+  Buffer.from([0x50, 0x45, 0x00, 0x00]).copy(full, 0x40);
+  full.writeUInt16LE(machine, 0x44);
+  return full;
 }
 
 /** A file the host guard rejects: an ELF for the other architecture. */
@@ -73,6 +92,10 @@ function foreignAddonHeader() {
     Buffer.from([0xcf, 0xfa, 0xed, 0xfe]).copy(header, 0);
     header.writeUInt32LE(process.arch === 'arm64' ? 0x01000007 : 0x0100000c, 4);
     return header;
+  }
+  if (process.platform === 'win32') {
+    // The other Windows machine: a PE for the CPU the host is not.
+    return peHeader(process.arch === 'arm64' ? 0x8664 : 0xaa64);
   }
   const header = Buffer.alloc(20);
   Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(header, 0);
@@ -121,17 +144,28 @@ function writeAddonFor(filePath, hostPlatform, hostArch) {
     );
     return;
   }
-  // Other platforms' binaries are not header-checked yet.
+  if (hostPlatform === 'win32') {
+    writeAddon(filePath, peHeader(hostArch === 'arm64' ? 0xaa64 : 0x8664));
+    return;
+  }
+  // Other platforms' binaries are not header-checked.
   writeAddon(filePath);
 }
 
-/** The `_requireNodeLibrary(...)` arguments in transformed code. */
+/**
+ * The `_requireNodeLibrary(...)` arguments in transformed code. The plugin emits
+ * paths through `t.stringLiteral`, so on Windows every backslash is escaped
+ * (`"C:\\dir\\addon.node"`); each captured literal is decoded back to the real
+ * string before it is compared.
+ */
 function callsIn(code) {
   const calls = [];
   const pattern =
     /_requireNodeLibrary\(\s*"((?:[^"\\]|\\.)*)"(?:\s*,\s*"((?:[^"\\]|\\.)*)")?\s*\)/gu;
+  const decode = value =>
+    value === undefined ? undefined : JSON.parse(`"${value}"`);
   for (const match of code.matchAll(pattern)) {
-    calls.push({ key: match[1], path: match[2] });
+    calls.push({ key: decode(match[1]), path: decode(match[2]) });
   }
   return calls;
 }
@@ -320,7 +354,14 @@ test('key: a symlinked package directory uses the real path', () => {
   writeAddon(real);
   const link = path.join(root, 'node_modules/linked-package');
   fs.mkdirSync(path.dirname(link), { recursive: true });
-  fs.symlinkSync(path.dirname(path.dirname(real)), link, 'dir');
+  // A symbolic link needs an elevated process or Developer Mode on Windows; a
+  // directory junction needs neither and `fs.realpath` resolves it to the same
+  // target, which is the behaviour under test.
+  fs.symlinkSync(
+    path.dirname(path.dirname(real)),
+    link,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
   const code = transform("require('linked-package/prebuilds/x.node');", {
     filename: path.join(root, 'index.js'),
   });
@@ -360,7 +401,15 @@ test('a binary for another platform is treated as missing', () => {
 
 test('a path segment naming another platform is rejected without reading', () => {
   const root = scratch();
-  const addon = path.join(root, 'prebuilds/win32-x64/thing.node');
+  // A segment naming a platform that is not the host's, so the guard rejects it
+  // before it ever opens the file (the bytes written are the host's, which is
+  // what makes this a test of the segment check rather than the header check).
+  const foreign = process.platform === 'win32' ? 'linux' : 'win32';
+  const foreignArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const addon = path.join(
+    root,
+    `prebuilds/${foreign}-${foreignArch}/thing.node`,
+  );
   writeAddon(addon);
   expect(isHostPrebuiltNodeAddon(addon, process.platform, process.arch)).toBe(
     false,
@@ -618,17 +667,22 @@ function hostNapiRsTriple() {
 test('R6 replaces a napi-rs generated loader with one require', () => {
   const root = scratch();
   const triple = hostNapiRsTriple();
-  const otherTriple =
-    process.platform === 'linux' ? 'darwin-arm64' : 'linux-x64-gnu';
+  // Three distinct platforms, none of which is the host's, so only the host
+  // branch can resolve. The names must be ones the napi-rs triple scanner
+  // recognises, otherwise this reads as a hand-written two-platform file and R6
+  // never fires.
+  const otherTriple = 'freebsd-x64';
+  const thirdTriple = 'android-x64';
   writeAddon(path.join(root, `thing.${triple}.node`));
   writeAddon(path.join(root, `thing.${otherTriple}.node`));
+  writeAddon(path.join(root, `thing.${thirdTriple}.node`));
   const loader = `
 if (process.platform === '${process.platform}') {
   module.exports = require('./thing.${triple}.node');
 } else if (process.platform === 'freebsd') {
   module.exports = require('./thing.${otherTriple}.node');
-} else if (process.platform === 'win32') {
-  module.exports = require('./thing.win32-x64-msvc.node');
+} else if (process.platform === 'android') {
+  module.exports = require('./thing.${thirdTriple}.node');
 } else {
   throw new Error('unsupported');
 }
@@ -679,20 +733,28 @@ if (process.platform === 'linux') {
 
 test('R6 leaves a file that names fewer than three platforms to R1', () => {
   const root = scratch();
-  writeAddon(path.join(root, 'thing.darwin-arm64.node'));
-  writeAddonFor(path.join(root, 'thing.linux-x64.node'), 'linux', 'x64');
+  // Two platforms only, so this is not a napi-rs loader and R1 alone rewrites
+  // it. The host's own triple is one of them, so the rewrite really resolves.
+  const hostTriple = hostNapiRsTriple();
+  const foreignTriple = 'darwin-arm64';
+  writeAddon(path.join(root, `thing.${hostTriple}.node`));
+  writeAddonFor(
+    path.join(root, `thing.${foreignTriple}.node`),
+    'darwin',
+    'arm64',
+  );
   const source = `
-if (process.platform === 'darwin') {
-  module.exports = require('./thing.darwin-arm64.node');
+if (process.platform === '${process.platform}') {
+  module.exports = require('./thing.${hostTriple}.node');
 } else {
-  module.exports = require('./thing.linux-x64.node');
+  module.exports = require('./thing.${foreignTriple}.node');
 }
 `;
   const code = transform(source, { filename: path.join(root, 'index.js') });
   // Not a napi-rs loader, so the module body is untouched: the `process`
   // reference only means something where a platform branch survives, and R1
   // rewrote the requires it could resolve.
-  expect(code).toContain("process.platform === 'darwin'");
+  expect(code).toContain(`process.platform === '${process.platform}'`);
   expect(code).toMatch(/module\.exports = _requireNodeLibrary\(/u);
 });
 
