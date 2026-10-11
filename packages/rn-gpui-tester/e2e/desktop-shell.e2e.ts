@@ -505,3 +505,29 @@ test('a window closed by the platform is removed from the registry', async () =>
   );
   expect(remaining.windows.some(w => w.windowId === 1)).toBe(true);
 });
+
+test('opening and closing a popup repeatedly logs no errors', async () => {
+  await launch(
+    'ContextMenuFixture',
+    undefined,
+    {},
+    {
+      RN_GPUI_CONTEXT_MENU: 'gpui',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '0',
+    },
+  );
+  await app.waitForIdle();
+
+  // Before the gpui-fast bump a visibility event could arrive after GPUI had
+  // removed the popup window, logging `ERROR gpui::window] window not found`.
+  // Open and dismiss the GPUI-rendered menu enough times to catch a race
+  // between the close and the X11 event.
+  for (let i = 0; i < 25; i += 1) {
+    await app.getByTestId('cm-target').rightClick();
+    expect((await app.gpuiMenuState()).open).toBe(true);
+    expect(await app.dismissGpuiMenu()).toBe(true);
+  }
+  await app.waitForIdle();
+
+  app.assertNoErrors();
+});
