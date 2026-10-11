@@ -84,6 +84,42 @@ function writeAddon(filePath, header = hostAddonHeader()) {
   write(filePath, header);
 }
 
+/** An ELF header for one Linux e_machine value. */
+function elfHeader(machine) {
+  const header = Buffer.alloc(20);
+  Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(header, 0);
+  header.writeUInt16LE(machine, 18);
+  return header;
+}
+
+/** A 64-bit thin little-endian Mach-O header for one cputype value. */
+function machoHeader(cputype) {
+  const header = Buffer.alloc(32);
+  Buffer.from([0xcf, 0xfa, 0xed, 0xfe]).copy(header, 0);
+  header.writeUInt32LE(cputype, 4);
+  return header;
+}
+
+/**
+ * Writes a binary for one named target, so a test can hand the plugin a host
+ * other than the one it runs on and still get bytes that match.
+ */
+function writeAddonFor(filePath, hostPlatform, hostArch) {
+  if (hostPlatform === 'linux') {
+    writeAddon(filePath, elfHeader(hostArch === 'arm64' ? 0xb7 : 0x3e));
+    return;
+  }
+  if (hostPlatform === 'darwin') {
+    writeAddon(
+      filePath,
+      machoHeader(hostArch === 'arm64' ? 0x0100000c : 0x01000007),
+    );
+    return;
+  }
+  // Other platforms' binaries are not header-checked yet.
+  writeAddon(filePath);
+}
+
 /** The `_requireNodeLibrary(...)` arguments in transformed code. */
 function callsIn(code) {
   const calls = [];
@@ -419,3 +455,305 @@ test('the key never contains a backslash or a parent segment', () => {
 function filePathIn(root, relative) {
   return path.join(root, relative);
 }
+
+// --- R4/R5/R6: packages that pick their binary at run time ------------------
+
+/**
+ * Writes a `prebuilds/<tag>/<name>.node` tree plus a package.json, the layout
+ * `node-gyp-build` uses.
+ */
+function writeNodeGypBuildPackage(root, tags) {
+  for (const tag of tags) {
+    writeAddon(path.join(root, 'prebuilds', tag, 'thing.node'));
+  }
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'gyp-thing', version: '1.0.0', main: 'index.js' }),
+  );
+}
+
+/** The host's `node-gyp-build` tag, matching the plugin's own choice. */
+function hostPrebuildTag() {
+  return `${process.platform}-${process.arch}`;
+}
+
+test('R4 resolves require("node-gyp-build")(__dirname)', () => {
+  const root = scratch();
+  writeNodeGypBuildPackage(root, [hostPrebuildTag()]);
+  const code = transform(
+    "module.exports = require('node-gyp-build')(__dirname);",
+    { filename: path.join(root, 'index.js') },
+  );
+  const [call] = callsIn(code);
+  expect(call.path).toBe(
+    path.join(root, 'prebuilds', hostPrebuildTag(), 'thing.node'),
+  );
+  expect(code).not.toContain('node-gyp-build');
+});
+
+test('R4 resolves path.join(__dirname, "sub")', () => {
+  const root = scratch();
+  const fixture = path.join(root, 'native');
+  writeNodeGypBuildPackage(fixture, [hostPrebuildTag()]);
+  const code = transform(
+    "module.exports = require('node-gyp-build')(require('path').join(__dirname, 'native'));",
+    { filename: path.join(root, 'index.js') },
+  );
+  expect(callsIn(code)[0].path).toBe(
+    path.join(fixture, 'prebuilds', hostPrebuildTag(), 'thing.node'),
+  );
+});
+
+test('R4 prefers the host tag over node.napi', () => {
+  const root = scratch();
+  writeNodeGypBuildPackage(root, [hostPrebuildTag(), 'node.napi']);
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)[0].path).toBe(
+    path.join(root, 'prebuilds', hostPrebuildTag(), 'thing.node'),
+  );
+});
+
+test('R4 falls back to an in-tree build/Release binary', () => {
+  const root = scratch();
+  writeAddon(path.join(root, 'build/Release/built.node'));
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'gyp-built', version: '1.0.0' }),
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)[0].path).toBe(
+    path.join(root, 'build/Release/built.node'),
+  );
+});
+
+test('R4 emits a throwing expression and warns when nothing resolves', () => {
+  const root = scratch();
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'gyp-empty', version: '1.0.0' }),
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain('MODULE_NOT_FOUND');
+  expect(code).not.toContain('_requireNodeLibrary');
+});
+
+test('R4 ignores a dynamic directory argument', () => {
+  const root = scratch();
+  const code = transform("require('node-gyp-build')(someDir);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain("require('node-gyp-build')(someDir)");
+});
+
+test('R5 resolves require("bindings")("thing")', () => {
+  const root = scratch();
+  const addon = path.join(root, 'build/Release/thing.node');
+  writeAddon(addon);
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'binding-thing', version: '1.0.0' }),
+  );
+  const code = transform("module.exports = require('bindings')('thing');", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)[0].path).toBe(addon);
+  expect(code).not.toContain("require('bindings')");
+});
+
+test('R5 accepts the { bindings: name } form', () => {
+  const root = scratch();
+  const addon = path.join(root, 'build/Release/thing.node');
+  writeAddon(addon);
+  const code = transform(
+    "module.exports = require('bindings')({ bindings: 'thing' });",
+    { filename: path.join(root, 'lib/index.js') },
+  );
+  expect(callsIn(code)[0].path).toBe(addon);
+});
+
+test('R5 searches upward for the package root, like bindings does', () => {
+  const root = scratch();
+  const addon = path.join(root, 'build/Release/thing.node');
+  writeAddon(addon);
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'binding-thing', version: '1.0.0' }),
+  );
+  const code = transform("require('bindings')('thing');", {
+    filename: path.join(root, 'lib/deep/index.js'),
+  });
+  expect(callsIn(code)[0].path).toBe(addon);
+});
+
+test('R5 emits a throwing expression when nothing resolves', () => {
+  const root = scratch();
+  write(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'binding-empty', version: '1.0.0' }),
+  );
+  const code = transform("require('bindings')('missing');", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain('MODULE_NOT_FOUND');
+});
+
+/** The napi-rs triple the plugin should choose for the host. */
+function hostNapiRsTriple() {
+  if (process.platform === 'linux') return `linux-${process.arch}-gnu`;
+  if (process.platform === 'win32') return `win32-${process.arch}-msvc`;
+  return `${process.platform}-${process.arch}`;
+}
+
+test('R6 replaces a napi-rs generated loader with one require', () => {
+  const root = scratch();
+  const triple = hostNapiRsTriple();
+  const otherTriple =
+    process.platform === 'linux' ? 'darwin-arm64' : 'linux-x64-gnu';
+  writeAddon(path.join(root, `thing.${triple}.node`));
+  writeAddon(path.join(root, `thing.${otherTriple}.node`));
+  const loader = `
+if (process.platform === '${process.platform}') {
+  module.exports = require('./thing.${triple}.node');
+} else if (process.platform === 'freebsd') {
+  module.exports = require('./thing.${otherTriple}.node');
+} else if (process.platform === 'win32') {
+  module.exports = require('./thing.win32-x64-msvc.node');
+} else {
+  throw new Error('unsupported');
+}
+`;
+  const code = transform(loader, { filename: path.join(root, 'index.js') });
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toBe(path.join(root, `thing.${triple}.node`));
+  expect(code).toContain('module.exports');
+  expect(code).not.toContain('process.platform');
+});
+
+test('R6 resolves the per-platform package form', () => {
+  const root = scratch();
+  // A Linux host named explicitly, so the package that has to exist is the
+  // one the loader names for Linux regardless of where this test runs.
+  const triple = 'linux-x64-gnu';
+  const packageName = `@scope/thing-${triple}`;
+  const addon = path.join(
+    root,
+    'node_modules/@scope',
+    `thing-${triple}`,
+    'thing.node',
+  );
+  // The host is named as linux/x64 below, so the bytes must be an ELF for x64
+  // even when this test runs on macOS.
+  writeAddonFor(addon, 'linux', 'x64');
+  write(
+    path.join(root, `node_modules/@scope/thing-${triple}/package.json`),
+    JSON.stringify({ name: packageName, version: '1.0.0', main: 'thing.node' }),
+  );
+  const loader = `
+if (process.platform === 'linux') {
+  module.exports = require('@scope/thing-linux-x64-gnu');
+} else if (process.platform === 'darwin') {
+  module.exports = require('@scope/thing-darwin-arm64');
+} else if (process.platform === 'win32') {
+  module.exports = require('@scope/thing-win32-x64-msvc');
+}
+`;
+  const code = transform(loader, {
+    filename: path.join(root, 'index.js'),
+    hostPlatform: 'linux',
+    hostArch: 'x64',
+  });
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toBe(addon);
+});
+
+test('R6 leaves a file that names fewer than three platforms to R1', () => {
+  const root = scratch();
+  writeAddon(path.join(root, 'thing.darwin-arm64.node'));
+  writeAddonFor(path.join(root, 'thing.linux-x64.node'), 'linux', 'x64');
+  const source = `
+if (process.platform === 'darwin') {
+  module.exports = require('./thing.darwin-arm64.node');
+} else {
+  module.exports = require('./thing.linux-x64.node');
+}
+`;
+  const code = transform(source, { filename: path.join(root, 'index.js') });
+  // Not a napi-rs loader, so the module body is untouched: the `process`
+  // reference only means something where a platform branch survives, and R1
+  // rewrote the requires it could resolve.
+  expect(code).toContain("process.platform === 'darwin'");
+  expect(code).toMatch(/module\.exports = _requireNodeLibrary\(/u);
+});
+
+test('R6 leaves a matching file alone when no host binary exists', () => {
+  const root = scratch();
+  const source = `
+if (process.platform === 'freebsd') {
+  module.exports = require('./thing.freebsd-x64.node');
+} else if (process.platform === 'android') {
+  module.exports = require('./thing.android-arm64.node');
+} else if (process.platform === 'openharmony') {
+  module.exports = require('./thing.openharmony-arm64.node');
+}
+`;
+  const code = transform(source, { filename: path.join(root, 'index.js') });
+  expect(code).not.toContain('_requireNodeLibrary');
+});
+
+test('R4/R5/R6 are no-ops off gpui', () => {
+  const root = scratch();
+  writeNodeGypBuildPackage(root, [hostPrebuildTag()]);
+  const source = [
+    "require('node-gyp-build')(__dirname);",
+    "require('bindings')('thing');",
+  ].join('\n');
+  const code = transform(source, {
+    filename: path.join(root, 'index.js'),
+    platform: 'ios',
+  });
+  expect(code).toContain("require('node-gyp-build')(__dirname)");
+  expect(code).toContain("require('bindings')('thing')");
+  expect(code).not.toContain('_requireNodeLibrary');
+});
+
+test('R4/R6 use the hostPlatform/hostArch options', () => {
+  const root = scratch();
+  // `node-gyp-build` spells the Linux tag `linux-x64`; the napi-rs spelling
+  // `linux-x64-gnu` is a different directory and must not be picked.
+  const directory = path.join(root, 'linux-only');
+  writeAddonFor(
+    path.join(directory, 'prebuilds/linux-x64-gnu/thing.node'),
+    'linux',
+    'x64',
+  );
+  write(
+    path.join(directory, 'package.json'),
+    JSON.stringify({ name: 'linux-only', version: '1.0.0' }),
+  );
+  const missing = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(directory, 'index.js'),
+    hostPlatform: 'linux',
+    hostArch: 'x64',
+  });
+  expect(missing).toContain('MODULE_NOT_FOUND');
+
+  writeAddonFor(
+    path.join(directory, 'prebuilds/linux-x64/thing.node'),
+    'linux',
+    'x64',
+  );
+  const resolved = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(directory, 'index.js'),
+    hostPlatform: 'linux',
+    hostArch: 'x64',
+  });
+  expect(callsIn(resolved)[0].path).toBe(
+    path.join(directory, 'prebuilds/linux-x64/thing.node'),
+  );
+});
