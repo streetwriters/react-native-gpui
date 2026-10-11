@@ -10,16 +10,16 @@
  *
  *   1. copy the built app binary to `<tmp>/app/` and collect the addons the
  *      bundle names into `<tmp>/app/node-addons`;
- *   2. rename the fixture's `build/` directory, so the embedded absolute path is
- *      dead and the only way to load the addon is the collected copy;
+ *   2. move the fixture's addon binary aside, so the embedded absolute path is
+ *      dead and the only way to load it is the collected copy;
  *   3. launch the copied binary from `<tmp>/app/` — the addon must load;
  *   4. delete `<tmp>/app/node-addons` and launch again — the call must now fail
  *      with `MODULE_NOT_FOUND`, and the error must list every location tried;
- *   5. restore the fixture's `build/` directory.
+ *   5. put the fixture's addon back.
  *
- * It is a script rather than an e2e test because it renames a directory that
- * another test's addon load also depends on, which is not safe to do while the
- * e2e files run in parallel. Run it by hand:
+ * It is a script rather than an e2e test because it moves a file that another
+ * test's addon load also depends on, which is not safe to do while the e2e
+ * files run in parallel. Run it by hand:
  *
  *   node packages/rn-gpui-tester/scripts/check-node-addon-relocation.mjs
  *
@@ -80,7 +80,12 @@ if (!fs.existsSync(fixtureAddon)) {
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-relocation-'));
 const appDirectory = path.join(temporary, 'app');
 const addonDirectory = path.join(appDirectory, 'node-addons');
-const renamedBuild = path.join(temporary, 'fixture-build-renamed');
+// The fixture binary is moved aside *within its own directory* rather than into
+// `temporary`. `os.tmpdir()` is frequently a different filesystem from the
+// checkout — `/tmp` and `/home` are separate mounts on the Linux box — and
+// `fs.renameSync` cannot cross filesystems (it fails with EXDEV). A sibling
+// name in the same directory always can.
+const movedAddon = `${fixtureAddon}.moved-for-relocation`;
 fs.mkdirSync(appDirectory, { recursive: true });
 const copiedBinary = path.join(appDirectory, path.basename(binary));
 fs.copyFileSync(binary, copiedBinary);
@@ -90,9 +95,9 @@ console.log(`[relocation] work directory: ${temporary}`);
 console.log(`[relocation] copied ${binary} -> ${copiedBinary}`);
 
 restore = () => {
-  if (fs.existsSync(renamedBuild) && !fs.existsSync(fixtureBuild)) {
-    fs.renameSync(renamedBuild, fixtureBuild);
-    console.log('[relocation] restored the fixture build directory');
+  if (fs.existsSync(movedAddon) && !fs.existsSync(fixtureAddon)) {
+    fs.renameSync(movedAddon, fixtureAddon);
+    console.log('[relocation] restored the fixture addon');
   }
   fs.rmSync(temporary, { recursive: true, force: true });
 };
@@ -154,8 +159,8 @@ try {
 
   // 2. Make the embedded absolute path dead, so only the collected copy can
   //    satisfy the load.
-  console.log(`[relocation] renaming ${fixtureBuild} -> ${renamedBuild}`);
-  fs.renameSync(fixtureBuild, renamedBuild);
+  console.log(`[relocation] renaming ${fixtureAddon} -> ${movedAddon}`);
+  fs.renameSync(fixtureAddon, movedAddon);
 
   // 3. With the collected copy present the screen must work.
   console.log('[relocation] launching with node-addons/ present');
@@ -190,7 +195,9 @@ try {
         `screen text: ${missingText}`,
     );
   }
-  for (const needle of [path.join(appDirectory, 'node-addons'), fixtureBuild]) {
+  // The error must name every place it looked: the app's own `node-addons/`
+  // directory and the embedded absolute path (which is now dead).
+  for (const needle of [path.join(appDirectory, 'node-addons'), fixtureAddon]) {
     if (!missingText.includes(needle)) {
       fail(
         `the MODULE_NOT_FOUND error does not mention '${needle}'.\n` +
