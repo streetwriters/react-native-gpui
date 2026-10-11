@@ -13,34 +13,102 @@ const templatesDir = path.resolve(cliDir, '../templates');
  * builds. A non-system pkg-config first on PATH (Linuxbrew, Nix) cannot see the
  * system packages, and the failure surfaces much later as a cryptic C++ build
  * error, so check up front. Pure so it can be unit tested: `runPkgConfig`
- * returns true, false, or 'missing-pkg-config'.
+ * returns true, false, or 'missing-pkg-config'; `systemPkgConfigPath` returns
+ * the system pkg-config search path, or null when it cannot be determined.
+ *
+ * The message stays distribution-neutral: it names the pkg-config module and
+ * gives one install command per common package manager, and the path hint uses
+ * whatever this machine's system pkg-config reports rather than a hard-coded
+ * x86_64 Debian path.
  */
-export function linuxBuildDependencyProblem(platform, runPkgConfig) {
+export function linuxBuildDependencyProblem(
+  platform,
+  runPkgConfig,
+  systemPkgConfigPath = () => null,
+) {
   if (platform !== 'linux') return null;
   const modules = [
-    { pc: 'gtk+-3.0', apt: 'libgtk-3-dev' },
-    { pc: 'ayatana-appindicator3-0.1', apt: 'libayatana-appindicator3-dev' },
+    {
+      pc: 'gtk+-3.0',
+      packages: {
+        'Debian/Ubuntu': 'libgtk-3-dev',
+        Fedora: 'gtk3-devel',
+        Arch: 'gtk3',
+      },
+    },
+    {
+      pc: 'ayatana-appindicator3-0.1',
+      packages: {
+        'Debian/Ubuntu': 'libayatana-appindicator3-dev',
+        Fedora: 'libayatana-appindicator-gtk3-devel',
+        Arch: 'libayatana-appindicator',
+      },
+    },
   ];
-  for (const { pc, apt } of modules) {
+  const installExamples = packages =>
+    Object.entries(packages)
+      .map(([distribution, name]) => {
+        const manager =
+          distribution === 'Fedora'
+            ? 'dnf'
+            : distribution === 'Arch'
+              ? 'pacman'
+              : 'apt';
+        const command =
+          manager === 'pacman'
+            ? `sudo pacman -S ${name}`
+            : `sudo ${manager} install ${name}`;
+        return `${distribution}: ${command}`;
+      })
+      .join(', ');
+  for (const { pc, packages } of modules) {
     const result = runPkgConfig(pc);
     if (result === 'missing-pkg-config') {
       return (
         'pkg-config is required to build the desktop app on Linux. ' +
-        'Install it with `sudo apt install pkg-config`, then re-run.'
+        "Install your distribution's pkg-config package " +
+        '(Debian/Ubuntu: `sudo apt install pkg-config`, ' +
+        'Fedora: `sudo dnf install pkgconf-pkg-config`, ' +
+        'Arch: `sudo pacman -S pkgconf`), then re-run.'
       );
     }
     if (!result) {
+      const systemPath = systemPkgConfigPath();
+      const hint = systemPath
+        ? `set PKG_CONFIG_PATH=${systemPath} and re-run.`
+        : 'point PKG_CONFIG_PATH at your system pkgconfig directories and re-run.';
       return (
         `Linux build dependency ${pc} was not found. ` +
-        `Install it with \`sudo apt install ${apt}\`, then re-run. ` +
-        'If pkg-config cannot see the system packages (Linuxbrew or Nix ' +
-        'pkg-config first on PATH does this), set ' +
-        'PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig ' +
-        'and re-run.'
+        `Install your distribution's development package for it ` +
+        `(${installExamples(packages)}). ` +
+        `If pkg-config cannot see the system packages (Linuxbrew or Nix ` +
+        `pkg-config first on PATH does this), ${hint}`
       );
     }
   }
   return null;
+}
+
+/**
+ * The system pkg-config search path, for the preflight hint. Uses
+ * `/usr/bin/pkg-config` explicitly: a Linuxbrew or Nix `pkg-config` first on
+ * PATH is exactly the situation the hint is about, and it reports its own
+ * prefix, not the system one. Returns null when the binary is missing or the
+ * query fails.
+ */
+function readSystemPkgConfigPath() {
+  const pkgConfig = '/usr/bin/pkg-config';
+  if (!fs.existsSync(pkgConfig)) return null;
+  try {
+    const output = execFileSync(
+      pkgConfig,
+      ['--variable', 'pc_path', 'pkg-config'],
+      { encoding: 'utf8' },
+    ).trim();
+    return output || null;
+  } catch {
+    return null;
+  }
 }
 
 const run = (bin, args, options = {}) =>
@@ -211,6 +279,7 @@ export async function runDesktop({
         return error?.code === 'ENOENT' ? 'missing-pkg-config' : false;
       }
     },
+    readSystemPkgConfigPath,
   );
   if (dependencyProblem) throw new Error(dependencyProblem);
   const desktopRoot = path.join(projectRoot, 'desktop');
