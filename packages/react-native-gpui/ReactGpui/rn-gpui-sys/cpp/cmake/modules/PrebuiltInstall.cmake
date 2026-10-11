@@ -5,7 +5,7 @@ set(_rn_gpui_prebuilt_gen "${CMAKE_BINARY_DIR}/prebuilt")
 
 # --- classify the link closure -------------------------------------------------
 # Skipped: app-side and per-app targets (rn_gpui_app_turbo_modules,
-# rn_gpui_modules, rn_gpui_autolink_*) and the shim/app archives (weak-node-api).
+# rn_gpui_modules, rn_gpui_autolink_*).
 set(_rn_gpui_built "")       # real archives/dylibs we built (names resolved)
 set(_rn_gpui_imported "")    # imported archives/dylibs, names as in the closure
 set(_rn_gpui_shadow "")      # OBJECT/INTERFACE names
@@ -13,7 +13,6 @@ set(_rn_gpui_order "")       # ordered entries that real/imported targets need
 foreach(_rn_gpui_entry IN LISTS RN_GPUI_LINK_TARGETS)
   if(_rn_gpui_entry STREQUAL "rn_gpui_app_turbo_modules"
      OR _rn_gpui_entry STREQUAL "rn_gpui_modules"
-     OR _rn_gpui_entry STREQUAL "weak-node-api"
      OR _rn_gpui_entry MATCHES "^rn_gpui_autolink_")
     continue()
   endif()
