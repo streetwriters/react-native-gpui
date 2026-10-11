@@ -29,10 +29,33 @@ const staticConstants = {
   },
 };
 
+// `Platform.hostOS` is the operating system the GPUI runtime is running on, one
+// of `macos`, `windows` or `linux`. It cannot be a literal: the same bundle
+// loads on all three. The desktop-shell TurboModule reports it (`platform()`),
+// which reads `std::env::consts::OS` natively. `Platform.OS` stays `'gpui'` on
+// every host, so a caller that needs the host uses this.
+function readHostOS() {
+  try {
+    const NativeGpuiDesktop = require('../TurboModule/TurboModuleRegistry').get(
+      'GpuiDesktop',
+    );
+    const reported = NativeGpuiDesktop?.platform?.();
+    if (typeof reported === 'string' && reported.length > 0) {
+      return reported;
+    }
+  } catch {
+    // TurboModules are not installed yet; the caller retries on the next read.
+  }
+  return null;
+}
+
 const Platform = {
   __constants: null,
   OS: 'gpui',
-  hostOS: 'macos',
+  get hostOS() {
+    return this.__hostOS ?? 'macos';
+  },
+  __hostOS: null,
 
   get Version() {
     return this.constants.osVersion;
@@ -41,6 +64,8 @@ const Platform = {
   get constants() {
     if (this.__constants == null) {
       const jsEngine = readJsEngine();
+      const hostOS = readHostOS();
+      if (hostOS != null) this.__hostOS = hostOS;
       if (jsEngine == null) {
         // Do not cache: a later read succeeds once TurboModules are installed.
         return {

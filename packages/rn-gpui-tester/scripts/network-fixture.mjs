@@ -2,18 +2,31 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
 const httpPort = Number(process.env.RN_GPUI_NETWORK_HTTP_PORT ?? 43181);
 const wsPort = Number(process.env.RN_GPUI_NETWORK_WS_PORT ?? 43182);
 const certDir = process.env.RN_GPUI_NETWORK_CERT_DIR;
-const uploadFile = '/tmp/rn-gpui-networking-upload.txt';
+// `os.tmpdir()` rather than a literal `/tmp`: Windows has no `/tmp`, and the
+// fixture could not even start there. The app asks for the matching `file://`
+// URI over `/upload-path` instead of hard-coding one, so the two sides agree on
+// every platform without either guessing at the other's temp directory.
+const uploadFile = path.join(os.tmpdir(), 'rn-gpui-networking-upload.txt');
+const uploadFileUri = pathToFileURL(uploadFile).href;
 fs.writeFileSync(uploadFile, 'file-upload-ok');
 
 function handleHttp(request, response) {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
   if (url.pathname === '/text') {
     response.end('network-text-ok');
+  } else if (url.pathname === '/upload-path') {
+    // The `file://` URI of the file `/upload` expects, so the app never has to
+    // know where this platform keeps its temporary files.
+    response.setHeader('content-type', 'text/plain');
+    response.end(uploadFileUri);
   } else if (url.pathname === '/svg') {
     response.setHeader('content-type', 'image/svg+xml');
     response.end(
