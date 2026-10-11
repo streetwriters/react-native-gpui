@@ -2,8 +2,11 @@
 
 Patches carried on top of the pinned `facebook/hermes` commit
 (`10a40b5f1de81d007cba6afe567c4ba7a0b45f5d`; see `hermes.commit` in
-`package.json`). `scripts/build-hermes-*.sh` and the `hermes-engine` workflow
-apply every `patches/*.patch` to the Hermes checkout before configuring it.
+`package.json`). `scripts/build-hermes-linux.sh` and the `hermes-engine`
+workflow apply every `patches/*.patch` to the Hermes checkout before
+configuring it. The macOS and Windows build scripts (`build-hermes-macos.sh`,
+`build-hermes-windows.ps1`) do not, and do not need to yet: the only patch so
+far is Linux-only.
 
 ## 0001-linux-load-icu-at-runtime.patch
 
