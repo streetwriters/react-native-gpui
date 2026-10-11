@@ -275,11 +275,16 @@ The plugin is where the platform decision is made, so `process.platform` and
 #### Only pure Node-API addons
 
 An addon that calls `libuv` (`uv_*`), V8 or NAN fails to load, because there is
-no Node.js runtime behind it. Loading such an addon throws an `Error` naming the
-missing symbol from `dlerror()`:
+no Node.js runtime behind it. Loading such an addon throws an `Error` whose
+message is the platform loader's, naming the missing symbol:
 
 ```
-Failed to load '/…/addon.node': undefined symbol: uv_default_loop
+# macOS
+Failed to load '/…/addon.node': Failed to load module: dlopen(/…/addon.node, 0x0006):
+  symbol not found in flat namespace '_uv_default_loop'
+# Linux
+Failed to load '/…/addon.node': Failed to load module: /…/addon.node:
+  undefined symbol: uv_default_loop
 ```
 
 Check a binary before depending on it:
