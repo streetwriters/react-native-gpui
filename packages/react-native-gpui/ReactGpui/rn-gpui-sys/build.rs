@@ -369,6 +369,23 @@ fn main() {
         }
         _ => {}
     }
+    // The static OpenSSL and curl archives call into the Windows cryptography
+    // and event-log APIs without naming the import libraries (their `.drectve`
+    // sections are written for a build that links through `nmake`, not through
+    // CMake's imported targets). An *application* links these anyway because
+    // its Rust dependency tree brings them in (`ring`, `reqwest`), so the gap
+    // only shows up when a test binary links this crate on its own —
+    // `LNK2019: unresolved external symbol __imp_CryptGenRandom`, and so on.
+    // The CMake targets declare them (OpenSSL::Crypto's interface, `ws2_32` on
+    // folly), but `emit_link_libs` only understands archives this build
+    // produced, so the system libraries are named here.
+    if msvc_target() {
+        for library in [
+            "crypt32", "advapi32", "userenv", "ws2_32", "bcrypt", "dbghelp",
+        ] {
+            println!("cargo:rustc-link-lib={library}");
+        }
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         for framework in [
             "Foundation",
