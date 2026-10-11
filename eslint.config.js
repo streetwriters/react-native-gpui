@@ -56,6 +56,7 @@ module.exports = [
       'packages/react-native-gpui/**/*.js',
       'packages/rn-gpui-tester/**/*.js',
     ],
+    ignores: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
     languageOptions: {
       parser: hermesParser,
       parserOptions: { sourceType: 'module' },
@@ -70,6 +71,23 @@ module.exports = [
       // hermes-eslint resolves Flow type references itself.
       'ft-flow/define-flow-type': 'off',
       'ft-flow/use-flow-type': 'off',
+    },
+  },
+  {
+    // The Node addon Babel plugin is plain CommonJS Node code, not a Flow
+    // source: it is loaded by Babel in the Metro process.
+    files: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      parserOptions: { requireConfigFile: false },
+      globals: {
+        Buffer: 'readonly',
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+        require: 'readonly',
+        module: 'writable',
+      },
     },
   },
   {
