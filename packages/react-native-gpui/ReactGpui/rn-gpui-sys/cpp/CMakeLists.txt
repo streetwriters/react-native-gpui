@@ -642,8 +642,8 @@ endforeach()
 
 endif()  # NOT RN_GPUI_PREBUILT_DIR (source build of rn_gpui_core and its deps)
 
-# Autolinked app packages and the Node-API shim are needed in both modes:
-# they only add sources to global properties and app-side targets.
+# Autolinked app packages are needed in both modes: they only add sources to
+# global properties and app-side targets.
 if(RN_GPUI_AUTOLINK_CMAKE AND EXISTS "${RN_GPUI_AUTOLINK_CMAKE}")
   include("${RN_GPUI_AUTOLINK_CMAKE}")
 endif()
