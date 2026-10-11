@@ -117,6 +117,48 @@ function isElfForArch(header, arch) {
   return header.readUInt16LE(18) === machine;
 }
 
+// PE/COFF. A Windows binary starts with `MZ`; the 4-byte little-endian value at
+// offset 0x3C is the file offset of the `PE\0\0` signature, and the 2-byte
+// machine field follows it. Only the first 64 bytes of the file are read, so
+// the signature is checked to be within that window before reading the machine.
+const DOS_MAGIC = Buffer.from([0x4d, 0x5a]); // "MZ"
+const PE_SIGNATURE = Buffer.from([0x50, 0x45, 0x00, 0x00]); // "PE\0\0"
+
+const PE_MACHINE = {
+  x64: 0x8664,
+  arm64: 0xaa64,
+  ia32: 0x014c,
+};
+
+/**
+ * Whether a PE file is built for `arch`. Returns null when the bytes are not a
+ * PE file at all, and true for an unrecognized machine value (an unusual-but
+ * valid binary is never rejected, matching the Mach-O helper).
+ *
+ * The `PE\0\0` signature lives at the offset named by the 4-byte field at 0x3C,
+ * which a normal linker places right after the 64-byte DOS header but is not
+ * required to; `header` therefore only has to cover the offset named, and a
+ * caller reading a short prefix reports "not a PE" rather than "wrong arch".
+ */
+function isPeForArch(header, arch) {
+  if (header.length < 2 || !header.subarray(0, 2).equals(DOS_MAGIC)) {
+    return null;
+  }
+  if (header.length < 0x40) return false;
+  const peOffset = header.readUInt32LE(0x3c);
+  if (peOffset + 6 > header.length) return false;
+  if (!header.subarray(peOffset, peOffset + 4).equals(PE_SIGNATURE)) {
+    return false;
+  }
+  const machine = header.readUInt16LE(peOffset + 4);
+  const expected = PE_MACHINE[arch];
+  if (expected === undefined) return true;
+  if (machine === expected) return true;
+  // 0x0 is IMAGE_FILE_MACHINE_UNKNOWN, which some linkers write; treat it as
+  // acceptable rather than rejecting a working binary.
+  return machine === 0x0000;
+}
+
 /**
  * Whether a Mach-O file contains a slice for `arch`. A thin file has one
  * cputype at offset 4; a universal file has a table of them after the 8-byte
@@ -166,7 +208,11 @@ function isHostPrebuiltNodeAddon(filePath, hostPlatform, hostArch) {
   let handle;
   try {
     handle = fs.openSync(filePath, 'r');
-    const header = Buffer.alloc(40);
+    // One window covers every header this function reads: ELF's and Mach-O's
+    // first bytes, a universal Mach-O table, and a PE image whose `PE\0\0`
+    // signature sits past the 64-byte DOS header plus a stub (MSVC places it
+    // around 0xE8). Reading past the end of a short file is not an error.
+    const header = Buffer.alloc(1024);
     const read = fs.readSync(handle, header, 0, header.length, 0);
     if (read < 20) return false;
     const headerBytes = header.subarray(0, read);
@@ -185,8 +231,11 @@ function isHostPrebuiltNodeAddon(filePath, hostPlatform, hostArch) {
       if (!known) return false;
       return machoHasArch(headerBytes, hostArch);
     }
-    // Windows support is written but not part of this work; until then every
-    // file is accepted there, which is the same as no guard.
+    if (hostPlatform === 'win32') {
+      return isPeForArch(headerBytes, hostArch) !== false;
+    }
+    // Platforms with no header check accept every file, which is the same as no
+    // guard.
     return true;
   } catch {
     return false;

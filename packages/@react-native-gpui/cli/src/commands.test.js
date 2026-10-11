@@ -109,9 +109,11 @@ test('collect-node-addons copies each addon to <out>/<key>', () => {
   fs.mkdirSync(nodePath.dirname(addonPath), { recursive: true });
   fs.writeFileSync(addonPath, 'binary');
   const bundlePath = nodePath.join(root, 'bundle.js');
+  // The Babel plugin emits the path through `t.stringLiteral`, so it is escaped
+  // as a JS string literal would be — backslashes and all on Windows.
   fs.writeFileSync(
     bundlePath,
-    `_requireNodeLibrary("local/1/addon.node","${addonPath}");`,
+    `_requireNodeLibrary("local/1/addon.node",${JSON.stringify(addonPath)});`,
   );
   const out = nodePath.join(root, 'node-addons');
   const result = collectNodeAddons({ bundle: bundlePath, out });
@@ -133,7 +135,7 @@ test('collect-node-addons copies sibling shared libraries', () => {
   const bundlePath = nodePath.join(root, 'bundle.js');
   fs.writeFileSync(
     bundlePath,
-    `_requireNodeLibrary("local/1/addon.node","${nodePath.join(directory, 'addon.node')}");`,
+    `_requireNodeLibrary("local/1/addon.node",${JSON.stringify(nodePath.join(directory, 'addon.node'))});`,
   );
   const out = nodePath.join(root, 'node-addons');
   collectNodeAddons({ bundle: bundlePath, out, platform: 'linux' });
