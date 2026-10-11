@@ -728,6 +728,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         if std::env::var_os("RN_GPUI_TRANSPARENT_TITLEBAR").is_some() {
             window_options.titlebar.get_or_insert_with(Default::default).appears_transparent = true;
         }
+        #[cfg(target_os = "windows")]
+        let opens_hidden = !window_options.show;
         let window = cx
             .open_window(
                 window_options,
@@ -739,6 +741,29 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .expect("failed to open the GPUI window");
         startup_trace("GPUI window opened");
         let window_id = window.window_id();
+
+        // A window created with `show: false` never receives the message that
+        // carries its initial size on Windows, and GPUI creates the HWND with
+        // `CW_USEDEFAULT`, so `window.bounds()` reports that sentinel
+        // (`-1717986944`) until something resizes the window. Laying out at that
+        // size fails React Native's own assertion (`minimumSize.width >= 0`) and
+        // kills the process. Resizing delivers the `WM_SIZE` a shown window
+        // would have received at creation, which is what publishes the real
+        // size to the bounds observers. `bounds_changed` is deliberately not
+        // called here: it would lay the surface out at the sentinel size before
+        // that message arrives.
+        #[cfg(target_os = "windows")]
+        if opens_hidden {
+            let requested = bounds.size;
+            let applied = window.update(cx, move |_root, window, _cx| {
+                if window.viewport_size() != requested {
+                    window.resize(requested);
+                }
+            });
+            if let Err(error) = applied {
+                log::warn!("could not size the hidden window: {error}");
+            }
+        }
 
         if config.title.is_some() || config.on_window_opened.is_some() {
             let title = config.title.take();

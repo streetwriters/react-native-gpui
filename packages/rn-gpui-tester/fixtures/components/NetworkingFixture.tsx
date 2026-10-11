@@ -48,8 +48,13 @@ function NetworkingFixture() {
         };
         const form = new FormData();
         form.append('message', 'hello-from-form-data');
+        // The fixture server owns the file it validates against, and Windows
+        // has no `/tmp`, so it is asked for the URI instead of hard-coding one.
+        const uploadFileUri = await (
+          await fetch(`${httpBase}/upload-path`)
+        ).text();
         form.append('attachment', {
-          uri: 'file:///tmp/rn-gpui-networking-upload.txt',
+          uri: uploadFileUri.trim(),
           name: 'fixture.txt',
           type: 'text/plain',
         });
