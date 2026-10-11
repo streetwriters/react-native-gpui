@@ -160,30 +160,30 @@ std::string missingAddonMessage(
   return message;
 }
 
-/// Throws a JS Error carrying `code`, the way Node's module loader does.
-[[noreturn]] void throwError(
+/// Where a failed call leaves its message and code for the JS wrapper to throw.
+constexpr const char* kAddonFailureProperty = "__rnGpuiNodeAddonFailure";
+
+/// Records a failure for `_requireNodeLibrary` to turn into a thrown `Error`.
+///
+/// The error deliberately is *not* thrown from here. A C++ `jsi::JSError`
+/// thrown out of a host function does not reach JS intact: the runtime fails to
+/// match it as a `JSError` and re-wraps it through its generic `std::exception`
+/// path, which prefixes the message with "Exception in HostFunction" and
+/// discards every property except the message string — `code` included. Leaving
+/// the message and code on a global, and letting the JavaScript wrapper below
+/// throw, keeps both and drops the prefix.
+void setFailure(
     facebook::jsi::Runtime& rt,
     const std::string& message,
     const char* code) {
-  auto error =
-      facebook::jsi::Value(rt, facebook::jsi::JSError(rt, message).value());
+  auto failure = facebook::jsi::Object(rt);
+  failure.setProperty(
+      rt, "message", facebook::jsi::String::createFromUtf8(rt, message));
   if (code != nullptr) {
-    error.asObject(rt).setProperty(
+    failure.setProperty(
         rt, "code", facebook::jsi::String::createFromUtf8(rt, code));
   }
-  throw facebook::jsi::JSError(rt, std::move(error));
-}
-
-/// Throws a TypeError, which is what a JS caller sees for a bad argument.
-[[noreturn]] void throwTypeError(
-    facebook::jsi::Runtime& rt,
-    const std::string& message) {
-  auto error =
-      facebook::jsi::Value(rt, facebook::jsi::JSError(rt, message).value());
-  auto object = error.asObject(rt);
-  object.setProperty(
-      rt, "name", facebook::jsi::String::createFromUtf8(rt, "TypeError"));
-  throw facebook::jsi::JSError(rt, std::move(error));
+  rt.global().setProperty(rt, kAddonFailureProperty, std::move(failure));
 }
 
 /// The cache of already-loaded exports, stored on the runtime's global object
@@ -222,7 +222,7 @@ void installNodeAddons(
 
   auto requireNodeLibrary = facebook::jsi::Function::createFromHostFunction(
       rt,
-      facebook::jsi::PropNameID::forAscii(rt, "_requireNodeLibrary"),
+      facebook::jsi::PropNameID::forAscii(rt, "_requireNodeLibraryNative"),
       2,
       [loader, unsupportedMessage](
           facebook::jsi::Runtime& rt,
@@ -230,20 +230,24 @@ void installNodeAddons(
           const facebook::jsi::Value* args,
           size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isString()) {
-          throwTypeError(
+          setFailure(
               rt,
               "_requireNodeLibrary expects a key string as its first "
-              "argument");
+              "argument",
+              "ERR_INVALID_ARG_TYPE");
+          return facebook::jsi::Value::undefined();
         }
         const std::string key = args[0].asString(rt).utf8(rt);
 
         std::optional<std::string> embeddedPath;
         if (count >= 2 && !args[1].isUndefined() && !args[1].isNull()) {
           if (!args[1].isString()) {
-            throwTypeError(
+            setFailure(
                 rt,
                 "_requireNodeLibrary expects its second argument, when "
-                "present, to be a path string");
+                "present, to be a path string",
+                "ERR_INVALID_ARG_TYPE");
+            return facebook::jsi::Value::undefined();
           }
           embeddedPath = args[1].asString(rt).utf8(rt);
         }
@@ -251,7 +255,8 @@ void installNodeAddons(
         std::vector<std::string> tried;
         const auto resolved = resolveAddonPath(key, embeddedPath, tried);
         if (resolved.empty()) {
-          throwError(rt, missingAddonMessage(key, tried), "MODULE_NOT_FOUND");
+          setFailure(rt, missingAddonMessage(key, tried), "MODULE_NOT_FOUND");
+          return facebook::jsi::Value::undefined();
         }
         const std::string resolvedPath = resolved.string();
 
@@ -265,15 +270,46 @@ void installNodeAddons(
         }
 
         if (!loader) {
-          throwError(rt, unsupportedMessage, "ERR_NODE_ADDONS_UNSUPPORTED");
+          setFailure(rt, unsupportedMessage, "ERR_NODE_ADDONS_UNSUPPORTED");
+          return facebook::jsi::Value::undefined();
         }
         auto exports = (*loader)(rt, resolvedPath);
         cache.setProperty(rt, cacheKey.c_str(), exports);
         return exports;
       });
 
+  // The JS-visible loader. It calls the native function and throws a genuine
+  // JavaScript `Error` when that recorded a failure, so the `code` property and
+  // the multi-line message reach the caller unchanged. See `setFailure`.
+  const std::string failureProperty = kAddonFailureProperty;
+  const std::string wrapperSource =
+      "(function (native) {\n"
+      "  return function _requireNodeLibrary(key, path) {\n"
+      "    const result = native(key, path);\n"
+      "    const failure = globalThis." +
+      failureProperty +
+      ";\n"
+      "    if (failure) {\n"
+      "      delete globalThis." +
+      failureProperty +
+      ";\n"
+      "      const error = new Error(failure.message);\n"
+      "      if (failure.code) error.code = failure.code;\n"
+      "      throw error;\n"
+      "    }\n"
+      "    return result;\n"
+      "  };\n"
+      "})\n";
+  auto wrapper = rt.evaluateJavaScript(
+      std::make_unique<facebook::jsi::StringBuffer>(wrapperSource),
+      "node-addons.js");
+  // `Function` has no call operator; the runtime does the call.
+  auto requireNodeLibraryWithErrors =
+      wrapper.getObject(rt).getFunction(rt).call(
+          rt, std::move(requireNodeLibrary));
+
   rt.global().setProperty(
-      rt, "_requireNodeLibrary", std::move(requireNodeLibrary));
+      rt, "_requireNodeLibrary", std::move(requireNodeLibraryWithErrors));
 }
 
 } // namespace rngpui

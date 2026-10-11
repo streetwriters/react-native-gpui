@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import {
+  collectNodeAddons,
   createLibrary,
   initDesktop,
   initProject,
@@ -66,11 +67,24 @@ if (command === 'init') {
   process.exit(0);
 }
 
-if (!['autolink', 'bundle', 'prebuilt', 'run'].includes(command)) {
+if (
+  !['autolink', 'bundle', 'collect-node-addons', 'prebuilt', 'run'].includes(
+    command,
+  )
+) {
   console.error(
-    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|prebuilt|run> [options]',
+    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|collect-node-addons|prebuilt|run> [options]',
   );
   process.exit(2);
+}
+
+if (command === 'collect-node-addons') {
+  collectNodeAddons({
+    bundle: option('--bundle'),
+    out: option('--out'),
+    platform: option('--platform'),
+  });
+  process.exit(0);
 }
 
 if (command === 'run') {
