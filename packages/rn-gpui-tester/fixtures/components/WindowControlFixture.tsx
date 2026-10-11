@@ -131,6 +131,22 @@ function WindowControlFixture() {
     <View style={styles.page}>
       <TitleBar title="Window control" />
       <Text style={styles.heading}>Windows</Text>
+      <Pressable
+        testID="desktop-hide-window"
+        onPress={() => {
+          win.hide().catch(() => {});
+        }}
+      >
+        <Text style={styles.button}>Hide this window</Text>
+      </Pressable>
+      <Pressable
+        testID="desktop-show-window"
+        onPress={() => {
+          win.show().catch(() => {});
+        }}
+      >
+        <Text style={styles.button}>Show this window</Text>
+      </Pressable>
       <Text testID="desktop-window-id" style={styles.row}>
         this window: {win.id}
       </Text>
