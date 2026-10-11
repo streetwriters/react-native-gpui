@@ -82,7 +82,10 @@ async fn serve_commands(
                     })
                     .unwrap_or((0.0, 0.0, 1.0));
                 json!({"protocol": PROTOCOL_VERSION, "platform": "gpui", "scale": scale,
-                    "capture": cfg!(feature = "visual-capture") && cfg!(any(target_os = "macos", target_os = "linux")),
+                    // Every backend that implements `Window::render_to_image` can
+                    // answer `screenshot`: gpui_macos/metal, gpui_linux (X11 and
+                    // Wayland) and gpui_windows/Direct3D all do.
+                    "capture": cfg!(feature = "visual-capture") && cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")),
                     "animationsDisabled": crate::animation_policy::animations_disabled(),
                     "windowSize": {"width": width, "height": height}, "appName": std::env::var("RN_GPUI_APP_ID").unwrap_or_default()})
             }
@@ -95,7 +98,12 @@ async fn serve_commands(
                     // session stays viewable.
                     #[cfg(target_os = "linux")]
                     let hidden = crate::desktop::platform_window::is_minimized(window);
-                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                    // A window created with `show: false` (the offscreen test
+                    // mode) is not `IsWindowVisible`; a real one is, even when
+                    // another window covers it.
+                    #[cfg(target_os = "windows")]
+                    let hidden = crate::desktop::platform_window::is_hidden(window);
+                    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
