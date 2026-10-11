@@ -118,6 +118,18 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES
 # rn_gpui_install_modules().
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/GpuiHermesEngine.cpp")
+# The Node-API host integration and the loader. They are this engine's own
+# sources now — nothing is read from react-native-node-api — and are compiled
+# on Linux and macOS. Windows needs forwarded exports from the app executable
+# (Part W) before they can work there, so for now the capability is simply left
+# unset and `_requireNodeLibrary` reports the engine as unsupported.
+if(NOT WIN32)
+  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/HermesNodeApiHost.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/HermesNodeAddons.cpp")
+  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS
+    "${RN_GPUI_HERMES_SOURCE_DIR}/API")
+endif()
 # React Common headers are not added here on purpose: they must reach the glue
 # through the linked targets, so that the ReactCommonOverrides copy still wins
 # (an upstream header first would change view-props layouts, and the archive was
@@ -133,13 +145,6 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_DEPS
 
 # The registration symbol itself comes from autolink, which reads it from this
 # package's react-native.config.js `jsEngine.register`.
-
-# Node-API is this engine's capability: react-native-node-api's host module and
-# the Hermes host integration behind it are compiled here, and core adds these
-# sources only when weak-node-api is present.
-set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES
-  "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
-  "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/HermesNapiHost.cpp")
 
 # `Platform.constants.jsEngine.version`: the pinned facebook/hermes commit this
 # package's VM was built from.
@@ -162,13 +167,21 @@ if(NOT WIN32)
   # upstream Hermes ships them (include/hermes/napi).
   target_include_directories(gpui_node_api_smoke PRIVATE
     "${RN_GPUI_HERMES_SOURCE_DIR}/include/hermes/napi")
-  target_link_libraries(gpui_node_api_smoke PRIVATE hermes-engine::hermesvm)
+  # Deliberately not linked against Hermes. That is the whole point of this
+  # fixture now: a stock addon is a plain shared object whose napi_* symbols
+  # are undefined and resolve against whatever is already loaded in the
+  # process, which on Linux and macOS is libhermesvm. Binding it to Hermes here
+  # would hide exactly the failure mode we care about. macOS needs the
+  # dynamic-lookup promise for the same reason `node-gyp` passes it.
   set_target_properties(gpui_node_api_smoke PROPERTIES
     PREFIX ""
     SUFFIX ".node"
     OUTPUT_NAME "gpui_node_api_smoke"
     BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
     INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
+  if(APPLE)
+    target_link_options(gpui_node_api_smoke PRIVATE "-undefined" "dynamic_lookup")
+  endif()
 
   add_executable(hermes_node_api_addon_test
     "${CMAKE_CURRENT_LIST_DIR}/test/hermes_node_api_addon_test.cpp")

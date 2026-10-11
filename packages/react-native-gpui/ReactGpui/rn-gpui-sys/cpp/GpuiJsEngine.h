@@ -47,17 +47,23 @@ struct GpuiJsEngine {
   std::function<std::shared_ptr<facebook::react::JSRuntimeFactory>()>
       makeRuntimeFactory;
 
-  // Optional. Node-API for `.node` addons. Creating a napi_env for a runtime
-  // and loading a module into it are VM-specific, so the engine provides the
-  // "NodeApiHost" TurboModule that JS calls `requireNodeAddon` on. When
-  // missing, core registers a module whose `requireNodeAddon` throws
-  // Error("Node-API is not supported by the <name> JS engine").
-  struct NodeApi {
-    std::function<std::shared_ptr<facebook::react::TurboModule>(
-        std::shared_ptr<facebook::react::CallInvoker>)>
-        makeModule;
+  // Optional. Loading stock Node-API `.node` addons. Creating a napi_env for a
+  // runtime and loading a shared library into it are VM-specific, so the
+  // engine supplies a loader; everything else (path resolution, the cache,
+  // error messages) is core's. When missing, `_requireNodeLibrary` still
+  // exists and throws an error naming the engine.
+  struct NodeAddons {
+    // Called once per runtime, on the JS thread, before the app bundle runs.
+    // `jsInvoker` schedules work on that same JS thread. Returns a function
+    // that loads the addon at an absolute path and returns its exports, or
+    // throws a jsi::JSError with a readable message.
+    std::function<std::function<facebook::jsi::Value(
+        facebook::jsi::Runtime&,
+        const std::string& absolutePath)>(
+        std::shared_ptr<facebook::react::CallInvoker> jsInvoker)>
+        makeLoader;
   };
-  std::optional<NodeApi> nodeApi;
+  std::optional<NodeAddons> nodeAddons;
 
   // Optional. Returns the feature-flag overrides core installs. An engine that
   // needs flags of its own derives from GpuiFeatureFlagsOverrides and

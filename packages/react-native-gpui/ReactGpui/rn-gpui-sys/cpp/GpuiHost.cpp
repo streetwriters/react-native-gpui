@@ -8,6 +8,7 @@
 #include "GpuiLogBoxSurfaceDelegate.h"
 #include "GpuiModules.h"
 #include "GpuiMountingManager.h"
+#include "GpuiNodeAddons.h"
 #include "GpuiRustTurboModules.h"
 #include "MountBatchBuilder.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
@@ -21,6 +22,8 @@
 #include <react/http/IWebSocketClient.h>
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include <react/renderer/components/FBReactNativeSpec/FBReactNativeSpecJSI.h>
+#include <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>
+#include <react/renderer/runtimescheduler/RuntimeSchedulerCallInvoker.h>
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/PlatformTimerRegistryImpl.h>
 #include <react/runtime/ReactHost.h>
@@ -718,7 +721,25 @@ GpuiHost::GpuiHost(
       /* devUIDelegate */ nullptr,
       /* turboModuleProviders */ gpui_turbo_module_providers(),
       /* logBoxSurfaceDelegate */ logBoxDelegate_,
-      /* animatedNodesManagerProvider */ animatedNodesManagerProvider_);
+      /* animatedNodesManagerProvider */ animatedNodesManagerProvider_,
+      /* bindingsInstallFunc */
+      [](facebook::jsi::Runtime& runtime) {
+        // `_requireNodeLibrary` must exist before the app bundle runs, and a
+        // reload creates a new runtime, so it is installed here rather than at
+        // module-registration time. ReactInstance installs the
+        // RuntimeSchedulerBinding just before calling this, which is the same
+        // CallInvoker the TurboModules get; a fresh one per runtime is correct,
+        // because the engine's host callbacks belong to that runtime.
+        auto binding =
+            facebook::react::RuntimeSchedulerBinding::getBinding(runtime);
+        if (!binding) {
+          return;
+        }
+        rngpui::installNodeAddons(
+            runtime,
+            std::make_shared<facebook::react::RuntimeSchedulerCallInvoker>(
+                binding->getRuntimeScheduler()));
+      });
   activeGpuiHost.store(this, std::memory_order_release);
 #if defined(__APPLE__)
   rn_gpui_start_accessibility_observing();
