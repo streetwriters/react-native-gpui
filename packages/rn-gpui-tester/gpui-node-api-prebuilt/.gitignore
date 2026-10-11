@@ -1,3 +1,0 @@
-# Written by scripts/build-prebuilt-addon.mjs before each bundle: the compiled
-# addon on Linux, an empty placeholder elsewhere. Never commit it.
-/prebuilds/
