@@ -230,6 +230,16 @@ test.skipIf(process.platform === 'win32')(
     expect(JSON.stringify(nodes)).toContain('42 / 42');
   },
 );
+test.skipIf(process.platform !== 'linux')(
+  'a prebuilt Node-API addon from a package loads on Linux',
+  async () => {
+    await launch('node-api-prebuilt');
+    await app.getByTestId('native-module-run').click();
+    await app.waitForIdle();
+    const nodes = await app.query('testID', 'native-module-result', true);
+    expect(JSON.stringify(nodes)).toContain('Prebuilt Node-API: 7 + 7 = 14');
+  },
+);
 test('scrolling the menu composites instead of rebuilding its rows', async () => {
   await launch();
   // The menu's ScrollView has no testID of its own, so scroll a row inside it;

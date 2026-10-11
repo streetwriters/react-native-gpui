@@ -41,7 +41,8 @@
     "@react-native-node-api/cli-utils": "https://github.com/ammarahm-ed/react-native-node-api/releases/download/node-api-macos.1/react-native-node-api-cli-utils-0.1.4.tgz",
     "@react-native-gpui/native-module-fixture": "file:./gpui-native-module",
     "@react-native-gpui/cpp-module-fixture": "file:./gpui-cpp-native-module",
-    "@react-native-gpui/node-api-fixture": "file:./gpui-node-api-module"
+    "@react-native-gpui/node-api-fixture": "file:./gpui-node-api-module",
+    "@react-native-gpui/node-api-prebuilt-fixture": "file:./gpui-node-api-prebuilt"
   },
   "devDependencies": {
     "@react-native-community/cli": "20.2.0",

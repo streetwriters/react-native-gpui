@@ -1,4 +1,5 @@
 import type { NodeApiFixture } from '@react-native-gpui/node-api-fixture';
+import type { PrebuiltNodeApiFixture } from '@react-native-gpui/node-api-prebuilt-fixture';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import CppTurboModuleFixture from './CppTurboModuleFixture';
@@ -6,7 +7,7 @@ import CppTurboModuleFixture from './CppTurboModuleFixture';
 export default function NativeModulesFixture({
   kind = 'rust',
 }: {
-  kind?: 'rust' | 'cpp' | 'node-api';
+  kind?: 'rust' | 'cpp' | 'node-api' | 'node-api-prebuilt';
 }) {
   const [result, setResult] = useState('Ready');
   if (kind === 'cpp') {
@@ -18,6 +19,12 @@ export default function NativeModulesFixture({
         const module =
           require('@react-native-gpui/native-module-fixture').default;
         setResult(module.greet('GPUI Tester'));
+      } else if (kind === 'node-api-prebuilt') {
+        const addon: PrebuiltNodeApiFixture =
+          require('@react-native-gpui/node-api-prebuilt-fixture').default;
+        setResult(
+          `Prebuilt Node-API: ${addon.seven()} + ${addon.seven()} = ${addon.add(7, 7)}`,
+        );
       } else {
         const addon: NodeApiFixture = require('../../gpui_node_api_smoke.node');
         setResult(`Node-API: 19 + 23 = ${addon.add(19, 23)}`);
@@ -30,13 +37,15 @@ export default function NativeModulesFixture({
       );
     }
   }
+  const title = {
+    'node-api': 'Node-API addon',
+    'node-api-prebuilt': 'Prebuilt Node-API addon',
+    rust: 'Rust TurboModule',
+    cpp: 'C++ TurboModule',
+  }[kind];
   return (
     <View style={styles.page}>
-      <Text style={styles.title}>
-        {kind === 'node-api'
-          ? 'Node-API addon'
-          : `${kind === 'rust' ? 'Rust' : 'C++'} TurboModule`}
-      </Text>
+      <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>
         Call the native module and inspect its response.
       </Text>
