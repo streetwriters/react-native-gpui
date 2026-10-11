@@ -17,21 +17,27 @@ one GPU-accelerated Rust renderer for **macOS, Windows and Linux**.
 
 ### Linux
 
-```sh
-sudo apt install libgtk-3-dev libayatana-appindicator3-dev
-```
-
 The Rust crates probe GTK 3 and AppIndicator through `pkg-config` at build
-time, and the tray icon loads `libayatana-appindicator3` at run time. If a
-non-system `pkg-config` is first on `PATH` (Linuxbrew and Nix do this), it
-hides the system libraries and the C++ build fails with confusing errors; add
-the system directories:
+time, and the tray icon loads `libayatana-appindicator3` at run time. Install
+your distribution's development packages for them:
+
+| Distribution  | Command                                                          |
+| ------------- | ---------------------------------------------------------------- |
+| Debian/Ubuntu | `sudo apt install libgtk-3-dev libayatana-appindicator3-dev`     |
+| Fedora        | `sudo dnf install gtk3-devel libayatana-appindicator-gtk3-devel` |
+| Arch          | `sudo pacman -S gtk3 libayatana-appindicator`                    |
+
+If a non-system `pkg-config` is first on `PATH` (Linuxbrew and Nix do this), it
+hides the system libraries and the C++ build fails with confusing errors. Point
+`PKG_CONFIG_PATH` at your system `pkgconfig` directories, for example:
 
 ```sh
-export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+export PKG_CONFIG_PATH="$(/usr/bin/pkg-config --variable pc_path pkg-config)"
 ```
 
-`run-desktop` checks both modules up front and says what to install.
+`run-desktop` checks both modules up front and says what to install. Its message
+uses the path its own `/usr/bin/pkg-config` reports, so it names a path that is
+correct on your machine rather than a hard-coded one.
 
 At run time Hermes resolves the system ICU (`libicuuc`/`libicui18n`, any
 version) with `dlopen`. Without any ICU the VM still runs, with ASCII-only
