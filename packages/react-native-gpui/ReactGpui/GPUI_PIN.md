@@ -43,3 +43,25 @@ tracked path without a Zed checkout.
 - Until gpui-fast lands window composition (zed#62379), carry that patch on our
   own branch of gpui-fast if we need it (design doc §5).
 - Bump the SHA deliberately; record the new SHA + UPSTREAM Zed commit here.
+
+## Known limitation: retained views under accessibility
+
+The retained-view fast path is disabled while a screen reader is active:
+
+- `crates/gpui/src/fast/retained.rs:544` (`self.a11y.is_active()`)
+- `crates/gpui/src/fast/splice.rs:297` (`self.a11y.is_active()`)
+- `crates/gpui/src/fast/layers/mod.rs:121` (`!window.a11y.is_active()`)
+
+With it disabled, a visible window rebuilds its element tree on every refresh,
+so the `retained static siblings do not render with changing siblings` e2e check
+expects 5 recorded paints but sees every subsequent paint as well. Hidden
+(offscreen) windows do not refresh from events, which is why the offscreen e2e
+runs pass with the accessibility bus on.
+
+Because of that, the Linux e2e runner leaves the AT-SPI bus off for **headed**
+runs (`packages/rn-gpui-tester/scripts/run-e2e.mjs`), so the native
+accessibility assertions skip there. Offscreen runs still enable the bus.
+Setting `RN_GPUI_TEST_NATIVE_A11Y=1` forces the bus on even when headed.
+
+Fixing this properly means replaying accessibility subtree updates for retained
+views; that is out of scope for now.

@@ -239,17 +239,29 @@ run(
 let a11yPrevious;
 let nativeA11y = false;
 if (process.platform === 'linux') {
-  a11yPrevious = readA11yEnabled();
-  if (a11yPrevious === undefined) {
-    console.warn(
-      '[e2e] no AT-SPI session bus; native accessibility assertions will be skipped',
+  // With the AT-SPI bus on and a *visible* window, GPUI disables its
+  // retained-view fast path and the retention test fails (see GPUI_PIN.md).
+  // Offscreen windows never refresh from events, so those runs are unaffected.
+  // A headed run therefore leaves the bus alone; the caller can force the old
+  // behaviour with RN_GPUI_TEST_NATIVE_A11Y=1.
+  const forceNativeA11y = process.env.RN_GPUI_TEST_NATIVE_A11Y === '1';
+  if (headed && !forceNativeA11y) {
+    console.log(
+      '[e2e] headed run: native accessibility stays off (set RN_GPUI_TEST_NATIVE_A11Y=1 to force it)',
     );
   } else {
-    try {
-      setA11yEnabled(true);
-      nativeA11y = true;
-    } catch (error) {
-      console.warn(`[e2e] could not enable the AT-SPI bus: ${error.message}`);
+    a11yPrevious = readA11yEnabled();
+    if (a11yPrevious === undefined) {
+      console.warn(
+        '[e2e] no AT-SPI session bus; native accessibility assertions will be skipped',
+      );
+    } else {
+      try {
+        setA11yEnabled(true);
+        nativeA11y = true;
+      } catch (error) {
+        console.warn(`[e2e] could not enable the AT-SPI bus: ${error.message}`);
+      }
     }
   }
   const restoreA11y = () => {
