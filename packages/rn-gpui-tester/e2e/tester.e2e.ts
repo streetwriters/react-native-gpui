@@ -220,7 +220,7 @@ test('custom Fabric component renders inside the tester', async () => {
     app.getByTestId('tester-screen-gpui-component'),
   ).toBeVisible();
 });
-test.skipIf(process.platform !== 'darwin')(
+test.skipIf(process.platform === 'win32')(
   'Node-API addon handles synchronous and asynchronous calls',
   async () => {
     await launch('node-api');
