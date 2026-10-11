@@ -11,6 +11,7 @@
 #include "GpuiJsEngine.h"
 #include "HermesNodeApiHost.h"
 
+#include <ReactCommon/CallInvoker.h>
 #include <jsi/hermes-interfaces.h>
 #include <napi/hermes_napi.h>
 
@@ -55,7 +56,7 @@ std::string takePendingExceptionMessage(napi_env env) {
 /// fails.
 facebook::jsi::Value loadAddon(
     facebook::jsi::Runtime& rt,
-    const HostContext& hostContext,
+    HostContext& hostContext,
     const std::string& absolutePath) {
   // Create this addon's Node-API environment. Hermes binds an env to its
   // low-level VM runtime, which we reach through the (unstable) IHermes JSI
@@ -144,31 +145,30 @@ makeHermesNodeAddonLoader(
   // CallInvoker::invokeAsync is callable from any thread, never runs the
   // function inline and delivers in order on the JS thread.
   //
-  // Teardown is the load-bearing case. What the host integration needs is
-  // that a function handed to this dispatcher either runs on the JS thread
-  // while the runtime is alive, or is dropped — never invoked against a
-  // destroyed runtime. In bridgeless React Native the CallInvoker received
-  // here is a RuntimeSchedulerCallInvoker holding a std::weak_ptr to the
-  // RuntimeScheduler; the ReactInstance owns scheduler and runtime together
-  // and invokeAsync no-ops once the scheduler is gone, so work cannot outlive
-  // the runtime it targets. The weak capture below covers the remaining
-  // window where this loader (and its CallInvoker reference) is released
-  // during instance teardown.
+  // The invoker is held strongly, and the context that holds this lambda is
+  // retained for the process lifetime — the same lifetime the original host
+  // module had, since React Native owned one per runtime. That is what keeps
+  // async work and thread-safe functions able to reach the JS thread at all;
+  // a weak reference here would expire as soon as the caller's shared_ptr
+  // went out of scope, and every dispatch would be dropped.
   //
-  // Dropping is safe precisely because a drop implies that teardown: every
-  // env this host serves is owned by that same runtime and destroyed with it,
-  // so the completion or tsfn dispatch being dropped has no live observer.
-  // The one caller that could still see the difference —
-  // napi_cancel_async_work — receives the verdict through this dispatcher's
-  // return value (see HostContext::cancelWork).
+  // Holding a RuntimeSchedulerCallInvoker longer than its runtime is safe: it
+  // stores a std::weak_ptr to the RuntimeScheduler, so invokeAsync no-ops once
+  // the scheduler is gone and work cannot outlive the runtime it targets. The
+  // scheduler is owned by the ReactInstance together with the runtime.
+  //
+  // Dropping is safe precisely because a drop implies teardown: every env this
+  // host serves is owned by that same runtime and destroyed with it, so a
+  // completion or tsfn dispatch being dropped has no live observer. The one
+  // caller that could still see the difference — napi_cancel_async_work —
+  // receives the verdict through this dispatcher's return value (see
+  // HostContext::cancelWork).
   //
   // One context per runtime, retained for the process lifetime: see
   // HostContext::retainForProcessLifetime for why the host struct must
   // outlive every env it was passed to.
   auto hostContext = HostContext::create(
-      [weakInvoker = std::weak_ptr<facebook::react::CallInvoker>(jsInvoker)](
-          std::function<void()>&& fn) {
-        auto invoker = weakInvoker.lock();
+      [invoker = std::move(jsInvoker)](std::function<void()>&& fn) {
         if (!invoker) {
           std::fputs(
               "NodeAddons: dropping a task posted after runtime teardown\n",
