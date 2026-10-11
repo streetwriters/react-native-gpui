@@ -27,8 +27,13 @@ export default function NodeAddonPackagesFixture() {
       // plausible clock reading rather than a value.
       const microtime = require('microtime');
       const now = microtime.nowDouble();
-      // R1/R2. `hash32(string)` returns a number.
-      const farmhash = require('farmhash').hash32('hello');
+      // R1/R2. `fingerprint32(string)` returns a number. The package's own
+      // README says the `hash*` methods are platform dependent (Intel vs ARM,
+      // SSE4.2 vs AVX give different values for one input) and the
+      // `fingerprint*` methods are not, so the fingerprint is what makes a
+      // test assertable on both macOS and Linux. `hash32('hello')` really does
+      // differ: 3111026382 on darwin-arm64, 2535641019 on linux-x64.
+      const farmhash = require('farmhash').fingerprint32('hello');
       setResult(
         `npm addons: crc32=${crc32} farmhash=${farmhash} microtime=${now > 1_000_000_000 ? 'ok' : 'bad'}`,
       );
