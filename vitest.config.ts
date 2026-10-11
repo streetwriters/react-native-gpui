@@ -11,6 +11,7 @@ export default mergeConfig(
         'packages/rn-gpui-tester/vitest/**/*.test.{js,ts,tsx}',
         'packages/@react-native-gpui/cli/src/**/*.test.js',
         'packages/@react-native-gpui/codegen/src/**/*.test.js',
+        'packages/react-native-gpui/**/*.test.js',
       ],
     },
   }),
