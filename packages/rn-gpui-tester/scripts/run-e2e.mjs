@@ -33,7 +33,11 @@ const metadata = JSON.parse(
     { cwd: repoRoot, encoding: 'utf8' },
   ),
 );
-const binary = path.join(metadata.target_directory, 'debug', appName);
+const binary = path.join(
+  metadata.target_directory,
+  'debug',
+  appName + (process.platform === 'win32' ? '.exe' : ''),
+);
 const pidFile = path.join(repoRoot, '.local/7.16-e2e.pid');
 const keepApp =
   process.env.RN_GPUI_KEEP_APP === '1' || process.argv.includes('--keep-app');
@@ -70,6 +74,7 @@ function assertScreenIsUnlocked() {
 }
 
 function stopTestApps() {
+  if (process.platform === 'win32') return stopTestAppsWindows();
   const candidates = new Set();
   if (fs.existsSync(pidFile)) {
     const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
@@ -110,7 +115,61 @@ function stopTestApps() {
   return [...candidates];
 }
 
+/**
+ * Windows has no `ps`. For the fixture the command line matters (several
+ * `node.exe` processes run at once), so it is read back through CIM, which is
+ * the part of WMIC that still exists on Windows 10 and 11.
+ */
+function windowsCommandLines() {
+  const script =
+    'Get-CimInstance Win32_Process | ' +
+    'ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }';
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8',
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The tester's own `.exe` name. `run-desktop.mts` uses the same taskkill
+ * approach; both have to match the binary Cargo builds (`rn-gpui-tester.exe`).
+ *
+ * `taskkill /IM <image> /F` names the process by image, which is unique to the
+ * tester here, so no process list is needed. It always exits non-zero when no
+ * such process exists, which is the normal case and not an error.
+ */
+function stopTestAppsWindows() {
+  try {
+    execFileSync('taskkill', ['/IM', `${appName}.exe`, '/T', '/F'], {
+      stdio: 'ignore',
+    });
+  } catch {}
+  // The pid file records the last app the navigation suite launched; it is
+  // stale after this, and leaving it behind would make a later POSIX-style run
+  // try to kill a recycled pid.
+  fs.rmSync(pidFile, { force: true });
+  return [];
+}
+
 function stopPreviousNetworkFixture() {
+  if (process.platform === 'win32') {
+    const wanted = 'scripts\\network-fixture.mjs';
+    for (const line of windowsCommandLines().split('\n')) {
+      const match = line.trim().match(/^(\d+)\t(.*)$/u);
+      if (!match || Number(match[1]) === process.pid) continue;
+      if (!match[2].includes(wanted)) continue;
+      try {
+        execFileSync('taskkill', ['/pid', match[1], '/T', '/F'], {
+          stdio: 'ignore',
+        });
+      } catch {}
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    return;
+  }
   const processList = execFileSync('ps', ['-axo', 'pid=,command='], {
     encoding: 'utf8',
   });

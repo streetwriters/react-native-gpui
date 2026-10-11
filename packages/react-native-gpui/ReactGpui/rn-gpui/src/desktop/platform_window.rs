@@ -165,8 +165,9 @@ mod imp {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsIconic, IsZoomed, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
-        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
+        IsIconic, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindow, HWND_NOTOPMOST,
+        HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SW_HIDE, SW_SHOW,
     };
 
     const UNSUPPORTED_MIN_MAX: &str =
@@ -274,6 +275,17 @@ mod imp {
     pub fn is_minimized(window: &Window) -> bool {
         match hwnd(window) {
             Ok(hwnd) => unsafe { IsIconic(hwnd) != 0 },
+            Err(_) => false,
+        }
+    }
+
+    /// Whether the window is not being presented. `IsWindowVisible` is false
+    /// for a window created with `show: false` (the offscreen test windows) and
+    /// after `ShowWindow(SW_HIDE)`, and stays true for a window that is merely
+    /// covered, which is what the test driver wants to distinguish.
+    pub fn is_hidden(window: &Window) -> bool {
+        match hwnd(window) {
+            Ok(hwnd) => unsafe { IsWindowVisible(hwnd) == 0 },
             Err(_) => false,
         }
     }

@@ -270,8 +270,9 @@ fn native_show(_request: &ContextMenuRequest, _responder: &Responder) -> Result<
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 /// `Menu` and `Submenu` both append items, but the `ContextMenu` trait does not
-/// cover it, so the builder is generic over this.
-trait MudaAppend {
+/// cover it, so builders (context menus and the Windows menu bar) are generic
+/// over this.
+pub(crate) trait MudaAppend {
     fn append_all(&self, items: &[&dyn muda::IsMenuItem]) -> muda::Result<()>;
 }
 

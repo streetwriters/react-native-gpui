@@ -576,38 +576,51 @@ fn is_desktop_action(action: &dyn Action) -> bool {
 }
 
 /// Windows: `muda` attaches a native Win32 menu to the window's HWND.
-///
-/// TODO: never built or run on Windows.
 #[cfg(target_os = "windows")]
 fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
-    use muda::{Menu as MudaMenu, MenuItem as MudaItem, PredefinedMenuItem, Submenu};
+    use super::context_menu::MudaAppend as _;
+    use muda::{
+        CheckMenuItem, Menu as MudaMenu, MenuItem as MudaItem, PredefinedMenuItem, Submenu,
+    };
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    fn build(menu: &Menu, target: &dyn muda::ContextMenu) {
-        let mut items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
+    fn build(menu: &Menu, items: &mut Vec<Box<dyn muda::IsMenuItem>>) {
         for item in &menu.items {
             match item {
                 MenuItem::Separator => items.push(Box::new(PredefinedMenuItem::separator())),
                 MenuItem::Submenu(submenu) => {
-                    let child = Submenu::new(submenu.name.to_string(), true);
-                    build(submenu, &child);
+                    let child = Submenu::new(submenu.name.to_string(), !submenu.disabled);
+                    let mut child_items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
+                    build(submenu, &mut child_items);
+                    let refs: Vec<&dyn muda::IsMenuItem> =
+                        child_items.iter().map(|item| item.as_ref()).collect();
+                    let _ = child.append_all(&refs);
                     items.push(Box::new(child));
                 }
-                MenuItem::Action(action) => {
-                    let id = action
-                        .action
-                        .as_any()
-                        .downcast_ref::<MenuAccelerator>()
-                        .map(|accelerator| accelerator.id.clone())
-                        .unwrap_or_default();
-                    items.push(Box::new(MudaItem::new(action.name.to_string(), true, None)));
-                    let _ = id;
+                MenuItem::Action {
+                    name,
+                    checked,
+                    disabled,
+                    ..
+                } => {
+                    // A checked item must be a `CheckMenuItem` in muda; a plain
+                    // one has no `set_checked`.
+                    if *checked {
+                        items.push(Box::new(CheckMenuItem::new(
+                            name.to_string(),
+                            true,
+                            true,
+                            None,
+                        )));
+                    } else {
+                        items.push(Box::new(MudaItem::new(name.to_string(), !*disabled, None)));
+                    }
                 }
-                MenuItem::OsSubmenu(_) => {}
+                // The Services menu is a macOS concept; there is no Windows
+                // equivalent to attach to the menu bar.
+                MenuItem::SystemMenu(_) => {}
             }
         }
-        let refs: Vec<&dyn muda::IsMenuItem> = items.iter().map(|item| item.as_ref()).collect();
-        let _ = target.append_items(&refs);
     }
 
     let handle = match HasWindowHandle::window_handle(window) {
@@ -619,11 +632,18 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
         _ => return false,
     };
     let bar = MudaMenu::new();
+    let mut bar_items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
     for menu in menus {
-        let submenu = Submenu::new(menu.name.to_string(), true);
-        build(menu, &submenu);
-        let _ = bar.append(&submenu);
+        let submenu = Submenu::new(menu.name.to_string(), !menu.disabled);
+        let mut menu_items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
+        build(menu, &mut menu_items);
+        let refs: Vec<&dyn muda::IsMenuItem> =
+            menu_items.iter().map(|item| item.as_ref()).collect();
+        let _ = submenu.append_all(&refs);
+        bar_items.push(Box::new(submenu));
     }
+    let refs: Vec<&dyn muda::IsMenuItem> = bar_items.iter().map(|item| item.as_ref()).collect();
+    let _ = bar.append_all(&refs);
     // `init_for_hwnd` installs the menu bar; the returned receiver must be kept
     // alive for the items to keep dispatching.
     let _ = unsafe { bar.init_for_hwnd(hwnd) };

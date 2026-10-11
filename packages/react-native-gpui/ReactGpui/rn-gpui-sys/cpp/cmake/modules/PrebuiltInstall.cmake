@@ -331,7 +331,21 @@ set_target_properties(rn_gpui_core PROPERTIES
   INTERFACE_LINK_LIBRARIES \"${_rn_gpui_core_links}\")
 ")
 
-file(GENERATE OUTPUT "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-targets.cmake"
+# The targets file is evaluated per configuration: `$<TARGET_FILE_NAME:...>`
+# differs between Debug and Release on MSVC (`libcurl-d.lib` vs `libcurl.lib`).
+# A multi-config generator (Visual Studio) therefore rejects a fixed output name
+# ("Evaluation file to be written multiple times with different content"), so the
+# configuration goes into the generated name there. The install step below picks
+# the one that belongs to the configuration being installed and renames it back,
+# so the installed layout is identical on every platform.
+if(CMAKE_CONFIGURATION_TYPES)
+  set(_rn_gpui_targets_suffix "-$<CONFIG>")
+else()
+  set(_rn_gpui_targets_suffix "")
+endif()
+set(_rn_gpui_targets_file
+  "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-targets${_rn_gpui_targets_suffix}.cmake")
+file(GENERATE OUTPUT "${_rn_gpui_targets_file}"
   CONTENT "${_rn_gpui_targets_text}")
 
 # --- config file --------------------------------------------------------------------
@@ -359,5 +373,9 @@ set(${RN_GPUI_PREBUILT_CONFIG_NAME}_FOUND TRUE)
 
 install(FILES
   "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-config.cmake"
-  "${_rn_gpui_prebuilt_gen}/${RN_GPUI_PREBUILT_CONFIG_NAME}-targets.cmake"
   DESTINATION cmake)
+# `$<CONFIG>` in the source name resolves to the configuration being installed,
+# and RENAME gives every platform the same installed file name.
+install(FILES "${_rn_gpui_targets_file}"
+  DESTINATION cmake
+  RENAME "${RN_GPUI_PREBUILT_CONFIG_NAME}-targets.cmake")
