@@ -4,6 +4,7 @@
 #include <react/runtime/hermes/HermesInstance.h>
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #ifndef RN_GPUI_HERMES_VERSION
@@ -24,6 +25,19 @@ class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
 } // namespace
 
 extern "C" void rn_gpui_register_js_engine_hermes() {
+  // The Node-API host and loader are not compiled on Windows yet (see the
+  // WIN32 guard in gpui/CMakeLists.txt): this engine's
+  // `hermes_napi_load_module` raises "Loading native modules is not supported
+  // on Windows" at the pinned commit, so the capability is honestly absent
+  // rather than present and broken. `_requireNodeLibrary` then reports the
+  // engine as one that cannot load addons. Both the guard and this branch go
+  // away with the Windows loader (Part N).
+  std::optional<rngpui::GpuiJsEngine::NodeAddons> nodeAddons;
+#if !defined(_WIN32)
+  nodeAddons = rngpui::GpuiJsEngine::NodeAddons{
+      .makeLoader = rngpui::makeHermesNodeAddonLoader};
+#endif
+
   rngpui::GpuiJsEngine engine{
       .info = {.name = "hermes", .version = RN_GPUI_HERMES_VERSION},
       .makeRuntimeFactory =
@@ -32,9 +46,7 @@ extern "C" void rn_gpui_register_js_engine_hermes() {
       // interface (API/napi/hermes_napi.h) this package compiles against, so
       // `.node` loading is this engine's capability. Core owns everything else:
       // resolving the file, the cache and the error messages.
-      .nodeAddons =
-          rngpui::GpuiJsEngine::NodeAddons{
-              .makeLoader = rngpui::makeHermesNodeAddonLoader},
+      .nodeAddons = std::move(nodeAddons),
   };
   rngpui::registerJsEngine(std::move(engine));
 }
