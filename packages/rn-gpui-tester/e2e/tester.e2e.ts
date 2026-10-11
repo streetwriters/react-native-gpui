@@ -243,9 +243,12 @@ test.skipIf(process.platform === 'win32')(
     // `@node-rs/crc32` (napi-rs generated loader) and `farmhash` (a static
     // `build/Release` require) both hash the string "hello", so their values are
     // fixed; `microtime` (`require('node-gyp-build')`) reports whether its
-    // clock read back a plausible timestamp.
+    // clock read back a plausible timestamp. farmhash's `fingerprint32` is used
+    // rather than `hash32` because the package documents the `hash*` family as
+    // platform dependent and the `fingerprint*` family as not: `hash32('hello')`
+    // is 3111026382 on darwin-arm64 but 2535641019 on linux-x64.
     expect(text).toContain('crc32=907060870');
-    expect(text).toContain('farmhash=3111026382');
+    expect(text).toContain('farmhash=2039911270');
     expect(text).toContain('microtime=ok');
   },
 );
