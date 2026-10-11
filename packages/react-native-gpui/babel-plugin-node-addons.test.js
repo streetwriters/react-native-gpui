@@ -798,6 +798,50 @@ test('R4 resolves path.resolve(__dirname, "sub")', () => {
   );
 });
 
+test('R4 accepts a host arch inside a + joined directory', () => {
+  const root = scratch();
+  const platform = process.platform;
+  const arch = process.arch;
+  const other = arch === 'arm64' ? 'x64' : 'arm64';
+  // The layout microtime ships: one universal binary for a two-arch directory.
+  // The host arch is one of the two, so this is a valid host artifact.
+  writeAddonFor(
+    path.join(
+      root,
+      'prebuilds',
+      `${platform}-${other}+${arch}`,
+      'node.napi.node',
+    ),
+    platform,
+    arch,
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toContain('node.napi.node');
+});
+
+test('R4 rejects a + joined directory that excludes the host arch', () => {
+  const root = scratch();
+  const platform = process.platform;
+  const arch = process.arch;
+  const other = arch === 'arm64' ? 'x64' : 'arm64';
+  // Two architectures, neither of them the host's.
+  writeAddon(
+    path.join(
+      root,
+      'prebuilds',
+      `${platform}-${other}+${other === 'x64' ? 'ia32' : 'x86'}`,
+      'node.napi.node',
+    ),
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain('MODULE_NOT_FOUND');
+});
+
 test('R4 prefers a single-arch directory over a + joined one', () => {
   const root = scratch();
   const platform = process.platform;
@@ -864,4 +908,60 @@ test('R4 honours the glibc/musl file tag on Linux', () => {
   // The test host is not Alpine, so the glibc build is the one node-gyp-build
   // would load there.
   expect(callsIn(code)[0].path).toBe(path.join(directory, 'thing.glibc.node'));
+});
+
+test('R7 resolves a require whose path is a template literal', () => {
+  const root = scratch();
+  const platform = process.platform;
+  const arch = process.arch;
+  const tag =
+    platform === 'linux' ? `${platform}-${arch}` : `${platform}-${arch}`;
+  // The farmhash layout: one binary per `<platform>-<arch>` under `build/`.
+  writeAddonFor(path.join(root, 'build', `thing-${tag}.node`), platform, arch);
+  writeAddon(
+    path.join(root, 'build', 'thing-otheros-x64.node'),
+    Buffer.alloc(0),
+  );
+  const code = transform(
+    'module.exports = require(`./build/thing-${platform}-${arch}.node`);',
+    { filename: path.join(root, 'index.js') },
+  );
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toBe(
+    path.join(root, 'build', `thing-${tag}.node`),
+  );
+});
+
+test('R7 skips a candidate naming a foreign target', () => {
+  const root = scratch();
+  // Only foreign builds exist, so R7 must not pick one.
+  writeAddon(path.join(root, 'build', 'thing-win32-x64.node'));
+  writeAddon(path.join(root, 'build', 'thing-linux-arm64.node'));
+  const code = transform(
+    'module.exports = require(`./build/thing-${platform}-${arch}.node`);',
+    {
+      filename: path.join(root, 'index.js'),
+      hostPlatform: 'darwin',
+      hostArch: 'arm64',
+    },
+  );
+  expect(code).toContain('MODULE_NOT_FOUND');
+});
+
+test('R7 emits a throwing expression when no candidate exists', () => {
+  const root = scratch();
+  const code = transform(
+    'module.exports = require(`./build/thing-${platform}.node`);',
+    { filename: path.join(root, 'index.js') },
+  );
+  expect(code).toContain('MODULE_NOT_FOUND');
+  expect(code).not.toContain('_requireNodeLibrary');
+});
+
+test('R7 leaves a template literal that is not a .node path alone', () => {
+  const root = scratch();
+  const code = transform('const x = `./data/${name}.json`;', {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain('const x = `./data/${name}.json`');
 });

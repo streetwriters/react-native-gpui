@@ -613,6 +613,13 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       // the `ios`/`android` variants) is the fallback for desktop.
       platforms: ['gpui', 'native'],
       nodeModulesPaths,
+      // A native desktop target is not a browser. React Native's default order
+      // prefers a package's `browser` field over `main`, which for a napi-rs
+      // package is a WASM re-export (`@node-rs/crc32/browser.js`) instead of
+      // the real native binding. Preferring `main` picks the package's own
+      // loader, which the Babel plugin then rewrites to the host `.node` file.
+      // No GPUI dependency ships a browser-only build.
+      resolverMainFields: ['react-native', 'main'],
       resolveRequest: resolveWithGpuiPlatform(defaultConfig),
     },
   });

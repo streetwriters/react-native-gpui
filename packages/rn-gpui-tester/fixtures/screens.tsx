@@ -153,6 +153,11 @@ export const renderScreen: Record<
       ...props,
       kind: 'node-api',
     }),
+  'node-api-packages': props =>
+    React.createElement(
+      require('./components/NodeAddonPackagesFixture').default,
+      props,
+    ),
   'native-view': props =>
     React.createElement(require('./components/NativeViewFixture').default, {
       ...props,

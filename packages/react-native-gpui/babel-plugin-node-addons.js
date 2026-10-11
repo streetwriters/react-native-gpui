@@ -99,11 +99,15 @@ function namesForeignTarget(segment, hostPlatform, hostArch) {
   // `studios`.
   if (tokens.includes('ios') && hostPlatform !== 'ios') return true;
   const hostToken = hostArch === 'arm64' ? 'arm64' : 'x64';
-  return tokens.some(
-    token =>
-      ['x64', 'arm64', 'arm', 'ia32', 'x86'].includes(token) &&
-      token !== hostToken,
+  const archTokens = tokens.filter(token =>
+    ['x64', 'arm64', 'arm', 'ia32', 'x86'].includes(token),
   );
+  // A segment naming several architectures is a multi-arch artifact (a
+  // `darwin-x64+arm64` prebuild directory, or one universal Mach-O file), so it
+  // is foreign only when *none* of the architectures it names is the host's.
+  // A segment naming exactly one is foreign when that one is not the host's.
+  // The byte-level header check still has the final say for a thin binary.
+  return archTokens.length > 0 && !archTokens.includes(hostToken);
 }
 
 function isElfForArch(header, arch) {
@@ -225,6 +229,48 @@ function addonKey(absolutePath) {
 
 /** Files Metro would resolve before an extensionless `.node` file. */
 const RESOLVABLE_EXTENSIONS = ['.js', '.cjs', '.mjs', '.json', '.ts', '.tsx'];
+
+/**
+ * Resolves a `require(`<prefix>${...}<suffix>.node`)` whose interpolated
+ * segment is a platform/arch tag (R7). Packages such as `farmhash` build the
+ * file name from `process.platform` and `process.arch` in a template literal,
+ * which no run-time platform data can turn into a path here.
+ *
+ * The static prefix locates the directory; every `.node` file matching the
+ * static suffix is a candidate, and the one usable on the host wins. That is
+ * safe precisely because the tag is the only thing that varies: the candidate
+ * set is exactly the set of platform builds the package ships.
+ */
+function resolveInterpolatedAddon(prefix, suffix, options) {
+  const { hostPlatform, hostArch } = options;
+  const directory = path.dirname(prefix);
+  const basePrefix = path.basename(prefix);
+  let entries;
+  try {
+    entries = fs.readdirSync(directory);
+  } catch {
+    return null;
+  }
+  const candidates = entries
+    .filter(
+      entry =>
+        entry.startsWith(basePrefix) &&
+        entry.endsWith(suffix) &&
+        entry.length > basePrefix.length + suffix.length,
+    )
+    .sort();
+  for (const entry of candidates) {
+    // The path segment named by the interpolated part must not name a foreign
+    // target, and the bytes must be the host's.
+    const middle = entry.slice(basePrefix.length, entry.length - suffix.length);
+    if (namesForeignTarget(middle, hostPlatform, hostArch)) continue;
+    const candidate = path.join(directory, entry);
+    if (isHostPrebuiltNodeAddon(candidate, hostPlatform, hostArch)) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 /**
  * Classifies a specifier written in `fromDirectory`:
@@ -421,16 +467,125 @@ function linuxLibc() {
 }
 
 /**
- * Resolves `require('node-gyp-build')(<dir>)` at build time (R4) by reproducing
- * the resolver `node-gyp-build` runs at run time, against the host the bundle
- * is being built for.
+ * Resolves `require('node-gyp-build')(<dir>)` at build time (R4).
  *
- * The order is its own: a `prebuilds/` directory whose `<platform>-<arch...>`
- * tuple matches this host (single-arch preferred over a `+`-joined union),
- * then the most specific matching file tag, then a plain in-tree build.
+ * The plan asks for `node-gyp-build`'s own resolver rather than a copy of it,
+ * and that is what runs first: its `path()` export is called with
+ * `process.platform` / `process.arch` temporarily set to the host the bundle is
+ * being built for. Both properties are configurable, so this always restores
+ * them.
+ *
+ * It is only called when the requested host is the build host: `path()` also
+ * reads the ABI and libuv versions of the *running* Node, which have no meaning
+ * for a foreign target. For a cross-build, or when the package is not
+ * installed, the resolver below reproduces the same algorithm against the
+ * requested host. It is also the fallback when `path()` throws.
  */
 function resolveNodeGypBuild(directory, options) {
   const { hostPlatform, hostArch } = options;
+  if (hostPlatform === process.platform && hostArch === process.arch) {
+    const viaNodeGypBuild = resolveWithNodeGypBuild(directory);
+    if (viaNodeGypBuild !== null) return viaNodeGypBuild;
+  }
+  return resolvePrebuilds(directory, options);
+}
+
+/**
+ * Runs the installed `node-gyp-build`'s `path()` for `directory`, with the
+ * process's platform and architecture forced to the host. Returns null when the
+ * package is not installed, when its resolver throws (its error message is the
+ * only report it gives), or when it finds nothing usable.
+ */
+function resolveWithNodeGypBuild(directory) {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(
+    process,
+    'platform',
+  );
+  const archDescriptor = Object.getOwnPropertyDescriptor(process, 'arch');
+  let resolved = null;
+  try {
+    Object.defineProperty(process, 'platform', {
+      value: process.platform,
+      configurable: true,
+    });
+    Object.defineProperty(process, 'arch', {
+      value: process.arch,
+      configurable: true,
+    });
+    const nodeGypBuild = require(
+      require.resolve('node-gyp-build', { paths: [directory, __dirname] }),
+    );
+    const candidate = nodeGypBuild.path(directory);
+    if (
+      typeof candidate === 'string' &&
+      fs.existsSync(candidate) &&
+      isHostPrebuiltNodeAddon(candidate, process.platform, process.arch) &&
+      // `node-gyp-build`'s own resolver consults the *running* Node's
+      // `process.versions`, and under recent Node versions it can settle on an
+      // `electron.napi.node` build (it treats the absent
+      // `process.versions.electron` as a match). An Electron ABI is not this
+      // runtime's, so a file tagged with a runtime other than `node` is
+      // rejected here and the ported resolver below picks the right one.
+      !prefersForeignRuntime(candidate)
+    ) {
+      resolved = candidate;
+    }
+  } catch {
+    resolved = null;
+  } finally {
+    // Restore whatever the properties were, descriptor and all.
+    if (platformDescriptor) {
+      Object.defineProperty(process, 'platform', platformDescriptor);
+    } else {
+      delete process.platform;
+    }
+    if (archDescriptor) {
+      Object.defineProperty(process, 'arch', archDescriptor);
+    } else {
+      delete process.arch;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Whether a file name is tagged for a runtime this platform is not. Our runtime
+ * is Hermes with Node-API; an Electron or NW.js build links a different ABI.
+ */
+function prefersForeignRuntime(file) {
+  const tags = parsePrebuildTags(path.basename(file));
+  return tags !== null && tags.runtime !== undefined && tags.runtime !== 'node';
+}
+
+/**
+ * A faithful re-implementation of `node-gyp-build`'s selection, for a host that
+ * is not the running process (or when its resolver cannot be reached).
+ *
+ * The order is its own: an in-tree `build/Release` or `build/Debug` binary
+ * first, then a `prebuilds/` directory whose `<platform>-<arch...>` tuple
+ * matches the host (single-arch preferred over a `+`-joined union), then the
+ * most specific matching file tag.
+ */
+function resolvePrebuilds(directory, options) {
+  const { hostPlatform, hostArch } = options;
+  // node-gyp-build checks these before the prebuilds directory.
+  for (const subdirectory of ['build/Release', 'build/Debug']) {
+    const base = path.join(directory, subdirectory);
+    let entries;
+    try {
+      entries = fs.readdirSync(base, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.node')) continue;
+      const filePath = path.join(base, entry.name);
+      if (isHostPrebuiltNodeAddon(filePath, hostPlatform, hostArch)) {
+        return filePath;
+      }
+    }
+  }
+
   const prebuildsRoot = path.join(directory, 'prebuilds');
   let tuples = [];
   try {
@@ -857,11 +1012,46 @@ module.exports = function babelPluginNodeAddons(api, options = {}) {
         if (
           node.callee.type !== 'Identifier' ||
           node.callee.name !== 'require' ||
-          node.arguments.length !== 1 ||
-          node.arguments[0].type !== 'StringLiteral'
+          node.arguments.length !== 1
         ) {
           return;
         }
+
+        // R7: `require(`./build/thing-${platform}.node`)`, where the
+        // interpolated segments are platform/arch tags. The static prefix and
+        // suffix locate the candidates; the tags themselves cannot be
+        // evaluated. Any number of interpolations is allowed as long as the
+        // suffix still ends in `.node` — the glob between prefix and suffix
+        // absorbs them all.
+        if (node.arguments[0].type === 'TemplateLiteral') {
+          if (nodePath.parentPath.isCallExpression({ callee: node })) return;
+          const { quasis } = node.arguments[0];
+          if (node.arguments[0].expressions.length === 0) return;
+          const prefix = quasis[0].value.cooked ?? quasis[0].value.raw;
+          const suffix =
+            quasis[quasis.length - 1].value.cooked ??
+            quasis[quasis.length - 1].value.raw;
+          if (!suffix.endsWith('.node') || !prefix.startsWith('.')) return;
+          const resolved = resolveInterpolatedAddon(
+            path.resolve(fromDirectory, prefix),
+            suffix,
+            pluginOptions,
+          );
+          if (resolved === null) {
+            warnOnce(
+              state,
+              `no ${pluginOptions.hostPlatform}-${pluginOptions.hostArch} file matches ${prefix}…${suffix}`,
+            );
+            nodePath.replaceWith(
+              missingModuleExpression(`${prefix}…${suffix}`),
+            );
+            return;
+          }
+          nodePath.replaceWith(requireNodeLibraryCall(resolved));
+          return;
+        }
+
+        if (node.arguments[0].type !== 'StringLiteral') return;
         const specifier = node.arguments[0].value;
         // A dynamic `import()` is a different node type entirely, and the
         // `require` a bundler synthesises from it is not what this rewrites.
