@@ -117,5 +117,39 @@ module.exports = {
         },
       ],
     },
+    {
+      name: 'collect-node-addons',
+      description:
+        'Copy the Node addons a bundle loads next to a packaged app executable',
+      func: async (_argv, _config, options) => {
+        const { collectNodeAddons } = await import('./src/commands.js');
+        collectNodeAddons({
+          bundle: options.bundle,
+          out: options.out,
+          platform: options.platform,
+        });
+      },
+      options: [
+        {
+          name: '--bundle <path>',
+          description: 'The bundle file to scan for _requireNodeLibrary calls',
+        },
+        {
+          name: '--out <dir>',
+          description: 'Directory to copy the addons into',
+        },
+        {
+          name: '--platform <platform>',
+          description:
+            'Target platform for shared-library matching (default: the host)',
+        },
+      ],
+      examples: [
+        {
+          desc: 'Collect the addons a release bundle loads',
+          cmd: 'npx react-native collect-node-addons --bundle build/index.bundle --out build/node-addons',
+        },
+      ],
+    },
   ],
 };

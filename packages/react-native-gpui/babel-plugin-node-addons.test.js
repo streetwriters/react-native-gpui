@@ -104,6 +104,11 @@ function machoHeader(cputype) {
  * Writes a binary for one named target, so a test can hand the plugin a host
  * other than the one it runs on and still get bytes that match.
  */
+/** `writeAddonFor` under a shorter name for the R4 tag tests. */
+function writeAddonAt(filePath, hostPlatform, hostArch) {
+  writeAddonFor(filePath, hostPlatform, hostArch);
+}
+
 function writeAddonFor(filePath, hostPlatform, hostArch) {
   if (hostPlatform === 'linux') {
     writeAddon(filePath, elfHeader(hostArch === 'arm64' ? 0xb7 : 0x3e));
@@ -756,4 +761,107 @@ test('R4/R6 use the hostPlatform/hostArch options', () => {
   expect(callsIn(resolved)[0].path).toBe(
     path.join(directory, 'prebuilds/linux-x64/thing.node'),
   );
+});
+
+test('R4 handles path.resolve(__dirname), as bcrypt writes it', () => {
+  const root = scratch();
+  const tag = hostPrebuildTag();
+  // bcrypt ships `prebuilds/<platform>-<arch>/<name>.node`, with a `glibc`
+  // tag on Linux builds.
+  const fileName =
+    process.platform === 'linux' ? 'thing.glibc.node' : 'thing.node';
+  if (process.platform === 'linux') {
+    writeAddon(path.join(root, 'prebuilds', tag, fileName));
+  } else {
+    writeAddon(path.join(root, 'prebuilds', tag, fileName));
+  }
+  const code = transform(
+    "const path = require('path');\nmodule.exports = require('node-gyp-build')(path.resolve(__dirname));",
+    { filename: path.join(root, 'index.js') },
+  );
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toBe(
+    path.join(root, 'prebuilds', tag, fileName),
+  );
+});
+
+test('R4 resolves path.resolve(__dirname, "sub")', () => {
+  const root = scratch();
+  const fixture = path.join(root, 'native');
+  writeNodeGypBuildPackage(fixture, [hostPrebuildTag()]);
+  const code = transform(
+    "module.exports = require('node-gyp-build')(require('path').resolve(__dirname, 'native'));",
+    { filename: path.join(root, 'index.js') },
+  );
+  expect(callsIn(code)[0].path).toBe(
+    path.join(fixture, 'prebuilds', hostPrebuildTag(), 'thing.node'),
+  );
+});
+
+test('R4 prefers a single-arch directory over a + joined one', () => {
+  const root = scratch();
+  const platform = process.platform;
+  const arch = process.arch;
+  // Both directories match the host; the one naming just this arch wins,
+  // exactly as node-gyp-build compares tuples.
+  writeAddon(path.join(root, 'prebuilds', `${platform}-${arch}`, 'thing.node'));
+  writeAddon(
+    path.join(root, 'prebuilds', `${platform}-other+${arch}`, 'thing.node'),
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)[0].path).toBe(
+    path.join(root, 'prebuilds', `${platform}-${arch}`, 'thing.node'),
+  );
+});
+
+test('R4 accepts a bare node.napi.node, which is runtime-agnostic', () => {
+  const root = scratch();
+  // A multi-arch directory holding only an ABI-agnostic N-API build, which is
+  // what a package that targets Node, Electron and other hosts ships.
+  writeAddon(
+    path.join(
+      root,
+      'prebuilds',
+      `${process.platform}-${process.arch}`,
+      'node.napi.node',
+    ),
+  );
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(callsIn(code)).toHaveLength(1);
+  expect(callsIn(code)[0].path).toContain('node.napi.node');
+});
+
+test('R4 rejects an abi-tagged build, which is not an N-API host', () => {
+  const root = scratch();
+  const directory = path.join(
+    root,
+    'prebuilds',
+    `${process.platform}-${process.arch}`,
+  );
+  // `node.abi115.node` is bound to Node's ABI, not to N-API, so it must not be
+  // picked even though it is a valid binary for this CPU.
+  writeAddon(path.join(directory, 'node.abi115.node'));
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+  });
+  expect(code).toContain('MODULE_NOT_FOUND');
+});
+
+test('R4 honours the glibc/musl file tag on Linux', () => {
+  const root = scratch();
+  const directory = path.join(root, 'prebuilds', 'linux-x64');
+  writeAddonAt(path.join(directory, 'thing.glibc.node'), 'linux', 'x64');
+  writeAddonAt(path.join(directory, 'thing.musl.node'), 'linux', 'x64');
+  const code = transform("require('node-gyp-build')(__dirname);", {
+    filename: path.join(root, 'index.js'),
+    hostPlatform: 'linux',
+    hostArch: 'x64',
+  });
+  // The test host is not Alpine, so the glibc build is the one node-gyp-build
+  // would load there.
+  expect(callsIn(code)[0].path).toBe(path.join(directory, 'thing.glibc.node'));
 });

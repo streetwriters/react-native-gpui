@@ -337,59 +337,141 @@ const NODE_GYP_BUILD_DIRECTORIES = [
 ];
 
 /**
- * The `prebuilds/<platform>-<arch>/` tags `node-gyp-build` looks for, most
- * specific first. It also accepts a bare `<platform>-<arch>` and a
- * `node.napi` fallback, which is what a package that only ships one N-API
- * build uses.
+ * `prebuilds/<platform>-<arch>+<arch>` directory tags, as `node-gyp-build`
+ * parses them. The arch list may be a `+`-joined union, which is how a package
+ * ships one universal binary for two architectures.
  */
-function nodeGypBuildTags(hostPlatform, hostArch) {
-  const platform = hostPlatform === 'darwin' ? 'darwin' : hostPlatform;
-  const arch = hostArch === 'x64' ? 'x64' : hostArch;
-  return [`${platform}-${arch}`, `${platform}-${arch}-napi`, 'node.napi'];
+function parsePrebuildTuple(name) {
+  const parts = name.split('-');
+  if (parts.length !== 2) return null;
+  const architectures = parts[1].split('+');
+  if (
+    !parts[0] ||
+    architectures.length === 0 ||
+    !architectures.every(Boolean)
+  ) {
+    return null;
+  }
+  return { name, platform: parts[0], architectures };
 }
 
-/** The file extensions a prebuilt binary of `name` can have per platform. */
-function prebuiltSuffixes(hostPlatform) {
-  if (hostPlatform === 'win32') return ['.node', '.dll'];
-  return ['.node', '.so', '.dylib'];
+/**
+ * The tags `node-gyp-build` reads out of a file name (`bcrypt.glibc.node`,
+ * `node.napi.node`, `node.abi115.node`, `node.napi.armv8.node`).
+ */
+function parsePrebuildTags(file) {
+  const parts = file.split('.');
+  const extension = parts.pop();
+  if (extension !== 'node') return null;
+  const tags = { file, specificity: 0 };
+  for (const tag of parts) {
+    if (tag === 'node' || tag === 'electron' || tag === 'node-webkit') {
+      tags.runtime = tag;
+    } else if (tag === 'napi') {
+      tags.napi = true;
+    } else if (tag.startsWith('abi')) {
+      tags.abi = tag.slice(3);
+    } else if (tag.startsWith('uv')) {
+      tags.uv = tag.slice(2);
+    } else if (tag.startsWith('armv')) {
+      tags.armv = tag.slice(4);
+    } else if (tag === 'glibc' || tag === 'musl') {
+      tags.libc = tag;
+    } else {
+      // An unknown tag carries no meaning to node-gyp-build.
+      continue;
+    }
+    tags.specificity += 1;
+  }
+  return tags;
+}
+
+/**
+ * Whether a parsed file matches this host. `node` + `napi` is
+ * runtime-agnostic, so a `node.napi.node` loads in any N-API host; a plain
+ * `abi<N>` tag is tied to the Node ABI and does not match us.
+ */
+function prebuildTagsMatchHost(tags, hostPlatform, hostArch) {
+  if (tags === null) return false;
+  // We are an N-API host with no Node ABI, so only `napi` (or no runtime/ABI
+  // tag at all) qualifies. A `uv<N>` tag means the addon needs a libuv
+  // version, which this runtime does not provide.
+  if (tags.uv) return false;
+  if (tags.abi && !tags.napi) return false;
+  if (tags.armv) {
+    const armv = hostArch === 'arm64' ? '8' : null;
+    if (armv === null || tags.armv !== armv) return false;
+  }
+  if (tags.libc) {
+    const hostLibc = hostPlatform === 'linux' ? linuxLibc() : null;
+    if (hostLibc === null || tags.libc !== hostLibc) return false;
+  }
+  if (tags.runtime && tags.runtime !== 'node') return false;
+  return true;
+}
+
+/**
+ * Which libc this *build machine* uses, for the `glibc` / `musl` file tags.
+ * Matches `node-gyp-build`'s own check (it looks for Alpine): the bundler runs
+ * on the machine the app is built for, which is the whole premise of resolving
+ * this at build time.
+ */
+function linuxLibc() {
+  return fs.existsSync('/etc/alpine-release') ? 'musl' : 'glibc';
 }
 
 /**
  * Resolves `require('node-gyp-build')(<dir>)` at build time (R4) by reproducing
- * the resolver `node-gyp-build` itself runs, against the host the bundle is
- * being built for.
+ * the resolver `node-gyp-build` runs at run time, against the host the bundle
+ * is being built for.
+ *
+ * The order is its own: a `prebuilds/` directory whose `<platform>-<arch...>`
+ * tuple matches this host (single-arch preferred over a `+`-joined union),
+ * then the most specific matching file tag, then a plain in-tree build.
  */
 function resolveNodeGypBuild(directory, options) {
   const { hostPlatform, hostArch } = options;
-  const candidates = [];
-  for (const tag of nodeGypBuildTags(hostPlatform, hostArch)) {
-    candidates.push(path.join(directory, 'prebuilds', tag));
+  const prebuildsRoot = path.join(directory, 'prebuilds');
+  let tuples = [];
+  try {
+    tuples = fs
+      .readdirSync(prebuildsRoot)
+      .map(parsePrebuildTuple)
+      .filter(Boolean)
+      .filter(
+        tuple =>
+          tuple.platform === hostPlatform &&
+          tuple.architectures.includes(hostArch),
+      )
+      // Fewer architectures means more specific; a `darwin-arm64` directory
+      // beats a `darwin-x64+arm64` one.
+      .sort((a, b) => a.architectures.length - b.architectures.length);
+  } catch {
+    tuples = [];
   }
-  for (const candidate of candidates) {
-    let entries;
+  for (const tuple of tuples) {
+    const prebuilds = path.join(prebuildsRoot, tuple.name);
+    let parsed = [];
     try {
-      entries = fs.readdirSync(candidate, { withFileTypes: true });
+      parsed = fs.readdirSync(prebuilds).map(parsePrebuildTags);
     } catch {
       continue;
     }
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const suffix = prebuiltSuffixes(hostPlatform).find(extension =>
-        entry.name.endsWith(extension),
-      );
-      if (!suffix) continue;
-      if (
-        !isHostPrebuiltNodeAddon(
-          path.join(candidate, entry.name),
-          hostPlatform,
-          hostArch,
-        )
-      ) {
-        continue;
-      }
-      return path.join(candidate, entry.name);
+    const winner = parsed
+      .filter(tags => prebuildTagsMatchHost(tags, hostPlatform, hostArch))
+      .sort((a, b) => {
+        // An ABI-specific build is preferred over a plain napi one; with no
+        // ABI of our own, that only ever picks `node.napi` last.
+        if (Boolean(a.abi) !== Boolean(b.abi)) return a.abi ? -1 : 1;
+        return b.specificity - a.specificity;
+      })[0];
+    if (!winner) continue;
+    const candidate = path.join(prebuilds, winner.file);
+    if (isHostPrebuiltNodeAddon(candidate, hostPlatform, hostArch)) {
+      return candidate;
     }
   }
+
   // The in-tree builds and the plain `build/Release` layout.
   for (const subdirectory of NODE_GYP_BUILD_DIRECTORIES) {
     const base = path.join(directory, subdirectory);
@@ -645,14 +727,14 @@ module.exports = function babelPluginNodeAddons(api, options = {}) {
     if (argument.type === 'Identifier' && argument.name === '__dirname') {
       return fromDirectory;
     }
-    // `path.join(__dirname, 'literal', ...)` or the same call reached through
-    // the module: `require('path').join(...)`.
+    // `path.join(__dirname, 'literal', ...)` or `path.resolve(...)`, either
+    // reached bare or through the module: `require('path').join(...)`.
     if (argument.type === 'CallExpression') {
       const callee = argument.callee;
       if (
         callee.type !== 'MemberExpression' ||
         callee.property.type !== 'Identifier' ||
-        callee.property.name !== 'join'
+        (callee.property.name !== 'join' && callee.property.name !== 'resolve')
       ) {
         return null;
       }

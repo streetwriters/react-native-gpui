@@ -68,7 +68,7 @@ struct GpuiSafeAreaHooks {
   std::function<void(float top, GpuiMountedViews& views)> windowTopInset;
 };
 
-// Extra TurboModules (@react-native-node-api, Rust string modules). Asked in
+// Extra TurboModules (the active JS engine's, Rust string modules). Asked in
 // registration order, after the app's own provider and before the core
 // modules; each returns nullptr when the module is not provided there.
 using GpuiTurboModuleFn =

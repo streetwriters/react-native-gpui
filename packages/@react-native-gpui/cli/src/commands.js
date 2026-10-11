@@ -1086,3 +1086,128 @@ export function createLibrary({
     `Created ${type} TurboModule library ${packageName} in ${destination}. Install/link it in a React Native app, then run npx react-native run-desktop.`,
   );
 }
+
+/**
+ * The `_requireNodeLibrary(key, path)` calls the Babel plugin emits, as they
+ * appear in a bundle. Babel's output quotes both arguments with double quotes
+ * and escapes anything unusual, so this matches the compact and pretty forms
+ * alike. The key never contains a quote or a backslash (see the plugin's
+ * `addonKey`), which is what keeps the pattern simple.
+ */
+const requireNodeLibraryCallPattern =
+  /_requireNodeLibrary\(\s*"([^"\\]+)"\s*,\s*"((?:[^"\\]|\\.)+)"\s*\)/gu;
+
+/**
+ * The Node addon entries a bundle asks for: `{ key, path }`, in the order the
+ * calls appear, with the escapes Babel produced removed from the path.
+ *
+ * Exported for the unit test: scanning is the part worth testing without
+ * touching the filesystem.
+ */
+export function scanNodeAddonCalls(bundleText) {
+  const found = [];
+  const seen = new Set();
+  for (const match of bundleText.matchAll(requireNodeLibraryCallPattern)) {
+    const key = match[1];
+    // The path was emitted by `t.stringLiteral`, so it is escaped the way a JS
+    // string literal is. `JSON.parse` undoes exactly that.
+    let filePath;
+    try {
+      filePath = JSON.parse(`"${match[2]}"`);
+    } catch {
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ key, path: filePath });
+  }
+  return found;
+}
+
+/** Sibling shared libraries a `$ORIGIN` / `@loader_path` lookup may need. */
+function isSiblingSharedLibrary(name, platform) {
+  if (platform === 'darwin') return name.endsWith('.dylib');
+  if (platform === 'win32') return name.endsWith('.dll');
+  // Linux: `libfoo.so` and its versioned forms `libfoo.so.1`, `libfoo.so.1.2`.
+  return /\.so(?:\.\d+)*$/u.test(name);
+}
+
+/**
+ * `react-native-gpui collect-node-addons --bundle <bundle.js> --out <dir>`
+ *
+ * A development build loads an addon from the absolute path the Babel plugin
+ * embedded. A packaged app has no such path, so it copies each addon to
+ * `<out>/<key>` — which is what `_requireNodeLibrary` looks for relative to the
+ * executable — together with any sibling shared libraries, since some addons
+ * load those through `$ORIGIN` / `@loader_path`.
+ *
+ * Fails loudly when an embedded path no longer exists: a bundle built against a
+ * stale tree would otherwise ship without the addon and fail at run time.
+ */
+export function collectNodeAddons({
+  bundle,
+  out,
+  platform = process.platform,
+} = {}) {
+  if (!bundle) throw new Error('collect-node-addons requires --bundle <path>');
+  if (!out) throw new Error('collect-node-addons requires --out <dir>');
+  const bundlePath = path.resolve(bundle);
+  const outDirectory = path.resolve(out);
+  const bundleText = fs.readFileSync(bundlePath, 'utf8');
+  const addons = scanNodeAddonCalls(bundleText);
+  if (addons.length === 0) {
+    // A bundle with no addons removes a stale directory rather than leaving one
+    // from an earlier build behind.
+    fs.rmSync(outDirectory, { recursive: true, force: true });
+    console.log(`No Node addons in ${bundlePath}; removed ${outDirectory}.`);
+    return { copied: [], out: outDirectory };
+  }
+
+  const missing = addons.filter(addon => !fs.existsSync(addon.path));
+  if (missing.length > 0) {
+    throw new Error(
+      `collect-node-addons: the bundle names ${missing.length} addon file(s) ` +
+        'that no longer exist. Rebuild the bundle before packaging:\n' +
+        missing.map(addon => `  ${addon.key} -> ${addon.path}`).join('\n'),
+    );
+  }
+
+  // Rebuilt from scratch so an addon that disappeared is not shipped.
+  fs.rmSync(outDirectory, { recursive: true, force: true });
+  const copied = [];
+  for (const addon of addons) {
+    const target = path.join(outDirectory, addon.key);
+    if (!target.startsWith(outDirectory + path.sep)) {
+      throw new Error(
+        `collect-node-addons: key '${addon.key}' escapes ${outDirectory}`,
+      );
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(addon.path, target);
+    copied.push({ key: addon.key, path: addon.path, target });
+
+    // Sibling shared libraries of the same directory, copied once per
+    // directory so two addons in one folder do not copy them twice.
+    for (const sibling of fs.readdirSync(path.dirname(addon.path))) {
+      if (sibling === path.basename(addon.path)) continue;
+      if (!isSiblingSharedLibrary(sibling, platform)) continue;
+      const source = path.join(path.dirname(addon.path), sibling);
+      if (!fs.statSync(source).isFile()) continue;
+      const siblingKey = path.join(path.dirname(addon.key), sibling);
+      const siblingTarget = path.join(outDirectory, siblingKey);
+      if (!siblingTarget.startsWith(outDirectory + path.sep)) continue;
+      if (fs.existsSync(siblingTarget)) continue;
+      fs.mkdirSync(path.dirname(siblingTarget), { recursive: true });
+      fs.copyFileSync(source, siblingTarget);
+      copied.push({ key: siblingKey, path: source, target: siblingTarget });
+    }
+  }
+
+  for (const entry of copied) {
+    console.log(`  ${entry.key}  <-  ${entry.path}`);
+  }
+  console.log(
+    `Copied ${addons.length} Node addon(s) and ${copied.length - addons.length} sibling librar(ies) to ${outDirectory}.`,
+  );
+  return { copied, out: outDirectory };
+}
