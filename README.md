@@ -221,6 +221,40 @@ Handwritten sources and include directories go in `componentSources` and
 `componentIncludeDirs`. Missing or duplicate descriptors are reported during
 autolinking or at startup.
 
+### Node-API addons
+
+An app can load a Node-API addon with `requireNodeAddon()`, from the
+`NodeApiHost` TurboModule that `react-native-node-api` and `weak-node-api`
+provide. Add both as app dependencies. Two kinds of addon work on Linux:
+
+- **Built from source.** A package declares a `react-native-node-api-module`
+  marker next to its sources and builds the addon in its `gpui/CMakeLists.txt`.
+- **Stock prebuilt binary.** A plain `.node` file, as published for Node.js.
+  Autolinking finds each Linux ELF `.node` built for the host architecture
+  inside a package that autolinks for GPUI, copies it to
+  `desktop/autolink/node-api/linux/lib<name>.so`, and the host loads it by name.
+  Files under a path segment naming another target — `darwin`, `win32`,
+  `android`, `musl`, or a foreign architecture — are skipped, so one package may
+  ship every platform's binary.
+
+The library name must match the `require()` the Babel plugin rewrites, so
+autolinking does not re-implement it: it calls
+`getLibraryName(modulePath, { pathSuffix: 'strip', packageName: 'strip' })` from
+`react-native-node-api`, which joins the package name and the binary's basename
+with `--` (`my-package--addon`). Require the addon without the `.node`
+extension.
+
+Only pure Node-API addons load. One that calls `libuv` (`uv_*`) or a V8 / NAN
+API directly fails, because there is no Node.js runtime behind it; the error
+names the missing symbol.
+
+At run time the host resolves a library name to a file by trying
+`RN_GPUI_NODE_API_PATH` (colon-separated directories), then
+`<directory of the executable>/node-api`, then the build directories baked in at
+configure time. A relocated app ships `libweak-node-api.so` and each addon in
+`node-api/` next to its executable; development builds find them in the build
+tree.
+
 ## JavaScript engine
 
 React Native GPUI has no built-in JS engine. An engine is an ordinary installed
@@ -495,18 +529,19 @@ that wait for idle.
 
 ### Platform support
 
-| Feature                    | macOS                        | Windows                             | Linux                                       |
-| -------------------------- | ---------------------------- | ----------------------------------- | ------------------------------------------- |
-| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
-| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
-| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
-| Custom title bar           | AppKit                       | `desktopWindowControl` (unverified) | not implemented                             |
-| Tray apps (7.3)            | yes                          | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
-| Dev Menu                   | yes                          | menu popup as above                 | popup as above                              |
-| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
-| Window capture (tests)     | yes                          | yes (unverified)                    | yes, X11 tested; Wayland untested           |
-| Hidden (`show: false`)     | yes                          | unverified                          | yes (X11 stays unmapped until shown)        |
-| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
+| Feature                    | macOS                               | Windows                             | Linux                                       |
+| -------------------------- | ----------------------------------- | ----------------------------------- | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                       | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
+| Context menus              | `muda` on the `NSView`              | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                              | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                              | `desktopWindowControl` (unverified) | not implemented                             |
+| Tray apps (7.3)            | yes                                 | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                                 | menu popup as above                 | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`)        | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
+| Window capture (tests)     | yes                                 | yes (unverified)                    | yes, X11 tested; Wayland untested           |
+| Hidden (`show: false`)     | yes                                 | unverified                          | yes (X11 stays unmapped until shown)        |
+| Native accessibility tree  | AppKit probe                        | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
+| Node-API addons            | `.apple.node` marker as a framework | not implemented                     | CMake-built or stock `.node`                |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform.
