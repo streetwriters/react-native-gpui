@@ -273,7 +273,22 @@ void installNodeAddons(
           setFailure(rt, unsupportedMessage, "ERR_NODE_ADDONS_UNSUPPORTED");
           return facebook::jsi::Value::undefined();
         }
-        auto exports = (*loader)(rt, resolvedPath);
+        bool loadFailed = false;
+        auto exports = facebook::jsi::Value::undefined();
+        try {
+          exports = (*loader)(rt, resolvedPath);
+        } catch (const facebook::jsi::JSError& error) {
+          // A failed load is reported the same way as a failed resolution: the
+          // engine's message (which carries `dlerror()`'s text, naming the
+          // missing symbol) is left for the JS wrapper to throw. Letting this
+          // exception cross the host-function boundary instead would prefix it
+          // with "Exception in HostFunction".
+          loadFailed = true;
+          setFailure(rt, error.getMessage(), "ERR_DLOPEN_FAILED");
+        }
+        if (loadFailed) {
+          return facebook::jsi::Value::undefined();
+        }
         cache.setProperty(rt, cacheKey.c_str(), exports);
         return exports;
       });

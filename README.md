@@ -223,37 +223,121 @@ autolinking or at startup.
 
 ### Node-API addons
 
-An app can load a Node-API addon with `requireNodeAddon()`, from the
-`NodeApiHost` TurboModule that `react-native-node-api` and `weak-node-api`
-provide. Add both as app dependencies. Two kinds of addon work on Linux:
+A stock `.node` file from npm loads unchanged. There is no shim package to
+install and nothing to rebuild: the Babel plugin rewrites the `require` at
+bundle time to a path the runtime can open, and the JS engine's own Node-API
+implementation loads it.
 
-- **Built from source.** A package declares a `react-native-node-api-module`
-  marker next to its sources and builds the addon in its `gpui/CMakeLists.txt`.
-- **Stock prebuilt binary.** A plain `.node` file, as published for Node.js.
-  Autolinking finds each Linux ELF `.node` built for the host architecture
-  inside a package that autolinks for GPUI, copies it to
-  `desktop/autolink/node-api/linux/lib<name>.so`, and the host loads it by name.
-  Files under a path segment naming another target — `darwin`, `win32`,
-  `android`, `musl`, or a foreign architecture — are skipped, so one package may
-  ship every platform's binary.
+Add the plugin to `babel.config.js`:
 
-The library name must match the `require()` the Babel plugin rewrites, so
-autolinking does not re-implement it: it calls
-`getLibraryName(modulePath, { pathSuffix: 'strip', packageName: 'strip' })` from
-`react-native-node-api`, which joins the package name and the binary's basename
-with `--` (`my-package--addon`). Require the addon without the `.node`
-extension.
+```js
+module.exports = {
+  presets: ['module:@react-native/babel-preset'],
+  plugins: ['module:react-native-gpui/babel-plugin-node-addons'],
+};
+```
 
-Only pure Node-API addons load. One that calls `libuv` (`uv_*`) or a V8 / NAN
-API directly fails, because there is no Node.js runtime behind it; the error
-names the missing symbol.
+It is a no-op unless Metro is building the `gpui` platform, so the same config
+stays valid for iOS and Android.
 
-At run time the host resolves a library name to a file by trying
-`RN_GPUI_NODE_API_PATH` (colon-separated directories), then
-`<directory of the executable>/node-api`, then the build directories baked in at
-configure time. A relocated app ships `libweak-node-api.so` and each addon in
-`node-api/` next to its executable; development builds find them in the build
-tree.
+Then require the addon as its own documentation says to:
+
+```js
+const crc32 = require('@node-rs/crc32').crc32('hello');
+```
+
+#### Which `require` forms are recognised
+
+Most packages do not write `require('./addon.node')` themselves. They ship a
+loader that picks the binary at run time from `process.platform`, `fs` and
+`path` — none of which exist in Hermes. The plugin does that selection at build
+time instead. On desktop the build machine _is_ the target, so it can ask the
+real loader.
+
+| Form in package code                                                     | What the plugin does                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `require('./build/addon.node')`                                          | Resolves the file relative to the requiring module.                                                                                                                                                                  |
+| `require('./addon')` (no extension, and `<dir>/addon.node` exists)       | Uses the `.node` file, but only when no `.js`, `.cjs`, `.mjs`, `.json`, `.ts` or `.tsx` file of that name and no directory of that name exists, so a real module is never shadowed.                                  |
+| A bare package whose entry is a `.node` file                             | Uses that file.                                                                                                                                                                                                      |
+| `require('node-gyp-build')(__dirname)` (also `path.join`/`path.resolve`) | Runs `node-gyp-build`'s own resolver against the host, so `prebuilds/<platform>-<arch>/` layouts, `glibc`/`musl` tags, `node.napi` files and in-tree `build/Release` builds all resolve the way the package intends. |
+| `require('bindings')('<name>')`                                          | Searches the directories `bindings` itself searches from the package root.                                                                                                                                           |
+| A napi-rs generated loader                                               | Recognises the generated file and replaces the whole module with the one binary this host needs.                                                                                                                     |
+| ``require(`./build/addon-${platform}.node`)``                            | Collects the files matching the static prefix and suffix and keeps the one for this host.                                                                                                                            |
+
+A missing file is not a build error. The plugin emits an expression that throws
+`Cannot find module '…'` with `code: 'MODULE_NOT_FOUND'` when evaluated, because
+packages list a binary per platform and wrap each in `try`/`catch` — the ones
+for other platforms _must_ fail at run time, not at bundle time.
+
+The plugin is where the platform decision is made, so `process.platform` and
+`process.arch` are still not available in the runtime.
+
+#### Only pure Node-API addons
+
+An addon that calls `libuv` (`uv_*`), V8 or NAN fails to load, because there is
+no Node.js runtime behind it. Loading such an addon throws an `Error` naming the
+missing symbol from `dlerror()`:
+
+```
+Failed to load '/…/addon.node': undefined symbol: uv_default_loop
+```
+
+Check a binary before depending on it:
+
+```sh
+nm -D --undefined-only addon.node | grep -E " (uv_|_ZN2v8|_ZN4node)"   # must print nothing
+```
+
+#### How the file is found
+
+At run time `_requireNodeLibrary(key, path)` resolves `key` to a file. The first
+existing regular file wins:
+
+1. each directory in `RN_GPUI_NODE_ADDON_PATH` (colon-separated on macOS and
+   Linux, semicolon-separated on Windows), joined with `key`;
+2. `<directory of the executable>/node-addons/<key>`;
+3. macOS only: `<directory of the executable>/../Resources/node-addons/<key>`;
+4. the absolute path baked into the bundle by a development build.
+
+If nothing exists, the thrown `Error` lists `key` and every location tried, and
+has `code: 'MODULE_NOT_FOUND'`. Exports are cached per JS runtime, so a reload
+initialises the addon again, as a new Node context would.
+
+`key` is the addon's path from the **first** `node_modules/` onward, so two
+versions of one package get different keys. A file outside `node_modules` gets
+`local/<8 hex chars of sha1(absolute path)>/<basename>`.
+
+A development build uses the embedded absolute path and needs nothing else. A
+packaged app ships the files next to its executable, which is what
+`collect-node-addons` prepares:
+
+```sh
+npx react-native-gpui collect-node-addons \
+  --bundle desktop/build/index.bundle --out dist/MyApp.app/Contents/Resources/node-addons
+```
+
+It scans the bundle for the addon paths, copies each to `<out>/<key>`, copies
+the sibling shared libraries (`*.so*`, `*.dylib`, `*.dll`) those addons may load
+through `$ORIGIN` / `@loader_path`, prints what it copied, and fails if a baked-in
+path no longer exists.
+
+#### macOS distribution
+
+A notarised app with the hardened runtime refuses to load a library signed by
+someone else unless the app has the
+`com.apple.security.cs.disable-library-validation` entitlement or the addon is
+re-signed with the app's identity. Shipping an addon therefore means re-signing
+it as part of packaging.
+
+#### Windows
+
+Not yet verified. Windows has no global symbol lookup: a `.node` file records
+each Node-API import as a function name _plus the file it must come from_, and an
+addon built for Node records "from `node.exe`". Node-API addons instead look the
+functions up in the **host process's executable**, so the app's `.exe` has to
+re-export Hermes's Node-API functions. `node-gyp` addons reach the same place
+through a delay-load hook; an addon built without that hook cannot load. Treat
+Windows support as untested until someone runs it.
 
 ## JavaScript engine
 
@@ -303,12 +387,20 @@ gpui: {
 Its `gpui/CMakeLists.txt` adds whatever the engine needs and tells core about it
 through global properties: `RN_GPUI_JS_ENGINE_SUBDIRECTORIES`,
 `RN_GPUI_JS_ENGINE_SOURCES`, `RN_GPUI_JS_ENGINE_INCLUDE_DIRS`,
-`RN_GPUI_JS_ENGINE_DEFINITIONS`, `RN_GPUI_JS_ENGINE_DEPS` and
-`RN_GPUI_JS_ENGINE_NODE_API_SOURCES`.
+`RN_GPUI_JS_ENGINE_DEFINITIONS` and `RN_GPUI_JS_ENGINE_DEPS`.
 
 The registration function calls `rngpui::registerJsEngine` with the engine's
-info, a required `makeRuntimeFactory`, and optionally a Node-API host module and
-feature-flag overrides. `@react-native-gpui/hermes/gpui` is a worked example.
+info, a required `makeRuntimeFactory`, and optionally a `nodeAddons` capability.
+`@react-native-gpui/hermes/gpui` is a worked example.
+
+`GpuiJsEngine` is a struct of capabilities rather than a base class, so an engine
+provides only what it can and core has no built-in engine to fall back on. The
+optional `nodeAddons` capability is a `makeLoader` factory returning a function
+that loads one absolute `.node` path into the runtime; core owns the
+`_requireNodeLibrary` global, path resolution, the cache and the error messages,
+and never includes an engine's headers. An engine that omits `nodeAddons` still
+gets the global — it fails with a message naming the engine, so app code does not
+have to feature-detect.
 
 `bundle.js` may export any of:
 
@@ -529,19 +621,19 @@ that wait for idle.
 
 ### Platform support
 
-| Feature                    | macOS                               | Windows                             | Linux                                       |
-| -------------------------- | ----------------------------------- | ----------------------------------- | ------------------------------------------- |
-| Application menu           | GPUI `NSMenu`                       | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
-| Context menus              | `muda` on the `NSView`              | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
-| Window positioning / raise | AppKit                              | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
-| Custom title bar           | AppKit                              | `desktopWindowControl` (unverified) | not implemented                             |
-| Tray apps (7.3)            | yes                                 | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
-| Dev Menu                   | yes                                 | menu popup as above                 | popup as above                              |
-| Perf Monitor               | yes (memory via `task_info`)        | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
-| Window capture (tests)     | yes                                 | yes (unverified)                    | yes, X11 tested; Wayland untested           |
-| Hidden (`show: false`)     | yes                                 | unverified                          | yes (X11 stays unmapped until shown)        |
-| Native accessibility tree  | AppKit probe                        | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
-| Node-API addons            | `.apple.node` marker as a framework | not implemented                     | CMake-built or stock `.node`                |
+| Feature                    | macOS                        | Windows                             | Linux                                       |
+| -------------------------- | ---------------------------- | ----------------------------------- | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
+| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                       | `desktopWindowControl` (unverified) | not implemented                             |
+| Tray apps (7.3)            | yes                          | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                          | menu popup as above                 | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
+| Window capture (tests)     | yes                          | yes (unverified)                    | yes, X11 tested; Wayland untested           |
+| Hidden (`show: false`)     | yes                          | unverified                          | yes (X11 stays unmapped until shown)        |
+| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
+| Node-API addons            | stock `.node` from npm       | not implemented (Part W deferred)   | stock `.node` from npm                      |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform.

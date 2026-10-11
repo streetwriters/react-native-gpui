@@ -37,6 +37,24 @@ else in upstream `include/` is VM internals the shared library does not export.
 The build compiles against React Native's JSI (`ReactCommon/jsi`); `API/jsi`
 is kept only so the API folder matches upstream.
 
+## Node-API addons
+
+The engine owns the Node-API half of loading a stock `.node` file. The build
+enables `HERMES_ENABLE_NAPI`, so the VM implements Node-API itself: `libhermesvm`
+exports the `napi_*` and `node_api_*` symbols, and an addon links against
+nothing — its imports resolve against whatever already loaded the VM.
+
+`gpui/HermesNodeAddons.cpp` creates one Node-API environment per addon through
+`hermes_napi_create_env` and loads the file with `hermes_napi_load_module`,
+returning the exports as a JSI value. `gpui/HermesNodeApiHost.cpp` supplies the
+host callbacks that environment needs: `post_work`, `cancel_work`, `post_task`
+and `fatal_exception`. `post_task` and the async-work callbacks hop to the JS
+thread through the `CallInvoker`, so core's `_requireNodeLibrary` global, path
+resolution, per-runtime cache and error messages stay engine-agnostic.
+
+A missing symbol in the addon surfaces as a `dlerror()` string, which is what
+names an addon that needs libuv (`uv_default_loop`) rather than Node-API.
+
 `bin/` is gitignored, so a fresh clone has the headers but no binaries:
 
 | Platform                     | Files                                         |
