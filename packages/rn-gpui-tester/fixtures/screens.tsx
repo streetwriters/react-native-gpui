@@ -153,11 +153,6 @@ export const renderScreen: Record<
       ...props,
       kind: 'node-api',
     }),
-  'node-api-prebuilt': props =>
-    React.createElement(require('./components/NativeModulesFixture').default, {
-      ...props,
-      kind: 'node-api-prebuilt',
-    }),
   'native-view': props =>
     React.createElement(require('./components/NativeViewFixture').default, {
       ...props,

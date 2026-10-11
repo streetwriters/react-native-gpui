@@ -1,0 +1,12 @@
+{
+  "name": "@react-native-gpui/node-addon-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "description": "A stock Node-API addon built the way a third-party package builds one, for the tester's Node addon screen.",
+  "react-native": {
+    "platforms": {
+      "gpui": {}
+    }
+  }
+}

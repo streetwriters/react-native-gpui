@@ -221,23 +221,15 @@ test('custom Fabric component renders inside the tester', async () => {
   ).toBeVisible();
 });
 test.skipIf(process.platform === 'win32')(
-  'Node-API addon handles synchronous and asynchronous calls',
+  'a stock Node-API addon handles sync, async and thread-safe calls',
   async () => {
     await launch('node-api');
     await app.getByTestId('native-module-run').click();
     await app.waitForIdle();
     const nodes = await app.query('testID', 'native-module-result', true);
-    expect(JSON.stringify(nodes)).toContain('42 / 42');
-  },
-);
-test.skipIf(process.platform !== 'linux')(
-  'a prebuilt Node-API addon from a package loads on Linux',
-  async () => {
-    await launch('node-api-prebuilt');
-    await app.getByTestId('native-module-run').click();
-    await app.waitForIdle();
-    const nodes = await app.query('testID', 'native-module-result', true);
-    expect(JSON.stringify(nodes)).toContain('Prebuilt Node-API: 7 + 7 = 14');
+    // 19 + 23 synchronous, 20 + 22 through napi_create_async_work, and 42
+    // dispatched from a worker thread through a thread-safe function.
+    expect(JSON.stringify(nodes)).toContain('42 / 42 / tsfn 42');
   },
 );
 test('scrolling the menu composites instead of rebuilding its rows', async () => {

@@ -3,9 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "prestart": "node scripts/build-prebuilt-addon.mjs",
+    "prestart": "node scripts/build-node-addon.mjs",
     "start": "react-native start --config desktop/metro.config.js",
-    "predesktop": "node scripts/build-prebuilt-addon.mjs",
+    "predesktop": "node scripts/build-node-addon.mjs",
     "desktop": "node scripts/run-desktop.mts",
     "autolink": "react-native-gpui autolink",
     "test": "vitest run --config ../../vitest.config.ts",
@@ -38,13 +38,9 @@
     "react-native-screens": "4.28.0",
     "react-native-svg": "15.15.5",
     "react-native-worklets": "https://github.com/ammarahm-ed/react-native-reanimated/releases/download/worklets-0.13.0-desktop.1/react-native-worklets-0.13.0.tgz",
-    "react-native-node-api": "https://github.com/ammarahm-ed/react-native-node-api/releases/download/node-api-macos.1/react-native-node-api-1.1.1.tgz",
-    "weak-node-api": "https://github.com/ammarahm-ed/react-native-node-api/releases/download/node-api-macos.1/weak-node-api-0.1.1.tgz",
-    "@react-native-node-api/cli-utils": "https://github.com/ammarahm-ed/react-native-node-api/releases/download/node-api-macos.1/react-native-node-api-cli-utils-0.1.4.tgz",
     "@react-native-gpui/native-module-fixture": "file:./gpui-native-module",
     "@react-native-gpui/cpp-module-fixture": "file:./gpui-cpp-native-module",
-    "@react-native-gpui/node-api-fixture": "file:./gpui-node-api-module",
-    "@react-native-gpui/node-api-prebuilt-fixture": "file:./gpui-node-api-prebuilt"
+    "@react-native-gpui/node-addon-fixture": "file:./node-addon-fixture"
   },
   "devDependencies": {
     "@react-native-community/cli": "20.2.0",

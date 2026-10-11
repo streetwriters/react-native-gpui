@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 // npm ships npx as a .cmd shim on Windows, where child_process cannot resolve a
@@ -36,8 +36,6 @@ const findCppSources = directory => {
   });
 };
 
-const nodeApiMarker = 'react-native-node-api-module';
-const nodeApiSuffix = '.apple.node';
 const cppIdentifier = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const includePath = /^[A-Za-z0-9_./+-]+$/u;
 const jsEngineName = /^[a-z][a-z0-9-]*$/u;
@@ -366,200 +364,7 @@ function generateModuleCodegen({
   return outputDirectory;
 }
 
-const findNodeApiModules = (packageRoot, packageJson, dependencyName) => {
-  if (
-    !packageJson.name ||
-    ['react-native', 'react-native-node-api'].includes(packageJson.name)
-  ) {
-    return [];
-  }
-  const packageSegment = (
-    packageJson.name.startsWith('@')
-      ? packageJson.name.split('/').slice(1).join('/')
-      : packageJson.name
-  ).replaceAll(/[^A-Za-z0-9_-]/gu, '-');
-  const modules = [];
-  const visit = directory => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (
-        !entry.isDirectory() ||
-        ['.git', 'node_modules'].includes(entry.name)
-      ) {
-        continue;
-      }
-      const entryPath = path.join(directory, entry.name);
-      if (
-        entry.name.endsWith(nodeApiSuffix) &&
-        fs.existsSync(path.join(entryPath, nodeApiMarker))
-      ) {
-        const addonName = entry.name
-          .slice(0, -nodeApiSuffix.length)
-          .replaceAll(/[^A-Za-z0-9_-]/gu, '-');
-        modules.push({
-          dependencyName,
-          packageName: packageJson.name,
-          libraryName: `${packageSegment}--${addonName}`,
-          modulePath: entryPath,
-        });
-        continue;
-      }
-      visit(entryPath);
-    }
-  };
-  visit(packageRoot);
-  return modules;
-};
-
-// ELF magic and e_machine values, enough to tell a Linux addon for the host
-// architecture from one built for another platform or CPU.
-const elfMagic = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
-const elfMachineForArch = arch =>
-  arch === 'arm64' ? 0xb7 : arch === 'x64' || arch === 'ia32' ? 0x3e : null;
-
-/**
- * Path segments that mark a binary built for a different target: another OS or
- * a different Linux libc. These are substring tests because separator styles
- * vary (`linuxmusl-x64` and `win32-x64` do not split into the marker as a whole
- * token). `ios`, which would otherwise match unrelated names such as `studios`,
- * is checked as a whole token instead.
- */
-const foreignPlatformSubstrings = [
-  'darwin',
-  'macos',
-  'win32',
-  'windows',
-  'android',
-  'musl',
-];
-const foreignPlatformTokens = ['ios'];
-
-/**
- * Whether a segment names a platform or CPU other than the host's. Architecture
- * tokens are compared after normalizing the common spellings, so `x86_64` and
- * `amd64` both become `x64` before the `x86` token could match and a plain
- * `linux-x64` segment is not mistaken for 32-bit.
- */
-function namesForeignTarget(segment, arch) {
-  const lower = segment.toLowerCase();
-  if (foreignPlatformSubstrings.some(token => lower.includes(token))) {
-    return true;
-  }
-  const tokens = lower
-    .replace(/x86[_-]?64|amd64/gu, 'x64')
-    .replace(/aarch64/gu, 'arm64')
-    .split(/[^a-z0-9]+/u)
-    .filter(Boolean);
-  if (tokens.some(token => foreignPlatformTokens.includes(token))) return true;
-  const hostToken = arch === 'arm64' ? 'arm64' : 'x64';
-  return tokens.some(
-    token =>
-      ['x64', 'arm64', 'arm', 'ia32', 'x86'].includes(token) &&
-      token !== hostToken,
-  );
-}
-
-export function isHostPrebuiltNodeAddon(filePath, arch) {
-  const machine = elfMachineForArch(arch);
-  if (machine === null) return false;
-  const segments = filePath.split(path.sep);
-  if (segments.some(segment => namesForeignTarget(segment, arch))) return false;
-  let handle;
-  try {
-    handle = fs.openSync(filePath, 'r');
-    const header = Buffer.alloc(20);
-    if (fs.readSync(handle, header, 0, header.length, 0) < header.length) {
-      return false;
-    }
-    if (!header.subarray(0, 4).equals(elfMagic)) return false;
-    return header.readUInt16LE(18) === machine;
-  } catch {
-    return false;
-  } finally {
-    if (handle !== undefined) fs.closeSync(handle);
-  }
-}
-
-/**
- * Discovers stock prebuilt Node-API addons on Linux: plain `.node` shared
- * objects a package ships for Node.js, not built by our CMake and not declaring
- * the `*.apple.node` marker. The library name comes from
- * `react-native-node-api`'s own `getLibraryName`, so it matches exactly what
- * the Babel plugin generates for the `require()` that loads the file; the
- * caller supplies that function because it must be resolved from the app.
- */
-export const findPrebuiltNodeApiModules = (
-  packageRoot,
-  packageJson,
-  dependencyName,
-  getLibraryName,
-  arch = process.arch,
-) => {
-  if (
-    !packageJson.name ||
-    ['react-native', 'react-native-node-api'].includes(packageJson.name)
-  ) {
-    return [];
-  }
-  const modules = [];
-  const visit = directory => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (['.git', 'node_modules'].includes(entry.name)) continue;
-        visit(entryPath);
-        continue;
-      }
-      if (!entry.name.endsWith('.node')) continue;
-      if (!isHostPrebuiltNodeAddon(entryPath, arch)) continue;
-      modules.push({
-        dependencyName,
-        packageName: packageJson.name,
-        libraryName: getLibraryName(entryPath, {
-          pathSuffix: 'strip',
-          packageName: 'strip',
-        }),
-        modulePath: entryPath,
-      });
-    }
-  };
-  visit(packageRoot);
-  return modules;
-};
-
-/**
- * Resolves `getLibraryName` from the app's `react-native-node-api`. The package
- * is consumed from a release tarball and may change its layout, so the file is
- * found by walking up to the package root rather than through the `exports`
- * map, which does not expose `dist/node/path-utils.js`.
- */
-function loadNodeApiLibraryNaming(appRequire) {
-  let directory = path.dirname(appRequire.resolve('react-native-node-api'));
-  while (true) {
-    const manifest = path.join(directory, 'package.json');
-    if (fs.existsSync(manifest)) {
-      const name = JSON.parse(fs.readFileSync(manifest, 'utf8')).name;
-      if (name === 'react-native-node-api') break;
-    }
-    const parent = path.dirname(directory);
-    if (parent === directory) {
-      throw new Error('could not find the react-native-node-api package root');
-    }
-    directory = parent;
-  }
-  const { getLibraryName } = appRequire(
-    path.join(directory, 'dist/node/path-utils.js'),
-  );
-  return getLibraryName;
-}
-
-export function autolink({
-  projectRoot = process.cwd(),
-  configFile,
-  // Only the prebuilt Linux addon discovery and staging read these; they are
-  // parameters so the unit tests can exercise that path on any host.
-  hostPlatform = process.platform,
-  hostArch = process.arch,
-} = {}) {
+export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   projectRoot = path.resolve(projectRoot);
   const desktopRoot = path.join(projectRoot, 'desktop');
   const autolinkRoot = path.join(desktopRoot, 'autolink');
@@ -619,43 +424,6 @@ export function autolink({
   const jsEngines = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
   const generatedLibraries = new Map();
-  const nodeApiModules = findNodeApiModules(
-    projectRoot,
-    JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')),
-    '<app>',
-  );
-  // Stock prebuilt addons are a Linux-only concern: macOS consumes the Apple
-  // framework staging below, and Windows is out of scope.
-  const prebuiltNodeApiModules = [];
-  // Resolved lazily: `react-native-node-api` is only needed once a prebuilt
-  // addon is actually found, so an app without one never has to depend on it.
-  let getLibraryName;
-  const libraryNameFor = modulePath => {
-    getLibraryName ??= loadNodeApiLibraryNaming(appRequire);
-    return getLibraryName(modulePath, {
-      pathSuffix: 'strip',
-      packageName: 'strip',
-    });
-  };
-  if (hostPlatform === 'linux') {
-    const appPackageJson = JSON.parse(
-      fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
-    );
-    prebuiltNodeApiModules.push(
-      ...findPrebuiltNodeApiModules(
-        projectRoot,
-        appPackageJson,
-        '<app>',
-        libraryNameFor,
-        hostArch,
-      ),
-    );
-  }
-  const nodeApiFrameworksDir = path.join(
-    autolinkRoot,
-    'node-api/apple/Frameworks',
-  );
-  const nodeApiLinuxDir = path.join(autolinkRoot, 'node-api/linux');
   for (const [dependencyName, dependency] of Object.entries(
     config.dependencies ?? {},
   )) {
@@ -668,25 +436,7 @@ export function autolink({
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
     );
-    nodeApiModules.push(
-      ...findNodeApiModules(root, packageJson, dependencyName),
-    );
     const gpui = dependency.platforms?.gpui;
-    // Only a package that participates in GPUI autolinking can contribute a
-    // runtime addon. Scanning every dependency would also stage build tooling
-    // that happens to ship a Node-API binary (a compiler's native binding, for
-    // example), which is not part of the app's runtime.
-    if (hostPlatform === 'linux' && gpui) {
-      prebuiltNodeApiModules.push(
-        ...findPrebuiltNodeApiModules(
-          root,
-          packageJson,
-          dependencyName,
-          libraryNameFor,
-          hostArch,
-        ),
-      );
-    }
     if (!gpui) continue;
     if (gpui.jsEngine !== undefined) {
       jsEngines.push(jsEngineConfigFor(dependencyName, root, gpui.jsEngine));
@@ -833,82 +583,15 @@ export function autolink({
     if (gpui.cmake) cmakeProjects.push(path.resolve(root, gpui.cmake));
   }
 
-  if (process.platform === 'darwin' && nodeApiModules.length > 0) {
-    fs.rmSync(nodeApiFrameworksDir, { recursive: true, force: true });
-    const nodeApiCli = appRequire.resolve('react-native-node-api/cli');
-    const result = spawnSync(
-      process.execPath,
-      [
-        nodeApiCli,
-        'link',
-        '--apple',
-        '--no-prune',
-        '--exclude-self',
-        projectRoot,
-      ],
-      {
-        cwd: projectRoot,
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          RN_NODE_API_AUTOLINK_PATH: path.join(autolinkRoot, 'node-api'),
-          TARGET_BUILD_DIR: path.join(autolinkRoot, 'node-api'),
-          FRAMEWORKS_FOLDER_PATH: 'apple/Frameworks',
-          PLATFORM_NAME: 'macosx',
-          ARCHS: process.arch === 'arm64' ? 'arm64' : 'x86_64',
-          CODE_SIGNING_REQUIRED: 'NO',
-          CODE_SIGNING_ALLOWED: 'NO',
-        },
-      },
-    );
-    if (result.status !== 0) {
-      throw new Error(
-        `Node-API framework staging failed:\n${result.stdout}\n${result.stderr}`,
-      );
-    }
-  }
-
-  // Stage every Linux prebuilt addon as lib<libraryName>.so in one directory.
-  // The directory is cleared first so an addon removed from a package
-  // disappears. CMake passes it to the host as a build directory to search
-  // (RN_GPUI_NODE_API_STAGED_MODULES_DIR, baked into a generated header).
-  // A file can be seen twice: once by the app scan and once through the
-  // symlinked dependency that owns it. Deduplicate by resolved path.
-  const seenPrebuiltPaths = new Set();
-  const prebuiltAddons = prebuiltNodeApiModules.filter(addon => {
-    const resolved = fs.realpathSync(addon.modulePath);
-    if (seenPrebuiltPaths.has(resolved)) return false;
-    seenPrebuiltPaths.add(resolved);
-    return true;
+  // Node addons are loaded from the stock `.node` files a package ships, at
+  // the absolute path the Babel plugin embeds (see
+  // react-native-gpui/babel-plugin-node-addons.js). Nothing is staged here any
+  // more, but an app directory from an earlier run may still hold the old
+  // staging tree, so remove it.
+  fs.rmSync(path.join(autolinkRoot, 'node-api'), {
+    recursive: true,
+    force: true,
   });
-  const allNodeApiNames = [...nodeApiModules, ...prebuiltAddons];
-
-  // Detect a name collision before staging anything, so a failure leaves no
-  // half-written directory behind.
-  const nodeApiNames = new Map();
-  for (const addon of allNodeApiNames) {
-    const previousPath = nodeApiNames.get(addon.libraryName);
-    if (previousPath && previousPath !== addon.modulePath) {
-      throw new Error(
-        `Node-API addon name collision for ${addon.libraryName}: ${previousPath} and ${addon.modulePath}`,
-      );
-    }
-    nodeApiNames.set(addon.libraryName, addon.modulePath);
-  }
-
-  if (hostPlatform === 'linux') {
-    // Always clear the directory so an addon removed from a package disappears,
-    // but do not recreate it unless there is something to stage: an app with no
-    // prebuilt addons leaves no Node-API directory behind.
-    fs.rmSync(nodeApiLinuxDir, { recursive: true, force: true });
-    if (prebuiltAddons.length > 0) {
-      fs.mkdirSync(nodeApiLinuxDir, { recursive: true });
-      for (const addon of prebuiltAddons) {
-        const target = path.join(nodeApiLinuxDir, `lib${addon.libraryName}.so`);
-        fs.copyFileSync(addon.modulePath, target);
-      }
-    }
-  }
 
   const localDesktopSource = path.join(projectRoot, 'desktop/src');
   if (fs.existsSync(localDesktopSource)) {
@@ -942,8 +625,6 @@ export function autolink({
     turboModuleSpecs,
     cppTurboModules,
     cmakeProjects,
-    nodeApiModules,
-    prebuiltNodeApiModules: prebuiltAddons,
     appComponentDescriptors,
     appComponentHeaders: [...new Set(appComponentHeaders)],
     appComponentSources: [...new Set(appComponentSources)],
@@ -1143,9 +824,6 @@ export function autolink({
     `set(RN_GPUI_APP_CPP_PROVIDER_SOURCE "${cmakePath(cppProviderPath)}")`,
     `set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES ${cppSources.map(source => `"${cmakePath(source)}"`).join(' ')})`,
     `set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS ${appComponentIncludeDirs.map(directory => `"${cmakePath(directory)}"`).join(' ')})`,
-    `set(RN_GPUI_NODE_API_MODULE_NAMES ${allNodeApiNames.map(({ libraryName }) => `"${libraryName}"`).join(' ')})`,
-    `set(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR "${cmakePath(nodeApiFrameworksDir)}")`,
-    `set(RN_GPUI_NODE_API_STAGED_MODULES_DIR "${cmakePath(nodeApiLinuxDir)}")`,
     // Core calls each registration symbol from the generated
     // rn_gpui_install_modules(), so the engine registry is populated before
     // the host selects an engine.
@@ -1159,7 +837,7 @@ export function autolink({
     `# Generated by @react-native-gpui/cli autolink.\n${cmake}\n`,
   );
   console.log(
-    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${cppTurboModules.length} C++ TurboModule(s), ${allNodeApiNames.length} Node-API addon(s), ${cmakeProjects.length} CMake project(s), and ${jsEngines.length} JS engine(s) [${jsEngines.map(({ name }) => name).join(', ')}].`,
+    `Autolinked ${rustCrates.length} GPUI Rust crate(s), ${cppTurboModules.length} C++ TurboModule(s), ${cmakeProjects.length} CMake project(s), and ${jsEngines.length} JS engine(s) [${jsEngines.map(({ name }) => name).join(', ')}].`,
   );
   return config;
 }

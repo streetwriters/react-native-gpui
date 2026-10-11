@@ -19,7 +19,7 @@
     "packages/rn-gpui-tester",
     "packages/rn-gpui-tester/gpui-native-module",
     "packages/rn-gpui-tester/gpui-cpp-native-module",
-    "packages/rn-gpui-tester/gpui-node-api-module"
+    "packages/rn-gpui-tester/node-addon-fixture"
   ],
   "scripts": {
     "autolink": "npm run autolink --workspace rn-gpui-tester",

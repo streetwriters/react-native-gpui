@@ -1,13 +1,24 @@
-import type { NodeApiFixture } from '@react-native-gpui/node-api-fixture';
-import type { PrebuiltNodeApiFixture } from '@react-native-gpui/node-api-prebuilt-fixture';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import CppTurboModuleFixture from './CppTurboModuleFixture';
 
+/**
+ * The shape the tester's Node-API fixture exports. It is built like any
+ * third-party addon (see `node-addon-fixture/`), so nothing here is
+ * GPUI-specific: `add` is synchronous, `asyncAdd` goes through
+ * `napi_create_async_work` and returns a promise, and `threadsafePing` calls
+ * back from a worker thread through a thread-safe function.
+ */
+interface NodeAddonFixture {
+  add(left: number, right: number): number;
+  asyncAdd(left: number, right: number): Promise<number>;
+  threadsafePing(callback: (value: number) => void): void;
+}
+
 export default function NativeModulesFixture({
   kind = 'rust',
 }: {
-  kind?: 'rust' | 'cpp' | 'node-api' | 'node-api-prebuilt';
+  kind?: 'rust' | 'cpp' | 'node-api';
 }) {
   const [result, setResult] = useState('Ready');
   if (kind === 'cpp') {
@@ -19,18 +30,31 @@ export default function NativeModulesFixture({
         const module =
           require('@react-native-gpui/native-module-fixture').default;
         setResult(module.greet('GPUI Tester'));
-      } else if (kind === 'node-api-prebuilt') {
-        const addon: PrebuiltNodeApiFixture =
-          require('@react-native-gpui/node-api-prebuilt-fixture').default;
-        setResult(
-          `Prebuilt Node-API: ${addon.seven()} + ${addon.seven()} = ${addon.add(7, 7)}`,
-        );
-      } else {
-        const addon: NodeApiFixture = require('../../gpui_node_api_smoke.node');
-        setResult(`Node-API: 19 + 23 = ${addon.add(19, 23)}`);
-        const value = await addon.asyncAdd(20, 22);
-        setResult(`Node-API sync + async: 42 / ${value}`);
+        return;
       }
+      const addon: NodeAddonFixture = require('@react-native-gpui/node-addon-fixture');
+      const sync = addon.add(19, 23);
+      const async = await addon.asyncAdd(20, 22);
+      // The thread-safe function's callback runs on the JS thread after a
+      // worker thread dispatches it, so the screen waits for it before
+      // settling on the final line. Both the sync and async calls are in that
+      // line, which is what the e2e test asserts on.
+      await new Promise<void>(resolve => {
+        let settled = false;
+        const finish = (threadsafe: number) => {
+          if (settled) return;
+          settled = true;
+          setResult(
+            `Node-API sync + async: ${sync} / ${async} / tsfn ${threadsafe}`,
+          );
+          resolve();
+        };
+        addon.threadsafePing(finish);
+        // A thread-safe function that never fires must not hang the screen
+        // forever; the timeout keeps the UI usable and makes the failure
+        // visible instead of silent.
+        setTimeout(() => finish(NaN), 5000);
+      });
     } catch (error) {
       setResult(
         `Unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -39,7 +63,6 @@ export default function NativeModulesFixture({
   }
   const title = {
     'node-api': 'Node-API addon',
-    'node-api-prebuilt': 'Prebuilt Node-API addon',
     rust: 'Rust TurboModule',
     cpp: 'C++ TurboModule',
   }[kind];
