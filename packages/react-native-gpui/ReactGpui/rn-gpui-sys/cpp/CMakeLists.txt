@@ -661,7 +661,8 @@ if(RN_GPUI_JS_ENGINE_DEPS AND NOT RN_GPUI_PREBUILT_DIR)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_JS_ENGINE_DEPS})
 endif()
 
-if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
+if((APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
+   AND RN_GPUI_NODE_API_MODULE_NAMES
    AND EXISTS "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/CxxNodeApiHostModule.cpp"
    AND EXISTS "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated/weak_node_api.cpp")
   add_library(weak-node-api SHARED
@@ -670,13 +671,79 @@ if(APPLE AND RN_GPUI_NODE_API_MODULE_NAMES
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/include")
   target_compile_features(weak-node-api PRIVATE cxx_std_20)
-  set_target_properties(weak-node-api PROPERTIES
-    FRAMEWORK TRUE
-    OUTPUT_NAME "weak-node-api"
-    FRAMEWORK_VERSION A
-    MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
+  if(APPLE)
+    set_target_properties(weak-node-api PROPERTIES
+      FRAMEWORK TRUE
+      OUTPUT_NAME "weak-node-api"
+      FRAMEWORK_VERSION A
+      MACOSX_FRAMEWORK_IDENTIFIER "com.callstack.weak-node-api"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-frameworks")
+  else()
+    # A plain shared object. The resolver looks it up as libweak-node-api.so by
+    # name; the generated addons find it beside themselves through $ORIGIN.
+    set_target_properties(weak-node-api PROPERTIES
+      OUTPUT_NAME "weak-node-api"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-api-libs")
+  endif()
+endif()
 
+# react-native-node-api ships the host module sources with `#error` branches for
+# every platform except Apple and Android. The package is consumed from a release
+# tarball and must not be edited (rule 5), so on Linux read each source, replace
+# the `#error` with the Linux branch, and compile the generated copy with the
+# package's own `cpp/` directory still on the include path. A missing `#error`
+# means a package update changed the file: fail the configure rather than
+# mis-patch it silently.
+set(RN_GPUI_NODE_API_LINUX_DIR "${CMAKE_BINARY_DIR}/node-api-linux")
+# Writes `content` to `path` only when it differs, so an unchanged file keeps its
+# timestamp and CMake does not rebuild the whole archive.
+function(rn_gpui_write_if_different path content)
+  if(EXISTS "${path}")
+    file(READ "${path}" previous)
+    if(previous STREQUAL "${content}")
+      return()
+    endif()
+  endif()
+  file(WRITE "${path}" "${content}")
+endfunction()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET weak-node-api)
+  foreach(_rn_gpui_napi_source
+      "WeakNodeApiInjector.cpp"
+      "CxxNodeApiHostModule.cpp")
+    set(_rn_gpui_napi_input
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/${_rn_gpui_napi_source}")
+    file(READ "${_rn_gpui_napi_input}" _rn_gpui_napi_contents)
+    if(_rn_gpui_napi_source STREQUAL "WeakNodeApiInjector.cpp")
+      set(_rn_gpui_napi_expected
+        "#error \"WEAK_NODE_API_LIBRARY_NAME cannot be defined for this platform\"")
+      set(_rn_gpui_napi_replacement
+        "static const char* rn_gpui_weak_node_api_library_path() {\n  static char path[4096];\n  rn_gpui_node_api_library_path(\"weak-node-api\", path, sizeof(path));\n  return path;\n}\n#define WEAK_NODE_API_LIBRARY_NAME rn_gpui_weak_node_api_library_path()")
+    else()
+      set(_rn_gpui_napi_expected
+        "#error \"Loading Node-API addons is unsupported on this platform\"")
+      set(_rn_gpui_napi_replacement
+        "// dlopen resolves a bare name against the rpath of libhermesvm.so, not\n  // the app, so pass an absolute path when one exists.\n  char libraryPathBuffer[4096];\n  rn_gpui_node_api_library_path(libraryName.c_str(), libraryPathBuffer,\n                                sizeof(libraryPathBuffer));\n  const std::string libraryPath = libraryPathBuffer;")
+    endif()
+    string(FIND "${_rn_gpui_napi_contents}" "${_rn_gpui_napi_expected}"
+           _rn_gpui_napi_index)
+    if(_rn_gpui_napi_index EQUAL -1)
+      message(FATAL_ERROR
+        "react-native-node-api: expected the Linux branch marker\n"
+        "  ${_rn_gpui_napi_expected}\n"
+        "in ${_rn_gpui_napi_input} but did not find it. A package update changed "
+        "the file; update the replacement in rn-gpui-sys/cpp/CMakeLists.txt.")
+    endif()
+    string(REPLACE "${_rn_gpui_napi_expected}" "${_rn_gpui_napi_replacement}"
+           _rn_gpui_napi_patched "${_rn_gpui_napi_contents}")
+    # The generated source needs the header that declares the resolver.
+    string(PREPEND _rn_gpui_napi_patched "#include <GpuiNodeApiPath.h>\n")
+    rn_gpui_write_if_different(
+      "${RN_GPUI_NODE_API_LINUX_DIR}/${_rn_gpui_napi_source}"
+      "${_rn_gpui_napi_patched}")
+    set("RN_GPUI_NODE_API_LINUX_${_rn_gpui_napi_source}"
+      "${RN_GPUI_NODE_API_LINUX_DIR}/${_rn_gpui_napi_source}")
+  endforeach()
 endif()
 
 # App TurboModules are generated under desktop/autolink and linked as a
@@ -746,11 +813,32 @@ if(TARGET weak-node-api)
   # creates a napi_env and loads addons) is VM-specific and comes from the
   # active engine package through RN_GPUI_JS_ENGINE_NODE_API_SOURCES.
   get_property(RN_GPUI_JS_ENGINE_NODE_API_SOURCES GLOBAL PROPERTY RN_GPUI_JS_ENGINE_NODE_API_SOURCES)
-  list(APPEND RN_GPUI_MODULE_NODE_API_SOURCES
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
-    "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp"
-    ${RN_GPUI_JS_ENGINE_NODE_API_SOURCES})
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The two files that carry a platform `#error` are compiled from the
+    # generated Linux copies (see above); everything else comes from the
+    # package as-is. The engine package lists CxxNodeApiHostModule.cpp among
+    # its sources, so that entry is swapped for the generated copy here.
+    set(_rn_gpui_napi_engine_sources)
+    foreach(_rn_gpui_napi_engine_source IN LISTS RN_GPUI_JS_ENGINE_NODE_API_SOURCES)
+      if(_rn_gpui_napi_engine_source MATCHES "CxxNodeApiHostModule\\.cpp$")
+        list(APPEND _rn_gpui_napi_engine_sources
+          "${RN_GPUI_NODE_API_LINUX_DIR}/CxxNodeApiHostModule.cpp")
+      else()
+        list(APPEND _rn_gpui_napi_engine_sources "${_rn_gpui_napi_engine_source}")
+      endif()
+    endforeach()
+    list(APPEND RN_GPUI_MODULE_NODE_API_SOURCES
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
+      "${RN_GPUI_NODE_API_LINUX_DIR}/WeakNodeApiInjector.cpp"
+      ${_rn_gpui_napi_engine_sources})
+  else()
+    list(APPEND RN_GPUI_MODULE_NODE_API_SOURCES
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/Logger.cpp"
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/RuntimeNodeApi.cpp"
+      "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp/WeakNodeApiInjector.cpp"
+      ${RN_GPUI_JS_ENGINE_NODE_API_SOURCES})
+  endif()
   list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS
     "${RN_GPUI_NODE_API_PACKAGE_DIR}/cpp"
     "${RN_GPUI_WEAK_NODE_API_PACKAGE_DIR}/generated"
@@ -760,6 +848,22 @@ if(TARGET weak-node-api)
     # Tells an engine package that Node-API is available, so it registers its
     # host module capability in its registration function.
     RN_GPUI_HAS_NODE_API=1)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The resolver searches these directories after RN_GPUI_NODE_API_PATH and
+    # <exe dir>/node-api. Semicolons are escaped so the value reaches the
+    # compiler as one definition. An empty autolink list is dropped.
+    set(_rn_gpui_napi_build_dirs
+      "${CMAKE_BINARY_DIR}/node-api-libs")
+    if(RN_GPUI_NODE_API_STAGED_MODULES_DIR
+       AND EXISTS "${RN_GPUI_NODE_API_STAGED_MODULES_DIR}")
+      list(APPEND _rn_gpui_napi_build_dirs
+        "${RN_GPUI_NODE_API_STAGED_MODULES_DIR}")
+    endif()
+    string(REPLACE ";" "\\;" _rn_gpui_napi_build_dirs_escaped
+      "${_rn_gpui_napi_build_dirs}")
+    list(APPEND RN_GPUI_MODULE_DEFINITIONS
+      "RN_GPUI_NODE_API_BUILD_DIRS=\"${_rn_gpui_napi_build_dirs_escaped}\"")
+  endif()
 endif()
 
 
@@ -910,7 +1014,11 @@ if(RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR AND EXISTS "${RN_GPUI_NODE_API_STAGED_
   string(APPEND RN_GPUI_RPATH_DIRS "${RN_GPUI_NODE_API_STAGED_FRAMEWORKS_DIR}\n")
 endif()
 if(TARGET weak-node-api)
-  string(APPEND RN_GPUI_RPATH_DIRS "${CMAKE_BINARY_DIR}/node-api-frameworks\n")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    string(APPEND RN_GPUI_RPATH_DIRS "${CMAKE_BINARY_DIR}/node-api-libs\n")
+  else()
+    string(APPEND RN_GPUI_RPATH_DIRS "${CMAKE_BINARY_DIR}/node-api-frameworks\n")
+  endif()
 endif()
 
 # Shared libraries an engine package adds (its VM, for example) are ordinary
