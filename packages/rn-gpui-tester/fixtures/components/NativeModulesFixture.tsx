@@ -15,6 +15,49 @@ interface NodeAddonFixture {
   threadsafePing(callback: (value: number) => void): void;
 }
 
+/**
+ * Requires a module and returns the error Metro's module guard would otherwise
+ * swallow, or null when the load succeeded.
+ *
+ * Metro wraps every module factory in a guard: when the factory throws it calls
+ * `ErrorUtils.reportFatalError` and returns `undefined`, so a plain
+ * `require('…')` of a package whose addon is missing yields `undefined` and the
+ * caller's own `try`/`catch` never runs. Installing a handler for the duration
+ * of the require is the only way for app code to see the loader's message,
+ * which carries `code: 'MODULE_NOT_FOUND'` and the locations it tried — the
+ * text a developer (and the relocation check) needs.
+ */
+function requireCapturingError(load: () => unknown): {
+  module: unknown;
+  error: unknown;
+} {
+  const errorUtils = (
+    globalThis as {
+      ErrorUtils?: {
+        getGlobalHandler(): (error: unknown, isFatal: boolean) => void;
+        setGlobalHandler(
+          handler: (error: unknown, isFatal: boolean) => void,
+        ): void;
+      };
+    }
+  ).ErrorUtils;
+  if (!errorUtils) {
+    return { module: load(), error: null };
+  }
+  const previous = errorUtils.getGlobalHandler();
+  let captured: unknown = null;
+  errorUtils.setGlobalHandler(error => {
+    captured = error;
+  });
+  let loaded: unknown;
+  try {
+    loaded = load();
+  } finally {
+    errorUtils.setGlobalHandler(previous);
+  }
+  return { module: loaded, error: captured };
+}
+
 export default function NativeModulesFixture({
   kind = 'rust',
 }: {
@@ -32,7 +75,23 @@ export default function NativeModulesFixture({
         setResult(module.greet('GPUI Tester'));
         return;
       }
-      const addon: NodeAddonFixture = require('@react-native-gpui/node-addon-fixture');
+      const { module: addon, error: loadError } = requireCapturingError(() =>
+        require('@react-native-gpui/node-addon-fixture'),
+      ) as { module: NodeAddonFixture | undefined; error: unknown };
+      if (!addon) {
+        // The screen shows the loader's own message: `Cannot find Node-API
+        // addon '<key>'. Looked in: …`, and its `code`. The relocation check
+        // asserts on both.
+        const detail =
+          loadError instanceof Error
+            ? loadError.message
+            : loadError
+              ? String(loadError)
+              : 'the Node-API addon is not loaded';
+        const code = (loadError as { code?: string } | null)?.code;
+        setResult(`Unavailable: ${detail}${code ? ` [${code}]` : ''}`);
+        return;
+      }
       const sync = addon.add(19, 23);
       const async = await addon.asyncAdd(20, 22);
       // The thread-safe function's callback runs on the JS thread after a
