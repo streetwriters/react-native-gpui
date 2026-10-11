@@ -331,6 +331,7 @@ test('names a discovered prebuilt addon as the Babel plugin would', () => {
     'example-prebuilt',
     modulePath =>
       getLibraryName(modulePath, { pathSuffix: 'strip', packageName: 'strip' }),
+    'x64',
   );
   expect(modules).toHaveLength(1);
   expect(modules[0].libraryName).toBe('example-prebuilt--example');
@@ -353,13 +354,17 @@ test('does not descend into a package node_modules', () => {
     { name: 'example-prebuilt' },
     'example-prebuilt',
     modulePath => `name:${path.basename(modulePath, '.node')}`,
+    'x64',
   );
   expect(modules.map(addon => addon.libraryName)).toEqual(['name:prebuilt']);
 });
 
+// The prebuilt-addon path is Linux-only; name the host so these run anywhere.
+const linuxHost = { hostPlatform: 'linux', hostArch: 'x64' };
+
 test('stages no Node-API directory for an app with no addons', () => {
   const { projectRoot, configPath } = createProject();
-  autolink({ projectRoot, configFile: configPath });
+  autolink({ projectRoot, configFile: configPath, ...linuxHost });
   expect(
     fs.existsSync(path.join(projectRoot, 'desktop/autolink/node-api/linux')),
   ).toBe(false);
@@ -371,7 +376,7 @@ test('reports two prebuilt addons that share a library name', () => {
   });
   // Both files strip to the same basename, so `getLibraryName` gives them the
   // same name and autolink must refuse rather than stage one over the other.
-  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
-    /Node-API addon name collision for fake-module--addon/u,
-  );
+  expect(() =>
+    autolink({ projectRoot, configFile: configPath, ...linuxHost }),
+  ).toThrow(/Node-API addon name collision for fake-module--addon/u);
 });
