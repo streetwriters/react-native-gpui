@@ -492,6 +492,7 @@ export const findPrebuiltNodeApiModules = (
   packageJson,
   dependencyName,
   getLibraryName,
+  arch = process.arch,
 ) => {
   if (
     !packageJson.name ||
@@ -509,7 +510,7 @@ export const findPrebuiltNodeApiModules = (
         continue;
       }
       if (!entry.name.endsWith('.node')) continue;
-      if (!isHostPrebuiltNodeAddon(entryPath, process.arch)) continue;
+      if (!isHostPrebuiltNodeAddon(entryPath, arch)) continue;
       modules.push({
         dependencyName,
         packageName: packageJson.name,
@@ -551,7 +552,14 @@ function loadNodeApiLibraryNaming(appRequire) {
   return getLibraryName;
 }
 
-export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
+export function autolink({
+  projectRoot = process.cwd(),
+  configFile,
+  // Only the prebuilt Linux addon discovery and staging read these; they are
+  // parameters so the unit tests can exercise that path on any host.
+  hostPlatform = process.platform,
+  hostArch = process.arch,
+} = {}) {
   projectRoot = path.resolve(projectRoot);
   const desktopRoot = path.join(projectRoot, 'desktop');
   const autolinkRoot = path.join(desktopRoot, 'autolink');
@@ -629,7 +637,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       packageName: 'strip',
     });
   };
-  if (process.platform === 'linux') {
+  if (hostPlatform === 'linux') {
     const appPackageJson = JSON.parse(
       fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
     );
@@ -639,6 +647,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         appPackageJson,
         '<app>',
         libraryNameFor,
+        hostArch,
       ),
     );
   }
@@ -667,13 +676,14 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     // runtime addon. Scanning every dependency would also stage build tooling
     // that happens to ship a Node-API binary (a compiler's native binding, for
     // example), which is not part of the app's runtime.
-    if (process.platform === 'linux' && gpui) {
+    if (hostPlatform === 'linux' && gpui) {
       prebuiltNodeApiModules.push(
         ...findPrebuiltNodeApiModules(
           root,
           packageJson,
           dependencyName,
           libraryNameFor,
+          hostArch,
         ),
       );
     }
@@ -886,7 +896,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     nodeApiNames.set(addon.libraryName, addon.modulePath);
   }
 
-  if (process.platform === 'linux') {
+  if (hostPlatform === 'linux') {
     // Always clear the directory so an addon removed from a package disappears,
     // but do not recreate it unless there is something to stage: an app with no
     // prebuilt addons leaves no Node-API directory behind.
