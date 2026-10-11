@@ -6,6 +6,49 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Bumped whenever the shape of `.configure-inputs` changes, so an upgrade
+/// forces exactly one reconfigure instead of leaving a stale build.
+const STAMP_VERSION: &str = "2";
+
+/// Environment variables the `cmake` and `cc` crates read while generating the
+/// build system, and which they resolve through a target-prefixed name first.
+/// The `cmake` crate (`cmake-0.1.58/src/lib.rs`) resolves these in
+/// `getenv_target_os` as `<VAR>_<target>`, `<VAR>_<target with '-' and '.' as
+/// '_'>`, then `TARGET_<VAR>`/`HOST_<VAR>`, then `<VAR>`; the `cc` crate
+/// (`cc-1.5.1/src/lib.rs`, `target_envs`) resolves `CC`/`CXX`/flag variables the
+/// same way. `configure_env_names` expands every base listed here to all those
+/// forms.
+const CONFIGURE_ENV_VAR_BASES: &[&str] = &[
+    // Compilers and flags the generated project is handed.
+    "CC",
+    "CXX",
+    "CFLAGS",
+    "CXXFLAGS",
+    "CMAKE_PREFIX_PATH",
+    "CMAKE_GENERATOR",
+    "CMAKE_TOOLCHAIN_FILE",
+    // Programs the `cmake` crate may invoke.
+    "CMAKE",
+    "EMCMAKE",
+    "EMMAKE",
+    // Apple SDK selection (read by `cc`, then handed to CMake).
+    "MACOSX_DEPLOYMENT_TARGET",
+    "SDKROOT",
+];
+
+/// Cargo-provided variables the `cmake` crate reads directly at configure time
+/// (`cmake-0.1.58/src/lib.rs` lines 134-170, 442-460). These have no useful
+/// target-prefixed form, so only the plain name goes into the stamp.
+const CONFIGURE_CARGO_VARS: &[&str] = &[
+    "OPT_LEVEL",
+    "DEBUG",
+    "PROFILE",
+    "HOST",
+    "CARGO_CFG_TARGET_OS",
+    "CARGO_CFG_TARGET_ARCH",
+    "CARGO_CFG_TARGET_ENV",
+];
+
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
@@ -22,6 +65,7 @@ fn main() {
     ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
+    watch_configure_envs();
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
@@ -282,12 +326,17 @@ fn main() {
     // configuring on each build-script run would rebuild the whole C++ tree.
     // Configure only when the inputs changed; otherwise run the build, whose
     // own check still re-runs CMake when a CMakeLists or the cache changed.
+    // `RN_GPUI_FORCE_CMAKE_CONFIGURE=1` is the escape hatch when the stamp
+    // misses an input a future toolchain adds.
     let build_dir = cmake_out_dir.join("build");
     let stamp = configure_stamp(&defines, cmake_build_type, &target_triple);
     let stamp_path = cmake_out_dir.join(".configure-inputs");
-    let configure = !fs::read_to_string(&stamp_path).is_ok_and(|previous| previous == stamp)
+    let generator_output_exists =
+        build_dir.join("Makefile").is_file() || build_dir.join("build.ninja").is_file();
+    let configure = env_flag("RN_GPUI_FORCE_CMAKE_CONFIGURE")
+        || !fs::read_to_string(&stamp_path).is_ok_and(|previous| previous == stamp)
         || !build_dir.join("CMakeCache.txt").is_file()
-        || !build_dir.join("Makefile").is_file();
+        || !generator_output_exists;
 
     let dst = if configure {
         let mut cmake_config = cmake::Config::new("cpp");
@@ -437,25 +486,26 @@ fn watch_cpp_tree(root: &Path) {
 /// Everything that changes what CMake configures. When it all matches the
 /// previous run, the configure step is skipped: a reconfigure rewrites
 /// `flags.make`, and make would then rebuild every object in the tree.
+///
+/// This only lists inputs the `cmake` crate reads. `cc` resolves the compiler
+/// variables through `target_envs` (see `configure_env_names`), and the values
+/// inside `cc`'s own cache depend on `OPT_LEVEL`/`DEBUG`, which Cargo rewrites
+/// for the whole build, not just this crate.
 fn configure_stamp(defines: &[(&str, String)], profile: &str, target: &str) -> String {
     let mut stamp = String::new();
+    stamp.push_str("STAMP_VERSION=");
+    stamp.push_str(STAMP_VERSION);
+    stamp.push('\n');
     for (name, value) in defines {
         stamp.push_str(name);
         stamp.push('=');
         stamp.push_str(value);
         stamp.push('\n');
     }
-    for variable in [
-        "CC",
-        "CXX",
-        "CFLAGS",
-        "CXXFLAGS",
-        "CMAKE_PREFIX_PATH",
-        "CMAKE_TOOLCHAIN_FILE",
-    ] {
-        stamp.push_str(variable);
+    for name in configure_env_names(target) {
+        stamp.push_str(&name);
         stamp.push('=');
-        stamp.push_str(&env::var(variable).unwrap_or_default());
+        stamp.push_str(&env::var(name).unwrap_or_default());
         stamp.push('\n');
     }
     stamp.push_str("profile=");
@@ -464,7 +514,79 @@ fn configure_stamp(defines: &[(&str, String)], profile: &str, target: &str) -> S
     stamp.push_str("target=");
     stamp.push_str(target);
     stamp.push('\n');
+    stamp.push_str("cmake_version=");
+    stamp.push_str(&cmake_version());
+    stamp.push('\n');
     stamp
+}
+
+/// Declares, once, every environment variable that `configure_stamp` reads, so
+/// Cargo re-runs the build script when one changes. The target forms are
+/// declared for every variable too: `configure_env_names` decides which one
+/// actually lands in the stamp, but Cargo only needs to know that the script
+/// depends on it.
+fn watch_configure_envs() {
+    println!("cargo:rerun-if-env-changed=RN_GPUI_FORCE_CMAKE_CONFIGURE");
+    for name in configure_env_names(&env::var("TARGET").unwrap_or_default()) {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+}
+
+/// The environment variable names that can change a CMake configure: each base
+/// name, plus the target-specific forms the `cmake` and `cc` crates resolve, in
+/// the same order they try them (`cmake::Config::getenv_target_os`). Duplicates
+/// are removed and the list is sorted so the stamp is stable.
+fn configure_env_names(target: &str) -> Vec<String> {
+    if target.is_empty() {
+        return Vec::new();
+    }
+    // `cc` replaces both `-` and `.` with `_`.
+    let target_underscored = target.replace(['-', '.'], "_");
+    let kind = if target == env::var("HOST").unwrap_or_default() {
+        "HOST"
+    } else {
+        "TARGET"
+    };
+    let mut names = Vec::new();
+    for base in CONFIGURE_ENV_VAR_BASES {
+        for name in [
+            format!("{base}_{target}"),
+            format!("{base}_{target_underscored}"),
+            format!("{kind}_{base}"),
+            (*base).to_string(),
+        ] {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    for name in CONFIGURE_CARGO_VARS {
+        let name = (*name).to_string();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.sort();
+    names
+}
+
+/// The first line of `cmake --version`. A different CMake can accept or reject
+/// different `-D` arguments, so it belongs in the stamp. Any failure yields an
+/// empty string: version parsing never fails the build.
+fn cmake_version() -> String {
+    let executable = env::var("CMAKE").unwrap_or_else(|_| "cmake".to_string());
+    Command::new(executable)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
 }
 
 /// Builds without configuring. CMake's own staleness check re-runs the
