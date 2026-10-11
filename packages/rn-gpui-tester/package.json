@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "prestart": "node scripts/build-prebuilt-addon.mjs",
     "start": "react-native start --config desktop/metro.config.js",
+    "predesktop": "node scripts/build-prebuilt-addon.mjs",
     "desktop": "node scripts/run-desktop.mts",
     "autolink": "react-native-gpui autolink",
     "test": "vitest run --config ../../vitest.config.ts",

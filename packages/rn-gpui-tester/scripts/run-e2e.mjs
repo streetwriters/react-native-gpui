@@ -186,16 +186,15 @@ function setA11yEnabled(value) {
 
 stopTestApps();
 stopPreviousNetworkFixture();
-// The prebuilt Node-API fixture must exist before Metro runs: the Babel plugin
-// only rewrites a `require()` when the `.node` file is already on disk.
-if (process.platform === 'linux') {
-  run(
-    process.execPath,
-    [path.join(projectRoot, 'scripts/build-prebuilt-addon.mjs')],
-    repoRoot,
-    process.env,
-  );
-}
+// The prebuilt Node-API fixture must exist before Metro runs, on every
+// platform: the Babel plugin only rewrites a `require()` when the `.node` file
+// is already on disk, and the bundle fails to resolve it otherwise.
+run(
+  process.execPath,
+  [path.join(projectRoot, 'scripts/build-prebuilt-addon.mjs')],
+  repoRoot,
+  process.env,
+);
 run(
   npxCommand,
   npxArgs([
