@@ -83,6 +83,31 @@ test('window state reports the live bounds', async () => {
   expect(state).toContain('"scaleFactor"');
 });
 
+test('resizing a hidden window keeps its size when shown again', async () => {
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+  await app.setWindowSize(700, 500);
+
+  // Show first so the following hide is a real mapped -> unmapped transition
+  // (offscreen test windows start hidden). The window manager reports the new
+  // map state asynchronously, hence the idle waits.
+  await app.getByTestId('desktop-show-window').click();
+  await app.waitForIdle();
+  expect((await app.getWindowBounds()).hidden).toBe(false);
+
+  await app.getByTestId('desktop-hide-window').click();
+  await app.waitForIdle();
+  expect((await app.getWindowBounds()).hidden).toBe(true);
+
+  await app.setWindowSize(500, 400);
+  expect(await app.getWindowSize()).toEqual({ width: 500, height: 400 });
+
+  await app.getByTestId('desktop-show-window').click();
+  await app.waitForIdle();
+  expect((await app.getWindowBounds()).hidden).toBe(false);
+  expect(await app.getWindowSize()).toEqual({ width: 500, height: 400 });
+});
+
 test('a transparent-title-bar window opens with its own window id', async () => {
   await launch('WindowControlFixture');
   await app.waitForIdle();
