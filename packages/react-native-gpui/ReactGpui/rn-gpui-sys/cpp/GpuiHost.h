@@ -22,7 +22,11 @@ using EventListener = std::function<bool(const RawEvent&)>;
 } // namespace facebook::react
 
 namespace folly {
-class dynamic;
+// folly defines `dynamic` as a struct. MSVC puts the class/struct key into the
+// mangled name (`V` vs `U`), so forward-declaring it as a class here mangles
+// `gpui_synchronously_update_props` differently from the definition in
+// GpuiHost.cpp, and the app-side archive fails to link with LNK2019.
+struct dynamic;
 } // namespace folly
 
 namespace rngpui {
