@@ -23,6 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -123,6 +124,64 @@ function run(cmd, cmdArgs, options = {}) {
   }
 }
 
+/**
+ * A path as a CMake `-D` value.
+ *
+ * CMake parses a `-D` value as source text, so a Windows backslash starts an
+ * escape and `-DFOO=C:\dir\gen` dies with "Invalid character escape '\g'".
+ * Forward slashes are valid separators on Windows, so pass those.
+ */
+function cmakePath(value) {
+  return path.resolve(value).split(path.sep).join('/');
+}
+
+/**
+ * The `tar` to archive with.
+ *
+ * On Windows `tar` resolves to whatever is first on `PATH`, and Git for Windows
+ * ships a GNU `tar` that reads `C:\...` as a remote host (`tar: Cannot connect
+ * to C: resolve failed`), so archiving only works with the bsdtar in System32.
+ * Prefer that by full path and fall back to the name for macOS and Linux, where
+ * the first `tar` on `PATH` is the right one.
+ */
+function tarCommand() {
+  if (process.platform === 'win32') {
+    const system32 = path.join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'tar.exe',
+    );
+    if (existsSync(system32)) return system32;
+  }
+  return 'tar';
+}
+
+/**
+ * Links `target` at `linkPath`, or copies it when the platform will not make a
+ * link.
+ *
+ * A directory symlink on Windows needs an elevated process or Developer Mode
+ * (`EPERM: operation not permitted, symlink`), so a directory junction is used
+ * instead, which any user may create. Both are transparent to the build: CMake
+ * only reads the path. If neither works, copy, which always does.
+ */
+function linkDirectory(target, linkPath) {
+  try {
+    symlinkSync(
+      target,
+      linkPath,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    return;
+  } catch (error) {
+    if (process.platform !== 'win32') throw error;
+    console.log(
+      `note: could not link ${linkPath} (${error.code}); copying instead`,
+    );
+  }
+  cpSync(target, linkPath, { recursive: true });
+}
+
 function sha256File(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex');
 }
@@ -152,6 +211,28 @@ function cargoLockVersion(name) {
     .split('[[package]]')
     .find(b => b.includes(`name = "${name}"`));
   return block ? /version = "([^"]+)"/.exec(block)?.[1] : undefined;
+}
+
+/**
+ * The compiler that built the archive, for the manifest.
+ *
+ * `c++ --version` is the Unix spelling; MSVC has no `c++` and spells the flag
+ * `/Bv`, so asking for `--version` there leaves `stdout` undefined. Report
+ * whatever the toolchain actually says, and fall back to a plain description
+ * rather than crashing the whole archive build over a metadata string.
+ */
+function compilerVersion() {
+  const [command, cmdArgs] =
+    process.platform === 'win32'
+      ? ['cl', ['/Bv']]
+      : [process.env.CXX ?? 'c++', ['--version']];
+  const result = spawnSync(command, cmdArgs, { encoding: 'utf8' });
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  const first = output
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)[0];
+  return first ?? (process.platform === 'win32' ? 'cl' : 'unknown');
 }
 
 function libraryFiles(dir) {
@@ -224,7 +305,7 @@ if (!args['skip-build']) {
     !existsSync(linkedDeps) &&
     existsSync(nativeDepsSource)
   ) {
-    symlinkSync(nativeDepsSource, linkedDeps, 'dir');
+    linkDirectory(nativeDepsSource, linkedDeps);
   }
   run('cmake', [
     '-S',
@@ -245,11 +326,15 @@ if (!args['skip-build']) {
     // curl's docs/man-page install rules need generated pages the source build
     // never makes. The prebuilt installs curl's headers and library itself.
     '-DCURL_DISABLE_INSTALL=ON',
-    `-DREACT_COMMON_DIR=${reactCommonDir}`,
-    `-DREACT_CXX_PLATFORM_DIR=${reactCxxPlatformDir}`,
-    `-DRN_GPUI_OVERRIDES_DIR=${overridesDir}`,
-    `-DRN_GPUI_CXXBRIDGE_INCLUDE_DIR=${bridgeDir}`,
-    `-DRN_GPUI_GENERATED_RNCORE_DIR=${rncoreDir}`,
+    // Forward slashes: a `-D` value is parsed as a CMake string, where a
+    // backslash starts an escape, so `-D...=C:\rn-gpui\...` fails at configure
+    // time with "Invalid character escape '\g'". CMake accepts '/' on Windows
+    // and `build.rs` normalises the same paths the same way.
+    `-DREACT_COMMON_DIR=${cmakePath(reactCommonDir)}`,
+    `-DREACT_CXX_PLATFORM_DIR=${cmakePath(reactCxxPlatformDir)}`,
+    `-DRN_GPUI_OVERRIDES_DIR=${cmakePath(overridesDir)}`,
+    `-DRN_GPUI_CXXBRIDGE_INCLUDE_DIR=${cmakePath(bridgeDir)}`,
+    `-DRN_GPUI_GENERATED_RNCORE_DIR=${cmakePath(rncoreDir)}`,
   ]);
   run('cmake', [
     '--build',
@@ -310,10 +395,7 @@ const manifest = {
       : process.platform === 'linux'
         ? 'libstdc++'
         : 'msvc',
-  compiler:
-    spawnSync(process.env.CXX ?? 'c++', ['--version'], {
-      encoding: 'utf8',
-    }).stdout.split('\n')[0] ?? '',
+  compiler: compilerVersion(),
   cxxStandard: 20,
   msvcRuntime: process.platform === 'win32' ? '/MD' : null,
   cxxCrate: cargoLockVersion('cxx'),
@@ -343,7 +425,7 @@ writeFileSync(
 
 const archivePath = path.join(outDir, archiveName);
 rmSync(archivePath, { force: true });
-run('tar', ['-czf', archivePath, '-C', outDir, platform]);
+run(tarCommand(), ['-czf', archivePath, '-C', outDir, platform]);
 writeFileSync(
   `${archivePath}.sha256`,
   `${sha256File(archivePath)}  ${archiveName}\n`,
