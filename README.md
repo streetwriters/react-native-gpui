@@ -637,14 +637,24 @@ that wait for idle.
 | Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`           | counters yes, memory via `/proc/self/statm` |
 | Window capture (tests)     | yes                          | yes (baselines at window scale 1.25) | yes, X11 tested; Wayland untested           |
 | Hidden (`show: false`)     | yes                          | yes                                  | yes (X11 stays unmapped until shown)        |
-| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)           | AccessKit via AT-SPI; tests enable the bus  |
+| Native accessibility tree  | AppKit probe                 | AccessKit/UIA                        | AccessKit via AT-SPI; tests enable the bus  |
 | Node-API addons            | stock `.node` from npm       | not implemented (Part W deferred)    | stock `.node` from npm                      |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform. The Windows column was verified on a
-Windows machine: every row except the last two is exercised by a passing test in
+Windows machine: every row except the last is exercised by a passing test in
 `packages/rn-gpui-tester/e2e`, and the evidence for each is recorded in
 `.local\windows-baseline.txt`.
+
+On Windows the AccessKit adapter publishes over UI Automation, and it becomes
+active only when a client asks for the tree (Windows sends the window
+`WM_GETOBJECT`). The test driver sends that message itself, so the accessibility
+assertions run in the ordinary offscreen suite; the React Native `testID` arrives
+as the UIA `AutomationId`. `fixtures.e2e.ts` also walks the real tree of the
+running process with a UI Automation client (`e2e/uia-tree.ps1`) and compares it
+with the driver's copy, so a break in the adapter cannot hide behind GPUI's own
+tree. Unlike Linux, a visible window keeps GPUI's retained-view fast path, so a
+headed run needs no special casing.
 
 `react-native-gpui/desktop` reports what the current platform supports through
 `capabilities()`, which reads the `GpuiDesktop` TurboModule synchronously, so an
@@ -670,6 +680,15 @@ On Linux the runner turns on the session's AT-SPI flag
 (`org.a11y.Status.IsEnabled` on `org.a11y.Bus`) for the duration of the run and
 restores the previous value afterwards, so the native accessibility assertions
 have a tree to read. With no AT-SPI session bus those tests skip.
+
+On Windows nothing has to be switched on: `gpui_windows` activates AccessKit's UI
+Automation adapter when the window is asked for its accessibility provider, and
+the driver asks on the assertions' behalf by sending the window `WM_GETOBJECT`.
+Activation is therefore per app process, so one test's accessibility assertions
+cannot affect another's, and a headed run keeps GPUI's retained-view fast path.
+`RN_GPUI_TEST_NATIVE_A11Y=0` turns the assertions off; the runner reports which
+way it went. The tree test additionally needs a **visible** window, because a UI
+Automation client walks the desktop and cannot see an unmapped one.
 
 ## Supported libraries
 
