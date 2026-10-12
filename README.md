@@ -703,6 +703,35 @@ Environment variables:
 | `RN_GPUI_PREBUILT_CACHE=<dir>`                          | Cache location (default: the OS cache directory) |
 | `RN_GPUI_PREBUILT_OFFLINE=1` / `CARGO_NET_OFFLINE=true` | Use the cache only                               |
 
+### Windows
+
+The cache lives in `%LOCALAPPDATA%\react-native-gpui\prebuilt\<version>\<platform>`
+(`<platform>` is `win32-x64`). Building the archive and consuming it were
+verified on x64 with MSVC 19.44 and CMake's Visual Studio generator:
+
+| Build                                         | Time    |
+| --------------------------------------------- | ------- |
+| Runtime archive from an empty build directory | ~8 min  |
+| App, prebuilt runtime (debug)                 | ~6 min  |
+| App, prebuilt runtime (release)               | ~14 min |
+| App, runtime from source (debug)              | ~17 min |
+| App, runtime from source (release)            | ~29 min |
+
+The archive is ~171 MB (about 1.1 GB unpacked, 163 files). On MSVC the archive
+is fixed Release (`/MD`, `_ITERATOR_DEBUG_LEVEL=0`), so prebuilt mode compiles
+the app's own C++ with the same runtime library, iterator debug level and
+`_DEBUG` state read from the archive's `manifest.json`, whatever the Cargo
+profile is. Without that a debug build fails to link with `LNK2038`.
+
+Debug symbols ship separately, as `prebuilt-binaries-<platform>-pdb.tar.gz`
+(~65 MB), because a static library keeps its PDB next to the objects rather than
+inside the archive. Both archives are produced by the same command:
+
+```powershell
+node packages\react-native-gpui\scripts\build-prebuilt.mjs `
+  --version 0.1.0 --out C:\rn-gpui\prebuilt-out --jobs 5
+```
+
 ## License
 
 [MIT](LICENSE)
