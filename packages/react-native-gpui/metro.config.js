@@ -580,6 +580,15 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     if (path.dirname(directory) === directory) break;
   }
   const linkedPackageDirs = [];
+  // A `file:` (or npm link / workspace) dependency is a directory junction on
+  // Windows and a symlink elsewhere, so a module inside it resolves its own
+  // imports against the *target* tree's `node_modules`, not the app's. Metro
+  // can only hash files under a watch folder, so watching the package's real
+  // path is not enough: its siblings resolve to the repository's
+  // `node_modules` (for example `@react-native/js-polyfills/console.js`, which
+  // the re-export shims import) and Metro fails the bundle with
+  //   Failed to get the SHA-1 for: <repo>/node_modules/@react-native/js-polyfills/console.js
+  // Watch every `node_modules` above each linked package too.
   for (const packageName of gpuiPackages) {
     for (const modulesPath of nodeModulesPaths) {
       const candidate = path.join(modulesPath, packageName);
@@ -590,6 +599,12 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
         !nodeModulesPaths.some(folder => realPath.startsWith(folder + path.sep))
       ) {
         linkedPackageDirs.push(realPath);
+        for (let directory = realPath; ; directory = path.dirname(directory)) {
+          const modules = path.join(directory, 'node_modules');
+          if (fs.existsSync(modules)) linkedPackageDirs.push(modules);
+          const parent = path.dirname(directory);
+          if (parent === directory) break;
+        }
       }
       break;
     }
