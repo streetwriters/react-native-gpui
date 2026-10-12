@@ -626,22 +626,25 @@ that wait for idle.
 
 ### Platform support
 
-| Feature                    | macOS                        | Windows                             | Linux                                       |
-| -------------------------- | ---------------------------- | ----------------------------------- | ------------------------------------------- |
-| Application menu           | GPUI `NSMenu`                | `muda` on the HWND (unverified)     | GPUI-rendered in-window bar                 |
-| Context menus              | `muda` on the `NSView`       | `muda` on the HWND (unverified)     | GPUI-rendered popup                         |
-| Window positioning / raise | AppKit                       | `SetWindowPos` (unverified)         | X11 only; Wayland says `unsupported`        |
-| Custom title bar           | AppKit                       | `desktopWindowControl` (unverified) | not implemented                             |
-| Tray apps (7.3)            | yes                          | yes (no anchored popover)           | yes (menu-only on GNOME)                    |
-| Dev Menu                   | yes                          | menu popup as above                 | popup as above                              |
-| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`          | counters yes, memory via `/proc/self/statm` |
-| Window capture (tests)     | yes                          | yes (unverified)                    | yes, X11 tested; Wayland untested           |
-| Hidden (`show: false`)     | yes                          | unverified                          | yes (X11 stays unmapped until shown)        |
-| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)          | AccessKit via AT-SPI; tests enable the bus  |
-| Node-API addons            | stock `.node` from npm       | not implemented (Part W deferred)   | stock `.node` from npm                      |
+| Feature                    | macOS                        | Windows                              | Linux                                       |
+| -------------------------- | ---------------------------- | ------------------------------------ | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                | `muda` on the HWND                   | GPUI-rendered in-window bar                 |
+| Context menus              | `muda` on the `NSView`       | `muda` on the HWND                   | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                       | `SetWindowPos`                       | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                       | `desktopWindowControl`               | not implemented                             |
+| Tray apps (7.3)            | yes                          | yes (no anchored popover)            | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                          | menu popup as above                  | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`           | counters yes, memory via `/proc/self/statm` |
+| Window capture (tests)     | yes                          | yes (baselines at window scale 1.25) | yes, X11 tested; Wayland untested           |
+| Hidden (`show: false`)     | yes                          | yes                                  | yes (X11 stays unmapped until shown)        |
+| Native accessibility tree  | AppKit probe                 | AccessKit/UIA (unverified)           | AccessKit via AT-SPI; tests enable the bus  |
+| Node-API addons            | stock `.node` from npm       | not implemented (Part W deferred)    | stock `.node` from npm                      |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
-this machine cannot build for that platform.
+this machine cannot build for that platform. The Windows column was verified on a
+Windows machine: every row except the last two is exercised by a passing test in
+`packages/rn-gpui-tester/e2e`, and the evidence for each is recorded in
+`.local\windows-baseline.txt`.
 
 `react-native-gpui/desktop` reports what the current platform supports through
 `capabilities()`, which reads the `GpuiDesktop` TurboModule synchronously, so an
