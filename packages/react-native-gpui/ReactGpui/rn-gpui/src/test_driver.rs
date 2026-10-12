@@ -123,6 +123,8 @@ async fn serve_commands(
                 let _ = cx.update_window(window, |_, window, _| {
                     #[cfg(target_os = "macos")]
                     crate::native_view::activate_accessibility_probe(window);
+                    #[cfg(target_os = "windows")]
+                    activate_accessibility_probe(window);
                     window.refresh();
                 });
                 wait_for_frame(window, cx, Duration::from_millis(16)).await;
@@ -148,11 +150,19 @@ async fn serve_commands(
                     .flatten()
                     .unwrap_or(Value::Null)
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 {
                     // Resolve through GPUI's own AccessKit tree: the node whose
                     // author id (Element::accessibility_id, set from the React
-                    // Native testID) matches. No AT-SPI client is needed.
+                    // Native testID) matches. On Linux AccessKit's AT-SPI adapter
+                    // publishes the same tree; on Windows it maps the author id
+                    // to the UI Automation `AutomationId`, so no external client
+                    // is needed to read it back here.
+                    #[cfg(target_os = "windows")]
+                    let _ = cx.update_window(window, |_, window, _| {
+                        activate_accessibility_probe(window);
+                        window.refresh();
+                    });
                     let identifier = params
                         .get("identifier")
                         .and_then(Value::as_str)
@@ -204,7 +214,11 @@ async fn serve_commands(
                         }
                     }
                 }
-                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                #[cfg(not(any(
+                    target_os = "macos",
+                    target_os = "linux",
+                    target_os = "windows"
+                )))]
                 {
                     json!({"error":"Native identifier lookup is pending platform testing; use a11yTree"})
                 }
@@ -1443,6 +1457,43 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
 /// the inset. It is zero on platforms whose menu bar is native.
 fn menu_bar_offset() -> f32 {
     crate::desktop::gpui_menu::menu_bar_inset()
+}
+
+/// Asks GPUI to start publishing accessibility data on Windows.
+///
+/// `gpui_windows` creates its AccessKit (UI Automation) adapter when the window
+/// is built, but the adapter discards every tree update until a client requests
+/// the tree: `a11y_tree_update` funnels through `Adapter::update_if_active`, and
+/// activation happens in `handle_wm_getobject`, which only runs when Windows
+/// sends the window `WM_GETOBJECT` on behalf of a UI Automation client. Without
+/// that, `debug_a11y_tree_json()` has no tree and `a11yNode`/`a11yTree` report
+/// "the native accessibility tree is unavailable".
+///
+/// Sending `WM_GETOBJECT` with `OBJID_CLIENT` is exactly what such a client
+/// does, and it is what the macOS probe does in spirit by asking AppKit for
+/// `accessibilityChildren`. The call is synchronous and handled on this (the
+/// GPUI) thread.
+///
+/// Only compiled for the test driver: the message is otherwise a client's job.
+#[cfg(all(target_os = "windows", feature = "test-driver"))]
+fn activate_accessibility_probe(window: &gpui::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_GETOBJECT};
+    // OBJID_CLIENT: the window's own accessibility tree, which is what
+    // `AccessKit`'s `handle_wm_getobject` answers.
+    const OBJID_CLIENT: isize = 0xFFFF_FFFCu32 as i32 as isize;
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = win32.hwnd.get() as *mut core::ffi::c_void;
+    // The return value is the `LRESULT` AccessKit produced; this call exists to
+    // flip the adapter active, not to consume the provider.
+    unsafe {
+        SendMessageW(hwnd, WM_GETOBJECT, 0, OBJID_CLIENT);
+    }
 }
 
 /// The window-space center of a surface-space frame. Pointer events dispatched
