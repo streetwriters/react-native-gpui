@@ -45,6 +45,16 @@ pub struct AppMenuState {
     pub accelerators: Vec<(gpui::Keystroke, AcceleratorAction)>,
     pub _interceptor: Option<gpui::Subscription>,
     pub rebuild_scheduled: bool,
+    /// Windows only: the attached `muda` menu bar and the HWND it is on.
+    ///
+    /// `muda::Menu::init_for_hwnd` installs a window subclass whose `dwRefData`
+    /// points into the `Menu`, so the `Menu` has to outlive the subclass. The
+    /// value is held here, in a global that lives as long as the app, and the
+    /// subclass is detached before it is replaced, otherwise the next message
+    /// this window receives (a resize, a paint) calls through a dangling
+    /// pointer and the process dies with `STATUS_STACK_BUFFER_OVERRUN`.
+    #[cfg(target_os = "windows")]
+    pub platform_menu: Option<(muda::Menu, isize)>,
 }
 
 pub struct AppMenuGlobal(pub AppMenuState);
@@ -60,7 +70,20 @@ impl AppMenuGlobal {
             accelerators: Vec::new(),
             _interceptor: None,
             rebuild_scheduled: false,
+            #[cfg(target_os = "windows")]
+            platform_menu: None,
         })
+    }
+}
+
+/// Detaches the attached menu bar when the global is dropped, so a window that
+/// outlives the menu state never keeps a subclass pointing into freed memory.
+#[cfg(target_os = "windows")]
+impl Drop for AppMenuGlobal {
+    fn drop(&mut self) {
+        if let Some((menu, hwnd)) = self.0.platform_menu.take() {
+            remove_platform_menu(menu, hwnd);
+        }
     }
 }
 
@@ -439,11 +462,25 @@ fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopEr
     {
         let platform_menus = build_menus(&model, &app_name, dev_menu_enabled(cx));
         if let Some(handle) = crate::desktop::dev_menu::main_window(cx) {
+            let mut attached = None;
             let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
-                if !set_platform_menus(window, &platform_menus) {
-                    log::warn!("[desktop] could not attach the Win32 menu bar");
-                }
+                attached = set_platform_menus(window, &platform_menus);
             });
+            if let Some((bar, hwnd)) = attached {
+                // Replacing the bar first detaches the previous window subclass,
+                // which still points into the old menu; only then is that menu
+                // dropped, so the window never calls through freed memory.
+                if let Some((previous, previous_hwnd)) = cx
+                    .global_mut::<AppMenuGlobal>()
+                    .0
+                    .platform_menu
+                    .replace((bar, hwnd))
+                {
+                    remove_platform_menu(previous, previous_hwnd);
+                }
+            } else {
+                log::warn!("[desktop] could not attach the Win32 menu bar");
+            }
         }
     }
     cx.set_menus(menus);
@@ -576,8 +613,12 @@ fn is_desktop_action(action: &dyn Action) -> bool {
 }
 
 /// Windows: `muda` attaches a native Win32 menu to the window's HWND.
+///
+/// The built `muda::Menu` is returned rather than dropped: installing it leaves
+/// a window subclass whose `dwRefData` points into the menu, so dropping it here
+/// would leave the window calling through freed memory on its next message.
 #[cfg(target_os = "windows")]
-fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
+fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda::Menu, isize)> {
     use super::context_menu::MudaAppend as _;
     use muda::{
         CheckMenuItem, Menu as MudaMenu, MenuItem as MudaItem, PredefinedMenuItem, Submenu,
@@ -625,13 +666,13 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
 
     let handle = match HasWindowHandle::window_handle(window) {
         Ok(handle) => handle,
-        Err(_) => return false,
+        Err(_) => return None,
     };
     let hwnd = match handle.as_raw() {
         RawWindowHandle::Win32(win32) => win32.hwnd.get() as isize,
-        _ => return false,
+        _ => return None,
     };
-    let bar = MudaMenu::new();
+    let mut bar = MudaMenu::new();
     let mut bar_items: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
     for menu in menus {
         let submenu = Submenu::new(menu.name.to_string(), !menu.disabled);
@@ -644,10 +685,25 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> bool {
     }
     let refs: Vec<&dyn muda::IsMenuItem> = bar_items.iter().map(|item| item.as_ref()).collect();
     let _ = bar.append_all(&refs);
-    // `init_for_hwnd` installs the menu bar; the returned receiver must be kept
-    // alive for the items to keep dispatching.
-    let _ = unsafe { bar.init_for_hwnd(hwnd) };
-    true
+    if unsafe { bar.init_for_hwnd(hwnd) }.is_err() {
+        return None;
+    }
+    Some((bar, hwnd))
+}
+
+/// Windows: detaches an attached menu bar and drops it.
+///
+/// `muda::Menu::remove_for_hwnd` clears the Win32 menu but leaves the window
+/// subclass it installed in place; that subclass holds a raw pointer into the
+/// menu. It has to be detached explicitly before the menu is dropped, otherwise
+/// the next message the window receives calls into freed memory.
+#[cfg(target_os = "windows")]
+fn remove_platform_menu(mut menu: muda::Menu, hwnd: isize) {
+    use muda::ContextMenu as _;
+    unsafe {
+        menu.detach_menu_subclass_from_hwnd(hwnd);
+        let _ = menu.remove_for_hwnd(hwnd);
+    }
 }
 
 fn replace_accelerator_bindings(
