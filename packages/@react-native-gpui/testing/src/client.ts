@@ -169,11 +169,15 @@ export class DesktopApp {
   /**
    * Whether native accessibility nodes can be resolved by testID. macOS uses
    * the AppKit probe; on Linux the AT-SPI bus has to be enabled, which the e2e
-   * runner does and reports through `RN_GPUI_TEST_NATIVE_A11Y`.
+   * runner does and reports through `RN_GPUI_TEST_NATIVE_A11Y`; on Windows the
+   * AccessKit UIA adapter activates by itself when a client asks for the tree,
+   * and the runner reports the same variable.
    */
   get nativeA11ySupported(): boolean {
     if (process.platform === 'darwin') return true;
     if (process.platform === 'linux')
+      return process.env.RN_GPUI_TEST_NATIVE_A11Y !== '0';
+    if (process.platform === 'win32')
       return process.env.RN_GPUI_TEST_NATIVE_A11Y !== '0';
     return false;
   }
