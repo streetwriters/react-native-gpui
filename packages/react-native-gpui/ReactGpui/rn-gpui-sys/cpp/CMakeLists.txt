@@ -91,6 +91,14 @@ endif()
 # compile at target granularity in parallel, where a unity build would only take
 # parallelism away and change nothing else.
 #
+# To turn it off, pass the define through to CMake — `build.rs` does not forward
+# arbitrary `RN_GPUI_*` environment variables, so a bare
+# `RN_GPUI_UNITY_BUILD=OFF` never reaches this file:
+#
+#   CMAKE_ARGS=-DRN_GPUI_UNITY_BUILD=OFF cargo build     (with a reconfigure)
+#
+# or configure `cpp/` by hand with the same -D.
+#
 # A unity build changes what the compiler sees in one translation unit, so file
 # scope names and macros from one source become visible to the next. The
 # vendored third-party targets that cannot tolerate that are switched back off
