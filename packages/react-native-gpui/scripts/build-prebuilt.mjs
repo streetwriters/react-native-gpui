@@ -221,9 +221,9 @@ function findFiles(dir, matches) {
  * collide on one name, and none of them describes a library in the archive.
  * CMake spells the directory with a leading underscore (`_CMakeLTOTest-CXX`).
  */
-function isCmakeLtoTestArtifact(buildDir, file) {
+function isCmakeLtoTestArtifact(root, file) {
   return path
-    .relative(buildDir, file)
+    .relative(root, file)
     .split(path.sep)
     .some(segment => /^_?CMakeLTOTest-/u.test(segment));
 }
