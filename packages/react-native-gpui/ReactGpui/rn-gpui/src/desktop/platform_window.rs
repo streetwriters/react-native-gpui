@@ -165,7 +165,7 @@ mod imp {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsIconic, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindow, HWND_NOTOPMOST,
+        IsIconic, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindowAsync, HWND_NOTOPMOST,
         HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
         SW_HIDE, SW_SHOW,
     };
@@ -260,15 +260,21 @@ mod imp {
         Ok(())
     }
 
+    /// `ShowWindowAsync` rather than `ShowWindow`: the synchronous call delivers
+    /// `WM_SHOWWINDOW`/`WM_SIZE`/`WM_MOVE` before it returns, and GPUI's window
+    /// procedure re-enters the window state that the caller is inside, which
+    /// logs "RefCell already borrowed" (and drops the notification). The async
+    /// form queues the same messages and returns, which is what GPUI's own
+    /// `minimize` and `zoom` use.
     pub fn show(window: &mut Window) -> Result<(), String> {
         let hwnd = hwnd(window)?;
-        unsafe { ShowWindow(hwnd, SW_SHOW) };
+        unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
         Ok(())
     }
 
     pub fn hide(window: &mut Window) -> Result<(), String> {
         let hwnd = hwnd(window)?;
-        unsafe { ShowWindow(hwnd, SW_HIDE) };
+        unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
         Ok(())
     }
 
