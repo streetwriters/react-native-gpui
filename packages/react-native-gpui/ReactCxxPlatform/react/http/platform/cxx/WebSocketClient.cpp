@@ -302,21 +302,26 @@ void WebSocketClient::close(uint16_t code, const std::string& reason) {
       if (queued > 0)
         webSocketMessagesInFlight.fetch_sub(queued, std::memory_order_relaxed);
     }
-    auto ws = impl_->ws_.wlock();
-    std::visit(
-        [code, &reason](auto& socket) {
-          if (socket.is_open()) {
-            boost::beast::websocket::close_reason closeReason;
-            closeReason.code =
-                static_cast<boost::beast::websocket::close_code>(code);
-            closeReason.reason = reason;
-            socket.async_close(closeReason, [](auto&&) {});
-          } else {
-            boost::system::error_code ignored;
-            boost::beast::get_lowest_layer(socket).close(ignored);
-          }
-        },
-        *ws);
+    {
+      auto ws = impl_->ws_.wlock();
+      std::visit(
+          [code, &reason](auto& socket) {
+            if (socket.is_open()) {
+              boost::beast::websocket::close_reason closeReason;
+              closeReason.code =
+                  static_cast<boost::beast::websocket::close_code>(code);
+              closeReason.reason = reason;
+              socket.async_close(closeReason, [](auto&&) {});
+            } else {
+              boost::system::error_code ignored;
+              boost::beast::get_lowest_layer(socket).close(ignored);
+            }
+          },
+          *ws);
+    }
+    // Outside the lock: the I/O thread takes it in every completion handler,
+    // so joining while holding it deadlocks against a connection that is
+    // still being set up.
     if (thread_) {
       thread_->join();
     }
@@ -367,6 +372,11 @@ void WebSocketClient::Impl::onResolveCompleted(
   if (ec) {
     // TODO: Handle retry logic here
     onConnectCallback(false, "Failed to resolve host");
+    return;
+  }
+  if (isClosing_) {
+    // `close()` already closed the socket; connecting now would reopen it and
+    // keep `close()` waiting on this thread until the attempt fails.
     return;
   }
 
