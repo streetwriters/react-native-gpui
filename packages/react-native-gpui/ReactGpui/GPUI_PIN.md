@@ -66,5 +66,13 @@ runs (`packages/rn-gpui-tester/scripts/run-e2e.mjs`), so the native
 accessibility assertions skip there. Offscreen runs still enable the bus.
 Setting `RN_GPUI_TEST_NATIVE_A11Y=1` forces the bus on even when headed.
 
+Windows is not affected, and needs no equivalent rule. Activation there is
+per process: `gpui_windows` only starts publishing when a client asks the window
+for its accessibility provider (`WM_GETOBJECT`), and the test driver asks on
+behalf of the assertions, so only the process running an accessibility test has
+`a11y.is_active()` set. A headed run was measured with accessibility active and
+the `retained static siblings` check passed; each test launches its own app
+process, so the activation cannot leak between them.
+
 Fixing this properly means replaying accessibility subtree updates for retained
 views; that is out of scope for now.
