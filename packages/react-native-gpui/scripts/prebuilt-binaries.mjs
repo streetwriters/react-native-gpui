@@ -384,7 +384,11 @@ async function main() {
       return;
     }
     case 'pin': {
-      const { version, inputHash, tag, repo, sums, out } = args;
+      // `--sums` and `--assets` are the same file: the CI workflow calls it
+      // `--assets` while the usage line above says `--sums`. Accept both so the
+      // published pin can be written by the command the workflow runs.
+      const sums = args.sums ?? args.assets;
+      const { version, inputHash, tag, repo, out } = args;
       for (const [k, v] of Object.entries({
         version,
         inputHash,
@@ -429,7 +433,11 @@ async function main() {
           );
         }
         reactNative ??= manifest.reactNative;
-        assets[triple] = {
+        // Keyed by platform ("win32-x64"), not triple ("x86_64-pc-windows-msvc"):
+        // that is the documented shape at the top of this file and what
+        // `ensureDir` looks up (`pin.assets?.[platform]`). Keying by triple here
+        // meant a written pin could never be read back.
+        assets[platform] = {
           file,
           sha256,
           size: statSync(archive).size,
