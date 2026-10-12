@@ -416,6 +416,28 @@ export class DesktopApp {
 
   async reload(): Promise<void> {
     await this.request('reload');
+    // The request only asks for a reload: the old React instance is torn down and
+    // a new one mounts afterwards, and the tree is empty in between. That gap is
+    // not reported as busy, so `waitForIdle` can return while the tree is still
+    // empty. A caller that queries immediately after this (the reload loop in the
+    // navigation suite) then fails with "matched no nodes". Wait for a tree whose
+    // mount batch for the *new* instance has landed, then for it to settle.
+    //
+    // The reply carries no generation, so the reload is bracketed instead: wait
+    // for the tree to disappear (the old instance's teardown), then for it to come
+    // back (the new instance's mount). A reload that tears down and re-mounts
+    // between two polls skips the first step and is caught by the second.
+    const deadline = Date.now() + 30_000;
+    let sawTeardown = false;
+    while (Date.now() < deadline) {
+      const tree = (await this.tree()) as { children?: unknown[] } | null;
+      if (!tree?.children?.length) {
+        sawTeardown = true;
+      } else if (sawTeardown) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
     await this.waitForIdle({ timeout: 30000 });
   }
 
@@ -1018,24 +1040,52 @@ export class Locator {
     }, timeout);
   }
 
+  /**
+   * Resolves the node an action targets.
+   *
+   * A reload tears the React instance down and mounts a new one, and the store's
+   * tree is empty in between. That gap is not reported as busy, so an action
+   * issued right after a reload can land in it. An empty *tree* is always
+   * transient, so it is waited out; a locator that matches nothing inside a
+   * populated tree is a real miss and still fails immediately, so a wrong
+   * `testID` does not pay a timeout before reporting itself.
+   */
   private async firstMatch(): Promise<Match> {
-    let matches = await this.all();
-    if (this.index === undefined) {
-      const visible = matches.filter(match => match.visible);
-      // Navigation retains inactive screens. Actions resolve the exposed
-      // screen; explicit nth()/all() still address the complete store query.
-      if (visible.length) matches = visible;
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      let matches = await this.all();
+      if (matches.length === 0 && (await this.treeIsEmpty())) {
+        if (Date.now() >= deadline) throw new Error(`${this} matched no nodes`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        continue;
+      }
+      if (this.index === undefined) {
+        const visible = matches.filter(match => match.visible);
+        // Navigation retains inactive screens. Actions resolve the exposed
+        // screen; explicit nth()/all() still address the complete store query.
+        if (visible.length) matches = visible;
+      }
+      if (matches.length === 0) throw new Error(`${this} matched no nodes`);
+      if (this.index !== undefined) {
+        if (!matches[this.index]) throw new Error(`${this} matched no nodes`);
+        return matches[this.index];
+      }
+      if (matches.length > 1)
+        throw new Error(
+          `${this} matched ${matches.length} nodes; narrow the locator`,
+        );
+      return matches[0];
     }
-    if (matches.length === 0) throw new Error(`${this} matched no nodes`);
-    if (this.index !== undefined) {
-      if (!matches[this.index]) throw new Error(`${this} matched no nodes`);
-      return matches[this.index];
+  }
+
+  /** True when the store has no tree at all, i.e. no React instance is mounted. */
+  private async treeIsEmpty(): Promise<boolean> {
+    try {
+      const tree = (await this.app.tree()) as { children?: unknown[] } | null;
+      return !tree?.children?.length;
+    } catch {
+      return false;
     }
-    if (matches.length > 1)
-      throw new Error(
-        `${this} matched ${matches.length} nodes; narrow the locator`,
-      );
-    return matches[0];
   }
 
   private async actionableMatch(): Promise<Match> {
