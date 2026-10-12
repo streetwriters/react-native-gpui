@@ -38,3 +38,11 @@ rn-gpui-module-build = { path = "../../react-native-gpui/ReactGpui/rn-gpui-modul
 rn-gpui-module = { path = "../../react-native-gpui/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../react-native-gpui/ReactGpui/rn-gpui" }
+
+# TEMPORARY, never commit: build against the local gpui-fast clone while the
+# Windows fixes are developed. Remove before committing the new pin.
+[patch."https://github.com/streetwriters/gpui-fast"]
+gpui = { path = "C:/Users/Hp/gpui-fast/crates/gpui" }
+gpui_platform = { path = "C:/Users/Hp/gpui-fast/crates/gpui_platform" }
+reqwest_client = { path = "C:/Users/Hp/gpui-fast/crates/reqwest_client" }
+http_client = { path = "C:/Users/Hp/gpui-fast/crates/http_client" }

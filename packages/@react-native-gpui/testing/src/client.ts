@@ -105,6 +105,8 @@ export class DesktopApp {
   private readonly token: string;
   private idleOptions: IdleOptions = {};
   private readonly allowedErrors: RegExp[] = [];
+  /** Byte offset of the log already judged by `assertNoErrors`. */
+  private assertedLogLength: number | undefined;
   private nextId = 1;
   private readonly pending = new Map<
     number,
@@ -640,8 +642,22 @@ export class DesktopApp {
     return fs.readFileSync(this.logFile, 'utf8');
   }
 
+  /**
+   * Fails when the app logged an error line since the previous check.
+   *
+   * The whole log is read every time, but only the tail added since the last
+   * call is judged. The e2e harness keeps one `DesktopApp` per file and checks
+   * it after every test, and an app's shutdown writes its last lines after the
+   * test that closed it finished; comparing the whole file would attribute
+   * those lines to whichever unrelated test ran next. Errors from the first
+   * lines — before any check — are still reported, so nothing is hidden.
+   */
   assertNoErrors(): void {
-    const errors = this.readLogs()
+    const text = this.readLogs();
+    const start = this.assertedLogLength ?? 0;
+    this.assertedLogLength = text.length;
+    const errors = text
+      .slice(start)
       .split('\n')
       .filter(
         line =>
