@@ -186,6 +186,32 @@ if(RN_GPUI_PREBUILT_DIR)
   if(NOT _rn_gpui_json_err AND _rn_gpui_prebuilt_rn_debug STREQUAL "0")
     add_compile_definitions(REACT_NATIVE_PRODUCTION)
   endif()
+  # The app's own C++ is compiled by this configure, in whatever Cargo profile
+  # the caller used, while the archive is fixed Release (/MD, iterator debug
+  # level 0). A Cargo debug build configures CMake as Debug, which defines
+  # _DEBUG; MSVC's STL then expands that to _ITERATOR_DEBUG_LEVEL=2 and selects
+  # the debug CRT, and the link dies on LNK2038 with
+  #   mismatch detected for '_ITERATOR_DEBUG_LEVEL': value '2' doesn't match '0'
+  #   mismatch detected for 'RuntimeLibrary': 'MDd_DynamicDebug' vs 'MD_DynamicRelease'
+  # So match the runtime library recorded in the manifest whatever the profile,
+  # the same way REACT_NATIVE_PRODUCTION is taken from the manifest above.
+  # `build.rs` already pins CMAKE_MSVC_RUNTIME_LIBRARY to MultiThreadedDLL; the
+  # iterator level and _DEBUG are what is left.
+  if(MSVC)
+    string(JSON _rn_gpui_prebuilt_iterator ERROR_VARIABLE _rn_gpui_iterator_err
+      GET "${_rn_gpui_prebuilt_json}" flags msvcIteratorDebugLevel)
+    if(_rn_gpui_iterator_err)
+      set(_rn_gpui_prebuilt_iterator 0)
+    endif()
+    # /U_DEBUG: without it the STL header sees _DEBUG and raises the level again
+    # even when _ITERATOR_DEBUG_LEVEL is defined. /DNDEBUG keeps assert() off, as
+    # in the archive; the definition is conditional so a Release consumer does
+    # not warn about redefining it.
+    add_compile_options(
+      "/U_DEBUG"
+      "$<$<NOT:$<CONFIG:Release,MinSizeRel,RelWithDebInfo>>:/DNDEBUG>")
+    add_compile_definitions(_ITERATOR_DEBUG_LEVEL=${_rn_gpui_prebuilt_iterator})
+  endif()
   # ReactCommonOverrides is compiled into the archive. build.rs computes the
   # current hash (CMake strings cannot hold the NUL separator) and passes it in
   # as RN_GPUI_OVERRIDES_SHA256; a mismatch means the archive is stale.
