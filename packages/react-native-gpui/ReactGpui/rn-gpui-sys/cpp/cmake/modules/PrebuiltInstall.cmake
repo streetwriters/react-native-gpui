@@ -280,6 +280,25 @@ foreach(_rn_gpui_entry IN LISTS _rn_gpui_order)
   else()
     set(_rn_gpui_file "$<TARGET_FILE_NAME:${_rn_gpui_real}>")
   endif()
+  # A built shared library links through its import library, which the install
+  # rules above put in `lib/` while the DLL itself goes to `bin/`. Emitting only
+  # IMPORTED_LOCATION left the consumer with nothing to link against: CMake
+  # resolved the target to `jsi-NOTFOUND` and the link emitted an empty `-L`,
+  # failing with "empty search path given via `-L`". Name the DLL in `bin/` and
+  # the import library in `lib/`.
+  #
+  # Only built targets: an imported shared library is installed with
+  # `install(FILES ... DESTINATION lib)` and has no import library in the
+  # archive, so its single file keeps naming `lib/`.
+  if(_rn_gpui_kind STREQUAL "SHARED" AND NOT _rn_gpui_imported_flag)
+    string(APPEND _rn_gpui_targets_text
+"add_library(${_rn_gpui_entry} ${_rn_gpui_kind} IMPORTED)
+set_target_properties(${_rn_gpui_entry} PROPERTIES
+  IMPORTED_LOCATION \"\${_rn_gpui_prebuilt_root}/bin/${_rn_gpui_file}\"
+  IMPORTED_IMPLIB \"\${_rn_gpui_prebuilt_root}/lib/$<TARGET_LINKER_FILE_NAME:${_rn_gpui_real}>\")
+")
+    continue()
+  endif()
   string(APPEND _rn_gpui_targets_text
 "add_library(${_rn_gpui_entry} ${_rn_gpui_kind} IMPORTED)
 set_target_properties(${_rn_gpui_entry} PROPERTIES
