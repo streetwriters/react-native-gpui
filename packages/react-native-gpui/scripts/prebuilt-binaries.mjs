@@ -406,16 +406,26 @@ async function main() {
       const sumsDir = path.dirname(path.resolve(sums));
       const assets = {};
       let reactNative = null;
-      for (const line of readFileSync(sums, 'utf8').split('\n')) {
+      for (const rawLine of readFileSync(sums, 'utf8').split('\n')) {
+        // A sums file written on Windows (PowerShell's `Set-Content`, or a
+        // checkout with `core.autocrlf`) has CRLF endings, and the stray
+        // carriage return stops the `$`-anchored pattern below from matching.
+        const line = rawLine.trim();
+        if (!line) continue;
+        // The sums file also lists `prebuilt-binaries-<platform>-pdb.tar.gz`.
+        // The alternation and the anchoring keep that from being read as a
+        // platform named `win32-x64-pdb`.
         const match = line.match(
-          /^([0-9a-f]{64})\s+\*?(prebuilt-binaries-(.+)\.tar\.gz)$/u,
+          /^([0-9a-f]{64})\s+\*?prebuilt-binaries-([a-z0-9]+-[a-z0-9_]+)\.tar\.gz$/u,
         );
         if (!match) continue;
-        const [, sha256, file, platform] = match;
-        const triple = Object.keys(TRIPLE_PLATFORMS).find(
+        const [, sha256, platform] = match;
+        const file = `prebuilt-binaries-${platform}.tar.gz`;
+        // Only platforms this package knows are published.
+        const knownPlatform = Object.keys(TRIPLE_PLATFORMS).some(
           t => TRIPLE_PLATFORMS[t] === platform,
         );
-        if (!triple) continue;
+        if (!knownPlatform) continue;
         const archive = path.join(sumsDir, file);
         // The archive has one top-level <platform>/ dir; read its manifest.json
         // directly so the same call works with GNU and BSD tar.
