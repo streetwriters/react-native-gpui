@@ -36,10 +36,47 @@ fn main() {
     let Ok(paths) = std::env::var("DEP_RN_GPUI_RUNTIME_RPATHS") else {
         return;
     };
+    let dirs = paths.split('|').filter(|path| !path.is_empty());
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        stage_shared_libraries(dirs);
         return;
     }
-    for path in paths.split('|').filter(|path| !path.is_empty()) {
+    for path in dirs {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
+    }
+}
+
+/// Windows has no rpath: the loader finds a DLL next to the executable or on
+/// `PATH`, so every directory the runtime reports as holding a shared library
+/// (the Hermes binary directory in particular) is copied into the profile
+/// directory that receives this app's executable. Without this the app builds
+/// and then fails to start with "hermesvm.dll was not found".
+fn stage_shared_libraries<'a>(dirs: impl Iterator<Item = &'a str>) {
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR is set"));
+    // <profile>/build/<package>-<hash>/out -> <profile>
+    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+        return;
+    };
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let source = entry.path();
+            let is_shared_library = source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"));
+            if !is_shared_library {
+                continue;
+            }
+            let Some(name) = source.file_name() else {
+                continue;
+            };
+            println!("cargo:rerun-if-changed={}", source.display());
+            std::fs::copy(&source, profile_dir.join(name)).unwrap_or_else(|error| {
+                panic!("copy {} next to the executable: {error}", source.display())
+            });
+        }
     }
 }
