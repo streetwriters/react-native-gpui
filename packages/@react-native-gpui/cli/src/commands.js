@@ -676,6 +676,14 @@ function scaffoldDesktop(
         packageJson.dependencies?.['react-native-gpui'] ?? '^0.1.0',
       '@react-native-gpui/hermes':
         packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
+      // `rn-gpui-module-build` resolves its spec generator from the app
+      // (`require.resolve('@react-native-gpui/codegen/generate-rust-spec')` with
+      // the crate directory as the search path), so the app must depend on it
+      // directly. Inside this repository the workspace hoists it and a missing
+      // entry goes unnoticed; an app installed from the registry fails with
+      // "Cannot find module '@react-native-gpui/codegen/generate-rust-spec'".
+      '@react-native-gpui/codegen':
+        packageJson.dependencies?.['@react-native-gpui/codegen'] ?? '^0.1.0',
     },
     scripts: {
       ...packageJson.scripts,
