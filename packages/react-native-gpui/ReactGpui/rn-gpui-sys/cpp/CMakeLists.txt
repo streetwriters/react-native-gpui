@@ -76,6 +76,42 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     "$<$<COMPILE_LANGUAGE:CXX>:cstdint>")
 endif()
 
+# --- Windows unity build -------------------------------------------------
+#
+# MSBuild hands a project's sources to one cl.exe, which compiles them one at a
+# time unless /MP is given, and ReactCommon splits into ~76 projects of ~4
+# sources each while project dependencies leave only one or two building at
+# once (see the /MP comment above). Nearly all of that time goes into parsing
+# the shared ReactCommon, folly and boost headers, once per source file. A unity
+# build merges a target's sources into one translation unit, so those headers
+# are parsed once per target instead of once per source.
+#
+# This is Windows-only and opt-out. MSVC is the only compiler here that is
+# driven by MSBuild at project granularity; the Linux and macOS builds already
+# compile at target granularity in parallel, where a unity build would only take
+# parallelism away and change nothing else.
+#
+# A unity build changes what the compiler sees in one translation unit, so file
+# scope names and macros from one source become visible to the next. The
+# vendored third-party targets that cannot tolerate that are switched back off
+# with `UNITY_BUILD OFF` in the MSVC section at the end of this file, once every
+# target exists.
+option(RN_GPUI_UNITY_BUILD
+       "Merge each MSVC target's sources into unity translation units" ON)
+if(MSVC AND RN_GPUI_UNITY_BUILD)
+  set(CMAKE_UNITY_BUILD ON)
+  # Merge a target's sources in batches of this size. Most ReactCommon targets
+  # have fewer sources than this, so they collapse into a single compilation;
+  # /MP still spreads the batches of the larger targets across cores.
+  set(CMAKE_UNITY_BUILD_BATCH_SIZE 8)
+  # A merged translation unit holds the code and debug info of every source in
+  # its batch, which overflows the COFF section limit on the app's generated
+  # TurboModule specs ("error C1128: number of sections exceeded object file
+  # format limit"). /bigobj raises the limit; it is a no-op for units that stay
+  # under it, so it is set for the whole unity build rather than per target.
+  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/bigobj>")
+endif()
+
 set(REACT_COMMON_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules/react-native/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
@@ -978,6 +1014,75 @@ if(MSVC)
   endfunction()
 
   rn_gpui_strip_gcc_only_flags("${CMAKE_CURRENT_BINARY_DIR}")
+
+  # A unity build is what makes the build fast (each target's shared headers are
+  # parsed once instead of once per source) and also what makes it unsafe for
+  # code that was never compiled that way: merging sources makes file-scope
+  # names and macros from one source visible to the next. The vendored
+  # third-party trees are exactly that — curl defines same-named file-local
+  # helpers in several sources, and folly's portability shims pick one
+  # implementation per file — so they keep the translation-unit layout their
+  # upstreams expect, and the win comes from ReactCommon and the gpui platform
+  # targets that this repository builds and tests.
+  #
+  # Selection is by source directory, not by target name: the vendored trees
+  # define hundreds of targets whose names differ per version, and a name list
+  # silently stops matching when one is renamed.
+  #
+  # `yoga` lives under ReactCommon but is a vendored upstream of its own whose
+  # Node.cpp cannot be merged with its siblings ("error C2872: 'Node': ambiguous
+  # symbol"), so both roots are matched.
+  #
+  # `rrc_view` and `rrc_legacyviewmanagerinterop` are ReactCommon targets that
+  # also cannot be merged, for two different upstream reasons:
+  #
+  #   * `rrc_view` defines a `toString` overload per props class (Filter.h,
+  #     BackgroundImage.h) while DebugStringConvertible.h's
+  #     `toString(std::vector<T>)` template is instantiated in the same unit.
+  #     Resolution depends on which source precedes which, and merging puts
+  #     `toString(BackgroundImage)` after the instantiation ("error C2665: no
+  #     overloaded function could convert all the argument types").
+  #   * `rrc_legacyviewmanagerinterop` includes
+  #     LegacyViewManagerInteropViewProps.h, which has no include guard at all —
+  #     it is wrapped in `#ifndef RCT_REMOVE_LEGACY_COMPONENT_INTEROP`, a build
+  #     feature rather than a guard — so merging redefines its classes ("error
+  #     C2011: 'LegacyViewManagerInteropViewProps': 'class' type redefinition").
+  #
+  # Both are ~4 sources each, so leaving them unmerged costs almost nothing and
+  # needs no edit to vendored React Native.
+  #
+  # OpenSSL is not a CMake target at all (it builds through its own Configure +
+  # Make), so it is unaffected.
+  function(rn_gpui_disable_unity_for_vendored directory)
+    get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+      # Aliases (double_conversion, yoga, ...) reject set_target_properties, and
+      # the real target they name is visited by this same walk.
+      get_target_property(_aliased "${_target}" ALIASED_TARGET)
+      if(_aliased)
+        continue()
+      endif()
+      if(_target STREQUAL "rrc_view"
+         OR _target STREQUAL "rrc_legacyviewmanagerinterop"
+         OR _target STREQUAL "react_renderer_mounting")
+        set_target_properties("${_target}" PROPERTIES UNITY_BUILD OFF)
+        continue()
+      endif()
+      get_target_property(_source_dir "${_target}" SOURCE_DIR)
+      if(_source_dir AND (_source_dir MATCHES "native-deps"
+                          OR _source_dir MATCHES "/ReactCommon/yoga/"))
+        set_target_properties("${_target}" PROPERTIES UNITY_BUILD OFF)
+      endif()
+    endforeach()
+    get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdirectory IN LISTS _subdirectories)
+      rn_gpui_disable_unity_for_vendored("${_subdirectory}")
+    endforeach()
+  endfunction()
+
+  if(RN_GPUI_UNITY_BUILD)
+    rn_gpui_disable_unity_for_vendored("${CMAKE_CURRENT_BINARY_DIR}")
+  endif()
 
   # RN's jsi CMakeLists globs every jsi/*.cpp, which drags in the POSIX memory
   # mapping implementation; Windows has jsilib-windows.cpp instead.
