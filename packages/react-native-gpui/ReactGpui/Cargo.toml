@@ -21,8 +21,8 @@ debug = false
 strip = "debuginfo"
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "6f5c836913c3b5b7ddf930c88259447799c887d1" }
-gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "6f5c836913c3b5b7ddf930c88259447799c887d1" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "41011e44e5f70e392594f69faaf6a35515749d91" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "41011e44e5f70e392594f69faaf6a35515749d91" }
 cxx = "=1.0.202"
 cxx-build = "=1.0.202"
 cmake = "0.1"
@@ -32,14 +32,6 @@ log = "0.4"
 env_logger = "0.11"
 serde_json = "1"
 futures = "0.3"
-reqwest_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "6f5c836913c3b5b7ddf930c88259447799c887d1" }
-http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "6f5c836913c3b5b7ddf930c88259447799c887d1" }
+reqwest_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "41011e44e5f70e392594f69faaf6a35515749d91" }
+http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "41011e44e5f70e392594f69faaf6a35515749d91" }
 fontdue = "0.9"
-
-# TEMPORARY, never commit: build against the local gpui-fast clone while the
-# Windows fixes are developed. Remove before committing the new pin.
-[patch."https://github.com/streetwriters/gpui-fast"]
-gpui = { path = "C:/Users/Hp/gpui-fast/crates/gpui" }
-gpui_platform = { path = "C:/Users/Hp/gpui-fast/crates/gpui_platform" }
-reqwest_client = { path = "C:/Users/Hp/gpui-fast/crates/reqwest_client" }
-http_client = { path = "C:/Users/Hp/gpui-fast/crates/http_client" }

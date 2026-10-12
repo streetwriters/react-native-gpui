@@ -11,9 +11,9 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `6f5c836913c3b5b7ddf930c88259447799c887d1` (upstream main @ 2026-10-09,
+- Commit: `41011e44e5f70e392594f69faaf6a35515749d91` (upstream main @ 2026-10-09,
   "ci: allow release dependency tests time to compile on Windows (#53)", plus
-  the Linux fixes below)
+  the Linux and Windows fixes below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Carried patches on top of upstream
@@ -24,6 +24,9 @@ so we pin by commit SHA and bump on purpose.
 - `a161424` `gpui_linux: implement render_to_image for X11 and Wayland`
 - `75603f3` `gpui: expose accessibility identifiers and states in the debug tree`
 - `6f5c836` `gpui_linux: track the X11 map state from map and unmap events`
+- `18c7c9e` `gpui_windows: deliver hover and resize callbacks outside the window procedure`
+- `e2fedd1` `gpui_windows: skip windows that are already gone`
+- `41011e4` `gpui: ignore platform callbacks for a window that has been removed`
 
 ## Upstream (from the repo's `UPSTREAM` file at that commit)
 
