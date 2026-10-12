@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import {
   launchApp,
   expectNoA11yViolations,
@@ -12,6 +13,9 @@ async function launch(
   module: string,
   scenario?: string,
   initialProps: Record<string, unknown> = {},
+  // A UI Automation client walks the desktop, so it cannot see an unmapped
+  // window: the test that reads the real tree has to ask for a visible one.
+  { offscreen = true }: { offscreen?: boolean } = {},
 ) {
   if (app) await app.close();
   app = await launchApp({
@@ -30,7 +34,7 @@ async function launch(
     },
     initialProps: { scenario, ...initialProps },
     disableAnimations: true,
-    offscreen: true,
+    offscreen,
   });
   await app.setWindowSize(1024, 768);
   return app;
@@ -193,9 +197,12 @@ test.each(['stack', 'native-stack'])(
 );
 
 // Native accessibility runs where the platform can resolve nodes by testID:
-// macOS always, Linux when the e2e runner enabled the AT-SPI bus.
+// macOS always, Windows always (the runner turns it on; no system setting is
+// involved), Linux when the e2e runner enabled the AT-SPI bus.
 const nativeA11y =
-  process.platform === 'darwin' || process.env.RN_GPUI_TEST_NATIVE_A11Y === '1';
+  process.platform === 'darwin' ||
+  process.platform === 'win32' ||
+  process.env.RN_GPUI_TEST_NATIVE_A11Y === '1';
 
 test.skipIf(!nativeA11y)(
   'native accessibility exposes labels, roles, state, values and hidden subtrees',
@@ -217,6 +224,67 @@ test.skipIf(!nativeA11y)(
     await expectNoA11yViolations(app);
     await app.getByTestId('save').click();
     await expect(expectNoA11yViolations(app)).rejects.toThrow('unnamed-button');
+  },
+);
+
+// Windows exposes accessibility through UI Automation, and the driver reads
+// GPUI's own copy of the tree, so a break in the AccessKit adapter could leave
+// the test above passing while assistive technology sees nothing. This walks the
+// real tree of the running process and compares it with what the driver reports.
+// Only Windows: macOS and Linux have their own native probes.
+test.skipIf(process.platform !== 'win32')(
+  'the windows ui automation tree matches what the app reports',
+  async () => {
+    await launch('AccessibilityFixture', undefined, {}, { offscreen: false });
+    // Read the driver's tree first: on Windows this also asks the window for
+    // its accessibility provider, which is what makes AccessKit publish.
+    const driverTree = (await app.a11yTree()) as {
+      nodes?: Record<string, { author_id?: string }>;
+    };
+    const driverIds = Object.values(driverTree?.nodes ?? {})
+      .map(node => node?.author_id)
+      .filter((id): id is string => typeof id === 'string');
+
+    const pid = app.pid;
+    expect(pid).toBeTypeOf('number');
+    const script = path.join(__dirname, 'uia-tree.ps1');
+    const raw = execFileSync(
+      'pwsh',
+      ['-NoProfile', '-File', script, '-ProcessId', String(pid)],
+      { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+    );
+    const nodes: {
+      name: string;
+      automationId: string;
+      controlType: string;
+      isEnabled: boolean;
+    }[] = JSON.parse(raw);
+    const byId = new Map(
+      nodes
+        .filter(node => node.automationId)
+        .map(node => [node.automationId, node]),
+    );
+
+    // AccessKit maps the React Native testID to the UIA `AutomationId`, which is
+    // what makes a node findable by a client at all.
+    for (const id of ['save', 'switch', 'disabled', 'input', 'progress']) {
+      expect(byId.has(id), `UIA has no node with AutomationId '${id}'`).toBe(
+        true,
+      );
+      expect(driverIds).toContain(id);
+    }
+    expect(byId.get('save')?.name).toBe('Save document');
+    expect(byId.get('switch')?.name).toBe('Notifications');
+    expect(byId.get('input')?.name).toBe('Project name');
+    expect(byId.get('save')?.controlType).toBe('Button');
+    expect(byId.get('input')?.controlType).toBe('Edit');
+    expect(byId.get('progress')?.controlType).toBe('ProgressBar');
+    // State crosses the boundary too, not just names.
+    expect(byId.get('disabled')?.isEnabled).toBe(false);
+    expect(byId.get('save')?.isEnabled).toBe(true);
+    // A hidden subtree must not reach the platform: GPUI keeps the node and
+    // marks it hidden, and the adapter drops it.
+    expect(byId.has('hidden-a11y')).toBe(false);
   },
 );
 

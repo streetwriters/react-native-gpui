@@ -307,7 +307,19 @@ run(
 
 let a11yPrevious;
 let nativeA11y = false;
-if (process.platform === 'linux') {
+if (process.platform === 'win32') {
+  // Windows needs nothing switched on: `gpui_windows` creates the AccessKit
+  // adapter lazily, and it becomes active when a UI Automation client asks for
+  // the tree by sending the window `WM_GETOBJECT`. The driver's `a11yNode` and
+  // `a11yTree` read GPUI's own tree, which is populated once active, so the
+  // assertions run without an external client or a system setting. Verified by
+  // walking the real UIA tree of a visible window (`.local/uia-dump.ps1`):
+  // `AutomationId` carries the React Native testID.
+  nativeA11y = process.env.RN_GPUI_TEST_NATIVE_A11Y !== '0';
+  if (nativeA11y) {
+    console.log('[e2e] windows: native accessibility assertions are on');
+  }
+} else if (process.platform === 'linux') {
   // With the AT-SPI bus on and a *visible* window, GPUI disables its
   // retained-view fast path and the retention test fails (see GPUI_PIN.md).
   // Offscreen windows never refresh from events, so those runs are unaffected.
