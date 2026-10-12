@@ -19,6 +19,8 @@
 //   <platform>/                 the cmake --install prefix (lib/, include/, cmake/)
 //   prebuilt-binaries-<platform>.tar.gz
 //   prebuilt-binaries-<platform>.tar.gz.sha256
+//   prebuilt-binaries-<platform>-pdb.tar.gz          Windows only
+//   prebuilt-binaries-<platform>-pdb.tar.gz.sha256   Windows only
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -193,6 +195,37 @@ function listFiles(dir, root = dir, out = []) {
     else out.push(path.relative(root, full).split(path.sep).join('/'));
   }
   return out.sort();
+}
+
+/// Absolute paths of every file under `dir` that `matches` accepts.
+function findFiles(dir, matches) {
+  const out = [];
+  const walk = current => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (matches(full)) out.push(full);
+    }
+  };
+  if (existsSync(dir)) walk(dir);
+  return out.sort();
+}
+
+/**
+ * Whether a PDB is CMake's link-time-optimisation probe rather than a target's
+ * debug information.
+ *
+ * `_CMakeLTOTest-*` directories hold throwaway binaries CMake compiles to decide
+ * whether the toolchain supports LTO. Their PDBs are named after the probe
+ * sources (`boo.pdb`, `foo.pdb`, `vc143.pdb`), so several unrelated targets
+ * collide on one name, and none of them describes a library in the archive.
+ * CMake spells the directory with a leading underscore (`_CMakeLTOTest-CXX`).
+ */
+function isCmakeLtoTestArtifact(buildDir, file) {
+  return path
+    .relative(buildDir, file)
+    .split(path.sep)
+    .some(segment => /^_?CMakeLTOTest-/u.test(segment));
 }
 
 function sizeOfDir(dir) {
@@ -430,6 +463,55 @@ writeFileSync(
   `${archivePath}.sha256`,
   `${sha256File(archivePath)}  ${archiveName}\n`,
 );
+
+// Static libraries carry their debug information in PDB files that live next to
+// the objects, not inside the archive, so the symbols are useless to a consumer
+// unless they are published too. This is what the workflow's "Collect Windows
+// PDBs" step does; doing it here means a local build produces the same two
+// archives the release does. Collection is flat (one directory), as the
+// workflow's is, because a debugger is given the PDB search path rather than a
+// mirrored tree.
+if (process.platform === 'win32') {
+  const pdbDir = path.join(outDir, 'pdb');
+  rmSync(pdbDir, { recursive: true, force: true });
+  mkdirSync(pdbDir, { recursive: true });
+  // A flat directory cannot hold two files with one name, so record what each
+  // name already staged with; identical content is a harmless duplicate and
+  // differing content is refused rather than silently dropped.
+  const staged = new Map();
+  let pdbCount = 0;
+  for (const pdb of findFiles(
+    buildDir,
+    file =>
+      path.extname(file) === '.pdb' && !isCmakeLtoTestArtifact(buildDir, file),
+  )) {
+    const name = path.basename(pdb);
+    const previous = staged.get(name);
+    if (previous !== undefined) {
+      if (sha256File(previous) === sha256File(pdb)) continue;
+      fail(
+        `two different PDBs are both named ${name}:\n` +
+          `  ${path.relative(buildDir, previous)}\n  ${path.relative(buildDir, pdb)}\n` +
+          'The PDB archive is flat, so one would be lost.',
+      );
+    }
+    staged.set(name, pdb);
+    cpSync(pdb, path.join(pdbDir, name));
+    pdbCount += 1;
+  }
+  if (pdbCount === 0) {
+    fail(`no PDB files were produced under ${buildDir}`);
+  }
+  const pdbArchiveName = `prebuilt-binaries-${platform}-pdb.tar.gz`;
+  const pdbArchivePath = path.join(outDir, pdbArchiveName);
+  rmSync(pdbArchivePath, { force: true });
+  run(tarCommand(), ['-czf', pdbArchivePath, '-C', pdbDir, '.']);
+  writeFileSync(
+    `${pdbArchivePath}.sha256`,
+    `${sha256File(pdbArchivePath)}  ${pdbArchiveName}\n`,
+  );
+  console.log(`pdb archive ${pdbArchivePath} (${pdbCount} files)`);
+}
 
 const seconds = Math.round((Date.now() - started) / 1000);
 console.log(`archive ${archivePath} (${statSync(archivePath).size} bytes)`);
