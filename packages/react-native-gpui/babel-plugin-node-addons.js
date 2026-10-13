@@ -232,7 +232,11 @@ function isHostPrebuiltNodeAddon(filePath, hostPlatform, hostArch) {
       return machoHasArch(headerBytes, hostArch);
     }
     if (hostPlatform === 'win32') {
-      return isPeForArch(headerBytes, hostArch) !== false;
+      // `true` only, like the two branches above: `isPeForArch` returns null for
+      // "not a PE file at all", and `null !== false` is true, so accepting
+      // anything but an explicit rejection let a Linux `.node` or a macOS
+      // Mach-O through on a Windows host.
+      return isPeForArch(headerBytes, hostArch) === true;
     }
     // Platforms with no header check accept every file, which is the same as no
     // guard.

@@ -1027,3 +1027,65 @@ test('R7 leaves a template literal that is not a .node path alone', () => {
   });
   expect(code).toContain('const x = `./data/${name}.json`');
 });
+
+// --- Part H: the host-binary check accepts only a host binary -----------------
+//
+// `isPeForArch` answers `null` for "not a PE file at all", `false` for "a PE for
+// another machine" and `true` for a match. The caller used `!== false`, so a
+// `null` — a Linux ELF or a macOS Mach-O — was accepted on a Windows host. The
+// ELF and Mach-O branches already required `=== true`; these tests pin the same
+// rule for Windows, and pin it on every host by naming the platform.
+
+/** A file whose first bytes are not any known executable format. */
+function notAnExecutable() {
+  return Buffer.from('this is not a native addon, it is text', 'utf8');
+}
+
+test('on win32 an ELF file is rejected', () => {
+  const root = scratch();
+  const addon = path.join(root, 'linux.node');
+  write(addon, elfHeader(0x3e));
+  expect(isHostPrebuiltNodeAddon(addon, 'win32', 'x64')).toBe(false);
+});
+
+test('on win32 a Mach-O file is rejected', () => {
+  const root = scratch();
+  const addon = path.join(root, 'darwin.node');
+  write(addon, machoHeader(0x01000007));
+  expect(isHostPrebuiltNodeAddon(addon, 'win32', 'x64')).toBe(false);
+});
+
+test('on win32 a file that is not an executable at all is rejected', () => {
+  const root = scratch();
+  const addon = path.join(root, 'text.node');
+  write(addon, notAnExecutable());
+  // The case the bug let through: not a PE, so `isPeForArch` answers null.
+  expect(isHostPrebuiltNodeAddon(addon, 'win32', 'x64')).toBe(false);
+});
+
+test('on win32 a PE for the other architecture is rejected', () => {
+  const root = scratch();
+  const addon = path.join(root, 'other-arch.node');
+  write(addon, peHeader(0xaa64));
+  expect(isHostPrebuiltNodeAddon(addon, 'win32', 'x64')).toBe(false);
+});
+
+test('on win32 a PE for the host architecture is accepted', () => {
+  const root = scratch();
+  const addon = path.join(root, 'host.node');
+  write(addon, peHeader(0x8664));
+  expect(isHostPrebuiltNodeAddon(addon, 'win32', 'x64')).toBe(true);
+});
+
+test('a rejected foreign binary becomes a MODULE_NOT_FOUND require', () => {
+  const root = scratch();
+  const addon = path.join(root, 'linux.node');
+  write(addon, elfHeader(0x3e));
+  const code = transform("require('./linux.node');", {
+    filename: path.join(root, 'index.js'),
+    hostPlatform: 'win32',
+    hostArch: 'x64',
+  });
+  expect(code).toContain('MODULE_NOT_FOUND');
+  expect(code).not.toContain('_requireNodeLibrary');
+});
