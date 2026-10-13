@@ -1,6 +1,18 @@
 fn main() {
     // Forwards the engine's Node-API exports out of this executable, which is
-    // what lets a stock `.node` addon resolve them on Windows. No-op elsewhere.
+    // what lets a stock `.node` addon resolve them on Windows.
+    //
+    // A DLL records every import as a name *plus the file it comes from*, and a
+    // node-gyp addon records "from `node.exe`" — Windows has no global symbol
+    // scope for it to fall back on. Node's own answer is that the host process
+    // exports the Node-API functions, so that is what this does: the executable
+    // re-exports each of the VM's `napi_*`/`node_api_*` names, forwarded to
+    // `hermesvm.dll`. Addons that use node-gyp's delay-load hook (the default)
+    // then reach this process instead of looking for `node.exe` on disk.
+    //
+    // It is a no-op on macOS and Linux, where an addon's imports resolve against
+    // whatever is already loaded and need no forwarding. Declare it once, before
+    // the module list; it does not depend on anything else in this file.
     rn_gpui_module_build::forward_node_api_exports();
 
     // App-local Rust TurboModules: list one entry per `src/Native*.ts` spec,

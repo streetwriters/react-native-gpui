@@ -336,13 +336,36 @@ it as part of packaging.
 
 #### Windows
 
-Not yet verified. Windows has no global symbol lookup: a `.node` file records
-each Node-API import as a function name _plus the file it must come from_, and an
-addon built for Node records "from `node.exe`". Node-API addons instead look the
-functions up in the **host process's executable**, so the app's `.exe` has to
-re-export Hermes's Node-API functions. `node-gyp` addons reach the same place
-through a delay-load hook; an addon built without that hook cannot load. Treat
-Windows support as untested until someone runs it.
+Windows has no global symbol lookup: a `.node` file records each Node-API import
+as a function name _plus the file it must come from_, and an addon built for Node
+records "from `node.exe`". So the app's `.exe` re-exports Hermes's Node-API
+functions, forwarded to `hermesvm.dll`, and that is what satisfies the import.
+Both loader patterns are covered: a `node-gyp` addon reaches the host through its
+delay-load hook, and a napi-rs addon, which resolves the names by looking them up
+in the running process, finds them on the executable directly.
+
+The limit is the same one Node documents: an addon built **without** node-gyp's
+delay-load hook and importing `node.exe` directly cannot load in any host whose
+image is not named `node.exe`, this one included. `dumpbin /imports <file>.node`
+shows whether an addon has the hook — a `node.exe` entry under "delay load
+imports" means it does, and a plain `node.exe` import with no delay-load section
+means it does not. Addons that import `uv_*` or V8 symbols are a separate
+limitation, as on every platform.
+
+A load failure is reported as a `TypeError` from the engine and wrapped as
+`code: 'ERR_DLOPEN_FAILED'`, for example:
+
+```text
+Failed to load 'C:\app\node_modules\sharp\build\Release\sharp.node':
+  the file is not a valid Win32 application
+Failed to load 'C:\app\node_modules\foo\foo.node':
+  The specified module could not be found
+Module has no 'napi_register_module_v1' export and no registered napi_module
+```
+
+The second is what a missing dependency looks like — most often an addon that
+needs `node.exe` but was built without the hook. A file that does not exist is a
+different error, `code: 'MODULE_NOT_FOUND'`, which lists every location tried.
 
 ## JavaScript engine
 
@@ -626,25 +649,25 @@ that wait for idle.
 
 ### Platform support
 
-| Feature                    | macOS                        | Windows                              | Linux                                       |
-| -------------------------- | ---------------------------- | ------------------------------------ | ------------------------------------------- |
-| Application menu           | GPUI `NSMenu`                | `muda` on the HWND                   | GPUI-rendered in-window bar                 |
-| Context menus              | `muda` on the `NSView`       | `muda` on the HWND                   | GPUI-rendered popup                         |
-| Window positioning / raise | AppKit                       | `SetWindowPos`                       | X11 only; Wayland says `unsupported`        |
-| Custom title bar           | AppKit                       | `desktopWindowControl`               | not implemented                             |
-| Tray apps (7.3)            | yes                          | yes (no anchored popover)            | yes (menu-only on GNOME)                    |
-| Dev Menu                   | yes                          | menu popup as above                  | popup as above                              |
-| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`           | counters yes, memory via `/proc/self/statm` |
-| Window capture (tests)     | yes                          | yes (baselines at window scale 1.25) | yes, X11 tested; Wayland untested           |
-| Hidden (`show: false`)     | yes                          | yes                                  | yes (X11 stays unmapped until shown)        |
-| Native accessibility tree  | AppKit probe                 | AccessKit/UIA                        | AccessKit via AT-SPI; tests enable the bus  |
-| Node-API addons            | stock `.node` from npm       | not implemented (Part W deferred)    | stock `.node` from npm                      |
+| Feature                    | macOS                        | Windows                                                     | Linux                                       |
+| -------------------------- | ---------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
+| Application menu           | GPUI `NSMenu`                | `muda` on the HWND                                          | GPUI-rendered in-window bar                 |
+| Context menus              | `muda` on the `NSView`       | `muda` on the HWND                                          | GPUI-rendered popup                         |
+| Window positioning / raise | AppKit                       | `SetWindowPos`                                              | X11 only; Wayland says `unsupported`        |
+| Custom title bar           | AppKit                       | `desktopWindowControl`                                      | not implemented                             |
+| Tray apps (7.3)            | yes                          | yes (no anchored popover)                                   | yes (menu-only on GNOME)                    |
+| Dev Menu                   | yes                          | menu popup as above                                         | popup as above                              |
+| Perf Monitor               | yes (memory via `task_info`) | counters yes, memory `n/a`                                  | counters yes, memory via `/proc/self/statm` |
+| Window capture (tests)     | yes                          | yes (baselines at window scale 1.25)                        | yes, X11 tested; Wayland untested           |
+| Hidden (`show: false`)     | yes                          | yes                                                         | yes (X11 stays unmapped until shown)        |
+| Native accessibility tree  | AppKit probe                 | AccessKit/UIA                                               | AccessKit via AT-SPI; tests enable the bus  |
+| Node-API addons            | stock `.node` from npm       | stock `.node` from npm, through the app's forwarded exports | stock `.node` from npm                      |
 
 "Unverified" means the code is behind `cfg` and has never been compiled, because
 this machine cannot build for that platform. The Windows column was verified on a
-Windows machine: every row except the last is exercised by a passing test in
+Windows machine: every row is exercised by a passing test in
 `packages/rn-gpui-tester/e2e`, and the evidence for each is recorded in
-`.local\windows-baseline.txt`.
+`.local/windows-baseline.txt`.
 
 On Windows the AccessKit adapter publishes over UI Automation, and it becomes
 active only when a client asks for the tree (Windows sends the window
