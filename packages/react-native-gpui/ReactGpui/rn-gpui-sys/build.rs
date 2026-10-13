@@ -238,6 +238,14 @@ fn main() {
                     );
                 }
             }
+            // The active engine's Node-API export list, if it ships one. On
+            // Windows the app's executable has to re-export every Node-API
+            // function, forwarded to the engine's DLL, because an addon's import
+            // names the file it comes from and there is no global lookup. Only
+            // the path and the library name travel here; generating the module
+            // definition is the app build script's job, because linker arguments
+            // for an executable only take effect from the crate that builds it.
+            emit_node_api_exports(&manifest);
         }
     }
     cxx_build::bridge("src/lib.rs")
@@ -786,6 +794,41 @@ fn emit_rpaths(path: &Path) {
         return;
     }
     println!("cargo:rpaths={}", dirs.join("|"));
+}
+
+/// Exports the active engine's Node-API export list as link metadata.
+///
+/// `cargo:node_api_exports` and `cargo:node_api_library` become
+/// `DEP_RN_GPUI_CORE_NODE_API_EXPORTS` / `..._NODE_API_LIBRARY` for a dependent
+/// `links = "rn_gpui_core"` crate. Nothing is emitted when the engine ships no
+/// list (a platform with global symbol lookup, or an engine without Node-API),
+/// which is how the app build script tells the two apart.
+fn emit_node_api_exports(manifest: &serde_json::Value) {
+    let Some(engine) = manifest
+        .get("jsEngines")
+        .and_then(|value| value.as_array())
+        .and_then(|engines| engines.first())
+    else {
+        return;
+    };
+    let Some(exports) = engine.get("nodeApiExports").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let Some(library) = engine.get("nodeApiLibrary").and_then(|v| v.as_str()) else {
+        println!(
+            "cargo:warning=rn-gpui-sys: the JS engine declares nodeApiExports without a nodeApiLibrary; Windows addons will not load"
+        );
+        return;
+    };
+    if !Path::new(exports).is_file() {
+        println!(
+            "cargo:warning=rn-gpui-sys: the JS engine's Node-API export list is missing: {exports}"
+        );
+        return;
+    }
+    println!("cargo:rerun-if-changed={exports}");
+    println!("cargo:node_api_exports={exports}");
+    println!("cargo:node_api_library={library}");
 }
 
 fn msvc_target() -> bool {

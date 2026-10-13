@@ -1,4 +1,8 @@
 fn main() {
+    // Forwards the engine's Node-API exports out of this executable, which is
+    // what lets a stock `.node` addon resolve them on Windows. No-op elsewhere.
+    rn_gpui_module_build::forward_node_api_exports();
+
     let desktop_root = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"),
     );

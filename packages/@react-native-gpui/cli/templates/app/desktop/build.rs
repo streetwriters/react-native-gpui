@@ -1,4 +1,8 @@
 fn main() {
+    // Forwards the engine's Node-API exports out of this executable, which is
+    // what lets a stock `.node` addon resolve them on Windows. No-op elsewhere.
+    rn_gpui_module_build::forward_node_api_exports();
+
     // App-local Rust TurboModules: list one entry per `src/Native*.ts` spec,
     // for example `&["src/NativeGreeting.ts"]`. Their glue is generated into
     // this crate's OUT_DIR, and main.rs registers the modules.
