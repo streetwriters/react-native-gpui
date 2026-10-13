@@ -625,6 +625,17 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda
     };
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+    // The id for a menu-bar item, so a click can be routed back to the action it
+    // stands for. `build_item` put the id in a `MenuAccelerator` action; that is
+    // the same value the accelerator table and the JS `menuPress` event use, so
+    // one id means one action however the user reached it.
+    fn action_id(action: &dyn gpui::Action) -> Option<String> {
+        action
+            .as_any()
+            .downcast_ref::<MenuAccelerator>()
+            .map(|accelerator| accelerator.id.clone())
+    }
+
     fn build(menu: &Menu, items: &mut Vec<Box<dyn muda::IsMenuItem>>) {
         for item in &menu.items {
             match item {
@@ -640,21 +651,43 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda
                 }
                 MenuItem::Action {
                     name,
+                    action,
                     checked,
                     disabled,
                     ..
                 } => {
+                    // The id travels as the muda item's id, which is what a
+                    // `MenuEvent` reports. Without it a click on the menu bar is
+                    // indistinguishable from any other item's, which is why
+                    // nothing happened before.
+                    //
                     // A checked item must be a `CheckMenuItem` in muda; a plain
-                    // one has no `set_checked`.
-                    if *checked {
-                        items.push(Box::new(CheckMenuItem::new(
+                    // one has no `set_checked`. `disabled` is honoured for both:
+                    // a checked-but-disabled item used to be enabled regardless.
+                    let id = action_id(action.as_ref());
+                    match (*checked, id) {
+                        (true, Some(id)) => items.push(Box::new(CheckMenuItem::with_id(
+                            id,
                             name.to_string(),
-                            true,
+                            !*disabled,
                             true,
                             None,
-                        )));
-                    } else {
-                        items.push(Box::new(MudaItem::new(name.to_string(), !*disabled, None)));
+                        ))),
+                        (true, None) => items.push(Box::new(CheckMenuItem::new(
+                            name.to_string(),
+                            !*disabled,
+                            true,
+                            None,
+                        ))),
+                        (false, Some(id)) => items.push(Box::new(MudaItem::with_id(
+                            id,
+                            name.to_string(),
+                            !*disabled,
+                            None,
+                        ))),
+                        (false, None) => {
+                            items.push(Box::new(MudaItem::new(name.to_string(), !*disabled, None)))
+                        }
                     }
                 }
                 // The Services menu is a macOS concept; there is no Windows
@@ -688,6 +721,23 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda
     if unsafe { bar.init_for_hwnd(hwnd) }.is_err() {
         return None;
     }
+    // Route menu-bar clicks to the same dispatch an accelerator uses, so one id
+    // means one action however the user reached it.
+    //
+    // Registration goes through the app's single `muda` event route
+    // (`desktop::menu_events`), not a private handler: `muda` exposes one event
+    // channel and its handler setter is first-caller-wins, so a handler per menu
+    // system would silently starve the others. The predicate accepts everything,
+    // so it is registered last and acts as the fallback — a menu-bar id is
+    // authoritative here, and `trigger_item` already forwards an id it does not
+    // recognise to JS as a `menuPress` event.
+    crate::desktop::menu_events::register(Box::new(|id| {
+        if let Some(handler) = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.get() {
+            handler(id.to_string());
+            return true;
+        }
+        false
+    }));
     Some((bar, hwnd))
 }
 

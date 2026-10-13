@@ -491,6 +491,20 @@ macOS, Control elsewhere) and `mod`/`cmd`/`ctrl`/`alt`/`shift`. The imperative
 `Menu.setApplicationMenu(items)` / `Menu.getApplicationMenu()` pair is available
 for apps that already build their own UI.
 
+### Menu bar on Windows
+
+Windows gets a real Win32 menu bar on the window, built with `muda`. Clicking an
+item runs the action its `id` names, exactly as the same item's accelerator does,
+and an item with `enabled: false` is greyed whether or not it is also `checked`.
+
+One consequence of using Win32: the menu bar, the tray menu and native context
+menus all share `muda`'s single event channel, so the app installs exactly one
+handler for it and routes each event to the menu that claims the id. Apps do not
+see this — a tray menu still reports `gpuiDesktop:trayMenuPress` and an
+application-menu item `gpuiDesktop:menuPress` — but it is why a custom `muda` menu
+built outside this library should not install its own handler: it would be
+ignored, because the setter keeps the first one.
+
 ### Menu bar on Linux
 
 Linux has no menu bar GPUI can drive (`muda` needs a GTK window), so

@@ -55,6 +55,16 @@ function DesktopMenuFixture() {
             label: 'Checkable',
             checked,
           },
+          {
+            // Checked *and* disabled: the two flags used to collide, because a
+            // checked item was built as a muda `CheckMenuItem` with `enabled`
+            // hardcoded true, so this one stayed clickable whatever the model
+            // said. A test asserts it is reported disabled on Windows.
+            id: 'tester-check-disabled',
+            label: 'Checkable Disabled',
+            checked: true,
+            enabled: false,
+          },
           { type: 'separator' },
           {
             id: 'tester-disabled',

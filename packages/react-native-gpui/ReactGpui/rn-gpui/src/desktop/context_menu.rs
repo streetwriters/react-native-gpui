@@ -231,8 +231,6 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
 
     let menu = muda::Menu::new();
     build_muda_menu(&menu, &request.model.items)?;
-    // A previous menu's event must not answer this one.
-    while muda::MenuEvent::receiver().try_recv().is_ok() {}
     let position = muda::dpi::Position::Logical(muda::dpi::LogicalPosition::new(
         request.x as f64,
         request.y as f64,
@@ -242,21 +240,24 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
             "the window has no platform view for a context menu",
         ));
     }
-    #[cfg(target_os = "macos")]
-    unsafe {
-        menu.show_context_menu_for_nsview(
-            request.native_view as *const std::ffi::c_void,
-            Some(position),
-        )
-    };
-    #[cfg(target_os = "windows")]
-    unsafe {
-        menu.show_context_menu_for_hwnd(request.native_view, Some(position))
-    };
-    let selection = muda::MenuEvent::receiver()
-        .try_recv()
-        .ok()
-        .map(|event| event.id.0.to_string());
+    // `muda` has one event channel and the app installs a handler on it (the
+    // menu bar and the tray both need one), so a handler-displaced receiver
+    // would never see this selection. `with_context_menu` reserves the channel
+    // for the duration of the menu instead, and `show` blocks until the menu
+    // closes, so the id is already in hand when it returns.
+    let selection = crate::desktop::menu_events::with_context_menu(|| {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            menu.show_context_menu_for_nsview(
+                request.native_view as *const std::ffi::c_void,
+                Some(position),
+            )
+        };
+        #[cfg(target_os = "windows")]
+        unsafe {
+            menu.show_context_menu_for_hwnd(request.native_view, Some(position))
+        };
+    });
     responder.resolve(selection.as_deref());
     Ok(())
 }
