@@ -427,16 +427,14 @@ try {
   // than as a vitest file: it renames the fixture addon's `build/` directory,
   // which the node-api screen tests in this same run also load. Doing that
   // while vitest runs its files in parallel would make that test flaky, so it
-  // runs once here, after the parallel files have finished. Skipped on Windows,
-  // where the fixture addon is not built at all (Part W).
-  if (process.platform !== 'win32') {
-    run(
-      process.execPath,
-      [path.join(projectRoot, 'scripts/check-node-addon-relocation.mjs')],
-      repoRoot,
-      env,
-    );
-  }
+  // runs once here, after the parallel files have finished. The fixture is built
+  // on every platform the addon tests run on.
+  run(
+    process.execPath,
+    [path.join(projectRoot, 'scripts/check-node-addon-relocation.mjs')],
+    repoRoot,
+    env,
+  );
 } finally {
   networkFixture.kill('SIGTERM');
   if (!keepApp) {

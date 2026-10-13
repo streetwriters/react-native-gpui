@@ -91,6 +91,27 @@ const copiedBinary = path.join(appDirectory, path.basename(binary));
 fs.copyFileSync(binary, copiedBinary);
 fs.chmodSync(copiedBinary, 0o755);
 
+// Windows has no rpath: a copied executable still finds its libraries through
+// the loader's search order, which starts with the directory of the image being
+// loaded. So the app's own DLLs have to travel with it, which is also what a
+// packaged Windows app does. macOS and Linux resolve their libraries by path
+// (`@rpath`/`$ORIGIN` or the linker's recorded name) and need nothing here.
+if (process.platform === 'win32') {
+  const binaryDirectory = path.dirname(binary);
+  const siblingLibraries = fs
+    .readdirSync(binaryDirectory)
+    .filter(name => name.toLowerCase().endsWith('.dll'));
+  for (const library of siblingLibraries) {
+    fs.copyFileSync(
+      path.join(binaryDirectory, library),
+      path.join(appDirectory, library),
+    );
+  }
+  console.log(
+    `[relocation] copied ${siblingLibraries.length} sibling librar(ies) beside the executable`,
+  );
+}
+
 console.log(`[relocation] work directory: ${temporary}`);
 console.log(`[relocation] copied ${binary} -> ${copiedBinary}`);
 
@@ -196,9 +217,11 @@ try {
     );
   }
   // The error must name every place it looked: the app's own `node-addons/`
-  // directory and the embedded absolute path (which is now dead).
+  // directory and the embedded absolute path (which is now dead). `runScreen`
+  // returns `JSON.stringify` of the queried nodes, so a Windows path arrives
+  // with every separator doubled and has to be escaped before comparing.
   for (const needle of [path.join(appDirectory, 'node-addons'), fixtureAddon]) {
-    if (!missingText.includes(needle)) {
+    if (!missingText.includes(JSON.stringify(needle).slice(1, -1))) {
       fail(
         `the MODULE_NOT_FOUND error does not mention '${needle}'.\n` +
           `screen text: ${missingText}`,

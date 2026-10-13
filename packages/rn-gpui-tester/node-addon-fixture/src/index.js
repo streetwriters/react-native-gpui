@@ -2,7 +2,8 @@
 // it: one `require` of the binary `node-gyp` produced. The Babel plugin turns
 // that into `_requireNodeLibrary(key, path)`.
 //
-// On Windows the binary is not built (Part D1), so the require has no file to
-// resolve to; the plugin then emits a throwing expression and the bundle still
-// builds. Nothing here needs a placeholder for that case.
+// The binary is built by `scripts/build-node-addon.mjs` before the bundle, so
+// the require always has a file to resolve to. If the build were skipped the
+// plugin would emit a throwing expression instead and the bundle would still
+// build, but the screen would fail rather than silently pass.
 module.exports = require('../build/addon.node');

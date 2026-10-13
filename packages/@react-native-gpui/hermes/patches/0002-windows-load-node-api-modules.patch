@@ -1,5 +1,5 @@
 diff --git a/API/napi/hermes_napi.cpp b/API/napi/hermes_napi.cpp
-index 777171e..38ebaf5 100644
+index 777171e..a423d5b 100644
 --- a/API/napi/hermes_napi.cpp
 +++ b/API/napi/hermes_napi.cpp
 @@ -20,8 +20,11 @@
@@ -14,7 +14,7 @@ index 777171e..38ebaf5 100644
  
  //===========================================================================
  // Error messages for napi_status codes.
-@@ -801,6 +804,94 @@ const napi_module *hermes_napi_get_last_registered_module() {
+@@ -801,6 +804,105 @@ const napi_module *hermes_napi_get_last_registered_module() {
  // Module loading
  //===========================================================================
  
@@ -102,6 +102,17 @@ index 777171e..38ebaf5 100644
 +          message.back() == ' ' || message.back() == '.')) {
 +    message.pop_back();
 +  }
++  // Some system messages are templates — "193: %1 is not a valid Win32
++  // application" — and `FORMAT_MESSAGE_IGNORE_INSERTS` leaves the placeholder
++  // in place because there is no argument array to fill it from. The only
++  // insert these messages take is the name of the file, so substitute the
++  // caller-visible noun for it rather than showing a user a bare `%1`.
++  static const char *const kPlaceholder = "%1";
++  for (std::string::size_type at = message.find(kPlaceholder);
++       at != std::string::npos;
++       at = message.find(kPlaceholder, at)) {
++    message.replace(at, sizeof("%1") - 1, "the file");
++  }
 +  return message;
 +}
 +#endif
@@ -109,7 +120,7 @@ index 777171e..38ebaf5 100644
  napi_status
  hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
    NAPI_PREAMBLE(env);
-@@ -810,10 +901,64 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
+@@ -810,10 +912,64 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
    using namespace hermes::vm;
    Runtime &runtime = env->runtime;
  
@@ -177,7 +188,7 @@ index 777171e..38ebaf5 100644
  #else
    // Open the shared library. RTLD_LOCAL prevents symbol collisions
    // between different addons. RTLD_NOW ensures all symbols are resolved
-@@ -827,9 +972,7 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
+@@ -827,9 +983,7 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
    }
  
    // Look up the modern symbol-based entry point.
@@ -188,7 +199,7 @@ index 777171e..38ebaf5 100644
  
    // If the modern symbol isn't found, check the deprecated
    // napi_module_register() path. The shared library's static
-@@ -850,6 +993,7 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
+@@ -850,6 +1004,7 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
          "export and no registered napi_module"));
      return captureRuntimeException(env, napi_pending_exception);
    }
@@ -196,7 +207,7 @@ index 777171e..38ebaf5 100644
  
    // Record the module filename on the caller's env.
    env->moduleFileName_ = path;
-@@ -877,5 +1021,4 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
+@@ -877,5 +1032,4 @@ hermes_napi_load_module(napi_env env, const char *path, napi_value *result) {
    }
  
    return napi_clear_last_error(env);
