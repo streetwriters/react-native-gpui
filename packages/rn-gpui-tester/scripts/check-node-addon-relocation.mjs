@@ -77,8 +77,20 @@ if (!fs.existsSync(fixtureAddon)) {
   );
 }
 
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-relocation-'));
-const appDirectory = path.join(temporary, 'app');
+// The collected addon is placed under a directory whose name has both a space
+// and a non-ASCII character. That is the part of this proof that covers the
+// loader's path handling: the key and the paths come from JavaScript as UTF-8,
+// and on Windows a `std::filesystem::path` built from those bytes is decoded
+// with the process's ANSI code page, which cannot represent them. Before that
+// was fixed, the addon resolved here was reported missing with a mangled path.
+//
+// `os.tmpdir()` may itself be non-ASCII, but it usually is not, so the name is
+// forced here rather than relying on the machine. Windows and macOS accept both
+// a space and the accented characters; the test is skipped only if the
+// filesystem refuses the name, which is reported rather than passing silently.
+const TEMP_PREFIX = 'rn-gpui-relocation-café sp ';
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+const appDirectory = path.join(temporary, 'app éà');
 const addonDirectory = path.join(appDirectory, 'node-addons');
 // The fixture binary is moved aside *within its own directory* rather than into
 // `temporary`. `os.tmpdir()` is frequently a different filesystem from the

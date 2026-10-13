@@ -42,6 +42,33 @@ constexpr char kPathListSeparator = ';';
 constexpr char kPathListSeparator = ':';
 #endif
 
+/// The UTF-8 value of `RN_GPUI_NODE_ADDON_PATH`, or empty when unset.
+///
+/// On Windows the variable is read as wide characters and converted, rather
+/// than with `std::getenv`: `getenv` returns the bytes the process's ANSI code
+/// page produces, which cannot represent a directory name outside that page —
+/// the same problem `pathFromUtf8` solves for the strings that come from
+/// JavaScript. POSIX uses `getenv` unchanged, where the bytes are the path.
+std::string nodeAddonPathEnvironment() {
+#if defined(_WIN32)
+  const wchar_t* wide = _wgetenv(L"RN_GPUI_NODE_ADDON_PATH");
+  if (wide == nullptr || *wide == L'\0')
+    return {};
+  const int length =
+      WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+  if (length <= 0)
+    return {};
+  // `length` includes the terminator when it is asked for with -1.
+  std::string utf8(static_cast<size_t>(length - 1), '\0');
+  WideCharToMultiByte(
+      CP_UTF8, 0, wide, -1, utf8.data(), length, nullptr, nullptr);
+  return utf8;
+#else
+  const char* value = std::getenv("RN_GPUI_NODE_ADDON_PATH");
+  return value == nullptr ? std::string() : std::string(value);
+#endif
+}
+
 /// Splits `value` on every character in `separators`, dropping empty entries.
 std::vector<std::string> splitList(const char* value, const char* separators) {
   std::vector<std::string> parts;
@@ -153,6 +180,46 @@ std::string pathToUtf8(const std::filesystem::path& path) {
 #endif
 }
 
+/// The inverse of `pathToUtf8`: a `std::filesystem::path` for a path that came
+/// from JavaScript, which is UTF-8.
+///
+/// On Windows `std::filesystem::path(std::string)` decodes the bytes with the
+/// process's ANSI code page, so a checkout under `C:\Users\José\` or any addon
+/// directory with an accented character in its name produced a path that does
+/// not name the file — the addon was then reported as missing, with the mangled
+/// path in the message. On POSIX the bytes are the path, so this is the
+/// identity, exactly as `pathToUtf8` is.
+std::filesystem::path pathFromUtf8(const std::string& utf8) {
+#if defined(_WIN32)
+  if (utf8.empty())
+    return {};
+  const int length = MultiByteToWideChar(
+      CP_UTF8,
+      MB_ERR_INVALID_CHARS,
+      utf8.data(),
+      static_cast<int>(utf8.size()),
+      nullptr,
+      0);
+  if (length <= 0) {
+    // Not valid UTF-8. Fall back to the narrow constructor rather than
+    // returning nothing: a caller that passed a byte string still gets the old
+    // behaviour instead of a silent miss.
+    return std::filesystem::path(utf8);
+  }
+  std::wstring wide(static_cast<size_t>(length), L'\0');
+  MultiByteToWideChar(
+      CP_UTF8,
+      MB_ERR_INVALID_CHARS,
+      utf8.data(),
+      static_cast<int>(utf8.size()),
+      wide.data(),
+      length);
+  return std::filesystem::path(wide);
+#else
+  return std::filesystem::path(utf8);
+#endif
+}
+
 /// First existing regular file wins, in the order section 3.4 of the plan
 /// spells out. `tried` collects every location in the same order so the error
 /// message can list them.
@@ -161,22 +228,26 @@ std::filesystem::path resolveAddonPath(
     const std::optional<std::string>& embeddedPath,
     std::vector<std::string>& tried) {
   std::vector<std::filesystem::path> candidates;
+  // Every string here comes from JavaScript or from the environment, so every
+  // one of them is decoded from UTF-8. `key` is a relative path with `/`
+  // separators; joining it as a path keeps that meaning.
+  const auto keyPath = pathFromUtf8(key);
+  const std::string addonPath = nodeAddonPathEnvironment();
   for (const auto& directory : splitList(
-           std::getenv("RN_GPUI_NODE_ADDON_PATH"),
-           std::string(1, kPathListSeparator).c_str())) {
-    candidates.emplace_back(std::filesystem::path(directory) / key);
+           addonPath.c_str(), std::string(1, kPathListSeparator).c_str())) {
+    candidates.emplace_back(pathFromUtf8(directory) / keyPath);
   }
   const auto exeDir = executableDirectory();
   if (!exeDir.empty()) {
-    candidates.push_back(exeDir / "node-addons" / key);
+    candidates.push_back(exeDir / "node-addons" / keyPath);
 #if defined(__APPLE__)
     // A macOS .app bundle keeps resources beside the executable, inside
     // Contents/Resources rather than next to the Mach-O in Contents/MacOS.
-    candidates.push_back(exeDir / ".." / "Resources" / "node-addons" / key);
+    candidates.push_back(exeDir / ".." / "Resources" / "node-addons" / keyPath);
 #endif
   }
   if (embeddedPath.has_value()) {
-    candidates.emplace_back(*embeddedPath);
+    candidates.emplace_back(pathFromUtf8(*embeddedPath));
   }
   for (const auto& candidate : candidates) {
     tried.push_back(pathToUtf8(candidate));
