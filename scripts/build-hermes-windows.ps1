@@ -76,6 +76,45 @@ function Initialize-MsvcEnvironment {
   Write-Host "Using MSVC: $($cl.Source)"
 }
 
+# Applies every patches\*.patch to the Hermes checkout before configuring it, the
+# way scripts/build-hermes-linux.sh does. A patch that is already applied is
+# skipped so a re-run after a failed build does not stop on it. A patch that
+# neither applies nor is present is an error: a silently unpatched build produces
+# binaries that look right and fail at run time.
+function Invoke-HermesPatches {
+  param([string]$Source)
+
+  $patchDir = Join-Path $repoRoot "packages\@react-native-gpui\hermes\patches"
+  if (-not (Test-Path $patchDir)) {
+    throw "Hermes patch directory not found: $patchDir"
+  }
+  $patches = Get-ChildItem -Path $patchDir -Filter "*.patch" | Sort-Object Name
+  if ($patches.Count -eq 0) {
+    Write-Host "No Hermes patches to apply"
+    return
+  }
+  foreach ($patch in $patches) {
+    # --check is quiet on success and non-zero when the patch does not fit.
+    & git -C $Source apply --check $patch.FullName 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      & git -C $Source apply $patch.FullName
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to apply $($patch.Name) to $Source."
+      }
+      Write-Host "Applied $($patch.Name)"
+      continue
+    }
+    # Not applicable as-is: it may already be applied. Reverse-check tells the
+    # two apart, so a re-run is safe while a genuinely broken patch still fails.
+    & git -C $Source apply --reverse --check $patch.FullName 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "$($patch.Name) is already applied"
+      continue
+    }
+    throw "$($patch.Name) does not apply to $Source and is not already applied. The Hermes checkout is probably at the wrong commit."
+  }
+}
+
 # A Windows shared library also emits an import library, and Hermes registers the
 # same addon name in both NAPI test suites (test_exception, test_finalizer,
 # test_general). Without an archive directory both copies write the same file,
@@ -112,11 +151,55 @@ if (Test-Path (Join-Path $HermesSource ".git")) {
   }
 }
 
+Invoke-HermesPatches -Source $HermesSource
+
+# Hermes' CMakeLists requires a Python interpreter ("Please install Python or
+# specify the PYTHON_EXECUTABLE CMake variable") to generate its bytecode
+# instruction tables. Windows has no python on PATH by default, and the
+# `WindowsApps\python.exe` stub a store install leaves behind is not a real
+# interpreter, so probe rather than trusting `Get-Command`.
+function Find-Python {
+  if ($env:PYTHON_EXECUTABLE -and (Test-Path $env:PYTHON_EXECUTABLE)) {
+    return $env:PYTHON_EXECUTABLE
+  }
+  $candidates = @()
+  $candidates += (Get-Command python, python3 -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notmatch 'WindowsApps' } |
+    Select-Object -ExpandProperty Source)
+  $candidates += "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
+  $candidates += "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+  $candidates += "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
+  $candidates += "C:\Python313\python.exe"
+  $candidates += "C:\Python312\python.exe"
+  foreach ($candidate in $candidates) {
+    if (-not $candidate -or -not (Test-Path $candidate)) { continue }
+    # A real interpreter prints a version; the store stub prints nothing and
+    # exits non-zero.
+    $version = & $candidate -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $version) {
+      return (Resolve-Path $candidate).Path
+    }
+  }
+  return $null
+}
+
+$python = Find-Python
+if (-not $python) {
+  throw "No Python interpreter found. Hermes' build requires one; set PYTHON_EXECUTABLE to a real python.exe (the WindowsApps stub is not one)."
+}
+Write-Host "Using Python: $python"
+
 $configureArgs = @(
   "-S", $HermesSource,
   "-B", $HermesBuild,
   "-G", $Generator,
   "-DCMAKE_BUILD_TYPE=Release",
+  # Hermes uses `find_package(Python COMPONENTS Interpreter)`, which reads
+  # `Python_EXECUTABLE`. Its own error message still names the older
+  # `PYTHON_EXECUTABLE`, so both are passed; setting only that older spelling
+  # leaves CMake reporting "Could NOT find Python".
+  "-DPython_EXECUTABLE=$python",
+  "-DPYTHON_EXECUTABLE=$python",
   "-DHERMES_ENABLE_NAPI=ON",
   "-DHERMES_ENABLE_DEBUGGER=ON",
   "-DHERMES_ENABLE_TEST_SUITE=OFF",
