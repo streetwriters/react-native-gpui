@@ -213,15 +213,3 @@ index 777171e..a423d5b 100644
    return napi_clear_last_error(env);
 -#endif
  }
-diff --git a/external/node-api-tests/hermes/CMakeLists.txt b/external/node-api-tests/hermes/CMakeLists.txt
-index 78a5187..e78744b 100644
---- a/external/node-api-tests/hermes/CMakeLists.txt
-+++ b/external/node-api-tests/hermes/CMakeLists.txt
-@@ -49,6 +49,7 @@ function(add_node_test_addon TEST_CATEGORY TEST_DIR_NAME ADDON_NAME)
-     RUNTIME_OUTPUT_DIRECTORY ${ADDON_OUTPUT_DIR}
-     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${ADDON_OUTPUT_DIR}
-     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${ADDON_OUTPUT_DIR}
-+    ARCHIVE_OUTPUT_DIRECTORY ${ADDON_OUTPUT_DIR}
-   )
-   # Hermes vendored NAPI headers.
-   target_include_directories(${TARGET_NAME} PRIVATE

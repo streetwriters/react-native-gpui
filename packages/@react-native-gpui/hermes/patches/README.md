@@ -2,11 +2,19 @@
 
 Patches carried on top of the pinned `facebook/hermes` commit
 (`10a40b5f1de81d007cba6afe567c4ba7a0b45f5d`; see `hermes.commit` in
-`package.json`). `scripts/build-hermes-linux.sh`, `scripts/build-hermes-macos.sh`
-and `scripts/build-hermes-windows.ps1` all apply every `patches/*.patch` to the
-Hermes checkout before configuring it, skipping a patch that is already applied.
-A patch that does not apply is an error rather than a warning: a silently
-unpatched build produces binaries that look right and fail at run time.
+`package.json`).
+
+Two of the local build scripts apply every `patches/*.patch` to the Hermes
+checkout before configuring it, and skip a patch that is already applied:
+`scripts/build-hermes-linux.sh` and `scripts/build-hermes-windows.ps1`. The
+`hermes-engine` workflow does the same for every platform it builds, which is
+what makes a binary fetched from it equivalent to one built locally.
+`scripts/build-hermes-macos.sh` does **not** apply patches — neither patch
+changes macOS, so it has nothing to do; if a future patch ever does, that script
+has to be taught to apply it.
+
+A patch that does not apply is an error rather than a warning in both scripts: a
+silently unpatched build produces binaries that look right and fail at run time.
 
 ## 0001-linux-load-icu-at-runtime.patch
 
