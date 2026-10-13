@@ -220,18 +220,15 @@ test('custom Fabric component renders inside the tester', async () => {
     app.getByTestId('tester-screen-gpui-component'),
   ).toBeVisible();
 });
-test.skipIf(process.platform === 'win32')(
-  'a stock Node-API addon handles sync, async and thread-safe calls',
-  async () => {
-    await launch('node-api');
-    await app.getByTestId('native-module-run').click();
-    await app.waitForIdle();
-    const nodes = await app.query('testID', 'native-module-result', true);
-    // 19 + 23 synchronous, 20 + 22 through napi_create_async_work, and 42
-    // dispatched from a worker thread through a thread-safe function.
-    expect(JSON.stringify(nodes)).toContain('42 / 42 / tsfn 42');
-  },
-);
+test('a stock Node-API addon handles sync, async and thread-safe calls', async () => {
+  await launch('node-api');
+  await app.getByTestId('native-module-run').click();
+  await app.waitForIdle();
+  const nodes = await app.query('testID', 'native-module-result', true);
+  // 19 + 23 synchronous, 20 + 22 through napi_create_async_work, and 42
+  // dispatched from a worker thread through a thread-safe function.
+  expect(JSON.stringify(nodes)).toContain('42 / 42 / tsfn 42');
+});
 test('unmodified npm Node-API packages load through every loader pattern', async () => {
   await launch('node-api-packages');
   await app.getByTestId('native-module-run').click();
