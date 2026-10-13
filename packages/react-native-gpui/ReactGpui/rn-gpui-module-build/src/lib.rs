@@ -84,3 +84,82 @@ fn generator_script(manifest_dir: &Path) -> PathBuf {
     }
     PathBuf::from(String::from_utf8_lossy(&result.stdout).trim())
 }
+
+/// Forwards every Node-API symbol the engine exports out of the app's
+/// executable, so a stock `.node` addon can resolve them on Windows.
+///
+/// Windows has no global symbol lookup: a DLL import names the function *and*
+/// the file it comes from. Addons reach Node-API in two ways and both end at the
+/// host process's executable — a `node-gyp` addon as a delay-loaded import from
+/// `node.exe`, which its `win_delay_load_hook.cc` replaces with the current
+/// process image, and a napi-rs addon by probing the host executable first. Our
+/// Node-API functions live in the engine's DLL and the executable exports
+/// nothing, so each name is re-exported as a forwarder to that DLL.
+///
+/// This lives in one place because two build scripts need it —
+/// `rn-gpui-tester/desktop/build.rs` and the app template's — and a module
+/// definition that disagrees between them is an addon that loads in one app and
+/// not the other.
+///
+/// Does nothing unless the target is Windows/MSVC and the engine supplied a
+/// list. A Windows GNU target gets a warning instead: MinGW's `.def` handling
+/// and its `--enable-auto-import` are not what an MSVC-built addon expects, and
+/// a silently unforwarded binary is worse than a warning.
+pub fn forward_node_api_exports() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let list = std::env::var("DEP_RN_GPUI_RUNTIME_NODE_API_EXPORTS")
+        .ok()
+        .filter(|value| !value.is_empty());
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        if list.is_some() {
+            println!(
+                "cargo:warning=Node-API addons on Windows need the MSVC toolchain; \
+                 the engine's exports are not forwarded for this target"
+            );
+        }
+        return;
+    }
+    let Some(list) = list else {
+        // No engine list: either an engine without Node-API or a build that
+        // never resolved one. Not an error, so a plain app still links.
+        return;
+    };
+    let library = std::env::var("DEP_RN_GPUI_RUNTIME_NODE_API_LIBRARY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            panic!(
+                "rn-gpui-module-build: the engine exports a Node-API list without a library name"
+            )
+        });
+
+    let names = std::fs::read_to_string(&list)
+        .unwrap_or_else(|error| panic!("rn-gpui-module-build: read {list}: {error}"));
+    // The list is one name per line; a blank line or a stray comment must not
+    // become an export (a malformed `.def` fails the link with a message that
+    // does not name the file).
+    let names: Vec<&str> = names
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with(';'))
+        .collect();
+    if names.is_empty() {
+        panic!("rn-gpui-module-build: the Node-API export list {list} is empty");
+    }
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR is set by cargo"));
+    let def = out_dir.join("node_api_exports.def");
+    let mut text = String::from("EXPORTS\n");
+    for name in &names {
+        // A forwarder: the executable exports `name` and the loader resolves it
+        // from the named DLL. No `@ordinal`, so the name stays usable.
+        text.push_str(&format!("  {name}={library}.{name}\n"));
+    }
+    std::fs::write(&def, text)
+        .unwrap_or_else(|error| panic!("rn-gpui-module-build: write {}: {error}", def.display()));
+
+    println!("cargo:rerun-if-changed={list}");
+    println!("cargo:rustc-link-arg-bins=/DEF:{}", def.display());
+}

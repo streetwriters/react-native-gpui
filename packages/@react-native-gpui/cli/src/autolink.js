@@ -56,7 +56,14 @@ function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
       `${dependencyName}: platforms.gpui.jsEngine must be an object`,
     );
   }
-  const { name, register, bundle, runtimeFiles } = jsEngine;
+  const {
+    name,
+    register,
+    bundle,
+    runtimeFiles,
+    nodeApiExports,
+    nodeApiLibrary,
+  } = jsEngine;
   if (typeof name !== 'string' || !jsEngineName.test(name)) {
     throw new Error(
       `${dependencyName}: platforms.gpui.jsEngine.name must be a lowercase engine name (${jsEngineName})`,
@@ -82,12 +89,26 @@ function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
     }
     return resolved;
   };
+  // The Node-API export list is what the app's executable re-exports on Windows,
+  // so the name has to be a plain library name: it becomes the DLL half of each
+  // forwarded export (`napi_x = hermesvm.napi_x`).
+  if (
+    nodeApiExports !== undefined &&
+    (typeof nodeApiLibrary !== 'string' ||
+      !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(nodeApiLibrary))
+  ) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui.jsEngine.nodeApiLibrary must be a library name when nodeApiExports is set`,
+    );
+  }
   return {
     dependencyName,
     name,
     register,
     bundle: resolveHook('bundle', bundle),
     runtimeFiles: resolveHook('runtimeFiles', runtimeFiles),
+    nodeApiExports: resolveHook('nodeApiExports', nodeApiExports),
+    nodeApiLibrary: nodeApiExports === undefined ? undefined : nodeApiLibrary,
   };
 }
 
