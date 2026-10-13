@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `41011e44e5f70e392594f69faaf6a35515749d91` (upstream main @ 2026-10-09,
+- Commit: `81ae8f1e7788e9c5af2dd1aae8a191aef93d3b98` (upstream main @ 2026-10-09,
   "ci: allow release dependency tests time to compile on Windows (#53)", plus
   the Linux and Windows fixes below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
@@ -24,9 +24,19 @@ so we pin by commit SHA and bump on purpose.
 - `a161424` `gpui_linux: implement render_to_image for X11 and Wayland`
 - `75603f3` `gpui: expose accessibility identifiers and states in the debug tree`
 - `6f5c836` `gpui_linux: track the X11 map state from map and unmap events`
-- `18c7c9e` `gpui_windows: deliver hover and resize callbacks outside the window procedure`
+- `18c7c9e` `gpui_windows: deliver hover callbacks outside the window procedure`
+  — the commit message says "hover and resize", but only hover is deferred in it:
+  `WM_SIZE` and `WM_MOVE` still invoked their callbacks inline, so the earlier
+  pin compensated in shared `window.rs` instead. `7eb2cdd` finishes the job in
+  the backend and that compensation is gone.
 - `e2fedd1` `gpui_windows: skip windows that are already gone`
 - `41011e4` `gpui: ignore platform callbacks for a window that has been removed`
+  — amended in effect by `81ae8f1`: that commit made five callbacks discard their
+  `update` result, which also silenced a failed `App` borrow. The removed-window
+  case is now a typed `WindowRemoved` error that only that case ignores; every
+  other failure is logged again.
+- `7eb2cdd` `gpui_windows: defer resize and move out of the window procedure`
+- `81ae8f1` `gpui: log a failed borrow in the platform callbacks again`
 
 ## Upstream (from the repo's `UPSTREAM` file at that commit)
 
