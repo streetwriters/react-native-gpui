@@ -7,6 +7,8 @@ use crate::desktop::windows::{self, OpenWindowOptions, WindowRoleOverride};
 use gpui::{App, Global};
 use serde_json::{json, Value};
 use std::cell::RefCell;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct TrayConfig {
@@ -447,10 +449,11 @@ const MENU_ON_LEFT_CLICK: u8 = 2;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     use std::sync::atomic::Ordering;
-    use tray_icon::menu::{Menu, MenuEvent};
+    use tray_icon::menu::Menu;
 
     let Some(model) = &config.menu else {
         icon.set_menu(None);
+        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     };
@@ -458,6 +461,7 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     if let Err(error) = build_tray_menu(&menu, &model.items) {
         log::error!("[desktop][tray] could not build the menu: {error}");
         icon.set_menu(None);
+        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     }
@@ -472,12 +476,50 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
             },
         Ordering::Relaxed,
     );
-    MenuEvent::set_event_handler(Some(|event: MenuEvent| {
-        if let Some(handler) = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.get() {
-            handler(event.id.0.clone());
+    // The ids this menu answers for, so the app's single `muda` event route can
+    // tell a tray selection from a menu-bar one. `tray_icon` forwards mudas
+    // events, and the app installs one handler on that channel for every menu it
+    // builds; a second installer here would be ignored (the setter is
+    // first-caller-wins) and the tray would then never be called.
+    let mut ids = HashSet::new();
+    collect_menu_ids(&model.items, &mut ids);
+    *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = ids;
+    crate::desktop::menu_events::register(Box::new(|id| {
+        let owned = TRAY_MENU_IDS
+            .lock()
+            .map(|ids| ids.contains(id))
+            .unwrap_or(false);
+        if !owned {
+            return false;
         }
+        if let Some(handler) = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.get() {
+            handler(id.to_string());
+            return true;
+        }
+        false
     }));
 }
+
+/// Every id the tray menu answers for, so a tray selection can be told from a
+/// menu-bar one on the shared event route.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn collect_menu_ids(items: &[menu_model::MenuNode], ids: &mut HashSet<String>) {
+    use menu_model::MenuNode;
+    for node in items {
+        match node {
+            MenuNode::Item(item) => {
+                ids.insert(item.id.clone());
+            }
+            MenuNode::Submenu(submenu) => collect_menu_ids(&submenu.items, ids),
+            MenuNode::Separator | MenuNode::StandardMenu(_) => {}
+        }
+    }
+}
+
+/// The ids of the tray menu currently attached, if any.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+static TRAY_MENU_IDS: std::sync::LazyLock<std::sync::Mutex<HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashSet::new()));
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn attach_native_menu(_icon: &tray_icon::TrayIcon, _config: &TrayConfig) {}

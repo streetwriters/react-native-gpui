@@ -4,6 +4,7 @@ pub mod context_menu;
 pub mod dev_menu;
 pub mod errors;
 pub mod gpui_menu;
+pub mod menu_events;
 pub mod menu_model;
 pub mod module;
 pub mod perf_monitor;
