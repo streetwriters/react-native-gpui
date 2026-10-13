@@ -113,7 +113,10 @@ facebook::jsi::Value loadAddon(
   std::string message;
   if (failed) {
     message = takePendingExceptionMessage(env);
-    if (message.empty()) {
+    if (message.empty() || message == "undefined") {
+      // The exception object did not stringify to anything useful, so report
+      // the status instead: it is what distinguishes "the file could not be
+      // opened" from "the addon's init function failed".
       message = "Node-API status " + std::to_string(status);
     }
   }

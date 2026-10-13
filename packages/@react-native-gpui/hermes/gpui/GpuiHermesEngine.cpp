@@ -25,18 +25,14 @@ class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
 } // namespace
 
 extern "C" void rn_gpui_register_js_engine_hermes() {
-  // The Node-API host and loader are not compiled on Windows yet (see the
-  // WIN32 guard in gpui/CMakeLists.txt): this engine's
-  // `hermes_napi_load_module` raises "Loading native modules is not supported
-  // on Windows" at the pinned commit, so the capability is honestly absent
-  // rather than present and broken. `_requireNodeLibrary` then reports the
-  // engine as one that cannot load addons. Both the guard and this branch go
-  // away with the Windows loader (Part N).
+  // Hermes implements Node-API itself, so `.node` loading is this engine's
+  // capability on every platform. On Windows the symbols a stock addon imports
+  // are supplied by the app's executable, which re-exports them forwarded to
+  // `hermesvm.dll` (see `gpui/node-api-exports.txt` and
+  // `rn-gpui-module-build::forward_node_api_exports`).
   std::optional<rngpui::GpuiJsEngine::NodeAddons> nodeAddons;
-#if !defined(_WIN32)
   nodeAddons = rngpui::GpuiJsEngine::NodeAddons{
       .makeLoader = rngpui::makeHermesNodeAddonLoader};
-#endif
 
   rngpui::GpuiJsEngine engine{
       .info = {.name = "hermes", .version = RN_GPUI_HERMES_VERSION},

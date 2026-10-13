@@ -232,26 +232,23 @@ test.skipIf(process.platform === 'win32')(
     expect(JSON.stringify(nodes)).toContain('42 / 42 / tsfn 42');
   },
 );
-test.skipIf(process.platform === 'win32')(
-  'unmodified npm Node-API packages load through every loader pattern',
-  async () => {
-    await launch('node-api-packages');
-    await app.getByTestId('native-module-run').click();
-    await app.waitForIdle();
-    const nodes = await app.query('testID', 'native-module-result', true);
-    const text = JSON.stringify(nodes);
-    // `@node-rs/crc32` (napi-rs generated loader) and `farmhash` (a static
-    // `build/Release` require) both hash the string "hello", so their values are
-    // fixed; `microtime` (`require('node-gyp-build')`) reports whether its
-    // clock read back a plausible timestamp. farmhash's `fingerprint32` is used
-    // rather than `hash32` because the package documents the `hash*` family as
-    // platform dependent and the `fingerprint*` family as not: `hash32('hello')`
-    // is 3111026382 on darwin-arm64 but 2535641019 on linux-x64.
-    expect(text).toContain('crc32=907060870');
-    expect(text).toContain('farmhash=2039911270');
-    expect(text).toContain('microtime=ok');
-  },
-);
+test('unmodified npm Node-API packages load through every loader pattern', async () => {
+  await launch('node-api-packages');
+  await app.getByTestId('native-module-run').click();
+  await app.waitForIdle();
+  const nodes = await app.query('testID', 'native-module-result', true);
+  const text = JSON.stringify(nodes);
+  // `@node-rs/crc32` (napi-rs generated loader) and `farmhash` (a static
+  // `build/Release` require) both hash the string "hello", so their values are
+  // fixed; `microtime` (`require('node-gyp-build')`) reports whether its
+  // clock read back a plausible timestamp. farmhash's `fingerprint32` is used
+  // rather than `hash32` because the package documents the `hash*` family as
+  // platform dependent and the `fingerprint*` family as not: `hash32('hello')`
+  // is 3111026382 on darwin-arm64 but 2535641019 on linux-x64.
+  expect(text).toContain('crc32=907060870');
+  expect(text).toContain('farmhash=2039911270');
+  expect(text).toContain('microtime=ok');
+});
 test('scrolling the menu composites instead of rebuilding its rows', async () => {
   await launch();
   // The menu's ScrollView has no testID of its own, so scroll a row inside it;
