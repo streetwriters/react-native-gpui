@@ -68,6 +68,31 @@ resolution, per-runtime cache and error messages stay engine-agnostic.
 A missing symbol in the addon surfaces as a `dlerror()` string, which is what
 names an addon that needs libuv (`uv_default_loop`) rather than Node-API.
 
+### Windows
+
+Windows has no `dlopen` and no global symbol scope, so two things differ there
+and both are handled by `patches/0002-windows-load-node-api-modules.patch`:
+
+- the VM loads a `.node` file with `LoadLibraryExW` and `GetProcAddress` instead
+  of `dlopen`/`dlsym`, converting the path to UTF-16 and using
+  `LOAD_WITH_ALTERED_SEARCH_PATH` so an addon that ships a sibling DLL finds it;
+- a failed load raises `Failed to load module: <reason>`, where `<reason>` is the
+  system's text for `GetLastError()` from `FormatMessageW`. That is the message
+  that tells a user an addon needs `uv_*`, or was built without node-gyp's
+  delay-load hook (a missing `node.exe` import).
+
+The patch also hoists `InitFunc`/`initFunc` above the `#ifdef`. Upstream declares
+them inside the `#else` and closes the conditional _after_ the shared tail, so on
+Windows the code creating the exports object, calling the entry point and
+returning was compiled out; the function fell off the end and returned an
+indeterminate value, which surfaced as `napi_invalid_arg` for every addon.
+
+Unlike `0001` this patch is not behind an option: it is what makes the engine
+able to load addons on Windows at all. `scripts/build-hermes-windows.ps1` applies
+every patch in `patches/` before configuring, checking with `git apply --check`
+first and reporting the ones it applied, so a build from a clean checkout always
+matches the pinned commit plus these changes.
+
 `bin/` is gitignored, so a fresh clone has the headers but no binaries:
 
 | Platform                     | Files                                         |
@@ -91,6 +116,10 @@ node scripts/fetch-binaries.mjs --from ~/Downloads/hermes-darwin-arm64.zip
 npm run verify-binaries
 node scripts/fetch-binaries.mjs --verify --all
 ```
+
+A fetched binary is built from the pinned commit **plus every patch in
+`patches/`**: the workflow applies them before configuring. The local scripts do
+the same, so the two agree.
 
 ## Building it yourself
 

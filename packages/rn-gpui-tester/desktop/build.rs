@@ -1,6 +1,8 @@
 fn main() {
     // Forwards the engine's Node-API exports out of this executable, which is
-    // what lets a stock `.node` addon resolve them on Windows. No-op elsewhere.
+    // what lets a stock `.node` addon resolve them on Windows. The app template
+    // in `packages/@react-native-gpui/cli/templates/app/desktop/build.rs`
+    // explains why Windows needs it and why macOS and Linux do not.
     rn_gpui_module_build::forward_node_api_exports();
 
     let desktop_root = std::path::PathBuf::from(
