@@ -1052,6 +1052,9 @@ rust::String GpuiHost::dev_server_address() const {
 bool GpuiHost::reload_in_progress() const {
   return reactHost_->isReloading();
 }
+uint64_t GpuiHost::instance_generation() const {
+  return reactHost_->instanceGeneration();
+}
 extern "C" void rn_gpui_request_reload() {
   if (auto* host = activeGpuiHost.load())
     host->request_reload();
@@ -1060,6 +1063,11 @@ extern "C" bool rn_gpui_reload_in_progress() {
   if (auto* host = activeGpuiHost.load())
     return host->reload_in_progress();
   return false;
+}
+extern "C" uint64_t rn_gpui_instance_generation() {
+  if (auto* host = activeGpuiHost.load())
+    return host->instance_generation();
+  return 0;
 }
 
 void GpuiHost::start_log_box_surface() {

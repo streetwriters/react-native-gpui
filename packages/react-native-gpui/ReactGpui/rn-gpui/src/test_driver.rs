@@ -25,11 +25,22 @@ unsafe extern "C" {
     fn rn_gpui_worklet_frames_pending() -> u64;
     fn rn_gpui_request_reload();
     fn rn_gpui_reload_in_progress() -> bool;
+    /// Counts the React instances created so far. It changes when a reload
+    /// mounts a new one, which is how a caller waits for the replacement
+    /// instead of guessing from an empty tree.
+    fn rn_gpui_instance_generation() -> u64;
 }
 
 struct Request {
     value: Value,
     reply: SyncSender<Value>,
+}
+
+/// The generation of the React instance currently mounted, or 0 before the host
+/// has created one. Reported by `hello`, `tree` and `reload` so a client can
+/// wait for a *particular* instance after a reload.
+fn instance_generation() -> u64 {
+    unsafe { rn_gpui_instance_generation() }
 }
 
 pub(crate) fn start(app: &mut App, store: Entity<ViewStore>, window: AnyWindowHandle) {
@@ -82,6 +93,10 @@ async fn serve_commands(
                     })
                     .unwrap_or((0.0, 0.0, 1.0));
                 json!({"protocol": PROTOCOL_VERSION, "platform": "gpui", "scale": scale,
+                    // The React instance this tree belongs to. A client uses it
+                    // to wait for the replacement after a reload; it is 0 only
+                    // before the host has created any instance at all.
+                    "generation": instance_generation(),
                     // Every backend that implements `Window::render_to_image` can
                     // answer `screenshot`: gpui_macos/metal, gpui_linux (X11 and
                     // Wayland) and gpui_windows/Direct3D all do.
@@ -224,10 +239,14 @@ async fn serve_commands(
                 }
             }
             "reload" => {
+                // The generation *before* the request: the reload happens on
+                // another thread, so the reply carries the value the caller has
+                // to wait past, not the one it will end up at.
+                let generation = instance_generation();
                 unsafe {
                     rn_gpui_request_reload();
                 }
-                json!({"reloading":true})
+                json!({"reloading":true, "generation": generation})
             }
             "setAnimationsEnabled" => match params.get("enabled").and_then(Value::as_bool) {
                 Some(enabled) => {
@@ -1651,7 +1670,10 @@ fn tree(store: &ViewStore, cx: &gpui::Context<ViewStore>) -> Value {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    json!({"surface": store.primary_surface_id, "children": children})
+    // `generation` says which React instance this tree came from, so a client
+    // that reloaded can tell "the old instance is gone" from "the new one has
+    // not mounted yet" without inferring it from an empty `children`.
+    json!({"surface": store.primary_surface_id, "generation": instance_generation(), "children": children})
 }
 
 fn tree_node(

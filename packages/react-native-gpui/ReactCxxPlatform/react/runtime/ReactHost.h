@@ -69,6 +69,15 @@ class ReactHost {
   void requestReload() { reloadReactInstance(); }
   bool isReloading() const { return isReloadingReactInstance_.load(); }
 
+  /// Monotonic count of the React instances this host has created, starting at
+  /// 1 for the first. A reload destroys the old instance and creates a new one,
+  /// so a test can tell "the tree is empty because the old instance is being
+  /// torn down" from "the tree is empty because the new one has not mounted
+  /// yet" by watching this change, instead of inferring it from an empty tree.
+  uint64_t instanceGeneration() const {
+    return instanceGeneration_.load(std::memory_order_relaxed);
+  }
+
   void startSurface(
       SurfaceId surfaceId,
       const std::string &moduleName /* can be empty */,
@@ -118,6 +127,9 @@ class ReactHost {
   std::unique_ptr<ReactInstanceData> reactInstanceData_;
   std::unique_ptr<ReactInstance> reactInstance_;
   std::atomic<bool> isReloadingReactInstance_{false};
+  /// Incremented by `createReactInstance`, so it is 1 for the first instance and
+  /// one more after each reload. See `instanceGeneration`.
+  std::atomic<uint64_t> instanceGeneration_{0};
 
   std::unique_ptr<SchedulerDelegate> schedulerDelegate_;
   std::unique_ptr<Scheduler> scheduler_;

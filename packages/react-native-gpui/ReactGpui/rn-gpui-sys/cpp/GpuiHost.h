@@ -114,6 +114,9 @@ class GpuiHost {
   bool set_dev_server(rust::Str host, uint32_t port);
   rust::String dev_server_address() const;
   bool reload_in_progress() const;
+  /// Counts the React instances created so far; see
+  /// `ReactHost::instanceGeneration`.
+  uint64_t instance_generation() const;
   void start_log_box_surface();
   void stop_log_box_surface();
 

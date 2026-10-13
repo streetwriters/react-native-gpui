@@ -214,6 +214,32 @@ test('reloading while module calls are pending keeps the app alive', async () =>
     15_000,
   );
 });
+test('twenty reloads in a row each finish promptly', async () => {
+  await launch('cpp-turbomodule');
+  await desktopExpect(
+    app.getByTestId('tester-screen-cpp-turbomodule'),
+  ).toBeVisible();
+
+  // `reload()` used to wait for the tree to go empty and then refill. A reload
+  // that tore down and remounted between two polls never showed an empty tree,
+  // so the wait ran to its 30-second deadline and the test still passed — 30
+  // seconds late. Twenty of those would take ten minutes, so the elapsed time
+  // is the assertion: a regression to the old behaviour cannot hide.
+  const reloads = 20;
+  const started = Date.now();
+  for (let index = 0; index < reloads; index++) {
+    await app.reload();
+    // Each iteration proves the new instance really mounted, not just that a
+    // timer expired: the screen is queried through the tree the driver reports.
+    await desktopExpect(
+      app.getByTestId('tester-screen-cpp-turbomodule'),
+    ).toBeVisible();
+  }
+  const elapsed = Date.now() - started;
+  // Generous against a slow CI box (5s per reload) but far below the 30s step
+  // the old code could take even once.
+  expect(elapsed).toBeLessThan(reloads * 5_000);
+}, 150_000); // Twenty reloads, each measured against its own 5-second allowance.
 test('custom Fabric component renders inside the tester', async () => {
   await launch('gpui-component');
   await desktopExpect(

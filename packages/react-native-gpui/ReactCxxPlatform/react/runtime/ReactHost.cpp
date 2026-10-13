@@ -112,6 +112,13 @@ ReactHost::~ReactHost() noexcept {
 }
 
 void ReactHost::createReactInstance() {
+  // A new JS instance is coming up. Bumping the generation here — the one place
+  // both the first load and a reload pass through — is what lets a caller wait
+  // for *this* instance rather than infer it from an empty tree. The increment
+  // happens before any mount, so a tree observed afterwards belongs to this
+  // instance and cannot be the previous one's.
+  instanceGeneration_.fetch_add(1, std::memory_order_relaxed);
+
   if (reactInstanceConfig_.animatedNodesManagerProviderFactory) {
     reactInstanceData_->animatedNodesManagerProvider =
         reactInstanceConfig_.animatedNodesManagerProviderFactory();
