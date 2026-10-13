@@ -1494,6 +1494,17 @@ fn menu_bar_offset() -> f32 {
 /// GPUI) thread.
 ///
 /// Only compiled for the test driver: the message is otherwise a client's job.
+///
+/// The reply is discarded deliberately, and it is safe to: `UiaReturnRawElementProvider`
+/// returns an `LRESULT`, not an owned reference. AccessKit keeps the provider
+/// alive inside its own `Context` (the adapter's `State::Active`) and answers
+/// later WM_GETOBJECT messages from it; the reference Windows takes on the
+/// caller's behalf is released by the client that asked, through the standard
+/// WM_GETOBJECT contract. There is nothing here to free or release.
+///
+/// It is sent once per window: `is_a11y_active()` is true forever after the
+/// first successful activation, so resending it would only re-enter the window
+/// procedure and make Windows hand out another provider reference for no gain.
 #[cfg(all(target_os = "windows", feature = "test-driver"))]
 fn activate_accessibility_probe(window: &gpui::Window) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -1501,6 +1512,9 @@ fn activate_accessibility_probe(window: &gpui::Window) {
     // OBJID_CLIENT: the window's own accessibility tree, which is what
     // `AccessKit`'s `handle_wm_getobject` answers.
     const OBJID_CLIENT: isize = 0xFFFF_FFFCu32 as i32 as isize;
+    if window.is_a11y_active() {
+        return;
+    }
     let Ok(handle) = HasWindowHandle::window_handle(window) else {
         return;
     };
@@ -1508,8 +1522,6 @@ fn activate_accessibility_probe(window: &gpui::Window) {
         return;
     };
     let hwnd = win32.hwnd.get() as *mut core::ffi::c_void;
-    // The return value is the `LRESULT` AccessKit produced; this call exists to
-    // flip the adapter active, not to consume the provider.
     unsafe {
         SendMessageW(hwnd, WM_GETOBJECT, 0, OBJID_CLIENT);
     }

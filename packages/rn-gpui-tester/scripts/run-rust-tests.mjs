@@ -62,11 +62,21 @@ const env = { ...process.env };
  * section. Those variables only apply when cargo is invoked *from* that
  * directory, and this script runs from the repository root against
  * `ReactGpui/Cargo.toml`, so without them the CMake configure finds no app
- * provider and `rn_gpui_core`'s reference to `rn_gpui_register_app_components`
- * is left unresolved when a test binary links. Set them explicitly, using the
- * same values the config file holds.
+ * provider.
+ *
+ * Windows only. There the reference is hard: MSVC has no weak symbols, so a
+ * `rn-gpui-sys` test binary that links this crate alone cannot resolve the
+ * app-provider symbol and the link fails (that is what commit `fee8910` fixed,
+ * together with an `alternatename` fallback). macOS and Linux get a weak
+ * reference, so the same binaries link with no autolink list at all — which is
+ * how they passed 94 tests before this was added. Setting the variables there
+ * would silently change what CMake configures, which is a difference this plan
+ * is trying to remove rather than add.
  */
 function setAutolinkEnv(targetEnv) {
+  if (process.platform !== 'win32') {
+    return;
+  }
   const desktopRoot = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     '..',
