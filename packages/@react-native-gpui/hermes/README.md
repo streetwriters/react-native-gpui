@@ -20,7 +20,20 @@ Everything here is built from one commit, recorded in `package.json`:
 | ----------------------------- | -------------------------------------------------------------- |
 | `API/`, `public/`, `include/` | The upstream headers we compile against, byte for byte (below) |
 | `bin/<platform>-<arch>/`      | The prebuilt VM and compiler (not committed; fetched or built) |
+| `gpui/node-api-exports.txt`   | Every `napi_*`/`node_api_*` name the VM exports, one per line  |
+| `patches/`                    | Patches applied to the pinned commit before building           |
 | `scripts/fetch-binaries.mjs`  | Downloads a CI artifact or release into `bin/` and verifies it |
+
+`gpui/node-api-exports.txt` lists the Node-API names the VM exports. On Windows
+an addon cannot resolve those symbols from a global scope — a DLL import names
+the file it comes from — so the app's executable re-exports each one, forwarded
+to `hermesvm.dll`. The list is what that forwarding is generated from, and
+`gpui/node-api-exports.test.js` regenerates it from the installed library and
+fails when the two disagree. Regenerate it after a Hermes bump:
+
+```sh
+dumpbin /exports bin/win32-x64/hermesvm.dll | # keep the napi_* / node_api_* rows
+```
 
 Only the headers needed to compile against the VM are vendored. Everything
 else in upstream `include/` is VM internals the shared library does not export.
