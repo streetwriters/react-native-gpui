@@ -32,6 +32,16 @@ module.exports = {
     ],
     alias: [
       {
+        // React Native's own entry is Flow-typed and cannot be parsed by vitest,
+        // so a module in `src-gpui` that imports `TurboModuleRegistry` from the
+        // package root — the convention there, and what `Platform.gpui.js` does
+        // — would fail to load in a unit test and leave the registry undefined.
+        // The mock exposes what those modules use; tests install what the native
+        // side should report through `globalThis.__rnGpuiTestTurboModules`.
+        find: /^react-native$/,
+        replacement: path.join(__dirname, 'vitest/ReactNativeMock.js'),
+      },
+      {
         find: /^react-native\/Libraries\/Utilities\/Platform$/,
         replacement: path.join(
           gpuiRoot,

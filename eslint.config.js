@@ -34,6 +34,9 @@ module.exports = [
       '**/*.config.js',
       '**/react-native.config.js',
       'packages/@react-native-gpui/*/gpui/**/*.js',
+      // Plain-JS mocks the vitest preset substitutes; they live outside any
+      // package that has a Babel config, so they are parsed as modules here.
+      'packages/@react-native-gpui/testing/vitest/**/*.js',
     ],
     languageOptions: {
       sourceType: 'module',

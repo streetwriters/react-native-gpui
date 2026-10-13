@@ -1,7 +1,14 @@
+// The registry comes from the package root, as it does in the other modules in
+// this tree (`BackHandler.gpui.js`, `TextInput.gpui.js`). A relative path would
+// also work in a bundle — Metro rebases a patched module's imports onto its
+// upstream location — but only there, which makes this file's own logic
+// untestable outside a running app.
+import { TurboModuleRegistry } from 'react-native';
+
 function readJsEngine() {
   try {
-    const { get } = require('../TurboModule/TurboModuleRegistry');
-    const constants = get('PlatformConstants')?.getConstants?.();
+    const constants =
+      TurboModuleRegistry.get('PlatformConstants')?.getConstants?.();
     const jsEngine = constants?.jsEngine;
     if (jsEngine && typeof jsEngine.name === 'string') {
       return jsEngine;
@@ -12,6 +19,16 @@ function readJsEngine() {
   return null;
 }
 
+// Native reports no `systemName`, so it comes from here, and it must not claim
+// macOS on a Windows or Linux host: an app that branches on it would take the
+// wrong path. The value is derived from the host when it is known, and the
+// documented React Native spelling (`macOS`, `Windows`, `Linux`) otherwise.
+const HOST_SYSTEM_NAMES = {
+  macos: 'macOS',
+  windows: 'Windows',
+  linux: 'Linux',
+};
+
 const staticConstants = {
   forceTouchAvailable: false,
   interfaceIdiom: 'desktop',
@@ -20,7 +37,6 @@ const staticConstants = {
   // The runtime reports no osVersion yet, so these are placeholders that keep
   // `Platform.Version` string-typed for version-gated callers.
   osVersion: 'unknown',
-  systemName: 'macOS',
   reactNativeVersion: {
     major: 0,
     minor: 87,
@@ -36,9 +52,7 @@ const staticConstants = {
 // every host, so a caller that needs the host uses this.
 function readHostOS() {
   try {
-    const NativeGpuiDesktop = require('../TurboModule/TurboModuleRegistry').get(
-      'GpuiDesktop',
-    );
+    const NativeGpuiDesktop = TurboModuleRegistry.get('GpuiDesktop');
     const reported = NativeGpuiDesktop?.platform?.();
     if (typeof reported === 'string' && reported.length > 0) {
       return reported;
@@ -53,6 +67,17 @@ const Platform = {
   __constants: null,
   OS: 'gpui',
   get hostOS() {
+    // Resolve on the first read rather than waiting for `constants`: a bundle
+    // that asks for the host before anything reads `constants` would otherwise
+    // get the fallback, which is the wrong answer on two hosts out of three.
+    if (this.__hostOS == null) {
+      const reported = readHostOS();
+      // Cache a real answer; a failed lookup is retried on the next read, since
+      // TurboModules may not be installed yet.
+      if (reported != null) this.__hostOS = reported;
+    }
+    // Only when the module cannot answer at all. Reported as-is rather than
+    // guessed, so a caller can tell "not available yet" from a real host.
     return this.__hostOS ?? 'macos';
   },
   __hostOS: null,
@@ -64,16 +89,20 @@ const Platform = {
   get constants() {
     if (this.__constants == null) {
       const jsEngine = readJsEngine();
-      const hostOS = readHostOS();
-      if (hostOS != null) this.__hostOS = hostOS;
+      const hostOS = this.hostOS;
       if (jsEngine == null) {
         // Do not cache: a later read succeeds once TurboModules are installed.
         return {
           ...staticConstants,
           jsEngine: { name: 'unknown', version: '' },
+          systemName: HOST_SYSTEM_NAMES[hostOS] ?? 'macOS',
         };
       }
-      this.__constants = { ...staticConstants, jsEngine };
+      this.__constants = {
+        ...staticConstants,
+        jsEngine,
+        systemName: HOST_SYSTEM_NAMES[hostOS] ?? 'macOS',
+      };
     }
     return this.__constants;
   },
