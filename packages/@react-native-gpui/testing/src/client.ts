@@ -419,19 +419,61 @@ export class DesktopApp {
   }
 
   async reload(): Promise<void> {
-    await this.request('reload');
-    // The request only asks for a reload: the old React instance is torn down and
-    // a new one mounts afterwards, and the tree is empty in between. That gap is
-    // not reported as busy, so `waitForIdle` can return while the tree is still
-    // empty. A caller that queries immediately after this (the reload loop in the
-    // navigation suite) then fails with "matched no nodes". Wait for a tree whose
-    // mount batch for the *new* instance has landed, then for it to settle.
-    //
-    // The reply carries no generation, so the reload is bracketed instead: wait
-    // for the tree to disappear (the old instance's teardown), then for it to come
-    // back (the new instance's mount). A reload that tears down and re-mounts
-    // between two polls skips the first step and is caught by the second.
+    const reply = (await this.request('reload')) as {
+      generation?: number;
+    } | null;
+    // The driver reports the React instance a tree belongs to, so the wait can
+    // be for *that* instance rather than for a shape of tree. The old code
+    // waited for the tree to go empty and then refill; a reload that tore down
+    // and remounted between two polls skipped the first step, so the loop ran to
+    // its 30-second deadline before going on. A fast machine is where that
+    // happens, which is exactly where it is least acceptable.
+    const before = reply?.generation;
+    if (typeof before !== 'number') {
+      // A driver that predates the field. Fall back to the old bracket, but
+      // bounded: if the tree never goes empty there is nothing to wait for, and
+      // 30 seconds of silence tells a caller nothing.
+      await this.waitForReloadWithoutGeneration();
+      return;
+    }
+    await this.waitForGenerationAfter(before);
+    await this.waitForIdle({ timeout: 30000 });
+  }
+
+  /**
+   * Waits until the tree reports a React instance newer than `generation` and is
+   * non-empty. The generation changes when the replacement instance is created,
+   * which happens before anything it mounts, so a non-empty tree observed
+   * afterwards cannot be the old instance's.
+   */
+  private async waitForGenerationAfter(generation: number): Promise<void> {
     const deadline = Date.now() + 30_000;
+    let lastSeen = generation;
+    while (Date.now() < deadline) {
+      const tree = (await this.tree()) as {
+        generation?: number;
+        children?: unknown[];
+      } | null;
+      if (typeof tree?.generation === 'number') {
+        lastSeen = tree.generation;
+        if (tree.generation > generation && tree.children?.length) {
+          return;
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error(
+      `the app did not mount a new React instance within 30s after reload ` +
+        `(generation stayed at ${lastSeen}, expected above ${generation})`,
+    );
+  }
+
+  /**
+   * The pre-generation fallback: wait for the tree to empty and then refill,
+   * both within a short bound so a reload that is simply fast does not stall.
+   */
+  private async waitForReloadWithoutGeneration(): Promise<void> {
+    const deadline = Date.now() + 5_000;
     let sawTeardown = false;
     while (Date.now() < deadline) {
       const tree = (await this.tree()) as { children?: unknown[] } | null;
