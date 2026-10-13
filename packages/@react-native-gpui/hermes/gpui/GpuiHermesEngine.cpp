@@ -25,15 +25,6 @@ class HermesRuntimeFactory final : public facebook::react::JSRuntimeFactory {
 } // namespace
 
 extern "C" void rn_gpui_register_js_engine_hermes() {
-  // Hermes implements Node-API itself, so `.node` loading is this engine's
-  // capability on every platform. On Windows the symbols a stock addon imports
-  // are supplied by the app's executable, which re-exports them forwarded to
-  // `hermesvm.dll` (see `gpui/node-api-exports.txt` and
-  // `rn-gpui-module-build::forward_node_api_exports`).
-  std::optional<rngpui::GpuiJsEngine::NodeAddons> nodeAddons;
-  nodeAddons = rngpui::GpuiJsEngine::NodeAddons{
-      .makeLoader = rngpui::makeHermesNodeAddonLoader};
-
   rngpui::GpuiJsEngine engine{
       .info = {.name = "hermes", .version = RN_GPUI_HERMES_VERSION},
       .makeRuntimeFactory =
@@ -41,8 +32,14 @@ extern "C" void rn_gpui_register_js_engine_hermes() {
       // Hermes implements Node-API itself and ships the host-integration
       // interface (API/napi/hermes_napi.h) this package compiles against, so
       // `.node` loading is this engine's capability. Core owns everything else:
-      // resolving the file, the cache and the error messages.
-      .nodeAddons = std::move(nodeAddons),
+      // resolving the file, the cache and the error messages. On Windows the
+      // symbols a stock addon imports are supplied by the app's executable,
+      // which re-exports them forwarded to `hermesvm.dll` (see
+      // `gpui/node-api-exports.txt` and
+      // `rn-gpui-module-build::forward_node_api_exports`).
+      .nodeAddons =
+          rngpui::GpuiJsEngine::NodeAddons{
+              .makeLoader = rngpui::makeHermesNodeAddonLoader},
   };
   rngpui::registerJsEngine(std::move(engine));
 }

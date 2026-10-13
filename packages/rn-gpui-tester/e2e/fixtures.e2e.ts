@@ -197,12 +197,19 @@ test.each(['stack', 'native-stack'])(
 );
 
 // Native accessibility runs where the platform can resolve nodes by testID:
-// macOS always, Windows always (the runner turns it on; no system setting is
-// involved), Linux when the e2e runner enabled the AT-SPI bus.
+// Native accessibility runs where the platform can resolve nodes by testID:
+// macOS always, Windows and Linux when the runner turned it on. macOS needs no
+// switch; on the other two the runner reports its decision through
+// `RN_GPUI_TEST_NATIVE_A11Y`, and `=0` means it did not — which is what the
+// client and the runner already honour, and what this file did not: Windows was
+// hardcoded on, so setting the variable to `0` skipped the test in the client
+// while this gate still tried to run it.
 const nativeA11y =
-  process.platform === 'darwin' ||
-  process.platform === 'win32' ||
-  process.env.RN_GPUI_TEST_NATIVE_A11Y === '1';
+  process.platform === 'darwin'
+    ? true
+    : process.platform === 'win32' || process.platform === 'linux'
+      ? process.env.RN_GPUI_TEST_NATIVE_A11Y !== '0'
+      : false;
 
 test.skipIf(!nativeA11y)(
   'native accessibility exposes labels, roles, state, values and hidden subtrees',
