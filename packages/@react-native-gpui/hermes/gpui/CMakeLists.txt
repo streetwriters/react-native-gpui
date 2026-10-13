@@ -119,17 +119,16 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SUBDIRECTORIES
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/GpuiHermesEngine.cpp")
 # The Node-API host integration and the loader. They are this engine's own
-# sources now — nothing is read from react-native-node-api — and are compiled
-# on Linux and macOS. Windows needs forwarded exports from the app executable
-# (Part W) before they can work there, so for now the capability is simply left
-# unset and `_requireNodeLibrary` reports the engine as unsupported.
-if(NOT WIN32)
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
-    "${CMAKE_CURRENT_LIST_DIR}/HermesNodeApiHost.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/HermesNodeAddons.cpp")
-  set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS
-    "${RN_GPUI_HERMES_SOURCE_DIR}/API")
-endif()
+# sources now — nothing is read from react-native-node-api — and are compiled on
+# every platform, including Windows: the app's executable forwards the VM's
+# Node-API exports there (see `node-api-exports.txt` and
+# `rn-gpui-module-build::forward_node_api_exports`), which is what the previous
+# guard here was waiting for.
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/HermesNodeApiHost.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/HermesNodeAddons.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_JS_ENGINE_INCLUDE_DIRS
+  "${RN_GPUI_HERMES_SOURCE_DIR}/API")
 # React Common headers are not added here on purpose: they must reach the glue
 # through the linked targets, so that the ReactCommonOverrides copy still wins
 # (an upstream header first would change view-props layouts, and the archive was
@@ -160,37 +159,53 @@ set_target_properties(hermes_runtime_test PROPERTIES
   BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
   INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
 
-if(NOT WIN32)
-  add_library(gpui_node_api_smoke MODULE
-    "${CMAKE_CURRENT_LIST_DIR}/test/node_api_smoke_addon.c")
-  # The addon includes the vendored NAPI headers as <node_api.h>, which is how
-  # upstream Hermes ships them (include/hermes/napi).
-  target_include_directories(gpui_node_api_smoke PRIVATE
-    "${RN_GPUI_HERMES_SOURCE_DIR}/include/hermes/napi")
-  # Deliberately not linked against Hermes. That is the whole point of this
-  # fixture now: a stock addon is a plain shared object whose napi_* symbols
-  # are undefined and resolve against whatever is already loaded in the
-  # process, which on Linux and macOS is libhermesvm. Binding it to Hermes here
-  # would hide exactly the failure mode we care about. macOS needs the
-  # dynamic-lookup promise for the same reason `node-gyp` passes it.
-  set_target_properties(gpui_node_api_smoke PROPERTIES
-    PREFIX ""
-    SUFFIX ".node"
-    OUTPUT_NAME "gpui_node_api_smoke"
-    BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
-    INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
-  if(APPLE)
-    target_link_options(gpui_node_api_smoke PRIVATE "-undefined" "dynamic_lookup")
-  endif()
-
-  add_executable(hermes_node_api_addon_test
-    "${CMAKE_CURRENT_LIST_DIR}/test/hermes_node_api_addon_test.cpp")
-  target_link_libraries(hermes_node_api_addon_test PRIVATE
-    hermes-engine::hermesvm jsi)
-  set_target_properties(hermes_node_api_addon_test PROPERTIES
-    BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
-    INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
-  add_test(NAME hermes_node_api_addon_smoke
-    COMMAND $<TARGET_FILE:hermes_node_api_addon_test>
-      $<TARGET_FILE:gpui_node_api_smoke>)
+add_library(gpui_node_api_smoke MODULE
+  "${CMAKE_CURRENT_LIST_DIR}/test/node_api_smoke_addon.c")
+# The addon includes the vendored NAPI headers as <node_api.h>, which is how
+# upstream Hermes ships them (include/hermes/napi).
+target_include_directories(gpui_node_api_smoke PRIVATE
+  "${RN_GPUI_HERMES_SOURCE_DIR}/include/hermes/napi")
+# On Linux and macOS the fixture is deliberately *not* linked against Hermes:
+# a stock addon is a plain shared object whose napi_* symbols are undefined and
+# resolve against whatever is already loaded in the process, which there is
+# libhermesvm. Binding it to Hermes would hide exactly the failure mode we care
+# about. macOS needs the dynamic-lookup promise for the same reason `node-gyp`
+# passes it.
+#
+# Windows cannot express that: an import names the DLL it comes from, so an
+# unlinked fixture cannot even be created (`LNK2019` on every napi_* symbol).
+# Linking against the import library is also what a real Windows addon does —
+# what our forwarding exists for is the *app* resolving an addon that was built
+# against `node.exe` or against nothing in particular. The mechanism is
+# therefore covered end to end by the e2e test, which loads a stock npm addon;
+# this target covers that the fixture itself builds and loads.
+set_target_properties(gpui_node_api_smoke PROPERTIES
+  PREFIX ""
+  SUFFIX ".node"
+  OUTPUT_NAME "gpui_node_api_smoke"
+  BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
+  INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
+if(APPLE)
+  target_link_options(gpui_node_api_smoke PRIVATE "-undefined" "dynamic_lookup")
+elseif(WIN32)
+  target_link_libraries(gpui_node_api_smoke PRIVATE hermes-engine::hermesvm)
 endif()
+
+add_executable(hermes_node_api_addon_test
+  "${CMAKE_CURRENT_LIST_DIR}/test/hermes_node_api_addon_test.cpp")
+target_link_libraries(hermes_node_api_addon_test PRIVATE
+  hermes-engine::hermesvm jsi)
+set_target_properties(hermes_node_api_addon_test PROPERTIES
+  BUILD_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}"
+  INSTALL_RPATH "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}")
+# The DLL has to sit beside the test executable: Windows has no rpath, and the
+# fixture imports from it.
+if(WIN32)
+  add_custom_command(TARGET hermes_node_api_addon_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${RN_GPUI_HERMES_LIBRARY}"
+      "$<TARGET_FILE_DIR:hermes_node_api_addon_test>")
+endif()
+add_test(NAME hermes_node_api_addon_smoke
+  COMMAND $<TARGET_FILE:hermes_node_api_addon_test>
+    $<TARGET_FILE:gpui_node_api_smoke>)

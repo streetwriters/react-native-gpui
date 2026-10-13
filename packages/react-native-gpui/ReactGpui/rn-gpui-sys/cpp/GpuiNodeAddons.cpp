@@ -112,6 +112,47 @@ bool isRegularFile(const std::filesystem::path& path) {
   return result && !error;
 }
 
+/// A filesystem path as UTF-8.
+///
+/// `path::string()` is wrong for this on Windows: it converts the native wide
+/// form with the process's ANSI code page, so a path holding a character
+/// outside that page comes back with `?` in it and the addon is not found (or,
+/// worse, the wrong file is). Every consumer here — the JS error message, the
+/// addon cache key, and the engine's `load_module` — speaks UTF-8, so convert
+/// to that explicitly.
+std::string pathToUtf8(const std::filesystem::path& path) {
+#if defined(_WIN32)
+  const std::wstring wide = path.native();
+  if (wide.empty())
+    return {};
+  const int length = WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      wide.data(),
+      static_cast<int>(wide.size()),
+      nullptr,
+      0,
+      nullptr,
+      nullptr);
+  if (length <= 0)
+    return {};
+  std::string utf8(static_cast<size_t>(length), '\0');
+  WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      wide.data(),
+      static_cast<int>(wide.size()),
+      utf8.data(),
+      length,
+      nullptr,
+      nullptr);
+  return utf8;
+#else
+  // POSIX paths are bytes, and callers hand us UTF-8, so this is the identity.
+  return path.string();
+#endif
+}
+
 /// First existing regular file wins, in the order section 3.4 of the plan
 /// spells out. `tried` collects every location in the same order so the error
 /// message can list them.
@@ -138,7 +179,7 @@ std::filesystem::path resolveAddonPath(
     candidates.emplace_back(*embeddedPath);
   }
   for (const auto& candidate : candidates) {
-    tried.push_back(candidate.string());
+    tried.push_back(pathToUtf8(candidate));
     if (isRegularFile(candidate)) {
       std::error_code error;
       // The cache is keyed by the real path, so two keys that resolve to one
@@ -258,7 +299,7 @@ void installNodeAddons(
           setFailure(rt, missingAddonMessage(key, tried), "MODULE_NOT_FOUND");
           return facebook::jsi::Value::undefined();
         }
-        const std::string resolvedPath = resolved.string();
+        const std::string resolvedPath = pathToUtf8(resolved);
 
         auto cache = addonCache(rt);
         // Prefixed so a path can never collide with an Object.prototype name

@@ -579,9 +579,11 @@ add_library(rn_gpui_core STATIC
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
   # Stock Node-API addon loading: the `_requireNodeLibrary` JSI global, path
-  # resolution, the cache and the error messages. Always compiled on Linux and
-  # macOS — it is one small source file with no extra library — and it talks to
-  # the VM only through the active engine's NodeAddons capability.
+  # resolution, the cache and the error messages. Compiled on every platform —
+  # it is one small source file with no extra library — and it talks to the VM
+  # only through the active engine's NodeAddons capability. The Windows half
+  # (`GetModuleFileNameW` and `;` as the list separator) is live there now that
+  # the app's executable forwards the VM's Node-API exports.
   GpuiNodeAddons.cpp
   GpuiTurboModule.cpp
   MountBatchBuilder.cpp
