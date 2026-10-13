@@ -49,6 +49,15 @@ system's text for `GetLastError()` from `FormatMessageW` — that is the message
 that tells a user an addon needs `uv_*` or was built without node-gyp's
 delay-load hook. The library is never unloaded, matching the other branch.
 
+It also has to hoist `InitFunc`/`initFunc` above the `#ifdef`. Upstream declares
+them inside the `#else`, and the `#endif` sits _after_ the shared tail, so on
+Windows the code that creates the exports object, calls the entry point and
+returns was compiled out — the function fell off the end and returned whatever
+was in the return register. That surfaced as `napi_invalid_arg` (status 1) with
+no last-error set, for every addon, while a missing file correctly reported a
+failure. MSVC warned about it (`C4715: not all control paths return a value`);
+the warning was the bug.
+
 Unlike 0001 this one is not behind an option: it is what makes the Windows
 engine able to load addons at all.
 
