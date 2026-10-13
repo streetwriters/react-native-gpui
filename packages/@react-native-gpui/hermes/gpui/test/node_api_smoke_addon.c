@@ -1,6 +1,35 @@
 #include <node_api.h>
-#include <pthread.h>
 #include <stdlib.h>
+#if defined(_WIN32)
+// Windows has no pthreads. The thread here only exists to prove the
+// ThreadSafeFunction crosses a real thread boundary, so a Win32 thread is
+// enough. Its entry point returns DWORD rather than void*, so the body is
+// shared through a small adapter instead of casting the function pointer (which
+// would be undefined behaviour on a calling-convention or return-type change).
+#include <windows.h>
+typedef HANDLE smoke_thread_t;
+static void* run_threadsafe_call(void* data);
+static DWORD WINAPI smoke_thread_entry(LPVOID arg) {
+  run_threadsafe_call(arg);
+  return 0;
+}
+static int smoke_thread_create(smoke_thread_t* thread, void* arg) {
+  *thread = CreateThread(NULL, 0, smoke_thread_entry, arg, 0, NULL);
+  return *thread == NULL ? -1 : 0;
+}
+static void smoke_thread_detach(smoke_thread_t thread) {
+  CloseHandle(thread);
+}
+#else
+#include <pthread.h>
+typedef pthread_t smoke_thread_t;
+static int smoke_thread_create(smoke_thread_t* thread, void* arg) {
+  return pthread_create(thread, NULL, run_threadsafe_call, arg);
+}
+static void smoke_thread_detach(smoke_thread_t thread) {
+  pthread_detach(thread);
+}
+#endif
 
 typedef struct {
   napi_async_work work;
@@ -156,13 +185,13 @@ static napi_value threadsafe_ping(napi_env env, napi_callback_info info) {
     return NULL;
   }
 
-  pthread_t thread;
-  if (pthread_create(&thread, NULL, run_threadsafe_call, work) != 0) {
+  smoke_thread_t thread;
+  if (smoke_thread_create(&thread, work) != 0) {
     napi_release_threadsafe_function(work->function, napi_tsfn_abort);
     free(work);
     return NULL;
   }
-  pthread_detach(thread);
+  smoke_thread_detach(thread);
   napi_value result = NULL;
   napi_get_undefined(env, &result);
   return result;
