@@ -471,6 +471,57 @@ function resolveWithGpuiPlatform() {
   };
 }
 
+/**
+ * The nearest ancestor of `directory` that is a repository or workspace root —
+ * a directory holding `.git`, or a `package.json` that declares `workspaces`.
+ * Returns null when there is none, which is the case for a linked package that
+ * lives outside any repository.
+ *
+ * This is the bound for the watch-folder walk below. The walk exists because a
+ * linked package resolves its own imports against the tree it really lives in,
+ * so Metro has to watch the `node_modules` directories above it. It does not
+ * have to watch all of them up to the filesystem root: a `node_modules` in a
+ * user's home directory or at a drive root is an unrelated tree that Metro would
+ * crawl for nothing, and crawling it can be very expensive.
+ */
+function findTreeRoot(directory) {
+  for (let current = directory; ; current = path.dirname(current)) {
+    if (fs.existsSync(path.join(current, '.git'))) return current;
+    const manifest = path.join(current, 'package.json');
+    if (fs.existsSync(manifest)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+        if (parsed && parsed.workspaces) return current;
+      } catch {
+        // An unreadable or malformed package.json is not a workspace root.
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+  }
+}
+
+/**
+ * The `node_modules` directories a linked package can resolve through: the ones
+ * between the package and its tree root, plus the package's own. Stops at the
+ * tree root, so a `node_modules` above it is never watched. A package with no
+ * tree root gets only its own.
+ */
+function nodeModulesAboveLinkedPackage(realPath) {
+  const treeRoot = findTreeRoot(realPath);
+  const found = [];
+  for (let directory = realPath; ; directory = path.dirname(directory)) {
+    const modules = path.join(directory, 'node_modules');
+    if (fs.existsSync(modules)) found.push(modules);
+    if (treeRoot !== null && directory === treeRoot) break;
+    // No tree root: stop at the package's own directory rather than walking on.
+    if (treeRoot === null && directory === realPath) break;
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+  }
+  return found;
+}
+
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   activeUpstreamRNEntry = appRequire.resolve('react-native');
@@ -588,7 +639,9 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   // `node_modules` (for example `@react-native/js-polyfills/console.js`, which
   // the re-export shims import) and Metro fails the bundle with
   //   Failed to get the SHA-1 for: <repo>/node_modules/@react-native/js-polyfills/console.js
-  // Watch every `node_modules` above each linked package too.
+  // Watch the `node_modules` directories above each linked package, up to the
+  // repository or workspace the package belongs to — not to the filesystem root,
+  // which would watch an unrelated `node_modules` in a user's home directory.
   for (const packageName of gpuiPackages) {
     for (const modulesPath of nodeModulesPaths) {
       const candidate = path.join(modulesPath, packageName);
@@ -599,12 +652,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
         !nodeModulesPaths.some(folder => realPath.startsWith(folder + path.sep))
       ) {
         linkedPackageDirs.push(realPath);
-        for (let directory = realPath; ; directory = path.dirname(directory)) {
-          const modules = path.join(directory, 'node_modules');
-          if (fs.existsSync(modules)) linkedPackageDirs.push(modules);
-          const parent = path.dirname(directory);
-          if (parent === directory) break;
-        }
+        linkedPackageDirs.push(...nodeModulesAboveLinkedPackage(realPath));
       }
       break;
     }
@@ -617,7 +665,16 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       activeUpstreamRNDir,
       ...nodeModulesPaths,
     ]),
-  ];
+    // A nested folder is already covered by the folder above it, and Metro would
+    // crawl it twice. `linkedPackageDirs` can contain both, because a linked
+    // package inside the repository is under the repository's own watch folders.
+  ].filter(
+    (folder, _index, all) =>
+      !all.some(
+        other =>
+          other !== folder && (folder + path.sep).startsWith(other + path.sep),
+      ),
+  );
 
   const baseConfig = mergeConfig(defaultConfig, {
     // These can be symlinked workspace packages; registering their real paths
@@ -651,4 +708,11 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
 
 const config = makeMetroConfig();
 Object.defineProperty(config, 'makeMetroConfig', { value: makeMetroConfig });
+// Exported for the unit tests: the watch-folder walk is pure path logic, and
+// testing it against real on-disk layouts is the only way to show that a
+// `node_modules` above the tree root is not watched.
+Object.defineProperty(config, 'findTreeRoot', { value: findTreeRoot });
+Object.defineProperty(config, 'nodeModulesAboveLinkedPackage', {
+  value: nodeModulesAboveLinkedPackage,
+});
 module.exports = config;
