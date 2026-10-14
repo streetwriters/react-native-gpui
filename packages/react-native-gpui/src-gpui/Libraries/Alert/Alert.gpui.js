@@ -97,7 +97,7 @@ class Alert {
     buttons?: AlertButtons,
     options?: AlertOptions,
   ): void {
-    if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
+    if (Platform.OS !== 'android') {
       Alert.prompt(
         title,
         message,
@@ -185,7 +185,7 @@ class Alert {
     keyboardType?: string,
     options?: AlertOptions,
   ): void {
-    if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
+    if (Platform.OS !== 'android') {
       let callbacks: Array<?any> = [];
       const buttons = [];
       let cancelButtonKey;

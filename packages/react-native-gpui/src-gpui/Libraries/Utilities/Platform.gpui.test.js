@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 /**
- * `Platform.hostOS` and `Platform.constants.systemName` have to answer for the
+ * `Platform.OS` and `Platform.constants.systemName` have to answer for the
  * host the bundle is running on, and they have to answer on the *first* read:
  * a bundle whose first line asks for the host cannot be told the wrong one.
  *
@@ -24,7 +24,7 @@ function platformConstantsReporting(jsEngine) {
 }
 
 /**
- * The module under test is a singleton with two cache fields (`__hostOS`,
+ * The module under test is a singleton with two cache fields (`__OS`,
  * `__constants`). Every test wants it as a bundle would see it on first use, so
  * those fields are cleared rather than the module re-imported — re-importing
  * would need `vi.resetModules()`, which also clears the alias.
@@ -35,7 +35,7 @@ beforeEach(async () => {
   registry.clear();
   globalThis.__rnGpuiTestTurboModules = registry;
   platform ??= (await import('./Platform.gpui.js')).default;
-  platform.__hostOS = null;
+  platform.__OS = null;
   platform.__constants = null;
 });
 
@@ -44,39 +44,39 @@ afterEach(() => {
   delete globalThis.__rnGpuiTestTurboModules;
 });
 
-describe('Platform.hostOS', () => {
+describe('Platform.OS', () => {
   test('answers on the first read, before anything reads constants', () => {
     desktopReporting('windows');
     // Deliberately no `Platform.constants` read first: this is the case that
     // reported macOS on every host.
-    expect(platform.hostOS).toBe('windows');
+    expect(platform.OS).toBe('windows');
   });
 
   test('reports each host the native module can name', () => {
-    for (const hostOS of ['macos', 'windows', 'linux']) {
+    for (const os of ['macos', 'windows', 'linux']) {
       registry.clear();
-      desktopReporting(hostOS);
-      platform.__hostOS = null;
-      expect(platform.hostOS).toBe(hostOS);
+      desktopReporting(os);
+      platform.__OS = null;
+      expect(platform.OS).toBe(os);
     }
   });
 
   test('retries a failed lookup on the next read instead of caching the miss', () => {
     // Nothing installed yet: the documented fallback, not a cached answer.
-    expect(platform.hostOS).toBe('macos');
+    expect(platform.OS).toBe('macos');
 
     desktopReporting('windows');
-    expect(platform.hostOS).toBe('windows');
+    expect(platform.OS).toBe('windows');
   });
 
   test('keeps the first real answer it gets', () => {
     desktopReporting('linux');
-    expect(platform.hostOS).toBe('linux');
+    expect(platform.OS).toBe('linux');
 
     // A host cannot change under a running bundle, and a later transient failure
     // must not overwrite what was already reported.
     registry.clear();
-    expect(platform.hostOS).toBe('linux');
+    expect(platform.OS).toBe('linux');
   });
 
   test('agrees with constants when constants is read first', () => {
@@ -84,20 +84,20 @@ describe('Platform.hostOS', () => {
     platformConstantsReporting({ name: 'hermes', version: '1' });
 
     expect(platform.constants.systemName).toBe('Linux');
-    expect(platform.hostOS).toBe('linux');
+    expect(platform.OS).toBe('linux');
   });
 });
 
 describe('Platform.constants.systemName', () => {
   test('names the real host rather than always macOS', () => {
-    for (const [hostOS, expected] of [
+    for (const [os, expected] of [
       ['macos', 'macOS'],
       ['windows', 'Windows'],
       ['linux', 'Linux'],
     ]) {
       registry.clear();
-      desktopReporting(hostOS);
-      platform.__hostOS = null;
+      desktopReporting(os);
+      platform.__OS = null;
       platform.__constants = null;
       expect(platform.constants.systemName).toBe(expected);
     }
@@ -107,5 +107,14 @@ describe('Platform.constants.systemName', () => {
     // The fallback keeps the value a documented spelling, so a caller that
     // switches on it cannot receive an unknown string.
     expect(platform.constants.systemName).toBe('macOS');
+  });
+});
+
+describe('Platform.select', () => {
+  test('picks the running OS, then native, then default', () => {
+    desktopReporting('linux');
+    expect(platform.select({ linux: 1, macos: 2, default: 3 })).toBe(1);
+    expect(platform.select({ macos: 2, native: 4, default: 3 })).toBe(4);
+    expect(platform.select({ windows: 2, default: 3 })).toBe(3);
   });
 });
