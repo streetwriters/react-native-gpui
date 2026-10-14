@@ -69,10 +69,17 @@ fn route(id: &str) -> Handled {
 /// calls do nothing, which is what stops a second menu system from taking the
 /// channel away from the first.
 ///
-/// `muda` is only a dependency on macOS and Windows. Linux draws its menus with
-/// GPUI (`desktop::gpui_menu`) and reports a selection through that menu's own
-/// responder, so it never touches `muda`'s event channel and there is nothing to
-/// install there.
+/// The two platforms reach a menu event through different crates, and each
+/// has exactly one channel:
+///
+/// - macOS and Windows build their native menus with `muda` (this crate's own
+///   dependency), so its `MenuEvent` is the channel.
+/// - Linux's tray goes through `tray_icon`, which bundles its own newer `muda`
+///   and re-exports it as `tray_icon::menu`. The `ksni` backend sends the
+///   selection on *that* crate's `MenuEvent` — a different channel from the one
+///   above, even though the type has the same name. Linux's GPUI-drawn menus
+///   (the menu bar and context menus) do not use an event channel at all; they
+///   report through their own responder.
 fn ensure_installed() {
     INSTALLED.get_or_init(|| {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -80,6 +87,14 @@ fn ensure_installed() {
             let _ = muda::MenuEvent::set_event_handler(Some(|event: muda::MenuEvent| {
                 route(&event.id.0);
             }));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = tray_icon::menu::MenuEvent::set_event_handler(Some(
+                |event: tray_icon::menu::MenuEvent| {
+                    route(&event.id.0);
+                },
+            ));
         }
     });
 }
