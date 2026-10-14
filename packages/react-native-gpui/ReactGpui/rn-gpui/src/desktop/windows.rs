@@ -6,7 +6,7 @@ use crate::desktop::platform_window;
 use crate::store::{store_from, StoreGlobal, SurfaceRootView};
 use gpui::{
     point, px, size, AnyWindowHandle, App, AppContext, Bounds, Global, Subscription,
-    TitlebarOptions, WindowBounds, WindowKind, WindowOptions,
+    TitlebarOptions, WindowBounds, WindowDecorations, WindowKind, WindowOptions,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -190,6 +190,8 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         (Some(x), Some(y)) => Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
         _ => Bounds::centered(None, size(px(width), px(height)), cx),
     };
+    // The placed origin, in points: what the popover's own window hints use.
+    let placed_origin = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
     let title = options
         .title
         .clone()
@@ -208,11 +210,18 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         is_resizable: options.resizable,
         is_movable: !options.popup,
         window_min_size: Some(size(px(120.0), px(120.0))),
-        kind: if options.popup {
-            WindowKind::PopUp
-        } else {
-            WindowKind::Normal
-        },
+        // The tray popover is a normal, undecorated window on every platform,
+        // not `WindowKind::PopUp`: GPUI makes that override-redirect on X11, so
+        // the window manager never focuses it and it can never see the
+        // deactivation that dismisses it (see `platform_window::prepare_popover`).
+        // A frameless window with no decorations is what Electron's Linux tray
+        // menu uses too. `WindowDecorations::Client` is GPUI's frameless mode.
+        kind: WindowKind::Normal,
+        window_decorations: options.popup.then_some(WindowDecorations::Client),
+        // The popover is mapped after it is prepared: the X11 window manager
+        // reads `_NET_WM_WINDOW_TYPE`, `_NET_WM_STATE` and the size hints when
+        // the window is mapped, so they are set on it while it is still hidden.
+        show: !options.popup,
         // A transparent title bar means the app draws and moves the bar itself.
         app_owns_titlebar_drag: options.appears_transparent,
         ..Default::default()
@@ -266,6 +275,20 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             let mut subscriptions = Vec::new();
             if options.popup {
                 crate::desktop::platform_window::style_as_popover(window);
+                // Set the popover's window hints while it is still unmapped,
+                // then ask the window manager to map and focus it. Failures are
+                // not fatal: a platform that needs none of this (or a Wayland
+                // session, which has no absolute placement) still gets a working
+                // window, just placed by the compositor.
+                if let Err(error) = crate::desktop::platform_window::prepare_popover(
+                    window,
+                    placed_origin.0,
+                    placed_origin.1,
+                    width,
+                    height,
+                ) {
+                    log::debug!("[desktop] popover window hints: {error}");
+                }
             }
             frame_hook.arm(window);
             subscriptions.push(install_bounds_observer(window, cx));
@@ -276,6 +299,20 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         .map_err(|error| {
             DesktopError::failed(format!("could not configure the window: {error}"))
         })?;
+
+    if options.popup {
+        // Map the popover and make it active, so it takes focus (and therefore
+        // can be dismissed when it loses it). The tray's own `focus` call
+        // already activates; this uses the pager source indication the window
+        // manager trusts, which is needed because a tray click arrives over
+        // D-Bus and carries no X timestamp.
+        let _ = handle.update(cx, |_root, window, _cx| {
+            window.activate_window();
+            if let Err(error) = crate::desktop::platform_window::activate_popover(window) {
+                log::debug!("[desktop] popover activation: {error}");
+            }
+        });
+    }
 
     let role = options.role();
     let component = options.component.clone();

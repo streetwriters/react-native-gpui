@@ -14,10 +14,27 @@ pub const fn tray() -> bool {
     ))
 }
 
-/// Windows has no anchored popover; on Linux it depends on the desktop
-/// environment.
-pub const fn tray_popover_anchored() -> bool {
-    cfg!(target_os = "macos")
+/// Whether the tray popover can be placed at the icon, rather than wherever the
+/// compositor decides.
+///
+/// macOS places it natively. Linux is decided at run time: X11 can position a
+/// window (`_NET_WM_WINDOW_TYPE_UTILITY` + `USPosition`), Wayland cannot. The
+/// Wayland layer-shell path (KDE, wlroots, COSMIC) is not implemented yet; when
+/// it lands this becomes true there too, and stays false on GNOME, which has no
+/// layer-shell. Windows has no anchored popover.
+pub fn tray_popover_anchored() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        !is_wayland()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
 }
 
 /// Wayland has no absolute window positioning and no raise-above.
