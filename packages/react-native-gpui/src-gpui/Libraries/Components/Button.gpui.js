@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
       backgroundColor: '#2196F3',
       borderRadius: 2,
     },
-    gpui: {
+    default: {
       backgroundColor: '#2f6feb',
       borderRadius: 6,
       paddingHorizontal: 4,
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '500',
       },
-      gpui: {
+      default: {
         color: '#ffffff',
         fontSize: 15,
         fontWeight: '600',
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
       elevation: 0,
       backgroundColor: '#dfdfdf',
     },
-    gpui: {
+    default: {
       backgroundColor: '#3a4152',
     },
   }),
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
     android: {
       color: '#a1a1a1',
     },
-    gpui: {
+    default: {
       color: '#8b93a7',
     },
   }),

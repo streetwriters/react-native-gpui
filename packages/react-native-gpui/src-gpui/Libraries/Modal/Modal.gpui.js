@@ -287,7 +287,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
   }
 
   componentWillUnmount() {
-    if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
+    if (Platform.OS !== 'android') {
       this.setState({ isRendered: false });
     }
     if (this._eventSubscription) {
@@ -307,7 +307,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
 
   // Helper function to encapsulate platform specific logic to show or not the Modal.
   _shouldShowModal(): boolean {
-    if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
+    if (Platform.OS !== 'android') {
       return this.props.visible === true || this.state.isRendered === true;
     }
 
@@ -349,7 +349,7 @@ class Modal extends React.Component<ModalProps, ModalState> {
     const onDismiss = () => {
       // GPUI keeps the host mounted until its native visibility transition emits
       // dismiss, matching iOS so the Fabric event retains its JS instance.
-      if (Platform.OS === 'ios' || Platform.OS === 'gpui') {
+      if (Platform.OS !== 'android') {
         this.setState({ isRendered: false }, () => {
           if (this.props.onDismiss) {
             this.props.onDismiss();
