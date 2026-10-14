@@ -522,6 +522,34 @@ function nodeModulesAboveLinkedPackage(realPath) {
   return found;
 }
 
+/**
+ * The `node_modules` directories the app itself resolves through: the ones
+ * between its directory and the tree root it belongs to.
+ *
+ * The app's walk needs the same bound as the linked-package walk above, and for
+ * the same reason. Walking to the filesystem root instead adds every
+ * `node_modules` above the checkout — `/Users/<user>/node_modules`, a drive
+ * root — to both `resolver.nodeModulesPaths` and `watchFolders`, and Metro then
+ * crawls a tree the app has nothing to do with. Only a directory that exists
+ * counts, so a stale one left in a home directory is watched for nothing.
+ * A project with no tree root above it keeps only its own, as a linked package
+ * without one does.
+ */
+function nodeModulesForApp(projectRoot) {
+  const treeRoot = findTreeRoot(projectRoot);
+  const found = [];
+  for (let directory = projectRoot; ; directory = path.dirname(directory)) {
+    const modules = path.join(directory, 'node_modules');
+    if (fs.existsSync(modules)) found.push(modules);
+    if (treeRoot !== null && directory === treeRoot) break;
+    // No tree root: stop at the app's own directory rather than walking on.
+    if (treeRoot === null && directory === projectRoot) break;
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+  }
+  return found;
+}
+
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   activeUpstreamRNEntry = appRequire.resolve('react-native');
@@ -596,7 +624,6 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     // GPUI follows its native implementation, which attaches the drawer Pan.
     GPUI_SOURCE_OVERRIDES.set(drawerGestureHandler, drawerNativeGestureHandler);
   }
-  const nodeModulesPaths = [];
   const platformPackageDirs = [];
   const appPackage = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
@@ -625,11 +652,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       );
     } catch {}
   }
-  for (let directory = projectRoot; ; directory = path.dirname(directory)) {
-    const candidate = path.join(directory, 'node_modules');
-    if (fs.existsSync(candidate)) nodeModulesPaths.push(candidate);
-    if (path.dirname(directory) === directory) break;
-  }
+  const nodeModulesPaths = nodeModulesForApp(projectRoot);
   const linkedPackageDirs = [];
   // A `file:` (or npm link / workspace) dependency is a directory junction on
   // Windows and a symlink elsewhere, so a module inside it resolves its own
@@ -714,5 +737,8 @@ Object.defineProperty(config, 'makeMetroConfig', { value: makeMetroConfig });
 Object.defineProperty(config, 'findTreeRoot', { value: findTreeRoot });
 Object.defineProperty(config, 'nodeModulesAboveLinkedPackage', {
   value: nodeModulesAboveLinkedPackage,
+});
+Object.defineProperty(config, 'nodeModulesForApp', {
+  value: nodeModulesForApp,
 });
 module.exports = config;

@@ -16,7 +16,8 @@ import { afterEach, describe, expect, test } from 'vitest';
  * the decision is made by looking for `.git` and `package.json` on disk.
  */
 const config = require('./metro.config.js');
-const { findTreeRoot, nodeModulesAboveLinkedPackage } = config;
+const { findTreeRoot, nodeModulesAboveLinkedPackage, nodeModulesForApp } =
+  config;
 
 const roots = [];
 
@@ -163,5 +164,64 @@ describe('nodeModulesAboveLinkedPackage', () => {
     for (const folder of found) {
       expect(folder.startsWith(dependencyRepo + path.sep)).toBe(true);
     }
+  });
+});
+
+describe('nodeModulesForApp', () => {
+  test('collects the app node_modules up to the repository root', () => {
+    const root = scratch();
+    mkdir(path.join(root, '.git'));
+    const rootModules = mkdir(path.join(root, 'node_modules'));
+    const appModules = mkdir(path.join(root, 'packages/app/node_modules'));
+    const app = path.join(root, 'packages/app');
+
+    expect(nodeModulesForApp(app).sort()).toEqual(
+      [rootModules, appModules].sort(),
+    );
+  });
+
+  test('does not watch a node_modules above the repository root', () => {
+    const outer = scratch();
+    // The case that made the tester resolve a folder outside the checkout: a
+    // stale `node_modules` in a home directory, above the repository.
+    const homeModules = mkdir(path.join(outer, 'node_modules'));
+    const repo = mkdir(path.join(outer, 'repo'));
+    mkdir(path.join(repo, '.git'));
+    const repoModules = mkdir(path.join(repo, 'node_modules'));
+    const appModules = mkdir(path.join(repo, 'packages/app/node_modules'));
+    const app = path.join(repo, 'packages/app');
+
+    const found = nodeModulesForApp(app);
+    expect(found.sort()).toEqual([repoModules, appModules].sort());
+    expect(found).not.toContain(homeModules);
+    for (const folder of found) {
+      expect(folder.startsWith(repo + path.sep)).toBe(true);
+    }
+  });
+
+  test('a workspace app stops at the workspace root', () => {
+    const root = scratch();
+    write(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'workspace', workspaces: ['packages/*'] }),
+    );
+    const rootModules = mkdir(path.join(root, 'node_modules'));
+    const appModules = mkdir(path.join(root, 'packages/app/node_modules'));
+    const app = path.join(root, 'packages/app');
+
+    expect(nodeModulesForApp(app).sort()).toEqual(
+      [rootModules, appModules].sort(),
+    );
+  });
+
+  test('an app with no tree root gets only its own node_modules', () => {
+    const root = scratch();
+    const stray = mkdir(path.join(root, 'node_modules'));
+    const appModules = mkdir(path.join(root, 'standalone/node_modules'));
+    const app = path.dirname(appModules);
+
+    const found = nodeModulesForApp(app);
+    expect(found).toEqual([appModules]);
+    expect(found).not.toContain(stray);
   });
 });
