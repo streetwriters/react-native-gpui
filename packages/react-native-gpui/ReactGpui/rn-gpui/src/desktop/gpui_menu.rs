@@ -28,6 +28,25 @@ pub struct PendingMenu {
 pub struct PendingMenuGlobal(pub RefCell<Option<PendingMenu>>);
 impl gpui::Global for PendingMenuGlobal {}
 
+/// Closes the menu currently tracked in `PendingMenuGlobal`, if any.
+///
+/// Only one top-level GPUI menu is meant to be up at a time. Opening a second
+/// one used to overwrite the global and orphan the first window: nothing else
+/// reaps a popup, so it stayed on screen (and on top) until the process exited,
+/// and a repeated right-click left a stack of them. Every opener runs this
+/// first, so a new menu replaces the old one instead of joining it.
+fn close_open_menu(cx: &mut App) {
+    let Some(pending) = cx.try_global::<PendingMenuGlobal>() else {
+        return;
+    };
+    let taken = pending.0.borrow_mut().take();
+    if let Some(menu) = taken {
+        let _ = menu
+            .window
+            .update(cx, |_root, window, _cx| window.remove_window());
+    }
+}
+
 pub fn should_use_gpui() -> bool {
     match std::env::var("RN_GPUI_CONTEXT_MENU").ok().as_deref() {
         Some("gpui") => true,
@@ -63,13 +82,52 @@ impl MenuBar {
     }
 }
 
-pub fn attach(cx: &mut App, root: &gpui::Entity<crate::store::SurfaceRootView>, window_id: u32) {
+/// Creates the menu bar and its activation observer, without touching the root.
+///
+/// Called from inside a `window.update` whose closure has already leased the
+/// surface root, so this must not update the root: that panics with "cannot
+/// update SurfaceRootView while it is already being updated". The observer is
+/// registered on the menu bar entity (a fresh entity, safe to update here) and
+/// its callback only dismisses the popup.
+///
+/// The observer closes a menu left up when the user moves on: clicking anywhere
+/// outside the app, another window taking focus, or the app being backgrounded.
+/// The popup is an override-redirect window on X11, so it never receives that
+/// click itself and there is no global grab to catch it; window activation is
+/// the signal that is actually delivered (an X11 `FocusOut` calls
+/// `set_active(false)`, which runs these observers).
+pub fn prepare(window: &mut gpui::Window, cx: &mut App, window_id: u32) -> Option<PreparedMenuBar> {
     if !should_use_gpui_menu_bar() {
-        return;
+        return None;
     }
     let menu_bar = cx.new(|_| MenuBar::new(window_id));
+    let subscription = menu_bar.update(cx, |_menu_bar, cx| {
+        cx.observe_window_activation(window, |_menu_bar, window, cx| {
+            if !window.is_window_active() {
+                let _ = MenuPopup::dismiss(cx);
+            }
+        })
+    });
+    Some(PreparedMenuBar {
+        menu_bar,
+        subscription,
+    })
+}
+
+/// The menu bar `prepare` built, handed to `attach` once the root is free.
+pub struct PreparedMenuBar {
+    pub menu_bar: gpui::Entity<MenuBar>,
+    pub subscription: gpui::Subscription,
+}
+
+pub fn attach(
+    cx: &mut App,
+    root: &gpui::Entity<crate::store::SurfaceRootView>,
+    prepared: PreparedMenuBar,
+) {
     root.update(cx, |root, cx| {
-        root.menu_bar = Some(menu_bar);
+        root.menu_bar = Some(prepared.menu_bar);
+        root.menu_bar_activation_subscription = Some(prepared.subscription);
         cx.notify();
     });
 }
@@ -113,6 +171,30 @@ fn menu_bar_responder() -> Responder {
     }))
 }
 
+/// Opens a top-level menu and makes it the one `PendingMenuGlobal` tracks.
+///
+/// The single place a root menu is opened: it first closes whatever menu is
+/// already up, so a second open replaces the first instead of leaving its window
+/// on screen, then records the new window so it can be closed or dismissed
+/// later. A submenu (`depth > 0`) is opened with `open_menu_window` directly; it
+/// belongs to the menu already up and must not close it.
+fn open_tracked_menu(
+    cx: &mut App,
+    parent: gpui::AnyWindowHandle,
+    anchor: (f32, f32),
+    items: Vec<MenuNode>,
+    responder: Responder,
+) -> Result<gpui::AnyWindowHandle, String> {
+    close_open_menu(cx);
+    let window = open_menu_window(cx, parent, anchor, items.clone(), responder.clone(), 0)?;
+    cx.set_global(PendingMenuGlobal(RefCell::new(Some(PendingMenu {
+        window,
+        items,
+        responder,
+    }))));
+    Ok(window)
+}
+
 pub fn open_menu_bar_menu(cx: &mut App, title: &str) -> bool {
     let entries = menu_bar_entries(cx);
     let Some((_, items)) = entries.into_iter().find(|(label, _)| label == title) else {
@@ -125,23 +207,14 @@ pub fn open_menu_bar_menu(cx: &mut App, title: &str) -> bool {
             return false;
         }
     };
-    let responder = menu_bar_responder();
-    match open_menu_window(
+    match open_tracked_menu(
         cx,
         window,
         (0.0, MENU_BAR_HEIGHT),
-        items.clone(),
-        responder.clone(),
-        0,
+        items,
+        menu_bar_responder(),
     ) {
-        Ok(window) => {
-            cx.set_global(PendingMenuGlobal(RefCell::new(Some(PendingMenu {
-                window,
-                items,
-                responder,
-            }))));
-            true
-        }
+        Ok(_) => true,
         Err(error) => {
             log::error!("[gpui-menu] {error}");
             false
@@ -170,17 +243,23 @@ impl Render for MenuBar {
                         cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
                             let parent: gpui::AnyWindowHandle = window.window_handle();
                             let responder = menu_bar_responder();
+                            let anchor = (f32::from(event.position.x), f32::from(event.position.y));
+                            let menu_items = items.clone();
                             let _ = this;
-                            if let Err(error) = open_menu_window(
-                                cx,
-                                parent,
-                                (f32::from(event.position.x), f32::from(event.position.y)),
-                                items.clone(),
-                                responder,
-                                0,
-                            ) {
-                                log::error!("[gpui-menu] {error}");
-                            }
+                            // Deferred, not opened here: this handler runs inside the
+                            // menu-bar window's own update, and the popup's fallback
+                            // reads the parent's bounds with `parent.update(...)`. A
+                            // re-entrant update of the window already on the stack is
+                            // refused and reported as `WindowRemoved` ("window not
+                            // found"), so the menu never opened. Deferring runs after
+                            // the effect cycle, when the window is off the stack.
+                            cx.defer(move |cx| {
+                                if let Err(error) =
+                                    open_tracked_menu(cx, parent, anchor, menu_items, responder)
+                                {
+                                    log::error!("[gpui-menu] {error}");
+                                }
+                            });
                         }),
                     )
                     .child(label)
@@ -217,20 +296,14 @@ pub fn present(
     request: ContextMenuRequest,
     responder: Responder,
 ) -> Result<(), String> {
-    let window = open_menu_window(
+    open_tracked_menu(
         cx,
         request.window,
         (request.x, request.y),
-        request.model.items.clone(),
-        responder.clone(),
-        0,
-    )?;
-    cx.set_global(PendingMenuGlobal(RefCell::new(Some(PendingMenu {
-        window,
-        items: request.model.items,
+        request.model.items,
         responder,
-    }))));
-    Ok(())
+    )
+    .map(|_| ())
 }
 
 /// Open one dropdown.
@@ -367,13 +440,30 @@ impl MenuPopup {
         window.remove_window();
     }
 
-    fn choose(&mut self, id: &str, window: &mut Window) {
+    fn choose(&mut self, id: &str, window: &mut Window, cx: &mut App) {
         if self.resolved {
             return;
         }
         self.resolved = true;
         self.responder.resolve(Some(id));
+        self.forget_if_tracked(cx);
         Self::close(window);
+    }
+
+    /// Forgets the tracked root menu if this popup *is* it.
+    ///
+    /// Called from a root popup as it resolves so `PendingMenuGlobal` does not
+    /// keep a removed window: a later `close_open_menu` would then try to update
+    /// a window that is already gone, and `pending()` would report a menu that
+    /// is no longer on screen. A submenu (`depth > 0`) is not the tracked window
+    /// and leaves the root alone.
+    fn forget_if_tracked(&self, cx: &mut App) {
+        if self.depth != 0 {
+            return;
+        }
+        if let Some(pending) = cx.try_global::<PendingMenuGlobal>() {
+            *pending.0.borrow_mut() = None;
+        }
     }
 
     pub fn pending(cx: &App) -> Option<(gpui::AnyWindowHandle, Vec<MenuNode>)> {
@@ -427,9 +517,14 @@ impl MenuPopup {
         let parent: gpui::AnyWindowHandle = window.window_handle();
         let responder = self.responder.clone();
         let depth = self.depth + 1;
-        if let Err(error) = open_menu_window(cx, parent, (x, y), items, responder, depth) {
-            log::error!("[gpui-menu] {error}");
-        }
+        // Deferred for the same reason as the menu bar's handler: this runs
+        // inside the popup window's update, and the submenu's fallback reads the
+        // parent's bounds with a re-entrant `parent.update(...)`.
+        cx.defer(move |cx| {
+            if let Err(error) = open_menu_window(cx, parent, (x, y), items, responder, depth) {
+                log::error!("[gpui-menu] {error}");
+            }
+        });
     }
 }
 
@@ -452,7 +547,11 @@ impl Render for MenuPopup {
                 MenuNode::Item(item) => {
                     let id = item.id.clone();
                     let enabled = item.enabled;
+                    // A stable id is what gives the row a hitbox: without it the
+                    // `hover` style has no state to key on and only ever applied
+                    // to the first row the pointer entered.
                     let mut row = gpui::div()
+                        .id(SharedString::from(format!("menu-item-{id}")))
                         .flex()
                         .flex_row()
                         .items_center()
@@ -482,8 +581,8 @@ impl Render for MenuPopup {
                             .hover(|style| style.bg(gpui::rgba(0x00000011)))
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
-                                cx.listener(move |this, _event, window, _cx| {
-                                    this.choose(&id, window);
+                                cx.listener(move |this, _event, window, cx| {
+                                    this.choose(&id, window, cx);
                                 }),
                             );
                     }
@@ -493,7 +592,13 @@ impl Render for MenuPopup {
                 MenuNode::Submenu(submenu) => {
                     let items = submenu.items.clone();
                     let enabled = submenu.enabled;
+                    // An id for the same reason as a menu item's row: the hover
+                    // style needs a hitbox to track.
                     let mut row = gpui::div()
+                        .id(SharedString::from(format!(
+                            "menu-submenu-{}",
+                            submenu.label
+                        )))
                         .flex()
                         .flex_row()
                         .items_center()
@@ -529,6 +634,7 @@ impl Render for MenuPopup {
 
         let responder = self.responder.clone();
         let resolved = self.resolved;
+        let depth = self.depth;
         let _ = window;
 
         gpui::div()
@@ -541,10 +647,17 @@ impl Render for MenuPopup {
             .rounded(px(6.0))
             .shadow_md()
             .text_color(gpui::rgb(0x18212f))
-            .on_key_down(move |event, window, _cx| {
+            .on_key_down(move |event, window, cx| {
                 if event.keystroke.key == "escape" {
                     if !resolved {
                         responder.resolve(None);
+                    }
+                    // A root popup is the one `PendingMenuGlobal` tracks; clear
+                    // it so a later open/dismiss does not touch a removed window.
+                    if depth == 0 {
+                        if let Some(pending) = cx.try_global::<PendingMenuGlobal>() {
+                            *pending.0.borrow_mut() = None;
+                        }
                     }
                     window.remove_window();
                 }
