@@ -7,7 +7,6 @@ use crate::desktop::windows::{self, OpenWindowOptions, WindowRoleOverride};
 use gpui::{App, Global};
 use serde_json::{json, Value};
 use std::cell::RefCell;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::collections::HashSet;
 
 #[derive(Clone)]
@@ -402,13 +401,14 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     TrayIconEvent::set_event_handler(Some(move |event| {
         // One click is a press and a release, and each is its own event; acting
         // on both would open the popover and close it again.
-        let (rect, button) = match event {
+        let (rect, position, button) = match event {
             TrayIconEvent::Click {
                 rect,
+                position,
                 button,
                 button_state: tray_icon::MouseButtonState::Up,
                 ..
-            } => (rect, button),
+            } => (rect, position, button),
             _ => return,
         };
         let button = match button {
@@ -417,7 +417,9 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
             tray_icon::MouseButton::Middle => TrayButton::Middle,
         };
         // The status item shows an attached menu itself, anchored to the icon;
-        // forwarding that click as well would show it a second time.
+        // forwarding that click as well would show it a second time. The Linux
+        // backend also reports a right-click, but the panel has already put the
+        // D-Bus menu up by then, so it is dropped for the same reason.
         let native_menu = NATIVE_MENU.load(std::sync::atomic::Ordering::Relaxed);
         if native_menu & MENU_ATTACHED != 0
             && (button == TrayButton::Right || native_menu & MENU_ON_LEFT_CLICK != 0)
@@ -426,17 +428,90 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
         }
         // `tray-icon` reports physical pixels; everything here is in points.
         let scale = crate::desktop::platform_window::primary_screen_scale() as f64;
-        let rect = TrayRect {
-            x: (rect.position.x / scale) as f32,
-            y: (rect.position.y / scale) as f32,
-            width: (rect.size.width as f64 / scale) as f32,
-            height: (rect.size.height as f64 / scale) as f32,
-        };
+        let rect = tray_click_rect(rect, position, scale);
         if let Some(handler) = rn_gpui_sys::TRAY_CLICK_HANDLER.get() {
             handler(rect.x, rect.y, rect.width, rect.height, button as u8);
         }
     }));
     Ok(tray)
+}
+
+/// The icon's rectangle in points, from what a backend reported.
+///
+/// macOS and Windows report the icon's own rect, so it is used directly. The
+/// Linux `ksni` backend has no rect to report — the panel owns the icon — so it
+/// fills `rect` with zeros and puts the click's screen position in `position`
+/// (`platform_impl/ksni/mod.rs`). Falling back to the position keeps the popover
+/// at the click instead of centred on the top-left corner (0,0). Some panels
+/// report `(0,0)` even then; the pointer's own position is the last resort.
+fn tray_click_rect(
+    rect: tray_icon::Rect,
+    position: tray_icon::dpi::PhysicalPosition<f64>,
+    scale: f64,
+) -> TrayRect {
+    if rect.size.width > 0 || rect.size.height > 0 {
+        return TrayRect {
+            x: (rect.position.x / scale) as f32,
+            y: (rect.position.y / scale) as f32,
+            width: (rect.size.width as f64 / scale) as f32,
+            height: (rect.size.height as f64 / scale) as f32,
+        };
+    }
+    let (x, y) = if position.x != 0.0 || position.y != 0.0 {
+        (position.x, position.y)
+    } else {
+        pointer_position().unwrap_or((0.0, 0.0))
+    };
+    TrayRect {
+        x: (x / scale) as f32,
+        y: (y / scale) as f32,
+        width: 0.0,
+        height: 0.0,
+    }
+}
+
+/// The pointer's screen position in physical pixels, where the platform can
+/// answer. Only X11 needs it (see `tray_click_rect`); elsewhere the backend
+/// always reports a real rect.
+#[cfg(target_os = "linux")]
+fn pointer_position() -> Option<(f64, f64)> {
+    let xlib = x11_dl::xlib::Xlib::open().ok()?;
+    unsafe {
+        let display = (xlib.XOpenDisplay)(std::ptr::null());
+        if display.is_null() {
+            return None;
+        }
+        let root = (xlib.XDefaultRootWindow)(display);
+        let mut root_return = 0;
+        let mut child_return = 0;
+        let mut root_x = 0;
+        let mut root_y = 0;
+        let mut win_x = 0;
+        let mut win_y = 0;
+        let mut mask = 0;
+        let found = (xlib.XQueryPointer)(
+            display,
+            root,
+            &mut root_return,
+            &mut child_return,
+            &mut root_x,
+            &mut root_y,
+            &mut win_x,
+            &mut win_y,
+            &mut mask,
+        );
+        (xlib.XCloseDisplay)(display);
+        if found != 0 {
+            Some((root_x as f64, root_y as f64))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pointer_position() -> Option<(f64, f64)> {
+    None
 }
 
 /// Whether the status item has a native menu, and which button opens it. Read
@@ -445,8 +520,13 @@ static NATIVE_MENU: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::n
 const MENU_ATTACHED: u8 = 1;
 const MENU_ON_LEFT_CLICK: u8 = 2;
 
-/// The platform shows an attached menu itself, anchored to the icon.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+/// Attaches the menu the platform shows itself, anchored to the icon.
+///
+/// Every platform does this through `tray-icon`: macOS and Windows build a
+/// native menu, and Linux's `ksni` backend turns the *same* `muda` menu into a
+/// D-Bus `com.canonical.dbusmenu` the panel draws (the panel owns the popup, so
+/// there is no separate window for us to place). `tray-icon` re-exports the
+/// matching `muda`, so one builder serves all three.
 fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     use std::sync::atomic::Ordering;
     use tray_icon::menu::Menu;
@@ -502,7 +582,6 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
 
 /// Every id the tray menu answers for, so a tray selection can be told from a
 /// menu-bar one on the shared event route.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn collect_menu_ids(items: &[menu_model::MenuNode], ids: &mut HashSet<String>) {
     use menu_model::MenuNode;
     for node in items {
@@ -517,20 +596,14 @@ fn collect_menu_ids(items: &[menu_model::MenuNode], ids: &mut HashSet<String>) {
 }
 
 /// The ids of the tray menu currently attached, if any.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 static TRAY_MENU_IDS: std::sync::LazyLock<std::sync::Mutex<HashSet<String>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(HashSet::new()));
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn attach_native_menu(_icon: &tray_icon::TrayIcon, _config: &TrayConfig) {}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 trait TrayMenuAppend {
     fn append_all(&self, items: &[&dyn tray_icon::menu::IsMenuItem])
         -> tray_icon::menu::Result<()>;
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl TrayMenuAppend for tray_icon::menu::Menu {
     fn append_all(
         &self,
@@ -540,7 +613,6 @@ impl TrayMenuAppend for tray_icon::menu::Menu {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl TrayMenuAppend for tray_icon::menu::Submenu {
     fn append_all(
         &self,
@@ -552,7 +624,6 @@ impl TrayMenuAppend for tray_icon::menu::Submenu {
 
 /// The tray's menu in `tray-icon`'s own menu types. It bundles a newer `muda`
 /// than the context menus use, so `context_menu`'s builder cannot be shared.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_tray_menu(
     menu: &impl TrayMenuAppend,
     items: &[menu_model::MenuNode],
