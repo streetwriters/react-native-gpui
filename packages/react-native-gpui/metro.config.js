@@ -703,6 +703,34 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     // These can be symlinked workspace packages; registering their real paths
     // keeps Metro's file map aware of the platform and upstream RN sources.
     watchFolders,
+    serializer: {
+      // The module that has to run before the app's entry, named by a path that
+      // is in the *app's* module graph.
+      //
+      // `@react-native/metro-config`'s default resolves `react-native/setup-env`
+      // from its own location, and this package resolves that dependency from
+      // wherever *it* was installed. When the platform package is linked
+      // (`file:`, `npm link`, a workspace) that is this repository, so the
+      // default names this checkout's copy of React Native — a module the app's
+      // graph does not contain, because the app installed its own. Metro emits
+      // no run-before-main call for a path it cannot find, so RN's environment
+      // setup silently never ran and the first `HMRClient.setup()` from the
+      // platform aborted the app:
+      //
+      //   Failed to call into JavaScript module method HMRClient.setup().
+      //   Module has not been registered as callable.
+      //   Registered callable JavaScript modules (n = 1): AppRegistry
+      //
+      // This package's own `setup-env.js` is the right module to name instead:
+      // the app depends on this package, so it is always in the graph, and it
+      // provides the `window` alias RN's development setup expects before
+      // delegating to `react-native/setup-env`, which resolves through the
+      // app's own `nodeModulesPaths`. The same path is correct for an app
+      // installed from the registry.
+      getModulesRunBeforeMainModule: () => [
+        path.join(GPUI_PACKAGE_DIR, 'setup-env.js'),
+      ],
+    },
     resolver: {
       // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than
       // the `ios`/`android` variants) is the fallback for desktop.
