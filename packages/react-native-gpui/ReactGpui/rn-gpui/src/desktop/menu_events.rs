@@ -68,11 +68,19 @@ fn route(id: &str) -> Handled {
 /// Installs the single handler. Idempotent: the first call installs it and later
 /// calls do nothing, which is what stops a second menu system from taking the
 /// channel away from the first.
+///
+/// `muda` is only a dependency on macOS and Windows. Linux draws its menus with
+/// GPUI (`desktop::gpui_menu`) and reports a selection through that menu's own
+/// responder, so it never touches `muda`'s event channel and there is nothing to
+/// install there.
 fn ensure_installed() {
     INSTALLED.get_or_init(|| {
-        let _ = muda::MenuEvent::set_event_handler(Some(|event: muda::MenuEvent| {
-            route(&event.id.0);
-        }));
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            let _ = muda::MenuEvent::set_event_handler(Some(|event: muda::MenuEvent| {
+                route(&event.id.0);
+            }));
+        }
     });
 }
 
