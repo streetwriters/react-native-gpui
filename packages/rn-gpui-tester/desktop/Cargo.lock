@@ -5272,6 +5272,7 @@ dependencies = [
  "tungstenite",
  "windows-sys 0.59.0",
  "x11-dl",
+ "zbus",
 ]
 
 [[package]]

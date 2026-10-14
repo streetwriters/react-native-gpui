@@ -343,6 +343,11 @@ pub fn state(cx: &App) -> Value {
         "popover": tray.popover,
         "clicks": tray.clicks,
         "hasMenu": tray.config.menu.is_some(),
+        // Whether a StatusNotifier host is watching the session bus, so a caller
+        // can tell "the icon is there and the panel is showing it" from "the app
+        // is publishing an icon that this desktop has nowhere to draw". Only
+        // Linux has the distinction; elsewhere it is always true.
+        "hostAvailable": tray_host_available(),
         "menuItems": tray
             .config
             .menu
@@ -350,6 +355,45 @@ pub fn state(cx: &App) -> Value {
             .map(|menu| crate::desktop::context_menu::nodes_json(&menu.items))
             .unwrap_or_default(),
     })
+}
+
+/// Whether a StatusNotifier host owns `org.kde.StatusNotifierWatcher`.
+///
+/// The tray icon is published over StatusNotifierItem; a panel (or a
+/// GNOME AppIndicator extension) has to be *hosting* that protocol for anything
+/// to appear. A desktop that does not host it — stock GNOME, or an LXQt panel
+/// built without its `statusnotifier` plugin — shows no icon for any
+/// StatusNotifierItem app (ours, rustdesk, an Electron app), which is worth
+/// reporting rather than looking like a failure in the app. Some desktops
+/// (Electron included) additionally keep the retired XEmbed tray, but no
+/// maintained crate offers that without GTK, and it is absent from GNOME 3.26+
+/// and from the X11-less Wayland sessions.
+///
+/// Reads the session bus with `zbus` (already a dependency, via `ksni`). The
+/// query is synchronous and cheap, but only consulted when a caller asks for
+/// the tray state, never on a timer.
+#[cfg(target_os = "linux")]
+fn tray_host_available() -> bool {
+    use zbus::blocking::Connection;
+    let Ok(connection) = Connection::session() else {
+        return false;
+    };
+    connection
+        .call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "NameHasOwner",
+            &("org.kde.StatusNotifierWatcher",),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<bool>().ok())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn tray_host_available() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, Default)]
