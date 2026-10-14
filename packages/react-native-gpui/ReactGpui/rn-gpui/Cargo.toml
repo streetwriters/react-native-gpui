@@ -37,8 +37,12 @@ fontdue = { workspace = true }
 image = { version = "0.25.1" }
 base64 = "0.22"
 # Menu-bar (tray) apps: NSStatusItem on macOS, the notification area
-# on Windows, AppIndicator/StatusNotifierItem on Linux.
-tray-icon = "0.26"
+# on Windows, StatusNotifierItem on Linux. `default-features = false` because
+# the crate default is its GTK Linux backend; the Linux block below selects the
+# GTK-free one instead (Cargo unifies features per crate, so a default here
+# would keep the GTK backend enabled no matter what the target block asked for).
+# macOS and Windows backends are not feature-gated, so they are unaffected.
+tray-icon = { version = "0.26", default-features = false }
 tungstenite = { version = "0.26", default-features = false, features = ["handshake"], optional = true }
 
 [lints.rust]
@@ -61,6 +65,15 @@ raw-window-handle = "0.6"
 # gpui_platform intentionally has no default features. Enable both backends so
 # Linux users can run under either X11 or Wayland.
 gpui_platform = { workspace = true, features = ["x11", "wayland"] }
+# `tray-icon`'s default Linux backend is `libappindicator`, which is a GTK
+# widget: `app_indicator_new` needs a GTK screen and its menu needs the GTK main
+# loop. GPUI runs its own X11 loop and never enters a GTK one, so the icon was
+# created but never appeared (the process logged
+# `gtk_icon_theme_get_for_screen: assertion 'GDK_IS_SCREEN (screen)' failed`).
+# `ksni` is the same StatusNotifierItem protocol over plain D-Bus, served from a
+# worker thread, and needs no GTK.
+tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
+
 # X11 window calls GPUI does not expose. Wayland has no
 # equivalent, so those sessions stay `unsupported`. The X11 path reads the
 # window's raw handle, which gpui exposes through raw-window-handle.
