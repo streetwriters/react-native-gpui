@@ -883,7 +883,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
         });
 
         crate::desktop::perf_monitor::attach(cx, &root, 1);
-        crate::desktop::gpui_menu::attach(cx, &root, 1);
+        // The menu bar is prepared inside a window update (it needs the window
+        // for the activation observer) and attached to the root afterwards,
+        // outside any update that has already leased the root.
+        let menu_bar = window
+            .update(cx, |_root, window, cx| {
+                crate::desktop::gpui_menu::prepare(window, cx, 1)
+            })
+            .ok()
+            .flatten();
+        if let Some(prepared) = menu_bar {
+            crate::desktop::gpui_menu::attach(cx, &root, prepared);
+        }
         store.update(cx, |store, cx| {
             store.register_root(1, root);
             store.top_inset = top_inset;

@@ -1394,6 +1394,9 @@ pub struct SurfaceRootView {
     pub overlay_host: Option<Entity<OverlayHost>>,
     pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
     pub menu_bar: Option<Entity<crate::desktop::gpui_menu::MenuBar>>,
+    /// Kept alive for as long as the surface: dropping it would stop the
+    /// window-activation callback that dismisses an open menu on focus loss.
+    pub menu_bar_activation_subscription: Option<Subscription>,
     #[cfg(all(target_os = "macos", feature = "visual-capture"))]
     native_view_probe: Option<Entity<crate::native_view_probe::NativeViewCompositionProbeView>>,
 }
@@ -1406,6 +1409,7 @@ impl SurfaceRootView {
             overlay_host: None,
             perf_monitor: None,
             menu_bar: None,
+            menu_bar_activation_subscription: None,
             #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
@@ -1487,15 +1491,30 @@ impl Render for SurfaceRootView {
         // The hardware navigation buttons belong to the window, not the
         // surface: the handlers go on the outermost element so the in-window
         // menu bar (Linux) cannot swallow a press aimed at the app.
+        // A press in the app body dismisses an open GPUI menu: clicking away
+        // from a menu is expected to close it. The handler is in the capture
+        // phase so the press is seen before any RN view consumes it, and it is
+        // on the content area *below* the menu bar — a press on a menu title
+        // still opens/replaces that menu, and the popup's own item clicks are in
+        // its separate window and never reach here. `dismiss` resolves the menu
+        // with `None`, the documented "dismissed" outcome for a context menu.
+        let content = div()
+            .id("surface-content")
+            .flex_1()
+            .min_h_0()
+            .capture_any_mouse_down(cx.listener(|_this, _event, _window, cx| {
+                let _ = crate::desktop::gpui_menu::MenuPopup::dismiss(cx);
+            }))
+            .child(root);
         let mut window_root = if let Some(menu_bar) = self.menu_bar.clone() {
             div()
                 .size_full()
                 .flex()
                 .flex_col()
                 .child(menu_bar)
-                .child(div().flex_1().min_h_0().child(root))
+                .child(content)
         } else {
-            div().size_full().child(root)
+            div().size_full().child(content)
         };
         if self.surface_id == APP_SURFACE_ID {
             for (button, event_name) in [
