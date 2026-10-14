@@ -23,6 +23,12 @@ module.exports = {
           'react/renderer/components/rnscreens/RNSModalScreenComponentDescriptor.h',
           'react/renderer/components/rnscreens/RNSFullWindowOverlayComponentDescriptor.h',
         ],
+        // Metro: replace these files of installed packages for gpui.
+        sourceOverrides: {
+          'react-native-screens/src/core.ts': './src/core.gpui.ts',
+          'react-native-screens/src/components/FullWindowOverlay.tsx':
+            './src/FullWindowOverlay.gpui.tsx',
+        },
       },
     },
   },
