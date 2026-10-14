@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `81ae8f1e7788e9c5af2dd1aae8a191aef93d3b98` (upstream main @ 2026-10-09,
+- Commit: `1eea2d66220fdaab909513f4a99337e17f1e316b` (upstream main @ 2026-10-09,
   "ci: allow release dependency tests time to compile on Windows (#53)", plus
   the Linux and Windows fixes below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
@@ -37,6 +37,14 @@ so we pin by commit SHA and bump on purpose.
   other failure is logged again.
 - `7eb2cdd` `gpui_windows: defer resize and move out of the window procedure`
 - `81ae8f1` `gpui: log a failed borrow in the platform callbacks again`
+- `1eea2d6` `gpui: defer the move callback so a synchronous move cannot re-enter
+App` — a move performed from inside an `App` update (a JS `set_position`,
+  which AppKit implements with `setFrameTopLeftPoint:`) is notified before that
+  call returns, so `on_moved` ran `handle.update` while the caller still held
+  the `App` and logged `ERROR gpui::window] RefCell already borrowed`. It now
+  defers through the foreground executor, as `on_appearance_changed` already
+  does. macOS-only in practice, but the callback is shared, so Windows and Linux
+  re-run their window tests against this pin.
 
 ## Upstream (from the repo's `UPSTREAM` file at that commit)
 
