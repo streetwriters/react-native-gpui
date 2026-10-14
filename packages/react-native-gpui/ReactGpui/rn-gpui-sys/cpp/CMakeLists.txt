@@ -68,12 +68,13 @@ if(MSVC)
   add_compile_definitions(NOGDI)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  # RN 0.87.1 has several headers that use uint*_t without including
-  # <cstdint>. Android's libc++ headers expose these transitively; make the
-  # dependency explicit for GCC/libstdc++ Linux builds.
+  # One force-included header stands in for the libc++ headers Android's build
+  # gets transitively (see the file). It is a single `-include` because CMake
+  # de-duplicates repeated options: two `-include <header>` pairs collapse into
+  # `-include <first> <second>`, and the second header is then read as a stray
+  # linker input.
   add_compile_options(
-    "$<$<COMPILE_LANGUAGE:CXX>:-include>"
-    "$<$<COMPILE_LANGUAGE:CXX>:cstdint>")
+    "$<$<COMPILE_LANGUAGE:CXX>:-include;${CMAKE_CURRENT_LIST_DIR}/rn_gpui_linux_prefix.h>")
 endif()
 
 # --- Windows unity build -------------------------------------------------
