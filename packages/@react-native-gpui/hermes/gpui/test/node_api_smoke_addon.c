@@ -1,5 +1,13 @@
 #include <node_api.h>
 #include <stdlib.h>
+
+// Both platform helpers below hand this function to the thread they create, and
+// it is defined further down, so it has to be declared before either branch:
+// Windows' adapter calls it and the POSIX branch passes it to `pthread_create`.
+// Declaring it inside the Windows branch left the POSIX branch using it
+// undeclared, which does not compile.
+static void* run_threadsafe_call(void* data);
+
 #if defined(_WIN32)
 // Windows has no pthreads. The thread here only exists to prove the
 // ThreadSafeFunction crosses a real thread boundary, so a Win32 thread is
@@ -8,7 +16,6 @@
 // would be undefined behaviour on a calling-convention or return-type change).
 #include <windows.h>
 typedef HANDLE smoke_thread_t;
-static void* run_threadsafe_call(void* data);
 static DWORD WINAPI smoke_thread_entry(LPVOID arg) {
   run_threadsafe_call(arg);
   return 0;
