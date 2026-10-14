@@ -225,3 +225,24 @@ describe('nodeModulesForApp', () => {
     expect(found).not.toContain(stray);
   });
 });
+
+describe('serializer.getModulesRunBeforeMainModule', () => {
+  /**
+   * RN's environment setup only runs if Metro can find the module this names in
+   * the *app's* graph. `@react-native/metro-config`'s default resolves
+   * `react-native/setup-env` from that package's own location — this repository
+   * when the platform package is linked — and Metro silently drops a
+   * run-before-main path it cannot find, which leaves `HMRClient` unregistered
+   * and aborts the app on the first `HMRClient.setup()`. Naming this package's
+   * own `setup-env.js` is what keeps it in the graph; the app depends on this
+   * package, and that file delegates to `react-native/setup-env`.
+   */
+  test('names this package’s own setup-env, not a React Native install', () => {
+    const packageRoot = path.dirname(require.resolve('./package.json'));
+    const modules = config.serializer.getModulesRunBeforeMainModule();
+
+    expect(modules).toEqual([path.join(packageRoot, 'setup-env.js')]);
+    expect(fs.existsSync(modules[0])).toBe(true);
+    expect(modules[0]).not.toMatch(/node_modules[\\/]react-native[\\/]/u);
+  });
+});
