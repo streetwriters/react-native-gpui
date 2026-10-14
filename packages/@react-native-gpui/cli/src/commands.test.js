@@ -25,19 +25,20 @@ test('the Linux preflight accepts a complete system', () => {
 });
 
 test('the Linux preflight names the missing module and its package', () => {
-  const problem = linuxBuildDependencyProblem('linux', pc =>
-    pc === 'gtk+-3.0' ? true : false,
-  );
-  expect(problem).toContain('ayatana-appindicator3-0.1');
-  expect(problem).toContain('libayatana-appindicator3-dev');
+  const problem = linuxBuildDependencyProblem('linux', pc => pc !== 'xcb');
+  expect(problem).toContain('dependency xcb was not found');
+  expect(problem).toContain('libxcb1-dev');
   expect(problem).toContain('PKG_CONFIG_PATH');
 });
 
 test('the Linux preflight gives one package name per distribution', () => {
-  const problem = linuxBuildDependencyProblem('linux', pc => pc !== 'gtk+-3.0');
-  expect(problem).toContain('Debian/Ubuntu: sudo apt install libgtk-3-dev');
-  expect(problem).toContain('Fedora: sudo dnf install gtk3-devel');
-  expect(problem).toContain('Arch: sudo pacman -S gtk3');
+  const problem = linuxBuildDependencyProblem(
+    'linux',
+    pc => pc !== 'xkbcommon',
+  );
+  expect(problem).toContain('Debian/Ubuntu: sudo apt install libxkbcommon-dev');
+  expect(problem).toContain('Fedora: sudo dnf install libxkbcommon-devel');
+  expect(problem).toContain('Arch: sudo pacman -S libxkbcommon');
 });
 
 test('the Linux preflight prints the computed system pkg-config path', () => {

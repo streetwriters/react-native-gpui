@@ -9,10 +9,10 @@ const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
 
 /**
- * The Rust side probes GTK and AppIndicator through pkg-config while Cargo
- * builds. A non-system pkg-config first on PATH (Linuxbrew, Nix) cannot see the
- * system packages, and the failure surfaces much later as a cryptic C++ build
- * error, so check up front. Pure so it can be unit tested: `runPkgConfig`
+ * The app links the system xkbcommon and xcb libraries, and a missing one only
+ * surfaces at the end of a long build as a linker error, so check up front.
+ * A non-system pkg-config first on PATH (Linuxbrew, Nix) cannot see the system
+ * packages. Pure so it can be unit tested: `runPkgConfig`
  * returns true, false, or 'missing-pkg-config'; `systemPkgConfigPath` returns
  * the system pkg-config search path, or null when it cannot be determined.
  *
@@ -27,21 +27,30 @@ export function linuxBuildDependencyProblem(
   systemPkgConfigPath = () => null,
 ) {
   if (platform !== 'linux') return null;
+  // The libraries the app links on Linux (GPUI's keyboard handling over X11).
   const modules = [
     {
-      pc: 'gtk+-3.0',
+      pc: 'xkbcommon',
       packages: {
-        'Debian/Ubuntu': 'libgtk-3-dev',
-        Fedora: 'gtk3-devel',
-        Arch: 'gtk3',
+        'Debian/Ubuntu': 'libxkbcommon-dev',
+        Fedora: 'libxkbcommon-devel',
+        Arch: 'libxkbcommon',
       },
     },
     {
-      pc: 'ayatana-appindicator3-0.1',
+      pc: 'xkbcommon-x11',
       packages: {
-        'Debian/Ubuntu': 'libayatana-appindicator3-dev',
-        Fedora: 'libayatana-appindicator-gtk3-devel',
-        Arch: 'libayatana-appindicator',
+        'Debian/Ubuntu': 'libxkbcommon-x11-dev',
+        Fedora: 'libxkbcommon-x11-devel',
+        Arch: 'libxkbcommon-x11',
+      },
+    },
+    {
+      pc: 'xcb',
+      packages: {
+        'Debian/Ubuntu': 'libxcb1-dev',
+        Fedora: 'libxcb-devel',
+        Arch: 'libxcb',
       },
     },
   ];
