@@ -3,28 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 
-/**
- * The watch-folder walk feeds Metro `watchFolders` for a linked package: a
- * `file:` dependency, `npm link`, or a workspace package resolves its own
- * imports against the tree it really lives in, so Metro has to watch the
- * `node_modules` directories above it.
- *
- * What it must not do is walk to the filesystem root. A `node_modules` in a
- * user's home directory, or at a drive root, belongs to an unrelated tree that
- * Metro would then crawl. The walk stops at the nearest repository or workspace
- * root instead, which is what these tests pin — with real directories, because
- * the decision is made by looking for `.git` and `package.json` on disk.
- */
-const config = require('./metro.config.js');
-const { findTreeRoot, nodeModulesAboveLinkedPackage, nodeModulesForApp } =
-  config;
+const {
+  findTreeRoot,
+  makeMetroConfig,
+  nodeModulesUpToTreeRoot,
+} = require('./metro.config.js');
 
 const roots = [];
-
 afterEach(() => {
-  while (roots.length) {
-    fs.rmSync(roots.pop(), { recursive: true, force: true });
-  }
+  while (roots.length) fs.rmSync(roots.pop(), { recursive: true, force: true });
 });
 
 function scratch() {
@@ -33,216 +20,117 @@ function scratch() {
   return root;
 }
 
-function write(file, contents = '') {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, contents);
-}
-
-function mkdir(directory) {
+function mkdir(...parts) {
+  const directory = path.join(...parts);
   fs.mkdirSync(directory, { recursive: true });
   return directory;
+}
+
+function workspace(root) {
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ workspaces: ['packages/*'] }),
+  );
 }
 
 describe('findTreeRoot', () => {
   test('finds the nearest directory holding .git', () => {
     const root = scratch();
-    mkdir(path.join(root, '.git'));
-    const nested = mkdir(path.join(root, 'packages/app/src'));
-    expect(findTreeRoot(nested)).toBe(root);
+    mkdir(root, '.git');
+    expect(findTreeRoot(mkdir(root, 'packages/app/src'))).toBe(root);
   });
 
   test('finds a package.json that declares workspaces', () => {
     const root = scratch();
-    write(
-      path.join(root, 'package.json'),
-      JSON.stringify({ name: 'monorepo', workspaces: ['packages/*'] }),
-    );
-    const nested = mkdir(path.join(root, 'packages/app'));
-    expect(findTreeRoot(nested)).toBe(root);
+    workspace(root);
+    expect(findTreeRoot(mkdir(root, 'packages/app'))).toBe(root);
   });
 
-  test('ignores a package.json that declares no workspaces', () => {
+  test('ignores a package.json without workspaces', () => {
     const root = scratch();
-    write(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main');
-    write(
-      path.join(root, 'package.json'),
-      JSON.stringify({ name: 'not-a-workspace-root' }),
-    );
-    const nested = mkdir(path.join(root, 'packages/app'));
-    expect(findTreeRoot(nested)).toBe(root);
+    mkdir(root, '.git');
+    const app = mkdir(root, 'packages/app');
+    fs.writeFileSync(path.join(app, 'package.json'), '{"name":"app"}');
+    expect(findTreeRoot(app)).toBe(root);
   });
 
   test('returns the nearest root, not the outermost', () => {
     const outer = scratch();
-    mkdir(path.join(outer, '.git'));
-    const inner = mkdir(path.join(outer, 'vendor/repo'));
-    mkdir(path.join(inner, '.git'));
-    const nested = mkdir(path.join(inner, 'packages/app'));
-    expect(findTreeRoot(nested)).toBe(inner);
+    mkdir(outer, '.git');
+    const inner = mkdir(outer, 'vendor/repo');
+    mkdir(inner, '.git');
+    expect(findTreeRoot(mkdir(inner, 'packages/app'))).toBe(inner);
   });
 
   test('returns null when there is no repository or workspace above', () => {
-    const root = scratch();
-    const orphan = mkdir(path.join(root, 'standalone-package'));
-    // The scratch directory itself has no .git and no package.json.
-    expect(findTreeRoot(orphan)).toBeNull();
+    expect(findTreeRoot(mkdir(scratch(), 'standalone'))).toBeNull();
   });
 });
 
-describe('nodeModulesAboveLinkedPackage', () => {
-  test('collects every node_modules up to the tree root', () => {
+describe('nodeModulesUpToTreeRoot', () => {
+  test('collects every node_modules up to a repository root', () => {
     const root = scratch();
-    mkdir(path.join(root, '.git'));
-    const appModules = mkdir(path.join(root, 'node_modules'));
-    const packageModules = mkdir(
-      path.join(root, 'packages/linked/node_modules'),
-    );
-    const realPath = mkdir(path.join(root, 'packages/linked'));
-
-    expect(nodeModulesAboveLinkedPackage(realPath).sort()).toEqual(
-      [appModules, packageModules].sort(),
-    );
+    mkdir(root, '.git');
+    const expected = [
+      mkdir(root, 'node_modules'),
+      mkdir(root, 'packages/app/node_modules'),
+    ];
+    const found = nodeModulesUpToTreeRoot(path.join(root, 'packages/app'));
+    expect(found.sort()).toEqual(expected.sort());
   });
 
-  test('does not watch a decoy node_modules above the tree root', () => {
-    const outer = scratch();
-    // The decoy: a node_modules above the repository, which must not be watched.
-    const decoy = mkdir(path.join(outer, 'node_modules'));
-    const repo = mkdir(path.join(outer, 'repo'));
-    mkdir(path.join(repo, '.git'));
-    const insideModules = mkdir(path.join(repo, 'node_modules'));
-    const realPath = mkdir(path.join(repo, 'packages/linked'));
+  test('stops at a workspace root', () => {
+    const root = scratch();
+    workspace(root);
+    const expected = [
+      mkdir(root, 'node_modules'),
+      mkdir(root, 'packages/app/node_modules'),
+    ];
+    const found = nodeModulesUpToTreeRoot(path.join(root, 'packages/app'));
+    expect(found.sort()).toEqual(expected.sort());
+  });
 
-    const found = nodeModulesAboveLinkedPackage(realPath);
-    expect(found).toContain(insideModules);
+  test('never includes a node_modules above the tree root', () => {
+    const outer = scratch();
+    const decoy = mkdir(outer, 'node_modules');
+    const repo = mkdir(outer, 'repo');
+    mkdir(repo, '.git');
+    mkdir(repo, 'node_modules');
+    const found = nodeModulesUpToTreeRoot(mkdir(repo, 'packages/app'));
     expect(found).not.toContain(decoy);
-    // Nothing outside the repository at all.
-    for (const folder of found) {
-      expect(folder.startsWith(repo + path.sep)).toBe(true);
-    }
-  });
-
-  test('a package with no tree root gets only its own node_modules', () => {
-    const root = scratch();
-    // A stray node_modules above the package, with no repository anywhere.
-    const stray = mkdir(path.join(root, 'node_modules'));
-    const realPath = mkdir(path.join(root, 'standalone/node_modules'));
-    const packageRoot = path.dirname(realPath);
-
-    const found = nodeModulesAboveLinkedPackage(packageRoot);
-    expect(found).toEqual([realPath]);
-    expect(found).not.toContain(stray);
-  });
-
-  test('a workspace package inside the repository stops at the repository', () => {
-    const root = scratch();
-    write(
-      path.join(root, 'package.json'),
-      JSON.stringify({ name: 'workspace', workspaces: ['packages/*'] }),
-    );
-    const rootModules = mkdir(path.join(root, 'node_modules'));
-    const workspaceModules = mkdir(
-      path.join(root, 'packages/linked/node_modules'),
-    );
-    const realPath = mkdir(path.join(root, 'packages/linked'));
-
-    expect(nodeModulesAboveLinkedPackage(realPath).sort()).toEqual(
-      [rootModules, workspaceModules].sort(),
+    expect(found.every(folder => folder.startsWith(repo + path.sep))).toBe(
+      true,
     );
   });
 
-  test('a file: dependency inside another repository stays in that repository', () => {
+  test('returns only its own node_modules without a tree root', () => {
     const root = scratch();
-    const dependencyRepo = mkdir(path.join(root, 'dependency-repo'));
-    mkdir(path.join(dependencyRepo, '.git'));
-    const dependencyModules = mkdir(path.join(dependencyRepo, 'node_modules'));
-    const realPath = mkdir(path.join(dependencyRepo, 'packages/linked'));
-
-    const found = nodeModulesAboveLinkedPackage(realPath);
-    expect(found).toEqual([dependencyModules]);
-    // The scratch root above the dependency repository is not watched.
-    for (const folder of found) {
-      expect(folder.startsWith(dependencyRepo + path.sep)).toBe(true);
-    }
-  });
-});
-
-describe('nodeModulesForApp', () => {
-  test('collects the app node_modules up to the repository root', () => {
-    const root = scratch();
-    mkdir(path.join(root, '.git'));
-    const rootModules = mkdir(path.join(root, 'node_modules'));
-    const appModules = mkdir(path.join(root, 'packages/app/node_modules'));
-    const app = path.join(root, 'packages/app');
-
-    expect(nodeModulesForApp(app).sort()).toEqual(
-      [rootModules, appModules].sort(),
-    );
-  });
-
-  test('does not watch a node_modules above the repository root', () => {
-    const outer = scratch();
-    // The case that made the tester resolve a folder outside the checkout: a
-    // stale `node_modules` in a home directory, above the repository.
-    const homeModules = mkdir(path.join(outer, 'node_modules'));
-    const repo = mkdir(path.join(outer, 'repo'));
-    mkdir(path.join(repo, '.git'));
-    const repoModules = mkdir(path.join(repo, 'node_modules'));
-    const appModules = mkdir(path.join(repo, 'packages/app/node_modules'));
-    const app = path.join(repo, 'packages/app');
-
-    const found = nodeModulesForApp(app);
-    expect(found.sort()).toEqual([repoModules, appModules].sort());
-    expect(found).not.toContain(homeModules);
-    for (const folder of found) {
-      expect(folder.startsWith(repo + path.sep)).toBe(true);
-    }
-  });
-
-  test('a workspace app stops at the workspace root', () => {
-    const root = scratch();
-    write(
-      path.join(root, 'package.json'),
-      JSON.stringify({ name: 'workspace', workspaces: ['packages/*'] }),
-    );
-    const rootModules = mkdir(path.join(root, 'node_modules'));
-    const appModules = mkdir(path.join(root, 'packages/app/node_modules'));
-    const app = path.join(root, 'packages/app');
-
-    expect(nodeModulesForApp(app).sort()).toEqual(
-      [rootModules, appModules].sort(),
-    );
-  });
-
-  test('an app with no tree root gets only its own node_modules', () => {
-    const root = scratch();
-    const stray = mkdir(path.join(root, 'node_modules'));
-    const appModules = mkdir(path.join(root, 'standalone/node_modules'));
-    const app = path.dirname(appModules);
-
-    const found = nodeModulesForApp(app);
-    expect(found).toEqual([appModules]);
+    const stray = mkdir(root, 'node_modules');
+    const own = mkdir(root, 'standalone/node_modules');
+    const found = nodeModulesUpToTreeRoot(path.dirname(own));
+    expect(found).toEqual([own]);
     expect(found).not.toContain(stray);
   });
 });
 
-describe('serializer.getModulesRunBeforeMainModule', () => {
-  /**
-   * RN's environment setup only runs if Metro can find the module this names in
-   * the *app's* graph. `@react-native/metro-config`'s default resolves
-   * `react-native/setup-env` from that package's own location — this repository
-   * when the platform package is linked — and Metro silently drops a
-   * run-before-main path it cannot find, which leaves `HMRClient` unregistered
-   * and aborts the app on the first `HMRClient.setup()`. Naming this package's
-   * own `setup-env.js` is what keeps it in the graph; the app depends on this
-   * package, and that file delegates to `react-native/setup-env`.
-   */
-  test('names this package’s own setup-env, not a React Native install', () => {
-    const packageRoot = path.dirname(require.resolve('./package.json'));
-    const modules = config.serializer.getModulesRunBeforeMainModule();
+describe('makeMetroConfig', () => {
+  const tester = path.resolve(__dirname, '../rn-gpui-tester');
+  const config = makeMetroConfig({ projectRoot: tester });
 
-    expect(modules).toEqual([path.join(packageRoot, 'setup-env.js')]);
-    expect(fs.existsSync(modules[0])).toBe(true);
-    expect(modules[0]).not.toMatch(/node_modules[\\/]react-native[\\/]/u);
+  // When this package is linked, the default names a React Native copy that is
+  // not in the app's graph, and RN's setup never runs.
+  test('runs this package’s setup-env before the app entry', () => {
+    expect(config.serializer.getModulesRunBeforeMainModule()).toEqual([
+      path.join(__dirname, 'setup-env.js'),
+    ]);
+  });
+
+  test('watches nothing outside the repository', () => {
+    const repo = findTreeRoot(tester);
+    expect(
+      config.watchFolders.every(
+        folder => folder === repo || folder.startsWith(repo + path.sep),
+      ),
+    ).toBe(true);
   });
 });

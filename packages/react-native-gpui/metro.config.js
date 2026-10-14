@@ -1,772 +1,260 @@
-const path = require('path');
-
 const fs = require('fs');
+const path = require('path');
 const { createRequire } = require('module');
-
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
-
 const { activeJsEngineBundle } = require('./js-engine');
 
-const GPUI_PACKAGE_NAME = 'react-native-gpui';
-const GPUI_PACKAGE_DIR = path.dirname(
-  require.resolve(GPUI_PACKAGE_NAME + '/package.json'),
-);
-const GPUI_ENTRY = path.join(GPUI_PACKAGE_DIR, 'index.gpui.js');
-const UPSTREAM_RN_ENTRY = require.resolve('react-native');
-const UPSTREAM_RN_DIR = path.dirname(UPSTREAM_RN_ENTRY);
-const UPSTREAM_RN_DIRS = new Set([UPSTREAM_RN_DIR]);
-let activeUpstreamRNEntry = UPSTREAM_RN_ENTRY;
-let activeUpstreamRNDir = UPSTREAM_RN_DIR;
-const GPUI_RN_SRC_DIR = path.join(GPUI_PACKAGE_DIR, 'src-gpui');
+const PACKAGE_NAME = 'react-native-gpui';
+const PACKAGE_DIR = __dirname;
+const ENTRY = path.join(PACKAGE_DIR, 'index.gpui.js');
+const SETUP_ENV = path.join(PACKAGE_DIR, 'setup-env.js');
+const SRC_DIR = path.join(PACKAGE_DIR, 'src-gpui');
+const GPUI_SUFFIX = /\.gpui\.(?:js|ts|tsx)$/;
+// Some React Native modules ship only `.ios.js`/`.android.js`; gpui uses iOS's.
+const FALLBACK_PLATFORM = 'ios';
 
-// Platform variants gpui falls back to. A handful of React Native modules only
-// ship as `Foo.ios.js` / `Foo.android.js` (there is no platform-neutral `Foo.js`
-// and no `Foo.gpui.js`): `Libraries/Core/setUpReactDevTools.js` requires
-// `src/private/devsupport/rndevtools/ReactDevToolsSettingsManager`, which is
-// one of them, so a `--dev` bundle cannot resolve without this. macOS is
-// closest to iOS, and the iOS variants of such modules are pure JavaScript
-// where we need them (ReactDevToolsSettingsManager.ios.js goes through the
-// generic `Settings.js`, whose `Platform.OS === 'ios'` branch is dead here
-// because the gpui `Platform.OS` is `'gpui'`).
-const PLATFORM_FALLBACKS = { gpui: ['ios'] };
+const isInside = (file, dir) => file.startsWith(dir + path.sep);
+const withFilePath = (resolution, filePath) => ({ ...resolution, filePath });
 
-function resolveWithPlatformFallback(context, moduleName, platform) {
-  try {
-    return context.resolveRequest(context, moduleName, platform);
-  } catch (error) {
-    for (const fallback of PLATFORM_FALLBACKS[platform] ?? []) {
-      try {
-        const resolution = context.resolveRequest(
-          context,
-          moduleName,
-          fallback,
-        );
-        console.log(
-          `[rn-gpui] '${moduleName}' has no '${platform}' variant; using the '${fallback}' implementation`,
-        );
-        return resolution;
-      } catch {}
-    }
-    throw error;
+// "<package>/<path in package>" for a file under node_modules, so an override
+// applies to every installed copy of the package.
+function packageKey(filePath) {
+  const parts = filePath.split(path.sep);
+  const index = parts.lastIndexOf('node_modules');
+  return index === -1 ? null : parts.slice(index + 1).join('/');
+}
+
+// The nearest repository or workspace root above `directory`, or null.
+function findTreeRoot(directory) {
+  for (let current = directory; ; current = path.dirname(current)) {
+    if (fs.existsSync(path.join(current, '.git'))) return current;
+    try {
+      const manifest = path.join(current, 'package.json');
+      if (JSON.parse(fs.readFileSync(manifest, 'utf8')).workspaces) {
+        return current;
+      }
+    } catch {}
+    if (path.dirname(current) === current) return null;
   }
 }
 
-function collectSourceOverrides(upstreamRNDir = UPSTREAM_RN_DIR) {
+// Every node_modules from `directory` up to its tree root (only its own when
+// there is no root), never above it.
+function nodeModulesUpToTreeRoot(directory) {
+  const stop = findTreeRoot(directory) ?? directory;
+  const found = [];
+  for (let current = directory; ; current = path.dirname(current)) {
+    const modules = path.join(current, 'node_modules');
+    if (fs.existsSync(modules)) found.push(modules);
+    if (current === stop || path.dirname(current) === current) return found;
+  }
+}
+
+// `src-gpui/<path>.gpui.js` replaces React Native's `<path>.js` (and its
+// platform variants).
+function reactNativeOverrides(reactNativeDir) {
   const overrides = new Map();
-
-  const walk = relativeDir => {
-    const absoluteDir = path.join(GPUI_RN_SRC_DIR, relativeDir);
-    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
-      const relative = path.join(relativeDir, entry.name);
-      if (entry.isDirectory()) {
-        walk(relative);
-        continue;
-      }
-      if (!/\.gpui\.(?:js|ts|tsx)$/.test(entry.name)) {
-        continue;
-      }
-
-      const upstreamBase = path.join(
-        upstreamRNDir,
-        path.dirname(relative),
-        entry.name.replace(/\.gpui\.(?:js|ts|tsx)$/, ''),
-      );
-      const override = path.join(GPUI_RN_SRC_DIR, relative);
+  const walk = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(file);
+      if (!GPUI_SUFFIX.test(entry.name)) continue;
+      const base = path
+        .relative(SRC_DIR, file)
+        .replace(GPUI_SUFFIX, '')
+        .split(path.sep)
+        .join('/');
       for (const variant of ['.js', '.native.js', '.ios.js', '.android.js']) {
-        if (fs.existsSync(upstreamBase + variant)) {
-          overrides.set(upstreamBase + variant, override);
+        if (fs.existsSync(path.join(reactNativeDir, base + variant))) {
+          overrides.set(`react-native/${base}${variant}`, file);
         }
       }
     }
   };
+  walk(SRC_DIR);
+  return overrides;
+}
 
-  if (fs.existsSync(GPUI_RN_SRC_DIR)) {
-    walk('.');
+// A library package declares its replacements in react-native.config.js as
+// `platforms.gpui.sourceOverrides: { '<package>/<file>': './<own file>' }`.
+function libraryOverrides(packageDirs) {
+  const overrides = new Map();
+  for (const packageDir of packageDirs) {
+    const configFile = path.join(packageDir, 'react-native.config.js');
+    if (!fs.existsSync(configFile)) continue;
+    const declared =
+      require(configFile).dependency?.platforms?.gpui?.sourceOverrides ?? {};
+    for (const [key, target] of Object.entries(declared)) {
+      overrides.set(key, path.resolve(packageDir, target));
+    }
   }
   return overrides;
 }
 
-const GPUI_SOURCE_OVERRIDES = collectSourceOverrides();
-// The files that actually shadow an upstream React Native module. Only those
-// keep upstream-relative imports; a new module that merely lives under
-// `src-gpui` (the desktop-shell implementation, for example) resolves its own
-// relative imports normally.
-const GPUI_OVERRIDE_FILES = new Set(GPUI_SOURCE_OVERRIDES.values());
-// RNGH's legacy handler path registers only the continuous event in its JS
-// module. GPUI dispatches the codegen state-change event directly, so expose
-// the same direct-event registrations from a GPUI-specific source shim.
-try {
-  const gestureHandlerDir = path.dirname(
-    require.resolve('react-native-gesture-handler/package.json'),
-  );
-  const gestureHandlerEvents = path.join(
-    gestureHandlerDir,
-    'src/handlers/customDirectEventTypes.ts',
-  );
-  const gpuiGestureHandlerEvents = path.join(
-    path.dirname(
-      require.resolve('@react-native-gpui/gesture-handler/package.json'),
-    ),
-    'src/customDirectEventTypes.gpui.ts',
-  );
-  if (fs.existsSync(gpuiGestureHandlerEvents)) {
-    GPUI_SOURCE_OVERRIDES.set(gestureHandlerEvents, gpuiGestureHandlerEvents);
-  }
-  const upstreamGestureButtons = path.join(
-    gestureHandlerDir,
-    'src/v3/components/GestureButtons.tsx',
-  );
-  const gpuiGestureButtons = path.join(
-    path.dirname(
-      require.resolve('@react-native-gpui/gesture-handler/package.json'),
-    ),
-    'src/GestureButtons.gpui.tsx',
-  );
-  if (fs.existsSync(gpuiGestureButtons)) {
-    GPUI_SOURCE_OVERRIDES.set(upstreamGestureButtons, gpuiGestureButtons);
-  }
-} catch {}
-try {
-  const screensDir = path.dirname(
-    require.resolve('react-native-screens/package.json'),
-  );
-  const gpuiScreensCore = path.join(
-    path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
-    'src/core.gpui.ts',
-  );
-  const gpuiFullWindowOverlay = path.join(
-    path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
-    'src/FullWindowOverlay.gpui.tsx',
-  );
-  GPUI_SOURCE_OVERRIDES.set(
-    path.join(screensDir, 'src/core.ts'),
-    gpuiScreensCore,
-  );
-  GPUI_SOURCE_OVERRIDES.set(
-    path.join(screensDir, 'src/components/FullWindowOverlay.tsx'),
-    gpuiFullWindowOverlay,
-  );
-} catch {}
-if (GPUI_SOURCE_OVERRIDES.size > 0) {
-  const files = [...new Set(GPUI_SOURCE_OVERRIDES.values())];
-  console.log(
-    `[rn-gpui] ${files.length} src-gpui override(s): ${files
-      .map(file => path.relative(GPUI_PACKAGE_DIR, file))
-      .join(', ')}`,
-  );
-}
-
-function isGpuiOverrideFile(filePath) {
-  if (GPUI_OVERRIDE_FILES.has(filePath)) {
-    return true;
-  }
-  try {
-    const canonical = fs.realpathSync(filePath);
-    for (const override of GPUI_OVERRIDE_FILES) {
-      try {
-        if (fs.realpathSync(override) === canonical) {
-          return true;
-        }
-      } catch {}
-    }
-  } catch {}
-  return false;
-}
-
-function applySourceOverride(resolution) {
-  const filePath =
-    typeof resolution === 'string' ? resolution : resolution?.filePath;
-  if (filePath == null) {
-    return resolution;
-  }
-
-  let override = GPUI_SOURCE_OVERRIDES.get(filePath);
-  if (override == null) {
-    // Metro can return a canonical or workspace-local React Native path that
-    // differs from the path used by Node's resolver when the app has its own
-    // nested node_modules tree. Match the path relative to the RN package so
-    // GPUI source replacements still apply to every resolved RN copy.
-    const reactNativeMarker = `${path.sep}react-native${path.sep}`;
-    const markerIndex = filePath.lastIndexOf(reactNativeMarker);
-    if (markerIndex !== -1) {
-      const suffix = filePath.slice(markerIndex + reactNativeMarker.length);
-      for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
-        if (sourcePath.endsWith(`${path.sep}${suffix}`)) {
-          override = candidate;
-          break;
-        }
-      }
-    }
-  }
-  if (
-    override == null &&
-    filePath.endsWith(
-      `${path.sep}react-native-screens${path.sep}src${path.sep}core.ts`,
-    )
-  ) {
-    for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
-      if (
-        sourcePath.endsWith(
-          `${path.sep}react-native-screens${path.sep}src${path.sep}core.ts`,
-        )
-      ) {
-        override = candidate;
-        break;
-      }
-    }
-  }
-  if (override == null) {
-    // Metro may resolve a symlinked workspace package through its canonical
-    // path, while `require.resolve` above returned the node_modules path.
-    // Compare real paths so platform-package overrides also apply in that
-    // workspace layout.
-    let canonicalPath;
-    try {
-      canonicalPath = fs.realpathSync(filePath);
-      for (const [sourcePath, candidate] of GPUI_SOURCE_OVERRIDES) {
-        if (fs.realpathSync(sourcePath) === canonicalPath) {
-          override = candidate;
-          break;
-        }
-      }
-    } catch {}
-  }
-  if (override == null) {
-    return resolution;
-  }
-
-  return typeof resolution === 'string'
-    ? override
-    : { ...resolution, filePath: override };
-}
-
-// React Native ships a set of `.js` files that exist only so deep imports with
-// an explicit extension keep working; each is a self-referential re-export shim
-// and nothing else:
-//
-//     import BaseViewConfig from './BaseViewConfig';
-//     export default BaseViewConfig;
-//
-// The shim expects Metro to prefer a platform variant
-// (`BaseViewConfig.ios.js`) over itself, which is true for `ios`/`android` but
-// not for `gpui`: `./BaseViewConfig` resolves back to the shim, its default
-// export is undefined, and `createViewConfig()` dies with "Cannot read property
-// 'bubblingEventTypes' of undefined" — a `--dev`-only failure, because the
-// production path never builds the static view config.
-//
-// 0.87.1 has ten such files (all carrying the "supports backwards
-// compatibility of subpath (deep) imports" note): `Libraries/Alert/
-// RCTAlertManager.js`, `Libraries/Components/AccessibilityInfo/
-// legacySendAccessibilityEvent.js`, `Libraries/Components/DrawerAndroid/
-// DrawerLayoutAndroid.js`, `Libraries/Components/ToastAndroid/ToastAndroid.js`,
-// `Libraries/Image/Image.js`, `Libraries/NativeComponent/BaseViewConfig.js`,
-// `Libraries/Network/RCTNetworking.js`, `Libraries/StyleSheet/
-// PlatformColorValueTypes.js`, `Libraries/Utilities/BackHandler.js` and
-// `Libraries/Utilities/Platform.js` (the last one is shadowed from `src-gpui`).
-//
-// They are recognised by shape rather than by that note, because a module that
-// imports itself is not necessarily a shim: `Libraries/Settings/Settings.js`
-// requires './Settings' behind a `Platform.OS === 'ios'` check and is a real
-// implementation that must be left alone.
-const RE_EXPORT_SHIM =
-  /^import ([A-Za-z_$][\w$]*) from '\.\/([A-Za-z_$][\w$]*)'; ?export default ([A-Za-z_$][\w$]*);?$/;
-const RE_EXPORT_ALL_SHIM = /^export \* from '\.\/[A-Za-z_$][\w$]*';?$/;
-
-const shimSourceCache = new Map();
-
+// React Native's `Foo.js` deep-import shims re-export `./Foo` and expect a
+// platform variant to win, which never happens for gpui.
+const SHIM =
+  /^(?:import ([\w$]+) from '\.\/\1'; ?export default \1;?|export \* from '\.\/[\w$]+';?)$/;
+const shims = new Map();
 function isReExportShim(filePath) {
-  let code = shimSourceCache.get(filePath);
-  if (code === undefined) {
-    try {
-      code = fs
-        .readFileSync(filePath, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    } catch {
-      code = null;
-    }
-    shimSourceCache.set(filePath, code);
+  if (!shims.has(filePath)) {
+    const code = fs
+      .readFileSync(filePath, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    shims.set(filePath, SHIM.test(code));
   }
-  if (code == null) {
-    return false;
-  }
-
-  const match = RE_EXPORT_SHIM.exec(code);
-  return (
-    (match != null && match[1] === match[2] && match[2] === match[3]) ||
-    RE_EXPORT_ALL_SHIM.test(code)
-  );
-}
-
-// Prefer a fallback platform's variant for such shims, which is the file the
-// shim meant to load. The check only runs for React Native's own modules that
-// have a variant to prefer, so it costs one `stat` per resolution and one read
-// per shim-shaped file.
-function preferVariantOverShim(resolution, platform) {
-  const filePath =
-    typeof resolution === 'string' ? resolution : resolution?.filePath;
-  if (
-    filePath == null ||
-    ![...UPSTREAM_RN_DIRS].some(directory =>
-      filePath.startsWith(directory + path.sep),
-    )
-  ) {
-    return resolution;
-  }
-
-  for (const fallback of PLATFORM_FALLBACKS[platform] ?? []) {
-    const variant = filePath.replace(/\.js$/, `.${fallback}.js`);
-    if (!fs.existsSync(variant)) {
-      continue;
-    }
-    if (!isReExportShim(filePath)) {
-      return resolution;
-    }
-
-    console.log(
-      `[rn-gpui] re-export shim ${path.basename(filePath)}; using ${path.basename(
-        variant,
-      )}`,
-    );
-    return typeof resolution === 'string'
-      ? variant
-      : { ...resolution, filePath: variant };
-  }
-
-  return resolution;
-}
-
-// Delegates every resolution to `context.resolveRequest`, the raw Metro
-// resolver. The CLI's own out-of-tree platform resolver (which rewrites
-// `react-native` imports) is deliberately bypassed: this function replaces it.
-function resolveModule(context, moduleName, platform) {
-  if (moduleName === 'react-native/setup-env') {
-    const origin = context.originModulePath ?? '';
-    const gpuiSetupEnv = path.join(GPUI_PACKAGE_DIR, 'setup-env.js');
-    const setupEnv =
-      origin === gpuiSetupEnv
-        ? path.join(activeUpstreamRNDir, 'src/setup-env.js')
-        : gpuiSetupEnv;
-    return resolveWithPlatformFallback(context, setupEnv, platform);
-  }
-
-  // InitializeCore pulls setup-env into the graph with a relative import.
-  // Route it through the GPUI setup-env too: Metro only runs the
-  // run-before-main modules that are already in the graph, so otherwise the
-  // `window` alias never runs.
-  if (
-    moduleName === '../../src/setup-env' &&
-    /[\\/]Libraries[\\/]Core[\\/]InitializeCore\.js$/.test(
-      context.originModulePath ?? '',
-    )
-  ) {
-    return resolveWithPlatformFallback(
-      context,
-      path.join(GPUI_PACKAGE_DIR, 'setup-env.js'),
-      platform,
-    );
-  }
-
-  // A patched RN module keeps upstream-relative imports. Resolve those from
-  // its upstream location, then apply the normal GPUI override table below.
-  // Only real overrides do this: `src-gpui` also holds new modules that do not
-  // mirror an upstream file, and re-basing those would break their own relative
-  // imports (their sibling files do not exist under React Native).
-  if (
-    moduleName.startsWith('.') &&
-    context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep) &&
-    isGpuiOverrideFile(context.originModulePath)
-  ) {
-    context = {
-      ...context,
-      originModulePath: path.join(
-        activeUpstreamRNDir,
-        path
-          .relative(GPUI_RN_SRC_DIR, context.originModulePath)
-          .replace(/\.gpui\.(?:js|ts|tsx)$/, '.js'),
-      ),
-    };
-  }
-  const isGpuiEntry =
-    moduleName === 'react-native' || moduleName === GPUI_PACKAGE_NAME;
-
-  if (isGpuiEntry) {
-    // Inside the package itself (index.gpui.js and friends) the import means
-    // the upstream package; everywhere else it means the gpui entry point.
-    const origin = context.originModulePath ?? '';
-    const insideGpuiPackage =
-      origin === GPUI_PACKAGE_DIR ||
-      origin.startsWith(GPUI_PACKAGE_DIR + path.sep);
-
-    return resolveWithPlatformFallback(
-      context,
-      insideGpuiPackage ? activeUpstreamRNEntry : GPUI_ENTRY,
-      platform,
-    );
-  }
-
-  if (moduleName.startsWith(GPUI_PACKAGE_NAME + '/')) {
-    if (moduleName === `${GPUI_PACKAGE_NAME}/navigation`) {
-      return resolveWithPlatformFallback(
-        context,
-        path.join(GPUI_PACKAGE_DIR, 'navigation.ts'),
-        platform,
-      );
-    }
-    if (moduleName === `${GPUI_PACKAGE_NAME}/NativeViewHost`) {
-      return resolveWithPlatformFallback(
-        context,
-        path.join(GPUI_PACKAGE_DIR, 'NativeViewHost.tsx'),
-        platform,
-      );
-    }
-    // `react-native-gpui/desktop` is a public entry point, not
-    // an upstream subpath, so it must be mapped here or the catch-all below
-    // would rewrite it to `react-native/desktop`.
-    if (moduleName === `${GPUI_PACKAGE_NAME}/desktop`) {
-      return resolveWithPlatformFallback(
-        context,
-        path.join(GPUI_PACKAGE_DIR, 'desktop.ts'),
-        platform,
-      );
-    }
-    if (moduleName === `${GPUI_PACKAGE_NAME}/polyfills/menu`) {
-      return resolveWithPlatformFallback(
-        context,
-        path.join(GPUI_PACKAGE_DIR, 'polyfills/menu.tsx'),
-        platform,
-      );
-    }
-    // `react-native-gpui/<subpath>` -> upstream `react-native/<subpath>`,
-    // for the deep `Libraries/...` imports the CLI's bundle preamble uses,
-    // and for `react-native-gpui/setup-env`.
-    return resolveWithPlatformFallback(
-      context,
-      'react-native/' + moduleName.slice(GPUI_PACKAGE_NAME.length + 1),
-      platform,
-    );
-  }
-
-  return resolveWithPlatformFallback(context, moduleName, platform);
-}
-
-function resolveWithGpuiPlatform() {
-  return (context, moduleName, platform) => {
-    // Platform adapters can reuse an explicit upstream implementation without
-    // routing that implementation back through the adapter itself.
-    if (
-      context.originModulePath?.startsWith(GPUI_RN_SRC_DIR + path.sep) &&
-      /\.(?:ios|android)(?:\.js)?$/.test(moduleName)
-    ) {
-      return resolveModule(context, moduleName, platform);
-    }
-    return applySourceOverride(
-      preferVariantOverShim(
-        resolveModule(context, moduleName, platform),
-        platform,
-      ),
-    );
-  };
-}
-
-/**
- * The nearest ancestor of `directory` that is a repository or workspace root —
- * a directory holding `.git`, or a `package.json` that declares `workspaces`.
- * Returns null when there is none, which is the case for a linked package that
- * lives outside any repository.
- *
- * This is the bound for the watch-folder walk below. The walk exists because a
- * linked package resolves its own imports against the tree it really lives in,
- * so Metro has to watch the `node_modules` directories above it. It does not
- * have to watch all of them up to the filesystem root: a `node_modules` in a
- * user's home directory or at a drive root is an unrelated tree that Metro would
- * crawl for nothing, and crawling it can be very expensive.
- */
-function findTreeRoot(directory) {
-  for (let current = directory; ; current = path.dirname(current)) {
-    if (fs.existsSync(path.join(current, '.git'))) return current;
-    const manifest = path.join(current, 'package.json');
-    if (fs.existsSync(manifest)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-        if (parsed && parsed.workspaces) return current;
-      } catch {
-        // An unreadable or malformed package.json is not a workspace root.
-      }
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-  }
-}
-
-/**
- * The `node_modules` directories a linked package can resolve through: the ones
- * between the package and its tree root, plus the package's own. Stops at the
- * tree root, so a `node_modules` above it is never watched. A package with no
- * tree root gets only its own.
- */
-function nodeModulesAboveLinkedPackage(realPath) {
-  const treeRoot = findTreeRoot(realPath);
-  const found = [];
-  for (let directory = realPath; ; directory = path.dirname(directory)) {
-    const modules = path.join(directory, 'node_modules');
-    if (fs.existsSync(modules)) found.push(modules);
-    if (treeRoot !== null && directory === treeRoot) break;
-    // No tree root: stop at the package's own directory rather than walking on.
-    if (treeRoot === null && directory === realPath) break;
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-  }
-  return found;
-}
-
-/**
- * The `node_modules` directories the app itself resolves through: the ones
- * between its directory and the tree root it belongs to.
- *
- * The app's walk needs the same bound as the linked-package walk above, and for
- * the same reason. Walking to the filesystem root instead adds every
- * `node_modules` above the checkout — `/Users/<user>/node_modules`, a drive
- * root — to both `resolver.nodeModulesPaths` and `watchFolders`, and Metro then
- * crawls a tree the app has nothing to do with. Only a directory that exists
- * counts, so a stale one left in a home directory is watched for nothing.
- * A project with no tree root above it keeps only its own, as a linked package
- * without one does.
- */
-function nodeModulesForApp(projectRoot) {
-  const treeRoot = findTreeRoot(projectRoot);
-  const found = [];
-  for (let directory = projectRoot; ; directory = path.dirname(directory)) {
-    const modules = path.join(directory, 'node_modules');
-    if (fs.existsSync(modules)) found.push(modules);
-    if (treeRoot !== null && directory === treeRoot) break;
-    // No tree root: stop at the app's own directory rather than walking on.
-    if (treeRoot === null && directory === projectRoot) break;
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-  }
-  return found;
+  return shims.get(filePath);
 }
 
 function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
-  activeUpstreamRNEntry = appRequire.resolve('react-native');
-  activeUpstreamRNDir = path.dirname(activeUpstreamRNEntry);
-  UPSTREAM_RN_DIRS.add(activeUpstreamRNDir);
-  for (const [source, override] of collectSourceOverrides(
-    activeUpstreamRNDir,
-  )) {
-    GPUI_SOURCE_OVERRIDES.set(source, override);
-    GPUI_OVERRIDE_FILES.add(override);
-  }
-  const defaultConfig = getDefaultConfig(projectRoot);
-  const projectGestureHandlerDir = path.join(
-    projectRoot,
-    'node_modules/react-native-gesture-handler',
-  );
-  const gpuiGestureHandlerDir = path.dirname(
-    require.resolve('@react-native-gpui/gesture-handler/package.json'),
-  );
-  const projectGestureEvents = path.join(
-    projectGestureHandlerDir,
-    'src/handlers/customDirectEventTypes.ts',
-  );
-  const projectGestureButtons = path.join(
-    projectGestureHandlerDir,
-    'src/v3/components/GestureButtons.tsx',
-  );
-  if (fs.existsSync(projectGestureHandlerDir)) {
-    GPUI_SOURCE_OVERRIDES.set(
-      projectGestureEvents,
-      path.join(gpuiGestureHandlerDir, 'src/customDirectEventTypes.gpui.ts'),
-    );
-    GPUI_SOURCE_OVERRIDES.set(
-      projectGestureButtons,
-      path.join(gpuiGestureHandlerDir, 'src/GestureButtons.gpui.tsx'),
-    );
-  }
-  const projectScreensDir = path.join(
-    projectRoot,
-    'node_modules/react-native-screens',
-  );
-  if (fs.existsSync(projectScreensDir)) {
-    GPUI_SOURCE_OVERRIDES.set(
-      path.join(projectScreensDir, 'src/core.ts'),
-      path.join(
-        path.dirname(
-          require.resolve('@react-native-gpui/screens/package.json'),
-        ),
-        'src/core.gpui.ts',
-      ),
-    );
-    GPUI_SOURCE_OVERRIDES.set(
-      path.join(projectScreensDir, 'src/components/FullWindowOverlay.tsx'),
-      path.join(
-        path.dirname(
-          require.resolve('@react-native-gpui/screens/package.json'),
-        ),
-        'src/FullWindowOverlay.gpui.tsx',
-      ),
-    );
-  }
-  const drawerGestureHandler = path.join(
-    projectRoot,
-    'node_modules/react-native-drawer-layout/lib/module/views/GestureHandler.js',
-  );
-  const drawerNativeGestureHandler = path.join(
-    projectRoot,
-    'node_modules/react-native-drawer-layout/lib/module/views/GestureHandler.ios.js',
-  );
-  if (fs.existsSync(drawerNativeGestureHandler)) {
-    // The package's platform-neutral GestureHandler is a web-only no-op stub.
-    // GPUI follows its native implementation, which attaches the drawer Pan.
-    GPUI_SOURCE_OVERRIDES.set(drawerGestureHandler, drawerNativeGestureHandler);
-  }
-  const platformPackageDirs = [];
+  const reactNativeEntry = appRequire.resolve('react-native');
+  const reactNativeDir = path.dirname(reactNativeEntry);
   const appPackage = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
   );
-  try {
-    platformPackageDirs.push(
-      path.dirname(
-        require.resolve('@react-native-gpui/gesture-handler/package.json'),
-      ),
+
+  const nodeModulesPaths = nodeModulesUpToTreeRoot(projectRoot);
+  const dependencyDirs = Object.keys({
+    ...appPackage.dependencies,
+    ...appPackage.devDependencies,
+  }).flatMap(name => {
+    const modules = nodeModulesPaths.find(dir =>
+      fs.existsSync(path.join(dir, name)),
     );
-  } catch {}
-  try {
-    platformPackageDirs.push(
-      path.dirname(require.resolve('@react-native-gpui/screens/package.json')),
-    );
-  } catch {}
-  const gpuiPackages = new Set([
-    ...Object.keys(appPackage.dependencies ?? {}),
-    ...Object.keys(appPackage.devDependencies ?? {}),
-  ]);
-  for (const packageName of gpuiPackages) {
-    if (!packageName.startsWith('@react-native-gpui/')) continue;
-    try {
-      platformPackageDirs.push(
-        path.dirname(appRequire.resolve(`${packageName}/package.json`)),
-      );
-    } catch {}
-  }
-  const nodeModulesPaths = nodeModulesForApp(projectRoot);
-  const linkedPackageDirs = [];
-  // A `file:` (or npm link / workspace) dependency is a directory junction on
-  // Windows and a symlink elsewhere, so a module inside it resolves its own
-  // imports against the *target* tree's `node_modules`, not the app's. Metro
-  // can only hash files under a watch folder, so watching the package's real
-  // path is not enough: its siblings resolve to the repository's
-  // `node_modules` (for example `@react-native/js-polyfills/console.js`, which
-  // the re-export shims import) and Metro fails the bundle with
-  //   Failed to get the SHA-1 for: <repo>/node_modules/@react-native/js-polyfills/console.js
-  // Watch the `node_modules` directories above each linked package, up to the
-  // repository or workspace the package belongs to — not to the filesystem root,
-  // which would watch an unrelated `node_modules` in a user's home directory.
-  for (const packageName of gpuiPackages) {
-    for (const modulesPath of nodeModulesPaths) {
-      const candidate = path.join(modulesPath, packageName);
-      if (!fs.existsSync(candidate)) continue;
-      const realPath = fs.realpathSync(candidate);
-      if (
-        !realPath.startsWith(projectRoot + path.sep) &&
-        !nodeModulesPaths.some(folder => realPath.startsWith(folder + path.sep))
-      ) {
-        linkedPackageDirs.push(realPath);
-        linkedPackageDirs.push(...nodeModulesAboveLinkedPackage(realPath));
-      }
-      break;
-    }
-  }
+    return modules ? [fs.realpathSync(path.join(modules, name))] : [];
+  });
+  // Linked packages (`file:`, workspaces) resolve their imports from the tree
+  // they live in, so Metro has to watch that tree's node_modules too.
+  const linkedDirs = dependencyDirs.filter(
+    dir =>
+      !isInside(dir, projectRoot) &&
+      !nodeModulesPaths.some(modules => isInside(dir, modules)),
+  );
   const watchFolders = [
     ...new Set([
-      GPUI_PACKAGE_DIR,
-      ...platformPackageDirs,
-      ...linkedPackageDirs,
-      activeUpstreamRNDir,
+      PACKAGE_DIR,
+      reactNativeDir,
       ...nodeModulesPaths,
+      ...linkedDirs.flatMap(dir => [dir, ...nodeModulesUpToTreeRoot(dir)]),
     ]),
-    // A nested folder is already covered by the folder above it, and Metro would
-    // crawl it twice. `linkedPackageDirs` can contain both, because a linked
-    // package inside the repository is under the repository's own watch folders.
-  ].filter(
-    (folder, _index, all) =>
-      !all.some(
-        other =>
-          other !== folder && (folder + path.sep).startsWith(other + path.sep),
-      ),
-  );
+  ].filter((folder, _, all) => !all.some(other => isInside(folder, other)));
 
-  const baseConfig = mergeConfig(defaultConfig, {
-    // These can be symlinked workspace packages; registering their real paths
-    // keeps Metro's file map aware of the platform and upstream RN sources.
+  const rnOverrides = reactNativeOverrides(reactNativeDir);
+  const rnOverrideFiles = new Set(rnOverrides.values());
+  const overrides = new Map([
+    ...rnOverrides,
+    ...libraryOverrides(dependencyDirs),
+  ]);
+
+  const resolveWithFallback = (context, moduleName, platform) => {
+    try {
+      return context.resolveRequest(context, moduleName, platform);
+    } catch (error) {
+      try {
+        return context.resolveRequest(context, moduleName, FALLBACK_PLATFORM);
+      } catch {
+        throw error;
+      }
+    }
+  };
+
+  const resolveModule = (context, moduleName, platform) => {
+    const origin = context.originModulePath ?? '';
+    // Every route to RN's setup-env goes through ours first (it adds `window`).
+    if (
+      moduleName === 'react-native/setup-env' ||
+      (moduleName === '../../src/setup-env' &&
+        /[\\/]Libraries[\\/]Core[\\/]InitializeCore\.js$/.test(origin))
+    ) {
+      const target =
+        origin === SETUP_ENV
+          ? path.join(reactNativeDir, 'src/setup-env.js')
+          : SETUP_ENV;
+      return resolveWithFallback(context, target, platform);
+    }
+    // An override keeps the relative imports of the file it replaces.
+    if (moduleName.startsWith('.') && rnOverrideFiles.has(origin)) {
+      const upstream = path
+        .relative(SRC_DIR, origin)
+        .replace(GPUI_SUFFIX, '.js');
+      context = {
+        ...context,
+        originModulePath: path.join(reactNativeDir, upstream),
+      };
+    }
+    // `react-native` means this package, except inside this package.
+    if (moduleName === 'react-native' || moduleName === PACKAGE_NAME) {
+      const target = isInside(origin, PACKAGE_DIR) ? reactNativeEntry : ENTRY;
+      return resolveWithFallback(context, target, platform);
+    }
+    // `react-native-gpui/<file>` is this package's file, else RN's.
+    if (moduleName.startsWith(`${PACKAGE_NAME}/`)) {
+      const subpath = moduleName.slice(PACKAGE_NAME.length + 1);
+      try {
+        return context.resolveRequest(
+          context,
+          path.join(PACKAGE_DIR, subpath),
+          platform,
+        );
+      } catch {
+        return resolveWithFallback(
+          context,
+          `react-native/${subpath}`,
+          platform,
+        );
+      }
+    }
+    return resolveWithFallback(context, moduleName, platform);
+  };
+
+  const resolveRequest = (context, moduleName, platform) => {
+    let resolution = resolveModule(context, moduleName, platform);
+    // An adapter in src-gpui can import an explicit upstream variant.
+    if (
+      isInside(context.originModulePath ?? '', SRC_DIR) &&
+      /\.(?:ios|android)(?:\.js)?$/.test(moduleName)
+    ) {
+      return resolution;
+    }
+    let key = resolution?.filePath && packageKey(resolution.filePath);
+    if (key?.startsWith('react-native/') && key.endsWith('.js')) {
+      const variant = resolution.filePath.replace(
+        /\.js$/,
+        `.${FALLBACK_PLATFORM}.js`,
+      );
+      if (fs.existsSync(variant) && isReExportShim(resolution.filePath)) {
+        resolution = withFilePath(resolution, variant);
+        key = packageKey(variant);
+      }
+    }
+    const override = key && overrides.get(key);
+    return override ? withFilePath(resolution, override) : resolution;
+  };
+
+  const config = mergeConfig(getDefaultConfig(projectRoot), {
     watchFolders,
     serializer: {
-      // The module that has to run before the app's entry, named by a path that
-      // is in the *app's* module graph.
-      //
-      // `@react-native/metro-config`'s default resolves `react-native/setup-env`
-      // from its own location, and this package resolves that dependency from
-      // wherever *it* was installed. When the platform package is linked
-      // (`file:`, `npm link`, a workspace) that is this repository, so the
-      // default names this checkout's copy of React Native — a module the app's
-      // graph does not contain, because the app installed its own. Metro emits
-      // no run-before-main call for a path it cannot find, so RN's environment
-      // setup silently never ran and the first `HMRClient.setup()` from the
-      // platform aborted the app:
-      //
-      //   Failed to call into JavaScript module method HMRClient.setup().
-      //   Module has not been registered as callable.
-      //   Registered callable JavaScript modules (n = 1): AppRegistry
-      //
-      // This package's own `setup-env.js` is the right module to name instead:
-      // the app depends on this package, so it is always in the graph, and it
-      // provides the `window` alias RN's development setup expects before
-      // delegating to `react-native/setup-env`, which resolves through the
-      // app's own `nodeModulesPaths`. The same path is correct for an app
-      // installed from the registry.
-      getModulesRunBeforeMainModule: () => [
-        path.join(GPUI_PACKAGE_DIR, 'setup-env.js'),
-      ],
+      // Ours, not RN's: the default names the RN beside @react-native/metro-config,
+      // which is not in the app's graph when this package is linked.
+      getModulesRunBeforeMainModule: () => [SETUP_ENV],
     },
     resolver: {
-      // `gpui` first so `Foo.gpui.js` wins; the generic `Foo.js` (rather than
-      // the `ios`/`android` variants) is the fallback for desktop.
       platforms: ['gpui', 'native'],
       nodeModulesPaths,
-      // A native desktop target is not a browser. React Native's default order
-      // prefers a package's `browser` field over `main`, which for a napi-rs
-      // package is a WASM re-export (`@node-rs/crc32/browser.js`) instead of
-      // the real native binding. Preferring `main` picks the package's own
-      // loader, which the Babel plugin then rewrites to the host `.node` file.
-      // No GPUI dependency ships a browser-only build.
+      // `main` over `browser`: a desktop app wants native bindings, not WASM.
       resolverMainFields: ['react-native', 'main'],
-      resolveRequest: resolveWithGpuiPlatform(defaultConfig),
+      resolveRequest,
     },
   });
 
-  // The JS engine decides how its own bundles must be transformed (a bytecode
-  // format needs an engine-specific transform profile, for example), so the
-  // changes come from the active engine package rather than from this file.
+  // The active JS engine can adjust the config (e.g. its bytecode transform).
   const engineBundle = activeJsEngineBundle(projectRoot);
-  if (!engineBundle || typeof engineBundle.metroConfig !== 'function') {
-    return baseConfig;
-  }
-  return mergeConfig(baseConfig, engineBundle.metroConfig(baseConfig) ?? {});
+  return typeof engineBundle?.metroConfig === 'function'
+    ? mergeConfig(config, engineBundle.metroConfig(config) ?? {})
+    : config;
 }
 
-const config = makeMetroConfig();
-Object.defineProperty(config, 'makeMetroConfig', { value: makeMetroConfig });
-// Exported for the unit tests: the watch-folder walk is pure path logic, and
-// testing it against real on-disk layouts is the only way to show that a
-// `node_modules` above the tree root is not watched.
-Object.defineProperty(config, 'findTreeRoot', { value: findTreeRoot });
-Object.defineProperty(config, 'nodeModulesAboveLinkedPackage', {
-  value: nodeModulesAboveLinkedPackage,
-});
-Object.defineProperty(config, 'nodeModulesForApp', {
-  value: nodeModulesForApp,
-});
-module.exports = config;
+module.exports = { makeMetroConfig, findTreeRoot, nodeModulesUpToTreeRoot };
