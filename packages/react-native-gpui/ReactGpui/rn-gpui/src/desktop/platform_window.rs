@@ -302,6 +302,22 @@ mod imp {
             Err(_) => false,
         }
     }
+
+    /// Windows opens the tray popover as its own window kind (see
+    /// `windows::open_window`); there is nothing to set before it is mapped.
+    pub fn prepare_popover(
+        _window: &mut Window,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn activate_popover(_window: &Window) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// X11: the window calls GPUI does not expose, over a second X connection.
@@ -441,6 +457,161 @@ mod imp {
         // Only the window manager knows; it would need a `_NET_WM_STATE` read.
         false
     }
+
+    /// Turns a just-created, still-unmapped window into a tray popover.
+    ///
+    /// The tray popover cannot be `WindowKind::PopUp`: GPUI makes that
+    /// override-redirect, so the window manager never focuses it, its
+    /// `install_activation_observer` never sees a deactivation, and it cannot be
+    /// dismissed by clicking away. It is instead an ordinary undecorated window
+    /// that the window manager manages — the same shape Electron's Linux tray
+    /// menu uses (a frameless window with skip-taskbar and always-on-top). The
+    /// properties below are set on the still-unmapped window so nothing flashes
+    /// in the taskbar or appears decorated first.
+    ///
+    /// Call before the window is mapped (see `windows::open_window`, which opens
+    /// the popover with `show: false` and maps it afterwards); `_NET_WM_STATE`
+    /// and `_NET_WM_WINDOW_TYPE` are read when the window is mapped.
+    pub fn prepare_popover(
+        window: &mut Window,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Result<(), String> {
+        with_window(window, |xlib, display, id| unsafe {
+            // A hidden window is placed by the user, not the window manager:
+            // USPosition with the exact origin, so a WM that honours hints maps
+            // it where the tray icon is instead of centring it.
+            let mut hints: xlib::XSizeHints = std::mem::zeroed();
+            hints.flags = xlib::USPosition | xlib::PSize;
+            hints.x = x.round() as i32;
+            hints.y = y.round() as i32;
+            hints.width = width.round() as i32;
+            hints.height = height.round() as i32;
+            (xlib.XSetWMNormalHints)(display, id, &mut hints);
+
+            // `_NET_WM_WINDOW_TYPE_UTILITY`: a small tool window, which window
+            // managers keep out of the taskbar and alt-tab. `DIALOG` would want
+            // a `WM_TRANSIENT_FOR` parent and a tray-only app has none.
+            set_atoms(
+                xlib,
+                display,
+                id,
+                "_NET_WM_WINDOW_TYPE",
+                &["_NET_WM_WINDOW_TYPE_UTILITY"],
+            );
+
+            // `_NET_WM_STATE`: never in the taskbar or pager, always above.
+            set_atoms(
+                xlib,
+                display,
+                id,
+                "_NET_WM_STATE",
+                &[
+                    "_NET_WM_STATE_SKIP_TASKBAR",
+                    "_NET_WM_STATE_SKIP_PAGER",
+                    "_NET_WM_STATE_ABOVE",
+                ],
+            );
+
+            // Decorations off. GPUI's `request_decorations(Client)` already sets
+            // the motif hint for a frameless window; this is idempotent and also
+            // covers a server-decorations fallback. The five words are
+            // flags=MWM_HINTS_DECORATIONS, functions=0, decorations=0, ...
+            let motif = (xlib.XInternAtom)(display, b"_MOTIF_WM_HINTS\0".as_ptr() as *const _, 0);
+            if motif != 0 {
+                let data: [u32; 5] = [1 << 1, 0, 0, 0, 0];
+                (xlib.XChangeProperty)(
+                    display,
+                    id,
+                    motif,
+                    motif,
+                    32,
+                    xlib::PropModeReplace,
+                    data.as_ptr() as *const std::os::raw::c_uchar,
+                    5,
+                );
+            }
+
+            (xlib.XFlush)(display);
+        })
+    }
+
+    /// Sets an `ATOM[]` property to the interned atoms named in `values`.
+    ///
+    /// Replaces the property (`PropModeReplace`), which is what the window
+    /// manager reads once, when the window is mapped.
+    unsafe fn set_atoms(
+        xlib: &xlib::Xlib,
+        display: *mut xlib::Display,
+        window: xlib::Window,
+        property: &str,
+        values: &[&str],
+    ) {
+        let property_atom =
+            (xlib.XInternAtom)(display, format!("{property}\0").as_ptr() as *const _, 0);
+        if property_atom == 0 {
+            return;
+        }
+        let atoms: Vec<u64> = values
+            .iter()
+            .map(|value| (xlib.XInternAtom)(display, format!("{value}\0").as_ptr() as *const _, 0))
+            .filter(|atom| *atom != 0)
+            .collect();
+        if atoms.is_empty() {
+            return;
+        }
+        (xlib.XChangeProperty)(
+            display,
+            window,
+            property_atom,
+            xlib::XA_ATOM,
+            32,
+            xlib::PropModeReplace,
+            atoms.as_ptr() as *const std::os::raw::c_uchar,
+            atoms.len() as i32,
+        );
+    }
+
+    /// Asks the window manager to make `window` the active window.
+    ///
+    /// `activate_window()` sends `_NET_ACTIVE_WINDOW` with source indication 1
+    /// (a normal application request) and `CurrentTime`. Both are the parts a
+    /// focus stealing prevention check distrusts: the request carries no
+    /// timestamp from the event that caused it (a tray click arrives over D-Bus,
+    /// which has no X timestamp), so a strict window manager may map the popover
+    /// without focusing it — and without focus the popover can never see the
+    /// deactivation that dismisses it. Source indication 2 (a pager / taskbar)
+    /// is trusted to set focus, and a fresh server timestamp avoids the
+    /// "timestamp in the past" rejection.
+    pub fn activate_popover(window: &Window) -> Result<(), String> {
+        with_window(window, |xlib, display, id| unsafe {
+            let root = (xlib.XDefaultRootWindow)(display);
+            let atom = (xlib.XInternAtom)(display, b"_NET_ACTIVE_WINDOW\0".as_ptr() as *const _, 0);
+            let mut event: xlib::XEvent = std::mem::zeroed();
+            {
+                let message = &mut event.client_message;
+                message.type_ = xlib::ClientMessage;
+                message.display = display;
+                message.window = id;
+                message.message_type = atom;
+                message.format = 32;
+                // data = [source indication, timestamp, requestor, 0, 0]
+                message.data.set_long(0, 2);
+                message.data.set_long(1, xlib::CurrentTime as i64);
+                message.data.set_long(2, id as i64);
+            }
+            (xlib.XSendEvent)(
+                display,
+                root,
+                0,
+                xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+                &mut event,
+            );
+            (xlib.XFlush)(display);
+        })
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -476,6 +647,18 @@ mod imp {
     }
     pub fn is_maximized(window: &Window) -> bool {
         window.is_maximized()
+    }
+    pub fn prepare_popover(
+        _window: &mut Window,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Result<(), String> {
+        Err(UNSUPPORTED.to_string())
+    }
+    pub fn activate_popover(_window: &Window) -> Result<(), String> {
+        Ok(())
     }
 }
 
