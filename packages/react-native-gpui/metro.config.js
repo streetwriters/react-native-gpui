@@ -244,6 +244,15 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     resolver: {
       platforms: ['gpui', 'native'],
       nodeModulesPaths,
+      // Resolve only from `nodeModulesPaths`, not by walking up from each
+      // importing file. When this package is linked (`file:`, `npm link`, a
+      // workspace), its own sources import `react`/`react-native`, and that walk
+      // finds the *linked tree's* copies — a second React in the app's bundle,
+      // which React rejects with "Invalid hook call" as soon as a component runs.
+      // `nodeModulesPaths` already lists every `node_modules` from the app up to
+      // its tree root, so nothing legitimate is lost; the tester has set this at
+      // its own config for the same reason.
+      disableHierarchicalLookup: true,
       // `main` over `browser`: a desktop app wants native bindings, not WASM.
       resolverMainFields: ['react-native', 'main'],
       resolveRequest,

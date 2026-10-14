@@ -133,4 +133,13 @@ describe('makeMetroConfig', () => {
       ),
     ).toBe(true);
   });
+
+  // When this package is linked, its own sources import `react`/`react-native`,
+  // and a hierarchical lookup walks up from them into the linked tree's
+  // `node_modules` — a second React in the app's bundle, which React rejects
+  // with "Invalid hook call" as soon as a component runs. Resolution has to
+  // come from `nodeModulesPaths` alone.
+  test('does not walk up from an importer for its dependencies', () => {
+    expect(config.resolver.disableHierarchicalLookup).toBe(true);
+  });
 });
