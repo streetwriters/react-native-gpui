@@ -1,39 +1,39 @@
 {
-  "version": "0.0.1",
+  "version": "0.0.2",
   "reactNative": "0.87.1",
-  "inputHash": "ed646e355e0d63df0a7ca2ff5c923dc9a306dab2a69e512701ad365f926c3898",
+  "inputHash": "d8e54312f4b745b970b186c7cb2f0c4ef3dc7397dc3067ed12b730b386cd50ff",
   "repo": "streetwriters/react-native-gpui",
-  "tag": "@react-native-gpui/prebuilt-binaries@0.0.1",
+  "tag": "@react-native-gpui/prebuilt-binaries@0.0.2",
   "assets": {
     "darwin-arm64": {
       "file": "prebuilt-binaries-darwin-arm64.tar.gz",
-      "sha256": "8b95583c9fe90ea37dbea769ea32230c5a77ee7796fe7e6a4cac3013587a073c",
-      "size": 44543878
+      "sha256": "b0c1297a69e43e7d5fa05ef33559c3666a23a83d7b2259e69ddd01ae59e599ac",
+      "size": 44517309
     },
     "darwin-x64": {
       "file": "prebuilt-binaries-darwin-x64.tar.gz",
-      "sha256": "51521d205b1d83cc1db54ccf4927af60b729028ecaaa1d064441558725e02065",
-      "size": 45881531
+      "sha256": "9a7f1a71a4b5deacca3ceb3af5497c511cb7e2ab7d1328b97d942270fa44aafc",
+      "size": 45858159
     },
     "linux-arm64": {
       "file": "prebuilt-binaries-linux-arm64.tar.gz",
-      "sha256": "08d8908aa27c285369e7c9ba645d0912569e27dfeafac5c9e8592f9697e445b8",
-      "size": 66803779
+      "sha256": "892b4e30443218103faae00dc303b06c8f0be5131dc8d938903e1999558e1e3c",
+      "size": 66773001
     },
     "linux-x64": {
       "file": "prebuilt-binaries-linux-x64.tar.gz",
-      "sha256": "eaf97f084cc29fc13752a74b47dfe7d556f78a22c594358b1bd538a68c77ff4d",
-      "size": 68572494
+      "sha256": "387da81909164be7bf91d4c975b6f599ffc4461606b65c22798cbd39dccd7223",
+      "size": 68529059
     },
     "win32-arm64": {
       "file": "prebuilt-binaries-win32-arm64.tar.gz",
-      "sha256": "f05f00dee1b690b98be26cf769d161ec08f8f783bd7ded995733b9e6233ca8ec",
-      "size": 180414070
+      "sha256": "8d99951923fce79380905ea49579a1ec051866c7d04fe2b13f0c6ea1a728986b",
+      "size": 180414309
     },
     "win32-x64": {
       "file": "prebuilt-binaries-win32-x64.tar.gz",
-      "sha256": "3fc5836a97766c7efe1479bec31e1ca6b02d3858088b37c6532b99f5715ab0e6",
-      "size": 98176814
+      "sha256": "db4799266ec6d6fd93102d27c84da01a29d782e5e952280c8c608f4cd88ae6ac",
+      "size": 98173638
     }
   }
 }
