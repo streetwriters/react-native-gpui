@@ -372,11 +372,10 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=static:-bundle=rn_gpui_core");
 
-    emit_link_libs(&cmake_manifest(
-        &cmake_build_dir,
-        "link_libs",
-        cmake_build_type,
-    ));
+    emit_link_libs(
+        &cmake_manifest(&cmake_build_dir, "link_libs", cmake_build_type),
+        &out_dir,
+    );
 
     // Libraries with an `@rpath/...` install name cannot be found from
     // `rustc-link-search` alone, and `cargo:rustc-link-arg` from this package
@@ -940,7 +939,13 @@ fn msvc_target() -> bool {
 ///  * `name:<file>`  — a library file name; `-l` takes it stripped of its
 ///    `lib` prefix and extension, `dylib=` for shared, `static=` for archives.
 ///  * `search:<dir>` — a directory to add to the link search path.
-fn emit_link_libs(path: &Path) {
+///
+/// Off MSVC, third-party archives are linked through uniquely named symlinks
+/// (`librngpui_ssl.a` for `libssl.a`). A crate that finds a system library
+/// through pkg-config adds a directory such as `/usr/lib/x86_64-linux-gnu` to
+/// the search path ahead of ours, and `-lssl` would then pick up the system's
+/// static OpenSSL instead of the one this build's curl was compiled against.
+fn emit_link_libs(path: &Path, out_dir: &Path) {
     println!("cargo:rerun-if-changed={}", path.display());
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -953,13 +958,16 @@ fn emit_link_libs(path: &Path) {
         }
     };
 
+    let link_dir = out_dir.join("rn-gpui-link");
     let mut seen = std::collections::HashSet::new();
+    let mut last_search: Option<&str> = None;
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
         if let Some(dir) = line.strip_prefix("search:") {
+            last_search = Some(dir);
             if seen.insert(format!("search:{dir}")) {
                 println!("cargo:rustc-link-search=native={dir}");
             }
@@ -992,7 +1000,16 @@ fn emit_link_libs(path: &Path) {
                 continue;
             }
             let directive = if is_archive {
-                format!("static:-bundle={name}")
+                let source = last_search.map(|dir| Path::new(dir).join(file));
+                match source.and_then(|source| link_unique_archive(&link_dir, name, &source)) {
+                    Some(unique) => {
+                        if seen.insert(format!("search:{}", link_dir.display())) {
+                            println!("cargo:rustc-link-search=native={}", link_dir.display());
+                        }
+                        format!("static:-bundle={unique}")
+                    }
+                    None => format!("static:-bundle={name}"),
+                }
             } else {
                 format!("dylib={name}")
             };
@@ -1006,6 +1023,31 @@ fn emit_link_libs(path: &Path) {
                 println!("cargo:rustc-link-lib={directive}");
             }
         }
+    }
+}
+
+/// Symlinks `source` into `link_dir` as `librngpui_<name>.a` and returns the
+/// `-l` name to use. Returns `None` (link by the original name) on MSVC, for
+/// this build's own `rn_gpui_*` archives, or when the archive is not found.
+fn link_unique_archive(link_dir: &Path, name: &str, source: &Path) -> Option<String> {
+    if msvc_target() || name.starts_with("rn_gpui") || !source.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        let unique = format!("rngpui_{name}");
+        fs::create_dir_all(link_dir).ok()?;
+        let link = link_dir.join(format!("lib{unique}.a"));
+        if fs::read_link(&link).ok().as_deref() != Some(source) {
+            let _ = fs::remove_file(&link);
+            std::os::unix::fs::symlink(source, &link).ok()?;
+        }
+        Some(unique)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = link_dir;
+        None
     }
 }
 
