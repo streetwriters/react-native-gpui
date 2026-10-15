@@ -15,7 +15,18 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
 );
-const binRoot = path.join(packageRoot, 'bin');
+/**
+ * Where the staged binaries live. `RN_GPUI_HERMES_BIN_ROOT` is honoured by
+ * CMake (`gpui/CMakeLists.txt`) and by `gpui/node-api-exports.test.js`, so the
+ * downloader has to agree with them: writing to the package's own `bin/` while
+ * the build looks somewhere else fails with "Hermes library not found" at
+ * configure time.
+ */
+export function binRootFrom(env = process.env) {
+  return env.RN_GPUI_HERMES_BIN_ROOT || path.join(packageRoot, 'bin');
+}
+
+const binRoot = binRootFrom();
 
 const PLATFORMS = {
   'darwin-arm64': ['libhermesvm.dylib', 'hermesc'],
