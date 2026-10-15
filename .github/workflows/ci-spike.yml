@@ -50,14 +50,16 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          # The -dev packages are what the CLI's preflight checks for through
-          # pkg-config (xkbcommon, xkbcommon-x11, xcb); the runtime libraries
-          # alone are not enough.
+          # The -dev packages are what the CLI's preflight and the crates' build
+          # scripts look for through pkg-config: the CLI checks xkbcommon,
+          # xkbcommon-x11 and xcb, and GPUI's Linux backend pulls in
+          # yeslogic-fontconfig-sys (fontconfig) and freetype-sys (freetype2).
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build ccache nasm pkg-config \
             xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
             libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
-            libxkbcommon-x11-0 libwayland-dev
+            libfontconfig-dev libfreetype-dev libwayland-dev \
+            libxkbcommon-x11-0
 
       - name: Install macOS build tools
         if: runner.os == 'macOS'
