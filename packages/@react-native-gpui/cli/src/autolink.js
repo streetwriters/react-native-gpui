@@ -39,6 +39,22 @@ const findCppSources = directory => {
 const cppIdentifier = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const includePath = /^[A-Za-z0-9_./+-]+$/u;
 const jsEngineName = /^[a-z][a-z0-9-]*$/u;
+const prebuiltModes = ['auto', 'always', 'never'];
+
+/**
+ * Reads the app's `project.gpui.prebuilt` option: `auto` uses the pinned
+ * prebuilt C++ runtime when it matches and builds from source otherwise,
+ * `always` fails the build instead of falling back, `never` builds from source.
+ */
+function prebuiltModeFor(project) {
+  const prebuilt = project?.prebuilt ?? 'auto';
+  if (!prebuiltModes.includes(prebuilt)) {
+    throw new Error(
+      `project.gpui.prebuilt must be one of ${prebuiltModes.map(mode => `'${mode}'`).join(', ')}`,
+    );
+  }
+  return prebuilt;
+}
 
 /**
  * Validates a dependency's `platforms.gpui.jsEngine` entry. Installing a
@@ -398,6 +414,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
           shell: npxShell,
         }),
   );
+  const prebuilt = prebuiltModeFor(config.project?.gpui);
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
   try {
@@ -642,6 +659,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const generatedDir = autolinkRoot;
   fs.mkdirSync(generatedDir, { recursive: true });
   const manifest = {
+    prebuilt,
     rustCrates,
     turboModuleSpecs,
     cppTurboModules,

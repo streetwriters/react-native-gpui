@@ -77,8 +77,41 @@ npx react-native run-desktop             # debug build, loads JS from Metro
 npx react-native run-desktop --release   # release build with the bundled JS
 ```
 
-The first build compiles React Native's C++ runtime and takes a while; later
-builds are incremental.
+The first build downloads a prebuilt copy of React Native's C++ runtime for
+your platform, so only the desktop app itself is compiled.
+
+### Prebuilt C++ runtime
+
+Choose how the C++ runtime is built in the app's `react-native.config.js`:
+
+```js
+module.exports = {
+  project: {
+    gpui: {
+      prebuilt: 'auto', // 'auto' (default) | 'always' | 'never'
+    },
+  },
+};
+```
+
+| Value    | Behaviour                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `auto`   | Use the prebuilt runtime when one is available for your platform and React Native version; otherwise build from source. |
+| `always` | Use the prebuilt runtime, and fail the build if it cannot be used.                                                      |
+| `never`  | Always build the runtime from source. The first build takes a while; later builds are incremental.                      |
+
+Downloads are cached (`~/Library/Caches/react-native-gpui` on macOS,
+`%LOCALAPPDATA%\react-native-gpui` on Windows, `~/.cache/react-native-gpui` on
+Linux). For a one-off build, these environment variables take precedence:
+
+- `RN_GPUI_BUILD_FROM_SOURCE=1` builds from source.
+- `RN_GPUI_PREBUILT_DIR=<dir>` uses an already-extracted runtime.
+- `RN_GPUI_PREBUILT_CACHE=<dir>` changes the cache location.
+- `RN_GPUI_PREBUILT_OFFLINE=1` uses the cache only, with no network access.
+
+Inside this repository, `auto` uses the prebuilt runtime only while the C++
+sources match the ones it was built from, so local C++ changes are always
+compiled.
 
 ## License
 

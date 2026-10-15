@@ -55,8 +55,6 @@ fn main() {
     for var in [
         "RN_GPUI_PREBUILT_DIR",
         "RN_GPUI_BUILD_FROM_SOURCE",
-        "RN_GPUI_USE_PREBUILT",
-        "RN_GPUI_REQUIRE_PREBUILT",
         "RN_GPUI_PREBUILT_CACHE",
         "RN_GPUI_PREBUILT_OFFLINE",
         "CARGO_NET_OFFLINE",
@@ -111,10 +109,17 @@ fn main() {
         .join(&target_triple)
         .join(cmake_build_type);
 
+    let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.json"));
     // Generated sources live beside the CMake build tree instead of Cargo's
     // OUT_DIR. The OUT_DIR hash changes with the workspace and feature set, and
     // a changed include path would make CMake rebuild every C++ file.
-    let prebuilt_dir = select_prebuilt_dir(&package_dir, &target_triple);
+    let prebuilt_dir = select_prebuilt_dir(
+        &package_dir,
+        &target_triple,
+        &prebuilt_mode(&autolink_manifest),
+    );
     // A prebuilt build keeps its own CMake directory. Sharing one with source
     // builds leaves their librn_gpui_core.a on the linker search path, where it
     // shadows the prebuilt archive and mixes two React Native ABIs.
@@ -173,9 +178,6 @@ fn main() {
     );
     sync_tree(&generated_rncore_scratch, &generated_rncore);
 
-    let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.json"));
     let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.cmake"));
@@ -616,16 +618,27 @@ fn run_cmake_build(build_dir: &Path, profile: &str) {
     assert!(status.success(), "CMake build of rn_gpui_modules failed");
 }
 
-/// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` -> source; `RN_GPUI_PREBUILT_DIR` -> use
-/// it; inside this repository (not under `node_modules`) -> source, unless
-/// `RN_GPUI_USE_PREBUILT=1`; otherwise `prebuilt-binaries.mjs ensure` downloads
-/// (or reads the cache). Any failure falls back to source with one warning, and
-/// `RN_GPUI_REQUIRE_PREBUILT=1` turns that failure into a panic.
-fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
-    if env_flag("RN_GPUI_BUILD_FROM_SOURCE") {
+/// The app's `project.gpui.prebuilt` option (`auto`, `always` or `never`), which
+/// autolink copies into its manifest. A missing manifest or field means `auto`.
+fn prebuilt_mode(autolink_manifest: &Path) -> String {
+    fs::read_to_string(autolink_manifest)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|manifest| manifest.get("prebuilt")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "auto".to_string())
+}
+
+/// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` or mode `never` -> source;
+/// `RN_GPUI_PREBUILT_DIR` -> use it; otherwise `prebuilt-binaries.mjs ensure`
+/// downloads (or reads the cache) the pinned runtime. Inside this repository
+/// (not under `node_modules`) the pin is used only while the C++ inputs still
+/// hash to the pinned input hash. Any failure falls back to source with one
+/// warning, and mode `always` turns that failure into a panic.
+fn select_prebuilt_dir(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
+    if env_flag("RN_GPUI_BUILD_FROM_SOURCE") || mode == "never" {
         return None;
     }
-    let require = env_flag("RN_GPUI_REQUIRE_PREBUILT");
+    let require = mode == "always";
     if let Some(dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
         let dir = PathBuf::from(dir);
         return match check_prebuilt_react_native(&dir, package_dir) {
@@ -639,8 +652,11 @@ fn select_prebuilt_dir(package_dir: &Path, target: &str) -> Option<PathBuf> {
     let in_repo = !package_dir
         .components()
         .any(|c| c.as_os_str() == "node_modules");
-    if in_repo && !env_flag("RN_GPUI_USE_PREBUILT") {
-        return None;
+    if in_repo {
+        if let Err(reason) = check_pinned_inputs(package_dir) {
+            fallback_or_panic(require, &reason);
+            return None;
+        }
     }
 
     let script = package_dir.join("scripts").join("prebuilt-binaries.mjs");
@@ -731,9 +747,35 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
     Ok(())
 }
 
+/// A repository checkout may have C++ edits the pinned archive does not
+/// contain, so its inputs must hash to the pin's `inputHash`.
+fn check_pinned_inputs(package_dir: &Path) -> Result<(), String> {
+    let pin_path = package_dir.join("prebuilt-binaries.json");
+    println!("cargo:rerun-if-changed={}", pin_path.display());
+    let pinned = fs::read_to_string(&pin_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|pin| pin.get("inputHash")?.as_str().map(str::to_owned))
+        .ok_or_else(|| format!("{} has no inputHash", pin_path.display()))?;
+    let output = Command::new("node")
+        .arg(package_dir.join("scripts").join("prebuilt-inputs.mjs"))
+        .output()
+        .map_err(|error| format!("could not run node: {error}"))?;
+    let local = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() || local.is_empty() {
+        return Err("prebuilt-inputs.mjs failed".to_string());
+    }
+    if local != pinned {
+        return Err(format!(
+            "local C++ inputs hash to {local}, the pinned prebuilt was built from {pinned}"
+        ));
+    }
+    Ok(())
+}
+
 fn fallback_or_panic(require: bool, reason: &str) {
     if require {
-        panic!("rn-gpui-sys: RN_GPUI_REQUIRE_PREBUILT=1 and no prebuilt runtime: {reason}");
+        panic!("rn-gpui-sys: project.gpui.prebuilt is 'always' and no prebuilt runtime: {reason}");
     }
     println!("cargo:warning=rn-gpui-sys: no prebuilt runtime ({reason}); building from source");
 }
