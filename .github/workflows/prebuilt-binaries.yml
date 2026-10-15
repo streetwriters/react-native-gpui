@@ -393,7 +393,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "react-native-gpui prebuilt runtime $VERSION" \
+            --title "@react-native-gpui/prebuilt-binaries $VERSION" \
             --notes "Prebuilt C++ runtime for react-native-gpui (input hash $INPUT_HASH)."
       - name: Upload every asset
         working-directory: artifacts
