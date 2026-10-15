@@ -76,6 +76,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_compile_options(
     "$<$<COMPILE_LANGUAGE:CXX>:-include;${CMAKE_CURRENT_LIST_DIR}/rn_gpui_linux_prefix.h>")
 endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # ReactCommon writes `class RN_EXPORT [[deprecated(...)]] X`. GCC before 13
+  # rejects a C++ attribute after `__attribute__((...))`, RN_EXPORT's default
+  # spelling; the standard spelling of the same attribute parses everywhere.
+  add_compile_definitions("RN_EXPORT=[[gnu::visibility(\"default\")]]")
+endif()
 
 # --- Windows unity build -------------------------------------------------
 #

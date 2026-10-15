@@ -179,6 +179,17 @@ file(GLOB _double_root LIST_DIRECTORIES TRUE "${RN_GPUI_DOUBLE_CONVERSION_ARCHIV
 list(GET _double_root 0 _double_root)
 file(COPY "${_double_root}/src/" DESTINATION "${_dst}/double-conversion")
 configure_file("${_rn_third_party}/double-conversion/CMakeLists.txt" "${_dst}/CMakeLists.txt" COPYONLY)
+# double-conversion 1.1.6 predates MSVC ARM64 and stops on `#error` there; ARM64
+# has correct double operations, as the `__aarch64__` branch already says.
+set(_double_utils "${_dst}/double-conversion/utils.h")
+file(READ "${_double_utils}" _double_utils_text)
+string(REPLACE "#if defined(_M_X64) || defined(__x86_64__)"
+  "#if defined(_M_X64) || defined(_M_ARM64) || defined(__x86_64__)"
+  _double_utils_patched "${_double_utils_text}")
+if(_double_utils_patched STREQUAL _double_utils_text)
+  message(FATAL_ERROR "double-conversion changed ${_double_utils}; update the ARM64 check")
+endif()
+file(WRITE "${_double_utils}" "${_double_utils_patched}")
 
 set(_dst "${RN_GPUI_NATIVE_DEPS_PREPARED}/fast_float")
 file(REMOVE_RECURSE "${_dst}")
