@@ -71,18 +71,31 @@ fn main() {
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
         .parent()
-        .expect("packages/@react-native-gpui/core dir")
-        .to_path_buf();
-    let repo_root = package_dir
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .expect("repo root")
+        .expect("the platform package dir")
         .to_path_buf();
 
-    let react_native_dir = repo_root.join("node_modules").join("react-native");
+    // Counting parent directories can only be right in one of the two layouts
+    // this crate builds in: a repository checkout, or `node_modules` in an app.
+    // Look the dependency up instead.
+    let react_native_dir = find_node_module(&package_dir, "react-native").unwrap_or_else(|| {
+        panic!(
+            "react-native was not found in any node_modules at or above {}",
+            package_dir.display()
+        )
+    });
     let react_common_dir = react_native_dir.join("ReactCommon");
     let react_cxx_platform_dir = package_dir.join("ReactCxxPlatform");
+    // The app root: the directory that holds `node_modules`. Found from where
+    // react-native was installed, which is the only anchor that holds in a
+    // repository checkout and in an app alike.
+    let node_modules_dir = react_native_dir
+        .parent()
+        .expect("react-native lives in a node_modules directory")
+        .to_path_buf();
+    let app_root = node_modules_dir
+        .parent()
+        .expect("node_modules has a parent directory")
+        .to_path_buf();
     for changed_platform_source in [
         "react/io/ImageLoaderModule.cpp",
         "react/io/ImageLoaderModule.h",
@@ -112,7 +125,7 @@ fn main() {
 
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
         .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.json"));
+        .unwrap_or_else(|| app_root.join("desktop/autolink/autolink.json"));
     // Generated sources live beside the CMake build tree instead of Cargo's
     // OUT_DIR. The OUT_DIR hash changes with the workspace and feature set, and
     // a changed include path would make CMake rebuild every C++ file.
@@ -159,7 +172,10 @@ fn main() {
     );
     watch_tree(&react_native_dir.join("src"));
     watch_tree(&react_native_dir.join("scripts/codegen"));
-    let codegen_package = repo_root.join("node_modules/@react-native/codegen");
+    // Usually a sibling of react-native; a hoisting package manager can put it
+    // higher, which the lookup covers.
+    let codegen_package = find_node_module(&package_dir, "@react-native/codegen")
+        .unwrap_or_else(|| node_modules_dir.join("@react-native/codegen"));
     println!(
         "cargo:rerun-if-changed={}",
         codegen_package.join("package.json").display()
@@ -179,14 +195,17 @@ fn main() {
     );
     sync_tree(&generated_rncore_scratch, &generated_rncore);
 
+    // The app root: the directory that holds `node_modules`. When autolink ran
+    // it named the manifest, whose location is the app's `desktop/autolink/`;
+    // otherwise the `node_modules` that holds react-native is the anchor.
     let autolink_cmake = env::var_os("RN_GPUI_AUTOLINK_CMAKE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.join("desktop/autolink/autolink.cmake"));
+        .unwrap_or_else(|| app_root.join("desktop/autolink/autolink.cmake"));
     let project_root = autolink_cmake
         .parent()
         .and_then(Path::parent)
         .and_then(Path::parent)
-        .unwrap_or(&repo_root)
+        .unwrap_or(&app_root)
         .to_path_buf();
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
@@ -743,19 +762,11 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
         .and_then(|value| value.as_str())
         .ok_or_else(|| format!("{} has no reactNative version", manifest_path.display()))?;
 
-    let modules_dir = package_dir.parent().and_then(Path::parent);
-    let repo_root = modules_dir.and_then(Path::parent);
-    let candidates = [
-        modules_dir.map(|dir| dir.join("react-native")),
-        repo_root.map(|root| root.join("node_modules").join("react-native")),
-    ];
-    let installed_pkg = candidates
-        .into_iter()
-        .flatten()
+    let installed_pkg = find_node_module(package_dir, "react-native")
         .map(|dir| dir.join("package.json"))
-        .find(|path| path.is_file())
+        .filter(|path| path.is_file())
         .ok_or_else(|| {
-            "no react-native install found next to @react-native-gpui/core".to_string()
+            "no react-native install found at or above the platform package".to_string()
         })?;
     let installed: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(&installed_pkg)
@@ -864,6 +875,24 @@ fn emit_rpaths(path: &Path) {
         return;
     }
     println!("cargo:rpaths={}", dirs.join("|"));
+}
+
+/// The installed `<name>` package, found by walking up from `start` for a
+/// `node_modules` directory that holds it.
+///
+/// A package's location must never be derived by counting parent directories:
+/// this repository keeps its own packages at different depths (`packages/core`,
+/// `modules/fonts`), while an app has every one of them in `node_modules`.
+/// Walking up is the only rule that holds in both, and it also covers a package
+/// hoisted to an ancestor `node_modules` by a workspace.
+fn find_node_module(start: &Path, name: &str) -> Option<PathBuf> {
+    for ancestor in start.ancestors() {
+        let candidate = ancestor.join("node_modules").join(name);
+        if candidate.join("package.json").is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// Exports the active engine's Node-API export list as link metadata.

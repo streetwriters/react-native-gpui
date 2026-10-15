@@ -1,33 +1,14 @@
 if(NOT RN_GPUI_PROJECT_ROOT)
-  get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+  message(FATAL_ERROR
+    "@react-native-gpui/safe-area-context was added by the platform; RN_GPUI_PROJECT_ROOT must be set by its build.rs")
 endif()
-get_filename_component(_gpui_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
-# A dependency may sit beside the app (pnpm, nested installs) or be hoisted to
-# an ancestor node_modules (npm workspaces), so search upwards instead of
-# assuming one layout.
-set(_safe_area_root "")
-set(_rn_gpui_dependency_search "${_gpui_app_root}")
-while(_rn_gpui_dependency_search)
-  if(EXISTS "${_rn_gpui_dependency_search}/node_modules/react-native-safe-area-context/package.json")
-    set(_safe_area_root "${_rn_gpui_dependency_search}/node_modules/react-native-safe-area-context")
-    break()
-  endif()
-  get_filename_component(_rn_gpui_dependency_parent "${_rn_gpui_dependency_search}" DIRECTORY)
-  if(_rn_gpui_dependency_parent STREQUAL _rn_gpui_dependency_search)
-    break()
-  endif()
-  set(_rn_gpui_dependency_search "${_rn_gpui_dependency_parent}")
-endwhile()
-if(NOT _safe_area_root)
-  message(FATAL_ERROR "react-native-safe-area-context was not found in any node_modules at or above ${_gpui_app_root}")
-endif()
+rn_gpui_find_node_module(react-native-safe-area-context _safe_area_root)
 set(_safe_area_common "${_safe_area_root}/common/cpp")
 set(_safe_area_shadow_node "${_safe_area_common}/react/renderer/components/safeareacontext/RNCSafeAreaViewShadowNode.cpp")
 set(_safe_area_package_json "${_safe_area_root}/package.json")
 
 if(NOT EXISTS "${_safe_area_shadow_node}" OR NOT EXISTS "${_safe_area_package_json}")
-  message(FATAL_ERROR "react-native-safe-area-context 5.10.x was not found under ${_gpui_app_root}/node_modules")
+  message(FATAL_ERROR "react-native-safe-area-context 5.10.x was not found at ${_safe_area_root}")
 endif()
 file(READ "${_safe_area_package_json}" _safe_area_package_json_contents)
 string(JSON _safe_area_version GET "${_safe_area_package_json_contents}" version)
@@ -40,7 +21,7 @@ set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/cpp/GPUISafeAreaContextModule.cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
   "${_safe_area_common}"
-  "${_gpui_repo_root}/packages/@react-native-gpui/core/ReactCxxPlatform"
+  "${RN_GPUI_REACT_CXX_PLATFORM_DIR}"
   "${CMAKE_CURRENT_LIST_DIR}/cpp")
 # Safe-area insets reach the mounting manager through this glue, which the
 # platform compiles only because the package is installed.
