@@ -35,4 +35,4 @@ endif()
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/cpp/GPUIGestureHandlerModule.cpp")
 set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INCLUDE_DIRS
-  "${_gpui_repo_root}/packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp")
+  "${_gpui_repo_root}/packages/@react-native-gpui/core/ReactGpui/rn-gpui-sys/cpp")

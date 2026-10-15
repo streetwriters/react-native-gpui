@@ -1,5 +1,5 @@
 {
-  "name": "react-native-gpui",
+  "name": "@react-native-gpui/core",
   "version": "0.1.0",
   "description": "React Native platform powered by GPUI. Desktop React Native for macOS, Windows and Linux with one GPU-accelerated renderer.",
   "main": "index.gpui.js",

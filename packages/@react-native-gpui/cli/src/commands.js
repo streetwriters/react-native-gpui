@@ -132,7 +132,9 @@ function loadEngineBundle(projectRoot) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
   try {
-    platformPackageJson = appRequire.resolve('react-native-gpui/package.json');
+    platformPackageJson = appRequire.resolve(
+      '@react-native-gpui/core/package.json',
+    );
   } catch {
     return null;
   }
@@ -681,8 +683,8 @@ function scaffoldDesktop(
     ...packageJson,
     dependencies: {
       ...packageJson.dependencies,
-      'react-native-gpui':
-        packageJson.dependencies?.['react-native-gpui'] ?? '^0.1.0',
+      '@react-native-gpui/core':
+        packageJson.dependencies?.['@react-native-gpui/core'] ?? '^0.1.0',
       '@react-native-gpui/hermes':
         packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
       // `rn-gpui-module-build` resolves its spec generator from the app
@@ -860,7 +862,7 @@ export function initDesktop({
     );
     console.error('Manual steps to add desktop support:');
     for (const step of [
-      'Install react-native-gpui and @react-native-gpui/cli in the app.',
+      'Install @react-native-gpui/core and @react-native-gpui/cli in the app.',
       'Copy the desktop/ scaffold from @react-native-gpui/cli/templates/app/desktop.',
       'Run npm install (or your package manager), then npx react-native run-desktop.',
     ]) {
@@ -1029,7 +1031,7 @@ export function createLibrary({
   if (type === 'rust') {
     const appRequire = createRequire(path.join(process.cwd(), 'package.json'));
     const platformPackageJson = appRequire.resolve(
-      'react-native-gpui/package.json',
+      '@react-native-gpui/core/package.json',
     );
     const platformRustRoot = path.join(
       path.dirname(platformPackageJson),

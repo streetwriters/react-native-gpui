@@ -5,6 +5,6 @@ module.exports = {
     // as `node-gyp-build`, `bindings` or a napi-rs generated file) into the
     // path the desktop runtime opens. A no-op on other platforms, so the same
     // config still builds for iOS and Android.
-    'module:react-native-gpui/babel-plugin-node-addons',
+    'module:@react-native-gpui/core/babel-plugin-node-addons',
   ],
 };

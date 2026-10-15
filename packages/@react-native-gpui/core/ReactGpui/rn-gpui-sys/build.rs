@@ -71,10 +71,11 @@ fn main() {
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
         .parent()
-        .expect("packages/react-native-gpui dir")
+        .expect("packages/@react-native-gpui/core dir")
         .to_path_buf();
     let repo_root = package_dir
         .parent()
+        .and_then(Path::parent)
         .and_then(Path::parent)
         .expect("repo root")
         .to_path_buf();
@@ -742,9 +743,10 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
         .and_then(|value| value.as_str())
         .ok_or_else(|| format!("{} has no reactNative version", manifest_path.display()))?;
 
-    let repo_root = package_dir.parent().and_then(Path::parent);
+    let modules_dir = package_dir.parent().and_then(Path::parent);
+    let repo_root = modules_dir.and_then(Path::parent);
     let candidates = [
-        package_dir.parent().map(|dir| dir.join("react-native")),
+        modules_dir.map(|dir| dir.join("react-native")),
         repo_root.map(|root| root.join("node_modules").join("react-native")),
     ];
     let installed_pkg = candidates
@@ -752,7 +754,9 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
         .flatten()
         .map(|dir| dir.join("package.json"))
         .find(|path| path.is_file())
-        .ok_or_else(|| "no react-native install found next to react-native-gpui".to_string())?;
+        .ok_or_else(|| {
+            "no react-native install found next to @react-native-gpui/core".to_string()
+        })?;
     let installed: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(&installed_pkg)
             .map_err(|error| format!("cannot read {}: {error}", installed_pkg.display()))?,

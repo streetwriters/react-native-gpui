@@ -1,5 +1,5 @@
 const path = require('node:path');
-const gpuiRoot = path.resolve(__dirname, '../../react-native-gpui');
+const gpuiRoot = path.resolve(__dirname, '../core');
 
 module.exports = {
   test: {

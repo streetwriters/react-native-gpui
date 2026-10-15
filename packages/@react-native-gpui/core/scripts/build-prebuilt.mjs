@@ -42,7 +42,7 @@ import { inputHash, overridesSha256 } from './prebuilt-inputs.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
-const repoRoot = path.resolve(packageDir, '..', '..');
+const repoRoot = path.resolve(packageDir, '..', '..', '..');
 const cppDir = path.join(packageDir, 'ReactGpui', 'rn-gpui-sys', 'cpp');
 const reactCommonDir = path.join(
   repoRoot,

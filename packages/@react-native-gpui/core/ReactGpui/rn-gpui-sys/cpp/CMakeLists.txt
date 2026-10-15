@@ -135,7 +135,7 @@ if(MSVC AND RN_GPUI_UNITY_BUILD)
 endif()
 
 set(REACT_COMMON_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules/react-native/ReactCommon")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../node_modules/react-native/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
   message(FATAL_ERROR
     "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the shared CMake output directory")

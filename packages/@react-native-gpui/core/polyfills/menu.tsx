@@ -8,7 +8,7 @@
  * // metro.config.js
  * resolver: {
  *   extraNodeModules: {
- *     '@react-native-menu/menu': require.resolve('react-native-gpui/polyfills/menu'),
+ *     '@react-native-menu/menu': require.resolve('@react-native-gpui/core/polyfills/menu'),
  *   },
  * }
  * ```

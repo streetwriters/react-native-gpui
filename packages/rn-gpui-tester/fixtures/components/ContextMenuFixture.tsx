@@ -9,9 +9,9 @@
 
 import React, { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
-import { ContextMenu, ContextMenuView } from 'react-native-gpui/desktop';
-import type { MenuItemSpec } from 'react-native-gpui/desktop';
-import { MenuView } from 'react-native-gpui/polyfills/menu';
+import { ContextMenu, ContextMenuView } from '@react-native-gpui/core/desktop';
+import type { MenuItemSpec } from '@react-native-gpui/core/desktop';
+import { MenuView } from '@react-native-gpui/core/polyfills/menu';
 
 const styles = {
   page: { padding: 20, gap: 10, backgroundColor: '#f4f5f7', flex: 1 },

@@ -2,7 +2,7 @@
  * `react-native-gpui/desktop` — the desktop-shell public API.
  *
  * ```ts
- * import {Desktop} from 'react-native-gpui/desktop';
+ * import {Desktop} from '@react-native-gpui/core/desktop';
  * ```
  *
  * `Menu`, `ContextMenu`, `Tray`, `DesktopWindow` and `PerfMonitor` are added by

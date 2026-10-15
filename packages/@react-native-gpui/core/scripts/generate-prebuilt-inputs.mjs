@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
-const repoRoot = path.resolve(packageDir, '..', '..');
+const repoRoot = path.resolve(packageDir, '..', '..', '..');
 const reactNativeDir = path.join(repoRoot, 'node_modules', 'react-native');
 const rnGpuiSysDir = path.join(packageDir, 'ReactGpui', 'rn-gpui-sys');
 const fbSpecCodegen = path.join(

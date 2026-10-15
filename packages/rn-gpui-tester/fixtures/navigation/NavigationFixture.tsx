@@ -54,7 +54,7 @@ import Reanimated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { useDesktopForwardNavigation } from 'react-native-gpui/navigation';
+import { useDesktopForwardNavigation } from '@react-native-gpui/core/navigation';
 const NavigationContext = createContext({
   scenario: 'tabs',
   isE2ETest: false,
