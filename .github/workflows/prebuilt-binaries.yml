@@ -419,7 +419,7 @@ jobs:
       - name: Open the pin-update pull request
         run: |
           set -euo pipefail
-          branch="prebuilt-binaries/$VERSION"
+          branch="pin-prebuilt-binaries-$VERSION"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -b "$branch"
