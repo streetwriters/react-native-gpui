@@ -6,7 +6,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/streetwriters/react-native-gpui.git",
-    "directory": "packages/@react-native-gpui/hermes"
+    "directory": "packages/hermes"
   },
   "hermes": {
     "repository": "https://github.com/facebook/hermes",

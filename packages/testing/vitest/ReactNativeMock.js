@@ -37,7 +37,7 @@ export default new Proxy(
       if (property === '__esModule') return true;
       throw new Error(
         `the react-native mock has no export '${String(property)}'; ` +
-          'add it to packages/@react-native-gpui/testing/vitest/ReactNativeMock.js ' +
+          'add it to packages/testing/vitest/ReactNativeMock.js ' +
           'if a unit test needs it',
       );
     },

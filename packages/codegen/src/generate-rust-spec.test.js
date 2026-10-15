@@ -13,7 +13,7 @@ import {
 // stay in step.
 const fixtureSpec = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../../@react-native-gpui/core/ReactGpui/rn-gpui-module/tests/generated/specs/NativeProbe.ts',
+  '../../../packages/core/ReactGpui/rn-gpui-module/tests/generated/specs/NativeProbe.ts',
 );
 
 const generated = () => generateRustSpec({ specPaths: [fixtureSpec] });

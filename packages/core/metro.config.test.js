@@ -114,7 +114,7 @@ describe('nodeModulesUpToTreeRoot', () => {
 });
 
 describe('makeMetroConfig', () => {
-  const tester = path.resolve(__dirname, '../../rn-gpui-tester');
+  const tester = path.resolve(__dirname, '../rn-gpui-tester');
   const config = makeMetroConfig({ projectRoot: tester });
 
   // When this package is linked, the default names a React Native copy that is
