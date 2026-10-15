@@ -613,15 +613,17 @@ std::unique_ptr<GpuiHost> new_gpui_host(
     rust::Str appId,
     rust::Str devHost,
     uint32_t devPort,
-    rust::Str jsEngine) {
-  return std::make_unique<GpuiHost>(appId, devHost, devPort, jsEngine);
+    rust::Str jsEngine,
+    bool devMode) {
+  return std::make_unique<GpuiHost>(appId, devHost, devPort, jsEngine, devMode);
 }
 
 GpuiHost::GpuiHost(
     rust::Str appId,
     rust::Str devHost,
     uint32_t devPort,
-    rust::Str jsEngine) {
+    rust::Str jsEngine,
+    bool devMode) {
   // Engine packages register themselves here (the generated
   // rn_gpui_install_modules()), so the registry is populated before the
   // app's choice (`RN_GPUI_JS_ENGINE` / DesktopAppConfig::js_engine) is applied
@@ -638,6 +640,12 @@ GpuiHost::GpuiHost(
   config.deviceName = "rn-gpui";
   config.devServerHost = std::string(devHost);
   config.devServerPort = devPort;
+  // Dev mode is decided at runtime by the caller (the app's Cargo profile, or
+  // RN_GPUI_DEV_MODE), not by REACT_NATIVE_DEBUG. The prebuilt runtime is built
+  // in Release, so a macro default here would send every debug app that links
+  // it to the on-disk bundle instead of Metro.
+  config.enableDevMode = devMode;
+  config.enableInspector = devMode;
   if (std::getenv("RN_GPUI_TEST_DRIVER")) {
     const auto* mode = std::getenv("RN_GPUI_TEST_MODE");
     if (mode && std::string_view(mode) == "metro")

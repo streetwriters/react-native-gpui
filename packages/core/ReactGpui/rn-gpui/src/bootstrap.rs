@@ -211,6 +211,21 @@ fn env_u32(key: &str, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+/// Whether the runtime should talk to Metro instead of loading `bundle_path`.
+///
+/// This is a runtime decision, not a compile-time one. The ReactCommon headers
+/// default `enableDevMode` from `REACT_NATIVE_DEBUG`, but the prebuilt runtime
+/// is always built in Release, so a debug app that links it would otherwise
+/// never reach the dev server. The `rn-gpui` crate is compiled in the app's own
+/// Cargo profile, so `debug_assertions` is the right default here and
+/// `RN_GPUI_DEV_MODE` overrides it either way.
+fn dev_mode() -> bool {
+    std::env::var("RN_GPUI_DEV_MODE")
+        .ok()
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(cfg!(debug_assertions))
+}
+
 #[cfg(feature = "visual-capture")]
 fn env_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
@@ -906,7 +921,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .unwrap_or(2.0);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine);
+        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
         startup_trace("React host created");
         // NativeDeviceInfo is queried during JS module initialization; publish
         // the actual viewport before loading the bundle that imports Dimensions.

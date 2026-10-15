@@ -61,7 +61,8 @@ class GpuiHost {
       rust::Str appId,
       rust::Str devHost,
       uint32_t devPort,
-      rust::Str jsEngine);
+      rust::Str jsEngine,
+      bool devMode);
   ~GpuiHost();
 
   bool load_script(rust::Str bundlePath, rust::Str sourceUrl);
@@ -147,7 +148,8 @@ std::unique_ptr<GpuiHost> new_gpui_host(
     rust::Str appId,
     rust::Str devHost,
     uint32_t devPort,
-    rust::Str jsEngine);
+    rust::Str jsEngine,
+    bool devMode);
 std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(
