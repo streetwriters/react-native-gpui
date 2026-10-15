@@ -13,7 +13,7 @@ import {
   Tray,
   type MenuItemSpec,
   type TrayState,
-} from 'react-native-gpui/desktop';
+} from '@react-native-gpui/core/desktop';
 
 const styles = {
   page: { padding: 20, gap: 10, backgroundColor: '#f4f5f7', flex: 1 },

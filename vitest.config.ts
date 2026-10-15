@@ -9,10 +9,11 @@ export default mergeConfig(
     test: {
       include: [
         'packages/rn-gpui-tester/vitest/**/*.test.{js,ts,tsx}',
-        'packages/@react-native-gpui/cli/src/**/*.test.js',
-        'packages/@react-native-gpui/codegen/src/**/*.test.js',
-        'packages/@react-native-gpui/hermes/gpui/**/*.test.js',
-        'packages/react-native-gpui/**/*.test.js',
+        'packages/cli/src/**/*.test.js',
+        'packages/codegen/src/**/*.test.js',
+        'packages/hermes/gpui/**/*.test.js',
+        'packages/hermes/scripts/**/*.test.mjs',
+        'packages/core/**/*.test.js',
       ],
     },
   }),

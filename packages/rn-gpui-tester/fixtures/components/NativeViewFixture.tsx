@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import NativeViewHost from 'react-native-gpui/NativeViewHost';
+import NativeViewHost from '@react-native-gpui/core/NativeViewHost';
 
 export default function NativeViewFixture({
   webView = false,

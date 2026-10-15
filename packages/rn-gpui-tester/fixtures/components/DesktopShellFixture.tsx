@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { Desktop, capabilities } from 'react-native-gpui/desktop';
+import { Desktop, capabilities } from '@react-native-gpui/core/desktop';
 
 const styles = {
   page: {
