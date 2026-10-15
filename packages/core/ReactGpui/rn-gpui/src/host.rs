@@ -9,15 +9,15 @@ use std::sync::{Arc, Mutex};
 pub struct Host(Arc<Mutex<cxx::UniquePtr<ffi::GpuiHost>>>);
 
 impl Host {
-    pub fn new(app_id: &str, dev_host: &str, port: u32, js_engine: &str) -> Self {
+    pub fn new(app_id: &str, dev_host: &str, port: u32, js_engine: &str, dev_mode: bool) -> Self {
         #[cfg(test)]
         {
-            let _ = (app_id, dev_host, port, js_engine);
+            let _ = (app_id, dev_host, port, js_engine, dev_mode);
             return Self::test_stub();
         }
         #[cfg(not(test))]
         Self(Arc::new(Mutex::new(ffi::new_gpui_host(
-            app_id, dev_host, port, js_engine,
+            app_id, dev_host, port, js_engine, dev_mode,
         ))))
     }
 
