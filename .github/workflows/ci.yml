@@ -33,8 +33,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # prebuilt-inputs.mjs only reads and hashes files, so the plan job does
-      # not need the dependencies installed.
+      # The hash covers node_modules/react-native/package.json, so the
+      # dependencies have to be installed before it is computed: without them
+      # collectInputs() skips that file, the local hash stops matching the pin,
+      # and every PR looks like it changed the C++ inputs.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
       - name: Compute the prebuilt input hashes
         id: hashes
         run: |
@@ -93,6 +98,14 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/ci/step.mjs --job lint --name "install" -- npm ci --ignore-scripts
+
+      # Several CLI tests create their fixture projects under `.local/`, which
+      # is gitignored and therefore absent from a fresh checkout. Creating it
+      # here keeps the tests' repo-relative paths meaningful; the tests should
+      # really create it themselves, which is reported as a product bug rather
+      # than fixed in this phase.
+      - name: Create the gitignored fixture directory
+        run: mkdir -p .local
 
       - name: Lint
         run: node scripts/ci/step.mjs --job lint --name "lint" -- npm run lint
