@@ -14,6 +14,103 @@ fn env_string(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+/// Smoke mode answers "does the app start and render?" for CI and packaging
+/// checks: `run_with` exits with a single result line instead of opening a
+/// window for a human. Exit codes: 0 first frame, 1 timeout, 2 JS error.
+fn smoke_enabled() -> bool {
+    matches!(
+        std::env::var("RN_GPUI_SMOKE").as_deref(),
+        Ok("1") | Ok("true")
+    )
+}
+
+fn smoke_exit(code: i32, message: String) -> ! {
+    use std::io::Write;
+    println!("{message}");
+    let _ = std::io::stdout().flush();
+    std::process::exit(code);
+}
+
+fn smoke_first_frame() -> ! {
+    smoke_exit(0, "RN_GPUI_SMOKE: first frame rendered".to_string());
+}
+
+fn smoke_timeout() -> ! {
+    smoke_exit(1, "RN_GPUI_SMOKE: timeout".to_string());
+}
+
+fn smoke_js_error(message: &str) -> ! {
+    smoke_exit(2, format!("RN_GPUI_SMOKE: js error: {message}"));
+}
+
+/// The C++ `onJsError` handler reports a JS error by logging it at error level
+/// from `rn-gpui-sys`; that crate logs nothing else at error level except the
+/// failure of a `void` TurboModule method. Smoke mode therefore watches for
+/// that record and reports the first one before the first frame.
+struct SmokeLogger {
+    inner: env_logger::Logger,
+}
+
+impl log::Log for SmokeLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        self.inner.enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if record.level() == log::Level::Error && record.target() == "rn_gpui_sys" {
+            smoke_js_error(&record.args().to_string());
+        }
+        self.inner.log(record);
+    }
+
+    fn flush(&self) {
+        self.inner.flush();
+    }
+}
+
+/// Installs the process logger. Smoke mode wraps `env_logger` so a JS error can
+/// fail the run; otherwise this is the usual one-line init.
+fn install_logger(smoke: bool) {
+    let inner = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .build();
+    let max_level = inner.filter();
+    if smoke {
+        log::set_boxed_logger(Box::new(SmokeLogger { inner })).expect("install the smoke logger");
+    } else {
+        log::set_boxed_logger(Box::new(inner)).expect("install the logger");
+    }
+    log::set_max_level(max_level);
+}
+
+/// Starts the smoke deadline. A run that never draws a frame has to fail on its
+/// own, because nothing else in the process is watching the clock.
+fn smoke_start_timeout() {
+    let timeout_ms = env_u32("RN_GPUI_SMOKE_TIMEOUT_MS", 60_000);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(u64::from(timeout_ms)));
+        smoke_timeout();
+    });
+}
+
+/// Reports the first frame that draws React content. A mount batch dirties the
+/// window, so the frame GPUI draws after it carries the content, but
+/// `on_next_frame` callbacks run *before* that draw. The callback therefore
+/// re-arms once and exits at the start of the following frame.
+fn smoke_arm_first_frame(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle) {
+    let armed = cx.update_window(
+        window,
+        |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut gpui::App| {
+            window.on_next_frame(|window, _cx| {
+                window.on_next_frame(|_window, _cx| smoke_first_frame());
+            });
+        },
+    );
+    if let Err(error) = armed {
+        log::warn!("could not arm the smoke first-frame callback: {error}");
+    }
+}
+
 fn startup_trace(stage: &str) {
     #[cfg(feature = "visual-capture")]
     {
@@ -395,9 +492,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
     startup_trace("main entered");
     rn_gpui_sys::note_main_thread();
     rn_gpui_module::note_main_thread();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    let smoke = smoke_enabled();
+    install_logger(smoke);
+    if smoke {
+        smoke_start_timeout();
+    }
 
     let bundle = env_string(
         "RN_GPUI_BUNDLE",
@@ -1402,6 +1501,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         }
 
         cx.spawn(async move |cx| {
+            let mut smoke_frame_armed = false;
             #[cfg(feature = "visual-capture")]
             for (delay_ms, path) in screenshots {
                 let store = store.clone();
@@ -1423,11 +1523,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
             while let Ok(event) = rx.recv().await {
                 match event {
                     MainEvent::Mount(batch) => {
+                        let surface_id = batch.surface_id;
                         let started = std::time::Instant::now();
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
                         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
                         cx.update(|cx| crate::desktop::perf_monitor::record_mount(cx, elapsed));
                         unsafe { rn_gpui_mount_batch_applied() };
+                        // Smoke mode: an app-surface batch is React content, so
+                        // the frame GPUI draws after it is the one a human sees.
+                        if smoke && !smoke_frame_armed && surface_id == APP_SURFACE_ID {
+                            smoke_frame_armed = true;
+                            let window = store.read_with(cx, |store, _| store.window);
+                            smoke_arm_first_frame(cx, window);
+                        }
                     }
                     MainEvent::SurfaceStopped(surface_id) => {
                         if surface_id == rn_gpui_sys::ALL_SURFACES {
