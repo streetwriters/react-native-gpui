@@ -38,15 +38,33 @@ function packageManifests() {
 }
 
 function parseArgs(argv) {
-  const parsed = { out: path.join(repoRoot, 'ci-out', 'tarballs') };
+  const parsed = {
+    out: path.join(repoRoot, 'ci-out', 'tarballs'),
+    printTo: null,
+  };
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--out') parsed.out = path.resolve(argv[++index]);
+    else if (argv[index] === '--print-to') {
+      parsed.printTo = path.resolve(argv[++index]);
+    }
   }
   return parsed;
 }
 
+// `--print-to` exists because the workflow runs this through
+// scripts/ci/step.mjs, which tees stdout: a shell redirect would capture the
+// tee's output rather than only this script's JSON. stdout is still written, so
+// running the script by hand keeps working.
+function emit(text, printTo) {
+  process.stdout.write(text);
+  if (printTo) {
+    fs.mkdirSync(path.dirname(printTo), { recursive: true });
+    fs.writeFileSync(printTo, text);
+  }
+}
+
 function main() {
-  const { out } = parseArgs(process.argv.slice(2));
+  const { out, printTo } = parseArgs(process.argv.slice(2));
   fs.rmSync(out, { recursive: true, force: true });
   fs.mkdirSync(out, { recursive: true });
 
@@ -55,13 +73,16 @@ function main() {
     const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     if (pkg.private === true) continue;
     const dir = path.dirname(manifest);
-    // `npm pack --json` prints an array with the file name it wrote.
+    // `npm pack --json` prints an array with the file name it wrote. npm is a
+    // shell command on Windows (`npm.cmd`), and Node refuses to spawn a .cmd
+    // file without a shell, so the shell is enabled there.
     const output = execFileSync(
       'npm',
       ['pack', '--json', '--pack-destination', out],
       {
         cwd: dir,
         encoding: 'utf8',
+        shell: process.platform === 'win32',
         // npm's own notices go to stderr; keep them out of the JSON parse.
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -77,7 +98,7 @@ function main() {
   if (Object.keys(packed).length === 0) {
     throw new Error('no publishable packages found');
   }
-  process.stdout.write(`${JSON.stringify(packed, null, 2)}\n`);
+  emit(`${JSON.stringify(packed, null, 2)}\n`, printTo);
 }
 
 main();
