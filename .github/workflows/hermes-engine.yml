@@ -317,6 +317,6 @@ jobs:
           for dir in hermes-*; do zip -qr "$dir.zip" "$dir"; done
           gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 ||
             gh release create "$tag" --repo "${{ github.repository }}" \
-              --title "Hermes $commit" \
+              --title "${tag%@*} ${tag##*@}" \
               --notes "Prebuilt Hermes VM and compiler binaries for react-native-gpui (facebook/hermes@$commit)."
           gh release upload "$tag" hermes-*.zip --repo "${{ github.repository }}" --clobber
