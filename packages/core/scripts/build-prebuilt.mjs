@@ -357,6 +357,7 @@ if (!args['skip-build']) {
     // backslash starts an escape, so `-D...=C:\rn-gpui\...` fails at configure
     // time with "Invalid character escape '\g'". CMake accepts '/' on Windows
     // and `build.rs` normalises the same paths the same way.
+    `-DRN_GPUI_PROJECT_ROOT=${cmakePath(repoRoot)}`,
     `-DREACT_COMMON_DIR=${cmakePath(reactCommonDir)}`,
     `-DREACT_CXX_PLATFORM_DIR=${cmakePath(reactCxxPlatformDir)}`,
     `-DRN_GPUI_OVERRIDES_DIR=${cmakePath(overridesDir)}`,

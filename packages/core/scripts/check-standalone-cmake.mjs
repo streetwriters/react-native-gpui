@@ -49,6 +49,7 @@ cmake([
   '-B',
   buildDir,
   '-DCMAKE_BUILD_TYPE=Debug',
+  `-DRN_GPUI_PROJECT_ROOT=${repoRoot}`,
   `-DREACT_COMMON_DIR=${reactCommonDir}`,
   `-DREACT_CXX_PLATFORM_DIR=${reactCxxPlatformDir}`,
   `-DRN_GPUI_OVERRIDES_DIR=${overridesDir}`,
