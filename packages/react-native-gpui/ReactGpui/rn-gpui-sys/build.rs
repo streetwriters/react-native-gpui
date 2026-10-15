@@ -635,6 +635,30 @@ fn prebuilt_mode(autolink_manifest: &Path) -> String {
 /// hash to the pinned input hash. Any failure falls back to source with one
 /// warning, and mode `always` turns that failure into a panic.
 fn select_prebuilt_dir(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
+    let dir = select_prebuilt_dir_inner(package_dir, target, mode)?;
+    match prebuilt_version(&dir) {
+        Some(version) => {
+            println!("cargo:warning=rn-gpui-sys: using prebuilt runtime {version} ({target})")
+        }
+        None => println!(
+            "cargo:warning=rn-gpui-sys: using prebuilt runtime {} ({target})",
+            dir.display()
+        ),
+    }
+    Some(dir)
+}
+/// The archive's own version, so the build output and the CI report can name
+/// the runtime that was linked instead of just its cache directory.
+fn prebuilt_version(dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    manifest
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+}
+
+fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
     if env_flag("RN_GPUI_BUILD_FROM_SOURCE") || mode == "never" {
         return None;
     }
