@@ -1,0 +1,7 @@
+ ❯ e2e/gestures.test.ts (12 tests | 1 failed) 2100ms
+   ✓ opens the app
+   × pans the responder 120ms
+     → AssertionError: expected 2 to be 3
+ FAIL  e2e/gestures.test.ts > pan responder > reports the final translation
+AssertionError: expected 2 to be 3
+    at e2e/gestures.test.ts:88:5
