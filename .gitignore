@@ -18,7 +18,7 @@ build/
 .gradle/
 local.properties
 .local/
-packages/@react-native-gpui/hermes/bin/
+packages/hermes/bin/
 desktop/build/
 desktop/.cache/
 
@@ -26,4 +26,4 @@ desktop/.cache/
 /desktop/
 
 # Compiled testing client (included in npm packs)
-/packages/@react-native-gpui/testing/dist/
+/packages/testing/dist/

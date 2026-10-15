@@ -14,29 +14,29 @@ on:
   #   branches: [main]
   #   paths:
   #     - '.github/workflows/prebuilt-binaries.yml'
-  #     - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
-  #     - 'packages/react-native-gpui/ReactCxxPlatform/**'
-  #     - 'packages/react-native-gpui/ReactCommonOverrides/**'
-  #     - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
-  #     - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
-  #     - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
-  #     - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
-  #     - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
-  #     - 'packages/react-native-gpui/prebuilt-binaries.json'
-  #     - 'packages/@react-native-gpui/hermes/package.json'
+  #     - 'packages/core/ReactGpui/rn-gpui-sys/cpp/**'
+  #     - 'packages/core/ReactCxxPlatform/**'
+  #     - 'packages/core/ReactCommonOverrides/**'
+  #     - 'packages/core/ReactGpui/Cargo.lock'
+  #     - 'packages/core/scripts/build-prebuilt.mjs'
+  #     - 'packages/core/scripts/prebuilt-inputs.mjs'
+  #     - 'packages/core/scripts/generate-prebuilt-inputs.mjs'
+  #     - 'packages/core/scripts/prebuilt-binaries.mjs'
+  #     - 'packages/core/prebuilt-binaries.json'
+  #     - 'packages/hermes/package.json'
   #     - 'package-lock.json'
   # pull_request:
   #   paths:
   #     - '.github/workflows/prebuilt-binaries.yml'
-  #     - 'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp/**'
-  #     - 'packages/react-native-gpui/ReactCxxPlatform/**'
-  #     - 'packages/react-native-gpui/ReactCommonOverrides/**'
-  #     - 'packages/react-native-gpui/ReactGpui/Cargo.lock'
-  #     - 'packages/react-native-gpui/scripts/build-prebuilt.mjs'
-  #     - 'packages/react-native-gpui/scripts/prebuilt-inputs.mjs'
-  #     - 'packages/react-native-gpui/scripts/generate-prebuilt-inputs.mjs'
-  #     - 'packages/react-native-gpui/scripts/prebuilt-binaries.mjs'
-  #     - 'packages/@react-native-gpui/hermes/package.json'
+  #     - 'packages/core/ReactGpui/rn-gpui-sys/cpp/**'
+  #     - 'packages/core/ReactCxxPlatform/**'
+  #     - 'packages/core/ReactCommonOverrides/**'
+  #     - 'packages/core/ReactGpui/Cargo.lock'
+  #     - 'packages/core/scripts/build-prebuilt.mjs'
+  #     - 'packages/core/scripts/prebuilt-inputs.mjs'
+  #     - 'packages/core/scripts/generate-prebuilt-inputs.mjs'
+  #     - 'packages/core/scripts/prebuilt-binaries.mjs'
+  #     - 'packages/hermes/package.json'
   #     - 'package-lock.json'
 
 permissions:
@@ -69,7 +69,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          pkg=packages/react-native-gpui
+          pkg=packages/core
           hash="$(node "$pkg/scripts/prebuilt-inputs.mjs")"
           node_tree_rn="$(node -p "require('react-native/package.json').version")"
           read -r pin_version pin_hash pin_rn < <(node -e '
@@ -229,8 +229,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          version="$(node -p "require('./packages/@react-native-gpui/hermes/package.json').version")"
-          node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs \
+          version="$(node -p "require('./packages/hermes/package.json').version")"
+          node packages/hermes/scripts/fetch-binaries.mjs \
             --tag "@react-native-gpui/hermes@$version" --platform ${{ matrix.platform }}
 
       - name: Restore native-deps cache
@@ -260,7 +260,7 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/prebuilt-out"
           mkdir -p "$out" "$NATIVE_DEPS"
-          node packages/react-native-gpui/scripts/build-prebuilt.mjs \
+          node packages/core/scripts/build-prebuilt.mjs \
             --version "$VERSION" \
             --out "$out" \
             --build-dir "$RUNNER_TEMP/prebuilt-build" \
@@ -280,7 +280,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out, $env:NATIVE_DEPS | Out-Null
           Write-Host "perl: $((Get-Command perl).Source)"
           Write-Host "nasm: $((Get-Command nasm).Source)"
-          node packages/react-native-gpui/scripts/build-prebuilt.mjs `
+          node packages/core/scripts/build-prebuilt.mjs `
             --version $env:VERSION `
             --out $out `
             --build-dir (Join-Path $env:RUNNER_TEMP 'prebuilt-build') `
@@ -306,7 +306,7 @@ jobs:
           unpack="$RUNNER_TEMP/unpack"
           rm -rf "$unpack" && mkdir -p "$unpack"
           "$tar" -xzf "$(cmake_path "$archive")" -C "$(cmake_path "$unpack")" --strip-components=1
-          node packages/react-native-gpui/scripts/prebuilt-binaries.mjs verify "$unpack"
+          node packages/core/scripts/prebuilt-binaries.mjs verify "$unpack"
           consumer="$RUNNER_TEMP/consumer"
           rm -rf "$consumer" && mkdir -p "$consumer"
           cat > "$consumer/CMakeLists.txt" <<'EOF_CMAKE'
@@ -315,13 +315,13 @@ jobs:
           set(CMAKE_CXX_STANDARD 20)
           # The archive ships no headers: point each root at the tree this
           # checkout already has. Missing roots fail inside the config file.
-          set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${REPO}/packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp")
-          set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${REPO}/packages/react-native-gpui/ReactCommonOverrides")
+          set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${REPO}/packages/core/ReactGpui/rn-gpui-sys/cpp")
+          set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${REPO}/packages/core/ReactCommonOverrides")
           set(RN_GPUI_PREBUILT_ROOT_react_common "${REPO}/node_modules/react-native/ReactCommon")
-          set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REPO}/packages/react-native-gpui/ReactCxxPlatform")
+          set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REPO}/packages/core/ReactCxxPlatform")
           set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${GENERATED}/fbreactnativespec/jni")
           set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${GENERATED}/cxxbridge-include")
-          set(RN_GPUI_PREBUILT_ROOT_hermes "${REPO}/packages/@react-native-gpui/hermes")
+          set(RN_GPUI_PREBUILT_ROOT_hermes "${REPO}/packages/hermes")
           set(RN_GPUI_PREBUILT_ROOT_folly "${NATIVE_DEPS}/third-party-ndk/folly")
           set(RN_GPUI_PREBUILT_ROOT_glog "${NATIVE_DEPS}/third-party-ndk/glog/exported")
           set(RN_GPUI_PREBUILT_ROOT_fmt "${NATIVE_DEPS}/third-party-ndk/fmt/include")
@@ -409,13 +409,13 @@ jobs:
       - name: Write the pin file
         run: |
           set -euo pipefail
-          node packages/react-native-gpui/scripts/prebuilt-binaries.mjs pin \
+          node packages/core/scripts/prebuilt-binaries.mjs pin \
             --version "$VERSION" \
             --input-hash "$INPUT_HASH" \
             --tag "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --assets artifacts/SHA256SUMS.txt \
-            --out packages/react-native-gpui/prebuilt-binaries.json
+            --out packages/core/prebuilt-binaries.json
       - name: Open the pin-update pull request
         run: |
           set -euo pipefail
@@ -423,7 +423,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -b "$branch"
-          git add packages/react-native-gpui/prebuilt-binaries.json
+          git add packages/core/prebuilt-binaries.json
           git commit -m "chore(react-native-gpui): pin prebuilt runtime $VERSION" \
             -m "Co-Authored-By: github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
           git push origin "$branch"

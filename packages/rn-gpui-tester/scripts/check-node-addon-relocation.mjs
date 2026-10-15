@@ -169,10 +169,7 @@ try {
   const collect = spawnSync(
     process.execPath,
     [
-      path.join(
-        repoRoot,
-        'packages/@react-native-gpui/cli/bin/react-native-gpui.js',
-      ),
+      path.join(repoRoot, 'packages/cli/bin/react-native-gpui.js'),
       'collect-node-addons',
       '--bundle',
       bundlePath,

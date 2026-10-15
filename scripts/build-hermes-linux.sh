@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-hermes_package="$repo_root/packages/@react-native-gpui/hermes"
+hermes_package="$repo_root/packages/hermes"
 hermes_source="${RN_GPUI_HERMES_SOURCE_DIR:-$(cd "$repo_root/../hermes/hermes" && pwd)}"
 hermes_build="${RN_GPUI_HERMES_BUILD_DIR:-$(dirname "$hermes_source")/build-gpui-linux-x64-release}"
 platform_bin_root="${RN_GPUI_HERMES_BIN_ROOT:-$hermes_package/bin}"

@@ -8,16 +8,16 @@ module.exports = [
       '**/node_modules/',
       '**/target/',
       '**/build/',
-      'packages/@react-native-gpui/testing/dist/',
+      'packages/testing/dist/',
       '.local/',
       'desktop/',
-      'packages/react-native-gpui/bin/',
-      'packages/react-native-gpui/ReactCxxPlatform/',
-      'packages/react-native-gpui/ReactCommonOverrides/',
+      'packages/core/bin/',
+      'packages/core/ReactCxxPlatform/',
+      'packages/core/ReactCommonOverrides/',
       // Vendored facebook/hermes sources, kept byte-identical to the pin.
-      'packages/@react-native-gpui/hermes/API/',
-      'packages/@react-native-gpui/hermes/include/',
-      'packages/@react-native-gpui/hermes/public/',
+      'packages/hermes/API/',
+      'packages/hermes/include/',
+      'packages/hermes/public/',
       'packages/rn-gpui-tester/desktop/autolink/',
     ],
   },
@@ -27,16 +27,17 @@ module.exports = [
     files: [
       '.prettierrc.js',
       '**/.prettierrc.js',
-      'packages/@react-native-gpui/cli/**/*.js',
-      'packages/@react-native-gpui/codegen/**/*.js',
+      'packages/cli/**/*.js',
+      'packages/codegen/**/*.js',
       '**/*.mjs',
       '**/*.cjs',
       '**/*.config.js',
       '**/react-native.config.js',
-      'packages/@react-native-gpui/*/gpui/**/*.js',
+      'modules/*/gpui/**/*.js',
+      'packages/hermes/gpui/**/*.js',
       // Plain-JS mocks the vitest preset substitutes; they live outside any
       // package that has a Babel config, so they are parsed as modules here.
-      'packages/@react-native-gpui/testing/vitest/**/*.js',
+      'packages/testing/vitest/**/*.js',
     ],
     languageOptions: {
       sourceType: 'module',
@@ -55,11 +56,8 @@ module.exports = [
     // Flow sources: @babel/eslint-parser crashes on template literals once
     // the RN preset switches to the Hermes parser, so lint them with
     // hermes-eslint like React Native itself does.
-    files: [
-      'packages/react-native-gpui/**/*.js',
-      'packages/rn-gpui-tester/**/*.js',
-    ],
-    ignores: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
+    files: ['packages/core/**/*.js', 'packages/rn-gpui-tester/**/*.js'],
+    ignores: ['packages/core/babel-plugin-node-addons*.js'],
     languageOptions: {
       parser: hermesParser,
       parserOptions: { sourceType: 'module' },
@@ -79,7 +77,7 @@ module.exports = [
   {
     // The Node addon Babel plugin is plain CommonJS Node code, not a Flow
     // source: it is loaded by Babel in the Metro process.
-    files: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
+    files: ['packages/core/babel-plugin-node-addons*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       parserOptions: { requireConfigFile: false },
@@ -95,7 +93,7 @@ module.exports = [
   },
   {
     // `no-unreachable` misreads Flow `component` declarations.
-    files: ['packages/react-native-gpui/src-gpui/**/*.js'],
+    files: ['packages/core/src-gpui/**/*.js'],
     rules: { 'no-unreachable': 'off' },
   },
   {

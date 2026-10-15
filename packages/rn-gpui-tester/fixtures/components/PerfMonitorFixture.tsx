@@ -9,7 +9,7 @@
 
 import React, { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { PerfMonitor, type PerfMetrics } from 'react-native-gpui/desktop';
+import { PerfMonitor, type PerfMetrics } from '@react-native-gpui/core/desktop';
 
 // `DevSettings` is a no-op outside `__DEV__`, so the fixture drives the
 // `DevMenu` TurboModule directly: the same module RN's dev menu uses, and the
