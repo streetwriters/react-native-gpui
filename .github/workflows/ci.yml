@@ -404,11 +404,13 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "install" -- npm ci --ignore-scripts
 
+      # Through the wrapper so a failure here is captured with the others
+      # instead of only in the job log.
       - name: Pack every package
         run: |
           mkdir -p ci-out
-          node scripts/ci/pack-all.mjs > ci-out/packed.json
-          node -e "const p=require('./ci-out/packed.json'); console.error(Object.keys(p).length + ' package(s) packed')"
+          node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "pack" -- \
+            node scripts/ci/pack-all.mjs --out ci-out/tarballs --print-to ci-out/packed.json
 
       - name: Cache the prebuilt runtime
         uses: actions/cache@v4
