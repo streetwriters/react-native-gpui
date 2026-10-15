@@ -1,16 +1,19 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Directories under `root` that contain a DLL. The CMake tree is multi-config
- * on Windows (Visual Studio), so the built JSI library sits in a per-config
- * subdirectory whose name depends on the Cargo profile. Collecting the
- * directories that really hold a DLL is more robust than naming the
- * configuration, and the loader ignores the ones that do not matter.
+ * Directories under `root` that contain a shared library with one of
+ * `extensions`. The CMake tree is multi-config on Windows (Visual Studio), so
+ * the built JSI library sits in a per-config subdirectory whose name depends on
+ * the Cargo profile; on macOS and Linux it differs between the Debug and
+ * Release trees as well. Collecting the directories that really hold a library
+ * is more robust than naming the configuration, and the loader ignores the ones
+ * that do not matter.
  */
-function findDllDirectories(root) {
+function findLibraryDirectories(root, extensions) {
   const found = [];
   const walk = (directory, depth) => {
     if (depth > 8) return;
@@ -20,7 +23,13 @@ function findDllDirectories(root) {
     } catch {
       return;
     }
-    if (entries.some(entry => entry.isFile() && entry.name.endsWith('.dll'))) {
+    if (
+      entries.some(
+        entry =>
+          entry.isFile() &&
+          extensions.some(extension => entry.name.endsWith(extension)),
+      )
+    ) {
       found.push(directory);
     }
     for (const entry of entries) {
@@ -36,6 +45,39 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
 );
+
+/**
+ * The root that holds the downloaded prebuilt runtime, `<root>/<version>/<platform>`,
+ * matching `cacheRoot()` in packages/core/scripts/prebuilt-binaries.mjs. The
+ * environment override wins there too, so a CI job that caches the download
+ * under `$RUNNER_TEMP` is honoured here rather than only in the build.
+ */
+function prebuiltCacheRoot() {
+  if (process.env.RN_GPUI_PREBUILT_CACHE) {
+    return path.resolve(process.env.RN_GPUI_PREBUILT_CACHE);
+  }
+  if (process.platform === 'darwin') {
+    return path.join(
+      os.homedir(),
+      'Library',
+      'Caches',
+      'react-native-gpui',
+      'prebuilt',
+    );
+  }
+  if (process.platform === 'win32') {
+    return path.join(
+      process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'),
+      'react-native-gpui',
+      'prebuilt',
+    );
+  }
+  return path.join(
+    process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'),
+    'react-native-gpui',
+    'prebuilt',
+  );
+}
 const cargoManifest = path.join(repoRoot, 'packages/core/ReactGpui/Cargo.toml');
 const metadata = JSON.parse(
   execFileSync(
@@ -101,14 +143,17 @@ if (process.platform === 'darwin') {
     throw new Error('Could not determine the Rust target triple');
 
   const hermesArch = process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  // The engine lives in its own package; the JSI dylib comes from the CMake
+  // tree, and (in prebuilt mode) from the pinned runtime the archive caches.
+  // Every directory that actually holds a dylib is collected, because the
+  // CMake subdirectory name differs per profile and configuration.
   const runtimeDirs = [
-    path.join(repoRoot, 'packages/core/bin', hermesArch),
-    path.join(
-      metadata.target_directory,
-      'rn-gpui-cmake',
-      targetTriple,
-      'Debug/build/ReactCommon/jsi',
+    path.join(repoRoot, 'packages/hermes/bin', hermesArch),
+    ...findLibraryDirectories(
+      path.join(metadata.target_directory, 'rn-gpui-cmake', targetTriple),
+      ['.dylib'],
     ),
+    ...findLibraryDirectories(prebuiltCacheRoot(), ['.dylib']),
   ];
   env.DYLD_LIBRARY_PATH = [...runtimeDirs, env.DYLD_LIBRARY_PATH]
     .filter(Boolean)
@@ -131,9 +176,13 @@ if (process.platform === 'darwin') {
   // instead of guessing the configuration name.
   const runtimeDirs = [
     path.join(repoRoot, 'packages/hermes/bin', hermesArch),
-    ...findDllDirectories(
+    ...findLibraryDirectories(
       path.join(metadata.target_directory, 'rn-gpui-cmake', targetTriple),
+      ['.dll'],
     ),
+    // Prebuilt mode keeps the shared engine and JSI DLLs in the downloaded
+    // runtime rather than the CMake tree.
+    ...findLibraryDirectories(prebuiltCacheRoot(), ['.dll']),
   ];
   prependToPathVariable(env, 'PATH', runtimeDirs);
 } else if (process.platform === 'linux') {
