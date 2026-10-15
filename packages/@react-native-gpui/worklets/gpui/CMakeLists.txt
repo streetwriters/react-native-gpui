@@ -1,5 +1,6 @@
 if(NOT RN_GPUI_PROJECT_ROOT)
-  get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+  message(FATAL_ERROR
+    "@react-native-gpui/worklets was added by the platform; RN_GPUI_PROJECT_ROOT must be set by its build.rs")
 endif()
 set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
 find_program(_gpui_node node REQUIRED)

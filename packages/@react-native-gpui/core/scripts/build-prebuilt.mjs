@@ -39,25 +39,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inputHash, overridesSha256 } from './prebuilt-inputs.mjs';
+import { findNodeModule, repoRoot as findRepoRoot } from './repo-root.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
-const repoRoot = path.resolve(packageDir, '..', '..', '..');
+const repoRoot = findRepoRoot(scriptDir);
 const cppDir = path.join(packageDir, 'ReactGpui', 'rn-gpui-sys', 'cpp');
-const reactCommonDir = path.join(
-  repoRoot,
-  'node_modules',
-  'react-native',
-  'ReactCommon',
-);
+const reactNativeRoot =
+  findNodeModule(packageDir, 'react-native') ??
+  path.join(repoRoot, 'node_modules', 'react-native');
+const reactCommonDir = path.join(reactNativeRoot, 'ReactCommon');
 const reactCxxPlatformDir = path.join(packageDir, 'ReactCxxPlatform');
 const overridesDir = path.join(packageDir, 'ReactCommonOverrides');
-const reactNativePkg = path.join(
-  repoRoot,
-  'node_modules',
-  'react-native',
-  'package.json',
-);
+const reactNativePkg = path.join(reactNativeRoot, 'package.json');
 const cargoLock = path.join(packageDir, 'ReactGpui', 'Cargo.lock');
 
 const args = parseArgs(process.argv.slice(2));

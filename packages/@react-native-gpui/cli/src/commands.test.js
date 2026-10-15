@@ -8,10 +8,23 @@ import {
   scanNodeAddonCalls,
 } from './commands.js';
 
-const repoRoot = nodePath.resolve(
-  nodePath.dirname(fileURLToPath(import.meta.url)),
-  '../../../..',
-);
+// The repository root by lookup, not by counting parents: this file sits at a
+// different depth before and after a folder move.
+const repoRoot = (() => {
+  let dir = nodePath.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    const manifest = nodePath.join(dir, 'package.json');
+    if (fs.existsSync(manifest)) {
+      try {
+        if (JSON.parse(fs.readFileSync(manifest, 'utf8')).workspaces)
+          return dir;
+      } catch {}
+    }
+    const parent = nodePath.dirname(dir);
+    if (parent === dir) throw new Error('no workspace root above the test');
+    dir = parent;
+  }
+})();
 const temporaryRoots = [];
 
 afterAll(() => {

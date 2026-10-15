@@ -11,11 +11,14 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findNodeModule, repoRoot as findRepoRoot } from './repo-root.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
-const repoRoot = path.resolve(packageDir, '..', '..', '..');
-const reactNativeDir = path.join(repoRoot, 'node_modules', 'react-native');
+const repoRoot = findRepoRoot(scriptDir);
+const reactNativeDir =
+  findNodeModule(packageDir, 'react-native') ??
+  path.join(repoRoot, 'node_modules', 'react-native');
 const rnGpuiSysDir = path.join(packageDir, 'ReactGpui', 'rn-gpui-sys');
 const fbSpecCodegen = path.join(
   rnGpuiSysDir,

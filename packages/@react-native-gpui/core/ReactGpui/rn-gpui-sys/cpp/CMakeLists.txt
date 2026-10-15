@@ -134,15 +134,24 @@ if(MSVC AND RN_GPUI_UNITY_BUILD)
   add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/bigobj>")
 endif()
 
-set(REACT_COMMON_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../node_modules/react-native/ReactCommon")
+# Paths to this package's own trees, published for the autolinked library
+# CMakeLists files. They are derived from this file's location, so they stay
+# right wherever the package is installed: a library must never count folders
+# up to reach core, because the two sit at different depths in an app
+# (`node_modules/@react-native-gpui/<name>`) and in this repository.
+set(RN_GPUI_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+set(RN_GPUI_SYS_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(RN_GPUI_REACT_CXX_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/NodeModules.cmake)
+
+rn_gpui_find_node_module(react-native _rn_gpui_react_native_dir)
+set(REACT_COMMON_DIR "${_rn_gpui_react_native_dir}/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
   message(FATAL_ERROR
     "RN_GPUI_GENERATED_RNCORE_DIR is required; generate FBReactNativeSpec into the shared CMake output directory")
 endif()
-set(REACT_CXX_PLATFORM_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCxxPlatform")
-
+set(REACT_CXX_PLATFORM_DIR "${RN_GPUI_REACT_CXX_PLATFORM_DIR}")
 if(NOT RN_GPUI_OVERRIDES_DIR)
   set(RN_GPUI_OVERRIDES_DIR
       "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCommonOverrides")

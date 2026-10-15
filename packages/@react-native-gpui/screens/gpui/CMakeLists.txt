@@ -1,33 +1,14 @@
 if(NOT RN_GPUI_PROJECT_ROOT)
-  get_filename_component(RN_GPUI_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+  message(FATAL_ERROR
+    "@react-native-gpui/screens was added by the platform; RN_GPUI_PROJECT_ROOT must be set by its build.rs")
 endif()
-get_filename_component(_gpui_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-set(_gpui_app_root "${RN_GPUI_PROJECT_ROOT}")
-# A dependency may sit beside the app (pnpm, nested installs) or be hoisted to
-# an ancestor node_modules (npm workspaces), so search upwards instead of
-# assuming one layout.
-set(_screens_root "")
-set(_rn_gpui_dependency_search "${_gpui_app_root}")
-while(_rn_gpui_dependency_search)
-  if(EXISTS "${_rn_gpui_dependency_search}/node_modules/react-native-screens/package.json")
-    set(_screens_root "${_rn_gpui_dependency_search}/node_modules/react-native-screens")
-    break()
-  endif()
-  get_filename_component(_rn_gpui_dependency_parent "${_rn_gpui_dependency_search}" DIRECTORY)
-  if(_rn_gpui_dependency_parent STREQUAL _rn_gpui_dependency_search)
-    break()
-  endif()
-  set(_rn_gpui_dependency_search "${_rn_gpui_dependency_parent}")
-endwhile()
-if(NOT _screens_root)
-  message(FATAL_ERROR "react-native-screens was not found in any node_modules at or above ${_gpui_app_root}")
-endif()
+rn_gpui_find_node_module(react-native-screens _screens_root)
 set(_screens_common "${_screens_root}/common/cpp")
 set(_screens_component_dir "${_screens_common}/react/renderer/components/rnscreens")
 set(_screens_package_json "${_screens_root}/package.json")
 
 if(NOT EXISTS "${_screens_component_dir}/RNSScreenShadowNode.cpp" OR NOT EXISTS "${_screens_package_json}")
-  message(FATAL_ERROR "react-native-screens 4.28.x was not found under ${_gpui_app_root}/node_modules")
+  message(FATAL_ERROR "react-native-screens 4.28.x was not found at ${_screens_root}")
 endif()
 
 file(READ "${_screens_package_json}" _screens_package_json_contents)
