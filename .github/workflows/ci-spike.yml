@@ -50,10 +50,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
+          # The -dev packages are what the CLI's preflight checks for through
+          # pkg-config (xkbcommon, xkbcommon-x11, xcb); the runtime libraries
+          # alone are not enough.
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build ccache nasm pkg-config \
             xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
-            libxkbcommon-x11-0 libwayland-client0
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            libxkbcommon-x11-0 libwayland-dev
 
       - name: Install macOS build tools
         if: runner.os == 'macOS'

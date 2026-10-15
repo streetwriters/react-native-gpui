@@ -57,6 +57,23 @@ function copyFile(src, dest) {
   );
 }
 
+/**
+ * The tar to extract an archive with. On Windows, use the bsdtar that ships
+ * with the OS: a bash step puts Git-for-Windows' GNU tar first on PATH, and GNU
+ * tar reads a `D:\...` argument as a remote host spec, failing with
+ * "Cannot connect to D: resolve failed". Same reason `fetch-binaries.mjs`
+ * prefers it for the Hermes zips.
+ */
+function tarCommand() {
+  if (process.platform !== 'win32') return 'tar';
+  const systemTar = path.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'tar.exe',
+  );
+  return existsSync(systemTar) ? systemTar : 'tar';
+}
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
 const pinPath = path.join(packageDir, 'prebuilt-binaries.json');
@@ -299,7 +316,7 @@ async function ensureDir(triple, { allowNetwork = true } = {}) {
     rmSync(stage, { recursive: true, force: true });
     mkdirSync(stage, { recursive: true });
     const tar = spawnSync(
-      'tar',
+      tarCommand(),
       ['-xzf', temp, '-C', stage, '--strip-components=1'],
       {
         stdio: ['ignore', 'ignore', 'pipe'],
@@ -430,11 +447,15 @@ async function main() {
         // The archive has one top-level <platform>/ dir; read its manifest.json
         // directly so the same call works with GNU and BSD tar.
         const manifest = JSON.parse(
-          execFileSync('tar', ['-xzOf', archive, `${platform}/manifest.json`], {
-            encoding: 'utf8',
-            // The manifest lists every file (about 18k entries), above the default buffer.
-            maxBuffer: 256 * 1024 * 1024,
-          }),
+          execFileSync(
+            tarCommand(),
+            ['-xzOf', archive, `${platform}/manifest.json`],
+            {
+              encoding: 'utf8',
+              // The manifest lists every file (about 18k entries), above the default buffer.
+              maxBuffer: 256 * 1024 * 1024,
+            },
+          ),
         );
         if (manifest.inputHash !== inputHash) {
           die(
