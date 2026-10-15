@@ -3383,7 +3383,12 @@ impl Render for RNNodeView {
                 } else if let Some(path) = crate::image_loader::file_uri_path(uri) {
                     Some(gpui::img(path))
                 } else {
-                    Some(gpui::img(uri.clone()))
+                    // A dev-server asset URL carries a literal `../..`, which
+                    // Metro's URL parsing collapses before its `/assets/` route
+                    // matches; encode it or the image 404s.
+                    Some(gpui::img(
+                        crate::image_loader::dev_server_asset_url(uri).into_owned(),
+                    ))
                 };
                 if let Some(source) = source {
                     element = element.child(source.size_full().object_fit(fit));
