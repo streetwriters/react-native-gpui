@@ -69,11 +69,34 @@ endif()
 
 set(RN_GPUI_HERMES_PLATFORM_BIN_DIR "${RN_GPUI_HERMES_BIN_ROOT}/${RN_GPUI_HERMES_PLATFORM}")
 set(RN_GPUI_HERMES_LIBRARY "${RN_GPUI_HERMES_PLATFORM_BIN_DIR}/${_rn_gpui_hermes_library_name}")
+
+# Hermes binaries are gitignored, so a fresh checkout has none. Fetch this
+# platform's zip from the package's own release once; the script exits 0 without
+# touching the network when the binaries are already installed, and offline mode
+# makes it fail with the message below instead.
+if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
+  set(_rn_gpui_fetch_script "${_hermes_package_root}/scripts/fetch-binaries.mjs")
+  if(EXISTS "${_rn_gpui_fetch_script}")
+    message(STATUS "Hermes binaries missing for ${RN_GPUI_HERMES_PLATFORM}; fetching them")
+    execute_process(
+      COMMAND node "${_rn_gpui_fetch_script}" --platform "${RN_GPUI_HERMES_PLATFORM}"
+      WORKING_DIRECTORY "${_hermes_package_root}"
+      RESULT_VARIABLE _rn_gpui_fetch_result
+      OUTPUT_VARIABLE _rn_gpui_fetch_stdout
+      ERROR_VARIABLE _rn_gpui_fetch_stderr)
+    if(NOT _rn_gpui_fetch_result EQUAL 0)
+      message(STATUS "fetch-binaries.mjs failed (${_rn_gpui_fetch_result}): ${_rn_gpui_fetch_stderr}")
+    endif()
+  else()
+    message(STATUS "fetch-binaries.mjs not found at ${_rn_gpui_fetch_script}")
+  endif()
+endif()
+
 if(NOT EXISTS "${RN_GPUI_HERMES_LIBRARY}")
   message(FATAL_ERROR
-    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}. Build it with the "
-    "hermes-engine GitHub workflow and install the artifact with "
-    "`node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs --from <artifact>`, "
+    "Hermes library not found at ${RN_GPUI_HERMES_LIBRARY}. The automatic "
+    "download failed (${_rn_gpui_fetch_stderr}); install the artifact by hand "
+    "with `node packages/@react-native-gpui/hermes/scripts/fetch-binaries.mjs --from <artifact>`, "
     "or run scripts/build-hermes-<platform> against a facebook/hermes checkout.")
 endif()
 

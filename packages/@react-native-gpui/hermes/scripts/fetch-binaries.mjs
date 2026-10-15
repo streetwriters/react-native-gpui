@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { request as httpsRequest } from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 
 const WORKFLOW_FILE = 'hermes-engine.yml';
 const ARTIFACT_PREFIX = 'hermes-';
+const RELEASE_PREFIX = '@react-native-gpui/hermes@';
+const GITHUB_REPOSITORY =
+  process.env.GITHUB_REPOSITORY ?? 'streetwriters/react-native-gpui';
+const MAX_REDIRECTS = 8;
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -27,7 +32,7 @@ function usage() {
     [
       'Usage: node scripts/fetch-binaries.mjs [options]',
       '',
-      '  (no options)          download the latest successful hermes-engine run',
+      '  (no options)          download this platform from the pinned release',
       '  --run <run-id>        download a specific workflow run',
       '  --tag <release-tag>   download hermes-*.zip assets from a GitHub release',
       '  --from <zip|dir>      install a manually downloaded artifact',
@@ -79,6 +84,18 @@ function selectedPlatforms(options) {
       `No Hermes binaries are defined for this host (${host}); use --platform or --all.`,
     );
   return [host];
+}
+
+function missingFiles(platform) {
+  return PLATFORMS[platform].filter(
+    file => !fs.existsSync(path.join(binRoot, platform, file)),
+  );
+}
+
+function missingPlatforms(options) {
+  return selectedPlatforms(options).filter(
+    platform => missingFiles(platform).length > 0,
+  );
 }
 
 function verify(options) {
@@ -233,6 +250,98 @@ function downloadFromRelease(options) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function offline() {
+  return (
+    process.env.RN_GPUI_PREBUILT_OFFLINE === '1' ||
+    process.env.CARGO_NET_OFFLINE === 'true'
+  );
+}
+
+/**
+ * Follows redirects, streams the body to dest, and drops the authorization
+ * header when a redirect leaves GitHub. Same behaviour as the prebuilt runtime
+ * download, so a proxy or mirror that replays GitHub's redirects works here too.
+ */
+function download(url, dest, redirects = 0, headers = {}) {
+  return new Promise((resolve, reject) => {
+    if (redirects > MAX_REDIRECTS)
+      return reject(new Error('too many redirects'));
+    const parsed = new URL(url);
+    const req = httpsRequest(
+      parsed,
+      { headers: { 'user-agent': 'react-native-gpui-hermes', ...headers } },
+      res => {
+        if (
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
+          res.resume();
+          const next = new URL(res.headers.location, parsed).toString();
+          const host = new URL(next).hostname;
+          const keep =
+            host.endsWith('github.com') ||
+            host.endsWith('githubusercontent.com');
+          return resolve(
+            download(next, dest, redirects + 1, keep ? headers : {}),
+          );
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        }
+        const out = fs.createWriteStream(dest);
+        res.pipe(out);
+        out.on('finish', () => resolve());
+        out.on('error', reject);
+        res.on('error', reject);
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/**
+ * Downloads the platform's zip from the release named after this package's own
+ * version, so a fresh checkout can build without the hermes-engine workflow
+ * having been run by hand. A platform that already has a complete, verified
+ * `bin/<platform>/` is left alone; offline mode never reaches the network.
+ */
+async function downloadFromPin() {
+  const { version } = JSON.parse(
+    fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
+  );
+  const tag = `${RELEASE_PREFIX}${version}`;
+  const missing = missingPlatforms({});
+  if (missing.length === 0) {
+    console.log(`Hermes binaries for this host are installed (${tag})`);
+    return;
+  }
+  if (offline())
+    throw new Error(
+      `Hermes binaries are missing (${missing.join(', ')}) and offline mode is on; install them with --from or clear RN_GPUI_PREBUILT_OFFLINE.`,
+    );
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-binaries-'));
+  for (const platform of missing) {
+    const file = `${ARTIFACT_PREFIX}${platform}.zip`;
+    const archive = path.join(dir, file);
+    const url = `https://github.com/${GITHUB_REPOSITORY}/releases/download/${encodeURIComponent(tag)}/${file}`;
+    const headers = {};
+    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+    // github.com answers a missing asset with a 404 page, which unzip would
+    // report as a corrupt archive; ask for the bytes like the release download.
+    headers.accept = 'application/octet-stream';
+    if (token) headers.authorization = `Bearer ${token}`;
+    console.log(`Downloading ${url}`);
+    await download(url, archive, 0, headers);
+    extractArchive(archive, dir);
+  }
+  installFrom(dir, {});
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function installFromPath(options) {
   if (!options.from)
     throw new Error('--from needs an artifact zip or directory');
@@ -255,11 +364,11 @@ function main() {
   if (options.mode === 'from') return installFromPath(options);
   if (options.mode === 'run') return downloadFromRun(options);
   if (options.mode === 'tag') return downloadFromRelease(options);
-  return downloadFromRun(options);
+  return downloadFromPin();
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(`fetch-binaries: ${error.message}`);
   process.exitCode = 1;
