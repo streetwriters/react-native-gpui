@@ -15,6 +15,7 @@ export default mergeConfig(
         'packages/hermes/gpui/**/*.test.js',
         'packages/hermes/scripts/**/*.test.mjs',
         'packages/core/**/*.test.js',
+        'packages/core/**/*.test.mjs',
       ],
     },
   }),

@@ -18,6 +18,7 @@
     "bin",
     "ReactCommonOverrides",
     "ReactCxxPlatform",
+    "ReactGpui/Cargo.lock",
     "ReactGpui/Cargo.toml",
     "ReactGpui/GPUI_PIN.md",
     "ReactGpui/rn-gpui/Cargo.toml",
