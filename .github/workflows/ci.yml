@@ -508,11 +508,16 @@ jobs:
         if: always()
         run: cat ci-out/ci-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # meta.json travels with the report: ci-comment.yml reads the PR number
+      # from it, and the comment workflow deliberately never checks out or runs
+      # PR code.
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-report
-          path: ci-out/ci-report.md
+          path: |
+            ci-out/ci-report.md
+            ci-out/meta.json
           retention-days: 14
           if-no-files-found: ignore
