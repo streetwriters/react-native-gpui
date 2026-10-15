@@ -83,6 +83,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # builds with hidden visibility and ReactCommon links statically, so the
   # attribute is a no-op; define it empty as on Windows.
   add_compile_definitions(RN_EXPORT=)
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+    # ConcreteShadowNode.h redeclares names it already used ("changes meaning"),
+    # a hard error before GCC 14 and a warning since; -fpermissive matches 14.
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-fpermissive>")
+  endif()
 endif()
 
 # --- Windows unity build -------------------------------------------------
