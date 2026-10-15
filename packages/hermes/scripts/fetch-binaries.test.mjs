@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
 import {
+  binRootFrom,
   installedState,
   recordedSource,
   repositoryFromManifest,
@@ -21,6 +22,10 @@ import {
 } from './fetch-binaries.mjs';
 
 const RELEASE = '@react-native-gpui/hermes@0.1.1';
+const packageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
 
 describe('repositoryFromManifest', () => {
   test('reads the string form', () => {
@@ -75,6 +80,22 @@ describe('repositoryFromManifest', () => {
   test('names the manifest when there is no usable repository', () => {
     expect(() => repositoryFromManifest({ name: 'hermes' })).toThrow(
       /could not read the repository/u,
+    );
+  });
+});
+
+describe('binRootFrom', () => {
+  test('defaults to the package bin directory', () => {
+    expect(binRootFrom({})).toBe(path.join(packageRoot, 'bin'));
+  });
+
+  test('honours RN_GPUI_HERMES_BIN_ROOT, which CMake also reads', () => {
+    // CMake's gpui/CMakeLists.txt and gpui/node-api-exports.test.js both accept
+    // this variable. When the downloader ignored it, the binaries landed in the
+    // package while the build looked elsewhere, and configure failed with
+    // "Hermes library not found".
+    expect(binRootFrom({ RN_GPUI_HERMES_BIN_ROOT: '/tmp/hermes-bin' })).toBe(
+      '/tmp/hermes-bin',
     );
   });
 });
@@ -200,7 +221,14 @@ describe('the CLI entry point', () => {
     mkdirSync(scripts);
     copyFileSync(script, path.join(scripts, 'fetch-binaries.mjs'));
     const linked = path.join(root, 'linked');
-    symlinkSync(scripts, linked, 'dir');
+    // A directory symlink needs an elevated process or Developer Mode on
+    // Windows; a junction needs neither, and `realpathSync` resolves it to the
+    // same target, which is the behaviour under test.
+    symlinkSync(
+      scripts,
+      linked,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     const invoked = path.join(linked, 'fetch-binaries.mjs');
     expect(realpathSync(invoked)).not.toBe(invoked);
 
