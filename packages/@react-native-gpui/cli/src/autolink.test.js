@@ -28,6 +28,7 @@ export default TurboModuleRegistry.getEnforcing<Spec>('Fake');
 function createProject({
   withCodegenConfig = true,
   duplicateLibrary = false,
+  project,
 } = {}) {
   const projectRoot = fs.mkdtempSync(path.join(repoRoot, '.local/autolink-'));
   temporaryRoots.push(projectRoot);
@@ -103,6 +104,7 @@ function createProject({
     configPath,
     `${JSON.stringify(
       {
+        ...(project ? { project: { gpui: project } } : {}),
         dependencies: {
           'fake-engine': {
             root: path.join(projectRoot, 'node_modules/fake-engine'),
@@ -182,6 +184,36 @@ test('generates both spec headers for a C++ TurboModule package', () => {
   // The generated CMake normalises every path to `/`, which is what CMake
   // accepts on every platform (a Windows `\` is an escape in a CMake string).
   expect(includeDirs).toContain(codegenDirectory.replaceAll('\\', '/'));
+});
+
+const manifestOf = projectRoot =>
+  JSON.parse(
+    fs.readFileSync(
+      path.join(projectRoot, 'desktop/autolink/autolink.json'),
+      'utf8',
+    ),
+  );
+
+test('writes the prebuilt mode into the manifest, defaulting to auto', () => {
+  const defaults = createProject();
+  autolink({
+    projectRoot: defaults.projectRoot,
+    configFile: defaults.configPath,
+  });
+  expect(manifestOf(defaults.projectRoot).prebuilt).toBe('auto');
+
+  const always = createProject({ project: { prebuilt: 'always' } });
+  autolink({ projectRoot: always.projectRoot, configFile: always.configPath });
+  expect(manifestOf(always.projectRoot).prebuilt).toBe('always');
+});
+
+test('throws on an unknown prebuilt mode', () => {
+  const { projectRoot, configPath } = createProject({
+    project: { prebuilt: true },
+  });
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    "project.gpui.prebuilt must be one of 'auto', 'always', 'never'",
+  );
 });
 
 test('throws when a C++ TurboModule package has no codegenConfig.name', () => {
