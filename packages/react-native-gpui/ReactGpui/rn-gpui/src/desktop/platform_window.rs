@@ -150,6 +150,22 @@ mod imp {
             zoomed
         }
     }
+
+    /// `style_as_popover` already configures the panel; nothing to set before
+    /// it is shown.
+    pub fn prepare_popover(
+        _window: &mut gpui::Window,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn activate_popover(_window: &gpui::Window) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
