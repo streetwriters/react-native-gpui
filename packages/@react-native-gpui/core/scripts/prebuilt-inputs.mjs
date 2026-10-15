@@ -7,18 +7,18 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
-const repoRoot = path.resolve(packageDir, '..', '..');
+const repoRoot = path.resolve(packageDir, '..', '..', '..');
 
 const TREE_INPUTS = [
-  'packages/react-native-gpui/ReactGpui/rn-gpui-sys/cpp',
-  'packages/react-native-gpui/ReactCxxPlatform',
-  'packages/react-native-gpui/ReactCommonOverrides',
+  'packages/@react-native-gpui/core/ReactGpui/rn-gpui-sys/cpp',
+  'packages/@react-native-gpui/core/ReactCxxPlatform',
+  'packages/@react-native-gpui/core/ReactCommonOverrides',
 ];
 const FILE_INPUTS = [
-  'packages/react-native-gpui/ReactGpui/Cargo.lock',
-  'packages/react-native-gpui/scripts/build-prebuilt.mjs',
-  'packages/react-native-gpui/scripts/prebuilt-inputs.mjs',
-  'packages/react-native-gpui/ReactGpui/rn-gpui-sys/src/lib.rs',
+  'packages/@react-native-gpui/core/ReactGpui/Cargo.lock',
+  'packages/@react-native-gpui/core/scripts/build-prebuilt.mjs',
+  'packages/@react-native-gpui/core/scripts/prebuilt-inputs.mjs',
+  'packages/@react-native-gpui/core/ReactGpui/rn-gpui-sys/src/lib.rs',
   'node_modules/react-native/package.json',
 ];
 
@@ -93,7 +93,7 @@ if (isEntry) {
 export function overridesSha256() {
   const dir = path.join(
     repoRoot,
-    'packages/react-native-gpui/ReactCommonOverrides',
+    'packages/@react-native-gpui/core/ReactCommonOverrides',
   );
   const files = [];
   walk(dir, files);

@@ -30,11 +30,11 @@ strip = "debuginfo"
 
 [build-dependencies]
 serde_json = "1"
-rn-gpui-module-build = { path = "../../react-native-gpui/ReactGpui/rn-gpui-module-build" }
+rn-gpui-module-build = { path = "../../@react-native-gpui/core/ReactGpui/rn-gpui-module-build" }
 
 [dependencies]
 
 
-rn-gpui-module = { path = "../../react-native-gpui/ReactGpui/rn-gpui-module" }
+rn-gpui-module = { path = "../../@react-native-gpui/core/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }
-react-native-gpui = { path = "../../react-native-gpui/ReactGpui/rn-gpui" }
+react-native-gpui = { path = "../../@react-native-gpui/core/ReactGpui/rn-gpui" }

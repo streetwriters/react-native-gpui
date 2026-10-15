@@ -137,10 +137,12 @@ if (command === 'prebuilt') {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let gpuiPackageJson;
   try {
-    gpuiPackageJson = appRequire.resolve('react-native-gpui/package.json');
+    gpuiPackageJson = appRequire.resolve(
+      '@react-native-gpui/core/package.json',
+    );
   } catch {
     console.error(
-      'react-native-gpui is not installed in this project; run `npm install react-native-gpui`.',
+      '@react-native-gpui/core is not installed in this project; run `npm install @react-native-gpui/core`.',
     );
     process.exit(1);
   }

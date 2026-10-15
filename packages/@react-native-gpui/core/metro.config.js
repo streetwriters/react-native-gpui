@@ -4,7 +4,7 @@ const { createRequire } = require('module');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 const { activeJsEngineBundle } = require('./js-engine');
 
-const PACKAGE_NAME = 'react-native-gpui';
+const PACKAGE_NAME = '@react-native-gpui/core';
 const PACKAGE_DIR = __dirname;
 const ENTRY = path.join(PACKAGE_DIR, 'index.gpui.js');
 const SETUP_ENV = path.join(PACKAGE_DIR, 'setup-env.js');
@@ -190,7 +190,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       const target = isInside(origin, PACKAGE_DIR) ? reactNativeEntry : ENTRY;
       return resolveWithFallback(context, target, platform);
     }
-    // `react-native-gpui/<file>` is this package's file, else RN's.
+    // `@react-native-gpui/core/<file>` is this package's file, else RN's.
     if (moduleName.startsWith(`${PACKAGE_NAME}/`)) {
       const subpath = moduleName.slice(PACKAGE_NAME.length + 1);
       try {

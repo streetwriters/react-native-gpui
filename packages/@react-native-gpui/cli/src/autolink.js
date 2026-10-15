@@ -418,10 +418,12 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
   try {
-    platformPackageJson = appRequire.resolve('react-native-gpui/package.json');
+    platformPackageJson = appRequire.resolve(
+      '@react-native-gpui/core/package.json',
+    );
   } catch (error) {
     throw new Error(
-      `could not resolve react-native-gpui from ${projectRoot}: ${error.message}`,
+      `could not resolve @react-native-gpui/core from ${projectRoot}: ${error.message}`,
     );
   }
   const platformRoot = fs.realpathSync(path.dirname(platformPackageJson));
@@ -448,7 +450,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   };
   const runtimeCrate = path.join(platformRoot, 'ReactGpui/rn-gpui');
   if (!fs.existsSync(path.join(runtimeCrate, 'Cargo.toml'))) {
-    throw new Error(`react-native-gpui has no Rust crate at ${runtimeCrate}`);
+    throw new Error(
+      `@react-native-gpui/core has no Rust crate at ${runtimeCrate}`,
+    );
   }
   const rustCrates = [];
   const turboModuleSpecs = [];
@@ -623,7 +627,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
 
   // Node addons are loaded from the stock `.node` files a package ships, at
   // the absolute path the Babel plugin embeds (see
-  // react-native-gpui/babel-plugin-node-addons.js). Nothing is staged here any
+  // @react-native-gpui/core/babel-plugin-node-addons.js). Nothing is staged here any
   // more, but an app directory from an earlier run may still hold the old
   // staging tree, so remove it.
   fs.rmSync(path.join(autolinkRoot, 'node-api'), {

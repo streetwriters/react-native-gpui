@@ -23,7 +23,7 @@
 //   RN_GPUI_PREBUILT_OFFLINE=1   or CARGO_NET_OFFLINE=true: cache only, no network
 //   GITHUB_TOKEN / GH_TOKEN      optional, sent with release downloads
 //
-// The pin file (packages/react-native-gpui/prebuilt-binaries.json) names the
+// The pin file (packages/@react-native-gpui/core/prebuilt-binaries.json) names the
 // release and per-platform assets: { version, inputHash, repo, tag, assets:
 // { "<platform>": { file, sha256, size } } }. An empty assets map means no
 // prebuilt is published yet.

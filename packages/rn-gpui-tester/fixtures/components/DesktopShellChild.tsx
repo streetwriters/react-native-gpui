@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { Text, View } from 'react-native';
-import { useDesktopWindow } from 'react-native-gpui/desktop';
+import { useDesktopWindow } from '@react-native-gpui/core/desktop';
 
 export interface DesktopShellChildProps {
   windowId?: number;

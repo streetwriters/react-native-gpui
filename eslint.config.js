@@ -11,9 +11,9 @@ module.exports = [
       'packages/@react-native-gpui/testing/dist/',
       '.local/',
       'desktop/',
-      'packages/react-native-gpui/bin/',
-      'packages/react-native-gpui/ReactCxxPlatform/',
-      'packages/react-native-gpui/ReactCommonOverrides/',
+      'packages/@react-native-gpui/core/bin/',
+      'packages/@react-native-gpui/core/ReactCxxPlatform/',
+      'packages/@react-native-gpui/core/ReactCommonOverrides/',
       // Vendored facebook/hermes sources, kept byte-identical to the pin.
       'packages/@react-native-gpui/hermes/API/',
       'packages/@react-native-gpui/hermes/include/',
@@ -56,10 +56,10 @@ module.exports = [
     // the RN preset switches to the Hermes parser, so lint them with
     // hermes-eslint like React Native itself does.
     files: [
-      'packages/react-native-gpui/**/*.js',
+      'packages/@react-native-gpui/core/**/*.js',
       'packages/rn-gpui-tester/**/*.js',
     ],
-    ignores: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
+    ignores: ['packages/@react-native-gpui/core/babel-plugin-node-addons*.js'],
     languageOptions: {
       parser: hermesParser,
       parserOptions: { sourceType: 'module' },
@@ -79,7 +79,7 @@ module.exports = [
   {
     // The Node addon Babel plugin is plain CommonJS Node code, not a Flow
     // source: it is loaded by Babel in the Metro process.
-    files: ['packages/react-native-gpui/babel-plugin-node-addons*.js'],
+    files: ['packages/@react-native-gpui/core/babel-plugin-node-addons*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       parserOptions: { requireConfigFile: false },
@@ -95,7 +95,7 @@ module.exports = [
   },
   {
     // `no-unreachable` misreads Flow `component` declarations.
-    files: ['packages/react-native-gpui/src-gpui/**/*.js'],
+    files: ['packages/@react-native-gpui/core/src-gpui/**/*.js'],
     rules: { 'no-unreachable': 'off' },
   },
   {

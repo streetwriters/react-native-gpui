@@ -12,7 +12,7 @@ export default mergeConfig(
         'packages/@react-native-gpui/cli/src/**/*.test.js',
         'packages/@react-native-gpui/codegen/src/**/*.test.js',
         'packages/@react-native-gpui/hermes/gpui/**/*.test.js',
-        'packages/react-native-gpui/**/*.test.js',
+        'packages/@react-native-gpui/core/**/*.test.js',
       ],
     },
   }),

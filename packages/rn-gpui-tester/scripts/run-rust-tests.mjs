@@ -38,7 +38,7 @@ const repoRoot = path.resolve(
 );
 const cargoManifest = path.join(
   repoRoot,
-  'packages/react-native-gpui/ReactGpui/Cargo.toml',
+  'packages/@react-native-gpui/core/ReactGpui/Cargo.toml',
 );
 const metadata = JSON.parse(
   execFileSync(
@@ -105,7 +105,7 @@ if (process.platform === 'darwin') {
 
   const hermesArch = process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
   const runtimeDirs = [
-    path.join(repoRoot, 'packages/react-native-gpui/bin', hermesArch),
+    path.join(repoRoot, 'packages/@react-native-gpui/core/bin', hermesArch),
     path.join(
       metadata.target_directory,
       'rn-gpui-cmake',
