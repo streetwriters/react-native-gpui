@@ -1,0 +1,21 @@
+{
+  "job": "lint",
+  "steps": [
+    {
+      "name": "Unit tests",
+      "slug": "unit-tests",
+      "exitCode": 0,
+      "durationMs": 40000,
+      "logPath": "ci-out/logs/lint/unit-tests.log",
+      "excerpt": null
+    },
+    {
+      "name": "Lint",
+      "slug": "lint",
+      "exitCode": 0,
+      "durationMs": 8000,
+      "logPath": "ci-out/logs/lint/lint.log",
+      "excerpt": null
+    }
+  ]
+}
