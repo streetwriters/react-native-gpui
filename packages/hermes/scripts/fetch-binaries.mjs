@@ -9,8 +9,7 @@ import { URL, fileURLToPath } from 'node:url';
 const WORKFLOW_FILE = 'hermes-engine.yml';
 const ARTIFACT_PREFIX = 'hermes-';
 const RELEASE_PREFIX = '@react-native-gpui/hermes@';
-const GITHUB_REPOSITORY =
-  process.env.GITHUB_REPOSITORY ?? 'streetwriters/react-native-gpui';
+const RELEASE_MARKER = '.release';
 const MAX_REDIRECTS = 8;
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -75,7 +74,7 @@ function parseArgs(argv) {
   return options;
 }
 
-function selectedPlatforms(options) {
+export function selectedPlatforms(options) {
   if (options.platform) return [options.platform];
   if (options.all) return Object.keys(PLATFORMS);
   const host = `${process.platform}-${process.arch}`;
@@ -86,16 +85,71 @@ function selectedPlatforms(options) {
   return [host];
 }
 
-function missingFiles(platform) {
-  return PLATFORMS[platform].filter(
-    file => !fs.existsSync(path.join(binRoot, platform, file)),
+/// The release repository, read from this package's own manifest rather than
+/// from the environment: a fork's PR, or a user's CI, runs with a
+/// GITHUB_REPOSITORY that points at *their* repository, which has no hermes
+/// release. Accepts the string form and `{ url }`, and strips the git+ prefix,
+/// the GitHub URL and a trailing .git.
+export function repositoryFromManifest(manifest, env = process.env) {
+  if (env.RN_GPUI_HERMES_REPO) return env.RN_GPUI_HERMES_REPO;
+  const repository = manifest?.repository;
+  const url =
+    typeof repository === 'string' ? repository : (repository?.url ?? '');
+  const match = url.match(
+    /^(?:git\+)?(?:https?:\/\/github\.com\/|git@github\.com:)?([^/]+\/[^/]+?)(?:\.git)?$/u,
   );
+  if (!match) {
+    throw new Error(
+      `could not read the repository from package.json (repository: ${JSON.stringify(repository)})`,
+    );
+  }
+  return match[1];
 }
 
-function missingPlatforms(options) {
-  return selectedPlatforms(options).filter(
-    platform => missingFiles(platform).length > 0,
+function platformDir(platform, root = binRoot) {
+  return path.join(root, platform);
+}
+
+/// The tag or source recorded by the install that put the files there, or null
+/// when the directory predates this marker.
+export function recordedSource(platform, root = binRoot) {
+  try {
+    const text = fs.readFileSync(
+      path.join(platformDir(platform, root), RELEASE_MARKER),
+      'utf8',
+    );
+    return text.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeRecordedSource(platform, source, root = binRoot) {
+  const dir = platformDir(platform, root);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, RELEASE_MARKER), `${source}\n`);
+}
+
+/**
+ * Whether the default mode may replace what is in `bin/<platform>/`.
+ *
+ * A complete directory counts as installed only when its `.release` names the
+ * tag being asked for: a version bump has to replace the old binaries, and a
+ * directory installed before the marker existed is treated as stale. A source
+ * that is not a release tag is a hand-installed build (`--from`, `--run`),
+ * which must be kept.
+ */
+export function installedState(platform, tag, root = binRoot) {
+  const missing = PLATFORMS[platform].filter(
+    file => !fs.existsSync(path.join(root, platform, file)),
   );
+  if (missing.length > 0) return { state: 'missing' };
+  const source = recordedSource(platform, root);
+  if (source === null) return { state: 'stale' };
+  if (source === tag) return { state: 'current' };
+  return source.startsWith(RELEASE_PREFIX)
+    ? { state: 'stale' }
+    : { state: 'foreign', source };
 }
 
 function verify(options) {
@@ -150,11 +204,11 @@ function extractArchive(archive, destination) {
  * and the release zips, and `<platform>/` at the root of a `hermes-<platform>`
  * artifact, because actions/upload-artifact uploads `bin/` without its prefix.
  */
-function installFrom(sourceRoot, options) {
-  const wanted = new Set(selectedPlatforms(options));
+function installFrom(sourceRoot, platforms, source) {
+  const wanted = new Set(platforms);
   const installed = [];
   const install = (from, platform) => {
-    const to = path.join(binRoot, platform);
+    const to = platformDir(platform);
     fs.mkdirSync(to, { recursive: true });
     fs.cpSync(from, to, { recursive: true });
     for (const file of fs.readdirSync(to)) {
@@ -191,6 +245,9 @@ function installFrom(sourceRoot, options) {
     throw new Error(
       `No hermes-<platform> artifacts with <platform>/ or bin/<platform>/ under ${sourceRoot}`,
     );
+  // Record where each platform came from, so the default mode can tell a stale
+  // release apart from a build a developer installed on purpose.
+  for (const platform of installed) writeRecordedSource(platform, source);
   console.log(`Installed: ${installed.join(', ')}`);
 }
 
@@ -225,7 +282,7 @@ function downloadFromRun(options) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-binaries-'));
   console.log(`Downloading hermes-engine run ${runId} into ${dir}`);
   gh(['run', 'download', runId, '--dir', dir]);
-  installFrom(dir, options);
+  installFrom(dir, selectedPlatforms(options), `run:${runId}`);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -246,7 +303,7 @@ function downloadFromRelease(options) {
   for (const file of fs.readdirSync(dir))
     if (file.endsWith('.zip'))
       extractArchive(path.join(dir, file), path.join(dir, file.slice(0, -4)));
-  installFrom(dir, options);
+  installFrom(dir, selectedPlatforms(options), options.tag);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -305,40 +362,59 @@ function download(url, dest, redirects = 0, headers = {}) {
 /**
  * Downloads the platform's zip from the release named after this package's own
  * version, so a fresh checkout can build without the hermes-engine workflow
- * having been run by hand. A platform that already has a complete, verified
- * `bin/<platform>/` is left alone; offline mode never reaches the network.
+ * having been run by hand.
+ *
+ * A platform is skipped only when its recorded `.release` names this tag; a
+ * version bump therefore replaces the old binaries. A directory installed from
+ * another source is a developer's own build and is left alone with one line.
  */
-async function downloadFromPin() {
-  const { version } = JSON.parse(
+async function downloadFromPin(options) {
+  const manifest = JSON.parse(
     fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
   );
-  const tag = `${RELEASE_PREFIX}${version}`;
-  const missing = missingPlatforms({});
-  if (missing.length === 0) {
-    console.log(`Hermes binaries for this host are installed (${tag})`);
+  const tag = `${RELEASE_PREFIX}${manifest.version}`;
+  const repository = repositoryFromManifest(manifest);
+  const wanted = selectedPlatforms(options);
+
+  const stale = [];
+  let kept = false;
+  for (const platform of wanted) {
+    const { state, source } = installedState(platform, tag);
+    if (state === 'current') continue;
+    if (state === 'foreign') {
+      kept = true;
+      console.log(
+        `Hermes binaries for ${platform} were installed from ${source}; keeping them (delete bin/${platform} to use ${tag})`,
+      );
+      continue;
+    }
+    stale.push(platform);
+  }
+  if (stale.length === 0) {
+    if (!kept)
+      console.log(`Hermes binaries for this host are installed (${tag})`);
     return;
   }
   if (offline())
     throw new Error(
-      `Hermes binaries are missing (${missing.join(', ')}) and offline mode is on; install them with --from or clear RN_GPUI_PREBUILT_OFFLINE.`,
+      `Hermes binaries are missing or stale (${stale.join(', ')}) and offline mode is on; install them with --from or clear RN_GPUI_PREBUILT_OFFLINE.`,
     );
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-binaries-'));
-  for (const platform of missing) {
+  for (const platform of stale) {
     const file = `${ARTIFACT_PREFIX}${platform}.zip`;
     const archive = path.join(dir, file);
-    const url = `https://github.com/${GITHUB_REPOSITORY}/releases/download/${encodeURIComponent(tag)}/${file}`;
-    const headers = {};
+    const url = `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${file}`;
+    const headers = { accept: 'application/octet-stream' };
     const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     // github.com answers a missing asset with a 404 page, which unzip would
     // report as a corrupt archive; ask for the bytes like the release download.
-    headers.accept = 'application/octet-stream';
     if (token) headers.authorization = `Bearer ${token}`;
     console.log(`Downloading ${url}`);
     await download(url, archive, 0, headers);
     extractArchive(archive, dir);
   }
-  installFrom(dir, {});
+  installFrom(dir, stale, tag);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -348,12 +424,12 @@ function installFromPath(options) {
   const source = path.resolve(options.from);
   if (!fs.existsSync(source)) throw new Error(`Not found: ${source}`);
   if (fs.statSync(source).isDirectory()) {
-    installFrom(source, options);
+    installFrom(source, selectedPlatforms(options), `from:${source}`);
     return;
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-binaries-'));
   extractArchive(source, dir);
-  installFrom(dir, options);
+  installFrom(dir, selectedPlatforms(options), `from:${options.from}`);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -364,12 +440,25 @@ function main() {
   if (options.mode === 'from') return installFromPath(options);
   if (options.mode === 'run') return downloadFromRun(options);
   if (options.mode === 'tag') return downloadFromRelease(options);
-  return downloadFromPin();
+  return downloadFromPin(options);
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(`fetch-binaries: ${error.message}`);
-  process.exitCode = 1;
+// Run as a CLI only when this file is the entry point, so the test can import
+// the pure helpers without downloading anything. Both sides are resolved
+// through the filesystem: a CMake build under /tmp is reached as /private/tmp,
+// and comparing the raw strings made the script silently do nothing.
+function isEntryPoint() {
+  if (process.argv[1] === undefined) return false;
+  const self = fs.realpathSync(fileURLToPath(import.meta.url));
+  const invoked = fs.realpathSync(path.resolve(process.argv[1]));
+  return self === invoked;
+}
+
+if (isEntryPoint()) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(`fetch-binaries: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
