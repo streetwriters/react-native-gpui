@@ -123,6 +123,9 @@ jobs:
             --outputFile=ci-out/junit/unit.xml
 
       # The wrapper appends to ci-out/, which the report job reads.
+      # Every job uploads ci-out/ as its single artifact root. upload-artifact
+      # strips to the common parent of its paths, so a second root would nest
+      # ci-out/ one level down and the report job could not merge the reports.
       - name: Upload the report inputs
         if: always()
         uses: actions/upload-artifact@v4
@@ -240,13 +243,22 @@ jobs:
           restore-keys: |
             native-deps-${{ matrix.platform }}-
 
+      # The autolinked C++ (`desktop/autolink/`) is gitignored and is normally
+      # produced as a side effect of `run-desktop`. `test:rust` reads it, so on
+      # a fresh checkout it has to be generated first or the rn-gpui-sys test
+      # binary links without an app provider and fails on
+      # rn_gpui_register_app_components.
+      - name: Generate the autolink files
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "autolink" -- \
+            npm run autolink
+
       - name: Rust tests
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- \
             npm run test:rust
-
       - name: Build the tester
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
@@ -261,25 +273,41 @@ jobs:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
           RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
         run: |
+          # run-e2e.mjs forwards unknown arguments to vitest, so the JUnit
+          # reporter is added here rather than by changing what runs.
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run -a -s "-screen 0 1280x900x24" \
               node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
-              npm run test:e2e
+              npm run test:e2e -- --reporter=default --reporter=junit \
+              --outputFile=ci-out/junit/e2e.xml
           else
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
-              npm run test:e2e
+              npm run test:e2e -- --reporter=default --reporter=junit \
+              --outputFile=ci-out/junit/e2e.xml
           fi
+
+      # Screenshots, minidumps and core files are collected into ci-out/ rather
+      # than uploaded from their own roots: upload-artifact strips to the common
+      # parent of its paths, so a second root would nest ci-out/ one level down
+      # and the report job would not find the reports.
+      - name: Collect the failure evidence
+        if: failure()
+        run: |
+          set -uo pipefail
+          mkdir -p ci-out/evidence
+          find packages/rn-gpui-tester/e2e/__screenshots__ -type f \
+            -exec cp -R {} ci-out/evidence/ \; 2>/dev/null || true
+          find . -type f \( -name '*.dmp' -o -name '*.crash' \) \
+            -not -path './node_modules/*' -not -path './target/*' \
+            -exec cp -R {} ci-out/evidence/ \; 2>/dev/null || true
+          du -sh ci-out/evidence 2>/dev/null || true
 
       - name: Upload the report inputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-native-${{ matrix.os }}
-          path: |
-            ci-out/
-            packages/rn-gpui-tester/e2e/__screenshots__/
-            **/*.dmp
-            **/*.crash
+          path: ci-out/
           retention-days: 14
           if-no-files-found: ignore
 
