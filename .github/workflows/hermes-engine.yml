@@ -113,7 +113,12 @@ jobs:
 
       - name: Apply react-native-gpui patches
         shell: bash
-        run: git -C hermes apply ../rn-gpui/packages/@react-native-gpui/hermes/patches/*.patch
+        run: |
+          set -euo pipefail
+          for patch in rn-gpui/packages/@react-native-gpui/hermes/patches/*.patch; do
+            git -C hermes apply "$GITHUB_WORKSPACE/$patch"
+            echo "Applied $(basename "$patch")"
+          done
 
       - name: Install build dependencies
         if: runner.os == 'Linux'

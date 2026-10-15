@@ -77,10 +77,8 @@ jobs:
             console.log(pin.version, pin.inputHash, pin.reactNative ?? "");
           ')
           if [ "$hash" = "$pin_hash" ] && [ "$FORCE" != "true" ] && [ "$EVENT" != "pull_request" ]; then
-            {
-              echo "needed=false"
-              echo "Input hash $hash matches the pin; nothing to build."
-            } >> "$GITHUB_OUTPUT"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Input hash $hash matches the pin; nothing to build."
             exit 0
           fi
           IFS=. read -r major minor patch <<< "$pin_version"
@@ -179,8 +177,10 @@ jobs:
         shell: pwsh
         run: |
           choco install -y ninja ccache nasm strawberryperl
-          # Strawberry Perl ships its own bin directory; OpenSSL needs it on PATH.
+          # OpenSSL needs Strawberry Perl (not Git's) and NASM on PATH; neither
+          # installer adds its bin directory.
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
 
       - name: Set up MSVC
         if: runner.os == 'Windows'
@@ -250,6 +250,7 @@ jobs:
             ccache-${{ matrix.platform }}-
 
       - name: Build the prebuilt runtime
+        if: runner.os != 'Windows'
         shell: bash
         env:
           CCACHE_DIR: ${{ runner.temp }}/ccache
@@ -265,16 +266,45 @@ jobs:
             --build-dir "$RUNNER_TEMP/prebuilt-build" \
             --native-deps "$NATIVE_DEPS"
 
+      # PowerShell, not Git Bash: Bash puts Git's MSYS perl ahead of Strawberry
+      # Perl, and OpenSSL's Windows configure rejects it. This also packs the
+      # PDB archive.
+      - name: Build the prebuilt runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NATIVE_DEPS: ${{ runner.temp }}/rn-gpui-native-deps
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'prebuilt-out'
+          New-Item -ItemType Directory -Force -Path $out, $env:NATIVE_DEPS | Out-Null
+          Write-Host "perl: $((Get-Command perl).Source)"
+          Write-Host "nasm: $((Get-Command nasm).Source)"
+          node packages/react-native-gpui/scripts/build-prebuilt.mjs `
+            --version $env:VERSION `
+            --out $out `
+            --build-dir (Join-Path $env:RUNNER_TEMP 'prebuilt-build') `
+            --native-deps $env:NATIVE_DEPS
+          if ($LASTEXITCODE -ne 0) { throw "build-prebuilt failed ($LASTEXITCODE)" }
+
       - name: Smoke test the archive with a standalone consumer
         shell: bash
         env:
           OUT: ${{ runner.temp }}/prebuilt-out
         run: |
           set -euo pipefail
-          archive="$(ls "$OUT"/prebuilt-binaries-${{ matrix.platform }}.tar.gz)"
+          # Git Bash's GNU tar reads `D:\...` as a remote host, and CMake reads
+          # backslashes as escapes, so use System32's tar and `/` paths there.
+          tar=tar
+          cmake_path() { printf '%s' "$1"; }
+          if [ "$RUNNER_OS" = Windows ]; then
+            tar=/c/Windows/System32/tar.exe
+            cmake_path() { cygpath -m "$1"; }
+          fi
+          archive="$OUT/prebuilt-binaries-${{ matrix.platform }}.tar.gz"
           unpack="$RUNNER_TEMP/unpack"
           rm -rf "$unpack" && mkdir -p "$unpack"
-          tar -xzf "$archive" -C "$unpack" --strip-components=1
+          "$tar" -xzf "$(cmake_path "$archive")" -C "$(cmake_path "$unpack")" --strip-components=1
           node packages/react-native-gpui/scripts/prebuilt-binaries.mjs verify "$unpack"
           consumer="$RUNNER_TEMP/consumer"
           rm -rf "$consumer" && mkdir -p "$consumer"
@@ -302,24 +332,12 @@ jobs:
           find_package(react-native-gpui-prebuilt CONFIG REQUIRED PATHS "${PREBUILT_DIR}/cmake" NO_DEFAULT_PATH)
           EOF_CMAKE
           cmake -S "$consumer" -B "$consumer/build" \
-            -DPREBUILT_DIR="$unpack" -DREPO="$GITHUB_WORKSPACE" \
-            -DGENERATED="$RUNNER_TEMP/generated-inputs" -DNATIVE_DEPS="$NATIVE_DEPS" \
+            -DPREBUILT_DIR="$(cmake_path "$unpack")" \
+            -DREPO="$(cmake_path "$GITHUB_WORKSPACE")" \
+            -DGENERATED="$(cmake_path "$RUNNER_TEMP/generated-inputs")" \
+            -DNATIVE_DEPS="$(cmake_path "$NATIVE_DEPS")" \
             -DCMAKE_BUILD_TYPE=Release
           echo "Consumer configured against $unpack"
-
-      - name: Collect Windows PDBs
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $out = Join-Path $env:RUNNER_TEMP 'prebuilt-out'
-          $pdbDir = Join-Path $env:RUNNER_TEMP 'pdb'
-          New-Item -ItemType Directory -Force -Path $pdbDir | Out-Null
-          Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP 'prebuilt-build') -Filter *.pdb -Recurse -File |
-            Copy-Item -Destination $pdbDir -Force
-          $count = (Get-ChildItem -Path $pdbDir -File).Count
-          if ($count -eq 0) { throw 'No PDB files were produced by the MSVC build' }
-          Write-Host "Collected $count PDB files"
-          tar -czf (Join-Path $out 'prebuilt-binaries-${{ matrix.pdb }}-pdb.tar.gz') -C $pdbDir .
 
       - name: Stage archives
         if: always()
