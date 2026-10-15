@@ -15,14 +15,14 @@ const requested = args.filter(arg => arg !== '--check');
 const cFamily = /\.(c|cc|cpp|h|hpp|m|mm)$/;
 const rust = /\.rs$/;
 const excluded = [
-  'packages/@react-native-gpui/core/ReactCxxPlatform/',
-  'packages/@react-native-gpui/core/ReactCommonOverrides/',
-  'packages/@react-native-gpui/core/ReactGpui/rn-gpui-sys/cpp/third_party/',
+  'packages/core/ReactCxxPlatform/',
+  'packages/core/ReactCommonOverrides/',
+  'packages/core/ReactGpui/rn-gpui-sys/cpp/third_party/',
   // Vendored facebook/hermes sources, kept byte-identical to the pinned commit
   // (the hermes-engine workflow diffs them against upstream).
-  'packages/@react-native-gpui/hermes/API/',
-  'packages/@react-native-gpui/hermes/include/',
-  'packages/@react-native-gpui/hermes/public/',
+  'packages/hermes/API/',
+  'packages/hermes/include/',
+  'packages/hermes/public/',
   'packages/rn-gpui-tester/ios/',
   'packages/rn-gpui-tester/android/',
 ];

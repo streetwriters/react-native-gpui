@@ -25,10 +25,7 @@ const fixture = path.join(projectRoot, 'node-addon-fixture');
 const source = path.join(fixture, 'addon.c');
 const output = path.join(fixture, 'build/addon.node');
 
-const headers = path.resolve(
-  projectRoot,
-  '../@react-native-gpui/hermes/include/hermes/napi',
-);
+const headers = path.resolve(projectRoot, '../hermes/include/hermes/napi');
 if (!fs.existsSync(path.join(headers, 'node_api.h'))) {
   throw new Error(`NAPI headers not found at ${headers}`);
 }
@@ -79,7 +76,7 @@ function buildWithMsvc() {
   const buildDir = path.join(fixture, 'build');
   const exportsList = path.resolve(
     projectRoot,
-    '../@react-native-gpui/hermes/gpui/node-api-exports.txt',
+    '../hermes/gpui/node-api-exports.txt',
   );
   if (!fs.existsSync(exportsList)) {
     throw new Error(`Node-API export list not found at ${exportsList}`);

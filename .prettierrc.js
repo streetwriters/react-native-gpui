@@ -6,7 +6,7 @@ module.exports = {
     {
       // Runtime sources and tester probes contain Flow annotations, some
       // without a pragma. The CLI packages are plain ESM and keep the default.
-      files: ['packages/@react-native-gpui/core/**/*.js', 'tester/**/*.js'],
+      files: ['packages/core/**/*.js', 'tester/**/*.js'],
       options: { parser: 'flow' },
     },
   ],

@@ -36,10 +36,7 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
 );
-const cargoManifest = path.join(
-  repoRoot,
-  'packages/@react-native-gpui/core/ReactGpui/Cargo.toml',
-);
+const cargoManifest = path.join(repoRoot, 'packages/core/ReactGpui/Cargo.toml');
 const metadata = JSON.parse(
   execFileSync(
     'cargo',
@@ -105,7 +102,7 @@ if (process.platform === 'darwin') {
 
   const hermesArch = process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
   const runtimeDirs = [
-    path.join(repoRoot, 'packages/@react-native-gpui/core/bin', hermesArch),
+    path.join(repoRoot, 'packages/core/bin', hermesArch),
     path.join(
       metadata.target_directory,
       'rn-gpui-cmake',
@@ -133,7 +130,7 @@ if (process.platform === 'darwin') {
   // every directory that actually holds a DLL is found by walking the tree
   // instead of guessing the configuration name.
   const runtimeDirs = [
-    path.join(repoRoot, 'packages/@react-native-gpui/hermes/bin', hermesArch),
+    path.join(repoRoot, 'packages/hermes/bin', hermesArch),
     ...findDllDirectories(
       path.join(metadata.target_directory, 'rn-gpui-cmake', targetTriple),
     ),
@@ -151,7 +148,7 @@ if (process.platform === 'darwin') {
   const hermesArch = process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
   // The sys test binaries link the shared JSI library and the engine.
   const runtimeDirs = [
-    path.join(repoRoot, 'packages/@react-native-gpui/hermes/bin', hermesArch),
+    path.join(repoRoot, 'packages/hermes/bin', hermesArch),
     path.join(
       metadata.target_directory,
       'rn-gpui-cmake',
