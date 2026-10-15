@@ -291,6 +291,7 @@ jobs:
         shell: bash
         env:
           OUT: ${{ runner.temp }}/prebuilt-out
+          NATIVE_DEPS: ${{ runner.temp }}/rn-gpui-native-deps
         run: |
           set -euo pipefail
           # Git Bash's GNU tar reads `D:\...` as a remote host, and CMake reads
