@@ -184,10 +184,14 @@ function main() {
 
   // 5. Run it. RN_GPUI_SMOKE=1 exits 0 on the first frame, 1 on timeout and 2
   //    on a JS error, so the exit code is the answer.
+  //
+  //    The scaffold points cargo at `build/target` through
+  //    `desktop/.cargo/config.toml`, so the binary is not in the usual
+  //    `desktop/target`. Read the configured directory rather than assume it.
   const binary = path.join(
     projectRoot,
     'desktop',
-    'target',
+    cargoTargetDir(path.join(projectRoot, 'desktop')),
     'release',
     `${binaryName(manifest.name)}${process.platform === 'win32' ? '.exe' : ''}`,
   );
@@ -203,6 +207,22 @@ function main() {
   } else {
     run(binary, [], { cwd: projectRoot, env: smoke });
   }
+}
+
+/// Where cargo puts the app's binaries: `build.target-dir` from the desktop
+/// crate's own `.cargo/config.toml`, relative to that crate, or `target`.
+function cargoTargetDir(desktopRoot) {
+  let text;
+  try {
+    text = fs.readFileSync(
+      path.join(desktopRoot, '.cargo', 'config.toml'),
+      'utf8',
+    );
+  } catch {
+    return 'target';
+  }
+  const match = text.match(/^\s*target-dir\s*=\s*"([^"]+)"/mu);
+  return match ? match[1] : 'target';
 }
 
 /// The same rule the CLI uses to name the desktop crate: the app package name
