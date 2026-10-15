@@ -18,6 +18,7 @@ const FILE_INPUTS = [
   'packages/react-native-gpui/ReactGpui/Cargo.lock',
   'packages/react-native-gpui/scripts/build-prebuilt.mjs',
   'packages/react-native-gpui/scripts/prebuilt-inputs.mjs',
+  'packages/react-native-gpui/ReactGpui/rn-gpui-sys/src/lib.rs',
   'node_modules/react-native/package.json',
 ];
 
