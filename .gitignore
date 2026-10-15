@@ -27,3 +27,6 @@ desktop/.cache/
 
 # Compiled testing client (included in npm packs)
 /packages/testing/dist/
+
+# CI step logs, reports and packed tarballs
+/ci-out/
