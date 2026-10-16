@@ -43,7 +43,7 @@ impl ComponentRenderer for ScrollViewRenderer {
                 .get("indicator")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
-            offset: (0.0, 0.0),
+            offset: (number("offsetX"), number("offsetY")),
             event: Some(SCROLL_EVENT.to_string()),
         })
     }

@@ -567,6 +567,14 @@ impl RNNodeView {
         // `core-private:` TextInput reads its own props out of the module JSON.
         let text_input =
             crate::builtins::textinput::input::TextInputProps::from_json(&op.extension_props_json);
+        // `core-private:` a scrolling component's starting offset comes from the
+        // module's props, which its C++ half read from Fabric's state.
+        let scroll_initial = crate::extensions::component_scroll(
+            &op.component,
+            &crate::extensions::parse_extension_props(&op.extension_props_json),
+        )
+        .map(|scroll| scroll.offset)
+        .unwrap_or((0.0, 0.0));
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
@@ -636,7 +644,9 @@ impl RNNodeView {
             screen_stack_presentation: op.screen_stack_presentation.clone(),
             screen_transition: None,
             screen_progress_emitted: None,
-            scroll_position: Rc::new(Cell::new(point(0.0, 0.0))),
+            // `core-private:` a scroll view starts at the offset the module's
+            // props carried, which React Native filled from its own state.
+            scroll_position: Rc::new(Cell::new(point(scroll_initial.0, scroll_initial.1))),
             scroll: crate::extensions::component_scroll(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -3590,12 +3600,12 @@ impl RNNodeView {
         self.scroll_position.get()
     }
 
-    /// The read-only view of this component handed to a module's renderer or
     /// The JSON a module filled for this component, unparsed.
     pub(crate) fn extension_props_json(&self) -> &str {
         &self.extension_props_json
     }
 
+    /// The read-only view of this component handed to a module's renderer or
     /// observer. `extension_props_json` is parsed here, once per call.
     pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
         let props = if self.extension_props_json.is_empty() {
