@@ -1,7 +1,3 @@
-// The built-in `ScrollView` component's props extraction. Core owns the
-// scrolling mechanism; the module only describes the geometry, so this reads
-// the Fabric props and state into the same JSON shape any scrolling component
-// would produce.
 
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>

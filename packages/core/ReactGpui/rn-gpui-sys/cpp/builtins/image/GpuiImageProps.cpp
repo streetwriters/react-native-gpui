@@ -1,6 +1,3 @@
-// The built-in `Image` component's props extraction. It registers by component
-// name, so core's MountBatchBuilder learns nothing about images beyond calling
-// the registry.
 
 #include <react/renderer/components/image/ImageProps.h>
 

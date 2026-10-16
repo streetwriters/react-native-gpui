@@ -1,13 +1,6 @@
-//! The animation modes a stack accepts, and the poses each one corresponds to.
-//!
-//! Core owns the timing and the paint; this file is the module's own statement
-//! of what "slide from the right" and "fade" mean as movement between two
-//! poses, so core never learns a navigation name.
-
 use react_native_gpui::extensions::{Pose, Transition};
 use std::time::Duration;
 
-/// A stack animation, as `stackAnimation` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransitionMode {
     Fade,
@@ -16,7 +9,6 @@ pub enum TransitionMode {
 }
 
 impl TransitionMode {
-    /// The mode the reverse of this one uses, so a pop plays the entry mirrored.
     pub fn reverse(self) -> Self {
         match self {
             Self::SlideFromRight => Self::SlideFromLeft,
@@ -25,7 +17,6 @@ impl TransitionMode {
         }
     }
 
-    /// How long this mode runs.
     pub fn duration(self) -> Duration {
         match self {
             Self::Fade => Duration::from_millis(150),
@@ -34,8 +25,6 @@ impl TransitionMode {
     }
 }
 
-/// The mode a `stackAnimation` string asks for. Unknown values fade, which is
-/// what the platform's own default is.
 pub fn transition_mode(animation: &str) -> Option<TransitionMode> {
     match animation {
         "none" => None,
@@ -46,18 +35,12 @@ pub fn transition_mode(animation: &str) -> Option<TransitionMode> {
     }
 }
 
-/// Whether entering or leaving.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Enter,
     Exit,
 }
 
-/// The poses a mode and role correspond to.
-///
-/// Entering slides from off-screen to rest; leaving slides from rest to
-/// off-screen; a fade keeps the node still while its opacity moves. The offset
-/// is a fraction of the node's own width, so `distance` is how far it travels.
 pub fn poses(mode: TransitionMode, role: Role, distance: f32) -> (Pose, Pose) {
     let rest = Pose {
         offset_x: 0.0,
@@ -81,7 +64,6 @@ pub fn poses(mode: TransitionMode, role: Role, distance: f32) -> (Pose, Pose) {
     }
 }
 
-/// The transition a mode and role describe.
 pub fn transition(mode: TransitionMode, role: Role, distance: f32) -> Transition {
     let (from, to) = poses(mode, role, distance);
     Transition {
@@ -91,7 +73,6 @@ pub fn transition(mode: TransitionMode, role: Role, distance: f32) -> Transition
     }
 }
 
-/// The card underneath a push parallaxes a short way rather than leaving.
 pub const PARALLAX_DISTANCE: f32 = 0.12;
 
 #[cfg(test)]

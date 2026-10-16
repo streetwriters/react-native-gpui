@@ -1,12 +1,3 @@
-//! The proof module for Phase C: a component renderer and a probe, built only
-//! from the public extension API.
-//!
-//! Nothing here is imported by core. The crate is linked because autolink saw
-//! `platforms.gpui.crate`, and its `rn_gpui_register` publishes a renderer for
-//! `FixtureBadge` and the `FixtureBadgeProbe` TurboModule. Core learns nothing
-//! about the badge: it consults the registry by component name and falls
-//! through to its own painting when no module registered it.
-
 rn_gpui_module::include_specs!();
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,14 +9,9 @@ use react_native_gpui::extensions::{
 };
 use rn_gpui_module::{ModuleError, ModuleThread};
 
-/// Frames the frame callback has seen, and renders the renderer has done. Both
-/// are read back through the probe so a test can assert the module is live
-/// without inspecting pixels.
 static FRAME_TICKS: AtomicU64 = AtomicU64::new(0);
 static PROP_READS: AtomicU64 = AtomicU64::new(0);
 
-/// Called by this module's C++ half, which owns the `registerFrameCallback`
-/// registration. A frame callback is a C++ API; Rust only counts.
 #[no_mangle]
 pub extern "C" fn rn_gpui_fixture_badge_frame(_timestamp_ms: f64) {
     FRAME_TICKS.fetch_add(1, Ordering::Relaxed);
@@ -84,7 +70,6 @@ impl NativeFixtureBadgeProbeSpec for FixtureBadgeProbe {
     }
 }
 
-/// Called by the app's autolink shim, which keeps this crate linked in.
 pub fn rn_gpui_register() {
     register_component_renderer("FixtureBadge", Arc::new(FixtureBadgeRenderer));
     rn_gpui_module::register(native_fixture_badge_probe_module::<FixtureBadgeProbe>());

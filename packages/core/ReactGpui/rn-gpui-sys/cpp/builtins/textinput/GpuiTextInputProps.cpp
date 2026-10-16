@@ -1,5 +1,3 @@
-// The built-in `TextInput` component's props extraction. It registers by
-// component name, so core's MountBatchBuilder names no component.
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/textinput/TextInputState.h>
@@ -15,7 +13,6 @@
 namespace rngpui {
 namespace {
 
-/// The 32-bit ARGB form of a React Native colour, `0` when unset.
 uint32_t argb(const facebook::react::SharedColor& color) {
   if (!color) {
     return 0;
@@ -48,8 +45,6 @@ std::string textInputPropsJson(
       object["selectionStart"] = props->selection->start;
       object["selectionEnd"] = props->selection->end;
     } else {
-      // No selection means the caret sits at the end. `props->text` is UTF-8,
-      // and React Native counts UTF-16 units, so count code points.
       int32_t cursor = 0;
       for (const auto byte : props->text) {
         const auto value = static_cast<unsigned char>(byte);

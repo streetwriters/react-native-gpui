@@ -19,8 +19,6 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true });
 });
 
-/// A throwaway checkout: `packages/core/` and `modules/` are all the scan
-/// reads, so a fixture tree exercises the same code path CI does.
 function fixture(files) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'core-boundary-'));
   roots.push(root);

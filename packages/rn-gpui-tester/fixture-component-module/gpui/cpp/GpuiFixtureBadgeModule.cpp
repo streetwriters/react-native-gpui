@@ -1,6 +1,3 @@
-// The C++ half of the proof module. It registers the badge's props and a frame
-// callback through the public API only; core's `GpuiModules.h` is the only
-// header it needs beyond the Fabric props it reads.
 
 #include <react/renderer/components/FixtureComponentModuleSpec/Props.h>
 
@@ -13,10 +10,6 @@
 
 extern "C" void rn_gpui_fixture_badge_frame(double timestampMs);
 #if defined(_MSC_VER)
-// The definition lives in this module's Rust crate. On Windows the platform's
-// own Rust test binaries link the tester's autolinked C++ without that crate,
-// and MSVC has no weak symbols, so give the reference a no-op fallback that a
-// real definition still overrides (the same pattern as GpuiHost.cpp).
 extern "C" void rn_gpui_fixture_badge_frame_default(double) {}
 #pragma comment( \
     linker,      \
@@ -44,10 +37,6 @@ std::string badgePropsJson(
 } // namespace
 
 namespace {
-/// How many frames the fixture asks for after a badge appears. The test needs
-/// the callback to be demonstrably live; a fixture that asked forever would
-/// keep every app awake for its whole life, which the test driver reads as
-/// "never idle" and every e2e would time out on.
 constexpr int kFixtureFrameBudget = 60;
 std::atomic<int> framesRemaining{0};
 std::atomic<int> liveBadges{0};
@@ -61,7 +50,6 @@ void rn_gpui_install_fixture_badge_module() {
     }
     rn_gpui_fixture_badge_frame(timestampMs);
     if (framesRemaining.fetch_sub(1) == 1) {
-      // The budget is spent, so core may stop delivering frames.
       requestFrames("fixture-badge", false);
     }
   });
@@ -77,9 +65,6 @@ void rn_gpui_install_fixture_badge_module() {
           },
       .onDeleted =
           [](facebook::react::Tag) {
-            // onDeleted carries no component name, so the budget is released
-            // only when the last badge is gone. Asking per delete would stop
-            // frames while a screen still shows one.
             if (liveBadges.fetch_sub(1) <= 1) {
               liveBadges.store(0);
               framesRemaining.store(0);

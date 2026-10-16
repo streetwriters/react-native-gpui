@@ -1,8 +1,3 @@
-//! React Native's `LinkingManager`.
-//!
-//! The desktop has no incoming URL and no application-settings pane, so those
-//! answer empty; opening a URL goes to the platform's default handler.
-
 use rn_gpui_module::{ModuleError, ModuleThread};
 
 use crate::builtins::main_thread::on_main;
@@ -49,7 +44,6 @@ impl NativeGpuiLinkingManagerSpec for LinkingManagerModule {
     fn remove_listeners(&self, _count: f64) {}
 }
 
-/// Registers the module.
 pub fn register() {
     rn_gpui_module::register(
         crate::builtins::rn_gpui_specs::native_gpui_linking_manager_module::<LinkingManagerModule>(

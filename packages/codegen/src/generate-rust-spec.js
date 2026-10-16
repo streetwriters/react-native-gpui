@@ -641,9 +641,6 @@ function renderDescriptor(generator, methods, events) {
   return lines.join('\n');
 }
 
-// The cursor that walks a call's arguments. It has a name no spec parameter can
-// take, because an object parameter is bound to its own name and would
-// otherwise shadow the cursor before the remaining arguments are read.
 const ARGS_CURSOR = 'arguments_';
 
 function argumentConversion(method, parameter) {

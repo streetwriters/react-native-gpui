@@ -1,10 +1,3 @@
-//! Painting react-native-screens through the generic renderer hooks.
-//!
-//! Core builds a box, a background and an accessibility node for every
-//! component. What is screens-specific — which screen is on top, where a header
-//! subview sits, whether a card is showing — is decided here, from the props this
-//! module's C++ half produced and a read-only view of the tree.
-
 use crate::props;
 use crate::stack::{
     CONTENT_WRAPPER, FULL_WINDOW_OVERLAY, HEADER_CONFIG, HEADER_SUBVIEW, MODAL_SCREEN, SCREEN,
@@ -16,10 +9,8 @@ use react_native_gpui::extensions::{
 };
 use rn_gpui_sys::ffi::RectF;
 
-/// The header bar's height, which the content wrapper is inset by.
 pub const HEADER_HEIGHT: f32 = 56.0;
 
-/// A screen inside a stack.
 pub struct ScreenRenderer;
 
 impl ComponentRenderer for ScreenRenderer {
@@ -36,15 +27,12 @@ impl ComponentRenderer for ScreenRenderer {
         if props::activity_state(node) > 0.0 {
             return false;
         }
-        // A card that is leaving stays painted until its transition ends.
         if tree
             .transition(node.tag)
             .is_some_and(|state| state.progress < 1.0)
         {
             return false;
         }
-        // A card under a modal sibling stays painted so the modal has something
-        // to cover.
         !covered_by_modal_sibling(node, tree)
     }
 
@@ -66,7 +54,6 @@ impl ComponentRenderer for ScreenRenderer {
     }
 }
 
-/// Whether a later sibling in the same stack is an active modal presentation.
 fn covered_by_modal_sibling(node: &ComponentNode, tree: &TreeView) -> bool {
     let Some(parent) = node.parent else {
         return false;
@@ -86,7 +73,6 @@ fn covered_by_modal_sibling(node: &ComponentNode, tree: &TreeView) -> bool {
         })
 }
 
-/// The stack itself: it clips, and it owns the Escape gesture.
 pub struct StackRenderer;
 
 impl ComponentRenderer for StackRenderer {
@@ -122,8 +108,6 @@ impl ComponentRenderer for StackRenderer {
         if key != "escape" {
             return false;
         }
-        // A nested stack's inner navigator does not own Escape; the outer one
-        // does, so one Escape pops one route.
         if has_screen_ancestor(node, tree) {
             return false;
         }
@@ -140,14 +124,11 @@ impl ComponentRenderer for StackRenderer {
         if crate::state::with(|state| state.native_dismiss_pending.is_some()) {
             return true;
         }
-        // The stack asks React to pop; the navigator decides, the same way a
-        // native back gesture does.
         handle.dispatch_event(top, "topRequestClose", &serde_json::json!({}), _cx);
         true
     }
 }
 
-/// Whether any ancestor of `node` is a screen, i.e. this stack is nested.
 fn has_screen_ancestor(node: &ComponentNode, tree: &TreeView) -> bool {
     tree.ancestors(node.tag)
         .into_iter()
@@ -155,7 +136,6 @@ fn has_screen_ancestor(node: &ComponentNode, tree: &TreeView) -> bool {
         .any(|ancestor| ancestor.component == SCREEN)
 }
 
-/// The header bar: a background, a title and a back button.
 pub struct HeaderConfigRenderer;
 
 impl ComponentRenderer for HeaderConfigRenderer {
@@ -169,8 +149,6 @@ impl ComponentRenderer for HeaderConfigRenderer {
     }
 
     fn layout_frame(&self, node: &ComponentNode, tree: &TreeView) -> Option<RectF> {
-        // A hidden header takes no space; a visible one is the bar's height,
-        // whatever Yoga computed for the Fabric node.
         let mut frame = node.frame;
         frame.h = if props::header_hidden(node) || !is_top_header(node, tree) {
             0.0
@@ -185,8 +163,6 @@ impl ComponentRenderer for HeaderConfigRenderer {
     }
 
     fn decorate(&self, node: &ComponentNode, tree: &TreeView) -> Decoration {
-        // `content` runs after this and is given no tree, so the two facts it
-        // needs are recorded here, where the tree is available.
         let top = is_top_header(node, tree);
         let shown = should_show_back(node, tree);
         crate::state::set_header_facts(node.tag, top, shown);
@@ -252,7 +228,6 @@ impl ComponentRenderer for HeaderConfigRenderer {
     }
 }
 
-/// A Fabric colour as GPUI sees it, alpha included.
 fn argb(color: u32) -> gpui::Hsla {
     let alpha = color >> 24;
     gpui::rgba((color << 8) | alpha).into()
@@ -266,7 +241,6 @@ fn first_nonzero(value: u32, fallback: u32) -> u32 {
     }
 }
 
-/// Whether the screen has a previous live screen in its stack to go back to.
 fn should_show_back(node: &ComponentNode, tree: &TreeView) -> bool {
     if props::header_hide_back(node) {
         return false;
@@ -288,7 +262,6 @@ fn should_show_back(node: &ComponentNode, tree: &TreeView) -> bool {
         .is_some_and(|position| position > 0)
 }
 
-/// Whether this header belongs to the screen currently on top of its stack.
 fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
     let Some(parent) = node.parent else {
         return true;
@@ -304,14 +277,12 @@ fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
     screens.last().copied() == Some(parent)
 }
 
-/// The stack a screen sits in, walking up past intermediate containers.
 fn stack_of(screen: i32, tree: &TreeView) -> Option<i32> {
     tree.ancestors(screen)
         .into_iter()
         .find(|tag| tree.node(*tag).is_some_and(|n| n.component == STACK))
 }
 
-/// A header subview: positioned by its declared type.
 pub struct HeaderSubviewRenderer;
 
 impl ComponentRenderer for HeaderSubviewRenderer {
@@ -350,7 +321,6 @@ impl ComponentRenderer for HeaderSubviewRenderer {
     }
 }
 
-/// A screen's content area, inset by the header when one is showing.
 pub struct ContentWrapperRenderer;
 
 impl ComponentRenderer for ContentWrapperRenderer {
@@ -377,7 +347,6 @@ impl ComponentRenderer for ContentWrapperRenderer {
     }
 }
 
-/// Whether a screen's header config is hidden, whether or not it exists.
 fn header_hidden(screen: i32, tree: &TreeView) -> bool {
     tree.children(screen)
         .into_iter()
@@ -386,8 +355,6 @@ fn header_hidden(screen: i32, tree: &TreeView) -> bool {
         .is_some_and(|config| props::header_hidden(&config))
 }
 
-/// A modal presentation. It paints like a screen; the difference is that the
-/// card underneath stays visible.
 pub struct ModalScreenRenderer;
 
 impl ComponentRenderer for ModalScreenRenderer {
@@ -401,7 +368,6 @@ impl ComponentRenderer for ModalScreenRenderer {
     }
 }
 
-/// A full-window overlay paints over the whole window, not inside the tree.
 pub struct FullWindowOverlayRenderer;
 
 impl ComponentRenderer for FullWindowOverlayRenderer {
@@ -422,7 +388,6 @@ impl ComponentRenderer for FullWindowOverlayRenderer {
     }
 }
 
-/// Every component name this module paints, and how to build its renderer.
 pub const RENDERED_COMPONENTS: &[(&str, fn() -> Box<dyn ComponentRenderer>)] = &[
     (STACK, || Box::new(StackRenderer)),
     (SCREEN, || Box::new(ScreenRenderer)),

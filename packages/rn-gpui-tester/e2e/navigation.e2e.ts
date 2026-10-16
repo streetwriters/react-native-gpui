@@ -232,8 +232,6 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     } catch (error) {
       workletTimeout = String(error);
     }
-    // Core names no library, so a running worklet loop shows up as pending
-    // module work, the generic signal worklets reports its queue through.
     if (!/[1-9]\d* pending module work item/u.test(workletTimeout))
       throw new Error(`UI loop was not tracked: ${workletTimeout}`);
     await app.waitForIdle({ ignore: ['animations'] });

@@ -1,9 +1,3 @@
-//! React Native's `AlertManager`.
-//!
-//! The prompt is GPUI's own, so the desktop's native alert is what a user sees.
-//! The callback takes the index of the button that was pressed, which is how
-//! `Alert.prompt`'s JS finds the handler to call.
-
 use gpui::{App, AppContext};
 use rn_gpui_module::{ModuleThread, Value};
 
@@ -13,8 +7,6 @@ use crate::builtins::rn_gpui_specs::{
 
 struct AlertManagerModule;
 
-/// The labels JS asked for, in order. JS sends each button as a one-key object
-/// (`{ "0": "Cancel" }`); a plain string is accepted too.
 fn button_labels(buttons: Option<Vec<Value>>) -> Vec<String> {
     let Some(buttons) = buttons else {
         return Vec::new();
@@ -90,7 +82,6 @@ impl NativeGpuiAlertManagerSpec for AlertManagerModule {
     }
 }
 
-/// Registers the module.
 pub fn register() {
     rn_gpui_module::register(
         crate::builtins::rn_gpui_specs::native_gpui_alert_manager_module::<AlertManagerModule>(),

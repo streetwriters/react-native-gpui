@@ -28,9 +28,6 @@ export function coveredByFiles(relPath, files) {
 }
 
 describe('collectInputs', () => {
-  // A changed C++ input is expected while the platform is in development. The
-  // build must then compile from source and verify the change; it must not
-  // fail, and it must never link an archive built from other sources.
   test('uses the pinned prebuilt while the inputs match the pin', () => {
     const pin = JSON.parse(
       readFileSync(path.join(packageDir, 'prebuilt-binaries.json'), 'utf8'),
