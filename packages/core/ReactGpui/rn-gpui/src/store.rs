@@ -648,6 +648,7 @@ impl ViewStore {
                                             };
                                             previous.update(cx, |previous, cx| {
                                                 previous.transition = Some((exit, started_at));
+                                                previous.transition_forward = true;
                                                 cx.notify();
                                             });
                                         }
@@ -655,6 +656,7 @@ impl ViewStore {
                                 }
                                 child.update(cx, |child, cx| {
                                     child.transition = Some((enter, started_at));
+                                    child.transition_forward = true;
                                     cx.notify();
                                 });
                             }
@@ -853,6 +855,7 @@ impl ViewStore {
                                             crate::extensions::Transition { from, to, duration };
                                         screen.update(cx, |screen, cx| {
                                             screen.transition = Some((exit, Instant::now()));
+                                            screen.transition_forward = false;
                                             cx.notify();
                                         });
                                     }
@@ -1278,7 +1281,9 @@ pub(crate) fn start_component_transition(
     store.update(cx, |store, cx| {
         if let Some(node) = store.nodes.get(&tag).cloned() {
             node.update(cx, |node, cx| {
+                let forward = transition.to.opacity >= transition.from.opacity;
                 node.transition = Some((transition, Instant::now()));
+                node.transition_forward = forward;
                 cx.notify();
             });
         }
@@ -1310,16 +1315,6 @@ pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mu
             });
         }
     });
-}
-
-/// Records a transition frame for delivery once the store is not leased.
-pub(crate) fn queue_transition_frame(tag: i32, progress: f32) {
-    PENDING_TRANSITION_FRAMES.with(|frames| frames.borrow_mut().push((tag, progress)));
-}
-
-thread_local! {
-    static PENDING_TRANSITION_FRAMES: std::cell::RefCell<Vec<(i32, f32)>> =
-        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Records that a module wants a node kept attached after React Native removed

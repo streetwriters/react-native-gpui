@@ -267,6 +267,7 @@ pub struct RNNodeView {
     pub(crate) screen_stack_animation: String,
     pub(crate) screen_stack_presentation: String,
     pub(crate) transition: Option<(crate::extensions::Transition, Instant)>,
+    pub(crate) transition_forward: bool,
     transition_progress_sent: Option<(Instant, f32)>,
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
@@ -760,6 +761,7 @@ impl RNNodeView {
             screen_stack_animation: op.screen_stack_animation.clone(),
             screen_stack_presentation: op.screen_stack_presentation.clone(),
             transition: None,
+            transition_forward: false,
             transition_progress_sent: None,
             // `core-private:` a scroll view starts at the offset the module's
             // props carried, which React Native filled from its own state.
@@ -2153,12 +2155,38 @@ impl Render for RNNodeView {
             let sample = (started_at, progress);
             if self.transition_progress_sent != Some(sample) {
                 self.transition_progress_sent = Some(sample);
-                // A render-time hook cannot hold the store's entity (the store
-                // is leased while this runs), so the progress report is queued
-                // on the store and delivered by the caller that owns `cx`.
-                crate::store::queue_transition_frame(self.tag, progress);
+                // The store's entity is taken from the global, never its
+                // interior: this node is leased for painting, so reading a node
+                // through the store here would re-enter it.
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    let handle = crate::extensions::StoreHandle::new(store.0.downgrade());
+                    for observer in crate::extensions::store_observers() {
+                        observer.on_transition_frame(self.tag, progress, &handle, cx);
+                    }
+                }
             }
-            let _ = transition;
+            // Temporary until step 3: the module's own `on_transition_frame`
+            // takes this over, so the progress event keeps its exact shape for
+            // the in-core screens code that still consumes it.
+            if self.component == "RNSScreen" {
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    let store = store.0.read(cx);
+                    // Forward when the node is settling into its resting pose:
+                    // an exit moves away from it, including the short parallax
+                    // one the card underneath runs.
+                    let going_forward = self.transition_forward;
+                    store.host.dispatch_event(
+                        self.tag,
+                        "topTransitionProgress",
+                        &serde_json::json!({
+                            "progress": progress,
+                            "closing": if going_forward { 0 } else { 1 },
+                            "goingForward": if going_forward { 1 } else { 0 }
+                        }),
+                    );
+                    store.host.on_render();
+                }
+            }
         }
         if std::env::var_os("RN_GPUI_DEBUG_SCREENS").is_some() {
             if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
@@ -2881,6 +2909,8 @@ impl Render for RNNodeView {
                                     crate::extensions::Transition { from, to, duration },
                                     started_at,
                                 ));
+                                // A dismissal reports as closing.
+                                screen.transition_forward = false;
                                 cx.notify();
                             });
                             if let Some(previous) = previous_screen_tag
