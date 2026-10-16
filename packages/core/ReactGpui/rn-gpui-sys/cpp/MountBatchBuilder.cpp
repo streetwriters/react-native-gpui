@@ -310,6 +310,14 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
   const std::string componentName(op.component.c_str());
+  {
+    const auto& registered =
+        gpuiExtensionHooks().componentProps.find(componentName);
+    if (registered != gpuiExtensionHooks().componentProps.end() &&
+        shadowView.props) {
+      op.extension_props_json = registered->second(componentName, shadowView);
+    }
+  }
   if (gpuiModuleHooks().svgPropsJson && componentName.rfind("RNSVG", 0) == 0 &&
       shadowView.props) {
     op.svg_props_json =

@@ -49,12 +49,21 @@ std::atomic<uint64_t> workletFrameCount{0};
 } // namespace
 extern "C" void rn_gpui_set_worklets_active(bool active) noexcept {
   workletsRenderActive.store(active);
-  rngpui::rn_gpui_set_animated_active(active || nativeAnimationActive.load());
+  rngpui::updateFrameDemand();
 }
 
 extern "C" uint64_t rn_gpui_native_animations_active() noexcept {
   return nativeAnimationActive.load() ? 1 : 0;
 }
+
+namespace rngpui {
+void updateFrameDemand() {
+  rn_gpui_set_animated_active(
+      workletsRenderActive.load() || nativeAnimationActive.load() ||
+      anyFrameRequested());
+}
+} // namespace rngpui
+
 extern "C" uint64_t rn_gpui_worklet_frames_pending() noexcept {
   return workletFrameCount.load();
 }
@@ -686,7 +695,7 @@ GpuiHost::GpuiHost(
             animatedFrameCallback_ = std::move(callback);
           }
           nativeAnimationActive.store(true);
-          rn_gpui_set_animated_active(true);
+          rngpui::updateFrameDemand();
         },
         [this](bool /*isAsync*/) {
           if (gpuiDebugAnimationEnabled()) {
@@ -697,7 +706,7 @@ GpuiHost::GpuiHost(
             animatedFrameCallback_ = nullptr;
           }
           nativeAnimationActive.store(false);
-          rn_gpui_set_animated_active(workletsRenderActive.load());
+          rngpui::updateFrameDemand();
         });
   };
   config.beforeInstanceDestroy = [this] {
@@ -706,7 +715,7 @@ GpuiHost::GpuiHost(
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
     animatedFrameCallback_ = nullptr;
     nativeAnimationActive.store(false);
-    rn_gpui_set_animated_active(workletsRenderActive.load());
+    rngpui::updateFrameDemand();
   };
 
   // The LogBox surface. ReactHost hands this to
@@ -1154,6 +1163,15 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
             .count();
     frame(frameTimestampMs);
   }
+  {
+    const auto frameTimestampMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    for (const auto& frame : rngpui::gpuiExtensionHooks().frameCallbacks) {
+      frame(frameTimestampMs);
+    }
+  }
   std::function<void()> animationFrame;
   {
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
@@ -1190,8 +1208,6 @@ void GpuiHost::dispatch_pointer_event(
     std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
     processor = gesturePointerProcessor;
   }
-  if (!processor)
-    return;
 
   GpuiRawPointerEvent event;
   try {
@@ -1216,6 +1232,26 @@ void GpuiHost::dispatch_pointer_event(
     std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
     lastGesturePointerEvent = event;
   }
+
+  if (!gpuiExtensionHooks().pointerObservers.empty()) {
+    rngpui::extension::RawPointerEvent generic;
+    generic.targetChain = event.targetChain;
+    generic.x = event.x;
+    generic.y = event.y;
+    generic.phase = event.phase;
+    generic.timestamp = event.timestamp;
+    for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
+      for (const auto& recognized : observer(generic)) {
+        mountingManager_->dispatchEvent(
+            recognized.targetTag,
+            recognized.eventType,
+            folly::parseJson(recognized.payloadJson));
+      }
+    }
+  }
+
+  if (!processor)
+    return;
   for (const auto& recognized : processor(event)) {
     mountingManager_->dispatchEvent(
         recognized.targetTag,

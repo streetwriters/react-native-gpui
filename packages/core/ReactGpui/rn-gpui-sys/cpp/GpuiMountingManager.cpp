@@ -165,6 +165,15 @@ void GpuiMountingManager::executeMount(
         gpuiModuleHooks().safeArea.viewFrameChanged(
             surfaceId, mutation.newChildShadowView, views);
       }
+      if (mutation.type == ShadowViewMutation::Insert ||
+          (mutation.type == ShadowViewMutation::Update &&
+           mutation.oldChildShadowView.layoutMetrics.frame !=
+               mutation.newChildShadowView.layoutMetrics.frame)) {
+        for (const auto& observer : gpuiExtensionHooks().mountObservers) {
+          if (observer.onFrameChanged)
+            observer.onFrameChanged(surfaceId, mutation.newChildShadowView);
+        }
+      }
       auto isVisible = [](const ShadowView& shadowView) {
         auto props = std::dynamic_pointer_cast<const ModalHostViewProps>(
             shadowView.props);
@@ -232,6 +241,10 @@ void GpuiMountingManager::executeMount(
           gpuiModuleHooks().safeArea.viewDeleted(
               mutation.oldChildShadowView.tag, views);
         }
+        for (const auto& observer : gpuiExtensionHooks().mountObservers) {
+          if (observer.onDeleted)
+            observer.onDeleted(mutation.oldChildShadowView.tag);
+        }
         animatedViews_.erase(mutation.oldChildShadowView.tag);
         const auto tag = mutation.oldChildShadowView.tag;
         emitters_.erase(tag);
@@ -254,6 +267,10 @@ void GpuiMountingManager::executeMount(
   if (gpuiModuleHooks().safeArea.afterMount) {
     auto views = mountedViews();
     gpuiModuleHooks().safeArea.afterMount(views);
+  }
+  for (const auto& observer : gpuiExtensionHooks().mountObservers) {
+    if (observer.afterBatch)
+      observer.afterBatch();
   }
 
   if (onAfterMount_) {
@@ -381,6 +398,9 @@ void GpuiMountingManager::setWindowTopInset(float top) {
   if (gpuiModuleHooks().safeArea.windowTopInset) {
     auto views = mountedViews();
     gpuiModuleHooks().safeArea.windowTopInset(top, views);
+  }
+  for (const auto& observer : gpuiExtensionHooks().windowInsetsObservers) {
+    observer(top, 0.0f, 0.0f, 0.0f);
   }
 }
 

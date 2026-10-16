@@ -153,6 +153,9 @@ pub mod ffi {
         pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
+        /// JSON filled by a module through `registerComponentProps`; empty when
+        /// no module registered this component.
+        pub extension_props_json: String,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub image_uri: String,        // filled for "Image"
