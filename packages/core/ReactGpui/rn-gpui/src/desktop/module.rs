@@ -12,7 +12,7 @@ use rn_gpui_module::{FromValue, IntoValue, ModuleError, ModuleThread, Path, Valu
 
 use super::capabilities;
 use super::errors::{DesktopError, DesktopResult};
-use super::{app_menu, context_menu, menu_model, tray, windows};
+use super::{context_menu, menu_model, tray, windows};
 
 rn_gpui_module::include_specs!();
 
@@ -161,29 +161,6 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
             arch: std::env::consts::ARCH.to_string(),
             capabilities: self.capabilities()?,
         })
-    }
-
-    async fn menu_set_application_menu(
-        &self,
-        items: Option<Vec<Value>>,
-    ) -> Result<(), ModuleError> {
-        on_main_void(move |cx| {
-            app_menu::set_application_menu(cx, json_items(items).as_ref())?;
-            Ok(serde_json::Value::Null)
-        })
-        .await
-    }
-
-    async fn menu_update(&self, id: String, patch: MenuItemPatch) -> Result<(), ModuleError> {
-        on_main_void(move |cx| {
-            app_menu::update_item(cx, &id, &value_json(patch.into_value()))?;
-            Ok(serde_json::Value::Null)
-        })
-        .await
-    }
-
-    async fn menu_get(&self) -> Result<MenuDescription, ModuleError> {
-        on_main("menuGet", |cx| Ok(app_menu::menu_json(cx))).await
     }
 
     async fn context_menu_show(

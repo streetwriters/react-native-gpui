@@ -36,18 +36,6 @@ export type DesktopAppInfo = {
   capabilities: DesktopCapabilities;
 };
 
-export type MenuItemPatch = {
-  label?: string;
-  enabled?: boolean;
-  checked?: boolean;
-};
-
-export type MenuDescription = {
-  appName: string;
-  userSet: boolean;
-  items: Array<Object>;
-};
-
 export type ContextMenuOptions = {
   x?: number;
   y?: number;
@@ -65,11 +53,6 @@ export interface Spec extends TurboModule {
   appId(): string;
 
   appInfo(): Promise<DesktopAppInfo>;
-
-  /** `null` restores the default menu. */
-  menuSetApplicationMenu(items: Array<Object> | null): Promise<void>;
-  menuUpdate(id: string, patch: MenuItemPatch): Promise<void>;
-  menuGet(): Promise<MenuDescription>;
 
   contextMenuShow(
     items: Array<Object>,
