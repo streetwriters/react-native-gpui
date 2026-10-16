@@ -1121,6 +1121,7 @@ mod test_app_context_tests {
                 opacity: 1.0,
                 ..Default::default()
             },
+            extension_props_json: String::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             image_uri: String::new(),
