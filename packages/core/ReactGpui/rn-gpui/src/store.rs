@@ -62,6 +62,9 @@ pub struct ViewStore {
     /// The screen whose Escape dismissal already announced its lifecycle
     /// events. The following Fabric Remove should not announce it twice.
     pub native_dismiss_lifecycle_pending: Option<i32>,
+    /// Subtrees a module asked core to keep attached after React Native removed
+    /// them, keyed by the retained root's tag.
+    pub(crate) retained_subtrees: HashMap<i32, Vec<i32>>,
     log_mount_ops: bool,
     /// A dropped `Subscription` unsubscribes, so the store owns it.
     pub window_bounds_subscription: Option<Subscription>,
@@ -92,6 +95,7 @@ impl ViewStore {
             top_inset: 0.0,
             active_touch_target: None,
             native_dismiss_lifecycle_pending: None,
+            retained_subtrees: HashMap::new(),
             log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
             window_appearance_subscription: None,
@@ -238,7 +242,56 @@ impl ViewStore {
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
-        let handle = crate::extensions::StoreHandle::new(cx.entity());
+        let store = cx.entity().downgrade();
+        // Inside a batch the store is leased by this mutation, so a command is
+        // recorded and applied as the hook returns rather than re-entering.
+        let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
+            Default::default();
+        let handle = crate::extensions::StoreHandle::queued(store.clone(), commands.clone());
+        // A whole-batch view, so an observer can reason about the topology
+        // before any of it is applied. Retaining a subtree is only legal here.
+        let batch_view = crate::extensions::BatchView {
+            surface_id,
+            ops: batch
+                .ops
+                .iter()
+                .map(|op| crate::extensions::BatchOp {
+                    kind: match op.kind {
+                        MountKind::Create => crate::extensions::BatchOpKind::Create,
+                        MountKind::Delete => crate::extensions::BatchOpKind::Delete,
+                        MountKind::Insert => crate::extensions::BatchOpKind::Insert,
+                        MountKind::Remove => crate::extensions::BatchOpKind::Remove,
+                        MountKind::Update => crate::extensions::BatchOpKind::Update,
+                        _ => crate::extensions::BatchOpKind::Update,
+                    },
+                    tag: op.tag,
+                    parent_tag: op.parent_tag,
+                    index: op.index,
+                    component: op.component.clone(),
+                    props: std::sync::Arc::new(crate::extensions::parse_extension_props(
+                        &op.extension_props_json,
+                    )),
+                    props_changed: op.props_changed,
+                })
+                .collect(),
+        };
+        let observers = crate::extensions::store_observers();
+        if !observers.is_empty() {
+            for observer in &observers {
+                let tree = self.tree_view(cx);
+                observer.before_batch(&batch_view, &tree, &handle, cx);
+                self.apply_commands(&commands, cx);
+            }
+            // Retain requests are collected thread-locally: the hook holds a
+            // shared reference to the tree it is reading, so it cannot also
+            // take the exclusive borrow the mutation needs. `cx` may not be
+            // borrowed by a live `TreeView` here for the same reason.
+            let pending: Vec<i32> =
+                PENDING_RETAIN.with(|pending| pending.borrow_mut().drain().collect());
+            for tag in pending {
+                self.retain_subtree(tag, cx);
+            }
+        }
         // Mount batches are child-first: nested screen stacks are created and
         // inserted before their outer RNSScreen is attached to its parent.
         // Resolve the complete batch topology up front so only the outer stack
@@ -305,7 +358,7 @@ impl ViewStore {
             .map(|op| op.tag)
             .collect();
         let mut pop_plans = HashMap::new();
-        let mut retained_descendants = HashSet::new();
+        let mut retained_descendants = self.retained_descendant_set();
         for op in batch
             .ops
             .iter()
@@ -416,8 +469,9 @@ impl ViewStore {
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
                     self.nodes.insert(op.tag, node.clone());
                     let component_node = node.read(cx).component_node(cx);
-                    for observer in crate::extensions::store_observers() {
+                    for observer in &observers {
                         observer.on_mount(&component_node, &handle, cx);
+                        self.apply_commands(&commands, cx);
                     }
                 }
                 MountKind::Delete => {
@@ -433,8 +487,9 @@ impl ViewStore {
                         });
                     }
                     self.nodes.remove(&op.tag);
-                    for observer in crate::extensions::store_observers() {
+                    for observer in &observers {
                         observer.on_remove(op.tag, &handle, cx);
+                        self.apply_commands(&commands, cx);
                     }
                 }
                 MountKind::Insert => {
@@ -457,7 +512,7 @@ impl ViewStore {
                         &op.component,
                         &crate::extensions::parse_extension_props(&op.extension_props_json),
                     ) {
-                        child.update(cx, |child, _cx| child.parent = None);
+                        child.update(cx, |child, _cx| child.set_parent(None, None));
                         if portal.visible {
                             self.overlay_host.update(cx, |host, cx| {
                                 host.insert_portal(op.tag, child.clone());
@@ -489,6 +544,7 @@ impl ViewStore {
                             })
                             .flatten();
                         let parent_ref = parent.downgrade();
+                        let previous_children = parent.read(cx).child_tags();
                         let parent_frame_width = parent.read(cx).frame.w;
                         let child_frame_height = child.read(cx).frame.h;
                         let child_is_header_subview =
@@ -662,7 +718,24 @@ impl ViewStore {
                                 });
                             }
                         }
-                        child.update(cx, |child, _cx| child.parent = Some(parent_ref));
+                        child.update(cx, |child, _cx| {
+                            child.set_parent(Some(parent_ref), Some(op.parent_tag))
+                        });
+                        {
+                            let inserted = child.read(cx).component_node_shallow();
+                            for observer in &observers {
+                                let tree = self.tree_view(cx);
+                                observer.on_insert(
+                                    &inserted,
+                                    op.parent_tag,
+                                    &previous_children,
+                                    &tree,
+                                    &handle,
+                                    cx,
+                                );
+                                self.apply_commands(&commands, cx);
+                            }
+                        }
                     } else {
                         let root = self.root_for(surface_id, cx);
                         let (root_surface, before) = {
@@ -680,7 +753,7 @@ impl ViewStore {
                             root.insert_child(index, op.tag, child.clone());
                             cx.notify();
                         });
-                        child.update(cx, |child, _cx| child.parent = None);
+                        child.update(cx, |child, _cx| child.set_parent(None, None));
                     }
                 }
                 MountKind::Remove => {
@@ -698,6 +771,19 @@ impl ViewStore {
                             cx.notify();
                         });
                         continue;
+                    }
+                    for observer in &observers {
+                        let tree = self.tree_view(cx);
+                        observer.on_remove_child(
+                            op.tag,
+                            op.parent_tag,
+                            retained_descendants.contains(&op.tag)
+                                || self.retained_subtrees.contains_key(&op.tag),
+                            &tree,
+                            &handle,
+                            cx,
+                        );
+                        self.apply_commands(&commands, cx);
                     }
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
                         let mut retain_screen_for_transition = false;
@@ -837,8 +923,9 @@ impl ViewStore {
                             cx.notify();
                         });
                         let updated_node = node.read(cx).component_node(cx);
-                        for observer in crate::extensions::store_observers() {
+                        for observer in &observers {
                             observer.on_update(&updated_node, &previous_node, &handle, cx);
+                            self.apply_commands(&commands, cx);
                         }
                         if op.component == "RNSScreen" && op.props_changed {
                             let next_activity_state = node.read(cx).screen_activity_state;
@@ -933,6 +1020,11 @@ impl ViewStore {
                 );
             }
         }
+        for observer in &observers {
+            let tree = self.tree_view(cx);
+            observer.after_batch(&tree, &handle, cx);
+            self.apply_commands(&commands, cx);
+        }
         self.refresh_inherited(surface_id, cx);
         self.host.on_render();
         let hook = self.frame_hook.clone();
@@ -941,6 +1033,106 @@ impl ViewStore {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+    }
+
+    /// Applies what a hook recorded while the store was leased.
+    ///
+    /// Running these straight after the hook returns keeps a hook's effect
+    /// ordered with the batch it observed, without re-entering the store.
+    fn apply_commands(
+        &mut self,
+        commands: &std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>>,
+        cx: &mut Context<Self>,
+    ) {
+        let queued: Vec<crate::extensions::Command> = {
+            let mut queue = commands.lock().expect("command queue poisoned");
+            queue.drain(..).collect()
+        };
+        for command in queued {
+            match command {
+                crate::extensions::Command::Transition { tag, transition } => {
+                    start_component_transition_here(self, tag, transition, cx);
+                }
+                crate::extensions::Command::ClearTransition { tag } => {
+                    if let Some(node) = self.nodes.get(&tag).cloned() {
+                        node.update(cx, |node, cx| {
+                            node.screen_transition = None;
+                            cx.notify();
+                        });
+                    }
+                }
+                crate::extensions::Command::Dispatch { tag, name, payload } => {
+                    self.host.dispatch_event(tag, &name, &payload);
+                }
+                crate::extensions::Command::Wake => self.host.on_render(),
+            }
+        }
+    }
+
+    /// Records that `tag`'s subtree must stay attached after React Native
+    /// removes it, so an exit animation can paint it to its end.
+    pub(crate) fn retain_subtree(&mut self, tag: i32, cx: &App) {
+        let mut descendants = Vec::new();
+        let mut stack: Vec<i32> = self
+            .nodes
+            .get(&tag)
+            .map(|node| node.read(cx).child_tags())
+            .unwrap_or_default();
+        let mut seen = HashSet::new();
+        while let Some(child) = stack.pop() {
+            if !seen.insert(child) {
+                continue;
+            }
+            descendants.push(child);
+            if let Some(node) = self.nodes.get(&child) {
+                stack.extend(node.read(cx).child_tags());
+            }
+        }
+        self.retained_subtrees.insert(tag, descendants);
+    }
+
+    /// Every tag a `retain_subtree` call kept attached for this batch.
+    pub(crate) fn retained_descendant_set(&self) -> HashSet<i32> {
+        self.retained_subtrees
+            .values()
+            .flat_map(|tags| tags.iter().copied())
+            .collect()
+    }
+
+    /// A read-only view of this surface's mounted tree.
+    pub(crate) fn tree_view<'a>(&'a self, cx: &App) -> crate::extensions::TreeView<'a> {
+        self.tree_view_at(None, cx)
+    }
+
+    /// A read-only view built around a node core is already holding.
+    ///
+    /// Queries about `current.0` are answered from the reference, never by
+    /// reading its entity, because the caller holds a lease on it.
+    pub(crate) fn tree_view_at<'a>(
+        &'a self,
+        current: Option<(i32, &'a RNNodeView)>,
+        cx: &App,
+    ) -> crate::extensions::TreeView<'a> {
+        let root_tags = self
+            .roots
+            .values()
+            .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
+            .collect();
+        crate::extensions::TreeView {
+            nodes: &self.nodes,
+            root_tags,
+            top_inset: self.top_inset,
+            animations_enabled: !cx.reduce_motion()
+                && !crate::animation_policy::animations_disabled(),
+            current: current.map(|(tag, node)| (tag, node)),
+            retained: &self.retained_subtrees,
+            app: cx as *const App,
+        }
+    }
+
+    /// Whether node transitions may run right now.
+    pub(crate) fn animations_enabled(&self, cx: &App) -> bool {
+        !cx.reduce_motion() && !crate::animation_policy::animations_disabled()
     }
 
     /// Writes a node only when its value changed, and notifies it only when a
@@ -960,8 +1152,26 @@ impl ViewStore {
         // The pass runs while this entity is being updated, so `origin_frame`
         // cannot read the store back out of the global; hand it the value.
         let top_inset = self.top_inset;
+        let root_tags = self
+            .roots
+            .values()
+            .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
+            .collect();
+        let animations_enabled =
+            !cx.reduce_motion() && !crate::animation_policy::animations_disabled();
+        let tree = crate::extensions::TreeView {
+            nodes: &self.nodes,
+            root_tags,
+            top_inset,
+            animations_enabled,
+            current: None,
+            retained: &self.retained_subtrees,
+            // `Context<T>` derefs to `App`; the view keeps a raw pointer so a
+            // hook can hold it and `&mut App` at the same time (see the field).
+            app: &**cx as *const gpui::App,
+        };
         for root in roots {
-            refresh_inherited_tree(root, top_inset, None, cx);
+            refresh_inherited_tree(root, top_inset, None, &tree, cx);
         }
     }
 }
@@ -970,11 +1180,12 @@ fn refresh_inherited_tree(
     node: Entity<RNNodeView>,
     top_inset: f32,
     parent: Option<(Inherited, InheritInput)>,
+    tree: &crate::extensions::TreeView,
     cx: &mut Context<ViewStore>,
 ) {
     let own = {
         let view = node.read(cx);
-        view.inherit_input(top_inset)
+        view.inherit_input(top_inset, tree)
     };
     let inherited = inherit(parent.as_ref().map(|(parent, input)| (parent, input)), &own);
     let (children, modal_children, changed, render_affecting) = {
@@ -996,8 +1207,10 @@ fn refresh_inherited_tree(
         )
     };
     if changed {
+        let hides_self = own.hides_subtree;
         node.update(cx, |view, cx| {
             view.inherited = inherited.clone();
+            view.inherited.hides_subtree_self = hides_self;
             if render_affecting {
                 cx.notify();
             }
@@ -1011,6 +1224,7 @@ fn refresh_inherited_tree(
             child,
             top_inset,
             Some((inherited.clone(), parent_input)),
+            tree,
             cx,
         );
     }
@@ -1077,6 +1291,103 @@ pub(crate) fn start_component_transition(
     });
 }
 
+/// The body of `start_component_transition`, against an already-leased store.
+fn start_component_transition_here(
+    store: &mut ViewStore,
+    tag: i32,
+    transition: crate::extensions::Transition,
+    cx: &mut Context<ViewStore>,
+) {
+    use crate::node_view::{ScreenTransition, ScreenTransitionMode, ScreenTransitionRole};
+    let mode = match transition.kind {
+        crate::extensions::TransitionKind::SlideFromRight => ScreenTransitionMode::SlideFromRight,
+        crate::extensions::TransitionKind::SlideFromLeft => ScreenTransitionMode::SlideFromLeft,
+        crate::extensions::TransitionKind::Fade => ScreenTransitionMode::Fade,
+    };
+    if let Some(node) = store.nodes.get(&tag).cloned() {
+        node.update(cx, |node, cx| {
+            node.screen_transition = Some(ScreenTransition {
+                mode,
+                role: ScreenTransitionRole::Enter,
+                started_at: std::time::Instant::now(),
+                duration: std::time::Duration::from_millis(transition.duration_ms),
+                distance_factor: transition.distance_factor,
+            });
+            cx.notify();
+        });
+    }
+}
+
+/// Removes a component's transition and repaints it.
+pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
+    store.update(cx, |store, cx| {
+        if let Some(node) = store.nodes.get(&tag).cloned() {
+            node.update(cx, |node, cx| {
+                node.screen_transition = None;
+                cx.notify();
+            });
+        }
+    });
+}
+
+/// Records that a module wants a node kept attached after React Native removed
+/// it. The entry is forgotten when the subtree is released.
+pub(crate) fn request_retain_subtree(tag: i32) {
+    PENDING_RETAIN.with(|pending| pending.borrow_mut().insert(tag));
+}
+
+thread_local! {
+    static PENDING_RETAIN: std::cell::RefCell<std::collections::HashSet<i32>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Detaches a retained subtree and re-evaluates inheritance for its surface.
+pub(crate) fn release_retained_subtree(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
+    store.update(cx, |store, cx| {
+        let Some(descendants) = store.retained_subtrees.remove(&tag) else {
+            return;
+        };
+        let _ = descendants;
+        if let Some(parent) = store
+            .nodes
+            .get(&tag)
+            .and_then(|node| node.read(cx).parent.clone())
+            .and_then(|parent| parent.upgrade())
+        {
+            parent.update(cx, |parent, cx| {
+                parent.remove_child(tag);
+                cx.notify();
+            });
+        }
+        let surface_id = store
+            .nodes
+            .get(&tag)
+            .map(|node| node.read(cx).surface_id)
+            .unwrap_or(rn_gpui_sys::ALL_SURFACES);
+        log::info!("[extensions] retained subtree released tag={tag}");
+        store.refresh_inherited(surface_id, cx);
+    });
+}
+
+/// Runs `f` on the store after `duration`, from a background timer.
+pub(crate) fn after_on_store(
+    store: Entity<ViewStore>,
+    duration: std::time::Duration,
+    cx: &mut gpui::App,
+    f: impl FnOnce(&mut gpui::App) + 'static,
+) {
+    let mut f = Some(f);
+    store.update(cx, |_: &mut ViewStore, cx: &mut Context<ViewStore>| {
+        cx.spawn(async move |_store, cx| {
+            cx.background_executor().timer(duration).await;
+            if let Some(f) = f.take() {
+                let _ = cx.update(|cx| f(cx));
+            }
+        })
+        .detach();
+    });
+}
+
 /// A `StoreHandle` for a throwaway store, used by the extension tests.
 #[cfg(test)]
 pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensions::StoreHandle {
@@ -1092,7 +1403,7 @@ pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensi
     let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
     cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
     let _ = root;
-    crate::extensions::StoreHandle::new(store)
+    crate::extensions::StoreHandle::new(store.downgrade())
 }
 
 fn screen_lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
