@@ -351,31 +351,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.paragraph = flattenParagraph(shadowView);
     }
     if (op.component == "TextInput") {
-      if (auto props = std::dynamic_pointer_cast<const TextInputProps>(
-              shadowView.props)) {
-        op.text_input_text = props->text;
-        op.text_input_placeholder = props->placeholder;
-        op.text_input_selection_color = argb(props->selectionColor);
-        op.text_input_multiline = props->multiline;
-        op.text_input_editable = props->editable && !props->readOnly;
-        op.text_input_secure = props->traits.secureTextEntry;
-        op.text_input_most_recent_event_count = props->mostRecentEventCount;
-        op.text_input_selection_set = props->selection.has_value();
-        if (props->selection) {
-          op.text_input_selection_start = props->selection->start;
-          op.text_input_selection_end = props->selection->end;
-        } else {
-          int32_t cursor = 0;
-          for (const auto byte : op.text_input_text) {
-            const auto value = static_cast<unsigned char>(byte);
-            if ((value & 0xC0) != 0x80) {
-              cursor += value >= 0xF0 ? 2 : 1;
-            }
-          }
-          op.text_input_selection_start = cursor;
-          op.text_input_selection_end = cursor;
-        }
-      }
       if (auto state =
               std::dynamic_pointer_cast<const ConcreteState<TextInputState>>(
                   shadowView.state)) {

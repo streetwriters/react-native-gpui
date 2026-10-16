@@ -779,3 +779,83 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
         None
     }
 }
+
+/// Applies a mount op's text state to the node.
+///
+/// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
+/// React Native echoes the text and the selection back on every commit, so the
+/// op's values are only taken when they are newer than what the user typed;
+/// otherwise a keystroke would be undone by the next commit.
+pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp) {
+    let next = TextInputProps::from_json(&op.extension_props_json);
+    if should_apply_text_update(this.input_event_count, next.event_count)
+        && next.text != this.input_text
+    {
+        this.input_text = next.text.clone();
+        this.input_marked = None;
+    }
+    this.input_placeholder = next.placeholder;
+    this.input_selection_color = next.selection_color;
+    this.input_multiline = next.multiline;
+    this.input_editable = next.editable;
+    this.input_selection = reconcile_selection(
+        &this.input_text,
+        this.input_selection.clone(),
+        next.selection,
+        false,
+    );
+}
+
+/// The `TextInput` fields an op carries, read out of the module's own JSON.
+///
+/// `core-private:` the node stores these as its own fields, so the module both
+/// produces and consumes them. Before the move core read them from `MountOp`.
+pub(crate) struct TextInputProps {
+    pub text: String,
+    pub placeholder: String,
+    pub selection_color: u32,
+    pub multiline: bool,
+    pub editable: bool,
+    pub secure: bool,
+    pub event_count: i32,
+    pub selection: Option<Range<usize>>,
+}
+
+impl TextInputProps {
+    pub(crate) fn from_json(json: &str) -> Self {
+        let value: serde_json::Value =
+            serde_json::from_str(json).unwrap_or(serde_json::Value::Null);
+        let string = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let flag = |key: &str, default: bool| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(default)
+        };
+        let number = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default()
+        };
+        let selection = flag("selectionSet", false).then(|| {
+            number("selectionStart").max(0) as usize..number("selectionEnd").max(0) as usize
+        });
+        Self {
+            text: string("text"),
+            placeholder: string("placeholder"),
+            selection_color: number("selectionColor") as u32,
+            multiline: flag("multiline", false),
+            editable: flag("editable", true),
+            secure: flag("secure", false),
+            event_count: number("eventCount") as i32,
+            selection,
+        }
+    }
+}

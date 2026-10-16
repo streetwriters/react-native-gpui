@@ -7,7 +7,6 @@ pub mod extensions;
 pub(crate) mod frame;
 pub(crate) mod host;
 pub(crate) mod image_loader;
-pub(crate) mod input;
 #[cfg(target_os = "macos")]
 pub mod native_view;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]

@@ -615,6 +615,7 @@ add_library(rn_gpui_core STATIC
   builtins/image/GpuiImageProps.cpp
   builtins/modal/GpuiModalProps.cpp
   builtins/scrollview/GpuiScrollViewProps.cpp
+  builtins/textinput/GpuiTextInputProps.cpp
   GpuiModules.cpp)
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
@@ -838,7 +839,7 @@ list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
 
 # Core's own built-in modules register their renderers through the same
 # generated installer, so a built-in is wired exactly like a package module.
-list(APPEND RN_GPUI_MODULE_INSTALLERS image modal scroll_view)
+list(APPEND RN_GPUI_MODULE_INSTALLERS image modal scroll_view text_input)
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.
