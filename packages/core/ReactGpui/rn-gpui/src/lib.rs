@@ -2,6 +2,7 @@ pub(crate) mod accessibility;
 pub(crate) mod animation_policy;
 pub(crate) mod desktop;
 pub(crate) mod events;
+pub mod extensions;
 pub(crate) mod frame;
 pub(crate) mod host;
 pub(crate) mod image_loader;

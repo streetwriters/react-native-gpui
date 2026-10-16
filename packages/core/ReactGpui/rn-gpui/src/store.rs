@@ -410,7 +410,11 @@ impl ViewStore {
                         );
                     }
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
-                    self.nodes.insert(op.tag, node);
+                    self.nodes.insert(op.tag, node.clone());
+                    let component_node = node.read(cx).component_node(cx);
+                    for observer in crate::extensions::store_observers(cx) {
+                        observer.on_mount(&component_node, cx);
+                    }
                 }
                 MountKind::Delete => {
                     if matches!(
@@ -423,6 +427,9 @@ impl ViewStore {
                         });
                     }
                     self.nodes.remove(&op.tag);
+                    for observer in crate::extensions::store_observers(cx) {
+                        observer.on_remove(op.tag, cx);
+                    }
                 }
                 MountKind::Insert => {
                     let Some(child) = self.nodes.get(&op.tag).cloned() else {
@@ -816,10 +823,15 @@ impl ViewStore {
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let previous_activity_state = node.read(cx).screen_activity_state;
+                        let previous_node = node.read(cx).component_node(cx);
                         node.update(cx, |node, cx| {
                             node.update_from_op(op);
                             cx.notify();
                         });
+                        let updated_node = node.read(cx).component_node(cx);
+                        for observer in crate::extensions::store_observers(cx) {
+                            observer.on_update(&updated_node, &previous_node, cx);
+                        }
                         if op.component == "RNSScreen" && op.props_changed {
                             let next_activity_state = node.read(cx).screen_activity_state;
                             for event in screen_lifecycle_events(
