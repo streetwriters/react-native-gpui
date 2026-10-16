@@ -14,7 +14,7 @@ rust::String renderIcon(
     const std::string& glyph,
     double fontSize,
     double color) {
-  return rngpui::rn_gpui_render_font_icon(
+  return rngpui::rn_gpui_render_text_image(
       family,
       glyph,
       fontSize,

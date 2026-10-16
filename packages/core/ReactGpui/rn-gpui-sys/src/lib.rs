@@ -240,9 +240,12 @@ pub mod ffi {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
         fn rn_gpui_load_font(family: &str, uri: &str) -> bool;
-        fn rn_gpui_render_font_icon(
+        /// Renders text to a PNG the caller can paint. Core owns it because it
+        /// needs the loaded font data and the text system, which live here; a
+        /// package that draws glyphs is one user of it.
+        fn rn_gpui_render_text_image(
             family: &str,
-            glyph: &str,
+            text: &str,
             font_size: f64,
             color: u32,
         ) -> String;
@@ -488,9 +491,9 @@ pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
 pub static IMAGE_CACHE_QUERY_HANDLER: OnceLock<ImageCacheQueryHandler> = OnceLock::new();
 pub type FontLoadHandler = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
-pub type FontIconHandler = Box<dyn Fn(&str, &str, f64, u32) -> String + Send + Sync>;
+pub type TextImageHandler = Box<dyn Fn(&str, &str, f64, u32) -> String + Send + Sync>;
 pub static FONT_LOAD_HANDLER: OnceLock<FontLoadHandler> = OnceLock::new();
-pub static FONT_ICON_HANDLER: OnceLock<FontIconHandler> = OnceLock::new();
+pub static TEXT_IMAGE_HANDLER: OnceLock<TextImageHandler> = OnceLock::new();
 
 fn rn_gpui_load_font(family: &str, uri: &str) -> bool {
     FONT_LOAD_HANDLER
@@ -498,10 +501,12 @@ fn rn_gpui_load_font(family: &str, uri: &str) -> bool {
         .is_some_and(|handler| handler(family, uri))
 }
 
-fn rn_gpui_render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> String {
-    FONT_ICON_HANDLER.get().map_or_else(String::new, |handler| {
-        handler(family, glyph, font_size, color)
-    })
+fn rn_gpui_render_text_image(family: &str, text: &str, font_size: f64, color: u32) -> String {
+    TEXT_IMAGE_HANDLER
+        .get()
+        .map_or_else(String::new, |handler| {
+            handler(family, text, font_size, color)
+        })
 }
 
 fn rn_gpui_load_image(uri: String, request_id: u64) {

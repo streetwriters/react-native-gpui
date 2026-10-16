@@ -185,7 +185,7 @@ pub(crate) fn install_fonts(cx: &mut App) {
         };
         install_custom_font(&text_system, family, &bytes)
     }));
-    let _ = rn_gpui_sys::FONT_ICON_HANDLER.set(Box::new(render_font_icon));
+    let _ = rn_gpui_sys::TEXT_IMAGE_HANDLER.set(Box::new(render_text_image));
 }
 
 fn load_font_source(uri: &str) -> Option<Vec<u8>> {
@@ -258,7 +258,7 @@ fn install_custom_font(text_system: &gpui::TextSystem, alias: &str, bytes: &[u8]
     true
 }
 
-fn render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> String {
+fn render_text_image(family: &str, text: &str, font_size: f64, color: u32) -> String {
     use base64::Engine;
     use image::ImageEncoder;
 
@@ -280,7 +280,7 @@ fn render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> St
         log::warn!("could not parse icon font {family}");
         return String::new();
     };
-    let Some(glyph) = glyph.chars().next() else {
+    let Some(glyph) = text.chars().next() else {
         return String::new();
     };
     let (metrics, coverage) = font.rasterize(glyph, font_size as f32);
