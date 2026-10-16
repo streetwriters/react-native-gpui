@@ -61,8 +61,8 @@ if(MSVC)
   add_compile_definitions(BOOST_NO_RTTI)
   add_compile_definitions(BOOST_NO_TYPEID)
   # <windows.h> pulls in wingdi.h, whose BLACK and TRANSPARENT macros collide
-  # with the names bundled libraries use for colour constants (reanimated's
-  # InterpolatorRegistry defines `const std::array<uint8_t, 4> BLACK`), and
+  # with the names bundled libraries use for colour constants (one defines
+  # `const std::array<uint8_t, 4> BLACK` in its interpolator registry), and
   # WIN32_LEAN_AND_MEAN keeps the rest of the Win32 surface out of reach.
   add_compile_definitions(WIN32_LEAN_AND_MEAN)
   add_compile_definitions(NOGDI)
