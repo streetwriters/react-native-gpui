@@ -12,7 +12,7 @@ use rn_gpui_module::{FromValue, IntoValue, ModuleError, ModuleThread, Path, Valu
 
 use super::capabilities;
 use super::errors::{DesktopError, DesktopResult};
-use super::{context_menu, menu_model, tray, windows};
+use super::{menu_model, tray, windows};
 
 rn_gpui_module::include_specs!();
 
@@ -113,20 +113,6 @@ async fn on_main_void(
     result.map(|_| ()).map_err(module_error)
 }
 
-/// Runs a command that answers later, such as a context menu, and awaits its
-/// value.
-async fn on_main_deferred<T: FromValue>(
-    method: &'static str,
-    command: impl FnOnce(&mut App, context_menu::Reply) + Send + 'static,
-) -> Result<T, ModuleError> {
-    let (sender, receiver) = oneshot::channel();
-    super::post_to_main(Box::new(move |cx| command(cx, sender)));
-    let result = receiver
-        .await
-        .map_err(|_| ModuleError::new("the command was dismissed"))?;
-    typed(method, result).map_err(module_error)
-}
-
 impl NativeGpuiDesktopSpec for GpuiDesktopModule {
     /// Every command runs where the GPUI app context is.
     const THREAD: ModuleThread = ModuleThread::Main;
@@ -161,29 +147,6 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
             arch: std::env::consts::ARCH.to_string(),
             capabilities: self.capabilities()?,
         })
-    }
-
-    async fn context_menu_show(
-        &self,
-        items: Vec<Value>,
-        options: ContextMenuOptions,
-    ) -> Result<ContextMenuSelection, ModuleError> {
-        let items = serde_json::Value::Array(items.into_iter().map(value_json).collect());
-        on_main_deferred("contextMenuShow", move |cx, reply| {
-            let responder = context_menu::Responder::desktop(reply);
-            let rejected = responder.clone();
-            if let Err(error) = context_menu::show(
-                cx,
-                items,
-                options.x,
-                options.y,
-                options.window_id.map(window_key),
-                responder,
-            ) {
-                rejected.reject(error);
-            }
-        })
-        .await
     }
 
     fn add_listener(&self, _event_name: String) {}

@@ -36,16 +36,6 @@ export type DesktopAppInfo = {
   capabilities: DesktopCapabilities;
 };
 
-export type ContextMenuOptions = {
-  x?: number;
-  y?: number;
-  windowId?: Int32;
-};
-
-export type ContextMenuSelection = {
-  id: string | null;
-};
-
 export interface Spec extends TurboModule {
   /** Read synchronously; these never touch the GPUI main thread. */
   capabilities(): DesktopCapabilities;
@@ -53,11 +43,6 @@ export interface Spec extends TurboModule {
   appId(): string;
 
   appInfo(): Promise<DesktopAppInfo>;
-
-  contextMenuShow(
-    items: Array<Object>,
-    options: ContextMenuOptions,
-  ): Promise<ContextMenuSelection>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;
