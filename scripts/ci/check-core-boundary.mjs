@@ -181,9 +181,6 @@ function isAllowed(token, line) {
   const parts = token.split('_');
   if (parts.length > 1 && parts.every(part => ALLOWED.has(part.toLowerCase())))
     return true;
-  // A core identifier may name an allowed thing and describe it further, as
-  // `screenshot_frame_is_clipped_to_viewport` does: only the leading segment
-  // decides, and only when an underscore separates it from the rest.
   const [head] = parts;
   if (parts.length > 1 && ALLOWED.has(head.toLowerCase())) {
     const narrow = ALLOWED.get(head.toLowerCase());

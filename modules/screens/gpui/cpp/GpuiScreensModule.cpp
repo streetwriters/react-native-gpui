@@ -1,6 +1,3 @@
-// The C++ half of the screens module. It registers the props of the three
-// components the Rust side needs, through the public extension API: core names
-// no screens component and stores nothing screens-specific in a mount op.
 
 #include "GpuiModules.h"
 

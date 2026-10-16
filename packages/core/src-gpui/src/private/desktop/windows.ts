@@ -11,7 +11,6 @@ import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiWindows from '../specs/NativeGpuiWindows';
 import { DesktopError, toDesktopError } from './index';
 
-/** The module, or an error when the app has no desktop shell. */
 function windowsModule() {
   if (NativeGpuiWindows == null) {
     throw new DesktopError(

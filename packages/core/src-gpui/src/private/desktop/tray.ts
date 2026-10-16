@@ -20,7 +20,6 @@ import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiTray from '../specs/NativeGpuiTray';
 import { DesktopError, toDesktopError } from './index';
 
-/** The module, or an error when the app has no desktop shell. */
 function trayModule() {
   if (NativeGpuiTray == null) {
     throw new DesktopError(
