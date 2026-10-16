@@ -98,8 +98,8 @@ using namespace facebook::react;
 
 namespace rngpui {
 namespace {
-std::mutex gesturePointerEventMutex;
-extension::RawPointerEvent lastGesturePointerEvent{};
+std::mutex pointerEventMutex;
+extension::RawPointerEvent lastPointerEvent{};
 } // namespace
 
 namespace {
@@ -911,15 +911,15 @@ void GpuiHost::on_render() const {
 }
 
 namespace {
-void dispatchGestureTime(
+void dispatchPointerTick(
     GpuiMountingManager& mountingManager,
     double eventTimestampMs) {
   if (gpuiExtensionHooks().pointerObservers.empty())
     return;
   extension::RawPointerEvent tick;
   {
-    std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
-    tick = lastGesturePointerEvent;
+    std::lock_guard<std::mutex> lock(pointerEventMutex);
+    tick = lastPointerEvent;
   }
   tick.phase = 4; // native time tick for duration-based recognizers
   tick.timestamp = eventTimestampMs;
@@ -934,18 +934,18 @@ void dispatchGestureTime(
 }
 } // namespace
 
-void GpuiHost::on_gesture_frame(double eventTimestampMs) const {
+void GpuiHost::on_pointer_frame(double eventTimestampMs) const {
   std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
   if (reactHost_->isReloading())
     return;
-  dispatchGestureTime(*mountingManager_, eventTimestampMs);
+  dispatchPointerTick(*mountingManager_, eventTimestampMs);
 }
 
 void GpuiHost::on_frame(double eventTimestampMs) const {
   std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
   if (reactHost_->isReloading())
     return;
-  dispatchGestureTime(*mountingManager_, eventTimestampMs);
+  dispatchPointerTick(*mountingManager_, eventTimestampMs);
   on_render();
   if (const auto& frame = rngpui::gpuiModuleHooks().frame) {
     const auto frameTimestampMs =
@@ -1013,8 +1013,8 @@ void GpuiHost::dispatch_pointer_event(
   event.phase = phase;
   event.timestamp = timestamp;
   {
-    std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
-    lastGesturePointerEvent = event;
+    std::lock_guard<std::mutex> lock(pointerEventMutex);
+    lastPointerEvent = event;
   }
 
   for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
