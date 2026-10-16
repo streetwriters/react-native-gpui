@@ -44,22 +44,42 @@ const LIBRARY_PATTERNS = [
   { name: 'font_icon', pattern: /font_icon/iu },
 ];
 
-/// React Native's own vocabulary. A hit whose identifier (or one underscore
-/// separated part of it) is one of these is not a library reference.
+/// React Native's own vocabulary, plus a few platform and image-format names
+/// that merely share a spelling with a library. A hit passes only when the
+/// whole identifier is one of these, so a compound the library hook owns
+/// (`svgPropsJson`, `screensOp`, `svg_document`) still fails.
+///
+/// `line` optionally narrows an entry to lines that are clearly the other
+/// meaning, so the library's own code keeps failing.
 export const ALLOW_LIST = [
   // RN's accessibility role for Android's DrawerLayout container.
-  'drawerlayout',
+  { name: 'drawerlayout' },
   // RN's touch event type (Libraries/Types/CoreEventTypes).
-  'GestureResponderEvent',
-  // RN's built-in SafeAreaView component (ReactCommon .../safeareaview).
-  'SafeAreaView',
-  // RN's ModalHostViewState::screenSize, which core's modal descriptor mirrors;
-  // the `screens` pattern matches the tail of the camelCase name.
-  'screenSize',
-  // Core's own visual-capture debug flags (RN_GPUI_SCREENSHOT), not screens.
-  'screenshot',
-  'screenshots',
+  { name: 'GestureResponderEvent' },
+  // RN's built-in SafeAreaView component, which the mounting manager mounts.
+  { name: 'SafeAreaView' },
+  // The same component's directory and CMake target names in ReactCommon.
+  { name: 'safeareaview' },
+  { name: 'rrc_safeareaview' },
+  // RN's ModalHostViewState::screenSize, which core's modal descriptor reads.
+  { name: 'screenSize' },
+  // AppKit's NSScreen accessors: the Cocoa spelling of "all displays", not the
+  // screens library, whose own `[screens]` logs and `live_screens` keep failing.
+  { name: 'screens', line: /msg_send!|NSScreen/u },
+  // Core's own window-capture flags and their RN_GPUI_* env spellings.
+  { name: 'screenshot' },
+  { name: 'screenshots' },
+  { name: 'RN_GPUI_SCREENSHOT' },
+  { name: 'RN_GPUI_SCREENSHOT_DELAY_MS' },
+  { name: 'RN_GPUI_SCREENSHOTS' },
+  // The SVG image format core can paint: the MIME string and GPUI's enum.
+  { name: 'svg', line: /["']svg["']|svg\+xml|ImageFormat::Svg/u },
+  { name: 'Svg', line: /ImageFormat::Svg/u },
 ];
+
+const ALLOWED = new Map(
+  ALLOW_LIST.map(({ name, line }) => [name.toLowerCase(), line ?? null]),
+);
 
 /// The marker a direct use of core internals carries. The reason is whatever
 /// follows the colon, so a reviewer sees why the exception exists.
@@ -186,12 +206,19 @@ function lineHits(line, matchers) {
   return kept;
 }
 
-function isAllowed(token) {
+/// An exact identifier match: a bare `svg` in the image MIME is the format,
+/// while `svg_props_json` and `svg_document` are the library plumbing. An
+/// entry with a `line` pattern applies only on a line that also matches it.
+function isAllowed(token, line) {
   const lower = token.toLowerCase();
-  return ALLOW_LIST.some(name => {
-    const allowed = name.toLowerCase();
-    return lower === allowed || lower.split('_').includes(allowed);
-  });
+  if (ALLOWED.has(lower)) {
+    const narrow = ALLOWED.get(lower);
+    return narrow === null || narrow.test(line);
+  }
+  const parts = token.split('_');
+  return (
+    parts.length > 1 && parts.every(part => ALLOWED.has(part.toLowerCase()))
+  );
 }
 
 /// Scans one checkout. `root` holds `packages/core/` and `modules/`, so a
@@ -210,7 +237,7 @@ export function scanCoreBoundary({ root = repoRoot } = {}) {
     const lines = text.split('\n');
     for (const [index, line] of lines.entries()) {
       for (const hit of lineHits(line, matchers)) {
-        if (isAllowed(hit.token)) continue;
+        if (isAllowed(hit.token, line)) continue;
         hits.push({
           file: rel,
           line: index + 1,

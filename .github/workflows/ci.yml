@@ -129,6 +129,15 @@ jobs:
       - name: Format check
         run: node scripts/ci/step.mjs --job lint --name "format" -- npm run format:check
 
+      # Reports the libraries core still names, and the `// core-private:` uses.
+      # It fails the job once the phase's moves are done; until then the list is
+      # evidence of what is left, so the step does not gate the build yet.
+      - name: Core boundary
+        continue-on-error: true
+        run: |
+          node scripts/ci/step.mjs --job lint --name "core boundary" -- \
+            node scripts/ci/check-core-boundary.mjs
+
       # JUnit is what the report reads for failing test names, and the default
       # reporter is what a human reads in the log. `npm run test:unit` keeps the
       # pretest hook that builds @react-native-gpui/testing.
@@ -540,6 +549,34 @@ jobs:
           fi
           find ci-out -maxdepth 2 -type d | sort
 
+      # The two lists C8 adds: what core still names, and the C++ inputs this
+      # PR changes. Both are evidence for the reviewer, so a failure to read
+      # them must not lose the report.
+      - name: Collect the boundary and input lists
+        continue-on-error: true
+        run: |
+          node scripts/ci/check-core-boundary.mjs --json > ci-out/core-boundary.json || true
+          node - <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          let changed = [];
+          try {
+            changed = execFileSync(
+              'git',
+              ['diff', '--name-only', 'origin/main...HEAD'],
+              { encoding: 'utf8' },
+            )
+              .split('\n')
+              .filter(Boolean);
+          } catch {
+            changed = [];
+          }
+          fs.writeFileSync(
+            'ci-out/changed-cpp-inputs.json',
+            JSON.stringify(changed, null, 2),
+          );
+          NODE
+
       - name: Write report metadata
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -551,23 +588,26 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           fs.mkdirSync('ci-out', { recursive: true });
-          fs.writeFileSync(
-            'ci-out/meta.json',
-            JSON.stringify(
-              {
-                sha: process.env.GITHUB_SHA,
-                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-                repo: process.env.GITHUB_REPOSITORY,
-                pr: process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : undefined,
-                localHash: process.env.LOCAL_HASH,
-                pinnedHash: process.env.PINNED_HASH,
-                cppChanged: process.env.CPP_CHANGED === 'true',
-                runtime: process.env.RUNTIME,
-              },
-              null,
-              2,
-            ),
-          );
+          const readJson = file => {
+            try {
+              return JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch {
+              return undefined;
+            }
+          };
+          // Only the files that actually feed the prebuilt archive:
+          // `collectInputs()` is the single source of truth for those paths.
+          const { collectInputs } = require('./packages/core/scripts/prebuilt-inputs.mjs');
+          const inputPaths = new Set(collectInputs().map(entry => entry.path));
+          const prefix = 'packages/core/';
+          const changedCppInputs = () => {
+            const changed = readJson('ci-out/changed-cpp-inputs.json');
+            if (!Array.isArray(changed)) return undefined;
+            return changed
+              .filter(file => file.startsWith(prefix))
+              .map(file => file.slice(prefix.length))
+              .filter(rel => inputPaths.has(rel));
+          };
           NODE
 
       - name: Render the report

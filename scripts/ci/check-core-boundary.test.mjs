@@ -108,15 +108,38 @@ describe('the allow list', () => {
     const root = fixture({
       [`${CORE}/capture.rs`]:
         'let screenshot = env("RN_GPUI_SCREENSHOT");\n' +
-        'let screenshots = env("RN_GPUI_SCREENSHOTS");\n',
+        'let screenshots = env("RN_GPUI_SCREENSHOTS");\n' +
+        'let screens = NSScreen::screens();\n',
     });
     expect(scanCoreBoundary({ root }).hits).toEqual([]);
   });
 
+  test('an allowed name does not hide the library API around it', () => {
+    const root = fixture({
+      [`${CORE}/props.rs`]:
+        'let json = svg_props_json(&view);\n' +
+        'let document = svg_document(&view);\n' +
+        'gpuiModuleHooks().screensOp(shadowView, op);\n' +
+        'log::info!("[screens] nested stack tags={nested:?}");\n',
+    });
+    expect(scanCoreBoundary({ root }).hits.map(hit => hit.match)).toEqual([
+      'svg',
+      'svg',
+      'screens',
+      'screens',
+    ]);
+  });
+
   test('names why each entry is not a library reference', () => {
-    expect(ALLOW_LIST).toEqual(expect.arrayContaining(['drawerlayout']));
     expect(ALLOW_LIST).toEqual(
-      expect.arrayContaining(['GestureResponderEvent']),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'drawerlayout' }),
+      ]),
+    );
+    expect(ALLOW_LIST).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'GestureResponderEvent' }),
+      ]),
     );
   });
 });
