@@ -610,6 +610,9 @@ add_library(rn_gpui_core STATIC
   GpuiNodeAddons.cpp
   GpuiTurboModule.cpp
   MountBatchBuilder.cpp
+  # A built-in component's props extraction. It registers by component name, so
+  # the mounting manager names no component.
+  builtins/image/GpuiImageProps.cpp
   GpuiModules.cpp)
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
@@ -830,6 +833,10 @@ get_property(RN_GPUI_JS_ENGINE_REGISTRATIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_R
 list(APPEND RN_GPUI_MODULE_SOURCES ${RN_GPUI_JS_ENGINE_SOURCES})
 list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS ${RN_GPUI_JS_ENGINE_INCLUDE_DIRS})
 list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
+
+# Core's own built-in modules register their renderers through the same
+# generated installer, so a built-in is wired exactly like a package module.
+list(APPEND RN_GPUI_MODULE_INSTALLERS image)
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.

@@ -1438,6 +1438,14 @@ fn serve_socket(listener: TcpListener, token: String, tx: Sender<Request>) {
     }
 }
 
+/// The JSON a module filled for this node, or an empty object.
+fn extension_props(node: &RNNodeView) -> Value {
+    if node.extension_props_json().is_empty() {
+        return Value::Object(serde_json::Map::new());
+    }
+    serde_json::from_str(node.extension_props_json()).unwrap_or(Value::Null)
+}
+
 fn paragraph_text(node: &RNNodeView) -> String {
     if node.component == "TextInput" {
         return node.input_text.clone();
@@ -1747,8 +1755,8 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
             "right": node.view.border_widths.right, "bottom": node.view.border_widths.bottom},
         "borderStyles": node.view.border_styles,
         "outlineWidth": node.view.outline_width,
-        "imageUri": node.image_uri,
-        "imageResizeMode": node.image_resize_mode,
+        "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
+        "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
         "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),

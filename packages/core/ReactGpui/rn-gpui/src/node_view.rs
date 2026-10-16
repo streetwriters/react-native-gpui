@@ -156,8 +156,6 @@ pub struct RNNodeView {
     pub(crate) screen_stack_presentation: String,
     pub(crate) screen_transition: Option<ScreenTransition>,
     screen_progress_emitted: Option<(Instant, f32)>,
-    pub image_uri: Option<String>,
-    pub image_resize_mode: u8,
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
     scroll_position: Rc<Cell<Point<f32>>>,
@@ -496,6 +494,15 @@ impl RNNodeView {
         if self.component == "Paragraph" && self.view.accessibility_role.is_empty() {
             return Some(Role::Label);
         }
+        // `Image` is the platform's own component, so its default role is
+        // accessibility policy rather than painting, and stays here.
+        if self.component == "Image" && self.view.accessibility_role.is_empty() {
+            return if self.view.accessible || !self.view.accessibility_label.is_empty() {
+                Some(Role::Image)
+            } else {
+                None
+            };
+        }
         if self.component == "TextInput" && self.view.accessibility_role.is_empty() {
             return Some(if self.input_secure_text {
                 Role::PasswordInput
@@ -504,13 +511,6 @@ impl RNNodeView {
             } else {
                 Role::TextInput
             });
-        }
-        if self.component == "Image" && self.view.accessibility_role.is_empty() {
-            return if self.view.accessible || !self.view.accessibility_label.is_empty() {
-                Some(Role::Image)
-            } else {
-                None
-            };
         }
         if self.view.accessibility_role.is_empty() {
             let traits = self.view.accessibility_traits;
@@ -631,8 +631,6 @@ impl RNNodeView {
             screen_stack_presentation: op.screen_stack_presentation.clone(),
             screen_transition: None,
             screen_progress_emitted: None,
-            image_uri: (!op.image_uri.is_empty()).then(|| op.image_uri.clone()),
-            image_resize_mode: op.image_resize_mode,
             scroll_position: Rc::new(Cell::new(point(op.scroll_x, op.scroll_y))),
             content_size: (op.content_width, op.content_height),
             scroll_horizontal: op.scroll_horizontal,
@@ -765,12 +763,6 @@ impl RNNodeView {
             self.scroll_horizontal = op.scroll_horizontal;
             self.scroll_enabled = op.scroll_enabled;
             self.scroll_indicator_enabled = op.scroll_indicator;
-        }
-        if !op.image_uri.is_empty() {
-            self.image_uri = Some(op.image_uri.clone());
-            self.image_resize_mode = op.image_resize_mode;
-        } else if op.props_changed && self.component == "Image" {
-            self.image_uri = None;
         }
         if op.props_changed {
             self.extension_props_json = op.extension_props_json.clone();
@@ -2116,6 +2108,9 @@ impl Render for RNNodeView {
                 }
             }
         }
+        // An `Image` with no label, role or `accessible` is decorative, so it
+        // stays out of the accessibility tree. That is policy for a core
+        // component, not painting, so it stays here.
         let hidden_image = self.component == "Image"
             && self.view.accessibility_label.is_empty()
             && self.view.accessibility_role.is_empty()
@@ -2141,6 +2136,7 @@ impl Render for RNNodeView {
             let node = builder.parent_node();
             if accessibility.accessibility_important == 3
                 || accessibility.accessibility_hidden
+                || hidden_image
                 || hidden_image
                 || hidden_by_accessible_ancestor
                 || hidden_by_hidden_ancestor
@@ -3376,31 +3372,6 @@ impl Render for RNNodeView {
                 ),
             );
         }
-        if self.component == "Image" {
-            if let Some(uri) = &self.image_uri {
-                let fit = match self.image_resize_mode {
-                    1 => gpui::ObjectFit::Contain,
-                    2 => gpui::ObjectFit::Cover,
-                    3 => gpui::ObjectFit::ScaleDown,
-                    _ => gpui::ObjectFit::Fill,
-                };
-                let source = if let Some(data) = uri.strip_prefix("data:") {
-                    decode_data_image(data).map(|image| gpui::img(std::sync::Arc::new(image)))
-                } else if let Some(path) = crate::image_loader::file_uri_path(uri) {
-                    Some(gpui::img(path))
-                } else {
-                    // A dev-server asset URL carries a literal `../..`, which
-                    // Metro's URL parsing collapses before its `/assets/` route
-                    // matches; encode it or the image 404s.
-                    Some(gpui::img(
-                        crate::image_loader::dev_server_asset_url(uri).into_owned(),
-                    ))
-                };
-                if let Some(source) = source {
-                    element = element.child(source.size_full().object_fit(fit));
-                }
-            }
-        }
         if is_scroll {
             let (content_width, content_height) = self.content_size;
             let mut content = div()
@@ -3817,6 +3788,11 @@ impl RNNodeView {
     }
 
     /// The read-only view of this component handed to a module's renderer or
+    /// The JSON a module filled for this component, unparsed.
+    pub(crate) fn extension_props_json(&self) -> &str {
+        &self.extension_props_json
+    }
+
     /// observer. `extension_props_json` is parsed here, once per call.
     pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
         let props = if self.extension_props_json.is_empty() {
@@ -3897,7 +3873,7 @@ impl Scroller {
     }
 }
 
-fn decode_data_image(data: &str) -> Option<gpui::Image> {
+pub(crate) fn decode_data_image(data: &str) -> Option<gpui::Image> {
     use base64::Engine;
     let (metadata, payload) = data.split_once(',')?;
     if !metadata.ends_with(";base64") {

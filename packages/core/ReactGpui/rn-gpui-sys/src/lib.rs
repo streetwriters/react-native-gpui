@@ -157,8 +157,6 @@ pub mod ffi {
         pub extension_props_json: String,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
-        pub image_uri: String,        // filled for "Image"
-        pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
         pub text_input_text: String,
         pub text_input_placeholder: String,
         pub text_input_selection_color: u32,

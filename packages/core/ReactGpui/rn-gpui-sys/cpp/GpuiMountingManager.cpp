@@ -133,8 +133,8 @@ std::string describeOp(const MountOp& op) {
   if (op.has_paragraph) {
     out += " fragments=" + std::to_string(op.paragraph.fragments.size());
   }
-  if (!op.image_uri.empty()) {
-    out += " uri=" + std::string(op.image_uri);
+  if (!op.extension_props_json.empty()) {
+    out += " props=" + std::string(op.extension_props_json);
   }
   if (op.component == "ScrollView") {
     out += " offset=(" + std::to_string(op.scroll_x) + "," +
