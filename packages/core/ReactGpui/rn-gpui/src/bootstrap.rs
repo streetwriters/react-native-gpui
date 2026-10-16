@@ -905,7 +905,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             { 0.0 }
         }).unwrap_or(0.0);
         host.set_window_top_inset(top_inset);
-        log::info!("[safe-area] native window top inset={top_inset}");
+        log::info!("[window-inset] native window top inset={top_inset}");
         let appearance = match cx.window_appearance() {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
             _ => "light",
@@ -1332,7 +1332,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         crate::native_view::set_probe_titlebar_transparent(window, transparent);
                         window.bounds_changed(cx);
                         window.refresh();
-                        log::info!("[safe-area] probe titlebar transparent={transparent}");
+                        log::info!("[window-inset] probe titlebar transparent={transparent}");
                     });
                 }
             }).detach();
@@ -1399,7 +1399,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             store.refresh_inherited(1, cx);
                         });
                         log::info!(
-                            "[safe-area] native window top inset={top} fullscreen={}",
+                            "[window-inset] native window top inset={top} fullscreen={}",
                             window.is_fullscreen()
                         );
                     }

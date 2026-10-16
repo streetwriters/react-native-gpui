@@ -48,35 +48,6 @@ using GpuiScreensOpFn = std::function<
 // frame and header fields are set.
 using GpuiScreensFrameFn = std::function<void(MountOp& op)>;
 
-// The mounting manager's per-view state, handed to the safe-area hooks. The
-// references point at GpuiMountingManager members. The emittersMutex must be
-// held while viewFrameChanged and viewDeleted run; the other hooks take it
-// themselves.
-struct GpuiMountedViews {
-  std::mutex& emittersMutex;
-  std::unordered_map<facebook::react::Tag, facebook::react::SharedEventEmitter>&
-      emitters;
-  std::unordered_map<facebook::react::Tag, facebook::react::ShadowView>&
-      animatedViews;
-  std::unordered_map<facebook::react::Tag, std::array<float, 4>>&
-      safeAreaFrames;
-};
-
-struct GpuiSafeAreaHooks {
-  // Insert, or Update with a changed frame, of a mounted view.
-  std::function<void(
-      facebook::react::SurfaceId surfaceId,
-      const facebook::react::ShadowView& view,
-      GpuiMountedViews& views)>
-      viewFrameChanged;
-  // Delete of a mounted view.
-  std::function<void(facebook::react::Tag tag, GpuiMountedViews& views)>
-      viewDeleted;
-  // After a batch is queued: applies the current window top inset.
-  std::function<void(GpuiMountedViews& views)> afterMount;
-  std::function<void(float top, GpuiMountedViews& views)> windowTopInset;
-};
-
 // Extra TurboModules (the active JS engine's, Rust string modules). Asked in
 // registration order, after the app's own provider and before the core
 // modules; each returns nullptr when the module is not provided there.
@@ -85,8 +56,7 @@ using GpuiTurboModuleFn =
         const std::string& name,
         const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker)>;
 
-// Called once per frame with a steady-clock timestamp in ms
-// (@react-native-gpui/worklets).
+// Called once per frame with a steady-clock timestamp in ms.
 using GpuiFrameFn = std::function<void(double timestampMs)>;
 
 // The generic extension API. A module registers by name or as an observer, so
@@ -141,7 +111,6 @@ using PointerObserverFn =
 struct GpuiModuleHooks {
   GpuiScreensOpFn screensOp;
   GpuiScreensFrameFn screensFrame;
-  GpuiSafeAreaHooks safeArea;
   std::vector<GpuiTurboModuleFn> turboModules;
   GpuiFrameFn frame;
 };
