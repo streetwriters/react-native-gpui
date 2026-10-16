@@ -1,0 +1,29 @@
+{
+  "job": "native-ubuntu-24.04",
+  "steps": [
+    {
+      "name": "Rust tests",
+      "slug": "rust-tests",
+      "exitCode": 0,
+      "durationMs": 130000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/rust-tests.log",
+      "excerpt": null
+    },
+    {
+      "name": "Build tester",
+      "slug": "build-tester",
+      "exitCode": 0,
+      "durationMs": 700000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/build-tester.log",
+      "excerpt": null
+    },
+    {
+      "name": "E2E",
+      "slug": "e2e",
+      "exitCode": 1,
+      "durationMs": 215000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/e2e.log",
+      "excerpt": " \u276f e2e/gestures.test.ts (12 tests | 1 failed) 2100ms\n   \u2713 opens the app\n   \u00d7 pans the responder 120ms\n     \u2192 AssertionError: expected 2 to be 3\n FAIL  e2e/gestures.test.ts > pan responder > reports the final translation\nAssertionError: expected 2 to be 3\n    at e2e/gestures.test.ts:88:5\n"
+    }
+  ]
+}

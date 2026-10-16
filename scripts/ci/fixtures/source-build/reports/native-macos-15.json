@@ -1,0 +1,13 @@
+{
+  "job": "native-macos-15",
+  "steps": [
+    {
+      "name": "Build tester",
+      "slug": "build-tester",
+      "exitCode": 0,
+      "durationMs": 800000,
+      "logPath": "ci-out/logs/native-macos-15/build-tester.log",
+      "excerpt": null
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "job": "clean-install-macos-15",
+  "steps": [
+    {
+      "name": "Clean install and smoke",
+      "slug": "clean-install-and-smoke",
+      "exitCode": 0,
+      "durationMs": 540000,
+      "logPath": "ci-out/logs/clean-install-macos-15/clean-install-and-smoke.log",
+      "excerpt": null
+    }
+  ]
+}

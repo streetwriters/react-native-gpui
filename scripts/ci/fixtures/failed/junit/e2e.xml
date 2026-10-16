@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="vitest" tests="12" failures="1">
+  <testsuite name="e2e/gestures.test.ts" tests="12" failures="1">
+    <testcase classname="e2e/gestures.test.ts" name="opens the app" time="0.4"/>
+    <testcase classname="e2e/gestures.test.ts" name="pan responder &gt; reports the final translation" time="0.12">
+      <failure message="AssertionError: expected 2 to be 3&#10;    at e2e/gestures.test.ts:88:5">AssertionError: expected 2 to be 3</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,29 @@
+{
+  "job": "native-macos-15",
+  "steps": [
+    {
+      "name": "Rust tests",
+      "slug": "rust-tests",
+      "exitCode": 0,
+      "durationMs": 120000,
+      "logPath": "ci-out/logs/native-macos-15/rust-tests.log",
+      "excerpt": null
+    },
+    {
+      "name": "Build tester",
+      "slug": "build-tester",
+      "exitCode": 0,
+      "durationMs": 300000,
+      "logPath": "ci-out/logs/native-macos-15/build-tester.log",
+      "excerpt": null
+    },
+    {
+      "name": "E2E",
+      "slug": "e2e",
+      "exitCode": 0,
+      "durationMs": 210000,
+      "logPath": "ci-out/logs/native-macos-15/e2e.log",
+      "excerpt": null
+    }
+  ]
+}

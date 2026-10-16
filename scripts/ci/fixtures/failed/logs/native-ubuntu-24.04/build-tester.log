@@ -1,0 +1,2 @@
+warning: rn-gpui-sys@0.1.0: rn-gpui-sys: no prebuilt runtime (local C++ inputs hash to 6c36c5be5b780521b3427010da6a6850eb3224cb04471588c500bf1a5ff23aa2, the pinned prebuilt was built from ed646e355e0d63df0a7ca2ff5c923dc9a306dab2a69e512701ad365f926c3898); building from source
+    Finished `dev` profile in 11m 40s

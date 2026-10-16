@@ -1,0 +1,583 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_screenshots:
+        description: Write new e2e screenshot baselines and upload them instead of comparing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Full debug info dominates link time and the size of the Cargo cache; line
+  # tables keep panic backtraces readable. OPT_LEVEL stays 0, so the C++ build
+  # type (Debug) does not change.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    outputs:
+      local_hash: ${{ steps.hashes.outputs.local_hash }}
+      pinned_hash: ${{ steps.hashes.outputs.pinned_hash }}
+      cpp_changed: ${{ steps.hashes.outputs.cpp_changed }}
+      native_changed: ${{ steps.changes.outputs.native }}
+      docs_only: ${{ steps.changes.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The hash covers node_modules/react-native/package.json, so the
+      # dependencies have to be installed before it is computed: without them
+      # collectInputs() skips that file, the local hash stops matching the pin,
+      # and every PR looks like it changed the C++ inputs.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Compute the prebuilt input hashes
+        id: hashes
+        run: |
+          set -euo pipefail
+          local_hash="$(node packages/core/scripts/prebuilt-inputs.mjs | awk '{print $1}')"
+          pinned_hash="$(node -p "require('./packages/core/prebuilt-binaries.json').inputHash")"
+          echo "local_hash=$local_hash" >> "$GITHUB_OUTPUT"
+          echo "pinned_hash=$pinned_hash" >> "$GITHUB_OUTPUT"
+          if [ "$local_hash" = "$pinned_hash" ]; then
+            echo "cpp_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cpp_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "| input | hash |"
+            echo "| --- | --- |"
+            echo "| local | \`${local_hash:0:12}\` |"
+            echo "| pinned | \`${pinned_hash:0:12}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Detect what changed
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            native:
+              - '**/*.rs'
+              - '**/*.c'
+              - '**/*.cc'
+              - '**/*.cpp'
+              - '**/*.h'
+              - '**/*.hpp'
+              - '**/*.m'
+              - '**/*.mm'
+              - '**/CMakeLists.txt'
+              - '**/*.cmake'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - '**/build.rs'
+              - 'packages/core/prebuilt-binaries.json'
+            docs_only:
+              - '**/*.md'
+              - 'docs/**'
+              - '.local/**'
+
+  lint:
+    name: lint
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: node scripts/ci/step.mjs --job lint --name "install" -- npm ci --ignore-scripts
+
+      # Several CLI tests create their fixture projects under `.local/`, which
+      # is gitignored and therefore absent from a fresh checkout. Creating it
+      # here keeps the tests' repo-relative paths meaningful; the tests should
+      # really create it themselves, which is reported as a product bug rather
+      # than fixed in this phase.
+      - name: Create the gitignored fixture directory
+        run: mkdir -p .local
+
+      - name: Lint
+        run: node scripts/ci/step.mjs --job lint --name "lint" -- npm run lint
+
+      - name: Format check
+        run: node scripts/ci/step.mjs --job lint --name "format" -- npm run format:check
+
+      # JUnit is what the report reads for failing test names, and the default
+      # reporter is what a human reads in the log. `npm run test:unit` keeps the
+      # pretest hook that builds @react-native-gpui/testing.
+      - name: Unit tests
+        run: |
+          node scripts/ci/step.mjs --job lint --name "unit tests" -- \
+            npm run test:unit -- --reporter=default --reporter=junit \
+            --outputFile=ci-out/junit/unit.xml
+
+      # The wrapper appends to ci-out/, which the report job reads.
+      # Every job uploads ci-out/ as its single artifact root. upload-artifact
+      # strips to the common parent of its paths, so a second root would nest
+      # ci-out/ one level down and the report job could not merge the reports.
+      - name: Upload the report inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-lint-ubuntu-24.04
+          path: ci-out/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  native:
+    name: native (${{ matrix.os }})
+    needs: [plan]
+    if: needs.plan.outputs.docs_only != 'true'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin-arm64
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: windows-2022
+            platform: win32-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # The -dev packages are what the CLI's preflight and the crates' build
+          # scripts look for through pkg-config: the CLI checks xkbcommon,
+          # xkbcommon-x11 and xcb, and GPUI's Linux backend pulls in
+          # yeslogic-fontconfig-sys (fontconfig) and freetype-sys (freetype2).
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build ccache nasm pkg-config \
+            xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            libfontconfig-dev libfreetype-dev libwayland-dev \
+            libxkbcommon-x11-0
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja ccache nasm
+
+      - name: Install Windows build tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y ninja ccache nasm strawberryperl
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $instance = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $instance) { throw "no Visual Studio with the x64 C++ tools" }
+          $vcvars = Join-Path $instance 'VC\Auxiliary\Build\vcvarsall.bat'
+          cmd /c "`"$vcvars`" x64 >nul 2>&1 && set" | ForEach-Object {
+            $split = $_.IndexOf('=')
+            if ($split -gt 0) {
+              $name = $_.Substring(0, $split)
+              $value = $_.Substring($split + 1)
+              Set-Item -Path "env:$name" -Value $value
+              Add-Content -Path $env:GITHUB_ENV -Value "$name=$value" -Encoding utf8
+            }
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          $link = (Get-Command link.exe -ErrorAction Stop).Source
+          if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
+          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8
+
+      - name: Install dependencies
+        run: node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "install" -- npm ci --ignore-scripts
+
+      # `--ignore-scripts` is deliberate, so a package that ships no prebuilt
+      # binary never gets one. `farmhash` publishes only sources — its tarball
+      # has no `build/` and no `.node` — and one e2e test loads it through the
+      # Node-API loader, so its own `install` script (`prebuild-install ||
+      # node-gyp rebuild`) has to run. `microtime` and `@node-rs/crc32` ship
+      # prebuilds and need nothing.
+      - name: Build the native fixture addons
+        run: node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "fixture addons" -- npm rebuild farmhash
+
+      # Hermes binaries are gitignored: the default mode downloads this host's
+      # zip from the pinned release, and the link needs the shared library.
+      - name: Fetch Hermes binaries
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "fetch hermes" -- \
+            node packages/hermes/scripts/fetch-binaries.mjs --platform ${{ matrix.platform }}
+
+      - name: Cache the prebuilt runtime
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rn-gpui-prebuilt
+          key: prebuilt-${{ matrix.platform }}-${{ needs.plan.outputs.pinned_hash }}
+
+      # Both `test:rust` and the tester build write to the repo-root `target/`
+      # (`.cargo/config.toml`). Save on failure too, or a branch whose runs keep
+      # failing never gets a warm cache.
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/core/ReactGpui -> ../../../target
+            packages/rn-gpui-tester/desktop -> ../../../target
+          cache-on-failure: true
+
+      - name: Cache native dependencies
+        if: needs.plan.outputs.cpp_changed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rn-gpui-native-deps
+          key: native-deps-${{ matrix.platform }}-${{ needs.plan.outputs.local_hash }}
+          restore-keys: |
+            native-deps-${{ matrix.platform }}-
+
+      # The autolinked C++ (`desktop/autolink/`) is gitignored and is normally
+      # produced as a side effect of `run-desktop`. `test:rust` reads it, so on
+      # a fresh checkout it has to be generated first or the rn-gpui-sys test
+      # binary links without an app provider and fails on
+      # rn_gpui_register_app_components.
+      - name: Generate the autolink files
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "autolink" -- \
+            npm run autolink
+
+      - name: Rust tests
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          # Cargo reads `.cargo/config.toml` from the current directory upwards,
+          # and run-rust-tests.mjs runs from the repository root, so the tester's
+          # own `[env]` block does not apply here. Without these, build.rs falls
+          # back to `<repo root>/desktop/autolink/`, which does not exist, CMake
+          # never configures an app provider, and the rn-gpui-sys test binary
+          # fails to link rn_gpui_register_app_components and
+          # rn_gpui_accessibility_active on every OS. run-rust-tests.mjs sets
+          # them itself on Windows only, which is reported as a product bug.
+          RN_GPUI_AUTOLINK_MANIFEST: ${{ github.workspace }}/packages/rn-gpui-tester/desktop/autolink/autolink.json
+          RN_GPUI_AUTOLINK_CMAKE: ${{ github.workspace }}/packages/rn-gpui-tester/desktop/autolink/autolink.cmake
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- \
+            npm run test:rust
+      - name: Build the tester
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "build tester" -- \
+            npm run desktop -- --features test-driver --no-launch
+
+      # The Windows runner's screen is 1024x768, so a 1024x768 window plus its
+      # title bar does not fit and Windows shrinks it (the navigation e2e saw a
+      # 1024x749 viewport). Linux gets 1280x900 from xvfb below.
+      - name: Enlarge the Windows screen
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          } catch {
+            Write-Warning "Set-DisplayResolution failed: $_"
+          }
+          Get-CimInstance Win32_VideoController |
+            Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
+
+      # B0 answered this for all three runners: each one renders a first frame,
+      # so e2e runs everywhere rather than being skipped.
+      - name: e2e
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
+          # The runners are the reference environment for the Linux and Windows
+          # baselines: dispatch with update_screenshots, then commit the
+          # uploaded images.
+          RN_GPUI_UPDATE_SNAPSHOTS: ${{ inputs.update_screenshots && '1' || '' }}
+        run: |
+          # run-e2e.mjs forwards unknown arguments to vitest, so the JUnit
+          # reporter is added here rather than by changing what runs.
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a -s "-screen 0 1280x900x24" \
+              node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
+              npm run test:e2e -- --reporter=default --reporter=junit \
+              --outputFile=ci-out/junit/e2e.xml
+          else
+            node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
+              npm run test:e2e -- --reporter=default --reporter=junit \
+              --outputFile=ci-out/junit/e2e.xml
+          fi
+
+      - name: Upload the new screenshot baselines
+        if: always() && inputs.update_screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: packages/rn-gpui-tester/e2e/__screenshots__/gpui
+          retention-days: 7
+
+      # Screenshots, minidumps and core files are collected into ci-out/ rather
+      # than uploaded from their own roots: upload-artifact strips to the common
+      # parent of its paths, so a second root would nest ci-out/ one level down
+      # and the report job would not find the reports.
+      - name: Collect the failure evidence
+        if: failure()
+        run: |
+          set -uo pipefail
+          mkdir -p ci-out/evidence
+          find packages/rn-gpui-tester/e2e/__screenshots__ -type f \
+            -exec cp -R {} ci-out/evidence/ \; 2>/dev/null || true
+          # A failed screenshot match writes its actual and diff images here.
+          cp -R .local/test-artifacts ci-out/evidence/test-artifacts 2>/dev/null || true
+          find . -type f \( -name '*.dmp' -o -name '*.crash' \) \
+            -not -path './node_modules/*' -not -path './target/*' \
+            -exec cp -R {} ci-out/evidence/ \; 2>/dev/null || true
+          du -sh ci-out/evidence 2>/dev/null || true
+
+      - name: Upload the report inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-native-${{ matrix.os }}
+          path: ci-out/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # A consumer's view of the packages: a fresh app outside the repository,
+  # installed from tarballs, built in release and run once. The repo-local
+  # native job cannot catch a package that only works because the checkout is
+  # next to it.
+  clean-install:
+    name: clean-install (${{ matrix.os }})
+    needs: [plan]
+    if: needs.plan.outputs.docs_only != 'true'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin-arm64
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: windows-2022
+            platform: win32-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build ccache nasm pkg-config \
+            xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            libfontconfig-dev libfreetype-dev libwayland-dev \
+            libxkbcommon-x11-0
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja ccache nasm
+
+      - name: Install Windows build tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y ninja ccache nasm strawberryperl
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $instance = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $instance) { throw "no Visual Studio with the x64 C++ tools" }
+          $vcvars = Join-Path $instance 'VC\Auxiliary\Build\vcvarsall.bat'
+          cmd /c "`"$vcvars`" x64 >nul 2>&1 && set" | ForEach-Object {
+            $split = $_.IndexOf('=')
+            if ($split -gt 0) {
+              $name = $_.Substring(0, $split)
+              $value = $_.Substring($split + 1)
+              Set-Item -Path "env:$name" -Value $value
+              Add-Content -Path $env:GITHUB_ENV -Value "$name=$value" -Encoding utf8
+            }
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          $link = (Get-Command link.exe -ErrorAction Stop).Source
+          if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
+          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8
+
+      # The app is scaffolded and installed outside the repository, so only the
+      # CLI's own dependencies are needed here.
+      - name: Install dependencies
+        run: node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "install" -- npm ci --ignore-scripts
+
+      # Through the wrapper so a failure here is captured with the others
+      # instead of only in the job log.
+      - name: Pack every package
+        run: |
+          mkdir -p ci-out
+          node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "pack" -- \
+            node scripts/ci/pack-all.mjs --out ci-out/tarballs --print-to ci-out/packed.json
+
+      - name: Cache the prebuilt runtime
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rn-gpui-prebuilt
+          key: prebuilt-${{ matrix.platform }}-${{ needs.plan.outputs.pinned_hash }}
+
+      # clean-install.mjs deletes the app folder before it creates the app, so
+      # the app builds into a target directory beside it (CARGO_TARGET_DIR below)
+      # that survives the delete and the cache restore.
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/rn-gpui-clean-install/SmokeApp/desktop -> ../../../rn-gpui-clean-target
+          cache-on-failure: true
+
+      # The app's packages live under node_modules, where `auto` uses the pin
+      # without a hash check, so a PR that changes the C++ inputs would test a
+      # stale prebuilt. Force a source build in exactly that case.
+      - name: Clean install and smoke
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          RN_GPUI_BUILD_FROM_SOURCE: ${{ needs.plan.outputs.cpp_changed == 'true' && '1' || '' }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/rn-gpui-clean-target
+        run: |
+          node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "clean install" -- \
+            node scripts/ci/clean-install.mjs --packed ci-out/packed.json \
+            --dir "$RUNNER_TEMP/rn-gpui-clean-install"
+
+      - name: Upload the report inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-clean-install-${{ matrix.os }}
+          path: ci-out/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report:
+    name: report
+    needs: [plan, lint, native, clean-install]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download every job's report
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: logs-*
+          path: ci-out/downloaded
+          merge-multiple: true
+
+      # report.mjs is invoked with its own default root (ci-out), so the
+      # reports from every job have to end up there. The download above lands
+      # them under ci-out/downloaded; merge them one level up.
+      - name: Collect the reports
+        run: |
+          set -euo pipefail
+          if [ -d ci-out/downloaded ]; then
+            cp -R ci-out/downloaded/. ci-out/ 2>/dev/null || true
+          fi
+          find ci-out -maxdepth 2 -type d | sort
+
+      - name: Write report metadata
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          LOCAL_HASH: ${{ needs.plan.outputs.local_hash }}
+          PINNED_HASH: ${{ needs.plan.outputs.pinned_hash }}
+          CPP_CHANGED: ${{ needs.plan.outputs.cpp_changed }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          fs.mkdirSync('ci-out', { recursive: true });
+          fs.writeFileSync(
+            'ci-out/meta.json',
+            JSON.stringify(
+              {
+                sha: process.env.GITHUB_SHA,
+                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+                repo: process.env.GITHUB_REPOSITORY,
+                pr: process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : undefined,
+                localHash: process.env.LOCAL_HASH,
+                pinnedHash: process.env.PINNED_HASH,
+                cppChanged: process.env.CPP_CHANGED === 'true',
+              },
+              null,
+              2,
+            ),
+          );
+          NODE
+
+      - name: Render the report
+        run: node scripts/ci/report.mjs ci-out > ci-out/ci-report.md
+
+      - name: Job summary
+        if: always()
+        run: cat ci-out/ci-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # meta.json travels with the report: ci-comment.yml reads the PR number
+      # from it, and the comment workflow deliberately never checks out or runs
+      # PR code.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report
+          path: |
+            ci-out/ci-report.md
+            ci-out/meta.json
+          retention-days: 14
+          if-no-files-found: ignore
