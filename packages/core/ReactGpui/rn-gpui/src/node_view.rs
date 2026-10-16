@@ -3504,7 +3504,22 @@ impl Render for RNNodeView {
                         .children(ordered_children.iter().map(|(_, child)| child.clone())),
                 );
             } else {
-                element = element.children(ordered_children.iter().map(|(_, child)| child.clone()));
+                // A module may contribute this component's own content while
+                // core keeps the styled box and its accessibility: that is how
+                // a built-in component moves onto the extension API without
+                // losing the properties every View has.
+                let content =
+                    crate::extensions::component_renderer(&self.component).and_then(|renderer| {
+                        let node = self.component_node(cx);
+                        renderer.content(&node, window, cx)
+                    });
+                element = element.children(
+                    content.into_iter().chain(
+                        ordered_children
+                            .iter()
+                            .map(|(_, child)| child.clone().into_any_element()),
+                    ),
+                );
             }
             if self.component == "TextInput" && !self.input_multiline {
                 element = element.on_scroll_wheel(cx.listener(

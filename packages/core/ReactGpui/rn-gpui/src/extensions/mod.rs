@@ -92,11 +92,26 @@ impl StoreHandle {
     }
 }
 
-/// Paints one component name. Core calls it before its own View painting.
+/// Paints one component name.
 ///
-/// `node` is the component and its subtree; the returned element is placed in
-/// the node's frame. Returning `None` falls through to core.
+/// Core tries `content` first and then `render`. A component whose painting is
+/// its whole appearance implements `render`; one that core still has to give a
+/// box, a background, a border and an accessibility role implements `content`,
+/// which core places inside the element it builds.
 pub trait ComponentRenderer: Send + Sync + 'static {
+    /// The node's own content, inserted where core puts a component's children.
+    /// The surrounding element keeps core's style and accessibility.
+    fn content(
+        &self,
+        _node: &ComponentNode,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<AnyElement> {
+        None
+    }
+
+    /// The node's whole appearance, replacing the element core would build.
+    /// Returning `None` falls through to `content` and then to core.
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
 }
