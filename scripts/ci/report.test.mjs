@@ -156,6 +156,61 @@ describe('buildReport source fallback with another reason', () => {
     expect(report).toContain('This PR changes the prebuilt C++ inputs.');
     expect(report).toContain('dispatch prebuilt-binaries.yml');
   });
+
+  test('lists the C++ inputs a PR changed, capped', () => {
+    const changedCppInputs = Array.from(
+      { length: 25 },
+      (_, index) => `ReactGpui/rn-gpui-sys/cpp/File${index}.cpp`,
+    );
+    const report = buildReport({
+      meta: { ...META, cppChanged: true, changedCppInputs },
+      reports: [{ job: 'lint', steps: [step('Lint', 0)] }],
+    });
+    expect(report).toContain('**C++ inputs changed**');
+    expect(report).toContain('`ReactGpui/rn-gpui-sys/cpp/File0.cpp`');
+    // The cap keeps the list short and says how many were left out.
+    expect(report).toContain('…and 5 more');
+    expect(report).not.toContain('File20.cpp');
+  });
+
+  test('reports the core boundary and the core-private uses', () => {
+    const report = buildReport({
+      meta: {
+        ...META,
+        coreBoundary: {
+          hitCount: 2,
+          hits: [
+            { file: 'packages/core/a.rs', line: 3 },
+            { file: 'packages/core/b.cpp', line: 9 },
+          ],
+          corePrivateCount: 1,
+          corePrivate: [{ file: 'packages/core/c.rs', line: 12, reason: 'x' }],
+        },
+      },
+      reports: [{ job: 'lint', steps: [step('Lint', 0)] }],
+    });
+    expect(report).toContain('**Core boundary**');
+    expect(report).toContain('2 place(s) still name a library');
+    expect(report).toContain('`packages/core/a.rs:3`');
+    expect(report).toContain('`// core-private:` uses: 1');
+  });
+
+  test('says so when core names no library', () => {
+    const report = buildReport({
+      meta: {
+        ...META,
+        coreBoundary: {
+          hitCount: 0,
+          hits: [],
+          corePrivateCount: 0,
+          corePrivate: [],
+        },
+      },
+      reports: [{ job: 'lint', steps: [step('Lint', 0)] }],
+    });
+    expect(report).toContain('- core names no library');
+    expect(report).toContain('`// core-private:` uses: 0');
+  });
 });
 
 describe('truncation', () => {
