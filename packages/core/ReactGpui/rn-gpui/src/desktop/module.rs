@@ -347,60 +347,6 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
         on_main("menuGet", |cx| Ok(app_menu::menu_json(cx))).await
     }
 
-    async fn tray_install(&self, options: TrayOptions) -> Result<TrayHandle, ModuleError> {
-        on_main("trayInstall", move |cx| {
-            let mut config = tray::TrayConfig::default();
-            if let Some(id) = options.id {
-                config.id = id;
-            }
-            config.tooltip = options.tooltip;
-            config.title = options.title;
-            config.component = options.component;
-            if let Some(size) = options.size {
-                config = config.size(size.width as f32, size.height as f32);
-            }
-            if let Some(menu) = json_items(options.menu) {
-                config.menu = Some(menu_model::parse_menu(&menu)?);
-            }
-            if let Some(on_left_click) = options.menu_on_left_click {
-                config.menu_on_left_click = on_left_click;
-            }
-            if let Some(quit) = options.quit_on_last_window_closed {
-                config.quit_on_last_window_closed = quit;
-            }
-            tray::install(cx, config)
-        })
-        .await
-    }
-
-    async fn tray_destroy(&self) -> Result<(), ModuleError> {
-        on_main_void(tray::destroy).await
-    }
-
-    async fn tray_get_state(&self) -> Result<TrayState, ModuleError> {
-        on_main("trayGetState", |cx| Ok(tray::state(cx))).await
-    }
-
-    async fn tray_set_tooltip(&self, tooltip: Option<String>) -> Result<(), ModuleError> {
-        on_main_void(move |cx| tray::set_tooltip(cx, tooltip.as_deref())).await
-    }
-
-    async fn tray_set_visible(&self, visible: bool) -> Result<(), ModuleError> {
-        on_main_void(move |cx| tray::set_visible(cx, visible)).await
-    }
-
-    async fn tray_set_icon(&self, path: String) -> Result<(), ModuleError> {
-        on_main_void(move |cx| tray::set_icon(cx, &path)).await
-    }
-
-    async fn tray_set_menu(&self, items: Option<Vec<Value>>) -> Result<(), ModuleError> {
-        on_main_void(move |cx| {
-            let items = json_items(items);
-            tray::set_menu(cx, items.as_ref())
-        })
-        .await
-    }
-
     async fn context_menu_show(
         &self,
         items: Vec<Value>,
