@@ -1637,7 +1637,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     frame_hook.set_animation_active(active, window, cx);
                                 })
                             {
-                                log::error!(
+                                // The window can be gone already: closing the
+                                // main window tears modules down, and they
+                                // release their frame requests on the way out.
+                                log::debug!(
                                     "[native-animated] failed to update GPUI window activity: {error}"
                                 );
                             }
