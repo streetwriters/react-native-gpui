@@ -1,12 +1,15 @@
 //! The screens module.
 //!
 //! Everything react-native-screens needs lives here: its props extraction in
-//! `cpp/`, its layout, painting and lifecycle in the modules below. Core is told
-//! only what any library can say — a component name, a place to read props from,
-//! and a set of generic hooks.
+//! `cpp/`, and its layout, painting and lifecycle in the modules below. Core is
+//! told only what any library can say — a component name, a props reader, and a
+//! set of generic hooks.
 
 pub mod lifecycle;
 pub mod props;
+pub mod render;
+pub mod stack;
+pub mod state;
 pub mod transition;
 pub mod unsupported;
 
@@ -14,4 +17,8 @@ pub mod unsupported;
 ///
 /// Autolink calls this from `ensure_linked()` while `main` starts, before any
 /// `gpui::App` exists, so nothing here may touch the app.
-pub fn rn_gpui_register() {}
+pub fn rn_gpui_register() {
+    // Registration happens in the same commit that deletes core's own screens
+    // code: until then both would paint the same components, and core's copies
+    // read bridge fields this module's props half no longer fills.
+}
