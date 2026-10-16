@@ -4,9 +4,10 @@
 use crate::pointer_area::{pointer_area, PointerHandlers};
 use crate::style;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Display, Entity, Fill, FocusHandle, IntoElement,
-    KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, Position, Role, StyleRefinement, Subscription, Task, WeakEntity, Window,
+    div, point, prelude::*, px, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
+    IntoElement, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Position, Role, StyleRefinement, Subscription, Task, WeakEntity,
+    Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 use std::cell::Cell;
@@ -114,6 +115,7 @@ pub struct RNNodeView {
     pub component: String,
     pub native_view_name: String,
     pub native_view_props: String,
+    extension_props_json: String,
     svg_props_json: String,
     #[cfg(target_os = "macos")]
     native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
@@ -572,6 +574,7 @@ impl RNNodeView {
             component: op.component.clone(),
             native_view_name: op.native_view_name.clone(),
             native_view_props: op.native_view_props.clone(),
+            extension_props_json: op.extension_props_json.clone(),
             svg_props_json: op.svg_props_json.clone(),
             #[cfg(target_os = "macos")]
             native_view_host: None,
@@ -774,6 +777,7 @@ impl RNNodeView {
         }
         if op.props_changed && self.component.starts_with("RNSVG") {
             self.svg_props_json = op.svg_props_json.clone();
+            self.extension_props_json = op.extension_props_json.clone();
         }
     }
 
@@ -1847,7 +1851,7 @@ pub(crate) static RENDER_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 impl Render for RNNodeView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.render_count += 1;
         let accessibility_active = window.is_a11y_active();
@@ -1908,7 +1912,7 @@ impl Render for RNNodeView {
             );
         }
         if self.view.display_none || (self.component == "ModalHostView" && !self.modal_visible) {
-            return div().id(self.tag).size_0();
+            return div().id(self.tag).size_0().into_any_element();
         }
         #[cfg(target_os = "macos")]
         if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
@@ -2007,6 +2011,12 @@ impl Render for RNNodeView {
         }
         let is_scroll = self.component == "ScrollView";
         let ordered_children = self.children.clone();
+        if let Some(renderer) = crate::extensions::component_renderer(cx, &self.component) {
+            let node = self.component_node(cx);
+            if let Some(painted) = renderer.render(&node, window, cx) {
+                return painted;
+            }
+        }
         let mut element = div().id(self.tag);
         if self.component == "RNSScreenStack" {
             element = element.overflow_hidden();
@@ -3716,7 +3726,7 @@ impl Render for RNNodeView {
                 0,
             ));
         }
-        element.children(outline_rules)
+        element.children(outline_rules).into_any_element()
     }
 }
 
@@ -3802,6 +3812,27 @@ const SCROLL_STATE_SYNC_DELAY: std::time::Duration = std::time::Duration::from_m
 impl RNNodeView {
     pub fn scroll_offset(&self) -> Point<f32> {
         self.scroll_position.get()
+    }
+
+    /// The read-only view of this component handed to a module's renderer or
+    /// observer. `extension_props_json` is parsed here, once per call.
+    pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
+        let props = if self.extension_props_json.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_str(&self.extension_props_json).unwrap_or(serde_json::Value::Null)
+        };
+        crate::extensions::ComponentNode {
+            component: self.component.clone(),
+            tag: self.tag,
+            frame: self.frame,
+            props,
+            children: self
+                .children
+                .iter()
+                .map(|(_, child)| child.read(cx).component_node(cx))
+                .collect(),
+        }
     }
 }
 
