@@ -1,0 +1,3 @@
+warning: rn-gpui-sys@0.1.0: rn-gpui-sys: using prebuilt runtime 0.0.2 (aarch64-apple-darwin)
+   Compiling rn-gpui-tester v0.1.0
+    Finished `dev` profile in 5m 00s

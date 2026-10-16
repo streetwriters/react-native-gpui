@@ -103,9 +103,24 @@ pub fn prepare(window: &mut gpui::Window, cx: &mut App, window_id: u32) -> Optio
     let menu_bar = cx.new(|_| MenuBar::new(window_id));
     let subscription = menu_bar.update(cx, |_menu_bar, cx| {
         cx.observe_window_activation(window, |_menu_bar, window, cx| {
-            if !window.is_window_active() {
-                let _ = MenuPopup::dismiss(cx);
+            if window.is_window_active() {
+                return;
             }
+            // On Windows the popup (and any submenu) is its own top-level
+            // window, so opening it can deactivate this one. Only dismiss once
+            // activation has left the app entirely. The popup's activation can
+            // arrive after this window's deactivation, so check a moment later.
+            cx.spawn(async move |_menu_bar, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(100))
+                    .await;
+                let _ = cx.update(|cx| {
+                    if cx.active_window().is_none() {
+                        let _ = MenuPopup::dismiss(cx);
+                    }
+                });
+            })
+            .detach();
         })
     });
     Some(PreparedMenuBar {

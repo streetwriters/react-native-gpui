@@ -1,0 +1,29 @@
+{
+  "job": "native-ubuntu-24.04",
+  "steps": [
+    {
+      "name": "Rust tests",
+      "slug": "rust-tests",
+      "exitCode": 0,
+      "durationMs": 130000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/rust-tests.log",
+      "excerpt": null
+    },
+    {
+      "name": "Build tester",
+      "slug": "build-tester",
+      "exitCode": 0,
+      "durationMs": 420000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/build-tester.log",
+      "excerpt": null
+    },
+    {
+      "name": "E2E",
+      "slug": "e2e",
+      "exitCode": 0,
+      "durationMs": 220000,
+      "logPath": "ci-out/logs/native-ubuntu-24.04/e2e.log",
+      "excerpt": null
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { PNG } from 'pngjs';
 import {
   expect,
   expectNoA11yViolations,
@@ -100,12 +101,33 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     await expect(app.getByTestId('e2e-network-result')).toHaveText(
       'network-idle-ok',
     );
-    // Visual baselines run where the backend can capture (Apple backends today).
+    // Rendering checks that hold on every machine. A pixel-exact baseline
+    // differs with the GPU, the installed fonts and the display scale, so it
+    // could only ever match the machine that recorded it.
+    const heading = app.getByTestId('Home-title');
+    await expect(heading).toBeVisible();
+    await expect(heading).toHaveText('Home');
+    const [headingNode] = await app.query('testID', 'Home-title', true);
+    if (
+      !headingNode ||
+      headingNode.frame.width <= 0 ||
+      headingNode.frame.height <= 0
+    )
+      throw new Error(`Home title has no size: ${JSON.stringify(headingNode)}`);
+    // Where the backend can capture, the window must hold real content: a
+    // blank or single-colour frame is what a failed render looks like.
     if (app.captureSupported) {
-      await expect(app).toMatchScreenshot('navigation-home');
-      await expect(app.getByTestId('Home-title')).toMatchScreenshot(
-        'navigation-home-heading',
-      );
+      const image = PNG.sync.read(await app.screenshot());
+      const first = image.data.readUInt32BE(0);
+      let distinct = false;
+      for (let offset = 4; offset < image.data.length; offset += 4) {
+        if (image.data.readUInt32BE(offset) !== first) {
+          distinct = true;
+          break;
+        }
+      }
+      if (!distinct)
+        throw new Error('The window rendered a single flat colour');
     }
     const input = app.getByTestId('e2e-text-input');
     await input.type('desktop test input');

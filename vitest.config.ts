@@ -8,12 +8,14 @@ export default mergeConfig(
     root: fileURLToPath(new URL('.', import.meta.url)),
     test: {
       include: [
+        'scripts/ci/**/*.test.mjs',
         'packages/rn-gpui-tester/vitest/**/*.test.{js,ts,tsx}',
         'packages/cli/src/**/*.test.js',
         'packages/codegen/src/**/*.test.js',
         'packages/hermes/gpui/**/*.test.js',
         'packages/hermes/scripts/**/*.test.mjs',
         'packages/core/**/*.test.js',
+        'packages/core/**/*.test.mjs',
       ],
     },
   }),

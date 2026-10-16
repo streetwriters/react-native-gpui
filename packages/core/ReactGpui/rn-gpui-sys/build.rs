@@ -649,10 +649,10 @@ fn prebuilt_mode(autolink_manifest: &Path) -> String {
 
 /// Order: `RN_GPUI_BUILD_FROM_SOURCE=1` or mode `never` -> source;
 /// `RN_GPUI_PREBUILT_DIR` -> use it; otherwise `prebuilt-binaries.mjs ensure`
-/// downloads (or reads the cache) the pinned runtime. Inside this repository
-/// (not under `node_modules`) the pin is used only while the C++ inputs still
-/// hash to the pinned input hash. Any failure falls back to source with one
-/// warning, and mode `always` turns that failure into a panic.
+/// downloads (or reads the cache) the pinned runtime. The pin is used only
+/// while the C++ inputs still hash to the pinned input hash, wherever this
+/// package is installed. Any failure falls back to source with one warning,
+/// and mode `always` turns that failure into a panic.
 fn select_prebuilt_dir(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
     let dir = select_prebuilt_dir_inner(package_dir, target, mode)?;
     match prebuilt_version(&dir) {
@@ -692,14 +692,14 @@ fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Op
             }
         };
     }
-    let in_repo = !package_dir
-        .components()
-        .any(|c| c.as_os_str() == "node_modules");
-    if in_repo {
-        if let Err(reason) = check_pinned_inputs(package_dir) {
-            fallback_or_panic(require, &reason);
-            return None;
-        }
+    // Always compare the local C++ inputs with the pin, in a repository checkout
+    // and under `node_modules` alike. A consumer whose own C++ inputs differ
+    // must not link an archive those inputs did not build, and the hash is
+    // computed from paths relative to this package, so it is the same value in
+    // both layouts.
+    if let Err(reason) = check_pinned_inputs(package_dir) {
+        fallback_or_panic(require, &reason);
+        return None;
     }
 
     let script = package_dir.join("scripts").join("prebuilt-binaries.mjs");

@@ -1,0 +1,29 @@
+{
+  "job": "native-windows-2022",
+  "steps": [
+    {
+      "name": "Rust tests",
+      "slug": "rust-tests",
+      "exitCode": 0,
+      "durationMs": 140000,
+      "logPath": "ci-out/logs/native-windows-2022/rust-tests.log",
+      "excerpt": null
+    },
+    {
+      "name": "Build tester",
+      "slug": "build-tester",
+      "exitCode": 0,
+      "durationMs": 600000,
+      "logPath": "ci-out/logs/native-windows-2022/build-tester.log",
+      "excerpt": null
+    },
+    {
+      "name": "E2E",
+      "slug": "e2e",
+      "exitCode": 0,
+      "durationMs": 230000,
+      "logPath": "ci-out/logs/native-windows-2022/e2e.log",
+      "excerpt": null
+    }
+  ]
+}

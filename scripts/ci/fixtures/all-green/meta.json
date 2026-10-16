@@ -1,0 +1,9 @@
+{
+  "sha": "abcdef1234567890abcdef1234567890abcdef12",
+  "runUrl": "https://github.com/streetwriters/react-native-gpui/actions/runs/1",
+  "repo": "streetwriters/react-native-gpui",
+  "pr": 42,
+  "localHash": "ed646e355e0d63df0a7ca2ff5c923dc9a306dab2a69e512701ad365f926c3898",
+  "pinnedHash": "ed646e355e0d63df0a7ca2ff5c923dc9a306dab2a69e512701ad365f926c3898",
+  "cppChanged": false
+}

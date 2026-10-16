@@ -1,0 +1,80 @@
+name: CI comment
+
+# Posts or updates the single rn-gpui CI report comment on a pull request.
+#
+# This lives in its own workflow on purpose. A fork's pull request gets a
+# read-only token, so the run that executes the PR's code cannot comment on it.
+# `workflow_run` gives this workflow a token with `pull-requests: write`, and it
+# only ever downloads the `ci-report` artifact — it never checks out or runs the
+# triggering run's code, and it takes no input from the PR.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    name: comment
+    runs-on: ubuntu-24.04
+    if: github.event.workflow_run.event == 'pull_request'
+    steps:
+      - name: Download the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name ci-report \
+            --dir report
+
+      - name: Post or update the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          if [ ! -f report/ci-report.md ]; then
+            echo "the triggering run uploaded no report; nothing to comment"
+            exit 0
+          fi
+          pr="$(node -p "require('./report/meta.json').pr ?? ''" 2>/dev/null || true)"
+          if [ -z "$pr" ]; then
+            echo "the report names no pull request; nothing to comment"
+            exit 0
+          fi
+          echo "PR: $pr"
+
+          # A run that was superseded by a newer commit must not edit the
+          # comment the newer run is about to write.
+          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)"
+          if [ "$head_sha" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "run is for ${{ github.event.workflow_run.head_sha }}, PR head is $head_sha; skipping"
+            exit 0
+          fi
+
+          marker='<!-- rn-gpui-ci-report -->'
+          # The comment is found by its marker, so a re-run edits the same
+          # comment instead of adding another one.
+          selector=".[] | select(.body | startswith(\"$marker\")) | .id"
+          existing="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$pr/comments" \
+            --jq "$selector" | head -1)"
+
+          if [ -n "$existing" ]; then
+            echo "updating comment $existing"
+            gh api -X PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$existing" \
+              -F "body=@report/ci-report.md" > /dev/null
+          else
+            echo "creating a comment"
+            gh api -X POST \
+              "repos/$GITHUB_REPOSITORY/issues/$pr/comments" \
+              -F "body=@report/ci-report.md" > /dev/null
+          fi
