@@ -5,7 +5,9 @@
 #include <react/renderer/components/FixtureComponentModuleSpec/Props.h>
 
 #include <folly/json.h>
+#include <atomic>
 #include <string>
+#include <string_view>
 
 #include "GpuiModules.h"
 
@@ -31,11 +33,50 @@ std::string badgePropsJson(
 
 } // namespace
 
+namespace {
+/// How many frames the fixture asks for after a badge appears. The test needs
+/// the callback to be demonstrably live; a fixture that asked forever would
+/// keep every app awake for its whole life, which the test driver reads as
+/// "never idle" and every e2e would time out on.
+constexpr int kFixtureFrameBudget = 60;
+std::atomic<int> framesRemaining{0};
+std::atomic<int> liveBadges{0};
+} // namespace
+
 void rn_gpui_install_fixture_badge_module() {
   registerComponentProps("FixtureBadge", badgePropsJson);
-  registerFrameCallback(
-      [](double timestampMs) { rn_gpui_fixture_badge_frame(timestampMs); });
-  requestFrames("fixture-badge", true);
+  registerFrameCallback([](double timestampMs) {
+    if (framesRemaining.load() <= 0) {
+      return;
+    }
+    rn_gpui_fixture_badge_frame(timestampMs);
+    if (framesRemaining.fetch_sub(1) == 1) {
+      // The budget is spent, so core may stop delivering frames.
+      requestFrames("fixture-badge", false);
+    }
+  });
+  registerMountObserver(extension::MountObserver{
+      .onFrameChanged =
+          [](facebook::react::SurfaceId,
+             const facebook::react::ShadowView& view) {
+            if (std::string_view(view.componentName) == "FixtureBadge") {
+              liveBadges.fetch_add(1);
+              framesRemaining.store(kFixtureFrameBudget);
+              requestFrames("fixture-badge", true);
+            }
+          },
+      .onDeleted =
+          [](facebook::react::Tag) {
+            // onDeleted carries no component name, so the budget is released
+            // only when the last badge is gone. Asking per delete would stop
+            // frames while a screen still shows one.
+            if (liveBadges.fetch_sub(1) <= 1) {
+              liveBadges.store(0);
+              framesRemaining.store(0);
+              requestFrames("fixture-badge", false);
+            }
+          },
+      .afterBatch = nullptr});
 }
 
 } // namespace rngpui
