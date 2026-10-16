@@ -4,12 +4,17 @@
 //! mounted tree. Core consults the registries and falls through to its own
 //! behaviour when nothing is registered, so an uninstalled module changes
 //! nothing.
+//!
+//! Registration happens in the module's `rn_gpui_register()`, which autolink
+//! calls from `ensure_linked()` while `main` starts — before any `gpui::App`
+//! exists. The registries are therefore process-wide, like
+//! `rn_gpui_module::register`.
 
 use gpui::{AnyElement, App, Window};
 use rn_gpui_sys::ffi::RectF;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A read-only view of one mounted component.
 ///
@@ -27,7 +32,7 @@ pub struct ComponentNode {
 }
 
 impl ComponentNode {
-    /// The first child with this test id, depth first.
+    /// The first component in this subtree with this test id.
     pub fn find_test_id(&self, test_id: &str) -> Option<&ComponentNode> {
         if self.props.get("testID").and_then(Value::as_str) == Some(test_id) {
             return Some(self);
@@ -38,93 +43,129 @@ impl ComponentNode {
     }
 }
 
+/// A transition a module asks core to run on a component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransitionKind {
+    SlideFromRight,
+    SlideFromLeft,
+    Fade,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Transition {
+    pub kind: TransitionKind,
+    pub duration_ms: u64,
+    /// How far the component travels, as a fraction of its width.
+    pub distance_factor: f32,
+}
+
+/// What a `StoreObserver` may ask core to do, beyond reading the tree.
+///
+/// It exposes exactly what the screens module's store code does today.
+pub struct StoreHandle {
+    store: gpui::Entity<crate::store::ViewStore>,
+}
+
+impl StoreHandle {
+    pub(crate) fn new(store: gpui::Entity<crate::store::ViewStore>) -> Self {
+        Self { store }
+    }
+
+    /// Hides or shows a component, and its header/content wrappers.
+    pub fn set_hidden(&self, tag: i32, hidden: bool, cx: &mut App) {
+        crate::store::set_component_hidden(&self.store, tag, hidden, cx);
+    }
+
+    /// Runs `transition` on a component.
+    pub fn start_transition(&self, tag: i32, transition: Transition, cx: &mut App) {
+        crate::store::start_component_transition(&self.store, tag, transition, cx);
+    }
+
+    /// Emits `name` to JS for `tag`. An empty payload sends `{}`.
+    pub fn dispatch_event(&self, tag: i32, name: &str, payload: &Value, cx: &mut App) {
+        let payload = if payload.is_null() {
+            &Value::Object(serde_json::Map::new())
+        } else {
+            payload
+        };
+        self.store.read(cx).host.dispatch_event(tag, name, payload);
+    }
+}
+
 /// Paints one component name. Core calls it before its own View painting.
 ///
 /// `node` is the component and its subtree; the returned element is placed in
 /// the node's frame. Returning `None` falls through to core.
-pub trait ComponentRenderer: 'static {
+pub trait ComponentRenderer: Send + Sync + 'static {
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
 }
 
 /// Watches the mounted tree. Used for navigation, overlays and anything that
 /// has to react to a component appearing, changing or going away.
-pub trait StoreObserver: 'static {
+pub trait StoreObserver: Send + Sync + 'static {
     /// A component was created or inserted.
-    fn on_mount(&self, node: &ComponentNode, cx: &mut App);
+    fn on_mount(&self, node: &ComponentNode, handle: &StoreHandle, cx: &mut App);
     /// A component's props or frame changed. `previous` is the node as it was.
-    fn on_update(&self, node: &ComponentNode, previous: &ComponentNode, cx: &mut App);
+    fn on_update(
+        &self,
+        node: &ComponentNode,
+        previous: &ComponentNode,
+        handle: &StoreHandle,
+        cx: &mut App,
+    );
     /// A component was deleted.
-    fn on_remove(&self, tag: i32, cx: &mut App);
+    fn on_remove(&self, tag: i32, handle: &StoreHandle, cx: &mut App);
 }
 
-#[derive(Clone, Default)]
-struct ComponentRenderers(Arc<Mutex<HashMap<String, Arc<dyn ComponentRenderer>>>>);
+fn component_renderers() -> &'static Mutex<HashMap<String, Arc<dyn ComponentRenderer>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn ComponentRenderer>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
-impl gpui::Global for ComponentRenderers {}
-
-#[derive(Clone, Default)]
-struct StoreObservers(Arc<Mutex<Vec<Arc<dyn StoreObserver>>>>);
-
-impl gpui::Global for StoreObservers {}
+fn store_observers_registry() -> &'static Mutex<Vec<Arc<dyn StoreObserver>>> {
+    static REGISTRY: OnceLock<Mutex<Vec<Arc<dyn StoreObserver>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
 
 /// Registers `renderer` for `component_name`, replacing any earlier one.
+///
+/// Called from a module's `rn_gpui_register()`, before the runtime starts.
 pub fn register_component_renderer(
-    cx: &mut App,
     component_name: impl Into<String>,
     renderer: Arc<dyn ComponentRenderer>,
 ) {
-    let registry = if let Some(registry) = cx.try_global::<ComponentRenderers>() {
-        registry.0.clone()
-    } else {
-        let registry = ComponentRenderers::default();
-        cx.set_global(registry.clone());
-        registry.0.clone()
-    };
-    registry
+    component_renderers()
         .lock()
         .expect("component renderer registry poisoned")
         .insert(component_name.into(), renderer);
 }
 
 /// Registers `observer`; observers are notified in registration order.
-pub fn register_store_observer(cx: &mut App, observer: Arc<dyn StoreObserver>) {
-    let registry = if let Some(registry) = cx.try_global::<StoreObservers>() {
-        registry.0.clone()
-    } else {
-        let registry = StoreObservers::default();
-        cx.set_global(registry.clone());
-        registry.0.clone()
-    };
-    registry
+///
+/// Called from a module's `rn_gpui_register()`, before the runtime starts.
+pub fn register_store_observer(observer: Arc<dyn StoreObserver>) {
+    store_observers_registry()
         .lock()
         .expect("store observer registry poisoned")
         .push(observer);
 }
 
 /// The renderer registered for `component_name`, if any.
-pub fn component_renderer(cx: &App, component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
-    cx.try_global::<ComponentRenderers>().and_then(|registry| {
-        registry
-            .0
-            .lock()
-            .expect("component renderer registry poisoned")
-            .get(component_name)
-            .cloned()
-    })
+pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
+    component_renderers()
+        .lock()
+        .expect("component renderer registry poisoned")
+        .get(component_name)
+        .cloned()
 }
 
 /// Every registered observer, for one notification pass.
-pub fn store_observers(cx: &App) -> Vec<Arc<dyn StoreObserver>> {
-    cx.try_global::<StoreObservers>()
-        .map(|registry| {
-            registry
-                .0
-                .lock()
-                .expect("store observer registry poisoned")
-                .clone()
-        })
-        .unwrap_or_default()
+pub fn store_observers() -> Vec<Arc<dyn StoreObserver>> {
+    store_observers_registry()
+        .lock()
+        .expect("store observer registry poisoned")
+        .clone()
 }
 
 #[cfg(test)]
@@ -154,21 +195,27 @@ mod tests {
     }
 
     impl StoreObserver for FakeObserver {
-        fn on_mount(&self, node: &ComponentNode, _cx: &mut App) {
+        fn on_mount(&self, node: &ComponentNode, _handle: &StoreHandle, _cx: &mut App) {
             self.seen
                 .lock()
                 .unwrap()
                 .push(format!("mount:{}", node.tag));
         }
 
-        fn on_update(&self, node: &ComponentNode, _previous: &ComponentNode, _cx: &mut App) {
+        fn on_update(
+            &self,
+            node: &ComponentNode,
+            _previous: &ComponentNode,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) {
             self.seen
                 .lock()
                 .unwrap()
                 .push(format!("update:{}", node.tag));
         }
 
-        fn on_remove(&self, tag: i32, _cx: &mut App) {
+        fn on_remove(&self, tag: i32, _handle: &StoreHandle, _cx: &mut App) {
             self.seen.lock().unwrap().push(format!("remove:{tag}"));
         }
     }
@@ -186,43 +233,39 @@ mod tests {
     #[gpui::test]
     fn a_registered_renderer_is_used_for_its_component_name(cx: &mut TestAppContext) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        cx.update(|cx| {
-            register_component_renderer(
-                cx,
-                "RNSVGSvgView",
-                Arc::new(FakeRenderer {
-                    calls: calls.clone(),
-                }),
-            );
-        });
-        let found = cx.update(|cx| component_renderer(cx, "RNSVGSvgView"));
-        assert!(found.is_some());
+        register_component_renderer(
+            "RNSVGSvgView",
+            Arc::new(FakeRenderer {
+                calls: calls.clone(),
+            }),
+        );
+        let found = component_renderer("RNSVGSvgView").expect("registered renderer");
         let window = cx.open_window(gpui::size(px(120.0), px(100.0)), |_, _| gpui::Empty);
         window
             .update(cx, |_, window, cx| {
-                let _ = found.unwrap().render(&node("RNSVGSvgView", 1), window, cx);
+                assert!(found.render(&node("RNSVGSvgView", 1), window, cx).is_some());
             })
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), vec!["RNSVGSvgView".to_string()]);
     }
 
     #[gpui::test]
-    fn an_unregistered_name_falls_through_to_core(cx: &mut TestAppContext) {
-        assert!(cx.update(|cx| component_renderer(cx, "View")).is_none());
+    fn an_unregistered_name_falls_through_to_core(_cx: &mut TestAppContext) {
+        assert!(component_renderer("View").is_none());
     }
 
     #[gpui::test]
     fn an_observer_sees_mount_update_and_remove_in_order(cx: &mut TestAppContext) {
         let seen = Arc::new(Mutex::new(Vec::new()));
+        register_store_observer(Arc::new(FakeObserver { seen: seen.clone() }));
+        let observers = store_observers();
+        assert!(!observers.is_empty());
+        let handle = crate::store::test_store_handle(cx);
         cx.update(|cx| {
-            register_store_observer(cx, Arc::new(FakeObserver { seen: seen.clone() }));
-        });
-        let observers = cx.update(|cx| store_observers(cx));
-        assert_eq!(observers.len(), 1);
-        cx.update(|cx| {
-            observers[0].on_mount(&node("View", 7), cx);
-            observers[0].on_update(&node("View", 7), &node("View", 7), cx);
-            observers[0].on_remove(7, cx);
+            let observer = observers.last().unwrap().clone();
+            observer.on_mount(&node("View", 7), &handle, cx);
+            observer.on_update(&node("View", 7), &node("View", 7), &handle, cx);
+            observer.on_remove(7, &handle, cx);
         });
         assert_eq!(
             *seen.lock().unwrap(),
