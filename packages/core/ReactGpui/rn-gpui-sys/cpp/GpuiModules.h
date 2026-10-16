@@ -15,7 +15,11 @@
 // registerWindowInsetsObserver(fn): the window's insets, on change.
 // registerFrameCallback(fn): called once per frame. A list, not one slot.
 // requestFrames(owner, bool): asks core to keep delivering frames while that
-//   owner needs them. Core stops when no owner asks.
+//   owner needs them. Core stops when no owner asks. A request is not "busy":
+//   a library may keep a heartbeat running while it has nothing to do.
+// reportPendingWork(owner, count): how much work an owner still has queued
+//   (callbacks waiting for a frame, say). Idle detection waits for every
+//   owner to report zero; it never waits on frame requests alone.
 // registerPointerObserver(fn): raw pointer events before RN dispatch.
 // turboModules: extra TurboModules, asked in registration order.
 #pragma once
@@ -145,6 +149,8 @@ void registerFrameCallback(GpuiFrameFn fn);
 // Whether `owner` asked for frames. Any owner asking keeps frames running.
 void requestFrames(const std::string& owner, bool needsFrames);
 bool anyFrameRequested();
+void reportPendingWork(const std::string& owner, uint64_t count);
+uint64_t pendingWork();
 
 // Re-evaluates the frame chain from every demand source: native animations,
 // and any module that asked through `requestFrames`. Defined in GpuiHost.cpp.

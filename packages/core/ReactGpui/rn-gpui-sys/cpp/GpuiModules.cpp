@@ -8,6 +8,11 @@ namespace {
 // frames from the JS thread), so it needs its own lock. The others are filled
 // at startup, before any surface exists.
 std::mutex frameRequestsMutex;
+std::mutex pendingWorkMutex;
+std::unordered_map<std::string, uint64_t>& pendingWorkByOwner() {
+  static std::unordered_map<std::string, uint64_t> work;
+  return work;
+}
 } // namespace
 
 GpuiModuleHooks& gpuiModuleHooks() {
@@ -53,6 +58,22 @@ bool anyFrameRequested() {
       return true;
   }
   return false;
+}
+
+void reportPendingWork(const std::string& owner, uint64_t count) {
+  std::lock_guard<std::mutex> lock(pendingWorkMutex);
+  if (count == 0)
+    pendingWorkByOwner().erase(owner);
+  else
+    pendingWorkByOwner()[owner] = count;
+}
+
+uint64_t pendingWork() {
+  std::lock_guard<std::mutex> lock(pendingWorkMutex);
+  uint64_t total = 0;
+  for (const auto& [owner, count] : pendingWorkByOwner())
+    total += count;
+  return total;
 }
 
 void registerPointerObserver(extension::PointerObserverFn fn) {

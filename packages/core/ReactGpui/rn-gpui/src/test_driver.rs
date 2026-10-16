@@ -23,6 +23,7 @@ unsafe extern "C" {
     fn rn_gpui_pending_js_tasks() -> u64;
     fn rn_gpui_native_animations_active() -> u64;
     fn rn_gpui_frame_demand() -> u64;
+    fn rn_gpui_pending_work() -> u64;
     fn rn_gpui_request_reload();
     fn rn_gpui_reload_in_progress() -> bool;
     /// Counts the React instances created so far. It changes when a reload
@@ -1327,13 +1328,17 @@ fn idle_status(
             json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
         );
     }
+    // Frame demand alone is not busy: a module may keep a frame
+    // heartbeat running while it has nothing queued. Modules report queued work
+    // separately (reportPendingWork); frame demand is only shown for context.
     let native_animations = unsafe { rn_gpui_native_animations_active() };
+    let pending_work = unsafe { rn_gpui_pending_work() };
     let frame_demand = unsafe { rn_gpui_frame_demand() };
-    if (native_animations > 0 || frame_demand > 0)
+    if (native_animations > 0 || pending_work > 0)
         && !ignore.iter().any(|item| item == "animations")
     {
         busy.push(
-            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), frame demand {frame_demand}")}),
+            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
         );
     }
     if store.frame_hook.gesture_is_active() && !ignore.iter().any(|item| item == "gestures") {
