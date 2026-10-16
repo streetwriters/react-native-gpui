@@ -98,38 +98,6 @@ export type MenuDescription = {
   items: Array<Object>;
 };
 
-export type TraySize = {
-  width: number;
-  height: number;
-};
-
-export type TrayOptions = {
-  id?: string;
-  tooltip?: string;
-  title?: string;
-  component?: string;
-  size?: TraySize;
-  menu?: Array<Object>;
-  menuOnLeftClick?: boolean;
-  quitOnLastWindowClosed?: boolean;
-};
-
-export type TrayHandle = {
-  id: string;
-};
-
-export type TrayState = {
-  installed: boolean;
-  id?: string;
-  tooltip?: string | null;
-  visible?: boolean;
-  component?: string | null;
-  popover?: number | null;
-  clicks?: number;
-  hasMenu?: boolean;
-  menuItems?: Array<Object>;
-};
-
 export type ContextMenuOptions = {
   x?: number;
   y?: number;
@@ -182,14 +150,6 @@ export interface Spec extends TurboModule {
   menuSetApplicationMenu(items: Array<Object> | null): Promise<void>;
   menuUpdate(id: string, patch: MenuItemPatch): Promise<void>;
   menuGet(): Promise<MenuDescription>;
-
-  trayInstall(options: TrayOptions): Promise<TrayHandle>;
-  trayDestroy(): Promise<void>;
-  trayGetState(): Promise<TrayState>;
-  traySetTooltip(tooltip: string | null): Promise<void>;
-  traySetVisible(visible: boolean): Promise<void>;
-  traySetIcon(path: string): Promise<void>;
-  traySetMenu(items: Array<Object> | null): Promise<void>;
 
   contextMenuShow(
     items: Array<Object>,

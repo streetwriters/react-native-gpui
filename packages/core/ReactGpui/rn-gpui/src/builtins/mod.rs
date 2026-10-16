@@ -9,6 +9,7 @@ pub mod modal;
 pub mod perf_monitor;
 pub mod scrollview;
 pub mod textinput;
+pub mod tray;
 
 pub fn register() {
     alert::register();
@@ -18,4 +19,5 @@ pub fn register() {
     modal::register();
     perf_monitor::register();
     scrollview::register();
+    tray::register();
 }
