@@ -148,6 +148,11 @@ export const renderScreen: Record<
       require('./components/GpuiComponentRegistryFixture').default,
       props,
     ),
+  'fixture-module': props =>
+    React.createElement(
+      require('./components/FixtureModuleProbeFixture').default,
+      props,
+    ),
   'node-api': props =>
     React.createElement(require('./components/NativeModulesFixture').default, {
       ...props,

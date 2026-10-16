@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@node-rs/crc32": "^1.10.8",
+    "@react-native-gpui/core": "file:../core",
     "@react-native-gpui/cpp-module-fixture": "file:./gpui-cpp-native-module",
+    "@react-native-gpui/fixture-component-module": "file:./fixture-component-module",
     "@react-native-gpui/fonts": "file:../../modules/fonts",
     "@react-native-gpui/gesture-handler": "file:../../modules/gesture-handler",
     "@react-native-gpui/hermes": "file:../hermes",
@@ -38,7 +40,6 @@
     "react": "19.2.3",
     "react-native": "0.87.1",
     "react-native-gesture-handler": "3.3.0",
-    "@react-native-gpui/core": "file:../core",
     "react-native-reanimated": "https://github.com/ammarahm-ed/react-native-reanimated/releases/download/4.7.1-desktop.1/react-native-reanimated-4.7.1.tgz",
     "react-native-safe-area-context": "5.10.1",
     "react-native-screens": "4.28.0",

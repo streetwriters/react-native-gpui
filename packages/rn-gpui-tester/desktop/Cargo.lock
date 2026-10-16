@@ -5446,8 +5446,21 @@ dependencies = [
 name = "rn-gpui-autolink"
 version = "0.1.0"
 dependencies = [
+ "rn-gpui-fixture-badge",
  "rn-gpui-native-fixture",
  "rn-gpui-svg",
+]
+
+[[package]]
+name = "rn-gpui-fixture-badge"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "react-native-gpui",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
+ "rn-gpui-sys",
+ "serde_json",
 ]
 
 [[package]]
