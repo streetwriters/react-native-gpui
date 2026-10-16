@@ -783,9 +783,9 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     # it cannot be given a link to this archive, so the link order comes from
     # link_libs-<CONFIG>.txt instead (see the link_libs section).
     target_link_libraries(rn_gpui_app_turbo_modules PRIVATE rn_gpui_core)
-    # App sources may use the active engine's headers (react-native-worklets
-    # compiles a Hermes runtime binding), which the archive does not ship. The
-    # engine targets carry them.
+    # App sources may use the active engine's headers (a package that binds the
+    # Hermes runtime needs them), which the archive does not ship. The engine
+    # targets carry them.
     if(RN_GPUI_JS_ENGINE_DEPS)
       target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
     endif()

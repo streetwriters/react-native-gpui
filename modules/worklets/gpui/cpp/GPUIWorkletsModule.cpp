@@ -15,8 +15,7 @@
 #include <thread>
 #include <utility>
 
-extern "C" void rn_gpui_set_worklets_active(bool active) noexcept;
-extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept;
+#include "GpuiModules.h"
 
 namespace {
 bool animationTracingEnabled() {
@@ -48,7 +47,7 @@ class GPUIScheduler final : public worklets::UIScheduler {
       return;
     }
     UIScheduler::scheduleOnUI(std::move(job));
-    rn_gpui_set_worklets_active(true);
+    rngpui::requestFrames("worklets", true);
   }
 };
 
@@ -90,8 +89,7 @@ Module::Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
     : NativeWorkletsModuleSpec(std::move(jsInvoker)) {}
 
 Module::~Module() {
-  rn_gpui_set_worklet_frame_count(0);
-  rn_gpui_set_worklets_active(false);
+  rngpui::requestFrames("worklets", false);
   if (initializer_) {
     initializer_->invalidate();
   }
@@ -167,7 +165,7 @@ void Module::requestAnimationFrame(std::function<void(double)> callback) {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
     frameCallbacks_.push_back(std::move(callback));
   }
-  rn_gpui_set_worklets_active(true);
+  rngpui::requestFrames("worklets", true);
 }
 
 void Module::onFrame(double timestampMs) {
@@ -231,9 +229,8 @@ void Module::onFrame(double timestampMs) {
                    const facebook::jsi::Value&,
                    const facebook::jsi::Value* args,
                    size_t count) {
-                  if (count == 1 && args[0].isNumber())
-                    rn_gpui_set_worklet_frame_count(
-                        static_cast<uint64_t>(args[0].getNumber()));
+                  (void)args;
+                  (void)count;
                   return facebook::jsi::Value::undefined();
                 }));
         rt.evaluateJavaScript(
@@ -280,7 +277,7 @@ void Module::onFrame(double timestampMs) {
   {
     std::lock_guard<std::mutex> lock(callbacksMutex_);
     if (frameCallbacks_.empty()) {
-      rn_gpui_set_worklets_active(false);
+      rngpui::requestFrames("worklets", false);
     }
   }
 }

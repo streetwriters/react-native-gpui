@@ -6,9 +6,8 @@ void onFrame(double timestampMs);
 
 namespace rngpui {
 void rn_gpui_install_worklets_module() {
-  gpuiModuleHooks().frame = [](double timestampMs) {
-    gpui_worklets::onFrame(timestampMs);
-  };
+  registerFrameCallback(
+      [](double timestampMs) { gpui_worklets::onFrame(timestampMs); });
 }
 
 } // namespace rngpui

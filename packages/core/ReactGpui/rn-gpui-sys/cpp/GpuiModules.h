@@ -146,8 +146,8 @@ void registerFrameCallback(GpuiFrameFn fn);
 void requestFrames(const std::string& owner, bool needsFrames);
 bool anyFrameRequested();
 
-// Re-evaluates the frame chain from every demand source. Defined in
-// GpuiHost.cpp, where the native-animation and worklet flags live.
+// Re-evaluates the frame chain from every demand source: native animations,
+// and any module that asked through `requestFrames`. Defined in GpuiHost.cpp.
 void updateFrameDemand();
 
 void registerPointerObserver(extension::PointerObserverFn fn);
