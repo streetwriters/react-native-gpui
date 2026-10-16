@@ -63,6 +63,12 @@ extern "C" uint64_t rn_gpui_frame_demand() noexcept {
   return rngpui::anyFrameRequested() ? 1 : 0;
 }
 
+// Work modules still have queued (see reportPendingWork). The test driver
+// waits for this, not for frame demand, which a heartbeat can hold forever.
+extern "C" uint64_t rn_gpui_pending_work() noexcept {
+  return rngpui::pendingWork();
+}
+
 extern "C" bool rn_gpui_accessibility_active();
 #if defined(_MSC_VER)
 // This hook lives in the rn-gpui Rust crate, which rn-gpui-sys does not depend

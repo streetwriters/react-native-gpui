@@ -89,6 +89,7 @@ Module::Module(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
     : NativeWorkletsModuleSpec(std::move(jsInvoker)) {}
 
 Module::~Module() {
+  rngpui::reportPendingWork("worklets", 0);
   rngpui::requestFrames("worklets", false);
   if (initializer_) {
     initializer_->invalidate();
@@ -229,8 +230,9 @@ void Module::onFrame(double timestampMs) {
                    const facebook::jsi::Value&,
                    const facebook::jsi::Value* args,
                    size_t count) {
-                  (void)args;
-                  (void)count;
+                  if (count == 1 && args[0].isNumber())
+                    rngpui::reportPendingWork(
+                        "worklets", static_cast<uint64_t>(args[0].getNumber()));
                   return facebook::jsi::Value::undefined();
                 }));
         rt.evaluateJavaScript(
