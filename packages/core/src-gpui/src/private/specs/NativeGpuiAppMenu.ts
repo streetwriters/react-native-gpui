@@ -14,7 +14,6 @@ export type MenuDescription = {
 };
 
 export interface Spec extends TurboModule {
-  /** `null` restores the default menu. */
   menuSetApplicationMenu(items: Array<Object> | null): Promise<void>;
   menuUpdate(id: string, patch: MenuItemPatch): Promise<void>;
   menuGet(): Promise<MenuDescription>;

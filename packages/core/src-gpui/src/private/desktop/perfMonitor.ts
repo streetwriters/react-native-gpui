@@ -10,7 +10,6 @@
 import NativeGpuiPerfMonitor from '../specs/NativeGpuiPerfMonitor';
 import { DesktopError, toDesktopError } from './index';
 
-/** The module, or an error when the app has no desktop shell. */
 function perfModule() {
   if (NativeGpuiPerfMonitor == null) {
     throw new DesktopError(

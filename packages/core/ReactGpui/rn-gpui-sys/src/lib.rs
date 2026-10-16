@@ -152,8 +152,6 @@ pub mod ffi {
         pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
-        /// JSON filled by a module through `registerComponentProps`; empty when
-        /// no module registered this component.
         pub extension_props_json: String,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
@@ -210,9 +208,6 @@ pub mod ffi {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
         fn rn_gpui_load_font(family: &str, uri: &str) -> bool;
-        /// Renders text to a PNG the caller can paint. Core owns it because it
-        /// needs the loaded font data and the text system, which live here; a
-        /// package that draws glyphs is one user of it.
         fn rn_gpui_render_text_image(
             family: &str,
             text: &str,

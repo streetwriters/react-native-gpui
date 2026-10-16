@@ -9,7 +9,6 @@ import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiAppMenu from '../specs/NativeGpuiAppMenu';
 import { DesktopError, toDesktopError } from './index';
 
-/** The module, or an error when the app has no desktop shell. */
 function menuModule() {
   if (NativeGpuiAppMenu == null) {
     throw new DesktopError(

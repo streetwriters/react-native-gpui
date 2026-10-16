@@ -44,7 +44,6 @@ export type WindowOpenOptions = {
   height?: number;
   x?: number;
   y?: number;
-  /** 'default' | 'transparent' | 'hidden'; anything else is 'default'. */
   titleBar?: string;
   trafficLightPosition?: WindowTrafficLights;
   resizable?: boolean;
