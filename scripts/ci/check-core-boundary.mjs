@@ -84,6 +84,47 @@ const ALLOWED = new Map(
 
 /// The marker a direct use of core internals carries. The reason is whatever
 /// follows the colon, so a reviewer sees why the exception exists.
+/// Screens still lives in core until C5 moves it to modules/screens. These are
+/// its hits per file on 2026-10-16. They are reported but do not fail the
+/// check; any other library reference fails, and so does a file whose count
+/// grows. C5 deletes this map, and the check then requires zero hits.
+export const PENDING_SCREENS = {
+  patterns: ['screens', 'RNS', '@react-native-gpui/screens'],
+  maxPerFile: {
+    'packages/core/ReactGpui/rn-gpui/src/bootstrap.rs': 1,
+    'packages/core/ReactGpui/rn-gpui/src/extensions/mod.rs': 1,
+    'packages/core/ReactGpui/rn-gpui/src/node_view.rs': 33,
+    'packages/core/ReactGpui/rn-gpui/src/store.rs': 62,
+    'packages/core/ReactGpui/rn-gpui/src/test_driver.rs': 4,
+    'packages/core/ReactGpui/rn-gpui-sys/cpp/GpuiModules.h': 9,
+    'packages/core/ReactGpui/rn-gpui-sys/cpp/MountBatchBuilder.cpp': 4,
+  },
+};
+
+/// Splits hits into those the pending baseline tolerates and those that fail:
+/// a hit fails when its pattern is not pending, its file is not in the
+/// baseline, or its file has more pending hits than the baseline allows.
+export function classifyHits(hits, pending = PENDING_SCREENS) {
+  const counts = new Map();
+  for (const hit of hits) {
+    if (pending.patterns.includes(hit.pattern))
+      counts.set(hit.file, (counts.get(hit.file) ?? 0) + 1);
+  }
+  const tolerated = [];
+  const failing = [];
+  for (const hit of hits) {
+    const max = pending.maxPerFile[hit.file];
+    if (
+      pending.patterns.includes(hit.pattern) &&
+      max !== undefined &&
+      counts.get(hit.file) <= max
+    )
+      tolerated.push(hit);
+    else failing.push(hit);
+  }
+  return { tolerated, failing };
+}
+
 const CORE_PRIVATE = /\/\/\s*core-private:\s*(.*)$/u;
 
 function escapeRegExp(value) {
@@ -265,12 +306,17 @@ export function formatHits(hits) {
 
 /// The hits first, in `file:line: <match>` form, then the core-private list.
 export function formatReportText({ hits, corePrivate }) {
-  const lines = formatHits(hits);
+  const { tolerated, failing } = classifyHits(hits);
+  const lines = formatHits(failing);
   lines.push(
-    hits.length === 0
+    failing.length === 0
       ? 'core boundary: no library reference under packages/core'
-      : `core boundary: ${hits.length} hit(s), core names a library`,
+      : `core boundary: ${failing.length} hit(s), core names a library`,
   );
+  if (tolerated.length > 0)
+    lines.push(
+      `core boundary: ${tolerated.length} screens hit(s) pending C5 (within the baseline)`,
+    );
   lines.push(
     corePrivate.length === 0
       ? 'core-private: none'
@@ -287,6 +333,7 @@ export function formatJson(result) {
       hits: result.hits,
       corePrivate: result.corePrivate,
       hitCount: result.hits.length,
+      failingCount: classifyHits(result.hits).failing.length,
       corePrivateCount: result.corePrivate.length,
     },
     null,
@@ -294,8 +341,8 @@ export function formatJson(result) {
   )}\n`;
 }
 
-export function exitCodeFor({ hits }) {
-  return hits.length > 0 ? 1 : 0;
+export function exitCodeFor({ hits }, pending = PENDING_SCREENS) {
+  return classifyHits(hits, pending).failing.length > 0 ? 1 : 0;
 }
 
 function parseArgs(argv) {
