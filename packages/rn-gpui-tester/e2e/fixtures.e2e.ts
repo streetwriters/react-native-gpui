@@ -475,14 +475,11 @@ test('bundled and data URI images resolve and occupy their declared frames', asy
     expect(image?.frame.height).toBeGreaterThan(60);
     const props = (await app.getProps(image.tag)) as {
       imageUri: string;
-      imageResizeMode: number;
+      imageResizeMode: string;
     };
     expect(props.imageUri.length).toBeGreaterThan(0);
-    if (mode !== 'data-uri') {
-      expect(props.imageResizeMode).toBe(
-        { stretch: 0, contain: 1, cover: 2, center: 3 }[mode],
-      );
-    }
+    // The Image built-in carries its resize mode by name in its module props.
+    if (mode !== 'data-uri') expect(props.imageResizeMode).toBe(mode);
   }
   await expectCaptureSmoke();
 });
