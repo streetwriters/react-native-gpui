@@ -458,3 +458,14 @@ mod tests {
         }
     }
 }
+
+/// `GpuiHost.cpp` calls this hook, which the `rn-gpui` crate defines. This
+/// crate's own unit-test binary links the C++ core without `rn-gpui`, so on
+/// Linux the reference is unresolved. Windows uses an `/alternatename` fallback
+/// in the C++ instead. Lives here rather than in `lib.rs` because `lib.rs` is a
+/// prebuilt input and this is test-only.
+#[cfg(test)]
+#[no_mangle]
+pub extern "C" fn rn_gpui_accessibility_active() -> bool {
+    false
+}
