@@ -69,6 +69,7 @@ export const ALLOW_LIST = [
   // Core's own window-capture flags and their RN_GPUI_* env spellings.
   { name: 'screenshot' },
   { name: 'screenshots' },
+  { name: 'screenshot_delay_ms' },
   { name: 'RN_GPUI_SCREENSHOT' },
   { name: 'RN_GPUI_SCREENSHOT_DELAY_MS' },
   { name: 'RN_GPUI_SCREENSHOTS' },
