@@ -22,6 +22,9 @@
 //   owner to report zero; it never waits on frame requests alone.
 // registerPointerObserver(fn): raw pointer events before RN dispatch.
 // turboModules: extra TurboModules, asked in registration order.
+// argb(color): a Fabric colour as 0xAARRGGBB, or 0 when unset. Declared here so
+//   a module's props extraction does not need core's private
+//   MountBatchBuilder.h.
 #pragma once
 
 #include "rn-gpui-sys/src/lib.rs.h" // MountOp
@@ -29,12 +32,14 @@
 #include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/core/Props.h>
 #include <react/renderer/core/ReactPrimitives.h>
+#include <react/renderer/graphics/Color.h>
 #include <react/renderer/mounting/ShadowView.h>
 
 #include <ReactCommon/CallInvoker.h>
 #include <ReactCommon/TurboModule.h>
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -130,6 +135,9 @@ struct GpuiExtensionHooks {
   // the value says whether the owner needs frames right now.
   std::unordered_map<std::string, bool> frameRequests;
 };
+
+// A Fabric colour as 0xAARRGGBB, or 0 when unset.
+uint32_t argb(const facebook::react::SharedColor& color);
 
 // Hooks are set by the installers at startup, before any surface starts.
 GpuiModuleHooks& gpuiModuleHooks();
