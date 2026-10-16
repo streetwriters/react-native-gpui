@@ -44,13 +44,7 @@
 
 namespace {
 std::atomic<bool> nativeAnimationActive{false};
-std::atomic<bool> workletsRenderActive{false};
-std::atomic<uint64_t> workletFrameCount{0};
 } // namespace
-extern "C" void rn_gpui_set_worklets_active(bool active) noexcept {
-  workletsRenderActive.store(active);
-  rngpui::updateFrameDemand();
-}
 
 extern "C" uint64_t rn_gpui_native_animations_active() noexcept {
   return nativeAnimationActive.load() ? 1 : 0;
@@ -59,16 +53,14 @@ extern "C" uint64_t rn_gpui_native_animations_active() noexcept {
 namespace rngpui {
 void updateFrameDemand() {
   rn_gpui_set_animated_active(
-      workletsRenderActive.load() || nativeAnimationActive.load() ||
-      anyFrameRequested());
+      nativeAnimationActive.load() || anyFrameRequested());
 }
 } // namespace rngpui
 
-extern "C" uint64_t rn_gpui_worklet_frames_pending() noexcept {
-  return workletFrameCount.load();
-}
-extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept {
-  workletFrameCount.store(count);
+// Whether any module asked for continuous frames. The test driver reads it to
+// know whether an animation is still running, without knowing which module.
+extern "C" uint64_t rn_gpui_frame_demand() noexcept {
+  return rngpui::anyFrameRequested() ? 1 : 0;
 }
 
 extern "C" bool rn_gpui_accessibility_active();

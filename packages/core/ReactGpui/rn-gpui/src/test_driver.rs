@@ -22,7 +22,7 @@ unsafe extern "C" {
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
     fn rn_gpui_native_animations_active() -> u64;
-    fn rn_gpui_worklet_frames_pending() -> u64;
+    fn rn_gpui_frame_demand() -> u64;
     fn rn_gpui_request_reload();
     fn rn_gpui_reload_in_progress() -> bool;
     /// Counts the React instances created so far. It changes when a reload
@@ -1328,12 +1328,12 @@ fn idle_status(
         );
     }
     let native_animations = unsafe { rn_gpui_native_animations_active() };
-    let worklet_frames = unsafe { rn_gpui_worklet_frames_pending() };
-    if (native_animations > 0 || worklet_frames > 0)
+    let frame_demand = unsafe { rn_gpui_frame_demand() };
+    if (native_animations > 0 || frame_demand > 0)
         && !ignore.iter().any(|item| item == "animations")
     {
         busy.push(
-            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {worklet_frames} UI Worklets frame callback(s) pending")}),
+            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), frame demand {frame_demand}")}),
         );
     }
     if store.frame_hook.gesture_is_active() && !ignore.iter().any(|item| item == "gestures") {
