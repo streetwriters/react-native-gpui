@@ -324,9 +324,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.native_view_props = props->nativePropsJson;
     }
   }
-  if (gpuiModuleHooks().screensOp) {
-    gpuiModuleHooks().screensOp(shadowView, op);
-  }
 
   const auto& frame = shadowView.layoutMetrics.frame;
   op.frame = {
@@ -335,9 +332,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       (mutation.type == ShadowViewMutation::Update &&
        mutation.oldChildShadowView.layoutMetrics.frame !=
            mutation.newChildShadowView.layoutMetrics.frame);
-  if (gpuiModuleHooks().screensFrame) {
-    gpuiModuleHooks().screensFrame(op);
-  }
 
   if (mutation.type == ShadowViewMutation::Create ||
       mutation.type == ShadowViewMutation::Update) {
