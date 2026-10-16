@@ -2011,7 +2011,7 @@ impl Render for RNNodeView {
         }
         let is_scroll = self.component == "ScrollView";
         let ordered_children = self.children.clone();
-        if let Some(renderer) = crate::extensions::component_renderer(cx, &self.component) {
+        if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.component_node(cx);
             if let Some(painted) = renderer.render(&node, window, cx) {
                 return painted;

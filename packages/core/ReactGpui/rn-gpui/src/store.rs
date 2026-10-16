@@ -238,6 +238,7 @@ impl ViewStore {
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
+        let handle = crate::extensions::StoreHandle::new(cx.entity());
         // Mount batches are child-first: nested screen stacks are created and
         // inserted before their outer RNSScreen is attached to its parent.
         // Resolve the complete batch topology up front so only the outer stack
@@ -412,8 +413,8 @@ impl ViewStore {
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
                     self.nodes.insert(op.tag, node.clone());
                     let component_node = node.read(cx).component_node(cx);
-                    for observer in crate::extensions::store_observers(cx) {
-                        observer.on_mount(&component_node, cx);
+                    for observer in crate::extensions::store_observers() {
+                        observer.on_mount(&component_node, &handle, cx);
                     }
                 }
                 MountKind::Delete => {
@@ -427,8 +428,8 @@ impl ViewStore {
                         });
                     }
                     self.nodes.remove(&op.tag);
-                    for observer in crate::extensions::store_observers(cx) {
-                        observer.on_remove(op.tag, cx);
+                    for observer in crate::extensions::store_observers() {
+                        observer.on_remove(op.tag, &handle, cx);
                     }
                 }
                 MountKind::Insert => {
@@ -829,8 +830,8 @@ impl ViewStore {
                             cx.notify();
                         });
                         let updated_node = node.read(cx).component_node(cx);
-                        for observer in crate::extensions::store_observers(cx) {
-                            observer.on_update(&updated_node, &previous_node, cx);
+                        for observer in crate::extensions::store_observers() {
+                            observer.on_update(&updated_node, &previous_node, &handle, cx);
                         }
                         if op.component == "RNSScreen" && op.props_changed {
                             let next_activity_state = node.read(cx).screen_activity_state;
@@ -1017,6 +1018,69 @@ fn set_header_ancestor_hidden(node: Entity<RNNodeView>, hidden: bool, cx: &mut C
     for child in children {
         set_header_ancestor_hidden(child, hidden, cx);
     }
+}
+
+/// Hides a component and its subtree. The extension API's `StoreHandle` calls
+/// this, so a module can hide a screen without the store's own code.
+pub(crate) fn set_component_hidden(
+    store: &Entity<ViewStore>,
+    tag: i32,
+    hidden: bool,
+    cx: &mut App,
+) {
+    store.update(cx, |store, cx| {
+        if let Some(node) = store.nodes.get(&tag).cloned() {
+            set_header_ancestor_hidden(node, hidden, cx);
+        }
+    });
+}
+
+/// Starts a transition on a component. The extension API's `StoreHandle`
+/// calls this.
+pub(crate) fn start_component_transition(
+    store: &Entity<ViewStore>,
+    tag: i32,
+    transition: crate::extensions::Transition,
+    cx: &mut App,
+) {
+    use crate::node_view::{ScreenTransition, ScreenTransitionMode, ScreenTransitionRole};
+    let mode = match transition.kind {
+        crate::extensions::TransitionKind::SlideFromRight => ScreenTransitionMode::SlideFromRight,
+        crate::extensions::TransitionKind::SlideFromLeft => ScreenTransitionMode::SlideFromLeft,
+        crate::extensions::TransitionKind::Fade => ScreenTransitionMode::Fade,
+    };
+    store.update(cx, |store, cx| {
+        if let Some(node) = store.nodes.get(&tag).cloned() {
+            node.update(cx, |node, cx| {
+                node.screen_transition = Some(ScreenTransition {
+                    mode,
+                    role: ScreenTransitionRole::Enter,
+                    started_at: std::time::Instant::now(),
+                    duration: std::time::Duration::from_millis(transition.duration_ms),
+                    distance_factor: transition.distance_factor,
+                });
+                cx.notify();
+            });
+        }
+    });
+}
+
+/// A `StoreHandle` for a throwaway store, used by the extension tests.
+#[cfg(test)]
+pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensions::StoreHandle {
+    let overlay_host = cx.new(|_| OverlayHost::new());
+    let window = cx.open_window(gpui::size(gpui::px(120.0), gpui::px(100.0)), {
+        let overlay_host = overlay_host.clone();
+        move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+    });
+    let root = window.root(cx).unwrap();
+    let any_window: gpui::AnyWindowHandle = window.into();
+    let host = crate::host::Host::test_stub();
+    let frame_hook = FrameHook::new(host.clone());
+    let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+    cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+    let _ = root;
+    crate::extensions::StoreHandle::new(store)
 }
 
 fn screen_lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
