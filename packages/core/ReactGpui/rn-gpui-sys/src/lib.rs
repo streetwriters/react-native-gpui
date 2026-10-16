@@ -383,7 +383,7 @@ pub mod ffi {
         fn js_heap_bytes(self: &GpuiHost) -> u64;
         fn on_render(self: &GpuiHost) -> Result<()>;
         fn on_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
-        fn on_gesture_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
+        fn on_pointer_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);

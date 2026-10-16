@@ -71,7 +71,7 @@ class GpuiHost {
   uint64_t js_heap_bytes() const;
   void on_render() const;
   void on_frame(double eventTimestampMs) const;
-  void on_gesture_frame(double eventTimestampMs) const;
+  void on_pointer_frame(double eventTimestampMs) const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void emit_device_event(rust::Str event_name) const;
   void emit_device_event_bool(rust::Str event_name, bool value) const;
