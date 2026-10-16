@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      update_screenshots:
+        description: Write new e2e screenshot baselines and upload them instead of comparing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -316,6 +321,10 @@ jobs:
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
           RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
+          # The runners are the reference environment for the Linux and Windows
+          # baselines: dispatch with update_screenshots, then commit the
+          # uploaded images.
+          RN_GPUI_UPDATE_SNAPSHOTS: ${{ inputs.update_screenshots && '1' || '' }}
         run: |
           # run-e2e.mjs forwards unknown arguments to vitest, so the JUnit
           # reporter is added here rather than by changing what runs.
@@ -329,6 +338,14 @@ jobs:
               npm run test:e2e -- --reporter=default --reporter=junit \
               --outputFile=ci-out/junit/e2e.xml
           fi
+
+      - name: Upload the new screenshot baselines
+        if: always() && inputs.update_screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: packages/rn-gpui-tester/e2e/__screenshots__/gpui
+          retention-days: 7
 
       # Screenshots, minidumps and core files are collected into ci-out/ rather
       # than uploaded from their own roots: upload-artifact strips to the common
