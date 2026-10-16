@@ -54,38 +54,8 @@ const ALLOWED = new Map(
   ALLOW_LIST.map(({ name, line }) => [name.toLowerCase(), line ?? null]),
 );
 
-export const PENDING_SCREENS = {
-  patterns: ['screens', 'RNS', '@react-native-gpui/screens'],
-  maxPerFile: {
-    'packages/core/ReactGpui/rn-gpui/src/bootstrap.rs': 1,
-    'packages/core/ReactGpui/rn-gpui/src/extensions/mod.rs': 1,
-    'packages/core/ReactGpui/rn-gpui/src/node_view.rs': 33,
-    'packages/core/ReactGpui/rn-gpui/src/store.rs': 62,
-    'packages/core/ReactGpui/rn-gpui/src/test_driver.rs': 4,
-    'packages/core/ReactGpui/rn-gpui-sys/cpp/GpuiModules.h': 9,
-    'packages/core/ReactGpui/rn-gpui-sys/cpp/MountBatchBuilder.cpp': 4,
-  },
-};
-
-export function classifyHits(hits, pending = PENDING_SCREENS) {
-  const counts = new Map();
-  for (const hit of hits) {
-    if (pending.patterns.includes(hit.pattern))
-      counts.set(hit.file, (counts.get(hit.file) ?? 0) + 1);
-  }
-  const tolerated = [];
-  const failing = [];
-  for (const hit of hits) {
-    const max = pending.maxPerFile[hit.file];
-    if (
-      pending.patterns.includes(hit.pattern) &&
-      max !== undefined &&
-      counts.get(hit.file) <= max
-    )
-      tolerated.push(hit);
-    else failing.push(hit);
-  }
-  return { tolerated, failing };
+export function classifyHits(hits) {
+  return { tolerated: [], failing: hits };
 }
 
 const CORE_PRIVATE = /\/\/\s*core-private:\s*(.*)$/u;
@@ -209,9 +179,17 @@ function isAllowed(token, line) {
     return narrow === null || narrow.test(line);
   }
   const parts = token.split('_');
-  return (
-    parts.length > 1 && parts.every(part => ALLOWED.has(part.toLowerCase()))
-  );
+  if (parts.length > 1 && parts.every(part => ALLOWED.has(part.toLowerCase())))
+    return true;
+  // A core identifier may name an allowed thing and describe it further, as
+  // `screenshot_frame_is_clipped_to_viewport` does: only the leading segment
+  // decides, and only when an underscore separates it from the rest.
+  const [head] = parts;
+  if (parts.length > 1 && ALLOWED.has(head.toLowerCase())) {
+    const narrow = ALLOWED.get(head.toLowerCase());
+    return narrow === null || narrow.test(line);
+  }
+  return false;
 }
 
 export function scanCoreBoundary({ root = repoRoot } = {}) {
@@ -289,8 +267,8 @@ export function formatJson(result) {
   )}\n`;
 }
 
-export function exitCodeFor({ hits }, pending = PENDING_SCREENS) {
-  return classifyHits(hits, pending).failing.length > 0 ? 1 : 0;
+export function exitCodeFor({ hits }) {
+  return classifyHits(hits).failing.length > 0 ? 1 : 0;
 }
 
 function parseArgs(argv) {
