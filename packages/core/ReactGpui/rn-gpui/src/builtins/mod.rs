@@ -1,6 +1,7 @@
 rn_gpui_module::include_specs!();
 
 pub mod alert;
+pub mod app_menu;
 pub mod clipboard;
 pub mod image;
 pub mod linking;
@@ -14,6 +15,7 @@ pub mod windows;
 
 pub fn register() {
     alert::register();
+    app_menu::register();
     clipboard::register();
     image::register();
     linking::register();
