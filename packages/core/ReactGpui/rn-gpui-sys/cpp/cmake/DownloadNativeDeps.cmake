@@ -79,8 +79,23 @@ endif()
 # Prebuilt mode: the archive carries OpenSSL's libraries and generated headers,
 # so only download and extract here (the blocks below are source-mode only).
 if(NOT RN_GPUI_PREBUILT_DIR AND NOT EXISTS "${_openssl_crypto_library}")
-  find_program(RN_GPUI_PERL_EXECUTABLE perl REQUIRED)
+  # OpenSSL's Configure needs a native Windows Perl. Git for Windows ships an
+  # MSYS Perl without Locale::Maketext::Simple and puts it ahead on PATH in Git
+  # Bash, so look in Strawberry Perl's default location first and check the
+  # module before Configure fails with a far less readable error.
+  find_program(RN_GPUI_PERL_EXECUTABLE perl
+    HINTS "C:/Strawberry/perl/bin" REQUIRED)
   if(WIN32)
+    execute_process(
+      COMMAND "${RN_GPUI_PERL_EXECUTABLE}" -MLocale::Maketext::Simple -e 1
+      RESULT_VARIABLE _rn_gpui_perl_check
+      OUTPUT_QUIET ERROR_QUIET)
+    if(NOT _rn_gpui_perl_check EQUAL 0)
+      message(FATAL_ERROR
+        "${RN_GPUI_PERL_EXECUTABLE} cannot build OpenSSL (it lacks "
+        "Locale::Maketext::Simple; Git for Windows' Perl does). Install Strawberry "
+        "Perl, put it ahead of Git on PATH, or pass -DRN_GPUI_PERL_EXECUTABLE=<perl.exe>.")
+    endif()
     find_program(RN_GPUI_MAKE_EXECUTABLE nmake REQUIRED)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
       set(_openssl_target VC-WIN64A)
