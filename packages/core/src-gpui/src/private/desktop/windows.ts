@@ -8,7 +8,29 @@
  */
 
 import { DeviceEventEmitter } from 'react-native';
-import { request } from './index';
+import NativeGpuiWindows from '../specs/NativeGpuiWindows';
+import { DesktopError, toDesktopError } from './index';
+
+/** The module, or an error when the app has no desktop shell. */
+function windowsModule() {
+  if (NativeGpuiWindows == null) {
+    throw new DesktopError(
+      'unsupported',
+      'the GpuiWindows native module is not available',
+    );
+  }
+  return NativeGpuiWindows;
+}
+
+async function request<T>(
+  run: (native: typeof NativeGpuiWindows) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(windowsModule());
+  } catch (error) {
+    throw toDesktopError(error);
+  }
+}
 import { useDesktopWindowId } from './windowContext';
 
 export interface WindowBounds {

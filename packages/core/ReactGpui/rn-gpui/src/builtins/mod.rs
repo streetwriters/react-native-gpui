@@ -10,6 +10,7 @@ pub mod perf_monitor;
 pub mod scrollview;
 pub mod textinput;
 pub mod tray;
+pub mod windows;
 
 pub fn register() {
     alert::register();
@@ -20,4 +21,5 @@ pub fn register() {
     perf_monitor::register();
     scrollview::register();
     tray::register();
+    windows::register();
 }
