@@ -1185,7 +1185,6 @@ mod test_app_context_tests {
             component: "View".into(),
             native_view_name: String::new(),
             native_view_props: "{}".into(),
-            svg_props_json: String::new(),
             frame: RectF {
                 x: 10.0,
                 y: 12.0,

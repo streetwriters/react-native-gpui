@@ -11,6 +11,24 @@ namespace rngpui {
 using namespace facebook::react;
 
 namespace {
+// Every component the props extraction below names, so the renderer registered
+// for each one gets its JSON.
+constexpr const char* kSvgComponents[] = {
+    "RNSVGSvgView",
+    "RNSVGCircle",
+    "RNSVGEllipse",
+    "RNSVGLine",
+    "RNSVGPath",
+    "RNSVGRect",
+    "RNSVGGroup",
+    "RNSVGDefs",
+    "RNSVGClipPath",
+    "RNSVGLinearGradient",
+    "RNSVGRadialGradient",
+    "RNSVGText",
+    "RNSVGTSpan",
+};
+
 template <typename T>
 folly::dynamic svgJsonValue(const T& value) {
   return value;
@@ -112,10 +130,14 @@ folly::dynamic svgPropsJson(const std::string& component, const Props& props) {
 } // namespace
 
 void rn_gpui_install_svg_module() {
-  gpuiModuleHooks().svgPropsJson = [](const std::string& component,
-                                      const Props& props) {
-    return folly::toJson(svgPropsJson(component, props));
-  };
+  for (const char* component : kSvgComponents) {
+    registerComponentProps(
+        component, [](const std::string& name, const ShadowView& view) {
+          if (!view.props)
+            return std::string("{}");
+          return folly::toJson(svgPropsJson(name, *view.props));
+        });
+  }
 }
 
 } // namespace rngpui
