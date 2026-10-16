@@ -40,13 +40,44 @@ pub(crate) enum ScreenTransitionRole {
     Exit,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ScreenTransition {
-    pub mode: ScreenTransitionMode,
-    pub role: ScreenTransitionRole,
-    pub started_at: Instant,
-    pub duration: Duration,
-    pub distance_factor: f32,
+/// The poses a mode and role correspond to.
+///
+/// This is the in-core copy of the table the module owns after step 3: enter
+/// slides from off-screen to rest, exit slides from rest to off-screen, and fade
+/// keeps the node still while its opacity moves.
+pub(crate) fn screen_transition_poses(
+    mode: ScreenTransitionMode,
+    role: ScreenTransitionRole,
+    distance_factor: f32,
+) -> (crate::extensions::Pose, crate::extensions::Pose) {
+    let rest = crate::extensions::Pose {
+        offset_x: 0.0,
+        opacity: 1.0,
+    };
+    let hidden_fade = crate::extensions::Pose {
+        offset_x: 0.0,
+        opacity: 0.0,
+    };
+    let off_screen = |sign: f32| crate::extensions::Pose {
+        offset_x: sign * distance_factor,
+        opacity: 1.0,
+    };
+    match (mode, role) {
+        (ScreenTransitionMode::Fade, ScreenTransitionRole::Enter) => (hidden_fade, rest),
+        (ScreenTransitionMode::Fade, ScreenTransitionRole::Exit) => (rest, hidden_fade),
+        (ScreenTransitionMode::SlideFromRight, ScreenTransitionRole::Enter) => {
+            (off_screen(1.0), rest)
+        }
+        (ScreenTransitionMode::SlideFromLeft, ScreenTransitionRole::Enter) => {
+            (off_screen(-1.0), rest)
+        }
+        (ScreenTransitionMode::SlideFromRight, ScreenTransitionRole::Exit) => {
+            (rest, off_screen(-1.0))
+        }
+        (ScreenTransitionMode::SlideFromLeft, ScreenTransitionRole::Exit) => {
+            (rest, off_screen(1.0))
+        }
+    }
 }
 
 pub(crate) fn screen_transition_mode(animation: &str) -> Option<ScreenTransitionMode> {
@@ -61,7 +92,83 @@ pub(crate) fn screen_transition_mode(animation: &str) -> Option<ScreenTransition
 
 #[cfg(test)]
 mod screen_transition_tests {
-    use super::{screen_transition_mode, ScreenTransitionMode};
+    use super::{
+        screen_transition_mode, screen_transition_poses, ScreenTransitionMode, ScreenTransitionRole,
+    };
+    use crate::extensions::Transition;
+    use std::time::Duration;
+
+    /// The generic lerp reproduces today's slide and fade curves at the three
+    /// samples that matter: the start, the middle and the end.
+    #[test]
+    fn the_pose_lerp_matches_the_slide_and_fade_curves() {
+        for (mode, role, distance, expected) in [
+            (
+                ScreenTransitionMode::SlideFromRight,
+                ScreenTransitionRole::Enter,
+                1.0,
+                [1.0, 0.5, 0.0],
+            ),
+            (
+                ScreenTransitionMode::SlideFromLeft,
+                ScreenTransitionRole::Enter,
+                1.0,
+                [-1.0, -0.5, 0.0],
+            ),
+            (
+                ScreenTransitionMode::SlideFromRight,
+                ScreenTransitionRole::Exit,
+                1.0,
+                [0.0, -0.5, -1.0],
+            ),
+            (
+                ScreenTransitionMode::Fade,
+                ScreenTransitionRole::Enter,
+                1.0,
+                [0.0, 0.0, 0.0],
+            ),
+            (
+                ScreenTransitionMode::Fade,
+                ScreenTransitionRole::Exit,
+                1.0,
+                [0.0, 0.0, 0.0],
+            ),
+            (
+                ScreenTransitionMode::SlideFromRight,
+                ScreenTransitionRole::Exit,
+                0.12,
+                [0.0, -0.06, -0.12],
+            ),
+        ] {
+            let (from, to) = screen_transition_poses(mode, role, distance);
+            let transition = Transition {
+                from,
+                to,
+                duration: Duration::from_millis(240),
+            };
+            for (progress, expected_offset) in
+                [(0.0, expected[0]), (0.5, expected[1]), (1.0, expected[2])]
+            {
+                let pose = transition.pose_at(progress);
+                assert!(
+                    (pose.offset_x - expected_offset).abs() < 0.001,
+                    "{mode:?} {role:?} at {progress}: {} != {expected_offset}",
+                    pose.offset_x
+                );
+            }
+        }
+        // A fade moves opacity and nothing else.
+        let (from, to) =
+            screen_transition_poses(ScreenTransitionMode::Fade, ScreenTransitionRole::Enter, 1.0);
+        let transition = Transition {
+            from,
+            to,
+            duration: Duration::from_millis(150),
+        };
+        assert!((transition.pose_at(0.0).opacity - 0.0).abs() < 0.001);
+        assert!((transition.pose_at(0.5).opacity - 0.5).abs() < 0.001);
+        assert!((transition.pose_at(1.0).opacity - 1.0).abs() < 0.001);
+    }
 
     #[test]
     fn maps_supported_native_stack_animations_and_fallbacks() {
@@ -159,8 +266,8 @@ pub struct RNNodeView {
     pub(crate) screen_activity_state: f32,
     pub(crate) screen_stack_animation: String,
     pub(crate) screen_stack_presentation: String,
-    pub(crate) screen_transition: Option<ScreenTransition>,
-    screen_progress_emitted: Option<(Instant, f32)>,
+    pub(crate) transition: Option<(crate::extensions::Transition, Instant)>,
+    transition_progress_sent: Option<(Instant, f32)>,
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
     scroll_position: Rc<Cell<Point<f32>>>,
@@ -652,8 +759,8 @@ impl RNNodeView {
             screen_activity_state: op.screen_activity_state,
             screen_stack_animation: op.screen_stack_animation.clone(),
             screen_stack_presentation: op.screen_stack_presentation.clone(),
-            screen_transition: None,
-            screen_progress_emitted: None,
+            transition: None,
+            transition_progress_sent: None,
             // `core-private:` a scroll view starts at the offset the module's
             // props carried, which React Native filled from its own state.
             scroll_position: Rc::new(Cell::new(point(scroll_initial.0, scroll_initial.1))),
@@ -833,6 +940,25 @@ impl RNNodeView {
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
     /// is passed in instead of read back from the global.
+    /// This node's transition, with its progress sampled now.
+    pub(crate) fn transition_state(&self) -> Option<crate::extensions::TransitionState> {
+        let (transition, started_at) = self.transition?;
+        Some(crate::extensions::TransitionState {
+            transition,
+            started_at,
+            progress: transition.progress_now(started_at),
+        })
+    }
+
+    /// Whether a transition is still running, and animations are allowed.
+    pub(crate) fn transition_active(&self, cx: &App) -> bool {
+        if cx.reduce_motion() || crate::animation_policy::animations_disabled() {
+            return false;
+        }
+        self.transition
+            .is_some_and(|(transition, started_at)| transition.progress_now(started_at) < 1.0)
+    }
+
     /// How the renderer wants this node painted, beyond the style.
     pub(crate) fn decoration(&self, cx: &App) -> crate::extensions::Decoration {
         let Some(renderer) = crate::extensions::component_renderer(&self.component) else {
@@ -915,15 +1041,6 @@ impl RNNodeView {
         }
     }
 
-    pub(crate) fn screen_transition_active(&self, cx: &App) -> bool {
-        if cx.reduce_motion() || crate::animation_policy::animations_disabled() {
-            return false;
-        }
-        self.screen_transition.is_some_and(|transition| {
-            Instant::now().saturating_duration_since(transition.started_at) < transition.duration
-        })
-    }
-
     pub fn absolute_origin(&self, _cx: &App) -> Point<Pixels> {
         let (mut x, mut y) = self.inherited.origin_unscrolled;
         for link in self.inherited.scrollers.iter() {
@@ -966,10 +1083,7 @@ impl RNNodeView {
             let node = entity.read(cx);
             if node.component == "RNSScreen" {
                 let screen_active = node.screen_activity_state > 0.0;
-                let transition_active = node.screen_transition.is_some_and(|transition| {
-                    !(cx.reduce_motion() || crate::animation_policy::animations_disabled())
-                        && Instant::now() - transition.started_at < transition.duration
-                });
+                let transition_active = node.transition_active(cx);
                 screen = Some((
                     node.tag,
                     node.parent.clone(),
@@ -2030,50 +2144,32 @@ impl Render for RNNodeView {
         let transition = if cx.reduce_motion() || crate::animation_policy::animations_disabled() {
             None
         } else {
-            self.screen_transition
+            self.transition
         };
-        let transition_progress = transition.map(|transition| {
-            let duration = transition.duration.as_secs_f32().max(f32::EPSILON);
-            let linear =
-                ((Instant::now() - transition.started_at).as_secs_f32() / duration).clamp(0.0, 1.0);
-            linear * linear * (3.0 - 2.0 * linear)
-        });
-        if self.component == "RNSScreen" {
-            if let (Some(transition), Some(progress), Some(store)) = (
-                transition,
-                transition_progress,
-                cx.try_global::<crate::store::StoreGlobal>(),
-            ) {
-                let going_forward = matches!(transition.role, ScreenTransitionRole::Enter)
-                    || transition.distance_factor < 1.0;
-                let sample = (transition.started_at, progress);
-                if self.screen_progress_emitted != Some(sample) {
-                    self.screen_progress_emitted = Some(sample);
-                    let host = &store.0.read(cx).host;
-                    host.dispatch_event(
-                        self.tag,
-                        "topTransitionProgress",
-                        &serde_json::json!({
-                            "progress": progress, "closing": if going_forward {0} else {1},
-                            "goingForward": if going_forward {1} else {0}
-                        }),
-                    );
-                    host.on_render();
-                }
+        let transition_progress =
+            transition.map(|(transition, started_at)| transition.progress_now(started_at));
+        if let (Some((transition, started_at)), Some(progress)) = (transition, transition_progress)
+        {
+            let sample = (started_at, progress);
+            if self.transition_progress_sent != Some(sample) {
+                self.transition_progress_sent = Some(sample);
+                // A render-time hook cannot hold the store's entity (the store
+                // is leased while this runs), so the progress report is queued
+                // on the store and delivered by the caller that owns `cx`.
+                crate::store::queue_transition_frame(self.tag, progress);
             }
+            let _ = transition;
         }
-        if self.component == "RNSScreen" && std::env::var_os("RN_GPUI_DEBUG_SCREENS").is_some() {
-            if let (Some(transition), Some(progress)) = (transition, transition_progress) {
+        if std::env::var_os("RN_GPUI_DEBUG_SCREENS").is_some() {
+            if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
                 log::info!(
-                    "[screens] animation frame tag={} role={:?} progress={progress:.3}",
+                    "[screens] animation frame tag={} progress={progress:.3} duration={:?}",
                     self.tag,
-                    transition.role
+                    transition.duration
                 );
             }
         }
-        if self.component == "RNSScreen"
-            && transition_progress.is_some_and(|progress| progress < 1.0)
-        {
+        if transition_progress.is_some_and(|progress| progress < 1.0) {
             let node = cx.entity().downgrade();
             window.on_next_frame(move |_, cx| {
                 let _ = node.update(cx, |_, cx| cx.notify());
@@ -2775,14 +2871,16 @@ impl Render for RNNodeView {
                                 crate::node_view::ScreenTransitionMode::Fade => mode,
                             };
                             let started_at = Instant::now();
+                            let (from, to) = screen_transition_poses(
+                                reverse_mode,
+                                ScreenTransitionRole::Exit,
+                                1.0,
+                            );
                             screen.update(cx, |screen, cx| {
-                                screen.screen_transition = Some(ScreenTransition {
-                                    mode: reverse_mode,
-                                    role: ScreenTransitionRole::Exit,
+                                screen.transition = Some((
+                                    crate::extensions::Transition { from, to, duration },
                                     started_at,
-                                    duration,
-                                    distance_factor: 1.0,
-                                });
+                                ));
                                 cx.notify();
                             });
                             if let Some(previous) = previous_screen_tag
@@ -2790,7 +2888,7 @@ impl Render for RNNodeView {
                                 .cloned()
                             {
                                 previous.update(cx, |previous, cx| {
-                                    previous.screen_transition = None;
+                                    previous.transition = None;
                                     cx.notify();
                                 });
                             }
@@ -2803,7 +2901,7 @@ impl Render for RNNodeView {
                                 let _ = store.update(cx, |store, cx| {
                                     if let Some(screen) = store.nodes.get(&tag).cloned() {
                                         screen.update(cx, |screen, cx| {
-                                            screen.screen_transition = None;
+                                            screen.transition = None;
                                             cx.notify();
                                         });
                                     }
@@ -2872,8 +2970,10 @@ impl Render for RNNodeView {
                 }
             }
             style.position = Some(Position::Absolute);
-            let transitioning_out = transition.is_some_and(|transition| {
-                matches!(transition.role, ScreenTransitionRole::Exit)
+            // A node is on its way out when its target opacity is zero and it
+            // is still moving toward it.
+            let transitioning_out = transition.is_some_and(|(transition, _)| {
+                transition.to.opacity < 1.0
                     && transition_progress.is_some_and(|progress| progress < 1.0)
             });
             let visible_under_modal = self.component == "RNSScreen"
@@ -2917,38 +3017,13 @@ impl Render for RNNodeView {
             if hidden_stack_header || hidden_header {
                 style.display = Some(Display::None);
             }
+            // The pose at this sample: a plain lerp, and a fraction of the
+            // node's own width rather than a mode-specific offset.
             let mut transition_offset_x = 0.0;
-            if self.component == "RNSScreen" {
-                if let (Some(transition), Some(progress)) = (transition, transition_progress) {
-                    let distance_factor = transition.distance_factor;
-                    match (transition.mode, transition.role) {
-                        (ScreenTransitionMode::Fade, ScreenTransitionRole::Enter) => {
-                            style.opacity = Some(style.opacity.unwrap_or(1.0) * progress);
-                        }
-                        (ScreenTransitionMode::Fade, ScreenTransitionRole::Exit) => {
-                            style.opacity = Some(style.opacity.unwrap_or(1.0) * (1.0 - progress));
-                        }
-                        (ScreenTransitionMode::SlideFromRight, ScreenTransitionRole::Enter)
-                        | (ScreenTransitionMode::SlideFromLeft, ScreenTransitionRole::Enter) => {
-                            let sign = if transition.mode == ScreenTransitionMode::SlideFromRight {
-                                1.0
-                            } else {
-                                -1.0
-                            };
-                            transition_offset_x =
-                                sign * distance_factor * frame.w * (1.0 - progress);
-                        }
-                        (ScreenTransitionMode::SlideFromRight, ScreenTransitionRole::Exit)
-                        | (ScreenTransitionMode::SlideFromLeft, ScreenTransitionRole::Exit) => {
-                            let sign = if transition.mode == ScreenTransitionMode::SlideFromRight {
-                                -1.0
-                            } else {
-                                1.0
-                            };
-                            transition_offset_x = sign * distance_factor * frame.w * progress;
-                        }
-                    }
-                }
+            if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
+                let pose = transition.pose_at(progress);
+                transition_offset_x = pose.offset_x * frame.w;
+                style.opacity = Some(style.opacity.unwrap_or(1.0) * pose.opacity);
             }
             style.inset.left = Some(px(base_left + transition_offset_x).into());
             style.inset.top = Some(px(base_top).into());

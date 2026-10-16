@@ -331,7 +331,7 @@ async fn serve_commands(
                         store
                             .nodes
                             .values()
-                            .any(|node| node.read(cx).screen_transition_active(cx))
+                            .any(|node| node.read(cx).transition_active(cx))
                     })
                 {
                     if !wait_for_frame(window, cx, Duration::from_millis(16)).await {
@@ -1254,7 +1254,7 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
         .read(app)
         .nodes
         .values()
-        .filter(|node| node.read(app).screen_transition_active(app))
+        .filter(|node| node.read(app).transition_active(app))
         .cloned()
         .collect();
     for node in transitioning {
@@ -1368,12 +1368,10 @@ fn idle_status(
     if !ignore.iter().any(|item| item == "animations") {
         for (tag, entity) in &store.nodes {
             let node = entity.read(cx);
-            if let Some(transition) = node.screen_transition {
-                if Instant::now().saturating_duration_since(transition.started_at)
-                    < transition.duration
-                {
-                    busy.push(json!({"source": "animations", "detail": format!("navigation transition on tag {tag}")}));
-                }
+            if node.transition_active(cx) {
+                busy.push(
+                    json!({"source": "animations", "detail": format!("transition on tag {tag}")}),
+                );
             }
         }
     }

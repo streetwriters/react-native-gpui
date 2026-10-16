@@ -1,8 +1,7 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::{
-    inherit, screen_transition_mode, InheritInput, Inherited, RNNodeView, ScreenTransition,
-    ScreenTransitionRole,
+    inherit, screen_transition_mode, InheritInput, Inherited, RNNodeView, ScreenTransitionRole,
 };
 #[cfg(target_os = "macos")]
 use gpui::deferred;
@@ -622,33 +621,40 @@ impl ViewStore {
                                     previous_top_screen,
                                     animation
                                 );
+                                let (from, to) = crate::node_view::screen_transition_poses(
+                                    mode,
+                                    crate::node_view::ScreenTransitionRole::Enter,
+                                    1.0,
+                                );
+                                let enter = crate::extensions::Transition { from, to, duration };
                                 if child.read(cx).screen_stack_presentation == "push" {
                                     if let Some(previous_tag) = previous_top_screen {
                                         if let Some(previous) =
                                             self.nodes.get(&previous_tag).cloned()
                                         {
+                                            // The card underneath parallaxes a
+                                            // short way, so its exit uses a
+                                            // smaller fraction of its width.
+                                            let (from, to) =
+                                                crate::node_view::screen_transition_poses(
+                                                    mode,
+                                                    crate::node_view::ScreenTransitionRole::Exit,
+                                                    0.12,
+                                                );
+                                            let exit = crate::extensions::Transition {
+                                                from,
+                                                to,
+                                                duration,
+                                            };
                                             previous.update(cx, |previous, cx| {
-                                                previous.screen_transition =
-                                                    Some(ScreenTransition {
-                                                        mode,
-                                                        role: ScreenTransitionRole::Exit,
-                                                        started_at,
-                                                        duration,
-                                                        distance_factor: 0.12,
-                                                    });
+                                                previous.transition = Some((exit, started_at));
                                                 cx.notify();
                                             });
                                         }
                                     }
                                 }
                                 child.update(cx, |child, cx| {
-                                    child.screen_transition = Some(ScreenTransition {
-                                        mode,
-                                        role: ScreenTransitionRole::Enter,
-                                        started_at,
-                                        duration,
-                                        distance_factor: 1.0,
-                                    });
+                                    child.transition = Some((enter, started_at));
                                     cx.notify();
                                 });
                             }
@@ -669,13 +675,12 @@ impl ViewStore {
                                             outgoing.and_then(|tag| store.nodes.get(&tag).cloned())
                                         {
                                             outgoing_node.update(cx, |outgoing, cx| {
-                                                if outgoing.screen_transition.is_some_and(
-                                                    |transition| {
-                                                        transition.started_at
-                                                            == transition_started_at
+                                                if outgoing.transition.is_some_and(
+                                                    |(_, started_at)| {
+                                                        started_at == transition_started_at
                                                     },
                                                 ) {
-                                                    outgoing.screen_transition = None;
+                                                    outgoing.transition = None;
                                                     cx.notify();
                                                 }
                                             });
@@ -800,7 +805,7 @@ impl ViewStore {
                                     .cloned()
                                 {
                                     screen.update(cx, |screen, cx| {
-                                        screen.screen_transition = None;
+                                        screen.transition = None;
                                         cx.notify();
                                     });
                                 }
@@ -839,14 +844,15 @@ impl ViewStore {
                                     if let (Some(mode), Some(duration), Some(screen)) =
                                         (outgoing_mode, duration, self.nodes.get(&op.tag).cloned())
                                     {
+                                        let (from, to) = crate::node_view::screen_transition_poses(
+                                            mode,
+                                            crate::node_view::ScreenTransitionRole::Exit,
+                                            1.0,
+                                        );
+                                        let exit =
+                                            crate::extensions::Transition { from, to, duration };
                                         screen.update(cx, |screen, cx| {
-                                            screen.screen_transition = Some(ScreenTransition {
-                                                mode,
-                                                role: ScreenTransitionRole::Exit,
-                                                started_at: Instant::now(),
-                                                duration,
-                                                distance_factor: 1.0,
-                                            });
+                                            screen.transition = Some((exit, Instant::now()));
                                             cx.notify();
                                         });
                                     }
@@ -1056,7 +1062,7 @@ impl ViewStore {
                 crate::extensions::Command::ClearTransition { tag } => {
                     if let Some(node) = self.nodes.get(&tag).cloned() {
                         node.update(cx, |node, cx| {
-                            node.screen_transition = None;
+                            node.transition = None;
                             cx.notify();
                         });
                     }
@@ -1269,22 +1275,10 @@ pub(crate) fn start_component_transition(
     transition: crate::extensions::Transition,
     cx: &mut App,
 ) {
-    use crate::node_view::{ScreenTransition, ScreenTransitionMode, ScreenTransitionRole};
-    let mode = match transition.kind {
-        crate::extensions::TransitionKind::SlideFromRight => ScreenTransitionMode::SlideFromRight,
-        crate::extensions::TransitionKind::SlideFromLeft => ScreenTransitionMode::SlideFromLeft,
-        crate::extensions::TransitionKind::Fade => ScreenTransitionMode::Fade,
-    };
     store.update(cx, |store, cx| {
         if let Some(node) = store.nodes.get(&tag).cloned() {
             node.update(cx, |node, cx| {
-                node.screen_transition = Some(ScreenTransition {
-                    mode,
-                    role: ScreenTransitionRole::Enter,
-                    started_at: std::time::Instant::now(),
-                    duration: std::time::Duration::from_millis(transition.duration_ms),
-                    distance_factor: transition.distance_factor,
-                });
+                node.transition = Some((transition, Instant::now()));
                 cx.notify();
             });
         }
@@ -1298,21 +1292,9 @@ fn start_component_transition_here(
     transition: crate::extensions::Transition,
     cx: &mut Context<ViewStore>,
 ) {
-    use crate::node_view::{ScreenTransition, ScreenTransitionMode, ScreenTransitionRole};
-    let mode = match transition.kind {
-        crate::extensions::TransitionKind::SlideFromRight => ScreenTransitionMode::SlideFromRight,
-        crate::extensions::TransitionKind::SlideFromLeft => ScreenTransitionMode::SlideFromLeft,
-        crate::extensions::TransitionKind::Fade => ScreenTransitionMode::Fade,
-    };
     if let Some(node) = store.nodes.get(&tag).cloned() {
         node.update(cx, |node, cx| {
-            node.screen_transition = Some(ScreenTransition {
-                mode,
-                role: ScreenTransitionRole::Enter,
-                started_at: std::time::Instant::now(),
-                duration: std::time::Duration::from_millis(transition.duration_ms),
-                distance_factor: transition.distance_factor,
-            });
+            node.transition = Some((transition, Instant::now()));
             cx.notify();
         });
     }
@@ -1323,11 +1305,21 @@ pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mu
     store.update(cx, |store, cx| {
         if let Some(node) = store.nodes.get(&tag).cloned() {
             node.update(cx, |node, cx| {
-                node.screen_transition = None;
+                node.transition = None;
                 cx.notify();
             });
         }
     });
+}
+
+/// Records a transition frame for delivery once the store is not leased.
+pub(crate) fn queue_transition_frame(tag: i32, progress: f32) {
+    PENDING_TRANSITION_FRAMES.with(|frames| frames.borrow_mut().push((tag, progress)));
+}
+
+thread_local! {
+    static PENDING_TRANSITION_FRAMES: std::cell::RefCell<Vec<(i32, f32)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Records that a module wants a node kept attached after React Native removed
