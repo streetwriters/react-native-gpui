@@ -295,6 +295,21 @@ jobs:
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "build tester" -- \
             npm run desktop -- --features test-driver --no-launch
 
+      # The Windows runner's screen is 1024x768, so a 1024x768 window plus its
+      # title bar does not fit and Windows shrinks it (the navigation e2e saw a
+      # 1024x749 viewport). Linux gets 1280x900 from xvfb below.
+      - name: Enlarge the Windows screen
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          } catch {
+            Write-Warning "Set-DisplayResolution failed: $_"
+          }
+          Get-CimInstance Win32_VideoController |
+            Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
+
       # B0 answered this for all three runners: each one renders a first frame,
       # so e2e runs everywhere rather than being skipped.
       - name: e2e
