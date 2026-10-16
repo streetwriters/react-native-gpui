@@ -33,6 +33,7 @@ jobs:
       local_hash: ${{ steps.hashes.outputs.local_hash }}
       pinned_hash: ${{ steps.hashes.outputs.pinned_hash }}
       cpp_changed: ${{ steps.hashes.outputs.cpp_changed }}
+      runtime: ${{ steps.hashes.outputs.runtime }}
       native_changed: ${{ steps.changes.outputs.native }}
       docs_only: ${{ steps.changes.outputs.docs_only }}
     steps:
@@ -55,8 +56,13 @@ jobs:
           set -euo pipefail
           local_hash="$(node packages/core/scripts/prebuilt-inputs.mjs | awk '{print $1}')"
           pinned_hash="$(node -p "require('./packages/core/prebuilt-binaries.json').inputHash")"
+          # A changed C++ input is not a failure: the pinned archive was built
+          # from other sources, so the build compiles from source and verifies
+          # the change. `runtime` is the same decision build.rs makes.
+          runtime="$(node packages/core/scripts/prebuilt-inputs.mjs --runtime)"
           echo "local_hash=$local_hash" >> "$GITHUB_OUTPUT"
           echo "pinned_hash=$pinned_hash" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
           if [ "$local_hash" = "$pinned_hash" ]; then
             echo "cpp_changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -67,6 +73,7 @@ jobs:
             echo "| --- | --- |"
             echo "| local | \`${local_hash:0:12}\` |"
             echo "| pinned | \`${pinned_hash:0:12}\` |"
+            echo "| runtime | ${runtime} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Detect what changed
@@ -539,6 +546,7 @@ jobs:
           LOCAL_HASH: ${{ needs.plan.outputs.local_hash }}
           PINNED_HASH: ${{ needs.plan.outputs.pinned_hash }}
           CPP_CHANGED: ${{ needs.plan.outputs.cpp_changed }}
+          RUNTIME: ${{ needs.plan.outputs.runtime }}
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
@@ -554,6 +562,7 @@ jobs:
                 localHash: process.env.LOCAL_HASH,
                 pinnedHash: process.env.PINNED_HASH,
                 cppChanged: process.env.CPP_CHANGED === 'true',
+                runtime: process.env.RUNTIME,
               },
               null,
               2,

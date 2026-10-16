@@ -96,6 +96,44 @@ export function inputHash() {
   return { hash: hash.digest('hex'), files: perFile };
 }
 
+/**
+ * Whether a build should link the pinned prebuilt runtime or compile the C++
+ * from source.
+ *
+ * A changed C++ input is not an error: the pinned archive was built from
+ * different sources, so linking it would run code the checkout does not
+ * contain. The build falls back to source and verifies the change. `build.rs`
+ * makes the same decision in Rust; this is the one place that names the rule
+ * for tooling and CI.
+ *
+ * `pin` is the parsed `prebuilt-binaries.json`; omit it to read the file.
+ */
+export function runtimeChoice(pin) {
+  const pinned = pin ?? readPinFile();
+  const local = inputHash().hash;
+  if (local === pinned.inputHash) {
+    return {
+      kind: 'prebuilt',
+      version: pinned.version,
+      localHash: local,
+      pinnedHash: pinned.inputHash,
+    };
+  }
+  return {
+    kind: 'source',
+    version: pinned.version,
+    localHash: local,
+    pinnedHash: pinned.inputHash,
+    reason: `local C++ inputs hash to ${local}, the pinned prebuilt was built from ${pinned.inputHash}`,
+  };
+}
+
+function readPinFile() {
+  return JSON.parse(
+    readFileSync(path.join(packageDir, 'prebuilt-binaries.json'), 'utf8'),
+  );
+}
+
 // Run as a CLI only when this file is the entry point. The guard matters
 // because importers (build-prebuilt.mjs, build.rs via node -e) must not print.
 const isEntry =
@@ -104,6 +142,10 @@ const isEntry =
 if (isEntry) {
   if (process.argv.includes('--overrides-sha256')) {
     console.log(overridesSha256());
+    process.exit(0);
+  }
+  if (process.argv.includes('--runtime')) {
+    console.log(runtimeChoice().kind);
     process.exit(0);
   }
   const { hash, files } = inputHash();
