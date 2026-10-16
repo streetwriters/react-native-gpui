@@ -96,17 +96,9 @@ using namespace facebook::react;
 
 namespace rngpui {
 namespace {
-std::mutex gesturePointerProcessorMutex;
-GpuiGesturePointerProcessor gesturePointerProcessor;
 std::mutex gesturePointerEventMutex;
-GpuiRawPointerEvent lastGesturePointerEvent{};
+extension::RawPointerEvent lastGesturePointerEvent{};
 } // namespace
-
-void register_gpui_gesture_pointer_processor(
-    GpuiGesturePointerProcessor processor) {
-  std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-  gesturePointerProcessor = std::move(processor);
-}
 
 namespace {
 std::atomic<GpuiHost*> activeGpuiHost{nullptr};
@@ -920,20 +912,17 @@ namespace {
 void dispatchGestureTime(
     GpuiMountingManager& mountingManager,
     double eventTimestampMs) {
-  GpuiGesturePointerProcessor processor;
+  if (gpuiExtensionHooks().pointerObservers.empty())
+    return;
+  extension::RawPointerEvent tick;
   {
-    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-    processor = gesturePointerProcessor;
+    std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
+    tick = lastGesturePointerEvent;
   }
-  if (processor) {
-    GpuiRawPointerEvent tick;
-    {
-      std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
-      tick = lastGesturePointerEvent;
-    }
-    tick.phase = 4; // native time tick for duration-based recognizers
-    tick.timestamp = eventTimestampMs;
-    for (const auto& recognized : processor(tick)) {
+  tick.phase = 4; // native time tick for duration-based recognizers
+  tick.timestamp = eventTimestampMs;
+  for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
+    for (const auto& recognized : observer(tick)) {
       mountingManager.dispatchEvent(
           recognized.targetTag,
           recognized.eventType,
@@ -1003,13 +992,7 @@ void GpuiHost::dispatch_pointer_event(
     float y,
     int32_t phase,
     double timestamp) const {
-  GpuiGesturePointerProcessor processor;
-  {
-    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-    processor = gesturePointerProcessor;
-  }
-
-  GpuiRawPointerEvent event;
+  extension::RawPointerEvent event;
   try {
     const auto targetChain = folly::parseJson(std::string(targetChainJson));
     if (!targetChain.isArray())
@@ -1020,8 +1003,7 @@ void GpuiHost::dispatch_pointer_event(
         event.targetChain.push_back(static_cast<int32_t>(tag.asInt()));
     }
   } catch (const std::exception& error) {
-    LOG(WARNING) << "[gesture-handler] invalid pointer target chain: "
-                 << error.what();
+    LOG(WARNING) << "[pointer] invalid target chain: " << error.what();
     return;
   }
   event.x = x;
@@ -1033,30 +1015,13 @@ void GpuiHost::dispatch_pointer_event(
     lastGesturePointerEvent = event;
   }
 
-  if (!gpuiExtensionHooks().pointerObservers.empty()) {
-    rngpui::extension::RawPointerEvent generic;
-    generic.targetChain = event.targetChain;
-    generic.x = event.x;
-    generic.y = event.y;
-    generic.phase = event.phase;
-    generic.timestamp = event.timestamp;
-    for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
-      for (const auto& recognized : observer(generic)) {
-        mountingManager_->dispatchEvent(
-            recognized.targetTag,
-            recognized.eventType,
-            folly::parseJson(recognized.payloadJson));
-      }
+  for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
+    for (const auto& recognized : observer(event)) {
+      mountingManager_->dispatchEvent(
+          recognized.targetTag,
+          recognized.eventType,
+          folly::parseJson(recognized.payloadJson));
     }
-  }
-
-  if (!processor)
-    return;
-  for (const auto& recognized : processor(event)) {
-    mountingManager_->dispatchEvent(
-        recognized.targetTag,
-        recognized.eventType,
-        folly::parseJson(recognized.payloadJson));
   }
 }
 

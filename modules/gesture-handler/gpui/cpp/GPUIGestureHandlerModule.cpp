@@ -1,4 +1,5 @@
 #include "GpuiHost.h"
+#include "GpuiModules.h"
 
 #include <GPUIGestureHandlerSpec.h>
 #include <ReactCommon/TurboModule.h>
@@ -19,8 +20,8 @@
 namespace {
 using facebook::jsi::Runtime;
 using facebook::react::TurboModule;
-using rngpui::GpuiRawPointerEvent;
-using rngpui::GpuiRecognizedGestureEvent;
+using rngpui::extension::RawPointerEvent;
+using rngpui::extension::RecognizedGesture;
 
 constexpr int32_t kUndetermined = 0;
 constexpr int32_t kFailed = 1;
@@ -90,7 +91,7 @@ folly::dynamic payloadFor(
     const Handler& handler,
     int32_t state,
     int32_t oldState,
-    const GpuiRawPointerEvent& pointer,
+    const RawPointerEvent& pointer,
     bool stateChange) {
   const float dx = pointer.x - handler.startX;
   const float dy = pointer.y - handler.startY;
@@ -110,7 +111,7 @@ folly::dynamic payloadFor(
 }
 
 void appendEvent(
-    std::vector<GpuiRecognizedGestureEvent>& events,
+    std::vector<RecognizedGesture>& events,
     int32_t viewTag,
     const char* type,
     const folly::dynamic& payload) {
@@ -118,11 +119,11 @@ void appendEvent(
 }
 
 void appendState(
-    std::vector<GpuiRecognizedGestureEvent>& events,
+    std::vector<RecognizedGesture>& events,
     int32_t handlerTag,
     Handler& handler,
     int32_t nextState,
-    const GpuiRawPointerEvent& pointer) {
+    const RawPointerEvent& pointer) {
   if (handler.state == nextState)
     return;
   const auto oldState = handler.state;
@@ -189,9 +190,8 @@ bool blockedByActiveHandler(int32_t handlerTag) {
   return false;
 }
 
-std::vector<GpuiRecognizedGestureEvent> processPointer(
-    const GpuiRawPointerEvent& pointer) {
-  std::vector<GpuiRecognizedGestureEvent> events;
+std::vector<RecognizedGesture> processPointer(const RawPointerEvent& pointer) {
+  std::vector<RecognizedGesture> events;
   std::lock_guard<std::mutex> lock(handlersMutex);
   if (gestureTracingEnabled() && pointer.phase != 4) {
     LOG(INFO) << "[gesture-handler] pointer phase=" << pointer.phase << " at ("
@@ -489,7 +489,10 @@ create_gpui_gesture_handler_module(
   if (name != GPUIGestureHandlerModule::kModuleName) {
     return nullptr;
   }
-  rngpui::register_gpui_gesture_pointer_processor(&processPointer);
+  rngpui::registerPointerObserver(
+      [](const rngpui::extension::RawPointerEvent& pointer) {
+        return processPointer(pointer);
+      });
   if (gestureTracingEnabled()) {
     LOG(INFO) << "[gesture-handler] native pointer processor installed";
   }

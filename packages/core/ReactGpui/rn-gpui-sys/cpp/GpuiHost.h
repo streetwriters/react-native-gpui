@@ -33,24 +33,6 @@ namespace rngpui {
 class GpuiMountingManager;
 class GpuiLogBoxSurfaceDelegate;
 
-struct GpuiRawPointerEvent {
-  std::vector<int32_t> targetChain;
-  float x;
-  float y;
-  int32_t phase;
-  double timestamp;
-};
-
-struct GpuiRecognizedGestureEvent {
-  int32_t targetTag;
-  std::string eventType;
-  std::string payloadJson;
-};
-
-using GpuiGesturePointerProcessor =
-    std::function<std::vector<GpuiRecognizedGestureEvent>(
-        const GpuiRawPointerEvent&)>;
-
 constexpr int32_t kAppSurfaceId = 1;
 constexpr int32_t kLogBoxSurfaceId = 2;
 constexpr int32_t kAllSurfacesStopped = -1;
@@ -154,8 +136,6 @@ std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(
     std::shared_ptr<const facebook::react::EventListener> listener);
-void register_gpui_gesture_pointer_processor(
-    GpuiGesturePointerProcessor processor);
 /// Runs the task a module posted with `rngpui::dispatchMain`. Called on the
 /// GPUI main thread.
 void rn_gpui_run_main_task(uint64_t id);
