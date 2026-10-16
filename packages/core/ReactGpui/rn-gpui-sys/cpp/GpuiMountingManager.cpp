@@ -136,12 +136,6 @@ std::string describeOp(const MountOp& op) {
   if (!op.extension_props_json.empty()) {
     out += " props=" + std::string(op.extension_props_json);
   }
-  if (op.component == "ScrollView") {
-    out += " offset=(" + std::to_string(op.scroll_x) + "," +
-        std::to_string(op.scroll_y) +
-        ") content=" + std::to_string(op.content_width) + "x" +
-        std::to_string(op.content_height);
-  }
   return out;
 }
 

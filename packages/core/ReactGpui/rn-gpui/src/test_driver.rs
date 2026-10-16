@@ -1567,12 +1567,8 @@ pub(crate) fn node_visible_frame(
         {
             return None;
         }
-        if ancestor.view.overflow_hidden
-            || matches!(
-                ancestor.component.as_str(),
-                "ScrollView" | "AndroidHorizontalScrollView"
-            )
-        {
+        // A scrolling ancestor clips its content to its viewport.
+        if ancestor.view.overflow_hidden || ancestor.scroll.is_some() {
             visible = intersect(visible, node_frame(store, ancestor.tag, cx)?)?;
         }
         parent = ancestor.parent.as_ref().and_then(|parent| parent.upgrade());
@@ -1711,7 +1707,7 @@ fn tree_node(
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
-        "contentSize": [node.content_size.0, node.content_size.1],
+        "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
         "children": children})
 }

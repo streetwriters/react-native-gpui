@@ -177,13 +177,6 @@ pub mod ffi {
         pub screen_activity_state: f32,
         pub screen_stack_animation: String,
         pub screen_stack_presentation: String,
-        pub scroll_x: f32,
-        pub scroll_y: f32,
-        pub content_width: f32,
-        pub content_height: f32,
-        pub scroll_horizontal: bool,
-        pub scroll_enabled: bool,
-        pub scroll_indicator: bool,
         pub layout_changed: bool,
     }
 

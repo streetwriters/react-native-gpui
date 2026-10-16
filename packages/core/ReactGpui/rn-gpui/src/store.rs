@@ -907,12 +907,18 @@ impl ViewStore {
                 }
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
             }
-            // ScrollView's JS implementation installs `onLayout` callbacks on
-            // both its viewport and content container. Fabric's native event
-            // subscription is not reflected in BaseViewProps::onLayout here,
-            // so emit layout for mounted views; nodes without a JS listener
-            // simply discard it in their EventEmitter.
-            if op.layout_changed && matches!(op.component.as_str(), "View" | "ScrollView") {
+            // A scrolling component's JS implementation installs `onLayout`
+            // callbacks on both its viewport and its content container.
+            // Fabric's native event subscription is not reflected in
+            // BaseViewProps::onLayout here, so emit layout for a mounted
+            // scrolling view; a node without a JS listener discards it in its
+            // EventEmitter.
+            let is_scroll = crate::extensions::component_scroll(
+                &op.component,
+                &crate::extensions::parse_extension_props(&op.extension_props_json),
+            )
+            .is_some();
+            if op.layout_changed && (op.component == "View" || is_scroll) {
                 self.host.dispatch_event(
                     op.tag,
                     "topLayout",
@@ -1225,13 +1231,6 @@ mod test_app_context_tests {
             screen_activity_state: 0.0,
             screen_stack_animation: String::new(),
             screen_stack_presentation: String::new(),
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            content_width: 0.0,
-            content_height: 0.0,
-            scroll_horizontal: false,
-            scroll_enabled: false,
-            scroll_indicator: false,
             layout_changed: false,
         }
     }
