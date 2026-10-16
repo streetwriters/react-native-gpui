@@ -204,6 +204,12 @@ export const screens = [
     fixture: 'GpuiComponentRegistryFixture',
   },
   {
+    id: 'fixture-module',
+    title: 'Module-only component',
+    group: 'Native modules',
+    fixture: 'FixtureModuleProbeFixture',
+  },
+  {
     id: 'node-api',
     title: 'Node-API addon',
     group: 'Native modules',
