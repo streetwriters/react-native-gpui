@@ -1391,8 +1391,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             store.top_inset = top;
                             store.host.set_window_top_inset(top);
                             store.frame_hook.arm(window);
+                            // A renderer declares whether its component's paint
+                            // depends on the window insets; core asks instead of
+                            // naming the component. The in-core screens name is
+                            // still honoured until the module owns it.
                             for node in store.nodes.values() {
-                                if node.read(cx).component == "RNSScreenStackHeaderConfig" {
+                                let component = node.read(cx).component.clone();
+                                let depends = crate::extensions::component_renderer(&component)
+                                    .is_some_and(|renderer| renderer.depends_on_window_insets())
+                                    || component == "RNSScreenStackHeaderConfig";
+                                if depends {
                                     node.update(cx, |_, cx| cx.notify());
                                 }
                             }

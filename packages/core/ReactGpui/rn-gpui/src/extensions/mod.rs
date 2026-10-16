@@ -804,4 +804,93 @@ mod tests {
             ]
         );
     }
+
+    /// The hooks of one batch run in the order the plan fixes: the whole-batch
+    /// pre-pass, then the per-operation hooks, then the post-pass.
+    #[gpui::test]
+    fn batch_hooks_run_in_order(cx: &mut TestAppContext) {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let observer = Arc::new(OrderObserver {
+            order: order.clone(),
+        });
+        let handle = crate::store::test_store_handle(cx);
+        cx.update(|cx| {
+            let tree = empty_tree();
+            observer.before_batch(&BatchView::default(), &tree, &handle, cx);
+            observer.on_insert(&node("View", 1), 0, &[], &tree, &handle, cx);
+            observer.on_remove_child(1, 0, false, &tree, &handle, cx);
+            observer.after_batch(&tree, &handle, cx);
+        });
+        assert_eq!(
+            *order.lock().unwrap(),
+            vec!["before", "insert", "remove_child", "after"]
+        );
+    }
+
+    struct OrderObserver {
+        order: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl StoreObserver for OrderObserver {
+        fn on_mount(&self, _node: &ComponentNode, _handle: &StoreHandle, _cx: &mut App) {}
+        fn on_update(
+            &self,
+            _node: &ComponentNode,
+            _previous: &ComponentNode,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) {
+        }
+        fn on_remove(&self, _tag: i32, _handle: &StoreHandle, _cx: &mut App) {}
+        fn before_batch(
+            &self,
+            _batch: &BatchView,
+            _tree: &TreeView,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) {
+            self.order.lock().unwrap().push("before");
+        }
+        fn on_insert(
+            &self,
+            _child: &ComponentNode,
+            _parent: i32,
+            _previous_children: &[i32],
+            _tree: &TreeView,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) {
+            self.order.lock().unwrap().push("insert");
+        }
+        fn on_remove_child(
+            &self,
+            _child: i32,
+            _parent: i32,
+            _retained: bool,
+            _tree: &TreeView,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) {
+            self.order.lock().unwrap().push("remove_child");
+        }
+        fn after_batch(&self, _tree: &TreeView, _handle: &StoreHandle, _cx: &mut App) {
+            self.order.lock().unwrap().push("after");
+        }
+    }
+
+    /// A tree with no nodes, for hooks whose bodies do not consult it.
+    fn empty_tree() -> TreeView<'static> {
+        static NODES: OnceLock<HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>> =
+            OnceLock::new();
+        static RETAINED: OnceLock<HashMap<i32, Vec<i32>>> = OnceLock::new();
+        TreeView {
+            nodes: NODES.get_or_init(HashMap::new),
+            root_tags: Vec::new(),
+            top_inset: 0.0,
+            animations_enabled: true,
+            current: None,
+            retained: RETAINED.get_or_init(HashMap::new),
+            app: std::ptr::null(),
+        }
+    }
 }
