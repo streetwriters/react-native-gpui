@@ -193,7 +193,7 @@ impl ViewStore {
             self.nodes.remove(&tag);
             self.accessibility_modal_tags.remove(&tag);
             self.overlay_host.update(cx, |host, cx| {
-                host.remove_modal(tag);
+                host.remove_portal(tag);
                 cx.notify();
             });
         }
@@ -371,9 +371,12 @@ impl ViewStore {
         for op in batch.ops.iter() {
             match op.kind {
                 MountKind::Create | MountKind::Update => {
-                    if op.view.accessibility_modal
-                        || (op.component == "ModalHostView" && op.modal_visible)
-                    {
+                    let is_visible_portal = crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some_and(|portal| portal.visible);
+                    if op.view.accessibility_modal || is_visible_portal {
                         self.accessibility_modal_tags.insert(op.tag);
                     } else {
                         self.accessibility_modal_tags.remove(&op.tag);
@@ -418,12 +421,14 @@ impl ViewStore {
                     }
                 }
                 MountKind::Delete => {
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
-                    ) {
+                    if crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some()
+                    {
                         self.overlay_host.update(cx, |host, cx| {
-                            host.remove_modal(op.tag);
+                            host.remove_portal(op.tag);
                             cx.notify();
                         });
                     }
@@ -439,23 +444,23 @@ impl ViewStore {
                     };
                     {
                         let node = child.read(cx);
-                        if node.view.accessibility_modal
-                            || (node.component == "ModalHostView" && node.modal_visible)
-                        {
+                        let is_visible_portal = crate::extensions::component_portal(
+                            &op.component,
+                            &crate::extensions::parse_extension_props(&op.extension_props_json),
+                        )
+                        .is_some_and(|portal| portal.visible);
+                        if node.view.accessibility_modal || is_visible_portal {
                             self.accessibility_modal_tags.insert(op.tag);
                         }
                     }
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
+                    if let Some(portal) = crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
                     ) {
                         child.update(cx, |child, _cx| child.parent = None);
-                        if op.component == "RNSFullWindowOverlay" || child.read(cx).modal_visible {
-                            if op.component == "RNSFullWindowOverlay" {
-                                log::info!("[screens] full window overlay mounted tag={}", op.tag);
-                            }
+                        if portal.visible {
                             self.overlay_host.update(cx, |host, cx| {
-                                host.insert_modal(op.tag, child.clone());
+                                host.insert_portal(op.tag, child.clone());
                                 cx.notify();
                             });
                         }
@@ -682,12 +687,14 @@ impl ViewStore {
                     if retained_descendants.contains(&op.tag) {
                         continue;
                     }
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
-                    ) {
+                    if crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some()
+                    {
                         self.overlay_host.update(cx, |host, cx| {
-                            host.remove_modal(op.tag);
+                            host.remove_portal(op.tag);
                             cx.notify();
                         });
                         continue;
@@ -849,16 +856,15 @@ impl ViewStore {
                                     .dispatch_event(op.tag, event, &serde_json::json!({}));
                             }
                         }
-                        if matches!(
-                            op.component.as_str(),
-                            "ModalHostView" | "RNSFullWindowOverlay"
+                        if let Some(portal) = crate::extensions::component_portal(
+                            &op.component,
+                            &crate::extensions::parse_extension_props(&op.extension_props_json),
                         ) {
-                            let visible = node.read(cx).modal_visible;
                             self.overlay_host.update(cx, |host, cx| {
-                                if op.component == "RNSFullWindowOverlay" || visible {
-                                    host.insert_modal(op.tag, node.clone());
+                                if portal.visible {
+                                    host.insert_portal(op.tag, node.clone());
                                 } else {
-                                    host.remove_modal(op.tag);
+                                    host.remove_portal(op.tag);
                                 }
                                 cx.notify();
                             });
@@ -938,11 +944,11 @@ impl ViewStore {
         if let Some(root) = self.roots.get(&surface_id) {
             roots.extend(root.read(cx).children.iter().map(|(_, node)| node.clone()));
         }
-        // A ModalHostView or RNSFullWindowOverlay is spliced with no RN parent
-        // and painted by the overlay host instead, so it is a second root.
-        for (_, modal) in self.overlay_host.read(cx).modals.iter() {
-            if modal.read(cx).surface_id == surface_id && modal.read(cx).parent.is_none() {
-                roots.push(modal.clone());
+        // A portal is spliced with no React Native parent and painted by the
+        // overlay host instead, so it is a second root.
+        for (_, portal) in self.overlay_host.read(cx).portals.iter() {
+            if portal.read(cx).surface_id == surface_id && portal.read(cx).parent.is_none() {
+                roots.push(portal.clone());
             }
         }
         // The pass runs while this entity is being updated, so `origin_frame`
@@ -1209,7 +1215,6 @@ mod test_app_context_tests {
             text_input_selection_set: false,
             text_input_selection_start: 0,
             text_input_selection_end: 0,
-            modal_visible: false,
             screen_header_title: String::new(),
             screen_header_subview_type: String::new(),
             screen_header_background_color: 0,
@@ -1410,14 +1415,14 @@ fn kind_name(kind: MountKind) -> &'static str {
 /// frame. Created before the window opens; it only toggles its own contents.
 pub struct OverlayHost {
     overlays: Vec<(i32, Entity<SurfaceRootView>)>,
-    modals: Vec<(i32, Entity<RNNodeView>)>,
+    portals: Vec<(i32, Entity<RNNodeView>)>,
 }
 
 impl OverlayHost {
     pub fn new() -> Self {
         Self {
             overlays: Vec::new(),
-            modals: Vec::new(),
+            portals: Vec::new(),
         }
     }
 
@@ -1433,17 +1438,19 @@ impl OverlayHost {
 
     pub fn clear(&mut self) {
         self.overlays.clear();
-        self.modals.clear();
+        self.portals.clear();
     }
 
-    pub fn insert_modal(&mut self, tag: i32, modal: Entity<RNNodeView>) {
-        if !self.modals.iter().any(|(existing, _)| *existing == tag) {
-            self.modals.push((tag, modal));
+    /// Adds a window-level portal. A portal is a component its renderer
+    /// declared through `ComponentRenderer::portal`, such as a modal.
+    pub fn insert_portal(&mut self, tag: i32, portal: Entity<RNNodeView>) {
+        if !self.portals.iter().any(|(existing, _)| *existing == tag) {
+            self.portals.push((tag, portal));
         }
     }
 
-    pub fn remove_modal(&mut self, tag: i32) {
-        self.modals.retain(|(existing, _)| *existing != tag);
+    pub fn remove_portal(&mut self, tag: i32) {
+        self.portals.retain(|(existing, _)| *existing != tag);
     }
 }
 
@@ -1452,12 +1459,12 @@ impl Render for OverlayHost {
         // Kept absolute so the empty host is exactly 0x0: a full-size empty div
         // would swallow every hover and click meant for the app behind it.
         let host = div().absolute().top_0().left_0();
-        if self.overlays.is_empty() && self.modals.is_empty() {
+        if self.overlays.is_empty() && self.portals.is_empty() {
             host
         } else {
             host.size_full()
                 .children(self.overlays.iter().map(|(_, overlay)| overlay.clone()))
-                .children(self.modals.iter().map(|(_, modal)| modal.clone()))
+                .children(self.portals.iter().map(|(_, portal)| portal.clone()))
         }
     }
 }

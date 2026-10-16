@@ -138,7 +138,6 @@ pub struct RNNodeView {
     pub input_event_count: i32,
     caret_visible: bool,
     caret_blink_task: Task<()>,
-    pub modal_visible: bool,
     pub screen_header_title: String,
     pub(crate) screen_header_subview_type: String,
     pub(crate) header_container_width: f32,
@@ -575,10 +574,12 @@ impl RNNodeView {
             extension_props_json: op.extension_props_json.clone(),
             #[cfg(target_os = "macos")]
             native_view_host: None,
-            frame: if matches!(
-                op.component.as_str(),
-                "ModalHostView" | "RNSFullWindowOverlay"
-            ) {
+            frame: if crate::extensions::component_portal(
+                &op.component,
+                &crate::extensions::parse_extension_props(&op.extension_props_json),
+            )
+            .is_some()
+            {
                 rn_gpui_sys::ffi::RectF {
                     x: 0.0,
                     y: 0.0,
@@ -613,7 +614,6 @@ impl RNNodeView {
             input_event_count: 0,
             caret_visible: false,
             caret_blink_task: Task::ready(()),
-            modal_visible: op.modal_visible,
             screen_header_title: op.screen_header_title.clone(),
             screen_header_subview_type: op.screen_header_subview_type.clone(),
             header_container_width: 0.0,
@@ -676,10 +676,12 @@ impl RNNodeView {
                 self.native_view_host = None;
             }
         }
-        self.frame = if matches!(
-            self.component.as_str(),
-            "ModalHostView" | "RNSFullWindowOverlay"
-        ) {
+        self.frame = if crate::extensions::component_portal(
+            &op.component,
+            &crate::extensions::parse_extension_props(&op.extension_props_json),
+        )
+        .is_some()
+        {
             rn_gpui_sys::ffi::RectF {
                 x: 0.0,
                 y: 0.0,
@@ -688,9 +690,6 @@ impl RNNodeView {
         } else {
             op.frame
         };
-        if self.component == "ModalHostView" {
-            self.modal_visible = op.modal_visible;
-        }
         self.screen_header_title = op.screen_header_title.clone();
         self.screen_header_subview_type = op.screen_header_subview_type.clone();
         self.screen_header_background_color = op.screen_header_background_color;
@@ -1899,7 +1898,12 @@ impl Render for RNNodeView {
                 self.render_count
             );
         }
-        if self.view.display_none || (self.component == "ModalHostView" && !self.modal_visible) {
+        let hidden_portal = crate::extensions::component_portal(
+            &self.component,
+            &crate::extensions::parse_extension_props(&self.extension_props_json),
+        )
+        .is_some_and(|portal| !portal.visible);
+        if self.view.display_none || hidden_portal {
             return div().id(self.tag).size_0().into_any_element();
         }
         #[cfg(target_os = "macos")]
@@ -2540,21 +2544,29 @@ impl Render for RNNodeView {
                 );
             }
         }
-        if self.component == "ModalHostView" && self.modal_visible {
-            element = element.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" {
+        // A portal decides what a close request means; Escape is the desktop's
+        // way of asking. The component names the event, so core does not.
+        if let Some(close_event) = crate::extensions::component_portal(
+            &self.component,
+            &crate::extensions::parse_extension_props(&self.extension_props_json),
+        )
+        .filter(|portal| portal.visible)
+        .and_then(|portal| portal.close_request_event)
+        {
+            element =
+                element.on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                    if event.keystroke.key != "escape" {
+                        return;
+                    }
                     if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                         let store = store.0.read(cx);
-                        store.host.dispatch_event(
-                            this.tag,
-                            "topRequestClose",
-                            &serde_json::json!({}),
-                        );
+                        store
+                            .host
+                            .dispatch_event(this.tag, &close_event, &serde_json::json!({}));
                         store.frame_hook.arm(window);
                     }
                     cx.stop_propagation();
-                }
-            }));
+                }));
         }
         if self.component == "RNSScreenStack" {
             element = element.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
