@@ -12,7 +12,7 @@ use rn_gpui_module::{FromValue, IntoValue, ModuleError, ModuleThread, Path, Valu
 
 use super::capabilities;
 use super::errors::{DesktopError, DesktopResult};
-use super::{app_menu, context_menu, menu_model, perf_monitor, tray, windows};
+use super::{app_menu, context_menu, menu_model, tray, windows};
 
 rn_gpui_module::include_specs!();
 
@@ -399,17 +399,6 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
             tray::set_menu(cx, items.as_ref())
         })
         .await
-    }
-
-    async fn perf_monitor_set_enabled(&self, enabled: bool) -> Result<PerfToggle, ModuleError> {
-        on_main("perfMonitorSetEnabled", move |cx| {
-            Ok(perf_monitor::set_enabled(cx, enabled))
-        })
-        .await
-    }
-
-    async fn perf_monitor_get_metrics(&self) -> Result<PerfMetrics, ModuleError> {
-        on_main("perfMonitorGetMetrics", |cx| Ok(perf_monitor::metrics(cx))).await
     }
 
     async fn context_menu_show(
