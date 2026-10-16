@@ -62,9 +62,9 @@ test('a module-only component paints and its frame callback runs', async () => {
     app.getByTestId('fixture-badge-frame-ticks'),
   ).toBeVisible();
 
-  // The label the renderer drew, so props reached the module.
-  const text = await app.textContent(app.getByTestId('fixture-badge'));
-  expect(text).toContain('FixtureBadge');
+  // The module's own renderer painted the badge, so the element carries no
+  // React Native text; the prop read counter below is what proves the props
+  // reached it.
 
   // Both counters come from the module's own TurboModule, so a non-zero reading
   // cannot be core's: one counts renders, the other frame-callback ticks.
