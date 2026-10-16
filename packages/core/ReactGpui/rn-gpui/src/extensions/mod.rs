@@ -108,6 +108,27 @@ pub struct Portal {
     pub close_request_event: Option<String>,
 }
 
+/// A component whose content scrolls inside its own frame.
+///
+/// Core owns the scrolling itself — a GPUI scroll handle, the wheel listener and
+/// the resolved-offset read-back are platform capability, the same as a portal's
+/// placement — so a component only declares that it scrolls, and how.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScrollSpec {
+    /// The content's size, which may exceed the frame.
+    pub content_size: (f32, f32),
+    /// The axis: horizontal scrolls x, otherwise y.
+    pub horizontal: bool,
+    /// Whether the user may scroll it. A disabled scroll view clips instead.
+    pub enabled: bool,
+    /// Whether to paint a scroll indicator.
+    pub indicator: bool,
+    /// The offset React Native currently believes, applied before painting.
+    pub offset: (f32, f32),
+    /// The event dispatched as the offset changes, `topScroll` in React Native.
+    pub event: Option<String>,
+}
+
 /// Paints one component name.
 ///
 /// Core tries `content` first and then `render`. A component whose painting is
@@ -137,6 +158,14 @@ pub trait ComponentRenderer: Send + Sync + 'static {
     /// than a `ComponentNode` because the store decides placement while it walks
     /// a mount batch, before any node exists.
     fn portal(&self, _props: &Value) -> Option<Portal> {
+        None
+    }
+
+    /// Whether this component scrolls its content, and with what geometry.
+    ///
+    /// Like `portal`, it reads parsed props so the answer does not depend on a
+    /// render pass.
+    fn scroll(&self, _props: &Value) -> Option<ScrollSpec> {
         None
     }
 }
@@ -207,6 +236,11 @@ pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRende
 /// does not declare a portal, stays in the tree.
 pub fn component_portal(component_name: &str, props: &Value) -> Option<Portal> {
     component_renderer(component_name)?.portal(props)
+}
+
+/// The scroll declaration a component's renderer makes for these props.
+pub fn component_scroll(component_name: &str, props: &Value) -> Option<ScrollSpec> {
+    component_renderer(component_name)?.scroll(props)
 }
 
 /// Parses the JSON a module filled for a component, or `Null`.

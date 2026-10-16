@@ -158,10 +158,10 @@ pub struct RNNodeView {
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
     scroll_position: Rc<Cell<Point<f32>>>,
-    pub content_size: (f32, f32),
-    pub scroll_horizontal: bool,
-    pub scroll_enabled: bool,
-    scroll_indicator_enabled: bool,
+    /// The scroll declaration a module's renderer made for this component, or
+    /// `None` when it does not scroll. Core owns the mechanism; the module owns
+    /// the geometry.
+    pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
     scroll_sync_generation: Rc<Cell<u64>>,
     scroll_handle: gpui::ScrollHandle,
@@ -631,11 +631,11 @@ impl RNNodeView {
             screen_stack_presentation: op.screen_stack_presentation.clone(),
             screen_transition: None,
             screen_progress_emitted: None,
-            scroll_position: Rc::new(Cell::new(point(op.scroll_x, op.scroll_y))),
-            content_size: (op.content_width, op.content_height),
-            scroll_horizontal: op.scroll_horizontal,
-            scroll_enabled: op.scroll_enabled,
-            scroll_indicator_enabled: op.scroll_indicator,
+            scroll_position: Rc::new(Cell::new(point(0.0, 0.0))),
+            scroll: crate::extensions::component_scroll(
+                &op.component,
+                &crate::extensions::parse_extension_props(&op.extension_props_json),
+            ),
             scroll_indicator: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
             scroll_handle: gpui::ScrollHandle::new(),
@@ -745,23 +745,22 @@ impl RNNodeView {
         if self.component == "TextInput" {
             self.sync_input_paragraph();
         }
-        if self.component == "ScrollView" {
-            // Fabric's offset is an echo of what this view reported earlier; taking it
-            // back would snap a scroll in progress to an older position.
-            self.content_size = (op.content_width, op.content_height);
-            let offset = self.scroll_offset();
+        if let Some(next) = crate::extensions::component_scroll(
+            &op.component,
+            &crate::extensions::parse_extension_props(&op.extension_props_json),
+        ) {
+            // Fabric's offset is an echo of what this view reported earlier;
+            // taking it back would snap a scroll in progress to an older
+            // position, so only the content size and the flags are refreshed.
+            if let Some(previous) = &mut self.scroll {
+                previous.content_size = next.content_size;
+                previous.horizontal = next.horizontal;
+                previous.enabled = next.enabled;
+                previous.indicator = next.indicator;
+            } else {
+                self.scroll = Some(next);
+            }
             self.scroll_handle_stale = true;
-            self.scroll_position.set(point(
-                offset
-                    .x
-                    .clamp(0.0, (op.content_width - op.frame.w).max(0.0)),
-                offset
-                    .y
-                    .clamp(0.0, (op.content_height - op.frame.h).max(0.0)),
-            ));
-            self.scroll_horizontal = op.scroll_horizontal;
-            self.scroll_enabled = op.scroll_enabled;
-            self.scroll_indicator_enabled = op.scroll_indicator;
         }
         if op.props_changed {
             self.extension_props_json = op.extension_props_json.clone();
@@ -829,7 +828,7 @@ impl RNNodeView {
             origin_frame: self.origin_frame_with_top_inset(top_inset),
             transform: self.local_transform(),
             border: (self.view.border_widths.left, self.view.border_widths.top),
-            scroll: (self.component == "ScrollView").then(|| self.scroll_position.clone()),
+            scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
@@ -865,7 +864,7 @@ impl RNNodeView {
             frame: self.origin_frame(cx),
             transform: self.local_transform(),
             scroll: (self.scroll_offset().x, self.scroll_offset().y),
-            is_scroll: self.component == "ScrollView",
+            is_scroll: self.scroll.is_some(),
         }];
         let mut parent = self.parent.clone();
         while let Some(weak) = parent {
@@ -875,7 +874,7 @@ impl RNNodeView {
                 frame: node.origin_frame(cx),
                 transform: node.local_transform(),
                 scroll: (node.scroll_offset().x, node.scroll_offset().y),
-                is_scroll: node.component == "ScrollView",
+                is_scroll: node.scroll.is_some(),
             });
             parent = node.parent.clone();
         }
@@ -2001,7 +2000,8 @@ impl Render for RNNodeView {
             });
             window.request_animation_frame();
         }
-        let is_scroll = self.component == "ScrollView";
+        let scroll = self.scroll.clone();
+        let is_scroll = scroll.is_some();
         let ordered_children = self.children.clone();
         if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.component_node(cx);
@@ -3384,8 +3384,8 @@ impl Render for RNNodeView {
                 ),
             );
         }
-        if is_scroll {
-            let (content_width, content_height) = self.content_size;
+        if let Some(scroll) = scroll {
+            let (content_width, content_height) = scroll.content_size;
             let mut content = div()
                 .relative()
                 .flex_none()
@@ -3400,7 +3400,7 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
-            if self.scroll_enabled {
+            if scroll.enabled {
                 // GPUI scrolls this container itself, which lets gpui-fast composite the
                 // content as a scroll layer. This listener runs before GPUI's, so it defers
                 // and reports where the offset ended up.
@@ -3409,9 +3409,10 @@ impl Render for RNNodeView {
                     position: self.scroll_position.clone(),
                     handle: self.scroll_handle.clone(),
                     sync_generation: self.scroll_sync_generation.clone(),
-                    content_size: self.content_size,
+                    content_size: scroll.content_size,
                     viewport: (frame.w, frame.h),
                     scale: (scale_x, scale_y),
+                    event: scroll.event.clone(),
                 });
                 content =
                     content.on_scroll_wheel(move |_event: &gpui::ScrollWheelEvent, window, cx| {
@@ -3423,9 +3424,9 @@ impl Render for RNNodeView {
             // node's own element: whatever sits inside a scrolling container
             // moves with its content, and the indicator must not.
             let mut scroller = div().id("scroller").absolute().top_0().left_0().size_full();
-            scroller = if !self.scroll_enabled {
+            scroller = if !scroll.enabled {
                 scroller.overflow_hidden()
-            } else if self.scroll_horizontal {
+            } else if scroll.horizontal {
                 scroller.overflow_x_scroll().overflow_y_hidden()
             } else {
                 scroller.overflow_y_scroll().overflow_x_hidden()
@@ -3433,8 +3434,8 @@ impl Render for RNNodeView {
             element = element
                 .overflow_hidden()
                 .child(scroller.track_scroll(&self.scroll_handle).child(content));
-            if self.scroll_indicator_enabled && self.scroll_enabled {
-                let horizontal = self.scroll_horizontal;
+            if scroll.indicator && scroll.enabled {
+                let horizontal = scroll.horizontal;
                 if self
                     .scroll_indicator
                     .as_ref()
@@ -3832,6 +3833,8 @@ struct Scroller {
     handle: gpui::ScrollHandle,
     sync_generation: Rc<Cell<u64>>,
     content_size: (f32, f32),
+    /// The event the scrolling component wants as its offset changes.
+    event: Option<String>,
     viewport: (f32, f32),
     scale: (f32, f32),
 }
@@ -3861,7 +3864,9 @@ impl Scroller {
             "layoutMeasurement": {"width": self.viewport.0, "height": self.viewport.1},
             "zoomScale": 1
         });
-        host.dispatch_event(self.tag, "topScroll", &payload);
+        if let Some(event) = &self.event {
+            host.dispatch_event(self.tag, event, &payload);
+        }
         frame_hook.arm(window);
         // Fabric's copy of the offset costs a commit per update, so it follows once
         // scrolling pauses.

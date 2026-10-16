@@ -384,26 +384,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
             flattenInputText(state->getData().attributedStringBox.getValue());
       }
     }
-    if (op.component == "ScrollView") {
-      if (auto props = std::dynamic_pointer_cast<const ScrollViewProps>(
-              shadowView.props)) {
-        op.scroll_horizontal = props->horizontal;
-        op.scroll_enabled = props->scrollEnabled;
-        op.scroll_indicator = props->horizontal
-            ? props->showsHorizontalScrollIndicator
-            : props->showsVerticalScrollIndicator;
-      }
-      if (auto state =
-              std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(
-                  shadowView.state)) {
-        const auto& data = state->getData();
-        op.scroll_x = data.contentOffset.x;
-        op.scroll_y = data.contentOffset.y;
-        const auto content = data.getContentSize();
-        op.content_width = content.width;
-        op.content_height = content.height;
-      }
-    }
   }
   return op;
 }
