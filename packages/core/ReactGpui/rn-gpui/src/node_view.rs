@@ -833,6 +833,27 @@ impl RNNodeView {
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
     /// is passed in instead of read back from the global.
+    /// How the renderer wants this node painted, beyond the style.
+    pub(crate) fn decoration(&self, cx: &App) -> crate::extensions::Decoration {
+        let Some(renderer) = crate::extensions::component_renderer(&self.component) else {
+            return crate::extensions::Decoration::default();
+        };
+        // Built around the current node, for the same reason `origin_frame` is:
+        // this runs during `render`, while the node is leased.
+        let nodes = HashMap::default();
+        let retained = HashMap::default();
+        let tree = crate::extensions::TreeView {
+            nodes: &nodes,
+            root_tags: Vec::new(),
+            top_inset: 0.0,
+            animations_enabled: true,
+            current: Some((self.tag, self)),
+            retained: &retained,
+            app: cx as *const App,
+        };
+        renderer.decorate(&self.component_node_shallow(), &tree)
+    }
+
     /// The node's frame for placement, painted size, hit testing and
     /// accessibility: the renderer's answer when it gives one, else Yoga's.
     pub(crate) fn layout_frame(&self, tree: &crate::extensions::TreeView) -> RectF {
@@ -2069,8 +2090,18 @@ impl Render for RNNodeView {
             }
         }
         let mut element = div().id(self.tag);
-        if self.component == "RNSScreenStack" {
+        // A renderer decides the box beyond the style: display, background,
+        // clipping and whether the node itself leaves the accessibility tree.
+        // The in-core screens rules below stay until the module owns them.
+        let decoration = self.decoration(cx);
+        if decoration.clip || self.component == "RNSScreenStack" {
             element = element.overflow_hidden();
+        }
+        if let Some(background) = decoration.background {
+            element = element.bg(gpui::rgb(background));
+        }
+        if decoration.display == Some(false) {
+            element = element.invisible();
         }
         if self.view.desktop_drag_region {
             element = element.window_control_area(gpui::WindowControlArea::Drag);
@@ -2186,6 +2217,8 @@ impl Render for RNNodeView {
         let hidden_inactive_screen = self.component == "RNSScreen"
             && self.screen_activity_state <= 0.0
             && transition_progress.is_none_or(|progress| progress >= 1.0);
+        // A renderer may hide the node itself, without its subtree.
+        let hidden_by_decoration = decoration.a11y_hidden;
         let hidden_display_none = self.view.display_none;
         let accessibility = self.view.clone();
         #[cfg(feature = "visual-capture")]
@@ -2207,6 +2240,7 @@ impl Render for RNNodeView {
                 || hidden_by_active_modal
                 || hidden_by_hiding_ancestor
                 || hidden_inactive_screen
+                || hidden_by_decoration
                 || hidden_display_none
             {
                 node.set_hidden();
@@ -2626,6 +2660,55 @@ impl Render for RNNodeView {
                     }
                     cx.stop_propagation();
                 }));
+        }
+        // A renderer may claim key events for its component. Core routes them
+        // and stops propagation when the renderer says it handled the press.
+        if crate::extensions::component_renderer(&self.component)
+            .is_some_and(|renderer| renderer.handles_keys(&self.component_node_shallow()))
+        {
+            element = element.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let Some(renderer) = crate::extensions::component_renderer(&this.component) else {
+                    return;
+                };
+                let Some(store_entity) = cx
+                    .try_global::<crate::store::StoreGlobal>()
+                    .map(|store| store.0.clone())
+                else {
+                    return;
+                };
+                let (top_inset, animations_enabled) = {
+                    let store = store_entity.read(cx);
+                    (
+                        store.top_inset,
+                        !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
+                    )
+                };
+                // A direct-mode handle: this runs from an event, not a batch,
+                // so a command takes effect at once. The tree is built around
+                // the current node, because the node is leased here.
+                let nodes = HashMap::default();
+                let retained = HashMap::default();
+                let tree = crate::extensions::TreeView {
+                    nodes: &nodes,
+                    root_tags: Vec::new(),
+                    top_inset,
+                    animations_enabled,
+                    current: Some((this.tag, this)),
+                    retained: &retained,
+                    app: cx as *const _ as *const App,
+                };
+                let handle = crate::extensions::StoreHandle::new(store_entity.downgrade());
+                if renderer.on_key_down(
+                    &this.component_node_shallow(),
+                    &event.keystroke.key,
+                    &tree,
+                    &handle,
+                    window,
+                    cx,
+                ) {
+                    cx.stop_propagation();
+                }
+            }));
         }
         if self.component == "RNSScreenStack" {
             element = element.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -3366,13 +3449,24 @@ impl Render for RNNodeView {
                         let node = self.component_node(cx);
                         renderer.content(&node, window, cx)
                     });
-                element = element.children(
-                    content.into_iter().chain(
+                let painted: Vec<AnyElement> = content
+                    .into_iter()
+                    .chain(
                         ordered_children
                             .iter()
                             .map(|(_, child)| child.clone().into_any_element()),
-                    ),
-                );
+                    )
+                    .collect();
+                // A renderer may wrap or replace what core would paint here:
+                // that is how a component puts a header bar above its children
+                // in the right order, without core knowing what a header is.
+                let painted = match crate::extensions::component_renderer(&self.component) {
+                    Some(renderer) => {
+                        renderer.children(&self.component_node(cx), painted, window, cx)
+                    }
+                    None => painted,
+                };
+                element = element.children(painted);
             }
             if self.component == "TextInput" && !self.input_multiline {
                 element = element.on_scroll_wheel(cx.listener(
