@@ -216,6 +216,15 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "install" -- npm ci --ignore-scripts
 
+      # `--ignore-scripts` is deliberate, so a package that ships no prebuilt
+      # binary never gets one. `farmhash` publishes only sources — its tarball
+      # has no `build/` and no `.node` — and one e2e test loads it through the
+      # Node-API loader, so its own `install` script (`prebuild-install ||
+      # node-gyp rebuild`) has to run. `microtime` and `@node-rs/crc32` ship
+      # prebuilds and need nothing.
+      - name: Build the native fixture addons
+        run: node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "fixture addons" -- npm rebuild farmhash
+
       # Hermes binaries are gitignored: the default mode downloads this host's
       # zip from the pinned release, and the link needs the shared library.
       - name: Fetch Hermes binaries
