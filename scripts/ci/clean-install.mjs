@@ -188,7 +188,7 @@ function main() {
   //    The scaffold points cargo at `build/target` through
   //    `desktop/.cargo/config.toml`, so the binary is not in the usual
   //    `desktop/target`. Read the configured directory rather than assume it.
-  const binary = path.join(
+  const binary = path.resolve(
     projectRoot,
     'desktop',
     cargoTargetDir(path.join(projectRoot, 'desktop')),
@@ -209,9 +209,12 @@ function main() {
   }
 }
 
-/// Where cargo puts the app's binaries: `build.target-dir` from the desktop
-/// crate's own `.cargo/config.toml`, relative to that crate, or `target`.
+/// Where cargo puts the app's binaries: `CARGO_TARGET_DIR` when set (CI keeps
+/// it outside the app folder, which this script deletes, so the Cargo cache
+/// survives), else `build.target-dir` from the desktop crate's own
+/// `.cargo/config.toml`, relative to that crate, or `target`.
 function cargoTargetDir(desktopRoot) {
+  if (process.env.CARGO_TARGET_DIR) return process.env.CARGO_TARGET_DIR;
   let text;
   try {
     text = fs.readFileSync(

@@ -15,6 +15,10 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
+  # Full debug info dominates link time and the size of the Cargo cache; line
+  # tables keep panic backtraces readable. OPT_LEVEL stays 0, so the C++ build
+  # type (Debug) does not change.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   plan:
@@ -238,10 +242,16 @@ jobs:
           path: ${{ runner.temp }}/rn-gpui-prebuilt
           key: prebuilt-${{ matrix.platform }}-${{ needs.plan.outputs.pinned_hash }}
 
+      # Both `test:rust` and the tester build write to the repo-root `target/`
+      # (`.cargo/config.toml`). Save on failure too, or a branch whose runs keep
+      # failing never gets a warm cache.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: packages/rn-gpui-tester/desktop
+          workspaces: |
+            packages/core/ReactGpui -> ../../../target
+            packages/rn-gpui-tester/desktop -> ../../../target
+          cache-on-failure: true
 
       - name: Cache native dependencies
         if: needs.plan.outputs.cpp_changed == 'true'
@@ -427,10 +437,14 @@ jobs:
           path: ${{ runner.temp }}/rn-gpui-prebuilt
           key: prebuilt-${{ matrix.platform }}-${{ needs.plan.outputs.pinned_hash }}
 
+      # clean-install.mjs deletes the app folder before it creates the app, so
+      # the app builds into a target directory beside it (CARGO_TARGET_DIR below)
+      # that survives the delete and the cache restore.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ runner.temp }}/rn-gpui-clean-install/SmokeApp/desktop
+          workspaces: ${{ runner.temp }}/rn-gpui-clean-install/SmokeApp/desktop -> ../../../rn-gpui-clean-target
+          cache-on-failure: true
 
       # The app's packages live under node_modules, where `auto` uses the pin
       # without a hash check, so a PR that changes the C++ inputs would test a
@@ -439,6 +453,7 @@ jobs:
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
           RN_GPUI_BUILD_FROM_SOURCE: ${{ needs.plan.outputs.cpp_changed == 'true' && '1' || '' }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/rn-gpui-clean-target
         run: |
           node scripts/ci/step.mjs --job clean-install-${{ matrix.os }} --name "clean install" -- \
             node scripts/ci/clean-install.mjs --packed ci-out/packed.json \
