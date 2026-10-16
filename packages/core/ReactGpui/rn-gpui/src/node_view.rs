@@ -115,9 +115,15 @@ pub struct RNNodeView {
     pub native_view_name: String,
     pub native_view_props: String,
     extension_props_json: String,
+    /// The parsed form of `extension_props_json`, shared so a hook can hold it
+    /// or hand it on without re-parsing. Empty JSON parses to `Null` once.
+    extension_props: std::sync::Arc<serde_json::Value>,
     #[cfg(target_os = "macos")]
     native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
     pub frame: RectF,
+    /// The parent's tag, mirrored here when `parent` is set, so a shallow node
+    /// can report it without reading another entity.
+    pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
     animated_transform: Option<[f32; 16]>,
     animated_background_color: Option<u32>,
@@ -352,11 +358,11 @@ impl RNNodeView {
     }
 
     #[cfg(any(test, debug_assertions))]
-    fn hidden_by_inactive_screen_ancestor_walked(&self, cx: &App) -> bool {
+    fn hidden_by_hiding_ancestor_walked(&self, cx: &App) -> bool {
         let mut parent = self.parent.clone();
         while let Some(parent_entity) = parent.and_then(|parent| parent.upgrade()) {
             let parent_view = parent_entity.read(cx);
-            if parent_view.component == "RNSScreen" && parent_view.screen_activity_state <= 0.0 {
+            if parent_view.inherited.hides_subtree_self {
                 return true;
             }
             parent = parent_view.parent.clone();
@@ -583,6 +589,9 @@ impl RNNodeView {
             native_view_name: op.native_view_name.clone(),
             native_view_props: op.native_view_props.clone(),
             extension_props_json: op.extension_props_json.clone(),
+            extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
+                &op.extension_props_json,
+            )),
             #[cfg(target_os = "macos")]
             native_view_host: None,
             frame: if crate::extensions::component_portal(
@@ -599,6 +608,7 @@ impl RNNodeView {
             } else {
                 op.frame
             },
+            parent_tag_cache: std::rc::Rc::new(std::cell::Cell::new(None)),
             view: op.view.clone(),
             animated_transform: None,
             animated_background_color: None,
@@ -754,7 +764,16 @@ impl RNNodeView {
         }
         if op.props_changed {
             self.extension_props_json = op.extension_props_json.clone();
+            self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
+                &self.extension_props_json,
+            ));
         }
+    }
+
+    /// Sets the parent entity and the tag a shallow node reports.
+    pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
+        self.parent = parent;
+        self.parent_tag_cache.set(tag);
     }
 
     pub fn insert_child(&mut self, index: usize, tag: i32, child: Entity<RNNodeView>) {
@@ -782,40 +801,85 @@ impl RNNodeView {
     }
 
     fn origin_frame(&self, cx: &App) -> (f32, f32) {
-        let top_inset = cx
-            .try_global::<crate::store::StoreGlobal>()
-            .map(|store| store.0.read(cx).top_inset)
-            .unwrap_or(0.0);
-        self.origin_frame_with_top_inset(top_inset)
+        let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+            return (self.frame.x, self.frame.y);
+        };
+        let (top_inset, animations_enabled) = {
+            let store = store.0.read(cx);
+            (
+                store.top_inset,
+                !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
+            )
+        };
+        // The store's entity map is not read here: this runs while `self` is
+        // leased for painting, and reading any node through the store would
+        // re-enter it. The tree is therefore built around the current node, so
+        // every query about *this* tag is answered from the reference. A
+        // renderer that needs another tag uses a hook that is not called from
+        // `render` (the batch hooks and `after`), where a full tree is passed.
+        let nodes = HashMap::default();
+        let retained = HashMap::default();
+        let tree = crate::extensions::TreeView {
+            nodes: &nodes,
+            root_tags: Vec::new(),
+            top_inset,
+            animations_enabled,
+            current: Some((self.tag, self)),
+            retained: &retained,
+            app: cx as *const App,
+        };
+        self.origin_frame_with_top_inset(top_inset, &tree)
     }
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
     /// is passed in instead of read back from the global.
-    pub(crate) fn origin_frame_with_top_inset(&self, top_inset: f32) -> (f32, f32) {
-        let mut own_frame = (self.frame.x, self.frame.y);
+    /// The node's frame for placement, painted size, hit testing and
+    /// accessibility: the renderer's answer when it gives one, else Yoga's.
+    pub(crate) fn layout_frame(&self, tree: &crate::extensions::TreeView) -> RectF {
+        crate::extensions::component_renderer(&self.component)
+            .and_then(|renderer| renderer.layout_frame(&self.component_node_shallow(), tree))
+            .unwrap_or(self.frame)
+    }
+
+    /// Whether the renderer hides this node and its descendants.
+    pub(crate) fn hides_subtree(&self, tree: &crate::extensions::TreeView) -> bool {
+        crate::extensions::component_renderer(&self.component)
+            .is_some_and(|renderer| renderer.hides_subtree(&self.component_node_shallow(), tree))
+    }
+
+    pub(crate) fn origin_frame_with_top_inset(
+        &self,
+        top_inset: f32,
+        tree: &crate::extensions::TreeView,
+    ) -> (f32, f32) {
+        let frame = self.layout_frame(tree);
+        let mut own_frame = (frame.x, frame.y);
         if self.component == "RNSScreenStackHeaderConfig" {
             own_frame.1 += top_inset;
         }
-
         if self.component == "RNSScreenContentWrapper" && self.screen_content_wrapper_header_hidden
         {
             own_frame.1 -= 56.0;
         }
         if self.component == "RNSScreenStackHeaderSubview" {
             own_frame.0 = match self.screen_header_subview_type.as_str() {
-                "right" => self.header_container_width - self.frame.w - 12.0,
-                "center" | "title" => (self.header_container_width - self.frame.w) / 2.0,
+                "right" => self.header_container_width - frame.w - 12.0,
+                "center" | "title" => (self.header_container_width - frame.w) / 2.0,
                 "left" => 12.0,
-                _ => self.frame.x,
+                _ => frame.x,
             };
             own_frame.1 = (56.0 - self.header_subview_content_height).max(0.0) / 2.0;
         }
         own_frame
     }
 
-    pub(crate) fn inherit_input(&self, top_inset: f32) -> InheritInput {
+    pub(crate) fn inherit_input(
+        &self,
+        top_inset: f32,
+        tree: &crate::extensions::TreeView,
+    ) -> InheritInput {
         InheritInput {
-            origin_frame: self.origin_frame_with_top_inset(top_inset),
+            origin_frame: self.origin_frame_with_top_inset(top_inset, tree),
             transform: self.local_transform(),
             border: (self.view.border_widths.left, self.view.border_widths.top),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
@@ -823,7 +887,8 @@ impl RNNodeView {
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
                 || self.view.display_none,
-            inactive_screen: self.component == "RNSScreen" && self.screen_activity_state <= 0.0,
+            hides_subtree: self.hides_subtree(tree)
+                || (self.component == "RNSScreen" && self.screen_activity_state <= 0.0),
             other_modal_child: false,
             focusable_or_accessible: self.focusable || self.view.accessible,
         }
@@ -987,9 +1052,9 @@ impl RNNodeView {
                 f32::from(self.inherited.hidden_by_modal_sibling),
             ),
             (
-                "hidden_by_inactive_screen_ancestor",
-                f32::from(self.hidden_by_inactive_screen_ancestor_walked(cx)),
-                f32::from(self.inherited.hidden_by_inactive_screen_ancestor),
+                "hidden_by_hiding_ancestor",
+                f32::from(self.hidden_by_hiding_ancestor_walked(cx)),
+                f32::from(self.inherited.hidden_by_hiding_ancestor),
             ),
         ] {
             if (walked - cached).abs() > 0.01 {
@@ -1265,6 +1330,9 @@ pub(crate) struct ScrollLink {
 
 #[derive(Clone)]
 pub(crate) struct Inherited {
+    /// Whether this node's own renderer hides its subtree, so the test driver
+    /// can answer "is an ancestor hiding this" without a `TreeView`.
+    pub(crate) hides_subtree_self: bool,
     pub(crate) parent_scale: (f32, f32),
     pub(crate) scale: (f32, f32),
     pub(crate) origin_unscrolled: (f32, f32),
@@ -1274,7 +1342,7 @@ pub(crate) struct Inherited {
     pub(crate) hidden_by_accessible_ancestor: bool,
     pub(crate) hidden_by_hidden_ancestor: bool,
     pub(crate) hidden_by_modal_sibling: bool,
-    pub(crate) hidden_by_inactive_screen_ancestor: bool,
+    pub(crate) hidden_by_hiding_ancestor: bool,
 }
 
 impl Default for Inherited {
@@ -1289,7 +1357,8 @@ impl Default for Inherited {
             hidden_by_accessible_ancestor: false,
             hidden_by_hidden_ancestor: false,
             hidden_by_modal_sibling: false,
-            hidden_by_inactive_screen_ancestor: false,
+            hidden_by_hiding_ancestor: false,
+            hides_subtree_self: false,
         }
     }
 }
@@ -1316,7 +1385,7 @@ impl Inherited {
             && self.hidden_by_accessible_ancestor == other.hidden_by_accessible_ancestor
             && self.hidden_by_hidden_ancestor == other.hidden_by_hidden_ancestor
             && self.hidden_by_modal_sibling == other.hidden_by_modal_sibling
-            && self.hidden_by_inactive_screen_ancestor == other.hidden_by_inactive_screen_ancestor
+            && self.hidden_by_hiding_ancestor == other.hidden_by_hiding_ancestor
     }
 }
 
@@ -1328,7 +1397,7 @@ pub(crate) struct InheritInput {
     pub(crate) scroll: Option<Rc<Cell<Point<f32>>>>,
     pub(crate) accessible: bool,
     pub(crate) hides_descendants: bool,
-    pub(crate) inactive_screen: bool,
+    pub(crate) hides_subtree: bool,
     pub(crate) other_modal_child: bool,
     pub(crate) focusable_or_accessible: bool,
 }
@@ -1368,8 +1437,8 @@ pub(crate) fn inherit(
                 parent.hidden_by_hidden_ancestor || input.hides_descendants;
             inherited.hidden_by_modal_sibling =
                 parent.hidden_by_modal_sibling || input.other_modal_child;
-            inherited.hidden_by_inactive_screen_ancestor =
-                parent.hidden_by_inactive_screen_ancestor || input.inactive_screen;
+            inherited.hidden_by_hiding_ancestor =
+                parent.hidden_by_hiding_ancestor || input.hides_subtree;
         }
         None => {
             inherited.origin_unscrolled = (
@@ -1530,7 +1599,7 @@ mod inherited_tests {
             scroll: None,
             accessible: false,
             hides_descendants: false,
-            inactive_screen: false,
+            hides_subtree: false,
             other_modal_child: false,
             focusable_or_accessible: false,
         }
@@ -1696,12 +1765,12 @@ mod inherited_tests {
     }
 
     #[test]
-    fn hidden_by_inactive_screen_ancestor_follows_the_running_flag() {
+    fn hidden_by_hiding_ancestor_follows_the_running_flag() {
         let mut root = plain();
-        root.inactive_screen = true;
-        assert!(inherited(&[root.clone(), plain()]).hidden_by_inactive_screen_ancestor);
-        assert!(!inherited(&[root]).hidden_by_inactive_screen_ancestor);
-        assert!(!inherited(&[plain(), plain()]).hidden_by_inactive_screen_ancestor);
+        root.hides_subtree = true;
+        assert!(inherited(&[root.clone(), plain()]).hidden_by_hiding_ancestor);
+        assert!(!inherited(&[root]).hidden_by_hiding_ancestor);
+        assert!(!inherited(&[plain(), plain()]).hidden_by_hiding_ancestor);
     }
 
     #[test]
@@ -2113,7 +2182,7 @@ impl Render for RNNodeView {
         let hidden_by_hidden_ancestor = self.inherited.hidden_by_hidden_ancestor;
         let hidden_by_modal_sibling = self.inherited.hidden_by_modal_sibling;
         let hidden_by_active_modal = crate::accessibility::hidden_by_active_modal(self.tag, cx);
-        let hidden_by_inactive_screen_ancestor = self.inherited.hidden_by_inactive_screen_ancestor;
+        let hidden_by_hiding_ancestor = self.inherited.hidden_by_hiding_ancestor;
         let hidden_inactive_screen = self.component == "RNSScreen"
             && self.screen_activity_state <= 0.0
             && transition_progress.is_none_or(|progress| progress >= 1.0);
@@ -2136,7 +2205,7 @@ impl Render for RNNodeView {
                 || hidden_by_hidden_ancestor
                 || hidden_by_modal_sibling
                 || hidden_by_active_modal
-                || hidden_by_inactive_screen_ancestor
+                || hidden_by_hiding_ancestor
                 || hidden_inactive_screen
                 || hidden_display_none
             {
@@ -2309,7 +2378,7 @@ impl Render for RNNodeView {
             self.set_accessibility_tab_stop_allowed(
                 !hidden_by_active_modal
                     && !hidden_by_modal_sibling
-                    && !hidden_by_inactive_screen_ancestor
+                    && !hidden_by_hiding_ancestor
                     && !hidden_inactive_screen
                     && !self.inherited.hidden_by_hidden_ancestor
                     && !self.inherited.hidden_by_accessible_ancestor,
@@ -3605,25 +3674,53 @@ impl RNNodeView {
         &self.extension_props_json
     }
 
-    /// The read-only view of this component handed to a module's renderer or
-    /// observer. `extension_props_json` is parsed here, once per call.
-    pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
-        let props = if self.extension_props_json.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::from_str(&self.extension_props_json).unwrap_or(serde_json::Value::Null)
-        };
+    /// The React Native tag of this node's parent, when it has one.
+    pub(crate) fn parent_tag(&self, cx: &App) -> Option<i32> {
+        self.parent
+            .as_ref()
+            .and_then(|parent| parent.upgrade())
+            .map(|parent| parent.read(cx).tag)
+    }
+
+    /// This node without its subtree. Every hook that only needs the node's own
+    /// fields gets this form, so its cost does not grow with the tree.
+    pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
             component: self.component.clone(),
             tag: self.tag,
             frame: self.frame,
-            props,
+            props: self.extension_props.clone(),
+            parent: self.parent_tag_cached(),
+            children: Vec::new(),
+        }
+    }
+
+    /// The node's child tags, in paint order.
+    pub(crate) fn child_tags(&self) -> Vec<i32> {
+        self.children.iter().map(|(tag, _)| *tag).collect()
+    }
+
+    /// The read-only view of this component handed to a module's renderer or
+    /// observer, with its subtree.
+    pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
+        crate::extensions::ComponentNode {
+            component: self.component.clone(),
+            tag: self.tag,
+            frame: self.frame,
+            props: self.extension_props.clone(),
+            parent: self.parent_tag_cached(),
             children: self
                 .children
                 .iter()
                 .map(|(_, child)| child.read(cx).component_node(cx))
                 .collect(),
         }
+    }
+
+    /// The parent tag without an `App`: the field is set on insert, so it is
+    /// already current when a shallow node is built.
+    pub(crate) fn parent_tag_cached(&self) -> Option<i32> {
+        self.parent_tag_cache.get()
     }
 }
 
