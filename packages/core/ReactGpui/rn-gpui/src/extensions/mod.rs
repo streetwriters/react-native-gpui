@@ -50,20 +50,43 @@ impl ComponentNode {
     }
 }
 
-/// A transition a module asks core to run on a component.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransitionKind {
-    SlideFromRight,
-    SlideFromLeft,
-    Fade,
+/// Where a node sits between two poses during a transition.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pose {
+    /// A fraction of the node's own width. Positive moves right.
+    pub offset_x: f32,
+    /// Multiplied into the node's painted opacity.
+    pub opacity: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// A node transition: movement between two poses over a duration.
+///
+/// Core owns the timing and the paint, so the same API serves a navigation push,
+/// a fade and anything else that moves a node. A module supplies only the poses
+/// its platform's transitions correspond to.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transition {
-    pub kind: TransitionKind,
-    pub duration_ms: u64,
-    /// How far the component travels, as a fraction of its width.
-    pub distance_factor: f32,
+    pub from: Pose,
+    pub to: Pose,
+    pub duration: Duration,
+}
+
+impl Transition {
+    /// The pose at `progress`, a plain lerp between `from` and `to`.
+    pub fn pose_at(&self, progress: f32) -> Pose {
+        let progress = progress.clamp(0.0, 1.0);
+        Pose {
+            offset_x: self.from.offset_x + (self.to.offset_x - self.from.offset_x) * progress,
+            opacity: self.from.opacity + (self.to.opacity - self.from.opacity) * progress,
+        }
+    }
+
+    /// Smoothstep of the elapsed fraction, clamped to `0.0..=1.0`.
+    pub fn progress_now(&self, started_at: Instant) -> f32 {
+        let duration = self.duration.as_secs_f32().max(f32::EPSILON);
+        let linear = ((Instant::now() - started_at).as_secs_f32() / duration).clamp(0.0, 1.0);
+        linear * linear * (3.0 - 2.0 * linear)
+    }
 }
 
 /// A transition in progress, as the tree reports it.
@@ -71,7 +94,6 @@ pub struct Transition {
 pub struct TransitionState {
     pub transition: Transition,
     pub started_at: Instant,
-    /// Smoothstep of the elapsed fraction, clamped to `0.0..=1.0`.
     pub progress: f32,
 }
 
@@ -342,8 +364,14 @@ impl TreeView<'_> {
 
     /// A node's transition, with its progress sampled now.
     pub fn transition(&self, tag: i32) -> Option<TransitionState> {
-        let _ = tag;
-        None
+        if let Some((current_tag, node)) = self.current {
+            if current_tag == tag {
+                return node.transition_state();
+            }
+        }
+        self.nodes
+            .get(&tag)
+            .and_then(|node| node.read(self.app()).transition_state())
     }
 
     /// The window's top inset, the same value the node sees.
