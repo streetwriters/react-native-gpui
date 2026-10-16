@@ -549,8 +549,6 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        // The input frame is the stable composition rectangle. The native view
-        // bounds remain available here until GPUI exposes per-glyph IME bounds.
         let _ = range_utf16;
         Some(element_bounds)
     }
@@ -665,7 +663,6 @@ mod tests {
             let byte = byte_at_utf16(text, offset);
             assert_eq!(utf16_at_byte(text, byte), offset);
         }
-        // A UTF-16 position inside a surrogate pair clamps to the scalar start.
         assert_eq!(byte_at_utf16(text, 2), 1);
     }
 
@@ -748,19 +745,14 @@ mod tests {
     }
 }
 
-/// Desktop navigation shortcuts are intercepted before focus-scoped handlers:
-/// popping a focused screen must not disable subsequent shortcuts.
 pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'static str> {
     let modifiers = stroke.modifiers;
     let no_other = !modifiers.alt && !modifiers.platform && !modifiers.shift;
     let chord_enabled = if cfg!(target_os = "macos") {
-        // Cmd+[ / Cmd+]
         modifiers.platform && !modifiers.alt && !modifiers.control && !modifiers.shift
     } else if modifiers.alt && !modifiers.control && !modifiers.platform && !modifiers.shift {
-        // GNOME-style Alt+Left / Alt+Right.
         true
     } else {
-        // Browser-style Ctrl+[ / Ctrl+] as well.
         modifiers.control && no_other
     };
     if !chord_enabled {
@@ -780,12 +772,7 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
     }
 }
 
-/// Applies a mount op's text state to the node.
-///
 /// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
-/// React Native echoes the text and the selection back on every commit, so the
-/// op's values are only taken when they are newer than what the user typed;
-/// otherwise a keystroke would be undone by the next commit.
 pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp) {
     let next = TextInputProps::from_json(&op.extension_props_json);
     if should_apply_text_update(this.input_event_count, next.event_count)
@@ -806,10 +793,7 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     );
 }
 
-/// The `TextInput` fields an op carries, read out of the module's own JSON.
-///
 /// `core-private:` the node stores these as its own fields, so the module both
-/// produces and consumes them. Before the move core read them from `MountOp`.
 pub(crate) struct TextInputProps {
     pub text: String,
     pub placeholder: String,

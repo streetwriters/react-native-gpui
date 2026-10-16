@@ -40,11 +40,6 @@ pub(crate) enum ScreenTransitionRole {
     Exit,
 }
 
-/// The poses a mode and role correspond to.
-///
-/// This is the in-core copy of the table the module owns after step 3: enter
-/// slides from off-screen to rest, exit slides from rest to off-screen, and fade
-/// keeps the node still while its opacity moves.
 pub(crate) fn screen_transition_poses(
     mode: ScreenTransitionMode,
     role: ScreenTransitionRole,
@@ -98,8 +93,6 @@ mod screen_transition_tests {
     use crate::extensions::Transition;
     use std::time::Duration;
 
-    /// The generic lerp reproduces today's slide and fade curves at the three
-    /// samples that matter: the start, the middle and the end.
     #[test]
     fn the_pose_lerp_matches_the_slide_and_fade_curves() {
         for (mode, role, distance, expected) in [
@@ -157,7 +150,6 @@ mod screen_transition_tests {
                 );
             }
         }
-        // A fade moves opacity and nothing else.
         let (from, to) =
             screen_transition_poses(ScreenTransitionMode::Fade, ScreenTransitionRole::Enter, 1.0);
         let transition = Transition {
@@ -222,14 +214,10 @@ pub struct RNNodeView {
     pub native_view_name: String,
     pub native_view_props: String,
     extension_props_json: String,
-    /// The parsed form of `extension_props_json`, shared so a hook can hold it
-    /// or hand it on without re-parsing. Empty JSON parses to `Null` once.
     extension_props: std::sync::Arc<serde_json::Value>,
     #[cfg(target_os = "macos")]
     native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
     pub frame: RectF,
-    /// The parent's tag, mirrored here when `parent` is set, so a shallow node
-    /// can report it without reading another entity.
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
     animated_transform: Option<[f32; 16]>,
@@ -272,9 +260,6 @@ pub struct RNNodeView {
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
     scroll_position: Rc<Cell<Point<f32>>>,
-    /// The scroll declaration a module's renderer made for this component, or
-    /// `None` when it does not scroll. Core owns the mechanism; the module owns
-    /// the geometry.
     pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
     scroll_sync_generation: Rc<Cell<u64>>,
@@ -607,8 +592,6 @@ impl RNNodeView {
         if self.component == "Paragraph" && self.view.accessibility_role.is_empty() {
             return Some(Role::Label);
         }
-        // `Image` is the platform's own component, so its default role is
-        // accessibility policy rather than painting, and stays here.
         if self.component == "Image" && self.view.accessibility_role.is_empty() {
             return if self.view.accessible || !self.view.accessibility_label.is_empty() {
                 Some(Role::Image)
@@ -682,7 +665,6 @@ impl RNNodeView {
         let text_input =
             crate::builtins::textinput::input::TextInputProps::from_json(&op.extension_props_json);
         // `core-private:` a scrolling component's starting offset comes from the
-        // module's props, which its C++ half read from Fabric's state.
         let scroll_initial = crate::extensions::component_scroll(
             &op.component,
             &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -723,7 +705,6 @@ impl RNNodeView {
             animated_text_color: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
-            // JSON, which its C++ half filled through `registerComponentProps`.
             input_text: text_input.text.clone(),
             input_placeholder: text_input.placeholder.clone(),
             input_placeholder_mode: text_input.text.is_empty(),
@@ -764,7 +745,6 @@ impl RNNodeView {
             transition_forward: false,
             transition_progress_sent: None,
             // `core-private:` a scroll view starts at the offset the module's
-            // props carried, which React Native filled from its own state.
             scroll_position: Rc::new(Cell::new(point(scroll_initial.0, scroll_initial.1))),
             scroll: crate::extensions::component_scroll(
                 &op.component,
@@ -858,9 +838,6 @@ impl RNNodeView {
             &op.component,
             &crate::extensions::parse_extension_props(&op.extension_props_json),
         ) {
-            // Fabric's offset is an echo of what this view reported earlier;
-            // taking it back would snap a scroll in progress to an older
-            // position, so only the content size and the flags are refreshed.
             if let Some(previous) = &mut self.scroll {
                 previous.content_size = next.content_size;
                 previous.horizontal = next.horizontal;
@@ -879,7 +856,6 @@ impl RNNodeView {
         }
     }
 
-    /// Sets the parent entity and the tag a shallow node reports.
     pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
         self.parent = parent;
         self.parent_tag_cache.set(tag);
@@ -920,12 +896,6 @@ impl RNNodeView {
                 !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
             )
         };
-        // The store's entity map is not read here: this runs while `self` is
-        // leased for painting, and reading any node through the store would
-        // re-enter it. The tree is therefore built around the current node, so
-        // every query about *this* tag is answered from the reference. A
-        // renderer that needs another tag uses a hook that is not called from
-        // `render` (the batch hooks and `after`), where a full tree is passed.
         let nodes = HashMap::default();
         let retained = HashMap::default();
         let tree = crate::extensions::TreeView {
@@ -942,7 +912,6 @@ impl RNNodeView {
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
     /// is passed in instead of read back from the global.
-    /// This node's transition, with its progress sampled now.
     pub(crate) fn transition_state(&self) -> Option<crate::extensions::TransitionState> {
         let (transition, started_at) = self.transition?;
         Some(crate::extensions::TransitionState {
@@ -952,7 +921,6 @@ impl RNNodeView {
         })
     }
 
-    /// Whether a transition is still running, and animations are allowed.
     pub(crate) fn transition_active(&self, cx: &App) -> bool {
         if cx.reduce_motion() || crate::animation_policy::animations_disabled() {
             return false;
@@ -961,13 +929,10 @@ impl RNNodeView {
             .is_some_and(|(transition, started_at)| transition.progress_now(started_at) < 1.0)
     }
 
-    /// How the renderer wants this node painted, beyond the style.
     pub(crate) fn decoration(&self, cx: &App) -> crate::extensions::Decoration {
         let Some(renderer) = crate::extensions::component_renderer(&self.component) else {
             return crate::extensions::Decoration::default();
         };
-        // Built around the current node, for the same reason `origin_frame` is:
-        // this runs during `render`, while the node is leased.
         let nodes = HashMap::default();
         let retained = HashMap::default();
         let tree = crate::extensions::TreeView {
@@ -982,15 +947,12 @@ impl RNNodeView {
         renderer.decorate(&self.component_node_shallow(), &tree)
     }
 
-    /// The node's frame for placement, painted size, hit testing and
-    /// accessibility: the renderer's answer when it gives one, else Yoga's.
     pub(crate) fn layout_frame(&self, tree: &crate::extensions::TreeView) -> RectF {
         crate::extensions::component_renderer(&self.component)
             .and_then(|renderer| renderer.layout_frame(&self.component_node_shallow(), tree))
             .unwrap_or(self.frame)
     }
 
-    /// Whether the renderer hides this node and its descendants.
     pub(crate) fn hides_subtree(&self, tree: &crate::extensions::TreeView) -> bool {
         crate::extensions::component_renderer(&self.component)
             .is_some_and(|renderer| renderer.hides_subtree(&self.component_node_shallow(), tree))
@@ -1467,8 +1429,6 @@ pub(crate) struct ScrollLink {
 
 #[derive(Clone)]
 pub(crate) struct Inherited {
-    /// Whether this node's own renderer hides its subtree, so the test driver
-    /// can answer "is an ancestor hiding this" without a `TreeView`.
     pub(crate) hides_subtree_self: bool,
     pub(crate) parent_scale: (f32, f32),
     pub(crate) scale: (f32, f32),
@@ -2155,9 +2115,6 @@ impl Render for RNNodeView {
             let sample = (started_at, progress);
             if self.transition_progress_sent != Some(sample) {
                 self.transition_progress_sent = Some(sample);
-                // The store's entity is taken from the global, never its
-                // interior: this node is leased for painting, so reading a node
-                // through the store here would re-enter it.
                 if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                     let handle = crate::extensions::StoreHandle::new(store.0.downgrade());
                     for observer in crate::extensions::store_observers() {
@@ -2165,15 +2122,9 @@ impl Render for RNNodeView {
                     }
                 }
             }
-            // Temporary until step 3: the module's own `on_transition_frame`
-            // takes this over, so the progress event keeps its exact shape for
-            // the in-core screens code that still consumes it.
             if self.component == "RNSScreen" {
                 if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                     let store = store.0.read(cx);
-                    // Forward when the node is settling into its resting pose:
-                    // an exit moves away from it, including the short parallax
-                    // one the card underneath runs.
                     let going_forward = self.transition_forward;
                     store.host.dispatch_event(
                         self.tag,
@@ -2214,9 +2165,6 @@ impl Render for RNNodeView {
             }
         }
         let mut element = div().id(self.tag);
-        // A renderer decides the box beyond the style: display, background,
-        // clipping and whether the node itself leaves the accessibility tree.
-        // The in-core screens rules below stay until the module owns them.
         let decoration = self.decoration(cx);
         if decoration.clip || self.component == "RNSScreenStack" {
             element = element.overflow_hidden();
@@ -2326,9 +2274,6 @@ impl Render for RNNodeView {
                 }
             }
         }
-        // An `Image` with no label, role or `accessible` is decorative, so it
-        // stays out of the accessibility tree. That is policy for a core
-        // component, not painting, so it stays here.
         let hidden_image = self.component == "Image"
             && self.view.accessibility_label.is_empty()
             && self.view.accessibility_role.is_empty()
@@ -2341,7 +2286,6 @@ impl Render for RNNodeView {
         let hidden_inactive_screen = self.component == "RNSScreen"
             && self.screen_activity_state <= 0.0
             && transition_progress.is_none_or(|progress| progress >= 1.0);
-        // A renderer may hide the node itself, without its subtree.
         let hidden_by_decoration = decoration.a11y_hidden;
         let hidden_display_none = self.view.display_none;
         let accessibility = self.view.clone();
@@ -2761,8 +2705,6 @@ impl Render for RNNodeView {
                 );
             }
         }
-        // A portal decides what a close request means; Escape is the desktop's
-        // way of asking. The component names the event, so core does not.
         if let Some(close_event) = crate::extensions::component_portal(
             &self.component,
             &crate::extensions::parse_extension_props(&self.extension_props_json),
@@ -2785,8 +2727,6 @@ impl Render for RNNodeView {
                     cx.stop_propagation();
                 }));
         }
-        // A renderer may claim key events for its component. Core routes them
-        // and stops propagation when the renderer says it handled the press.
         if crate::extensions::component_renderer(&self.component)
             .is_some_and(|renderer| renderer.handles_keys(&self.component_node_shallow()))
         {
@@ -2807,9 +2747,6 @@ impl Render for RNNodeView {
                         !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
                     )
                 };
-                // A direct-mode handle: this runs from an event, not a batch,
-                // so a command takes effect at once. The tree is built around
-                // the current node, because the node is leased here.
                 let nodes = HashMap::default();
                 let retained = HashMap::default();
                 let tree = crate::extensions::TreeView {
@@ -2909,7 +2846,6 @@ impl Render for RNNodeView {
                                     crate::extensions::Transition { from, to, duration },
                                     started_at,
                                 ));
-                                // A dismissal reports as closing.
                                 screen.transition_forward = false;
                                 cx.notify();
                             });
@@ -3000,8 +2936,6 @@ impl Render for RNNodeView {
                 }
             }
             style.position = Some(Position::Absolute);
-            // A node is on its way out when its target opacity is zero and it
-            // is still moving toward it.
             let transitioning_out = transition.is_some_and(|(transition, _)| {
                 transition.to.opacity < 1.0
                     && transition_progress.is_some_and(|progress| progress < 1.0)
@@ -3047,8 +2981,6 @@ impl Render for RNNodeView {
             if hidden_stack_header || hidden_header {
                 style.display = Some(Display::None);
             }
-            // The pose at this sample: a plain lerp, and a fraction of the
-            // node's own width rather than a mode-specific offset.
             let mut transition_offset_x = 0.0;
             if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
                 let pose = transition.pose_at(progress);
@@ -3412,7 +3344,6 @@ impl Render for RNNodeView {
                 }
             }
             // `core-private:` a text field paints its own paragraph, in its own
-            // clipped viewport, so the code lives in its module.
             if self.component == "TextInput" {
                 element = crate::builtins::textinput::render::paragraph_content(
                     self,
@@ -3432,7 +3363,6 @@ impl Render for RNNodeView {
             }
         }
         // `core-private:` the caret and the selection are drawn from the
-        // node's own input state, and the input handler is attached here.
         if self.component == "TextInput" {
             element = crate::builtins::textinput::render::caret_canvas(
                 self,
@@ -3545,10 +3475,6 @@ impl Render for RNNodeView {
                         .children(ordered_children.iter().map(|(_, child)| child.clone())),
                 );
             } else {
-                // A module may contribute this component's own content while
-                // core keeps the styled box and its accessibility: that is how
-                // a built-in component moves onto the extension API without
-                // losing the properties every View has.
                 let content =
                     crate::extensions::component_renderer(&self.component).and_then(|renderer| {
                         let node = self.component_node(cx);
@@ -3562,9 +3488,6 @@ impl Render for RNNodeView {
                             .map(|(_, child)| child.clone().into_any_element()),
                     )
                     .collect();
-                // A renderer may wrap or replace what core would paint here:
-                // that is how a component puts a header bar above its children
-                // in the right order, without core knowing what a header is.
                 let painted = match crate::extensions::component_renderer(&self.component) {
                     Some(renderer) => {
                         renderer.children(&self.component_node(cx), painted, window, cx)
@@ -3868,12 +3791,10 @@ impl RNNodeView {
         self.scroll_position.get()
     }
 
-    /// The JSON a module filled for this component, unparsed.
     pub(crate) fn extension_props_json(&self) -> &str {
         &self.extension_props_json
     }
 
-    /// The React Native tag of this node's parent, when it has one.
     pub(crate) fn parent_tag(&self, cx: &App) -> Option<i32> {
         self.parent
             .as_ref()
@@ -3881,8 +3802,6 @@ impl RNNodeView {
             .map(|parent| parent.read(cx).tag)
     }
 
-    /// This node without its subtree. Every hook that only needs the node's own
-    /// fields gets this form, so its cost does not grow with the tree.
     pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
             component: self.component.clone(),
@@ -3894,13 +3813,10 @@ impl RNNodeView {
         }
     }
 
-    /// The node's child tags, in paint order.
     pub(crate) fn child_tags(&self) -> Vec<i32> {
         self.children.iter().map(|(tag, _)| *tag).collect()
     }
 
-    /// The read-only view of this component handed to a module's renderer or
-    /// observer, with its subtree.
     pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
             component: self.component.clone(),
@@ -3916,8 +3832,6 @@ impl RNNodeView {
         }
     }
 
-    /// The parent tag without an `App`: the field is set on insert, so it is
-    /// already current when a shallow node is built.
     pub(crate) fn parent_tag_cached(&self) -> Option<i32> {
         self.parent_tag_cache.get()
     }
@@ -3929,7 +3843,6 @@ struct Scroller {
     handle: gpui::ScrollHandle,
     sync_generation: Rc<Cell<u64>>,
     content_size: (f32, f32),
-    /// The event the scrolling component wants as its offset changes.
     event: Option<String>,
     viewport: (f32, f32),
     scale: (f32, f32),

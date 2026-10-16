@@ -695,9 +695,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     path.join(autolinkCrate, 'Cargo.toml'),
     `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ''}`,
   );
-  // Every crate a module declares registers itself here, so the linker keeps
-  // it. A crate with TurboModule specs registers those; a paint-only crate
-  // registers component renderers or store observers instead.
   const ensureLinked = rustCrates.map(
     ({ alias }) => `    ${alias}::rn_gpui_register();`,
   );

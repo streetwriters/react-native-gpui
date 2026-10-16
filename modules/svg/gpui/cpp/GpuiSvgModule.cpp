@@ -11,8 +11,6 @@ namespace rngpui {
 using namespace facebook::react;
 
 namespace {
-// Every component the props extraction below names, so the renderer registered
-// for each one gets its JSON.
 constexpr const char* kSvgComponents[] = {
     "RNSVGSvgView",
     "RNSVGCircle",

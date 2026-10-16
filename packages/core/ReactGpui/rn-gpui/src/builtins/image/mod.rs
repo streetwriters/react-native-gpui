@@ -1,10 +1,3 @@
-//! The built-in `Image` component.
-//!
-//! It is a module like any other: it registers a renderer for the `Image`
-//! component name and reads the JSON its C++ half extracted. It implements
-//! `content`, not `render`, so core still builds the element and the image
-//! keeps its background, border, radius and accessibility role.
-
 use gpui::{prelude::*, AnyElement, App, ObjectFit, Window};
 use serde_json::Value;
 
@@ -47,9 +40,6 @@ fn paint(uri: &str, resize_mode: Option<&Value>) -> Option<AnyElement> {
     } else if let Some(path) = crate::image_loader::file_uri_path(uri) {
         Some(gpui::img(path))
     } else {
-        // A dev-server asset URL carries a literal `../..`, which Metro's URL
-        // parsing collapses before its `/assets/` route matches; encode it or
-        // the image 404s.
         Some(gpui::img(
             crate::image_loader::dev_server_asset_url(uri).into_owned(),
         ))
@@ -57,7 +47,6 @@ fn paint(uri: &str, resize_mode: Option<&Value>) -> Option<AnyElement> {
     Some(source?.size_full().object_fit(fit).into_any_element())
 }
 
-/// Registers the built-in renderer.
 pub fn register() {
     register_component_renderer("Image", std::sync::Arc::new(ImageRenderer));
 }

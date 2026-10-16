@@ -1,10 +1,3 @@
-//! The built-in `ScrollView` component.
-//!
-//! It scrolls, which core implements: the GPUI scroll handle, the wheel
-//! listener and the resolved-offset read-back are platform capability. The
-//! module only declares the geometry through `ComponentRenderer::scroll`, and
-//! core names no component when it runs the mechanism.
-
 use serde_json::Value;
 
 use crate::extensions::{
@@ -12,7 +5,6 @@ use crate::extensions::{
 };
 use gpui::{AnyElement, App, Window};
 
-/// React Native's scroll event.
 const SCROLL_EVENT: &str = "topScroll";
 
 struct ScrollViewRenderer;
@@ -49,7 +41,6 @@ impl ComponentRenderer for ScrollViewRenderer {
     }
 }
 
-/// Registers the built-in renderer.
 pub fn register() {
     register_component_renderer("ScrollView", std::sync::Arc::new(ScrollViewRenderer));
 }

@@ -168,7 +168,6 @@ describe('buildReport source fallback with another reason', () => {
     });
     expect(report).toContain('**C++ inputs changed**');
     expect(report).toContain('`ReactGpui/rn-gpui-sys/cpp/File0.cpp`');
-    // The cap keeps the list short and says how many were left out.
     expect(report).toContain('…and 5 more');
     expect(report).not.toContain('File20.cpp');
   });

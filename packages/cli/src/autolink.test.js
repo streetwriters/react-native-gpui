@@ -261,10 +261,6 @@ test('leaves both headers untouched when nothing changed', () => {
   expect(after).toEqual(before);
 });
 
-// A crate that only paints (svg, screens) has no TurboModule spec, so nothing
-// else keeps it linked. Its `rn_gpui_register` must still be called, or its
-// component renderers are never registered and the package silently does
-// nothing.
 test('registers a crate that has no TurboModule specs', () => {
   const { projectRoot, configPath } = createProject();
   const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');

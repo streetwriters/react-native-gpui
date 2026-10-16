@@ -1,22 +1,10 @@
-//! `TextInput`'s painting.
-//!
-//! The paragraph, the selection and the caret are drawn here rather than by a
-//! renderer callback, because a caret lives in the text it sits in and the input
-//! handler is attached with the caret's bounds.
-
 // core-private: these functions read `RNNodeView` state (`input_selection`,
-// `caret_visible`, the focus handle). Focus is shared with accessibility, so it
-// cannot move onto a separate entity, and the extension API has no hook for
-// "paint inside your own node".
 
 use gpui::{div, prelude::*, px, Div, Entity, ParentElement, Stateful, Window};
 use rn_gpui_sys::ffi::{ParagraphFlat, RectF};
 
 use crate::node_view::RNNodeView;
 
-/// The paragraph, and for a single-line field the clipped viewport it scrolls
-/// inside. `element` is core's element for this node, returned with the content
-/// attached.
 pub(crate) fn paragraph_content(
     node: &RNNodeView,
     mut element: Stateful<Div>,
@@ -33,8 +21,6 @@ pub(crate) fn paragraph_content(
     let viewport_width = (frame.w * scale_x - left - right).max(0.0);
     let viewport_height = (frame.h * scale_y - top - bottom).max(0.0);
     if !node.input_multiline {
-        // A single-line input is a clipped viewport, not a wrapping paragraph:
-        // shape the whole line so its tail is never hidden at the field edge.
         let mut paragraph = paragraph.clone();
         paragraph.max_lines = 0;
         paragraph.ellipsize = 0;
@@ -82,7 +68,6 @@ pub(crate) fn paragraph_content(
     element
 }
 
-/// The paragraph for a component that is not a text field.
 pub(crate) fn plain_paragraph(
     element: Stateful<Div>,
     paragraph: &ParagraphFlat,
@@ -96,8 +81,6 @@ pub(crate) fn plain_paragraph(
     ))
 }
 
-/// The selection and the caret, drawn into the node's bounds, plus the input
-/// handler that makes the field receive text.
 pub(crate) fn caret_canvas(
     node: &RNNodeView,
     element: Stateful<Div>,

@@ -251,10 +251,6 @@ describe('the generator fails', () => {
   });
 });
 
-// A method may take an object and a callback, as `AlertManager.alertWithArgs`
-// does. The object used to be bound to `args`, shadowing the argument cursor,
-// so the callback was read from the deserialized object and the generated code
-// did not compile.
 test('reads a callback after an object parameter', () => {
   const generated =
     generateFor(`import {TurboModuleRegistry, type TurboModule} from 'react-native';

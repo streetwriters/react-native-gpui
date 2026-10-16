@@ -1,11 +1,5 @@
-//! Typed readers over the JSON this module's C++ half produced.
-//!
-//! A missing key reads as today's zero value, so a component that has not been
-//! given the prop yet behaves the way it did before it arrived.
-
 use react_native_gpui::extensions::ComponentNode;
 
-/// A number, or 0 when absent.
 fn number(node: &ComponentNode, key: &str) -> f64 {
     node.props
         .get(key)
@@ -13,12 +7,10 @@ fn number(node: &ComponentNode, key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// A number as `f32`, or 0 when absent.
 fn number_f32(node: &ComponentNode, key: &str) -> f32 {
     number(node, key) as f32
 }
 
-/// A string, borrowed from the props.
 fn string<'a>(node: &'a ComponentNode, key: &str) -> &'a str {
     node.props
         .get(key)
@@ -26,7 +18,6 @@ fn string<'a>(node: &'a ComponentNode, key: &str) -> &'a str {
         .unwrap_or("")
 }
 
-/// A boolean, false when absent.
 fn boolean(node: &ComponentNode, key: &str) -> bool {
     node.props
         .get(key)
@@ -34,28 +25,22 @@ fn boolean(node: &ComponentNode, key: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// A colour as 0xAARRGGBB, 0 when unset.
 fn color(node: &ComponentNode, key: &str) -> u32 {
     number(node, key) as u32
 }
 
-/// An `RNSScreen`'s activity state. 0 is detached, 1 is transitioning, 2 is
-/// fully on screen.
 pub fn activity_state(node: &ComponentNode) -> f32 {
     number_f32(node, "activityState")
 }
 
-/// An `RNSScreen`'s `stackAnimation`.
 pub fn stack_animation(node: &ComponentNode) -> &str {
     string(node, "stackAnimation")
 }
 
-/// An `RNSScreen`'s `stackPresentation`.
 pub fn stack_presentation(node: &ComponentNode) -> &str {
     string(node, "stackPresentation")
 }
 
-/// Whether a presentation paints its own card over the one underneath.
 pub fn is_modal_presentation(node: &ComponentNode) -> bool {
     matches!(
         stack_presentation(node),
@@ -63,42 +48,34 @@ pub fn is_modal_presentation(node: &ComponentNode) -> bool {
     )
 }
 
-/// Whether that card lets the screen underneath show through.
 pub fn is_transparent_presentation(node: &ComponentNode) -> bool {
     stack_presentation(node) == "transparentModal"
 }
 
-/// A header config's title.
 pub fn header_title(node: &ComponentNode) -> &str {
     string(node, "title")
 }
 
-/// A header config's background colour.
 pub fn header_background_color(node: &ComponentNode) -> u32 {
     color(node, "backgroundColor")
 }
 
-/// A header config's title colour.
 pub fn header_title_color(node: &ComponentNode) -> u32 {
     color(node, "titleColor")
 }
 
-/// A header config's tint colour, used for the back button.
 pub fn header_tint_color(node: &ComponentNode) -> u32 {
     color(node, "tintColor")
 }
 
-/// Whether a header config hides the whole bar.
 pub fn header_hidden(node: &ComponentNode) -> bool {
     boolean(node, "hidden")
 }
 
-/// Whether a header config hides only the back button.
 pub fn header_hide_back(node: &ComponentNode) -> bool {
     boolean(node, "hideBackButton")
 }
 
-/// A header subview's placement: `left`, `right`, `center`, `title` or a Yoga x.
 pub fn subview_type(node: &ComponentNode) -> &str {
     string(node, "type")
 }

@@ -61,8 +61,6 @@ pub struct ViewStore {
     /// The screen whose Escape dismissal already announced its lifecycle
     /// events. The following Fabric Remove should not announce it twice.
     pub native_dismiss_lifecycle_pending: Option<i32>,
-    /// Subtrees a module asked core to keep attached after React Native removed
-    /// them, keyed by the retained root's tag.
     pub(crate) retained_subtrees: HashMap<i32, Vec<i32>>,
     log_mount_ops: bool,
     /// A dropped `Subscription` unsubscribes, so the store owns it.
@@ -242,13 +240,9 @@ impl ViewStore {
         let surface_id = batch.surface_id;
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
         let store = cx.entity().downgrade();
-        // Inside a batch the store is leased by this mutation, so a command is
-        // recorded and applied as the hook returns rather than re-entering.
         let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
             Default::default();
         let handle = crate::extensions::StoreHandle::queued(store.clone(), commands.clone());
-        // A whole-batch view, so an observer can reason about the topology
-        // before any of it is applied. Retaining a subtree is only legal here.
         let batch_view = crate::extensions::BatchView {
             surface_id,
             ops: batch
@@ -281,10 +275,6 @@ impl ViewStore {
                 observer.before_batch(&batch_view, &tree, &handle, cx);
                 self.apply_commands(&commands, cx);
             }
-            // Retain requests are collected thread-locally: the hook holds a
-            // shared reference to the tree it is reading, so it cannot also
-            // take the exclusive borrow the mutation needs. `cx` may not be
-            // borrowed by a live `TreeView` here for the same reason.
             let pending: Vec<i32> =
                 PENDING_RETAIN.with(|pending| pending.borrow_mut().drain().collect());
             for tag in pending {
@@ -632,9 +622,6 @@ impl ViewStore {
                                         if let Some(previous) =
                                             self.nodes.get(&previous_tag).cloned()
                                         {
-                                            // The card underneath parallaxes a
-                                            // short way, so its exit uses a
-                                            // smaller fraction of its width.
                                             let (from, to) =
                                                 crate::node_view::screen_transition_poses(
                                                     mode,
@@ -1003,12 +990,6 @@ impl ViewStore {
                 }
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
             }
-            // A scrolling component's JS implementation installs `onLayout`
-            // callbacks on both its viewport and its content container.
-            // Fabric's native event subscription is not reflected in
-            // BaseViewProps::onLayout here, so emit layout for a mounted
-            // scrolling view; a node without a JS listener discards it in its
-            // EventEmitter.
             let is_scroll = crate::extensions::component_scroll(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -1044,10 +1025,6 @@ impl ViewStore {
         });
     }
 
-    /// Applies what a hook recorded while the store was leased.
-    ///
-    /// Running these straight after the hook returns keeps a hook's effect
-    /// ordered with the batch it observed, without re-entering the store.
     fn apply_commands(
         &mut self,
         commands: &std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>>,
@@ -1078,8 +1055,6 @@ impl ViewStore {
         }
     }
 
-    /// Records that `tag`'s subtree must stay attached after React Native
-    /// removes it, so an exit animation can paint it to its end.
     pub(crate) fn retain_subtree(&mut self, tag: i32, cx: &App) {
         let mut descendants = Vec::new();
         let mut stack: Vec<i32> = self
@@ -1100,7 +1075,6 @@ impl ViewStore {
         self.retained_subtrees.insert(tag, descendants);
     }
 
-    /// Every tag a `retain_subtree` call kept attached for this batch.
     pub(crate) fn retained_descendant_set(&self) -> HashSet<i32> {
         self.retained_subtrees
             .values()
@@ -1108,15 +1082,10 @@ impl ViewStore {
             .collect()
     }
 
-    /// A read-only view of this surface's mounted tree.
     pub(crate) fn tree_view<'a>(&'a self, cx: &App) -> crate::extensions::TreeView<'a> {
         self.tree_view_at(None, cx)
     }
 
-    /// A read-only view built around a node core is already holding.
-    ///
-    /// Queries about `current.0` are answered from the reference, never by
-    /// reading its entity, because the caller holds a lease on it.
     pub(crate) fn tree_view_at<'a>(
         &'a self,
         current: Option<(i32, &'a RNNodeView)>,
@@ -1139,7 +1108,6 @@ impl ViewStore {
         }
     }
 
-    /// Whether node transitions may run right now.
     pub(crate) fn animations_enabled(&self, cx: &App) -> bool {
         !cx.reduce_motion() && !crate::animation_policy::animations_disabled()
     }
@@ -1151,8 +1119,6 @@ impl ViewStore {
         if let Some(root) = self.roots.get(&surface_id) {
             roots.extend(root.read(cx).children.iter().map(|(_, node)| node.clone()));
         }
-        // A portal is spliced with no React Native parent and painted by the
-        // overlay host instead, so it is a second root.
         for (_, portal) in self.overlay_host.read(cx).portals.iter() {
             if portal.read(cx).surface_id == surface_id && portal.read(cx).parent.is_none() {
                 roots.push(portal.clone());
@@ -1175,8 +1141,6 @@ impl ViewStore {
             animations_enabled,
             current: None,
             retained: &self.retained_subtrees,
-            // `Context<T>` derefs to `App`; the view keeps a raw pointer so a
-            // hook can hold it and `&mut App` at the same time (see the field).
             app: &**cx as *const gpui::App,
         };
         for root in roots {
@@ -1255,8 +1219,6 @@ fn set_header_ancestor_hidden(node: Entity<RNNodeView>, hidden: bool, cx: &mut C
     }
 }
 
-/// Hides a component and its subtree. The extension API's `StoreHandle` calls
-/// this, so a module can hide a screen without the store's own code.
 pub(crate) fn set_component_hidden(
     store: &Entity<ViewStore>,
     tag: i32,
@@ -1270,8 +1232,6 @@ pub(crate) fn set_component_hidden(
     });
 }
 
-/// Starts a transition on a component. The extension API's `StoreHandle`
-/// calls this.
 pub(crate) fn start_component_transition(
     store: &Entity<ViewStore>,
     tag: i32,
@@ -1290,7 +1250,6 @@ pub(crate) fn start_component_transition(
     });
 }
 
-/// The body of `start_component_transition`, against an already-leased store.
 fn start_component_transition_here(
     store: &mut ViewStore,
     tag: i32,
@@ -1305,7 +1264,6 @@ fn start_component_transition_here(
     }
 }
 
-/// Removes a component's transition and repaints it.
 pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
     store.update(cx, |store, cx| {
         if let Some(node) = store.nodes.get(&tag).cloned() {
@@ -1317,8 +1275,6 @@ pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mu
     });
 }
 
-/// Records that a module wants a node kept attached after React Native removed
-/// it. The entry is forgotten when the subtree is released.
 pub(crate) fn request_retain_subtree(tag: i32) {
     PENDING_RETAIN.with(|pending| pending.borrow_mut().insert(tag));
 }
@@ -1328,7 +1284,6 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
-/// Detaches a retained subtree and re-evaluates inheritance for its surface.
 pub(crate) fn release_retained_subtree(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
     store.update(cx, |store, cx| {
         let Some(descendants) = store.retained_subtrees.remove(&tag) else {
@@ -1356,7 +1311,6 @@ pub(crate) fn release_retained_subtree(store: &Entity<ViewStore>, tag: i32, cx: 
     });
 }
 
-/// Runs `f` on the store after `duration`, from a background timer.
 pub(crate) fn after_on_store(
     store: Entity<ViewStore>,
     duration: std::time::Duration,
@@ -1375,7 +1329,6 @@ pub(crate) fn after_on_store(
     });
 }
 
-/// A `StoreHandle` for a throwaway store, used by the extension tests.
 #[cfg(test)]
 pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensions::StoreHandle {
     let overlay_host = cx.new(|_| OverlayHost::new());
@@ -1728,8 +1681,6 @@ impl OverlayHost {
         self.portals.clear();
     }
 
-    /// Adds a window-level portal. A portal is a component its renderer
-    /// declared through `ComponentRenderer::portal`, such as a modal.
     pub fn insert_portal(&mut self, tag: i32, portal: Entity<RNNodeView>) {
         if !self.portals.iter().any(|(existing, _)| *existing == tag) {
             self.portals.push((tag, portal));

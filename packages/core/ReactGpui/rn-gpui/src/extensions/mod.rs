@@ -1,15 +1,3 @@
-//! The public extension API a module registers against.
-//!
-//! A module registers a renderer for a component name, or an observer of the
-//! mounted tree. Core consults the registries and falls through to its own
-//! behaviour when nothing is registered, so an uninstalled module changes
-//! nothing.
-//!
-//! Registration happens in the module's `rn_gpui_register()`, which autolink
-//! calls from `ensure_linked()` while `main` starts — before any `gpui::App`
-//! exists. The registries are therefore process-wide, like
-//! `rn_gpui_module::register`.
-
 use gpui::{AnyElement, App, Window};
 use rn_gpui_sys::ffi::RectF;
 use serde_json::Value;
@@ -17,29 +5,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// A read-only view of one mounted component.
-///
-/// Core builds it for the renderer and the observer; a module reads it and
-/// never keeps it, because the tree it describes is replaced on the next mount.
-/// A hook that only needs the node's own fields — everything added for the
-/// whole-batch and structural callbacks — receives one with no children, so the
-/// cost does not grow with the subtree.
 #[derive(Clone, Debug)]
 pub struct ComponentNode {
     pub component: String,
     pub tag: i32,
     pub frame: RectF,
-    /// The JSON a module filled through `registerComponentProps`, parsed once
-    /// per mount and shared, so a hook can hand it on or hold it cheaply.
-    /// `Value::Null` when nothing filled it.
     pub props: Arc<Value>,
-    /// The React Native parent, when the node has one.
     pub parent: Option<i32>,
     pub children: Vec<ComponentNode>,
 }
 
 impl ComponentNode {
-    /// The first component in this subtree with this test id.
     pub fn find_test_id(&self, test_id: &str) -> Option<&ComponentNode> {
         if self.props.get("testID").and_then(Value::as_str) == Some(test_id) {
             return Some(self);
@@ -50,20 +26,12 @@ impl ComponentNode {
     }
 }
 
-/// Where a node sits between two poses during a transition.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
-    /// A fraction of the node's own width. Positive moves right.
     pub offset_x: f32,
-    /// Multiplied into the node's painted opacity.
     pub opacity: f32,
 }
 
-/// A node transition: movement between two poses over a duration.
-///
-/// Core owns the timing and the paint, so the same API serves a navigation push,
-/// a fade and anything else that moves a node. A module supplies only the poses
-/// its platform's transitions correspond to.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transition {
     pub from: Pose,
@@ -72,7 +40,6 @@ pub struct Transition {
 }
 
 impl Transition {
-    /// The pose at `progress`, a plain lerp between `from` and `to`.
     pub fn pose_at(&self, progress: f32) -> Pose {
         let progress = progress.clamp(0.0, 1.0);
         Pose {
@@ -81,7 +48,6 @@ impl Transition {
         }
     }
 
-    /// Smoothstep of the elapsed fraction, clamped to `0.0..=1.0`.
     pub fn progress_now(&self, started_at: Instant) -> f32 {
         let duration = self.duration.as_secs_f32().max(f32::EPSILON);
         let linear = ((Instant::now() - started_at).as_secs_f32() / duration).clamp(0.0, 1.0);
@@ -89,7 +55,6 @@ impl Transition {
     }
 }
 
-/// A transition in progress, as the tree reports it.
 #[derive(Clone, Copy, Debug)]
 pub struct TransitionState {
     pub transition: Transition,
@@ -97,19 +62,12 @@ pub struct TransitionState {
     pub progress: f32,
 }
 
-/// What a `StoreObserver` may ask core to do, beyond reading the tree.
-///
-/// A handle is cheap to clone and may be moved into a closure. Inside a batch
-/// core records what it is asked to do and applies it as the hook returns,
-/// because the store is already leased for the mutation; outside a batch a
-/// command takes effect immediately.
 #[derive(Clone)]
 pub struct StoreHandle {
     store: gpui::WeakEntity<crate::store::ViewStore>,
     queued: Option<Arc<Mutex<Vec<Command>>>>,
 }
 
-/// One deferred command, recorded while the store is leased.
 pub enum Command {
     Transition {
         tag: i32,
@@ -134,7 +92,6 @@ impl StoreHandle {
         }
     }
 
-    /// A handle that records instead of acting, for the inside of a batch.
     pub(crate) fn queued(
         store: gpui::WeakEntity<crate::store::ViewStore>,
         queued: Arc<Mutex<Vec<Command>>>,
@@ -159,7 +116,6 @@ impl StoreHandle {
         }
     }
 
-    /// Emits `name` to JS for `tag`. An empty payload sends `{}`.
     pub fn dispatch_event(&self, tag: i32, name: &str, payload: &Value, cx: &mut App) {
         if self.record(Command::Dispatch {
             tag,
@@ -174,7 +130,6 @@ impl StoreHandle {
         store.read(cx).host.dispatch_event(tag, name, payload);
     }
 
-    /// Lets Fabric deliver callbacks after a timer fired.
     pub fn wake(&self, cx: &mut App) {
         if self.record(Command::Wake) {
             return;
@@ -185,14 +140,12 @@ impl StoreHandle {
         store.read(cx).host.on_render();
     }
 
-    /// Hides or shows a component, and its header/content wrappers.
     pub fn set_hidden(&self, tag: i32, hidden: bool, cx: &mut App) {
         if let Some(store) = self.store.upgrade() {
             crate::store::set_component_hidden(&store, tag, hidden, cx);
         }
     }
 
-    /// Starts `transition` on a component.
     pub fn start_transition(&self, tag: i32, transition: Transition, cx: &mut App) {
         if self.record(Command::Transition { tag, transition }) {
             return;
@@ -202,7 +155,6 @@ impl StoreHandle {
         }
     }
 
-    /// Removes a component's transition and notifies it.
     pub fn clear_transition(&self, tag: i32, cx: &mut App) {
         if self.record(Command::ClearTransition { tag }) {
             return;
@@ -212,32 +164,24 @@ impl StoreHandle {
         }
     }
 
-    /// Asks for the next frame, so an animation can advance.
     pub fn request_frame(&self, window: &mut Window) {
         let _ = window;
     }
 
-    /// Keeps a node attached to its parent though React Native removed it.
-    ///
-    /// Only valid from `before_batch`; anywhere else it warns and does nothing,
-    /// because the mutation it would interrupt has already run.
     pub fn retain_subtree(&self, tag: i32) {
         if self.record(Command::Wake) {
-            // Retaining is not a queued command: it must happen before the loop.
             log::warn!("[extensions] retain_subtree is only valid in before_batch");
             return;
         }
         crate::store::request_retain_subtree(tag);
     }
 
-    /// Detaches a subtree `retain_subtree` kept, and re-evaluates the tree.
     pub fn release_retained(&self, tag: i32, cx: &mut App) {
         if let Some(store) = self.store.upgrade() {
             crate::store::release_retained_subtree(&store, tag, cx);
         }
     }
 
-    /// Runs `f` after `duration`, with a handle that acts immediately.
     pub fn after(
         &self,
         duration: Duration,
@@ -251,7 +195,6 @@ impl StoreHandle {
         crate::store::after_on_store(store, duration, cx, move |cx| f(&handle, cx));
     }
 
-    /// Whether animations may run: the system and the app both allow them.
     pub fn animations_enabled(&self, cx: &App) -> bool {
         let Some(store) = self.store.upgrade() else {
             return false;
@@ -259,7 +202,6 @@ impl StoreHandle {
         store.read(cx).animations_enabled(cx)
     }
 
-    /// Runs `f` with a read-only view of the mounted tree.
     pub fn with_tree(&self, cx: &App, f: impl FnOnce(&TreeView)) {
         let Some(store) = self.store.upgrade() else {
             return;
@@ -269,41 +211,21 @@ impl StoreHandle {
     }
 }
 
-/// A read-only view of the mounted tree.
-///
-/// It exists so a module can answer structural questions — what a node's parent
-/// is, which of its children are live, whether an ancestor is hiding it — without
-/// holding a lease on the store, which core owns while it applies a batch.
-///
-/// Core may build it around a node it is already holding, so a query about that
-/// node is answered from the reference rather than by reading its entity.
 pub struct TreeView<'a> {
     pub(crate) nodes: &'a HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>,
-    /// One tag per surface, so "is this a root" needs no store access.
     pub(crate) root_tags: Vec<i32>,
     pub(crate) top_inset: f32,
     pub(crate) animations_enabled: bool,
     pub(crate) current: Option<(i32, &'a crate::node_view::RNNodeView)>,
     pub(crate) retained: &'a HashMap<i32, Vec<i32>>,
-    /// The app, as a raw pointer rather than a borrow.
-    ///
-    /// A hook receives `&TreeView` and `&mut App` together, which a shared
-    /// borrow of `App` inside the view would forbid. The pointer is never
-    /// stored past the call: core builds the view on the stack, hands it to
-    /// the hook and drops it before the app can go away, so every read here is
-    /// of a live app. It is deliberately not tied to `'a`, so building a view
-    /// does not hold a borrow on the app.
     pub(crate) app: *const App,
 }
 
 impl TreeView<'_> {
-    /// The app the view was built against.
     fn app(&self) -> &App {
-        // SAFETY: see the `app` field.
         unsafe { &*self.app }
     }
 
-    /// One node, with no children. `None` when no such tag is mounted.
     pub fn node(&self, tag: i32) -> Option<ComponentNode> {
         if let Some((current_tag, node)) = self.current {
             if current_tag == tag {
@@ -315,13 +237,10 @@ impl TreeView<'_> {
             .map(|node| node.read(self.app()).component_node_shallow())
     }
 
-    /// A node's parent and the index it sits at among its siblings.
     pub fn parent(&self, tag: i32) -> Option<i32> {
         self.node(tag).and_then(|node| node.parent)
     }
 
-    /// A node's children in paint order. A retained subtree's children stay
-    /// listed here even after React Native deleted their tags.
     pub fn children(&self, tag: i32) -> Vec<i32> {
         if let Some((current_tag, node)) = self.current {
             if current_tag == tag {
@@ -334,7 +253,6 @@ impl TreeView<'_> {
             .unwrap_or_default()
     }
 
-    /// A node's ancestors, nearest first.
     pub fn ancestors(&self, tag: i32) -> Vec<i32> {
         let mut out = Vec::new();
         let mut current = self.parent(tag);
@@ -345,24 +263,20 @@ impl TreeView<'_> {
         out
     }
 
-    /// Whether React Native still lists this tag. False for a retained node.
     pub fn is_live(&self, tag: i32) -> bool {
         self.nodes.contains_key(&tag)
     }
 
-    /// Whether the node is at the root of a surface.
     pub fn is_root(&self, tag: i32) -> bool {
         self.root_tags.contains(&tag)
     }
 
-    /// The surface a node's root belongs to, when it is mounted.
     pub fn surface_of(&self, tag: i32) -> Option<i32> {
         self.nodes
             .get(&tag)
             .map(|node| node.read(self.app()).surface_id)
     }
 
-    /// A node's transition, with its progress sampled now.
     pub fn transition(&self, tag: i32) -> Option<TransitionState> {
         if let Some((current_tag, node)) = self.current {
             if current_tag == tag {
@@ -374,23 +288,19 @@ impl TreeView<'_> {
             .and_then(|node| node.read(self.app()).transition_state())
     }
 
-    /// The window's top inset, the same value the node sees.
     pub fn window_top_inset(&self) -> f32 {
         self.top_inset
     }
 
-    /// Whether animations may run: the system and the app both allow them.
     pub fn animations_enabled(&self) -> bool {
         self.animations_enabled
     }
 
-    /// The tags a `retain_subtree` call kept attached.
     pub fn retained_tags(&self) -> Vec<i32> {
         self.retained.keys().copied().collect()
     }
 }
 
-/// What kind of operation a batch carried for one tag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BatchOpKind {
     Create,
@@ -400,24 +310,17 @@ pub enum BatchOpKind {
     Update,
 }
 
-/// One operation in a batch, as a module sees it before it is applied.
 #[derive(Clone, Debug)]
 pub struct BatchOp {
     pub kind: BatchOpKind,
     pub tag: i32,
     pub parent_tag: i32,
     pub index: i32,
-    /// React Native's component name for the tag.
     pub component: String,
-    /// The props this operation carries, when it has any.
     pub props: Arc<Value>,
     pub props_changed: bool,
 }
 
-/// A whole mount batch, before any of it is applied.
-///
-/// A batch is the unit React Native commits in, so a module that has to reason
-/// about the tree as a whole — rather than op by op — reads it here.
 #[derive(Clone, Debug, Default)]
 pub struct BatchView {
     pub surface_id: i32,
@@ -425,8 +328,6 @@ pub struct BatchView {
 }
 
 impl BatchView {
-    /// The component name a tag has in this batch, from a `Create` op or the
-    /// live tree.
     pub fn component_of<'a>(&'a self, tag: i32, tree: &TreeView) -> Option<String> {
         self.ops
             .iter()
@@ -435,7 +336,6 @@ impl BatchView {
             .or_else(|| tree.node(tag).map(|node| node.component))
     }
 
-    /// The parent an `Insert` op gives a tag.
     pub fn parent_of(&self, tag: i32) -> Option<i32> {
         self.ops
             .iter()
@@ -444,65 +344,31 @@ impl BatchView {
     }
 }
 
-/// How core should paint one node, beyond what its style says.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Decoration {
-    /// `Some(false)` is `display: none`; `Some(true)` forces a flex box.
     pub display: Option<bool>,
-    /// ARGB, overriding the style's background.
     pub background: Option<u32>,
-    /// Clips the node's children to its box.
     pub clip: bool,
-    /// Hides this node, but not its subtree, from accessibility.
     pub a11y_hidden: bool,
 }
 
-/// A component painted over the window instead of inside the React Native tree.
-///
-/// A modal and a full-window overlay both need this, which is why it is one
-/// concept rather than a per-component hook.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Portal {
-    /// Whether it is on screen right now. A hidden portal keeps its node, so a
-    /// modal that becomes invisible does not lose its subtree, but paints
-    /// nothing and leaves the accessibility tree.
     pub visible: bool,
-    /// The event a close request (Escape, or the platform's close gesture)
-    /// dispatches to the portal's tag, which React Native surfaces as
-    /// `onRequestClose`.
     pub close_request_event: Option<String>,
 }
 
-/// A component whose content scrolls inside its own frame.
-///
-/// Core owns the scrolling itself — a GPUI scroll handle, the wheel listener and
-/// the resolved-offset read-back are platform capability, the same as a portal's
-/// placement — so a component only declares that it scrolls, and how.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollSpec {
-    /// The content's size, which may exceed the frame.
     pub content_size: (f32, f32),
-    /// The axis: horizontal scrolls x, otherwise y.
     pub horizontal: bool,
-    /// Whether the user may scroll it. A disabled scroll view clips instead.
     pub enabled: bool,
-    /// Whether to paint a scroll indicator.
     pub indicator: bool,
-    /// The offset React Native currently believes, applied before painting.
     pub offset: (f32, f32),
-    /// The event dispatched as the offset changes, `topScroll` in React Native.
     pub event: Option<String>,
 }
 
-/// Paints one component name.
-///
-/// Core tries `content` first and then `render`. A component whose painting is
-/// its whole appearance implements `render`; one that core still has to give a
-/// box, a background, a border and an accessibility role implements `content`,
-/// which core places inside the element it builds.
 pub trait ComponentRenderer: Send + Sync + 'static {
-    /// The node's own content, inserted where core puts a component's children.
-    /// The surrounding element keeps core's style and accessibility.
     fn content(
         &self,
         _node: &ComponentNode,
@@ -512,48 +378,29 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         None
     }
 
-    /// The node's whole appearance, replacing the element core would build.
-    /// Returning `None` falls through to `content` and then to core.
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
 
-    /// Whether this component is painted over the window, and how it closes.
-    ///
-    /// `None` leaves the component in the tree. It reads parsed props rather
-    /// than a `ComponentNode` because the store decides placement while it walks
-    /// a mount batch, before any node exists.
     fn portal(&self, _props: &Value) -> Option<Portal> {
         None
     }
 
-    /// Whether this component scrolls its content, and with what geometry.
-    ///
-    /// Like `portal`, it reads parsed props so the answer does not depend on a
-    /// render pass.
     fn scroll(&self, _props: &Value) -> Option<ScrollSpec> {
         None
     }
 
-    /// The node's frame inside its parent, replacing the layout the platform
-    /// computed for placement, painted size, hit testing, accessibility bounds
-    /// and the test driver. `None` keeps the platform's frame.
     fn layout_frame(&self, _node: &ComponentNode, _tree: &TreeView) -> Option<RectF> {
         None
     }
 
-    /// Whether to hide the node and its descendants from accessibility and from
-    /// the test driver's visibility checks. Evaluated in the inherit pass.
     fn hides_subtree(&self, _node: &ComponentNode, _tree: &TreeView) -> bool {
         false
     }
 
-    /// How to paint the node, evaluated after core built its style.
     fn decorate(&self, _node: &ComponentNode, _tree: &TreeView) -> Decoration {
         Decoration::default()
     }
 
-    /// Wraps or replaces the node's painted children. Non-scrolling nodes only;
-    /// the default returns them unchanged.
     fn children(
         &self,
         _node: &ComponentNode,
@@ -564,12 +411,10 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         children
     }
 
-    /// Whether core should route key-down events for this node to `on_key_down`.
     fn handles_keys(&self, _node: &ComponentNode) -> bool {
         false
     }
 
-    /// Handles a key press. Returning true stops propagation.
     fn on_key_down(
         &self,
         _node: &ComponentNode,
@@ -582,18 +427,13 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         false
     }
 
-    /// Whether the node repaints when the window's insets change.
     fn depends_on_window_insets(&self) -> bool {
         false
     }
 }
 
-/// Watches the mounted tree. Used for navigation, overlays and anything that
-/// has to react to a component appearing, changing or going away.
 pub trait StoreObserver: Send + Sync + 'static {
-    /// A component was created or inserted.
     fn on_mount(&self, node: &ComponentNode, handle: &StoreHandle, cx: &mut App);
-    /// A component's props or frame changed. `previous` is the node as it was.
     fn on_update(
         &self,
         node: &ComponentNode,
@@ -601,10 +441,8 @@ pub trait StoreObserver: Send + Sync + 'static {
         handle: &StoreHandle,
         cx: &mut App,
     );
-    /// A component was deleted.
     fn on_remove(&self, tag: i32, handle: &StoreHandle, cx: &mut App);
 
-    /// The whole batch, before any of it is applied.
     fn before_batch(
         &self,
         _batch: &BatchView,
@@ -614,8 +452,6 @@ pub trait StoreObserver: Send + Sync + 'static {
     ) {
     }
 
-    /// Core inserted `child` under `parent`. `previous_children` is the parent's
-    /// child tags from just before the insert.
     fn on_insert(
         &self,
         _child: &ComponentNode,
@@ -627,8 +463,6 @@ pub trait StoreObserver: Send + Sync + 'static {
     ) {
     }
 
-    /// Core is about to detach `child` from `parent`. `retained` says whether it
-    /// will stay attached because a subtree was retained.
     fn on_remove_child(
         &self,
         _child: i32,
@@ -640,10 +474,8 @@ pub trait StoreObserver: Send + Sync + 'static {
     ) {
     }
 
-    /// The batch is applied, before inheritance is refreshed.
     fn after_batch(&self, _tree: &TreeView, _handle: &StoreHandle, _cx: &mut App) {}
 
-    /// A transition on `tag` reached a new sample.
     fn on_transition_frame(&self, _tag: i32, _progress: f32, _handle: &StoreHandle, _cx: &mut App) {
     }
 }
@@ -658,9 +490,6 @@ fn store_observers_registry() -> &'static Mutex<Vec<Arc<dyn StoreObserver>>> {
     REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Registers `renderer` for `component_name`, replacing any earlier one.
-///
-/// Called from a module's `rn_gpui_register()`, before the runtime starts.
 pub fn register_component_renderer(
     component_name: impl Into<String>,
     renderer: Arc<dyn ComponentRenderer>,
@@ -671,9 +500,6 @@ pub fn register_component_renderer(
         .insert(component_name.into(), renderer);
 }
 
-/// Registers `observer`; observers are notified in registration order.
-///
-/// Called from a module's `rn_gpui_register()`, before the runtime starts.
 pub fn register_store_observer(observer: Arc<dyn StoreObserver>) {
     store_observers_registry()
         .lock()
@@ -681,7 +507,6 @@ pub fn register_store_observer(observer: Arc<dyn StoreObserver>) {
         .push(observer);
 }
 
-/// The renderer registered for `component_name`, if any.
 pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
     component_renderers()
         .lock()
@@ -690,21 +515,14 @@ pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRende
         .cloned()
 }
 
-/// The portal a component's renderer declares for these props.
-///
-/// The store calls it to decide whether a component is spliced out of its
-/// React Native parent. A component with no renderer, or one whose renderer
-/// does not declare a portal, stays in the tree.
 pub fn component_portal(component_name: &str, props: &Value) -> Option<Portal> {
     component_renderer(component_name)?.portal(props)
 }
 
-/// The scroll declaration a component's renderer makes for these props.
 pub fn component_scroll(component_name: &str, props: &Value) -> Option<ScrollSpec> {
     component_renderer(component_name)?.scroll(props)
 }
 
-/// Parses the JSON a module filled for a component, or `Null`.
 pub fn parse_extension_props(json: &str) -> Value {
     if json.is_empty() {
         Value::Null
@@ -713,7 +531,6 @@ pub fn parse_extension_props(json: &str) -> Value {
     }
 }
 
-/// Every registered observer, for one notification pass.
 pub fn store_observers() -> Vec<Arc<dyn StoreObserver>> {
     store_observers_registry()
         .lock()
@@ -833,8 +650,6 @@ mod tests {
         );
     }
 
-    /// The hooks of one batch run in the order the plan fixes: the whole-batch
-    /// pre-pass, then the per-operation hooks, then the post-pass.
     #[gpui::test]
     fn batch_hooks_run_in_order(cx: &mut TestAppContext) {
         let order = Arc::new(Mutex::new(Vec::new()));
@@ -906,7 +721,6 @@ mod tests {
         }
     }
 
-    /// A tree with no nodes, for hooks whose bodies do not consult it.
     fn empty_tree() -> TreeView<'static> {
         static NODES: OnceLock<HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>> =
             OnceLock::new();

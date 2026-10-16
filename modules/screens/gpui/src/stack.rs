@@ -1,12 +1,3 @@
-//! The stack observer: everything react-native-screens does between a mount
-//! batch and a paint.
-//!
-//! Core tells an observer about a batch before it applies it, about each insert
-//! and removal as it applies them, and about the batch once it is done. All the
-//! navigation decisions — which stack is nested, which card is leaving, when a
-//! lifecycle event fires, when a card is kept alive for its exit — are made here
-//! and remembered in `state`.
-
 use crate::props;
 use crate::state::{self, PopPlan, Role};
 use crate::transition::{self, Role as TransitionRole};
@@ -15,7 +6,6 @@ use react_native_gpui::extensions::{
 };
 use std::collections::HashSet;
 
-/// The component names this module owns.
 pub const STACK: &str = "RNSScreenStack";
 pub const SCREEN: &str = "RNSScreen";
 pub const HEADER_CONFIG: &str = "RNSScreenStackHeaderConfig";
@@ -24,7 +14,6 @@ pub const CONTENT_WRAPPER: &str = "RNSScreenContentWrapper";
 pub const MODAL_SCREEN: &str = "RNSModalScreen";
 pub const FULL_WINDOW_OVERLAY: &str = "RNSFullWindowOverlay";
 
-/// Watches the batch and drives the stack.
 pub struct StackObserver;
 
 impl StoreObserver for StackObserver {
@@ -40,7 +29,6 @@ impl StoreObserver for StackObserver {
             log::info!("[screens] nested stack tags={nested:?}");
         }
         let plans = pop_plans(batch, tree, &nested, handle, cx);
-        // Keeping a card attached is only legal here, before the loop runs.
         for (tag, plan) in &plans {
             if plan.retain {
                 handle.retain_subtree(*tag);
@@ -102,7 +90,6 @@ impl StoreObserver for StackObserver {
                 previous_top,
                 animation
             );
-            // The card underneath parallaxes; the incoming card slides in.
             if presentation == "push" {
                 if let Some(previous) = previous_top {
                     let distance = transition::PARALLAX_DISTANCE;
@@ -162,8 +149,6 @@ impl StoreObserver for StackObserver {
             return;
         };
         let _ = parent;
-        // The revealed card may still carry its push-exit pose; restore it
-        // before painting the outgoing card above it.
         if let Some(revealed) = plan.revealed {
             handle.clear_transition(revealed, cx);
         }
@@ -193,8 +178,6 @@ impl StoreObserver for StackObserver {
         if !native_dismiss {
             crate::lifecycle::dispatch_will(handle, Some(child), plan.revealed, cx);
         }
-        // The card stays attached when it was retained, so its exit can paint;
-        // the registry entry is already gone, so it receives no React events.
         if retained {
             let duration = mode.map(|mode| mode.duration()).unwrap_or_default();
             let revealed = plan.revealed;
@@ -215,8 +198,6 @@ impl StoreObserver for StackObserver {
     }
 
     fn on_remove(&self, tag: i32, _handle: &StoreHandle, _cx: &mut gpui::App) {
-        // The plan for this card was consumed when it left its parent; a tag
-        // that never had one has nothing to forget.
         state::with(|state| {
             state.pop_plans.remove(&tag);
             state.roles.remove(&tag);
@@ -275,13 +256,10 @@ impl StoreObserver for StackObserver {
     }
 }
 
-/// Whether `stack` is the outer stack, the only one that animates.
 fn is_outer_stack(stack: i32) -> bool {
     !state::with(|state| state.nested_stacks.contains(&stack))
 }
 
-/// Every stack that sits inside a screen, found from the batch topology before
-/// any of it is applied.
 fn nested_stacks(batch: &BatchView, tree: &TreeView) -> HashSet<i32> {
     let stacks: Vec<i32> = batch
         .ops
@@ -317,7 +295,6 @@ fn nested_stacks(batch: &BatchView, tree: &TreeView) -> HashSet<i32> {
     nested
 }
 
-/// The cards leaving in this batch that should animate their exit.
 fn pop_plans(
     batch: &BatchView,
     tree: &TreeView,

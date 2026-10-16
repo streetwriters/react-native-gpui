@@ -1,6 +1,3 @@
-// The built-in `Modal` component's props extraction. Core only needs
-// `visible`, which decides whether the portal is painted and announced; the
-// rest of the modal's appearance is React Native's own.
 
 #include <react/renderer/components/modal/ModalHostViewShadowNode.h>
 

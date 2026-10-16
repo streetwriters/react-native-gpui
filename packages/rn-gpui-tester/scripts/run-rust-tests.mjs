@@ -88,8 +88,6 @@ function prebuiltLibraryCandidates() {
     return [];
   }
   if (!version) return [];
-  // Shared libraries ship in `bin/` (jsi.dll, libjsi.dylib) and static ones in
-  // `lib/`; Windows has no rpath, so a cold run finds jsi.dll only through here.
   const platformDir = path.join(
     prebuiltCacheRoot(),
     version,

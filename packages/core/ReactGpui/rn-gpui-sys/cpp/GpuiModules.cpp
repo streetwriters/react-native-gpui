@@ -4,9 +4,6 @@
 
 namespace rngpui {
 namespace {
-// `frameRequests` is the one registry written at runtime (a module asks for
-// frames from the JS thread), so it needs its own lock. The others are filled
-// at startup, before any surface exists.
 std::mutex frameRequestsMutex;
 std::mutex pendingWorkMutex;
 std::unordered_map<std::string, uint64_t>& pendingWorkByOwner() {

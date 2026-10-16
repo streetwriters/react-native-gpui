@@ -1,8 +1,3 @@
-//! React Native's `Clipboard`.
-//!
-//! The GPUI app context owns the system clipboard, so both the read and the
-//! write go through the main thread.
-
 use rn_gpui_module::{ModuleError, ModuleThread};
 
 use crate::builtins::main_thread::on_main;
@@ -39,7 +34,6 @@ impl NativeGpuiClipboardSpec for ClipboardModule {
     }
 }
 
-/// Registers the module.
 pub fn register() {
     rn_gpui_module::register(
         crate::builtins::rn_gpui_specs::native_gpui_clipboard_module::<ClipboardModule>(),

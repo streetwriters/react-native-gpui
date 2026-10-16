@@ -57,14 +57,10 @@ void updateFrameDemand() {
 }
 } // namespace rngpui
 
-// Whether any module asked for continuous frames. The test driver reads it to
-// know whether an animation is still running, without knowing which module.
 extern "C" uint64_t rn_gpui_frame_demand() noexcept {
   return rngpui::anyFrameRequested() ? 1 : 0;
 }
 
-// Work modules still have queued (see reportPendingWork). The test driver
-// waits for this, not for frame demand, which a heartbeat can hold forever.
 extern "C" uint64_t rn_gpui_pending_work() noexcept {
   return rngpui::pendingWork();
 }

@@ -1,10 +1,3 @@
-//! Paint a react-native-svg Fabric tree as one rasterized image.
-//!
-//! React Native SVG describes a vector document as Fabric nodes. GPUI paints
-//! one image per node, so this rebuilds the document as XML and rasterizes it
-//! through `ImageFormat::Svg`. A descendant is serialized into its root and
-//! paints nothing on its own.
-
 use gpui::{div, prelude::*, AnyElement, App, Window};
 use react_native_gpui::extensions::{
     register_component_renderer, ComponentNode, ComponentRenderer,
@@ -14,9 +7,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-/// Every component the publisher's props extraction covers, plus the ones the
-/// XML writer understands. Registering each one keeps its subtree out of core's
-/// own child painting: the whole document is painted by its root.
 const COMPONENTS: &[&str] = &[
     "RNSVGSvgView",
     "RNSVGCircle",
@@ -59,7 +49,6 @@ impl ComponentRenderer for SvgRenderer {
     }
 }
 
-/// Called by the app's autolink shim, which keeps this crate linked in.
 pub fn rn_gpui_register() {
     for component in COMPONENTS {
         register_component_renderer(*component, Arc::new(SvgRenderer));
@@ -73,9 +62,6 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
         svg_number(frame.w),
         svg_number(frame.h)
     );
-    // SVG paint properties on the root element inherit into descendants. Keep
-    // them when rebuilding the Fabric tree as XML (common in remote SVGs such
-    // as Lucide icons, which put stroke/currentColor on the root <svg>).
     for (name, attribute) in [
         ("color", "color"),
         ("fill", "fill"),
@@ -306,8 +292,6 @@ fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
     output.push('>');
 }
 
-// Fabric supplies defaults for inherited paint even when JS did not set them.
-// propList distinguishes explicit values from defaults so XML inheritance works.
 fn svg_property_is_set(props: &serde_json::Value, name: &str) -> bool {
     if !matches!(
         name,

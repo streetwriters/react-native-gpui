@@ -15,9 +15,6 @@ namespace rngpui {
 using namespace facebook::react;
 
 namespace {
-/// What this module remembers about one mounted view. It used to read these out
-/// of core's `GpuiMountedViews`; an observer keeps its own state now, so core
-/// has no safe-area fields at all.
 struct TrackedView {
   std::array<float, 4> frame;
   SharedEventEmitter emitter;
@@ -55,9 +52,6 @@ void dispatchInsets(
               "width", frame[2])("height", frame[3])));
 }
 
-/// Applies the window inset to every tracked provider and re-renders each
-/// `RNCSafeAreaView`. A change announces itself to JS; the state update runs
-/// every time, which is what makes a batch re-read the current inset.
 void applyInsets(float top, float right, float bottom, float left) {
   const bool changed = gpui_safe_area::windowTopInset.exchange(top) != top;
   std::vector<std::shared_ptr<const ConcreteState<RNCSafeAreaViewState>>>

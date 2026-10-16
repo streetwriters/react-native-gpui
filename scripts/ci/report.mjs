@@ -22,7 +22,6 @@ export const MARKER = '<!-- rn-gpui-ci-report -->';
 /// GitHub rejects a comment body over 65,536 characters; the plan asks for a
 /// margin below that.
 export const MAX_BODY = 60_000;
-/// How many file entries a report lists before it summarises the rest.
 const MAX_BOUNDARY_LINES = 20;
 
 /// The stage columns, in order. A step is assigned by the first pattern its

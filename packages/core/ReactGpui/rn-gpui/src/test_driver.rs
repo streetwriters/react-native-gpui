@@ -1328,9 +1328,6 @@ fn idle_status(
             json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
         );
     }
-    // Frame demand alone is not busy: a module may keep a frame
-    // heartbeat running while it has nothing queued. Modules report queued work
-    // separately (reportPendingWork); frame demand is only shown for context.
     let native_animations = unsafe { rn_gpui_native_animations_active() };
     let pending_work = unsafe { rn_gpui_pending_work() };
     let frame_demand = unsafe { rn_gpui_frame_demand() };
@@ -1441,7 +1438,6 @@ fn serve_socket(listener: TcpListener, token: String, tx: Sender<Request>) {
     }
 }
 
-/// The JSON a module filled for this node, or an empty object.
 fn extension_props(node: &RNNodeView) -> Value {
     if node.extension_props_json().is_empty() {
         return Value::Object(serde_json::Map::new());
@@ -1570,7 +1566,6 @@ pub(crate) fn node_visible_frame(
         {
             return None;
         }
-        // A scrolling ancestor clips its content to its viewport.
         if ancestor.view.overflow_hidden || ancestor.scroll.is_some() {
             visible = intersect(visible, node_frame(store, ancestor.tag, cx)?)?;
         }

@@ -5,10 +5,6 @@ import {
   FixtureBadgeProbe,
 } from '@react-native-gpui/fixture-component-module';
 
-/**
- * Phase C's proof screen: a component the module crate paints, with props core
- * never saw, next to the probe that reports the module's own counters.
- */
 export default function FixtureModuleProbeFixture() {
   const [tickCount, setTickCount] = useState(0);
   const [frameTicks, setFrameTicks] = useState(-1);

@@ -672,7 +672,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     crate::desktop::install_snapshot(&app_id);
     // The desktop shell is a Rust TurboModule: JS asks for it by name.
     crate::desktop::module::register();
-    // The built-in services React Native's own JS asks for by name.
     crate::builtins::register();
 
     #[cfg(feature = "visual-capture")]
@@ -1391,10 +1390,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             store.top_inset = top;
                             store.host.set_window_top_inset(top);
                             store.frame_hook.arm(window);
-                            // A renderer declares whether its component's paint
-                            // depends on the window insets; core asks instead of
-                            // naming the component. The in-core screens name is
-                            // still honoured until the module owns it.
                             for node in store.nodes.values() {
                                 let component = node.read(cx).component.clone();
                                 let depends = crate::extensions::component_renderer(&component)
@@ -1645,9 +1640,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     frame_hook.set_animation_active(active, window, cx);
                                 })
                             {
-                                // The window can be gone already: closing the
-                                // main window tears modules down, and they
-                                // release their frame requests on the way out.
                                 log::debug!(
                                     "[native-animated] failed to update GPUI window activity: {error}"
                                 );
