@@ -4,7 +4,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   ALLOW_LIST,
-  classifyHits,
   exitCodeFor,
   formatHits,
   formatJson,
