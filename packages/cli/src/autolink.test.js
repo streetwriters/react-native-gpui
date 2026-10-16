@@ -260,3 +260,38 @@ test('leaves both headers untouched when nothing changed', () => {
   const after = headers.map(header => fs.statSync(header).mtimeMs);
   expect(after).toEqual(before);
 });
+
+// A crate that only paints (svg, screens) has no TurboModule spec, so nothing
+// else keeps it linked. Its `rn_gpui_register` must still be called, or its
+// component renderers are never registered and the package silently does
+// nothing.
+test('registers a crate that has no TurboModule specs', () => {
+  const { projectRoot, configPath } = createProject();
+  const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');
+  fs.mkdirSync(path.join(crateRoot, 'gpui/src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(crateRoot, 'package.json'),
+    `${JSON.stringify({ name: 'fake-paint', version: '0.0.1' }, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(crateRoot, 'gpui/Cargo.toml'),
+    '[package]\nname = "fake-paint"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n',
+  );
+  fs.writeFileSync(
+    path.join(crateRoot, 'react-native.config.js'),
+    "module.exports = {dependency: {platforms: {gpui: {crate: 'fake-paint'}}}};\n",
+  );
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.dependencies['fake-paint'] = {
+    root: crateRoot,
+    platforms: { gpui: { crate: 'fake-paint' } },
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  autolink({ projectRoot, configFile: configPath });
+  const generated = fs.readFileSync(
+    path.join(projectRoot, 'desktop/autolink/src/lib.rs'),
+    'utf8',
+  );
+  expect(generated).toContain('fake_paint::rn_gpui_register();');
+});
