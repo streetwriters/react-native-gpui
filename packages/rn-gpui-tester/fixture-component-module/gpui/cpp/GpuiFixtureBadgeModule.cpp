@@ -12,6 +12,16 @@
 #include "GpuiModules.h"
 
 extern "C" void rn_gpui_fixture_badge_frame(double timestampMs);
+#if defined(_MSC_VER)
+// The definition lives in this module's Rust crate. On Windows the platform's
+// own Rust test binaries link the tester's autolinked C++ without that crate,
+// and MSVC has no weak symbols, so give the reference a no-op fallback that a
+// real definition still overrides (the same pattern as GpuiHost.cpp).
+extern "C" void rn_gpui_fixture_badge_frame_default(double) {}
+#pragma comment( \
+    linker,      \
+    "/alternatename:rn_gpui_fixture_badge_frame=rn_gpui_fixture_badge_frame_default")
+#endif
 
 namespace rngpui {
 namespace {
