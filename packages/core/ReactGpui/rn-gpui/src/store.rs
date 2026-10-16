@@ -1199,8 +1199,6 @@ mod test_app_context_tests {
             extension_props_json: String::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
-            image_uri: String::new(),
-            image_resize_mode: 0,
             text_input_text: String::new(),
             text_input_placeholder: String::new(),
             text_input_selection_color: 0,

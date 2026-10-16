@@ -3,7 +3,6 @@
 #include "GpuiTextMeasure.h"
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
-#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
@@ -388,27 +387,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
         op.has_paragraph = true;
         op.paragraph =
             flattenInputText(state->getData().attributedStringBox.getValue());
-      }
-    }
-    if (op.component == "Image") {
-      if (auto imageProps =
-              std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
-          imageProps && !imageProps->sources.empty()) {
-        op.image_uri = imageProps->sources[0].uri;
-        switch (imageProps->resizeMode) {
-          case ImageResizeMode::Contain:
-            op.image_resize_mode = 1;
-            break;
-          case ImageResizeMode::Cover:
-            op.image_resize_mode = 2;
-            break;
-          case ImageResizeMode::Center:
-            op.image_resize_mode = 3;
-            break;
-          default:
-            op.image_resize_mode = 0;
-            break;
-        }
       }
     }
     if (op.component == "ScrollView") {

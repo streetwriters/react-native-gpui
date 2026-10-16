@@ -8,6 +8,8 @@
 //! the `gpui::App`, so each service posts its work with `post_to_main` and
 //! awaits the result here, exactly as the desktop-shell module does.
 
+pub mod image;
+
 use futures::channel::oneshot;
 use gpui::{App, AppContext};
 use rn_gpui_module::{ModuleError, ModuleThread, Value};
@@ -176,8 +178,9 @@ impl NativeGpuiLinkingManagerSpec for LinkingManagerModule {
     fn remove_listeners(&self, _count: f64) {}
 }
 
-/// Registers the built-in services.
+/// Registers every built-in the platform is responsible for.
 pub fn register() {
+    image::register();
     rn_gpui_module::register(native_gpui_alert_manager_module::<AlertManagerModule>());
     rn_gpui_module::register(native_gpui_clipboard_module::<ClipboardModule>());
     rn_gpui_module::register(native_gpui_linking_manager_module::<LinkingManagerModule>());
