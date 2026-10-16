@@ -129,11 +129,10 @@ jobs:
       - name: Format check
         run: node scripts/ci/step.mjs --job lint --name "format" -- npm run format:check
 
-      # Reports the libraries core still names, and the `// core-private:` uses.
-      # It fails the job once the phase's moves are done; until then the list is
-      # evidence of what is left, so the step does not gate the build yet.
+      # Fails when core names a library. Screens' remaining hits are tolerated up
+      # to a per-file baseline (PENDING_SCREENS) until C5 moves it out; a new
+      # reference anywhere, or a growing screens count, fails.
       - name: Core boundary
-        continue-on-error: true
         run: |
           node scripts/ci/step.mjs --job lint --name "core boundary" -- \
             node scripts/ci/check-core-boundary.mjs
