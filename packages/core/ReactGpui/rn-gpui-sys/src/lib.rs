@@ -167,7 +167,6 @@ pub mod ffi {
         pub text_input_selection_set: bool,
         pub text_input_selection_start: i32,
         pub text_input_selection_end: i32,
-        pub modal_visible: bool,
         pub screen_header_title: String,
         pub screen_header_subview_type: String,
         pub screen_header_background_color: u32,

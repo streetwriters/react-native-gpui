@@ -324,11 +324,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.native_view_props = props->nativePropsJson;
     }
   }
-  if (op.component == "ModalHostView") {
-    auto modal =
-        std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
-    op.modal_visible = modal && modal->visible;
-  }
   if (gpuiModuleHooks().screensOp) {
     gpuiModuleHooks().screensOp(shadowView, op);
   }

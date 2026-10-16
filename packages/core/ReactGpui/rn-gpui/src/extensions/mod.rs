@@ -92,6 +92,22 @@ impl StoreHandle {
     }
 }
 
+/// A component painted over the window instead of inside the React Native tree.
+///
+/// A modal and a full-window overlay both need this, which is why it is one
+/// concept rather than a per-component hook.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Portal {
+    /// Whether it is on screen right now. A hidden portal keeps its node, so a
+    /// modal that becomes invisible does not lose its subtree, but paints
+    /// nothing and leaves the accessibility tree.
+    pub visible: bool,
+    /// The event a close request (Escape, or the platform's close gesture)
+    /// dispatches to the portal's tag, which React Native surfaces as
+    /// `onRequestClose`.
+    pub close_request_event: Option<String>,
+}
+
 /// Paints one component name.
 ///
 /// Core tries `content` first and then `render`. A component whose painting is
@@ -114,6 +130,15 @@ pub trait ComponentRenderer: Send + Sync + 'static {
     /// Returning `None` falls through to `content` and then to core.
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
+
+    /// Whether this component is painted over the window, and how it closes.
+    ///
+    /// `None` leaves the component in the tree. It reads parsed props rather
+    /// than a `ComponentNode` because the store decides placement while it walks
+    /// a mount batch, before any node exists.
+    fn portal(&self, _props: &Value) -> Option<Portal> {
+        None
+    }
 }
 
 /// Watches the mounted tree. Used for navigation, overlays and anything that
@@ -173,6 +198,24 @@ pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRende
         .expect("component renderer registry poisoned")
         .get(component_name)
         .cloned()
+}
+
+/// The portal a component's renderer declares for these props.
+///
+/// The store calls it to decide whether a component is spliced out of its
+/// React Native parent. A component with no renderer, or one whose renderer
+/// does not declare a portal, stays in the tree.
+pub fn component_portal(component_name: &str, props: &Value) -> Option<Portal> {
+    component_renderer(component_name)?.portal(props)
+}
+
+/// Parses the JSON a module filled for a component, or `Null`.
+pub fn parse_extension_props(json: &str) -> Value {
+    if json.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(json).unwrap_or(Value::Null)
+    }
 }
 
 /// Every registered observer, for one notification pass.

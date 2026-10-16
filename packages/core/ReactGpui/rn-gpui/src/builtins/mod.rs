@@ -9,6 +9,7 @@
 //! awaits the result here, exactly as the desktop-shell module does.
 
 pub mod image;
+pub mod modal;
 
 use futures::channel::oneshot;
 use gpui::{App, AppContext};
@@ -181,6 +182,7 @@ impl NativeGpuiLinkingManagerSpec for LinkingManagerModule {
 /// Registers every built-in the platform is responsible for.
 pub fn register() {
     image::register();
+    modal::register();
     rn_gpui_module::register(native_gpui_alert_manager_module::<AlertManagerModule>());
     rn_gpui_module::register(native_gpui_clipboard_module::<ClipboardModule>());
     rn_gpui_module::register(native_gpui_linking_manager_module::<LinkingManagerModule>());
