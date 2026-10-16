@@ -641,6 +641,11 @@ function renderDescriptor(generator, methods, events) {
   return lines.join('\n');
 }
 
+// The cursor that walks a call's arguments. It has a name no spec parameter can
+// take, because an object parameter is bound to its own name and would
+// otherwise shadow the cursor before the remaining arguments are read.
+const ARGS_CURSOR = 'arguments_';
+
 function argumentConversion(method, parameter) {
   if (parameter.isCallback) {
     const args = (parameter.annotation.params ?? []).map(
@@ -650,13 +655,13 @@ function argumentConversion(method, parameter) {
       .map((_, index) => `a${index}.into_value()`)
       .join(', ');
     return [
-      `                let ${parameter.name} = args.next_callback(${JSON.stringify(parameter.jsName)})?;`,
+      `                let ${parameter.name} = ${ARGS_CURSOR}.next_callback(${JSON.stringify(parameter.jsName)})?;`,
       `                let ${parameter.name}: ${parameter.rustType} =`,
       `                    Box::new(move |${args.join(', ')}| ${parameter.name}.invoke(vec![${values}]));`,
     ];
   }
   return [
-    `                let ${parameter.name}: ${parameter.rustType} = args.next(${JSON.stringify(parameter.jsName)})?;`,
+    `                let ${parameter.name}: ${parameter.rustType} = ${ARGS_CURSOR}.next(${JSON.stringify(parameter.jsName)})?;`,
   ];
 }
 
@@ -698,7 +703,7 @@ function renderCall(generator, kind, methods) {
   for (const method of methods) {
     lines.push(`            ${method.index} => {`);
     lines.push(
-      `                let mut args = Args::new(${JSON.stringify(name)}, ${JSON.stringify(method.jsName)}, args);`,
+      `                let mut ${ARGS_CURSOR} = Args::new(${JSON.stringify(name)}, ${JSON.stringify(method.jsName)}, args);`,
     );
     for (const parameter of method.params) {
       lines.push(...argumentConversion(method, parameter));
