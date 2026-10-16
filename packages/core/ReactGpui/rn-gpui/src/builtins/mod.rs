@@ -18,6 +18,7 @@ pub mod linking;
 pub mod main_thread;
 pub mod modal;
 pub mod scrollview;
+pub mod textinput;
 
 /// Registers every built-in the platform is responsible for.
 pub fn register() {

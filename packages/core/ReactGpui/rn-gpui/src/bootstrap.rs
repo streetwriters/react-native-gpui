@@ -960,7 +960,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let keyboard_hook = frame_hook.clone();
         let navigation_keyboard_subscription = cx.intercept_keystrokes(move |event, window, cx| {
             if window.window_handle().window_id() != window_id { return; }
-            if let Some(event_name) = crate::input::desktop_navigation_event(&event.keystroke) {
+            if let Some(event_name) = crate::builtins::textinput::input::desktop_navigation_event(&event.keystroke) {
                 keyboard_host.emit_device_event(event_name);
                 keyboard_hook.arm(window);
                 log::info!("[navigation] emitted {event_name} from keyboard");
@@ -1692,7 +1692,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         if let Some((window_handle, node)) = target {
                             let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
-                                    crate::input::clear_text_input(node, window, cx);
+                                    crate::builtins::textinput::input::clear_text_input(node, window, cx);
                                 });
                             });
                         }

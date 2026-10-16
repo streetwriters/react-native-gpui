@@ -1069,16 +1069,16 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
         let _ = window.update(cx, move |_root, window, cx| {
             node.update(cx, |node, cx| match kind.as_str() {
                 "copy" => {
-                    crate::input::copy_selection(node, cx);
+                    crate::builtins::textinput::input::copy_selection(node, cx);
                 }
                 "cut" => {
-                    crate::input::cut_selection(node, window, cx);
+                    crate::builtins::textinput::input::cut_selection(node, window, cx);
                 }
                 "paste" => {
-                    crate::input::paste_clipboard(node, window, cx);
+                    crate::builtins::textinput::input::paste_clipboard(node, window, cx);
                 }
                 "selectAll" => {
-                    crate::input::select_all(node, window, cx);
+                    crate::builtins::textinput::input::select_all(node, window, cx);
                 }
                 // TODO: undo/redo need an edit history in the GPUI text input. The
                 // item is present so an app can handle the press itself.
