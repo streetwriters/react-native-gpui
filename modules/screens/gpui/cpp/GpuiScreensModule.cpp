@@ -1,80 +1,50 @@
-// The C++ half of the screens module. It registers the props of the three
-// components the Rust side needs, through the public extension API: core names
-// no screens component and stores nothing screens-specific in a mount op.
-
 #include "GpuiModules.h"
+#include "MountBatchBuilder.h"
 
-#include <folly/json.h>
 #include <react/renderer/components/rnscreens/Props.h>
 
-#include <string>
+#include <algorithm>
 
 namespace rngpui {
-namespace {
-
 using namespace facebook::react;
 
-std::string screenPropsJson(
-    const std::string& /*componentName*/,
-    const ShadowView& view) {
-  if (!view.props) {
-    return std::string("{}");
-  }
-  auto props = std::dynamic_pointer_cast<const RNSScreenProps>(view.props);
-  if (!props) {
-    return std::string("{}");
-  }
-  folly::dynamic object = folly::dynamic::object;
-  object["activityState"] = props->activityState;
-  object["stackAnimation"] = toString(props->stackAnimation);
-  object["stackPresentation"] = toString(props->stackPresentation);
-  return folly::toJson(object);
-}
-
-std::string headerConfigPropsJson(
-    const std::string& /*componentName*/,
-    const ShadowView& view) {
-  if (!view.props) {
-    return std::string("{}");
-  }
-  auto props = std::dynamic_pointer_cast<const RNSScreenStackHeaderConfigProps>(
-      view.props);
-  if (!props) {
-    return std::string("{}");
-  }
-  folly::dynamic object = folly::dynamic::object;
-  object["title"] = props->title;
-  object["backgroundColor"] = argb(props->backgroundColor);
-  object["titleColor"] = argb(props->titleColor);
-  object["tintColor"] = argb(props->color);
-  object["hidden"] = props->hidden;
-  object["hideBackButton"] = props->hideBackButton;
-  return folly::toJson(object);
-}
-
-std::string headerSubviewPropsJson(
-    const std::string& /*componentName*/,
-    const ShadowView& view) {
-  if (!view.props) {
-    return std::string("{}");
-  }
-  auto props =
-      std::dynamic_pointer_cast<const RNSScreenStackHeaderSubviewProps>(
-          view.props);
-  if (!props) {
-    return std::string("{}");
-  }
-  folly::dynamic object = folly::dynamic::object;
-  object["type"] = toString(props->type);
-  return folly::toJson(object);
-}
-
-} // namespace
-
 void rn_gpui_install_screens_module() {
-  registerComponentProps("RNSScreen", screenPropsJson);
-  registerComponentProps("RNSScreenStackHeaderConfig", headerConfigPropsJson);
-  registerComponentProps("RNSScreenStackHeaderSubview", headerSubviewPropsJson);
+  auto& hooks = gpuiModuleHooks();
+  hooks.screensOp = [](const ShadowView& shadowView, MountOp& op) {
+    if (op.component == "RNSScreenStackHeaderSubview") {
+      if (auto props =
+              std::dynamic_pointer_cast<const RNSScreenStackHeaderSubviewProps>(
+                  shadowView.props)) {
+        op.screen_header_subview_type = toString(props->type);
+      }
+    } else if (op.component == "RNSScreenStackHeaderConfig") {
+      if (auto props =
+              std::dynamic_pointer_cast<const RNSScreenStackHeaderConfigProps>(
+                  shadowView.props)) {
+        op.screen_header_title = props->title;
+        op.screen_header_background_color = argb(props->backgroundColor);
+        op.screen_header_title_color = argb(props->titleColor);
+        op.screen_header_tint_color = argb(props->color);
+        op.screen_header_hidden = props->hidden;
+        op.screen_header_hide_back = props->hideBackButton;
+      }
+    } else if (op.component == "RNSScreen") {
+      if (auto props = std::dynamic_pointer_cast<const RNSScreenProps>(
+              shadowView.props)) {
+        op.screen_activity_state = props->activityState;
+        op.screen_stack_animation = toString(props->stackAnimation);
+        op.screen_stack_presentation = toString(props->stackPresentation);
+      }
+    }
+  };
+  hooks.screensFrame = [](MountOp& op) {
+    if (op.component == "RNSScreenStackHeaderConfig") {
+      op.frame.h = op.screen_header_hidden ? 0.f : 56.f;
+    } else if (op.component == "RNSScreenContentWrapper") {
+      op.frame.y += 56.f;
+      op.frame.h = std::max(0.f, op.frame.h - 56.f);
+    }
+  };
 }
 
 } // namespace rngpui
