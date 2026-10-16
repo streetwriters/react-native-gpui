@@ -320,15 +320,6 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
-    OpenUrl(String),
-    AlertRequest {
-        id: i32,
-        title: String,
-        message: String,
-        buttons: Vec<String>,
-    },
-    ClipboardRead(i32),
-    ClipboardWrite(String),
     DevMenuShow,
     DevSetting {
         name: String,
@@ -633,27 +624,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
-    let open_url_tx = tx.clone();
-    let _ = rn_gpui_sys::OPEN_URL_HANDLER.set(Box::new(move |url| {
-        let _ = open_url_tx.send_blocking(MainEvent::OpenUrl(url));
-    }));
-    let alert_tx = tx.clone();
-    let _ = rn_gpui_sys::ALERT_HANDLER.set(Box::new(move |id, title, message, buttons| {
-        let _ = alert_tx.send_blocking(MainEvent::AlertRequest {
-            id,
-            title,
-            message,
-            buttons,
-        });
-    }));
-    let clipboard_read_tx = tx.clone();
-    let _ = rn_gpui_sys::CLIPBOARD_READ_HANDLER.set(Box::new(move |id| {
-        let _ = clipboard_read_tx.send_blocking(MainEvent::ClipboardRead(id));
-    }));
-    let clipboard_write_tx = tx.clone();
-    let _ = rn_gpui_sys::CLIPBOARD_WRITE_HANDLER.set(Box::new(move |text| {
-        let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
-    }));
     let desktop_tx = tx.clone();
     crate::desktop::set_command_sender(desktop_tx);
     let main_task_tx = tx.clone();
@@ -702,6 +672,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
     crate::desktop::install_snapshot(&app_id);
     // The desktop shell is a Rust TurboModule: JS asks for it by name.
     crate::desktop::module::register();
+    // The built-in services React Native's own JS asks for by name.
+    crate::builtins::register();
 
     #[cfg(feature = "visual-capture")]
     let headless = env_bool("RN_GPUI_HEADLESS", false);
@@ -1723,53 +1695,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     crate::input::clear_text_input(node, window, cx);
                                 });
                             });
-                        }
-                    }
-                    MainEvent::OpenUrl(url) => {
-                        let _ = cx.update(|cx| cx.open_url(&url));
-                    }
-                    MainEvent::ClipboardRead(id) => {
-                        let mut text = String::new();
-                        let _ = cx.update(|cx| {
-                            text = cx
-                                .read_from_clipboard()
-                                .and_then(|item| item.text())
-                                .unwrap_or_default();
-                        });
-                        rn_gpui_sys::ffi::rn_gpui_clipboard_result(id, text);
-                    }
-                    MainEvent::ClipboardWrite(text) => {
-                        let _ = cx.update(|cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                        });
-                    }
-                    MainEvent::AlertRequest { id, title, message, buttons } => {
-                        let target = {
-                            let mut target = None;
-                            store.update(cx, |store, _cx| target = Some(store.window));
-                            target
-                        };
-                        if let Some(window) = target {
-                            let answers: Vec<gpui::PromptButton> = buttons
-                                .iter()
-                                .map(|button| gpui::PromptButton::new(button.clone()))
-                                .collect();
-                            let receiver = cx.update_window(window, move |_root, window, cx| {
-                                window.prompt(
-                                    gpui::PromptLevel::Info,
-                                    &title,
-                                    (!message.is_empty()).then_some(message.as_str()),
-                                    &answers,
-                                    cx,
-                                )
-                            });
-                            if let Ok(receiver) = receiver {
-                                cx.spawn(async move |_cx| {
-                                    let index = receiver.await.unwrap_or(0) as i32;
-                                    rn_gpui_sys::ffi::rn_gpui_alert_result(id, index);
-                                })
-                                .detach();
-                            }
                         }
                     }
                 }

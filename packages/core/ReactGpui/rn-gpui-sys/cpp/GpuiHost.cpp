@@ -129,19 +129,6 @@ std::mutex appearanceMutex;
 std::string systemAppearance{"light"};
 std::optional<std::string> appearanceOverride;
 
-struct AlertCallback {
-  std::shared_ptr<CallInvoker> jsInvoker;
-  facebook::jsi::Runtime* runtime;
-  facebook::jsi::Function callback;
-};
-std::mutex alertCallbacksMutex;
-std::unordered_map<int32_t, std::shared_ptr<AlertCallback>> alertCallbacks;
-std::atomic<int32_t> nextAlertId{1};
-
-std::mutex clipboardPromisesMutex;
-std::unordered_map<int32_t, AsyncPromise<std::string>> clipboardPromises;
-std::atomic<int32_t> nextClipboardRequestId{1};
-
 class GpuiAppearanceModule final
     : public NativeAppearanceCxxSpec<GpuiAppearanceModule> {
  public:
@@ -336,116 +323,6 @@ class GpuiAccessibilityInfoModule final
   }
 };
 
-class GpuiLinkingModule final
-    : public NativeLinkingManagerCxxSpec<GpuiLinkingModule> {
- public:
-  explicit GpuiLinkingModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeLinkingManagerCxxSpec(std::move(jsInvoker)) {}
-
-  AsyncPromise<std::optional<std::string>> getInitialURL(
-      facebook::jsi::Runtime& runtime) {
-    AsyncPromise<std::optional<std::string>> promise(runtime, jsInvoker_);
-    promise.resolve(std::nullopt);
-    return promise;
-  }
-
-  AsyncPromise<bool> canOpenURL(
-      facebook::jsi::Runtime& runtime,
-      std::string value) {
-    const auto separator = value.find(':');
-    auto scheme = separator == std::string::npos ? std::string{}
-                                                 : value.substr(0, separator);
-    std::transform(
-        scheme.begin(),
-        scheme.end(),
-        scheme.begin(),
-        [](unsigned char character) {
-          return static_cast<char>(std::tolower(character));
-        });
-    const bool supported = scheme == "http" || scheme == "https" ||
-        scheme == "mailto" || scheme == "tel";
-    AsyncPromise<bool> promise(runtime, jsInvoker_);
-    promise.resolve(supported);
-    return promise;
-  }
-
-  AsyncPromise<> openURL(facebook::jsi::Runtime& runtime, std::string value) {
-    AsyncPromise<> promise(runtime, jsInvoker_);
-    rn_gpui_open_url(std::move(value));
-    promise.resolve();
-    return promise;
-  }
-
-  AsyncPromise<> openSettings(facebook::jsi::Runtime& runtime) {
-    AsyncPromise<> promise(runtime, jsInvoker_);
-    promise.reject(
-        Error("Opening application settings is not supported by GPUI."));
-    return promise;
-  }
-
-  void addListener(facebook::jsi::Runtime&, std::string) {}
-  void removeListeners(facebook::jsi::Runtime&, double) {}
-};
-
-class GpuiAlertModule final
-    : public NativeAlertManagerCxxSpec<GpuiAlertModule> {
- public:
-  explicit GpuiAlertModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeAlertManagerCxxSpec(jsInvoker),
-        jsInvoker_(std::move(jsInvoker)) {}
-
-  void alertWithArgs(
-      facebook::jsi::Runtime& runtime,
-      facebook::jsi::Object args,
-      facebook::jsi::Function callback) {
-    auto readString =
-        [&runtime](const facebook::jsi::Object& object, const char* key) {
-          auto value = object.getProperty(runtime, key);
-          return value.isString() ? value.asString(runtime).utf8(runtime)
-                                  : std::string{};
-        };
-    const auto title = readString(args, "title");
-    const auto message = readString(args, "message");
-    std::vector<std::string> buttons;
-    auto values = args.getProperty(runtime, "buttons");
-    if (values.isObject() && values.asObject(runtime).isArray(runtime)) {
-      auto array = values.asObject(runtime).asArray(runtime);
-      const auto length = array.size(runtime);
-      buttons.reserve(length);
-      for (size_t index = 0; index < length; ++index) {
-        auto button = array.getValueAtIndex(runtime, index);
-        if (!button.isObject())
-          continue;
-        auto key = facebook::jsi::String::createFromUtf8(
-            runtime, std::to_string(index));
-        auto label = button.asObject(runtime).getProperty(runtime, key);
-        buttons.push_back(
-            label.isString() ? label.asString(runtime).utf8(runtime)
-                             : std::string{});
-      }
-    }
-    if (buttons.empty())
-      buttons.push_back("OK");
-
-    const auto id = nextAlertId.fetch_add(1, std::memory_order_relaxed);
-    auto pending = std::make_shared<AlertCallback>(
-        AlertCallback{jsInvoker_, &runtime, std::move(callback)});
-    {
-      std::lock_guard<std::mutex> lock(alertCallbacksMutex);
-      alertCallbacks.emplace(id, std::move(pending));
-    }
-    rust::Vec<rust::String> rustButtons;
-    for (const auto& button : buttons) {
-      rustButtons.push_back(rust::String(button));
-    }
-    rn_gpui_show_alert(
-        id, rust::String(title), rust::String(message), std::move(rustButtons));
-  }
-
- private:
-  std::shared_ptr<CallInvoker> jsInvoker_;
-};
-
 extern "C" void rn_gpui_request_reload();
 
 class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
@@ -471,33 +348,6 @@ class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
 
   void toggleElementInspector(facebook::jsi::Runtime& /*runtime*/) {
     rn_gpui_dev_setting(rust::String("inspectorToggle"), true);
-  }
-};
-
-class GpuiClipboardModule final
-    : public NativeClipboardCxxSpec<GpuiClipboardModule> {
- public:
-  explicit GpuiClipboardModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeClipboardCxxSpec(std::move(jsInvoker)) {}
-
-  facebook::jsi::Object getConstants(facebook::jsi::Runtime& runtime) {
-    return facebook::jsi::Object(runtime);
-  }
-
-  AsyncPromise<std::string> getString(facebook::jsi::Runtime& runtime) {
-    const auto id =
-        nextClipboardRequestId.fetch_add(1, std::memory_order_relaxed);
-    AsyncPromise<std::string> promise(runtime, jsInvoker_);
-    {
-      std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
-      clipboardPromises.emplace(id, promise);
-    }
-    rn_gpui_read_clipboard(id);
-    return promise;
-  }
-
-  void setString(facebook::jsi::Runtime&, std::string value) {
-    rn_gpui_write_clipboard(std::move(value));
   }
 };
 
@@ -544,16 +394,6 @@ TurboModuleProviders gpui_turbo_module_providers() {
                 GpuiAccessibilityInfoModule>::kModuleName) {
           return std::make_shared<GpuiAccessibilityInfoModule>(jsInvoker);
         }
-        if (name ==
-            NativeLinkingManagerCxxSpec<GpuiLinkingModule>::kModuleName) {
-          return std::make_shared<GpuiLinkingModule>(jsInvoker);
-        }
-        if (name == NativeAlertManagerCxxSpec<GpuiAlertModule>::kModuleName) {
-          return std::make_shared<GpuiAlertModule>(jsInvoker);
-        }
-        if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
-          return std::make_shared<GpuiClipboardModule>(jsInvoker);
-        }
         if (name == NativeDevMenuCxxSpec<GpuiDevMenuModule>::kModuleName) {
           return std::make_shared<GpuiDevMenuModule>(jsInvoker);
         }
@@ -585,38 +425,6 @@ void install_feature_flags() {
 }
 
 } // namespace
-
-void rn_gpui_alert_result(int32_t id, int32_t buttonIndex) {
-  std::shared_ptr<AlertCallback> pending;
-  {
-    std::lock_guard<std::mutex> lock(alertCallbacksMutex);
-    auto entry = alertCallbacks.find(id);
-    if (entry == alertCallbacks.end())
-      return;
-    pending = std::move(entry->second);
-    alertCallbacks.erase(entry);
-  }
-  pending->jsInvoker->invokeAsync(
-      [pending = std::move(pending), buttonIndex]() mutable {
-        pending->callback.call(
-            *pending->runtime,
-            static_cast<double>(buttonIndex),
-            facebook::jsi::String::createFromUtf8(*pending->runtime, ""));
-      });
-}
-
-void rn_gpui_clipboard_result(int32_t id, rust::String text) {
-  std::optional<AsyncPromise<std::string>> pending;
-  {
-    std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
-    auto entry = clipboardPromises.find(id);
-    if (entry == clipboardPromises.end())
-      return;
-    pending = entry->second;
-    clipboardPromises.erase(entry);
-  }
-  pending->resolve(std::string(text));
-}
 
 std::unique_ptr<GpuiHost> new_gpui_host(
     rust::Str appId,

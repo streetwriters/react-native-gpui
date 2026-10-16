@@ -1,5 +1,6 @@
 pub(crate) mod accessibility;
 pub(crate) mod animation_policy;
+pub mod builtins;
 pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
