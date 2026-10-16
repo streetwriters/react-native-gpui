@@ -39,12 +39,6 @@
 #include <vector>
 
 namespace rngpui {
-// SVG (@react-native-gpui/svg): JSON for an RNSVG* component's props. Called
-// from buildMountOp for components whose name starts with "RNSVG".
-using GpuiSvgPropsJsonFn = std::function<std::string(
-    const std::string& component,
-    const facebook::react::Props& props)>;
-
 // Screens (@react-native-gpui/screens): fills the header and screen fields of
 // a MountOp. Called from buildMountOp.
 using GpuiScreensOpFn = std::function<
@@ -145,7 +139,6 @@ using PointerObserverFn =
 } // namespace extension
 
 struct GpuiModuleHooks {
-  GpuiSvgPropsJsonFn svgPropsJson;
   GpuiScreensOpFn screensOp;
   GpuiScreensFrameFn screensFrame;
   GpuiSafeAreaHooks safeArea;

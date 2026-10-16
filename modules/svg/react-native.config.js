@@ -3,6 +3,7 @@ module.exports = {
     platforms: {
       gpui: {
         cmake: 'gpui',
+        crate: 'rn-gpui-svg',
         componentCodegenPackage: 'react-native-svg',
         componentSourcePackage: 'react-native-svg',
         componentDescriptors: [

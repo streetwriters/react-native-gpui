@@ -318,11 +318,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.extension_props_json = registered->second(componentName, shadowView);
     }
   }
-  if (gpuiModuleHooks().svgPropsJson && componentName.rfind("RNSVG", 0) == 0 &&
-      shadowView.props) {
-    op.svg_props_json =
-        gpuiModuleHooks().svgPropsJson(componentName, *shadowView.props);
-  }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
             shadowView.props)) {

@@ -234,19 +234,21 @@ mod tests {
     fn a_registered_renderer_is_used_for_its_component_name(cx: &mut TestAppContext) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         register_component_renderer(
-            "RNSVGSvgView",
+            "FixtureWidget",
             Arc::new(FakeRenderer {
                 calls: calls.clone(),
             }),
         );
-        let found = component_renderer("RNSVGSvgView").expect("registered renderer");
+        let found = component_renderer("FixtureWidget").expect("registered renderer");
         let window = cx.open_window(gpui::size(px(120.0), px(100.0)), |_, _| gpui::Empty);
         window
             .update(cx, |_, window, cx| {
-                assert!(found.render(&node("RNSVGSvgView", 1), window, cx).is_some());
+                assert!(found
+                    .render(&node("FixtureWidget", 1), window, cx)
+                    .is_some());
             })
             .unwrap();
-        assert_eq!(*calls.lock().unwrap(), vec!["RNSVGSvgView".to_string()]);
+        assert_eq!(*calls.lock().unwrap(), vec!["FixtureWidget".to_string()]);
     }
 
     #[gpui::test]
