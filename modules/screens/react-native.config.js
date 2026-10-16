@@ -3,6 +3,7 @@ module.exports = {
     platforms: {
       gpui: {
         cmake: 'gpui',
+        crate: 'rn-gpui-screens',
         componentCodegenPackage: 'react-native-screens',
         componentDescriptors: [
           'RNSScreenComponentDescriptor',
