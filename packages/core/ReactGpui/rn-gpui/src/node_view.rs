@@ -239,21 +239,6 @@ pub struct RNNodeView {
     pub input_event_count: i32,
     pub(crate) caret_visible: bool,
     pub(crate) caret_blink_task: Task<()>,
-    pub screen_header_title: String,
-    pub(crate) screen_header_subview_type: String,
-    pub(crate) header_container_width: f32,
-    pub(crate) header_subview_content_height: f32,
-    screen_header_background_color: u32,
-    screen_header_title_color: u32,
-    screen_header_tint_color: u32,
-    pub(crate) screen_header_hidden: bool,
-    screen_header_hide_back: bool,
-    pub(crate) screen_header_has_title_subview: bool,
-    pub(crate) screen_content_wrapper_header_hidden: bool,
-    pub(crate) hidden_header_ancestor: bool,
-    pub(crate) screen_activity_state: f32,
-    pub(crate) screen_stack_animation: String,
-    pub(crate) screen_stack_presentation: String,
     pub(crate) transition: Option<(crate::extensions::Transition, Instant)>,
     pub(crate) transition_forward: bool,
     transition_progress_sent: Option<(Instant, f32)>,
@@ -270,6 +255,8 @@ pub struct RNNodeView {
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     pub parent: Option<WeakEntity<RNNodeView>>,
     cached_style: StyleRefinement,
+    pub(crate) renderer_frame: Option<RectF>,
+    pub(crate) renderer_decoration: Option<crate::extensions::Decoration>,
     pub(crate) inherited: Inherited,
     pub(crate) focus_handle: Option<FocusHandle>,
     pub(crate) focus_subscriptions: Vec<Subscription>,
@@ -726,21 +713,6 @@ impl RNNodeView {
             input_event_count: 0,
             caret_visible: false,
             caret_blink_task: Task::ready(()),
-            screen_header_title: op.screen_header_title.clone(),
-            screen_header_subview_type: op.screen_header_subview_type.clone(),
-            header_container_width: 0.0,
-            header_subview_content_height: 0.0,
-            screen_header_background_color: op.screen_header_background_color,
-            screen_header_title_color: op.screen_header_title_color,
-            screen_header_tint_color: op.screen_header_tint_color,
-            screen_header_hidden: op.screen_header_hidden,
-            screen_header_hide_back: op.screen_header_hide_back,
-            screen_header_has_title_subview: false,
-            screen_content_wrapper_header_hidden: false,
-            hidden_header_ancestor: false,
-            screen_activity_state: op.screen_activity_state,
-            screen_stack_animation: op.screen_stack_animation.clone(),
-            screen_stack_presentation: op.screen_stack_presentation.clone(),
             transition: None,
             transition_forward: false,
             transition_progress_sent: None,
@@ -759,6 +731,8 @@ impl RNNodeView {
             children: Vec::new(),
             parent: None,
             cached_style: StyleRefinement::default(),
+            renderer_frame: None,
+            renderer_decoration: None,
             inherited: Inherited::default(),
             focus_handle: None,
             focus_subscriptions: Vec::new(),
@@ -801,16 +775,6 @@ impl RNNodeView {
         } else {
             op.frame
         };
-        self.screen_header_title = op.screen_header_title.clone();
-        self.screen_header_subview_type = op.screen_header_subview_type.clone();
-        self.screen_header_background_color = op.screen_header_background_color;
-        self.screen_header_title_color = op.screen_header_title_color;
-        self.screen_header_tint_color = op.screen_header_tint_color;
-        self.screen_header_hidden = op.screen_header_hidden;
-        self.screen_header_hide_back = op.screen_header_hide_back;
-        self.screen_activity_state = op.screen_activity_state;
-        self.screen_stack_animation = op.screen_stack_animation.clone();
-        self.screen_stack_presentation = op.screen_stack_presentation.clone();
         if op.props_changed {
             self.view = op.view.clone();
             self.focusable = op.view.focusable || self.component == "TextInput";
@@ -885,29 +849,27 @@ impl RNNodeView {
         (scale_x, scale_y, translate_x, translate_y)
     }
 
-    fn origin_frame(&self, cx: &App) -> (f32, f32) {
-        let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
-            return (self.frame.x, self.frame.y);
-        };
-        let (top_inset, animations_enabled) = {
-            let store = store.0.read(cx);
-            (
-                store.top_inset,
-                !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
-            )
-        };
-        let nodes = HashMap::default();
-        let retained = HashMap::default();
-        let tree = crate::extensions::TreeView {
-            nodes: &nodes,
+    pub(crate) fn stable_paint_tree<'a>(&'a self, cx: &'a App) -> crate::extensions::TreeView<'a> {
+        static NO_NODES: std::sync::OnceLock<
+            HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>,
+        > = std::sync::OnceLock::new();
+        static NO_RETAINED: std::sync::OnceLock<HashMap<i32, Vec<i32>>> =
+            std::sync::OnceLock::new();
+        crate::extensions::TreeView {
+            nodes: NO_NODES.get_or_init(HashMap::new),
             root_tags: Vec::new(),
-            top_inset,
-            animations_enabled,
+            top_inset: self.inherited.window_top_inset,
+            animations_enabled: !cx.reduce_motion()
+                && !crate::animation_policy::animations_disabled(),
             current: Some((self.tag, self)),
-            retained: &retained,
+            retained: NO_RETAINED.get_or_init(HashMap::new),
             app: cx as *const App,
-        };
-        self.origin_frame_with_top_inset(top_inset, &tree)
+        }
+    }
+
+    fn origin_frame(&self, cx: &App) -> (f32, f32) {
+        let stable = self.stable_paint_tree(cx);
+        self.origin_frame_with_top_inset(stable.top_inset, &stable)
     }
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
@@ -930,6 +892,9 @@ impl RNNodeView {
     }
 
     pub(crate) fn decoration(&self, cx: &App) -> crate::extensions::Decoration {
+        if let Some(decoration) = self.renderer_decoration {
+            return decoration;
+        }
         let Some(renderer) = crate::extensions::component_renderer(&self.component) else {
             return crate::extensions::Decoration::default();
         };
@@ -948,6 +913,9 @@ impl RNNodeView {
     }
 
     pub(crate) fn layout_frame(&self, tree: &crate::extensions::TreeView) -> RectF {
+        if let Some(frame) = self.renderer_frame {
+            return frame;
+        }
         crate::extensions::component_renderer(&self.component)
             .and_then(|renderer| renderer.layout_frame(&self.component_node_shallow(), tree))
             .unwrap_or(self.frame)
@@ -964,24 +932,8 @@ impl RNNodeView {
         tree: &crate::extensions::TreeView,
     ) -> (f32, f32) {
         let frame = self.layout_frame(tree);
-        let mut own_frame = (frame.x, frame.y);
-        if self.component == "RNSScreenStackHeaderConfig" {
-            own_frame.1 += top_inset;
-        }
-        if self.component == "RNSScreenContentWrapper" && self.screen_content_wrapper_header_hidden
-        {
-            own_frame.1 -= 56.0;
-        }
-        if self.component == "RNSScreenStackHeaderSubview" {
-            own_frame.0 = match self.screen_header_subview_type.as_str() {
-                "right" => self.header_container_width - frame.w - 12.0,
-                "center" | "title" => (self.header_container_width - frame.w) / 2.0,
-                "left" => 12.0,
-                _ => frame.x,
-            };
-            own_frame.1 = (56.0 - self.header_subview_content_height).max(0.0) / 2.0;
-        }
-        own_frame
+        let _ = top_inset;
+        (frame.x, frame.y)
     }
 
     pub(crate) fn inherit_input(
@@ -998,8 +950,7 @@ impl RNNodeView {
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
                 || self.view.display_none,
-            hides_subtree: self.hides_subtree(tree)
-                || (self.component == "RNSScreen" && self.screen_activity_state <= 0.0),
+            hides_subtree: self.hides_subtree(tree),
             other_modal_child: false,
             focusable_or_accessible: self.focusable || self.view.accessible,
         }
@@ -1038,54 +989,6 @@ impl RNNodeView {
         chain.reverse();
         let (x, y) = accumulate_origin(&chain);
         point(px(x), px(y))
-    }
-
-    fn is_top_stack_header(&self, cx: &App) -> bool {
-        let mut ancestor = self.parent.clone();
-        let mut screen = None;
-        while let Some(entity) = ancestor.and_then(|weak| weak.upgrade()) {
-            let node = entity.read(cx);
-            if node.component == "RNSScreen" {
-                let screen_active = node.screen_activity_state > 0.0;
-                let transition_active = node.transition_active(cx);
-                screen = Some((
-                    node.tag,
-                    node.parent.clone(),
-                    screen_active || transition_active,
-                ));
-                break;
-            }
-            ancestor = node.parent.clone();
-        }
-
-        let Some((screen_tag, Some(stack_parent), transition_active)) = screen else {
-            return true;
-        };
-        let Some(stack) = stack_parent.upgrade() else {
-            return true;
-        };
-        let stack = stack.read(cx);
-        if stack.component != "RNSScreenStack" {
-            return true;
-        }
-        transition_active
-            || stack
-                .children
-                .iter()
-                .rposition(|(tag, _)| *tag == screen_tag)
-                == Some(stack.children.len().saturating_sub(1))
-    }
-
-    pub(crate) fn has_screen_ancestor(&self, cx: &App) -> bool {
-        let mut ancestor = self.parent.clone();
-        while let Some(entity) = ancestor.and_then(|weak| weak.upgrade()) {
-            let node = entity.read(cx);
-            if node.component == "RNSScreen" {
-                return true;
-            }
-            ancestor = node.parent.clone();
-        }
-        false
     }
 
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {
@@ -1429,6 +1332,7 @@ pub(crate) struct ScrollLink {
 
 #[derive(Clone)]
 pub(crate) struct Inherited {
+    pub(crate) window_top_inset: f32,
     pub(crate) hides_subtree_self: bool,
     pub(crate) parent_scale: (f32, f32),
     pub(crate) scale: (f32, f32),
@@ -1445,6 +1349,7 @@ pub(crate) struct Inherited {
 impl Default for Inherited {
     fn default() -> Self {
         Self {
+            window_top_inset: 0.0,
             parent_scale: (1.0, 1.0),
             scale: (1.0, 1.0),
             origin_unscrolled: (0.0, 0.0),
@@ -2079,14 +1984,7 @@ impl Render for RNNodeView {
                 }
             }
         }
-        let mut frame = self.frame;
-        if self.component == "RNSScreenContentWrapper" && self.screen_content_wrapper_header_hidden
-        {
-            frame.h += 56.0;
-        }
-        let hidden_stack_header =
-            self.component == "RNSScreenStackHeaderConfig" && !self.is_top_stack_header(cx);
-        let hidden_header = self.screen_header_hidden || self.hidden_header_ancestor;
+        let frame = self.layout_frame(&self.stable_paint_tree(cx));
         let (scale_x, scale_y) = self.cumulative_scale(cx);
         // Yoga's child frames already include the parent's border inset, and GPUI
         // positions absolute children inside that border as well.
@@ -2110,7 +2008,7 @@ impl Render for RNNodeView {
         };
         let transition_progress =
             transition.map(|(transition, started_at)| transition.progress_now(started_at));
-        if let (Some((transition, started_at)), Some(progress)) = (transition, transition_progress)
+        if let (Some((_transition, started_at)), Some(progress)) = (transition, transition_progress)
         {
             let sample = (started_at, progress);
             if self.transition_progress_sent != Some(sample) {
@@ -2121,31 +2019,6 @@ impl Render for RNNodeView {
                         observer.on_transition_frame(self.tag, progress, &handle, cx);
                     }
                 }
-            }
-            if self.component == "RNSScreen" {
-                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                    let store = store.0.read(cx);
-                    let going_forward = self.transition_forward;
-                    store.host.dispatch_event(
-                        self.tag,
-                        "topTransitionProgress",
-                        &serde_json::json!({
-                            "progress": progress,
-                            "closing": if going_forward { 0 } else { 1 },
-                            "goingForward": if going_forward { 1 } else { 0 }
-                        }),
-                    );
-                    store.host.on_render();
-                }
-            }
-        }
-        if std::env::var_os("RN_GPUI_DEBUG_SCREENS").is_some() {
-            if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
-                log::info!(
-                    "[screens] animation frame tag={} progress={progress:.3} duration={:?}",
-                    self.tag,
-                    transition.duration
-                );
             }
         }
         if transition_progress.is_some_and(|progress| progress < 1.0) {
@@ -2166,14 +2039,11 @@ impl Render for RNNodeView {
         }
         let mut element = div().id(self.tag);
         let decoration = self.decoration(cx);
-        if decoration.clip || self.component == "RNSScreenStack" {
+        if decoration.clip {
             element = element.overflow_hidden();
         }
         if let Some(background) = decoration.background {
             element = element.bg(gpui::rgb(background));
-        }
-        if decoration.display == Some(false) {
-            element = element.invisible();
         }
         if self.view.desktop_drag_region {
             element = element.window_control_area(gpui::WindowControlArea::Drag);
@@ -2283,9 +2153,6 @@ impl Render for RNNodeView {
         let hidden_by_modal_sibling = self.inherited.hidden_by_modal_sibling;
         let hidden_by_active_modal = crate::accessibility::hidden_by_active_modal(self.tag, cx);
         let hidden_by_hiding_ancestor = self.inherited.hidden_by_hiding_ancestor;
-        let hidden_inactive_screen = self.component == "RNSScreen"
-            && self.screen_activity_state <= 0.0
-            && transition_progress.is_none_or(|progress| progress >= 1.0);
         let hidden_by_decoration = decoration.a11y_hidden;
         let hidden_display_none = self.view.display_none;
         let accessibility = self.view.clone();
@@ -2307,7 +2174,6 @@ impl Render for RNNodeView {
                 || hidden_by_modal_sibling
                 || hidden_by_active_modal
                 || hidden_by_hiding_ancestor
-                || hidden_inactive_screen
                 || hidden_by_decoration
                 || hidden_display_none
             {
@@ -2481,7 +2347,6 @@ impl Render for RNNodeView {
                 !hidden_by_active_modal
                     && !hidden_by_modal_sibling
                     && !hidden_by_hiding_ancestor
-                    && !hidden_inactive_screen
                     && !self.inherited.hidden_by_hidden_ancestor
                     && !self.inherited.hidden_by_accessible_ancestor,
             );
@@ -2771,152 +2636,9 @@ impl Render for RNNodeView {
                 }
             }));
         }
-        if self.component == "RNSScreenStack" {
-            element = element.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                // Native-stack wraps each route's content in an implementation
-                // RNSScreenStack too. Only the outer navigator stack owns Escape.
-                if this.has_screen_ancestor(cx) {
-                    return;
-                }
-                if event.keystroke.key != "escape" {
-                    return;
-                }
-                let screen_tags = this
-                    .children
-                    .iter()
-                    .filter_map(|(tag, child)| {
-                        (child.read(cx).component == "RNSScreen"
-                            && cx
-                                .try_global::<crate::store::StoreGlobal>()
-                                .is_some_and(|store| store.0.read(cx).nodes.contains_key(tag)))
-                        .then_some(*tag)
-                    })
-                    .collect::<Vec<_>>();
-                let top_screen_tag = screen_tags.last().copied();
-                let previous_screen_tag = screen_tags.iter().rev().nth(1).copied();
-                if let (Some(tag), Some(store)) =
-                    (top_screen_tag, cx.try_global::<crate::store::StoreGlobal>())
-                {
-                    let store_entity = store.0.clone();
-                    store_entity.update(cx, |store, cx| {
-                        if store.native_dismiss_lifecycle_pending.is_some() {
-                            return;
-                        }
-                        let screen = store.nodes.get(&tag).cloned();
-                        let animation = screen
-                            .as_ref()
-                            .map(|screen| screen.read(cx).screen_stack_animation.clone())
-                            .unwrap_or_default();
-                        let mode = crate::node_view::screen_transition_mode(&animation)
-                            .filter(|_| {
-                                !cx.reduce_motion()
-                                    && !crate::animation_policy::animations_disabled()
-                            });
-                        let duration = mode.map(|mode| match mode {
-                            crate::node_view::ScreenTransitionMode::Fade => {
-                                std::time::Duration::from_millis(150)
-                            }
-                            _ => std::time::Duration::from_millis(240),
-                        });
-                        crate::store::dispatch_screen_lifecycle_will(
-                            &store.host,
-                            Some(tag),
-                            previous_screen_tag,
-                        );
-                        store.native_dismiss_lifecycle_pending = Some(tag);
-                        if let (Some(mode), Some(duration), Some(screen)) = (mode, duration, screen)
-                        {
-                            let reverse_mode = match mode {
-                                crate::node_view::ScreenTransitionMode::SlideFromRight => {
-                                    crate::node_view::ScreenTransitionMode::SlideFromLeft
-                                }
-                                crate::node_view::ScreenTransitionMode::SlideFromLeft => {
-                                    crate::node_view::ScreenTransitionMode::SlideFromRight
-                                }
-                                crate::node_view::ScreenTransitionMode::Fade => mode,
-                            };
-                            let started_at = Instant::now();
-                            let (from, to) = screen_transition_poses(
-                                reverse_mode,
-                                ScreenTransitionRole::Exit,
-                                1.0,
-                            );
-                            screen.update(cx, |screen, cx| {
-                                screen.transition = Some((
-                                    crate::extensions::Transition { from, to, duration },
-                                    started_at,
-                                ));
-                                screen.transition_forward = false;
-                                cx.notify();
-                            });
-                            if let Some(previous) = previous_screen_tag
-                                .and_then(|tag| store.nodes.get(&tag))
-                                .cloned()
-                            {
-                                previous.update(cx, |previous, cx| {
-                                    previous.transition = None;
-                                    cx.notify();
-                                });
-                            }
-                        }
-                        let host = store.host.clone();
-                        store.frame_hook.arm(window);
-                        if let Some(duration) = duration {
-                            cx.spawn(async move |store, cx| {
-                                cx.background_executor().timer(duration).await;
-                                let _ = store.update(cx, |store, cx| {
-                                    if let Some(screen) = store.nodes.get(&tag).cloned() {
-                                        screen.update(cx, |screen, cx| {
-                                            screen.transition = None;
-                                            cx.notify();
-                                        });
-                                    }
-                                    host.dispatch_event(
-                                        tag,
-                                        "topTransitionProgress",
-                                        &serde_json::json!({"progress": 1, "closing": 1, "goingForward": 0}),
-                                    );
-                                    crate::store::dispatch_screen_lifecycle_did(
-                                        &host,
-                                        Some(tag),
-                                        previous_screen_tag,
-                                    );
-                                    host.dispatch_event(
-                                        tag,
-                                        "topDismissed",
-                                        &serde_json::json!({ "dismissCount": 1 }),
-                                    );
-                                });
-                            })
-                            .detach();
-                        } else {
-                            crate::store::dispatch_screen_lifecycle_did(
-                                &host,
-                                Some(tag),
-                                previous_screen_tag,
-                            );
-                            host.dispatch_event(
-                                tag,
-                                "topDismissed",
-                                &serde_json::json!({ "dismissCount": 1 }),
-                            );
-                        }
-                    });
-                    cx.stop_propagation();
-                }
-            }));
-        }
         *element.style() = {
             let mut style = self.cached_style.clone();
             if let Some(color) = self.animated_background_color {
-                style.background = Some(Fill::from(style::color(color)));
-            }
-            if self.component == "RNSScreenStackHeaderConfig" {
-                let color = if self.screen_header_background_color == 0 {
-                    0xff171923
-                } else {
-                    self.screen_header_background_color
-                };
                 style.background = Some(Fill::from(style::color(color)));
             }
             let radius_scale = scale_x.min(scale_y);
@@ -2936,51 +2658,14 @@ impl Render for RNNodeView {
                 }
             }
             style.position = Some(Position::Absolute);
+            if decoration.display == Some(false) {
+                style.display = Some(Display::None);
+            }
             let transitioning_out = transition.is_some_and(|(transition, _)| {
                 transition.to.opacity < 1.0
                     && transition_progress.is_some_and(|progress| progress < 1.0)
             });
-            let visible_under_modal = self.component == "RNSScreen"
-                && self.screen_activity_state <= 0.0
-                && self
-                    .parent
-                    .as_ref()
-                    .and_then(|parent| parent.upgrade())
-                    .is_some_and(|parent| {
-                        let parent = parent.read(cx);
-                        parent.component == "RNSScreenStack"
-                            && parent
-                                .children
-                                .iter()
-                                .skip_while(|(tag, _)| *tag != self.tag)
-                                .skip(1)
-                                .any(|(_, sibling)| {
-                                    let sibling = sibling.read(cx);
-                                    sibling.component == "RNSScreen"
-                                        && sibling.screen_activity_state > 0.0
-                                        && matches!(
-                                            sibling.screen_stack_presentation.as_str(),
-                                            "modal"
-                                                | "transparentModal"
-                                                | "containedModal"
-                                                | "formSheet"
-                                        )
-                                })
-                    });
-            if self.component == "RNSScreen"
-                && self.screen_activity_state <= 0.0
-                && !transitioning_out
-                && !visible_under_modal
-            {
-                style.display = Some(Display::None);
-            } else if self.component == "RNSScreen" && transitioning_out {
-                // react-native-screens may mark the outgoing view inactive in the commit that
-                // inserts its replacement; keep it painted until the transition ends.
-                style.display = Some(Display::Flex);
-            }
-            if hidden_stack_header || hidden_header {
-                style.display = Some(Display::None);
-            }
+            let _ = transitioning_out;
             let mut transition_offset_x = 0.0;
             if let (Some((transition, _)), Some(progress)) = (transition, transition_progress) {
                 let pose = transition.pose_at(progress);
@@ -3218,115 +2903,6 @@ impl Render for RNNodeView {
                 element = element.child(focus_child);
             }
         }
-        if self.component == "RNSScreenStackHeaderConfig"
-            && !self.screen_header_hidden
-            && !hidden_stack_header
-        {
-            let mut ancestor = self.parent.clone();
-            let mut screen_tag = None;
-            let mut has_previous_screen = false;
-            let mut stack_child_tag = None;
-            while let Some(entity) = ancestor.and_then(|weak| weak.upgrade()) {
-                let node = entity.read(cx);
-                if node.component == "RNSScreenStack" {
-                    if let Some(candidate_tag) = stack_child_tag {
-                        let mut found_current = false;
-                        for (tag, _) in &node.children {
-                            if *tag == candidate_tag {
-                                found_current = true;
-                                break;
-                            }
-                            has_previous_screen = true;
-                        }
-                        has_previous_screen &= found_current;
-                        screen_tag = Some(candidate_tag);
-                    }
-                    break;
-                }
-                if node.component == "RNSScreen" {
-                    screen_tag = Some(node.tag);
-                    if let Some(stack_entity) = node.parent.as_ref().and_then(|p| p.upgrade()) {
-                        let stack = stack_entity.read(cx);
-                        let mut found_current = false;
-                        for (tag, child) in &stack.children {
-                            if child.read(cx).component != "RNSScreen" {
-                                continue;
-                            }
-                            if *tag == node.tag {
-                                found_current = true;
-                                break;
-                            }
-                            has_previous_screen = true;
-                        }
-                        has_previous_screen &= found_current;
-                    }
-                    break;
-                }
-                stack_child_tag = Some(node.tag);
-                ancestor = node.parent.clone();
-            }
-
-            let title_color = if self.screen_header_title_color == 0 {
-                0xffffffff
-            } else {
-                self.screen_header_title_color
-            };
-            if !self.screen_header_has_title_subview {
-                element = element.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(style::color(title_color))
-                        .text_size(px(18.0))
-                        .child(self.screen_header_title.clone()),
-                );
-            }
-
-            if has_previous_screen && !self.screen_header_hide_back {
-                if let Some(screen_tag) = screen_tag {
-                    element = element.child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top_0()
-                            .h(px(56.0))
-                            .w(px(56.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(style::color(if self.screen_header_tint_color == 0 {
-                                0xffffffff
-                            } else {
-                                self.screen_header_tint_color
-                            }))
-                            .text_size(px(30.0))
-                            .cursor_pointer()
-                            .child("‹")
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |_this, _event, window, cx| {
-                                    if let Some(store) =
-                                        cx.try_global::<crate::store::StoreGlobal>()
-                                    {
-                                        store.0.read(cx).host.dispatch_event(
-                                            screen_tag,
-                                            "headerBackButtonClicked",
-                                            &serde_json::json!({}),
-                                        );
-                                        store.0.read(cx).frame_hook.arm(window);
-                                    }
-                                    cx.stop_propagation();
-                                }),
-                            ),
-                    );
-                }
-            }
-        }
         #[cfg(target_os = "macos")]
         if let Some(native_view_host) = &self.native_view_host {
             element = element.child(crate::native_view::NativeViewSurfaceElement {
@@ -3438,64 +3014,24 @@ impl Render for RNNodeView {
                 self.scroll_indicator = None;
             }
         } else {
-            let is_modal = self.component == "RNSScreen"
-                && matches!(
-                    self.screen_stack_presentation.as_str(),
-                    "modal" | "transparentModal" | "containedModal" | "formSheet"
-                );
-            if is_modal {
-                if self.screen_stack_presentation != "transparentModal" {
-                    element = element.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .size_full()
-                            .bg(style::color(0x80000000)),
-                    );
-                }
-                let sheet_width = (frame.w - 48.0).min(760.0).max(0.0);
-                let sheet_height = (frame.h - 48.0).min(640.0).max(0.0);
-                let sheet_left = (frame.w - sheet_width) * 0.5;
-                let sheet_top = (frame.h - sheet_height) * 0.5;
-                element = element.child(
-                    div()
-                        .absolute()
-                        .left(px(sheet_left * scale_x))
-                        .top(px(sheet_top * scale_y))
-                        .w(px(sheet_width * scale_x))
-                        .h(px(sheet_height * scale_y))
-                        .overflow_hidden()
-                        .bg(style::color(
-                            if self.screen_stack_presentation == "transparentModal" {
-                                0x00000000
-                            } else {
-                                0xff171923
-                            },
-                        ))
-                        .children(ordered_children.iter().map(|(_, child)| child.clone())),
-                );
-            } else {
-                let content =
-                    crate::extensions::component_renderer(&self.component).and_then(|renderer| {
-                        let node = self.component_node(cx);
-                        renderer.content(&node, window, cx)
-                    });
-                let painted: Vec<AnyElement> = content
-                    .into_iter()
-                    .chain(
-                        ordered_children
-                            .iter()
-                            .map(|(_, child)| child.clone().into_any_element()),
-                    )
-                    .collect();
-                let painted = match crate::extensions::component_renderer(&self.component) {
-                    Some(renderer) => {
-                        renderer.children(&self.component_node(cx), painted, window, cx)
-                    }
-                    None => painted,
-                };
-                element = element.children(painted);
-            }
+            let content =
+                crate::extensions::component_renderer(&self.component).and_then(|renderer| {
+                    let node = self.component_node(cx);
+                    renderer.content(&node, window, cx)
+                });
+            let painted: Vec<AnyElement> = content
+                .into_iter()
+                .chain(
+                    ordered_children
+                        .iter()
+                        .map(|(_, child)| child.clone().into_any_element()),
+                )
+                .collect();
+            let painted = match crate::extensions::component_renderer(&self.component) {
+                Some(renderer) => renderer.children(&self.component_node(cx), painted, window, cx),
+                None => painted,
+            };
+            element = element.children(painted);
             if self.component == "TextInput" && !self.input_multiline {
                 element = element.on_scroll_wheel(cx.listener(
                     |this, event: &gpui::ScrollWheelEvent, window, cx| {

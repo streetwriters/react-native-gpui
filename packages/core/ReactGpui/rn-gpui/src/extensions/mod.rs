@@ -68,6 +68,8 @@ pub struct StoreHandle {
     queued: Option<Arc<Mutex<Vec<Command>>>>,
 }
 
+pub type DeferredRun = Arc<Mutex<Option<Box<dyn FnOnce(&mut App) + Send>>>>;
+
 pub enum Command {
     Transition {
         tag: i32,
@@ -82,6 +84,13 @@ pub enum Command {
         payload: Value,
     },
     Wake,
+    After {
+        duration: Duration,
+        run: DeferredRun,
+    },
+    ReleaseRetained {
+        tag: i32,
+    },
 }
 
 impl StoreHandle {
@@ -140,12 +149,6 @@ impl StoreHandle {
         store.read(cx).host.on_render();
     }
 
-    pub fn set_hidden(&self, tag: i32, hidden: bool, cx: &mut App) {
-        if let Some(store) = self.store.upgrade() {
-            crate::store::set_component_hidden(&store, tag, hidden, cx);
-        }
-    }
-
     pub fn start_transition(&self, tag: i32, transition: Transition, cx: &mut App) {
         if self.record(Command::Transition { tag, transition }) {
             return;
@@ -177,6 +180,9 @@ impl StoreHandle {
     }
 
     pub fn release_retained(&self, tag: i32, cx: &mut App) {
+        if self.record(Command::ReleaseRetained { tag }) {
+            return;
+        }
         if let Some(store) = self.store.upgrade() {
             crate::store::release_retained_subtree(&store, tag, cx);
         }
@@ -186,13 +192,27 @@ impl StoreHandle {
         &self,
         duration: Duration,
         cx: &mut App,
-        f: impl FnOnce(&StoreHandle, &mut App) + 'static,
+        f: impl FnOnce(&StoreHandle, &mut App) + Send + 'static,
     ) {
+        let store = self.store.clone();
+        let run: DeferredRun = Arc::new(Mutex::new(Some(Box::new(move |cx: &mut App| {
+            let handle = StoreHandle::new(store.clone());
+            f(&handle, cx);
+        }))));
+        if self.record(Command::After {
+            duration,
+            run: run.clone(),
+        }) {
+            return;
+        }
         let Some(store) = self.store.upgrade() else {
             return;
         };
-        let handle = StoreHandle::new(self.store.clone());
-        crate::store::after_on_store(store, duration, cx, move |cx| f(&handle, cx));
+        crate::store::after_on_store(store, duration, cx, move |cx| {
+            if let Some(run) = run.lock().ok().and_then(|mut slot| slot.take()) {
+                run(cx);
+            }
+        });
     }
 
     pub fn animations_enabled(&self, cx: &App) -> bool {

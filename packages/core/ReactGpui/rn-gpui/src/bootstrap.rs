@@ -1393,8 +1393,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             for node in store.nodes.values() {
                                 let component = node.read(cx).component.clone();
                                 let depends = crate::extensions::component_renderer(&component)
-                                    .is_some_and(|renderer| renderer.depends_on_window_insets())
-                                    || component == "RNSScreenStackHeaderConfig";
+                                    .is_some_and(|renderer| renderer.depends_on_window_insets());
                                 if depends {
                                     node.update(cx, |_, cx| cx.notify());
                                 }

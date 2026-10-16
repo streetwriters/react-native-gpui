@@ -337,12 +337,11 @@ impl ComponentRenderer for ContentWrapperRenderer {
         let Some(screen) = node.parent else {
             return None;
         };
-        if header_hidden(screen, tree) {
-            return None;
-        }
         let mut frame = node.frame;
-        frame.y += HEADER_HEIGHT;
-        frame.h = (frame.h - HEADER_HEIGHT).max(0.0);
+        if header_hidden(screen, tree) {
+            frame.y -= HEADER_HEIGHT;
+            frame.h += HEADER_HEIGHT;
+        }
         Some(frame)
     }
 }
