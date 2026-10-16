@@ -253,10 +253,6 @@ pub mod ffi {
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
         fn rn_gpui_set_animated_active(active: bool);
-        fn rn_gpui_open_url(url: String);
-        fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>);
-        fn rn_gpui_read_clipboard(id: i32);
-        fn rn_gpui_write_clipboard(text: String);
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
         /// Called from a module thread to run a task on the GPUI main thread.
@@ -404,8 +400,6 @@ pub mod ffi {
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
-        fn rn_gpui_alert_result(id: i32, button_index: i32);
-        fn rn_gpui_clipboard_result(id: i32, text: String);
         fn rn_gpui_run_main_task(id: u64);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
         fn request_reload(self: Pin<&mut GpuiHost>);
@@ -460,8 +454,6 @@ pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
-pub type OpenUrlHandler = Box<dyn Fn(String) + Send + Sync>;
-pub type AlertHandler = Box<dyn Fn(i32, String, String, Vec<String>) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
@@ -470,12 +462,6 @@ pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
-pub static OPEN_URL_HANDLER: OnceLock<OpenUrlHandler> = OnceLock::new();
-pub static ALERT_HANDLER: OnceLock<AlertHandler> = OnceLock::new();
-pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
-pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
-pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
-pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
 pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
 pub static MAIN_THREAD_ID: OnceLock<std::thread::ThreadId> = OnceLock::new();
@@ -593,30 +579,6 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
 fn rn_gpui_request_accessibility_focus(tag: i32) {
     if let Some(handler) = ACCESSIBILITY_FOCUS_HANDLER.get() {
         handler(tag);
-    }
-}
-
-fn rn_gpui_open_url(url: String) {
-    if let Some(handler) = OPEN_URL_HANDLER.get() {
-        handler(url);
-    }
-}
-
-fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>) {
-    if let Some(handler) = ALERT_HANDLER.get() {
-        handler(id, title, message, buttons);
-    }
-}
-
-fn rn_gpui_read_clipboard(id: i32) {
-    if let Some(handler) = CLIPBOARD_READ_HANDLER.get() {
-        handler(id);
-    }
-}
-
-fn rn_gpui_write_clipboard(text: String) {
-    if let Some(handler) = CLIPBOARD_WRITE_HANDLER.get() {
-        handler(text);
     }
 }
 

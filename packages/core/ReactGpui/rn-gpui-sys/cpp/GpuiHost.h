@@ -156,8 +156,6 @@ void register_gpui_event_listener(
     std::shared_ptr<const facebook::react::EventListener> listener);
 void register_gpui_gesture_pointer_processor(
     GpuiGesturePointerProcessor processor);
-void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
-void rn_gpui_clipboard_result(int32_t id, rust::String text);
 /// Runs the task a module posted with `rngpui::dispatchMain`. Called on the
 /// GPUI main thread.
 void rn_gpui_run_main_task(uint64_t id);

@@ -13,8 +13,15 @@
 //! build script turns into a module definition (see `DEP_RN_GPUI_CORE_NODE_API_EXPORTS`).
 
 fn main() {
-    // The desktop-shell TurboModule: one method per command in the spec.
-    rn_gpui_module_build::generate(&["../../src-gpui/src/private/specs/NativeGpuiDesktop.ts"]);
+    // The desktop-shell TurboModule, and the built-in services React Native's
+    // own JS imports by name (`AlertManager`, `Clipboard`, `LinkingManager`):
+    // one method per command in each spec.
+    rn_gpui_module_build::generate(&[
+        "../../src-gpui/src/private/specs/NativeGpuiDesktop.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",
+    ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_NODE_API_EXPORTS");
