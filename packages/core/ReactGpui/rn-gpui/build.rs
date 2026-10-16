@@ -22,6 +22,7 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiTray.ts",
         "../../src-gpui/src/private/specs/NativeGpuiWindows.ts",
         "../../src-gpui/src/private/specs/NativeGpuiAppMenu.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiContextMenu.ts",
     ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");
