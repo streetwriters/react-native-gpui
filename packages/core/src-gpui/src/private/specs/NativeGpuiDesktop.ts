@@ -130,22 +130,6 @@ export type TrayState = {
   menuItems?: Array<Object>;
 };
 
-export type PerfMetrics = {
-  enabled: boolean;
-  uiFps: number;
-  jsFps: number;
-  memoryBytes: number;
-  jsHeapBytes: number;
-  droppedFrames: number;
-  stutters: number;
-  mountedViews: number;
-  lastMountMs: number;
-};
-
-export type PerfToggle = {
-  enabled: boolean;
-};
-
 export type ContextMenuOptions = {
   x?: number;
   y?: number;
@@ -206,9 +190,6 @@ export interface Spec extends TurboModule {
   traySetVisible(visible: boolean): Promise<void>;
   traySetIcon(path: string): Promise<void>;
   traySetMenu(items: Array<Object> | null): Promise<void>;
-
-  perfMonitorSetEnabled(enabled: boolean): Promise<PerfToggle>;
-  perfMonitorGetMetrics(): Promise<PerfMetrics>;
 
   contextMenuShow(
     items: Array<Object>,

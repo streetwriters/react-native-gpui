@@ -40,7 +40,7 @@ const CODES: readonly string[] = [
  * Turn a rejection into a `DesktopError`. A Rust module rejects with the error's
  * code on the JS error object; anything else keeps its message.
  */
-function toDesktopError(error: unknown): DesktopError {
+export function toDesktopError(error: unknown): DesktopError {
   if (error instanceof DesktopError) {
     return error;
   }

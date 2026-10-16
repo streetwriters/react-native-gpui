@@ -6,6 +6,7 @@ pub mod image;
 pub mod linking;
 pub mod main_thread;
 pub mod modal;
+pub mod perf_monitor;
 pub mod scrollview;
 pub mod textinput;
 
@@ -15,5 +16,6 @@ pub fn register() {
     image::register();
     linking::register();
     modal::register();
+    perf_monitor::register();
     scrollview::register();
 }

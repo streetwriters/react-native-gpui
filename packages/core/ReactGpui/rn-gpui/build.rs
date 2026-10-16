@@ -18,6 +18,7 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
         "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
         "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiPerfMonitor.ts",
     ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");
