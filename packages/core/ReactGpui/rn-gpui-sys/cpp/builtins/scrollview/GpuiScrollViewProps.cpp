@@ -40,6 +40,8 @@ std::string scrollViewPropsJson(
     const auto content = data.getContentSize();
     object["contentWidth"] = content.width;
     object["contentHeight"] = content.height;
+    object["offsetX"] = data.contentOffset.x;
+    object["offsetY"] = data.contentOffset.y;
   }
   return folly::toJson(object);
 }
