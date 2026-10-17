@@ -607,6 +607,29 @@ jobs:
               .map(file => file.slice(prefix.length))
               .filter(rel => inputPaths.has(rel));
           };
+          const boundary = readJson('ci-out/core-boundary.json');
+          const meta = {
+            pr: process.env.PR_NUMBER || undefined,
+            sha: process.env.GITHUB_SHA,
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            localHash: process.env.LOCAL_HASH || undefined,
+            pinnedHash: process.env.PINNED_HASH || undefined,
+            runtime: process.env.RUNTIME || undefined,
+            cppChanged: process.env.CPP_CHANGED === 'true',
+            changedCppInputs: changedCppInputs(),
+            coreBoundary: boundary
+              ? {
+                  hitCount: (boundary.hits ?? []).length,
+                  corePrivateCount: (boundary.corePrivate ?? []).length,
+                  corePrivate: boundary.corePrivate ?? [],
+                  hits: boundary.hits ?? [],
+                }
+              : undefined,
+          };
+          fs.writeFileSync(
+            'ci-out/meta.json',
+            JSON.stringify(meta, null, 2),
+          );
           NODE
 
       - name: Render the report

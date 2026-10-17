@@ -312,6 +312,16 @@ describe('the fixture directories', () => {
     expect(report).not.toContain('<details>');
   });
 
+  // The workflow used to upload a meta.json it never wrote, so every field was
+  // missing: the comment said "unknown commit" and ci-comment.yml exited at its
+  // "names no pull request" guard without ever updating the PR comment.
+  test('the meta the workflow writes reaches the report', () => {
+    const report = fixture('all-green');
+    expect(report).toContain('`abcdef1`');
+    expect(report).not.toContain('unknown commit');
+    expect(fixture('failed')).not.toContain('unknown commit');
+  });
+
   test('failed renders the excerpt, the test name and the cpp note', () => {
     const report = fixture('failed');
     expect(report).toContain('❌ **CI failed**');
