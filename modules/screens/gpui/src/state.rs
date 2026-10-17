@@ -12,20 +12,38 @@ use std::time::Duration;
 pub struct HeaderFacts {
     pub is_top: bool,
     pub shows_back: bool,
+    pub has_title_subview: bool,
 }
 
 /// Records what `decorate` learned, so `content` can read it.
-pub fn set_header_facts(tag: i32, is_top: bool, shows_back: bool) {
+pub fn set_header_facts(tag: i32, is_top: bool, shows_back: bool, has_title_subview: bool) {
     with(|state| {
-        state
-            .headers
-            .insert(tag, HeaderFacts { is_top, shows_back });
+        state.headers.insert(
+            tag,
+            HeaderFacts {
+                is_top,
+                shows_back,
+                has_title_subview,
+            },
+        );
     });
 }
 
 /// Whether this header is the top screen's, as of the last `decorate` call.
 pub fn header_is_top(tag: i32) -> bool {
     with(|state| state.headers.get(&tag).is_some_and(|facts| facts.is_top))
+}
+
+/// Whether this header carries a `title` subview, as of the last `decorate` call.
+///
+/// When it does, that subview paints the title and core must not paint its own.
+pub fn header_has_title_subview(tag: i32) -> bool {
+    with(|state| {
+        state
+            .headers
+            .get(&tag)
+            .is_some_and(|facts| facts.has_title_subview)
+    })
 }
 
 /// Whether this header shows a back button, as of the last `decorate` call.

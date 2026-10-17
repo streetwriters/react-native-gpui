@@ -9,9 +9,9 @@ use crate::stack::{
     CONTENT_WRAPPER, FULL_WINDOW_OVERLAY, HEADER_CONFIG, HEADER_SUBVIEW, MODAL_SCREEN, SCREEN,
     STACK,
 };
-use gpui::{div, prelude::*, AnyElement, App, SharedString, Window};
+use gpui::{div, prelude::*, AnyElement, App, MouseButton, SharedString, Window};
 use react_native_gpui::extensions::{
-    ComponentNode, ComponentRenderer, Decoration, Portal, TreeView,
+    store_handle, ComponentNode, ComponentRenderer, Decoration, Portal, TreeView,
 };
 use rn_gpui_sys::ffi::RectF;
 
@@ -177,16 +177,16 @@ impl ComponentRenderer for HeaderConfigRenderer {
     fn decorate(&self, node: &ComponentNode, tree: &TreeView) -> Decoration {
         let top = is_top_header(node, tree);
         let shown = should_show_back(node, tree);
-        crate::state::set_header_facts(node.tag, top, shown);
+        crate::state::set_header_facts(node.tag, top, shown, has_title_subview(node, tree));
         if props::header_hidden(node) || !top {
             return Decoration {
                 display: Some(false),
                 ..Decoration::default()
             };
         }
-        let background = props::header_background_color(node);
+        let background = first_nonzero(props::header_background_color(node), 0xff171923);
         Decoration {
-            background: (background != 0).then_some(background),
+            background: Some(background),
             ..Decoration::default()
         }
     }
@@ -204,6 +204,7 @@ impl ComponentRenderer for HeaderConfigRenderer {
         if props::header_hidden(node) || !crate::state::header_is_top(node.tag) {
             return None;
         }
+        let node_tag = node.tag;
         let title_color = first_nonzero(props::header_title_color(node), 0xffffffff);
         let mut bar = div()
             .absolute()
@@ -214,8 +215,10 @@ impl ComponentRenderer for HeaderConfigRenderer {
             .items_center()
             .justify_center()
             .text_color(argb(title_color))
-            .text_size(gpui::px(18.0))
-            .child(SharedString::from(props::header_title(node).to_string()));
+            .text_size(gpui::px(18.0));
+        if !crate::state::header_has_title_subview(node.tag) {
+            bar = bar.child(SharedString::from(props::header_title(node).to_string()));
+        }
         if crate::state::header_shows_back(node.tag) {
             bar = bar.child(
                 div()
@@ -233,7 +236,19 @@ impl ComponentRenderer for HeaderConfigRenderer {
                     )))
                     .text_size(gpui::px(30.0))
                     .cursor_pointer()
-                    .child("‹"),
+                    .child("‹")
+                    .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                        if let Some(handle) = store_handle(cx) {
+                            handle.dispatch_event(
+                                node_tag,
+                                "headerBackButtonClicked",
+                                &serde_json::json!({}),
+                                cx,
+                            );
+                            handle.request_frame(window);
+                        }
+                        cx.stop_propagation();
+                    }),
             );
         }
         Some(bar.into_any_element())
@@ -292,6 +307,14 @@ fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
     screens.last().copied() == Some(parent)
 }
 
+/// Whether the header config carries a `title` subview.
+fn has_title_subview(config: &ComponentNode, tree: &TreeView) -> bool {
+    tree.children(config.tag)
+        .into_iter()
+        .filter_map(|tag| tree.node(tag))
+        .any(|child| child.component == HEADER_SUBVIEW && props::subview_type(&child) == "title")
+}
+
 /// The stack a screen sits in, walking up past intermediate containers.
 fn stack_of(screen: i32, tree: &TreeView) -> Option<i32> {
     tree.ancestors(screen)
@@ -322,11 +345,10 @@ impl ComponentRenderer for HeaderSubviewRenderer {
             .map(|config| config.frame.w)
             .unwrap_or(frame.w);
         let tallest = tree
-            .children(config)
+            .children(node.tag)
             .into_iter()
             .filter_map(|tag| tree.node(tag))
-            .filter(|sibling| sibling.component == HEADER_SUBVIEW)
-            .fold(0.0f32, |height, sibling| height.max(sibling.frame.h));
+            .fold(0.0f32, |height, child| height.max(child.frame.h));
         frame.x = match props::subview_type(node) {
             "right" => container_width - frame.w - 12.0,
             "center" | "title" => (container_width - frame.w) / 2.0,
@@ -359,6 +381,9 @@ impl ComponentRenderer for ContentWrapperRenderer {
         if header_hidden(screen, tree) {
             frame.y -= HEADER_HEIGHT;
             frame.h += HEADER_HEIGHT;
+        } else {
+            frame.y += HEADER_HEIGHT;
+            frame.h = (frame.h - HEADER_HEIGHT).max(0.0);
         }
         Some(frame)
     }
