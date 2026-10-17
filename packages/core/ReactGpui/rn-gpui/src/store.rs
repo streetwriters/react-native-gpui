@@ -47,6 +47,13 @@ pub struct ViewStore {
     /// The screen whose Escape dismissal already announced its lifecycle
     /// events. The following Fabric Remove should not announce it twice.
     pub(crate) retained_subtrees: HashMap<i32, Vec<i32>>,
+    /// What a `TreeView` reports about each mounted node, kept in step with
+    /// `nodes` as a batch is applied.
+    ///
+    /// Building this on demand copies every node in the tree, so doing it once
+    /// per insert and once per remove made a first mount of N nodes cost O(N²).
+    /// A batch now writes the entries it touches, and a hook borrows the map.
+    snapshots: HashMap<i32, crate::extensions::NodeSnapshot>,
     log_mount_ops: bool,
     /// A dropped `Subscription` unsubscribes, so the store owns it.
     pub window_bounds_subscription: Option<Subscription>,
@@ -77,6 +84,7 @@ impl ViewStore {
             top_inset: 0.0,
             active_touch_target: None,
             retained_subtrees: HashMap::new(),
+            snapshots: HashMap::new(),
             log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
             window_appearance_subscription: None,
@@ -142,6 +150,7 @@ impl ViewStore {
                 self.nodes.len()
             );
             self.nodes.clear();
+            self.snapshots.clear();
             self.accessibility_modal_tags.clear();
             self.hovered.borrow_mut().clear();
             self.active_touch_target = None;
@@ -176,6 +185,7 @@ impl ViewStore {
         }
         for tag in stale {
             self.nodes.remove(&tag);
+            self.snapshots.remove(&tag);
             self.accessibility_modal_tags.remove(&tag);
             self.overlay_host.update(cx, |host, cx| {
                 host.remove_portal(tag);
@@ -290,6 +300,7 @@ impl ViewStore {
                     }
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
                     self.nodes.insert(op.tag, node.clone());
+                    self.record_subtree_nodes(&[op.tag], cx);
                     let component_node = node.read(cx).component_node(cx);
                     for observer in &observers {
                         observer.on_mount(&component_node, &handle, cx);
@@ -309,6 +320,7 @@ impl ViewStore {
                         });
                     }
                     self.nodes.remove(&op.tag);
+                    self.drop_snapshot(op.tag);
                     for observer in &observers {
                         observer.on_remove(op.tag, &handle, cx);
                         self.apply_commands(&commands, cx);
@@ -354,6 +366,9 @@ impl ViewStore {
                         child.update(cx, |child, _cx| {
                             child.set_parent(Some(parent_ref), Some(op.parent_tag))
                         });
+                        // `on_insert` sees the tree with the splice applied, so
+                        // both the parent and the child are re-recorded first.
+                        self.record_subtree_nodes(&[op.parent_tag, op.tag], cx);
                         {
                             let inserted = child.read(cx).component_node_shallow();
                             for observer in &observers {
@@ -419,12 +434,18 @@ impl ViewStore {
                             parent.remove_child(op.tag);
                             cx.notify();
                         });
+                        self.record_subtree_nodes(&[op.parent_tag], cx);
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
                         root.update(cx, |root, cx| {
                             root.remove_child(op.tag);
                             cx.notify();
                         });
                     }
+                    // The node itself stays mounted until Fabric deletes it, so
+                    // its snapshot stays too: `is_live` and the parent's
+                    // `children` kept answering this way when the tree was
+                    // copied out on every call, and a retained card has to keep
+                    // painting from its snapshot after the removal.
                 }
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
@@ -434,6 +455,7 @@ impl ViewStore {
                             cx.notify();
                         });
                         let updated_node = node.read(cx).component_node(cx);
+                        self.record_subtree_nodes(&[op.tag], cx);
                         for observer in &observers {
                             observer.on_update(&updated_node, &previous_node, &handle, cx);
                             self.apply_commands(&commands, cx);
@@ -499,7 +521,6 @@ impl ViewStore {
             let mut queue = commands.lock().expect("command queue poisoned");
             queue.drain(..).collect()
         };
-        if !queued.is_empty() {}
         for command in queued {
             match command {
                 crate::extensions::Command::Transition { tag, transition } => {
@@ -511,6 +532,7 @@ impl ViewStore {
                             node.transition = None;
                             cx.notify();
                         });
+                        self.record_subtree_nodes(&[tag], cx);
                     }
                 }
                 crate::extensions::Command::Dispatch { tag, name, payload } => {
@@ -557,12 +579,39 @@ impl ViewStore {
         self.tree_view_at(None, cx)
     }
 
+    /// Re-records the tags a batch just changed, so the next `TreeView` reports
+    /// them without reading the entities.
+    ///
+    /// Every mutation a snapshot covers has to call this: the batch writes here
+    /// what it used to copy out of the whole tree on every operation.
+    fn record_subtree_nodes(&mut self, tags: &[i32], cx: &App) {
+        for tag in tags {
+            if let Some(entity) = self.nodes.get(tag) {
+                let snapshot = entity.read(cx).snapshot();
+                self.snapshots.insert(*tag, snapshot);
+            }
+        }
+    }
+
+    /// Forgets a node, and every tag below it that Fabric no longer reports.
+    fn drop_snapshot(&mut self, tag: i32) {
+        self.snapshots.remove(&tag);
+    }
+
+    /// Re-reads every node, for the paths that mutate the tree outside a batch.
+    fn rebuild_snapshots(&mut self, cx: &App) {
+        self.snapshots.clear();
+        for (tag, entity) in &self.nodes {
+            let snapshot = entity.read(cx).snapshot();
+            self.snapshots.insert(*tag, snapshot);
+        }
+    }
+
     /// A view of the tree for a hook.
     ///
-    /// The nodes are copied out here, before any hook runs, because a hook is
-    /// handed `&mut App` and a tree that kept entity handles would let it read a
-    /// node that the same call is updating. Batches and inherited passes are the
-    /// only callers, so this is per-batch work, not per-frame.
+    /// The nodes are copied into `snapshots` as the batch applies them, before
+    /// any hook runs, because a hook is handed `&mut App` and a tree that kept
+    /// entity handles would let it read a node that the same call is updating.
     pub(crate) fn tree_view_at<'a>(
         &'a self,
         current: Option<(i32, &'a RNNodeView)>,
@@ -573,13 +622,8 @@ impl ViewStore {
             .values()
             .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
             .collect();
-        let nodes: HashMap<i32, crate::extensions::NodeSnapshot> = self
-            .nodes
-            .iter()
-            .map(|(tag, entity)| (*tag, entity.read(cx).snapshot()))
-            .collect();
         crate::extensions::TreeView {
-            nodes: std::borrow::Cow::Owned(nodes),
+            nodes: std::borrow::Cow::Borrowed(&self.snapshots),
             root_tags,
             top_inset: self.top_inset,
             animations_enabled: !cx.reduce_motion()
@@ -615,13 +659,9 @@ impl ViewStore {
             .collect();
         let animations_enabled =
             !cx.reduce_motion() && !crate::animation_policy::animations_disabled();
-        let nodes: HashMap<i32, crate::extensions::NodeSnapshot> = self
-            .nodes
-            .iter()
-            .map(|(tag, entity)| (*tag, entity.read(cx).snapshot()))
-            .collect();
+        self.rebuild_snapshots(cx);
         let tree = crate::extensions::TreeView {
-            nodes: std::borrow::Cow::Owned(nodes),
+            nodes: std::borrow::Cow::Borrowed(&self.snapshots),
             root_tags,
             top_inset,
             animations_enabled,
@@ -732,6 +772,7 @@ pub(crate) fn start_component_transition(
                 node.transition_forward = forward;
                 cx.notify();
             });
+            store.record_subtree_nodes(&[tag], cx);
         }
     });
 }
@@ -747,6 +788,7 @@ fn start_component_transition_here(
             node.transition = Some((transition, Instant::now()));
             cx.notify();
         });
+        store.record_subtree_nodes(&[tag], cx);
     }
 }
 
@@ -757,6 +799,7 @@ pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mu
                 node.transition = None;
                 cx.notify();
             });
+            store.record_subtree_nodes(&[tag], cx);
         }
     });
 }
@@ -1094,6 +1137,304 @@ mod test_app_context_tests {
         assert!(
             hidden_frame.is_none(),
             "display:none view must be invisible"
+        );
+    }
+
+    /// Opening a view of the tree must not copy the tree.
+    ///
+    /// Core opens one for every observer on every insert and every remove, so
+    /// anything that copies every node per call makes a first mount of N nodes
+    /// cost O(N²). The view borrows the map the store keeps instead.
+    #[gpui::test]
+    fn opening_a_tree_view_copies_no_nodes(cx: &mut TestAppContext) {
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        // Mount a tree big enough that a per-call copy would be obvious.
+        let mut ops = Vec::new();
+        let mut parent = op(MountKind::Create);
+        parent.tag = 1;
+        ops.push(parent);
+        let mut parent_insert = op(MountKind::Insert);
+        parent_insert.tag = 1;
+        ops.push(parent_insert);
+        for row in 0..200i32 {
+            let tag = 1000 + row;
+            let mut create = op(MountKind::Create);
+            create.tag = tag;
+            create.component = "Text".into();
+            create.parent_tag = 1;
+            ops.push(create);
+            let mut insert = op(MountKind::Insert);
+            insert.tag = tag;
+            insert.component = "Text".into();
+            insert.parent_tag = 1;
+            insert.index = row;
+            ops.push(insert);
+        }
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(MountBatch { surface_id: 1, ops }, cx);
+        });
+
+        // Two hundred children, all in one view.
+        let copied = cx.read_entity(&store, |store, app| {
+            crate::node_view::reset_snapshot_count();
+            let tree = store.tree_view(app);
+            let children = tree.children(1).len();
+            assert_eq!(children, 200);
+            crate::node_view::snapshot_count()
+        });
+        assert_eq!(
+            copied, 0,
+            "opening a tree view copied {copied} nodes; it must borrow the store's own map"
+        );
+
+        // A hook that needs one node's own fields still pays for one node, not
+        // for the tree. `tree_view_at` supplies the node core is holding.
+        let copied = cx.read_entity(&store, |store, app| {
+            let node = store.nodes.get(&1005).expect("row is mounted");
+            let borrowed = node.read(app);
+            crate::node_view::reset_snapshot_count();
+            let tree = store.tree_view_at(Some((1005, &borrowed)), app);
+            assert!(tree.node(1005).is_some());
+            crate::node_view::snapshot_count()
+        });
+        assert_eq!(
+            copied, 1,
+            "a tree built around one node copies that node and nothing else"
+        );
+    }
+
+    /// A hook must see the tree as it is, not as it was before the batch.
+    ///
+    /// The snapshots a `TreeView` borrows are now written per operation instead
+    /// of copied from every node per operation. A missed write shows up here as
+    /// a hook reading a stale parent, child list or frame, because the hooks all
+    /// run inside the batch, before the trailing rebuild.
+    #[gpui::test]
+    fn the_snapshot_map_follows_each_operation(cx: &mut TestAppContext) {
+        use crate::extensions::{ComponentNode, StoreHandle, StoreObserver, TreeView};
+        use std::sync::{Arc, Mutex};
+
+        // The observer registry is process-wide, so no other test may install
+        // one while this runs.
+        let _exclusive = crate::extensions::exclusive_observers();
+
+        #[derive(Default)]
+        struct Seen {
+            /// What the tree said after each insert, in order.
+            inserts: Vec<String>,
+            /// What the tree said at the end of every batch, in order.
+            batches: Vec<String>,
+            /// What the tree said after the remove.
+            remove: Option<String>,
+            /// What the tree said after the delete.
+            delete: Option<String>,
+        }
+
+        struct Probe(Arc<Mutex<Seen>>);
+
+        fn describe(tree: &TreeView, tag: i32, parent: i32) -> String {
+            format!(
+                "parent={:?} children={:?} frame={}x{}",
+                tree.children(parent),
+                tree.children(tag),
+                tree.node(tag).map(|n| n.frame.w).unwrap_or(-1.0),
+                tree.node(tag).map(|n| n.frame.h).unwrap_or(-1.0)
+            )
+        }
+
+        impl StoreObserver for Probe {
+            fn on_mount(&self, _node: &ComponentNode, _h: &StoreHandle, _cx: &mut gpui::App) {}
+            fn on_update(
+                &self,
+                _node: &ComponentNode,
+                _previous: &ComponentNode,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+            }
+            fn after_batch(&self, tree: &TreeView, _h: &StoreHandle, _cx: &mut gpui::App) {
+                if tree.node(202).is_none() && tree.node(101).is_none() {
+                    return;
+                }
+                self.0
+                    .lock()
+                    .unwrap()
+                    .batches
+                    .push(describe(tree, 202, 101));
+            }
+            fn on_remove(&self, tag: i32, _h: &StoreHandle, _cx: &mut gpui::App) {
+                if tag == 202 {
+                    self.0.lock().unwrap().delete = Some("deleted".into());
+                }
+            }
+            fn on_insert(
+                &self,
+                child: &ComponentNode,
+                parent: i32,
+                _previous_children: &[i32],
+                tree: &TreeView,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+                // Other tests run their own batches against this process-wide
+                // registry, so only this test's own parent is recorded.
+                if parent != 101 {
+                    return;
+                }
+                self.0
+                    .lock()
+                    .unwrap()
+                    .inserts
+                    .push(describe(tree, child.tag, parent));
+            }
+            fn on_remove_child(
+                &self,
+                child: i32,
+                parent: i32,
+                _retained: bool,
+                tree: &TreeView,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+                if child == 202 {
+                    self.0.lock().unwrap().remove = Some(describe(tree, child, parent));
+                }
+            }
+        }
+
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        crate::extensions::register_store_observer(Arc::new(Probe(seen.clone())));
+
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        let mut create_parent = op(MountKind::Create);
+        create_parent.tag = 101;
+        let mut insert_parent = op(MountKind::Insert);
+        insert_parent.tag = 101;
+        let mut create_child = op(MountKind::Create);
+        create_child.tag = 202;
+        create_child.component = "Text".into();
+        create_child.parent_tag = 101;
+        create_child.frame = RectF {
+            x: 4.0,
+            y: 6.0,
+            w: 20.0,
+            h: 10.0,
+        };
+        let mut insert_child = op(MountKind::Insert);
+        insert_child.tag = 202;
+        insert_child.parent_tag = 101;
+        insert_child.component = "Text".into();
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![create_parent, insert_parent, create_child, insert_child],
+                },
+                cx,
+            );
+        });
+
+        let inserted = seen.lock().unwrap().inserts.clone();
+        assert_eq!(
+            inserted.last().map(String::as_str),
+            Some("parent=[202] children=[] frame=20x10"),
+            "on_insert must see the child spliced into its parent: {inserted:?}"
+        );
+
+        let mut move_child = op(MountKind::Update);
+        move_child.tag = 202;
+        move_child.component = "Text".into();
+        move_child.parent_tag = 101;
+        move_child.frame = RectF {
+            x: 0.0,
+            y: 0.0,
+            w: 55.0,
+            h: 66.0,
+        };
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![move_child],
+                },
+                cx,
+            );
+        });
+        assert_eq!(
+            seen.lock().unwrap().batches.last().map(String::as_str),
+            Some("parent=[202] children=[] frame=55x66"),
+            "the tree must report the frame an update gave the node"
+        );
+
+        let mut remove_child = op(MountKind::Remove);
+        remove_child.tag = 202;
+        remove_child.component = "Text".into();
+        remove_child.parent_tag = 101;
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![remove_child],
+                },
+                cx,
+            );
+        });
+        // The hook runs before the splice is undone, exactly as it did when the
+        // tree was read from the live nodes: the leaving card is still listed,
+        // which is what lets the module find it and keep it for its exit.
+        assert_eq!(
+            seen.lock().unwrap().remove.as_deref(),
+            Some("parent=[202] children=[] frame=55x66"),
+            "a remove hook must still see the card it is being told about"
+        );
+
+        let mut delete_child = op(MountKind::Delete);
+        delete_child.tag = 202;
+        delete_child.component = "Text".into();
+        delete_child.parent_tag = -1;
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![delete_child],
+                },
+                cx,
+            );
+        });
+        assert_eq!(seen.lock().unwrap().delete.as_deref(), Some("deleted"));
+        assert_eq!(
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&202)),
+            false,
+            "a deleted tag must not linger in the snapshot map"
+        );
+        assert_eq!(
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&101)),
+            true,
+            "its parent must still be there"
         );
     }
 }

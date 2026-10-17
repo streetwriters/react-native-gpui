@@ -1332,6 +1332,25 @@ fn has_unsupported_subtree_transform(matrix: &[f32; 16]) -> bool {
         || (matrix[15] - 1.0).abs() > 0.0001
 }
 
+thread_local! {
+    /// How many node copies a `TreeView` has taken, for the test that guards
+    /// against copying the whole tree once per mount operation.
+    #[cfg(test)]
+    static SNAPSHOT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Starts counting node copies from zero.
+#[cfg(test)]
+pub(crate) fn reset_snapshot_count() {
+    SNAPSHOT_COUNT.with(|count| count.set(0));
+}
+
+/// How many node copies have been taken since the last reset.
+#[cfg(test)]
+pub(crate) fn snapshot_count() -> usize {
+    SNAPSHOT_COUNT.with(|count| count.get())
+}
+
 #[cfg(test)]
 mod transform_matrix_tests {
     use super::{
@@ -3190,6 +3209,7 @@ impl RNNodeView {
             component: self.component.clone(),
             tag: self.tag,
             frame: self.frame,
+            scale: (self.inherited.scale.0.abs(), self.inherited.scale.1.abs()),
             props: self.extension_props.clone(),
             parent: self.parent_tag_cached(),
             children: Vec::new(),
@@ -3203,10 +3223,17 @@ impl RNNodeView {
     /// What a `TreeView` keeps about this node, copied so the tree never reads
     /// an entity a hook may be updating.
     pub(crate) fn snapshot(&self) -> crate::extensions::NodeSnapshot {
+        #[cfg(test)]
+        SNAPSHOT_COUNT.with(|count| count.set(count.get() + 1));
+        self.snapshot_inner()
+    }
+
+    fn snapshot_inner(&self) -> crate::extensions::NodeSnapshot {
         crate::extensions::NodeSnapshot {
             component: self.component.clone(),
             tag: self.tag,
             frame: self.frame,
+            scale: (self.inherited.scale.0.abs(), self.inherited.scale.1.abs()),
             props: self.extension_props.clone(),
             parent: self.parent_tag_cached(),
             children: self.child_tags(),
@@ -3220,6 +3247,7 @@ impl RNNodeView {
             component: self.component.clone(),
             tag: self.tag,
             frame: self.frame,
+            scale: (self.inherited.scale.0.abs(), self.inherited.scale.1.abs()),
             props: self.extension_props.clone(),
             parent: self.parent_tag_cached(),
             children: self
