@@ -743,6 +743,16 @@ pub fn parse_extension_props(json: &str) -> Value {
 }
 
 /// Every registered observer, for one notification pass.
+/// A handle on the mounted tree, for a hook that has only the app context.
+///
+/// A renderer's `content` and a `decorate` are given no handle, because core
+/// already holds it; a pointer handler built there needs one, and this is how it
+/// gets the same handle core would have passed.
+pub fn store_handle(cx: &App) -> Option<StoreHandle> {
+    cx.try_global::<crate::store::StoreGlobal>()
+        .map(|store| StoreHandle::new(store.0.downgrade()))
+}
+
 pub fn store_observers() -> Vec<Arc<dyn StoreObserver>> {
     store_observers_registry()
         .lock()
