@@ -1,8 +1,9 @@
 // Code that depends on an optional package is a module: it lives in the
-// package itself, under `gpui/cpp/`, and is compiled only when that package is
-// installed. The platform's own modules live in cpp/modules/. A module sets the
-// hooks it needs; an unset hook means core does what it does when the library
-// is absent.
+// package itself, under `desktop/cpp/`, and is compiled only when that package
+// is installed. A module declares itself under `platforms.desktop` in its
+// react-native.config.js. The platform's own modules live in cpp/modules/. A
+// module sets the hooks it needs; an unset hook means core does what it does
+// when the library is absent.
 //
 // The extension API below is what a module uses. It is generic, keyed by name,
 // and names no library.

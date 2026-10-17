@@ -3,6 +3,13 @@
 React Native for the desktop, rendered with [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui):
 one GPU-accelerated renderer for **macOS, Windows and Linux**.
 
+The React Native platform is called **`desktop`**. That is the Metro platform and
+its file extension (`*.desktop.tsx`), the Codegen platform, the `platform=`
+bundle parameter, and the key a module declares in its `react-native.config.js`
+(`platforms.desktop`). A module's native code lives in its `desktop/` folder.
+GPUI is the renderer underneath: `Platform.OS` is still the operating system
+(`macos`, `windows`, `linux`).
+
 ## Environment setup
 
 Every platform needs **Node.js 22.13 or newer** and **Rust** (stable, installed
