@@ -1,3 +1,8 @@
+//! Components react-native-screens ships that this platform does not implement.
+//!
+//! They are named here so the module can say so once, instead of core carrying a
+//! list of a library's components.
+/// Whether this component is one the platform cannot render.
 pub fn unsupported_component(name: &str) -> bool {
     matches!(
         name,

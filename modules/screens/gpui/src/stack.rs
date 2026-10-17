@@ -1,3 +1,11 @@
+//! The stack observer: everything react-native-screens does between a mount
+//! batch and a paint.
+//!
+//! Core tells an observer about a batch before it applies it, about each insert
+//! and removal as it applies them, and about the batch once it is done. All the
+//! navigation decisions — which stack is nested, which card is leaving, when a
+//! lifecycle event fires, when a card is kept alive for its exit — are made here
+//! and remembered in `state`.
 use crate::props;
 use crate::state::{self, PopPlan, Role};
 use crate::transition::{self, Role as TransitionRole};
@@ -6,6 +14,7 @@ use react_native_gpui::extensions::{
 };
 use std::collections::HashSet;
 
+/// The component names this module owns.
 pub const STACK: &str = "RNSScreenStack";
 pub const SCREEN: &str = "RNSScreen";
 pub const HEADER_CONFIG: &str = "RNSScreenStackHeaderConfig";
@@ -14,6 +23,7 @@ pub const CONTENT_WRAPPER: &str = "RNSScreenContentWrapper";
 pub const MODAL_SCREEN: &str = "RNSModalScreen";
 pub const FULL_WINDOW_OVERLAY: &str = "RNSFullWindowOverlay";
 
+/// Watches the batch and drives the stack.
 pub struct StackObserver;
 
 impl StoreObserver for StackObserver {
@@ -256,10 +266,13 @@ impl StoreObserver for StackObserver {
     }
 }
 
+/// Whether `stack` is the outer stack, the only one that animates.
 fn is_outer_stack(stack: i32) -> bool {
     !state::with(|state| state.nested_stacks.contains(&stack))
 }
 
+/// Every stack that sits inside a screen, found from the batch topology before
+/// any of it is applied.
 fn nested_stacks(batch: &BatchView, tree: &TreeView) -> HashSet<i32> {
     let stacks: Vec<i32> = batch
         .ops
@@ -295,6 +308,7 @@ fn nested_stacks(batch: &BatchView, tree: &TreeView) -> HashSet<i32> {
     nested
 }
 
+/// The cards leaving in this batch that should animate their exit.
 fn pop_plans(
     batch: &BatchView,
     tree: &TreeView,
