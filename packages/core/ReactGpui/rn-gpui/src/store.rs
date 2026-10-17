@@ -199,15 +199,6 @@ impl ViewStore {
         cx.notify();
     }
 
-    pub fn resize(&mut self, width: f32, height: f32, scale: f32) {
-        let surfaces: Vec<i32> = self.roots.keys().copied().collect();
-        for surface_id in surfaces {
-            let height = height - crate::desktop::gpui_menu::menu_bar_inset();
-            log::info!("[store] surface {surface_id} resized to {width}x{height}@{scale}x");
-            self.host.set_surface_size(surface_id, width, height, scale);
-        }
-    }
-
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
         for surface_id in self.surfaces_in_window(window) {
             let height = height - crate::desktop::gpui_menu::menu_bar_inset();
@@ -560,13 +551,6 @@ impl ViewStore {
             }
         }
         self.retained_subtrees.insert(tag, descendants);
-    }
-
-    pub(crate) fn retained_descendant_set(&self) -> HashSet<i32> {
-        self.retained_subtrees
-            .values()
-            .flat_map(|tags| tags.iter().copied())
-            .collect()
     }
 
     pub(crate) fn tree_view<'a>(&'a self, cx: &App) -> crate::extensions::TreeView<'a> {
