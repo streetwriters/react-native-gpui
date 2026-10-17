@@ -688,20 +688,18 @@ impl RNNodeView {
     }
 
     pub(crate) fn stable_paint_tree<'a>(&'a self, cx: &'a App) -> crate::extensions::TreeView<'a> {
-        static NO_NODES: std::sync::OnceLock<
-            HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>,
-        > = std::sync::OnceLock::new();
+        static NO_NODES: std::sync::OnceLock<HashMap<i32, crate::extensions::NodeSnapshot>> =
+            std::sync::OnceLock::new();
         static NO_RETAINED: std::sync::OnceLock<HashMap<i32, Vec<i32>>> =
             std::sync::OnceLock::new();
         crate::extensions::TreeView {
-            nodes: NO_NODES.get_or_init(HashMap::new),
+            nodes: std::borrow::Cow::Borrowed(NO_NODES.get_or_init(HashMap::new)),
             root_tags: Vec::new(),
             top_inset: self.inherited.window_top_inset,
             animations_enabled: !cx.reduce_motion()
                 && !crate::animation_policy::animations_disabled(),
-            current: Some((self.tag, self)),
+            current: Some((self.tag, self.snapshot())),
             retained: NO_RETAINED.get_or_init(HashMap::new),
-            app: cx as *const App,
         }
     }
 
@@ -739,13 +737,13 @@ impl RNNodeView {
         let nodes = HashMap::default();
         let retained = HashMap::default();
         let tree = crate::extensions::TreeView {
-            nodes: &nodes,
+            nodes: std::borrow::Cow::Borrowed(&nodes),
             root_tags: Vec::new(),
-            top_inset: 0.0,
-            animations_enabled: true,
-            current: Some((self.tag, self)),
+            top_inset: self.inherited.window_top_inset,
+            animations_enabled: !cx.reduce_motion()
+                && !crate::animation_policy::animations_disabled(),
+            current: Some((self.tag, self.snapshot())),
             retained: &retained,
-            app: cx as *const App,
         };
         renderer.decorate(&self.component_node_shallow(), &tree)
     }
@@ -2456,26 +2454,34 @@ impl Render for RNNodeView {
                 };
                 let handle = crate::extensions::StoreHandle::new(store_entity.downgrade());
                 let node = this.component_node_shallow();
-                // The handler takes the app mutably, so the tree it reads has to
-                // own its maps rather than borrow them from the leased store.
-                let (nodes, root_tags, retained) = {
-                    let store = store_entity.read(cx);
-                    (
-                        store.nodes.clone(),
-                        store.roots.keys().copied().collect(),
-                        store.retained_subtrees.clone(),
-                    )
-                };
+                // `retained` is the only borrow left, so it is copied out too;
+                // every node is a snapshot, so the tree never touches an entity
+                // while the handler below holds the app mutably.
+                let self_tag = this.tag;
+                let (nodes, root_tags, retained) = store_entity.read_with(cx, |store, cx| {
+                    // This node is leased by the listener that is running, and
+                    // the tree already carries it as `current`, so it is skipped
+                    // here rather than read back through the entity map.
+                    let nodes: HashMap<i32, crate::extensions::NodeSnapshot> = store
+                        .nodes
+                        .iter()
+                        .filter(|(tag, _)| **tag != self_tag)
+                        .map(|(tag, entity)| (*tag, entity.read(cx).snapshot()))
+                        .collect();
+                    let root_tags = store
+                        .roots
+                        .values()
+                        .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
+                        .collect();
+                    (nodes, root_tags, store.retained_subtrees.clone())
+                });
                 let tree = crate::extensions::TreeView {
-                    nodes: &nodes,
+                    nodes: std::borrow::Cow::Owned(nodes),
                     root_tags,
                     top_inset,
                     animations_enabled,
-                    current: Some((this.tag, this)),
+                    current: Some((this.tag, this.snapshot())),
                     retained: &retained,
-                    // The tree reads entities through the app's entity map, so
-                    // the pointer has to be the app, not this node's context.
-                    app: &**cx as *const App,
                 };
                 let handled =
                     renderer.on_key_down(&node, &event.keystroke.key, &tree, &handle, window, cx);
@@ -3179,13 +3185,6 @@ impl RNNodeView {
         &self.extension_props_json
     }
 
-    pub(crate) fn parent_tag(&self, cx: &App) -> Option<i32> {
-        self.parent
-            .as_ref()
-            .and_then(|parent| parent.upgrade())
-            .map(|parent| parent.read(cx).tag)
-    }
-
     pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
             component: self.component.clone(),
@@ -3199,6 +3198,21 @@ impl RNNodeView {
 
     pub(crate) fn child_tags(&self) -> Vec<i32> {
         self.children.iter().map(|(tag, _)| *tag).collect()
+    }
+
+    /// What a `TreeView` keeps about this node, copied so the tree never reads
+    /// an entity a hook may be updating.
+    pub(crate) fn snapshot(&self) -> crate::extensions::NodeSnapshot {
+        crate::extensions::NodeSnapshot {
+            component: self.component.clone(),
+            tag: self.tag,
+            frame: self.frame,
+            props: self.extension_props.clone(),
+            parent: self.parent_tag_cached(),
+            children: self.child_tags(),
+            surface_id: self.surface_id,
+            transition: self.transition_state(),
+        }
     }
 
     pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {

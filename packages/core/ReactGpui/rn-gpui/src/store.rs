@@ -557,6 +557,12 @@ impl ViewStore {
         self.tree_view_at(None, cx)
     }
 
+    /// A view of the tree for a hook.
+    ///
+    /// The nodes are copied out here, before any hook runs, because a hook is
+    /// handed `&mut App` and a tree that kept entity handles would let it read a
+    /// node that the same call is updating. Batches and inherited passes are the
+    /// only callers, so this is per-batch work, not per-frame.
     pub(crate) fn tree_view_at<'a>(
         &'a self,
         current: Option<(i32, &'a RNNodeView)>,
@@ -567,15 +573,19 @@ impl ViewStore {
             .values()
             .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
             .collect();
+        let nodes: HashMap<i32, crate::extensions::NodeSnapshot> = self
+            .nodes
+            .iter()
+            .map(|(tag, entity)| (*tag, entity.read(cx).snapshot()))
+            .collect();
         crate::extensions::TreeView {
-            nodes: &self.nodes,
+            nodes: std::borrow::Cow::Owned(nodes),
             root_tags,
             top_inset: self.top_inset,
             animations_enabled: !cx.reduce_motion()
                 && !crate::animation_policy::animations_disabled(),
-            current: current.map(|(tag, node)| (tag, node)),
+            current: current.map(|(tag, node)| (tag, node.snapshot())),
             retained: &self.retained_subtrees,
-            app: cx as *const App,
         }
     }
 
@@ -605,14 +615,18 @@ impl ViewStore {
             .collect();
         let animations_enabled =
             !cx.reduce_motion() && !crate::animation_policy::animations_disabled();
+        let nodes: HashMap<i32, crate::extensions::NodeSnapshot> = self
+            .nodes
+            .iter()
+            .map(|(tag, entity)| (*tag, entity.read(cx).snapshot()))
+            .collect();
         let tree = crate::extensions::TreeView {
-            nodes: &self.nodes,
+            nodes: std::borrow::Cow::Owned(nodes),
             root_tags,
             top_inset,
             animations_enabled,
             current: None,
             retained: &self.retained_subtrees,
-            app: &**cx as *const gpui::App,
         };
         for root in roots {
             refresh_inherited_tree(root, top_inset, None, &tree, cx);

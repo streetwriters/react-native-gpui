@@ -291,31 +291,54 @@ impl StoreHandle {
 /// Core may build it around a node it is already holding, so a query about that
 /// node is answered from the reference rather than by reading its entity.
 pub struct TreeView<'a> {
-    pub(crate) nodes: &'a HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>,
+    pub(crate) nodes: std::borrow::Cow<'a, HashMap<i32, NodeSnapshot>>,
     pub(crate) root_tags: Vec<i32>,
     pub(crate) top_inset: f32,
     pub(crate) animations_enabled: bool,
-    pub(crate) current: Option<(i32, &'a crate::node_view::RNNodeView)>,
+    pub(crate) current: Option<(i32, NodeSnapshot)>,
     pub(crate) retained: &'a HashMap<i32, Vec<i32>>,
-    pub(crate) app: *const App,
+}
+
+/// What the tree needs to know about one node, copied out of its entity.
+///
+/// The view owns these rather than holding the entities themselves: a hook is
+/// given `&mut App`, so a tree that kept entity handles could read a node that
+/// the same call is updating. Copying costs a string and a small prop map per
+/// node, and removes the aliasing entirely.
+#[derive(Clone, Debug)]
+pub(crate) struct NodeSnapshot {
+    pub(crate) component: String,
+    pub(crate) tag: i32,
+    pub(crate) frame: RectF,
+    pub(crate) props: Arc<Value>,
+    pub(crate) parent: Option<i32>,
+    pub(crate) children: Vec<i32>,
+    pub(crate) surface_id: i32,
+    pub(crate) transition: Option<TransitionState>,
+}
+
+impl NodeSnapshot {
+    fn to_component_node(&self) -> ComponentNode {
+        ComponentNode {
+            component: self.component.clone(),
+            tag: self.tag,
+            frame: self.frame,
+            props: self.props.clone(),
+            parent: self.parent,
+            children: Vec::new(),
+        }
+    }
 }
 
 impl TreeView<'_> {
-    /// The app the view was built against.
-    fn app(&self) -> &App {
-        unsafe { &*self.app }
-    }
-
     /// One node, with no children. `None` when no such tag is mounted.
     pub fn node(&self, tag: i32) -> Option<ComponentNode> {
-        if let Some((current_tag, node)) = self.current {
-            if current_tag == tag {
-                return Some(node.component_node_shallow());
+        if let Some((current_tag, node)) = &self.current {
+            if *current_tag == tag {
+                return Some(node.to_component_node());
             }
         }
-        self.nodes
-            .get(&tag)
-            .map(|node| node.read(self.app()).component_node_shallow())
+        self.nodes.get(&tag).map(NodeSnapshot::to_component_node)
     }
 
     /// A node's parent and the index it sits at among its siblings.
@@ -326,14 +349,14 @@ impl TreeView<'_> {
     /// A node's children in paint order. A retained subtree's children stay
     /// listed here even after React Native deleted their tags.
     pub fn children(&self, tag: i32) -> Vec<i32> {
-        if let Some((current_tag, node)) = self.current {
-            if current_tag == tag {
-                return node.child_tags();
+        if let Some((current_tag, node)) = &self.current {
+            if *current_tag == tag {
+                return node.children.clone();
             }
         }
         self.nodes
             .get(&tag)
-            .map(|node| node.read(self.app()).child_tags())
+            .map(|node| node.children.clone())
             .unwrap_or_default()
     }
 
@@ -360,21 +383,17 @@ impl TreeView<'_> {
 
     /// The surface a node's root belongs to, when it is mounted.
     pub fn surface_of(&self, tag: i32) -> Option<i32> {
-        self.nodes
-            .get(&tag)
-            .map(|node| node.read(self.app()).surface_id)
+        self.nodes.get(&tag).map(|node| node.surface_id)
     }
 
     /// A node's transition, with its progress sampled now.
     pub fn transition(&self, tag: i32) -> Option<TransitionState> {
-        if let Some((current_tag, node)) = self.current {
-            if current_tag == tag {
-                return node.transition_state();
+        if let Some((current_tag, node)) = &self.current {
+            if *current_tag == tag {
+                return node.transition;
             }
         }
-        self.nodes
-            .get(&tag)
-            .and_then(|node| node.read(self.app()).transition_state())
+        self.nodes.get(&tag).and_then(|node| node.transition)
     }
 
     /// The window's top inset, the same value the node sees.
@@ -947,17 +966,15 @@ mod tests {
 
     /// A tree with no nodes, for hooks whose bodies do not consult it.
     fn empty_tree() -> TreeView<'static> {
-        static NODES: OnceLock<HashMap<i32, gpui::Entity<crate::node_view::RNNodeView>>> =
-            OnceLock::new();
+        static NODES: OnceLock<HashMap<i32, NodeSnapshot>> = OnceLock::new();
         static RETAINED: OnceLock<HashMap<i32, Vec<i32>>> = OnceLock::new();
         TreeView {
-            nodes: NODES.get_or_init(HashMap::new),
+            nodes: std::borrow::Cow::Borrowed(NODES.get_or_init(HashMap::new)),
             root_tags: Vec::new(),
             top_inset: 0.0,
             animations_enabled: true,
             current: None,
             retained: RETAINED.get_or_init(HashMap::new),
-            app: std::ptr::null(),
         }
     }
 }
