@@ -325,8 +325,6 @@ impl TreeView<'_> {
 
     /// A node's children in paint order. A retained subtree's children stay
     /// listed here even after React Native deleted their tags.
-    /// A node's children in paint order. A retained subtree's children stay
-    /// listed here even after React Native deleted their tags.
     pub fn children(&self, tag: i32) -> Vec<i32> {
         if let Some((current_tag, node)) = self.current {
             if current_tag == tag {
@@ -453,7 +451,7 @@ impl BatchView {
 }
 
 /// How core should paint one node, beyond what its style says.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Decoration {
     pub display: Option<bool>,
     pub background: Option<u32>,
