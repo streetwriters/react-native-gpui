@@ -112,6 +112,7 @@ mod tests {
             component: "RNSScreen".to_string(),
             tag: 1,
             frame: rn_gpui_sys::ffi::RectF::default(),
+            scale: (1.0, 1.0),
             props: Arc::new(json),
             parent: None,
             children: Vec::new(),

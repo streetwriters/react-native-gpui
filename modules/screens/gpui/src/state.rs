@@ -13,10 +13,20 @@ pub struct HeaderFacts {
     pub is_top: bool,
     pub shows_back: bool,
     pub has_title_subview: bool,
+    /// The screen this header belongs to, which is where a back-button event
+    /// has to go: React Native declares `onHeaderBackButtonClicked` on
+    /// `RNSScreen`, not on the header config.
+    pub screen: Option<i32>,
 }
 
 /// Records what `decorate` learned, so `content` can read it.
-pub fn set_header_facts(tag: i32, is_top: bool, shows_back: bool, has_title_subview: bool) {
+pub fn set_header_facts(
+    tag: i32,
+    is_top: bool,
+    shows_back: bool,
+    has_title_subview: bool,
+    screen: Option<i32>,
+) {
     with(|state| {
         state.headers.insert(
             tag,
@@ -24,6 +34,7 @@ pub fn set_header_facts(tag: i32, is_top: bool, shows_back: bool, has_title_subv
                 is_top,
                 shows_back,
                 has_title_subview,
+                screen,
             },
         );
     });
@@ -44,6 +55,11 @@ pub fn header_has_title_subview(tag: i32) -> bool {
             .get(&tag)
             .is_some_and(|facts| facts.has_title_subview)
     })
+}
+
+/// The screen a header belongs to, as of the last `decorate` call.
+pub fn header_screen(tag: i32) -> Option<i32> {
+    with(|state| state.headers.get(&tag).and_then(|facts| facts.screen))
 }
 
 /// Whether this header shows a back button, as of the last `decorate` call.

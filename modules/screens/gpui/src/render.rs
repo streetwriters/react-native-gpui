@@ -42,10 +42,14 @@ impl ComponentRenderer for ScreenRenderer {
             return children;
         }
         let material = props::is_transparent_presentation(node);
-        let width = (node.frame.w - SHEET_MARGIN).clamp(0.0, SHEET_MAX_WIDTH);
-        let height = (node.frame.h - SHEET_MARGIN).clamp(0.0, SHEET_MAX_HEIGHT);
-        let left = ((node.frame.w - width) * 0.5).max(0.0);
-        let top = ((node.frame.h - height) * 0.5).max(0.0);
+        // The frame is in unscaled coordinates and the element this returns is
+        // painted scaled, so the sheet has to be scaled to land where the card
+        // it covers does. The old code did the same with `scale_x`/`scale_y`.
+        let (scale_x, scale_y) = node.scale;
+        let width = (node.frame.w - SHEET_MARGIN).clamp(0.0, SHEET_MAX_WIDTH) * scale_x;
+        let height = (node.frame.h - SHEET_MARGIN).clamp(0.0, SHEET_MAX_HEIGHT) * scale_y;
+        let left = ((node.frame.w * scale_x - width) * 0.5).max(0.0);
+        let top = ((node.frame.h * scale_y - height) * 0.5).max(0.0);
         let mut layers = Vec::with_capacity(2);
         if !material {
             layers.push(
@@ -153,8 +157,8 @@ impl ComponentRenderer for StackRenderer {
         key: &str,
         tree: &TreeView,
         handle: &react_native_gpui::extensions::StoreHandle,
-        _window: &mut Window,
-        _cx: &mut App,
+        window: &mut Window,
+        cx: &mut App,
     ) -> bool {
         if key != "escape" {
             return false;
@@ -175,7 +179,7 @@ impl ComponentRenderer for StackRenderer {
         if crate::state::with(|state| state.native_dismiss_pending.is_some()) {
             return true;
         }
-        dismiss_top(top, node.tag, tree, handle, _cx);
+        dismiss_top(top, node.tag, tree, handle, window, cx);
         true
     }
 }
@@ -219,7 +223,13 @@ impl ComponentRenderer for HeaderConfigRenderer {
     fn decorate(&self, node: &ComponentNode, tree: &TreeView) -> Decoration {
         let top = is_top_header(node, tree);
         let shown = should_show_back(node, tree);
-        crate::state::set_header_facts(node.tag, top, shown, has_title_subview(node, tree));
+        crate::state::set_header_facts(
+            node.tag,
+            top,
+            shown,
+            has_title_subview(node, tree),
+            node.parent,
+        );
         if props::header_hidden(node) || !top {
             return Decoration {
                 display: Some(false),
@@ -246,7 +256,11 @@ impl ComponentRenderer for HeaderConfigRenderer {
         if props::header_hidden(node) || !crate::state::header_is_top(node.tag) {
             return None;
         }
-        let node_tag = node.tag;
+        // React Native declares `onHeaderBackButtonClicked` on the screen, so
+        // the config's parent is the tag that has a listener for it.
+        let Some(screen_tag) = crate::state::header_screen(node.tag) else {
+            return None;
+        };
         let title_color = first_nonzero(props::header_title_color(node), 0xffffffff);
         let mut bar = div()
             .absolute()
@@ -282,7 +296,7 @@ impl ComponentRenderer for HeaderConfigRenderer {
                     .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
                         if let Some(handle) = store_handle(cx) {
                             handle.dispatch_event(
-                                node_tag,
+                                screen_tag,
                                 "headerBackButtonClicked",
                                 &serde_json::json!({}),
                                 cx,
@@ -303,15 +317,27 @@ impl ComponentRenderer for HeaderConfigRenderer {
 /// when the animation ends does it get the final progress, the `did` pair and
 /// `topDismissed`. `native_dismiss_pending` tells the stack observer that this
 /// dismissal already ran its animation, so it must not run a second one.
-fn dismiss_top(top: i32, stack: i32, tree: &TreeView, handle: &StoreHandle, cx: &mut App) {
+fn dismiss_top(
+    top: i32,
+    stack: i32,
+    tree: &TreeView,
+    handle: &StoreHandle,
+    window: &mut Window,
+    cx: &mut App,
+) {
     crate::state::with(|state| state.native_dismiss_pending = Some(top));
     let incoming = previous_screen(top, stack, tree);
     crate::lifecycle::dispatch_will(handle, Some(top), incoming, cx);
+    // The animation belongs to the screen being dismissed, not to the stack: a
+    // stack carries no `stackAnimation` prop of its own. A dismissal plays the
+    // entry mirrored, which is what `reverse` is for.
     let animation = tree
-        .node(stack)
+        .node(top)
         .map(|node| props::stack_animation(&node).to_string())
         .unwrap_or_default();
-    let mode = crate::transition::transition_mode(&animation);
+    let mode = crate::transition::transition_mode(&animation)
+        .filter(|_| tree.animations_enabled())
+        .map(crate::transition::TransitionMode::reverse);
     let duration = mode.map(|mode| mode.duration());
     if let Some(mode) = mode {
         let exit = crate::transition::transition(mode, crate::transition::Role::Exit, 1.0);
@@ -319,9 +345,14 @@ fn dismiss_top(top: i32, stack: i32, tree: &TreeView, handle: &StoreHandle, cx: 
             state.roles.insert(top, (crate::state::Role::Exit, 1.0));
         });
         handle.start_transition(top, exit, cx);
+        // The card underneath comes back to rest from wherever the push left
+        // it. Without this it stays offset for the whole dismissal.
+        if let Some(incoming) = incoming {
+            handle.clear_transition(incoming, cx);
+        }
+        handle.request_frame(window);
     }
     let finish = move |handle: &StoreHandle, cx: &mut App| {
-        crate::state::with(|state| state.native_dismiss_pending = None);
         handle.dispatch_event(
             top,
             "topTransitionProgress",
@@ -337,7 +368,10 @@ fn dismiss_top(top: i32, stack: i32, tree: &TreeView, handle: &StoreHandle, cx: 
         );
     };
     match duration {
-        Some(duration) => handle.after(duration, cx, finish),
+        Some(duration) => {
+            let handle = handle.clone();
+            handle.after(duration, cx, move |handle, cx| finish(handle, cx));
+        }
         None => finish(handle, cx),
     }
 }
@@ -393,8 +427,13 @@ fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
         .collect();
     let is_last = screens.last().copied() == Some(parent);
     // A screen that is leaving keeps its header while its transition runs, so
-    // the header does not blink out before the card has finished moving.
-    is_last || tree.transition(parent).is_some()
+    // the header does not blink out before the card has finished moving. An
+    // entry transition is never cleared once it ends, so only a running one
+    // counts: otherwise the first screen ever pushed keeps its header for good.
+    is_last
+        || tree
+            .transition(parent)
+            .is_some_and(|state| state.progress < 1.0)
 }
 
 /// Whether the header config carries a `title` subview.
@@ -479,10 +518,10 @@ impl ComponentRenderer for ContentWrapperRenderer {
             return None;
         };
         let mut frame = node.frame;
-        if header_hidden(screen, tree) {
-            frame.y -= HEADER_HEIGHT;
-            frame.h += HEADER_HEIGHT;
-        } else {
+        // Only a header that is actually showing takes space. When it is hidden
+        // the C++ half already gave the wrapper the whole screen, so the Yoga
+        // frame is the answer and any adjustment here would move it twice.
+        if !header_hidden(screen, tree) {
             frame.y += HEADER_HEIGHT;
             frame.h = (frame.h - HEADER_HEIGHT).max(0.0);
         }
@@ -550,3 +589,186 @@ pub const RENDERED_COMPONENTS: &[(&str, fn() -> Box<dyn ComponentRenderer>)] = &
     (CONTENT_WRAPPER, || Box::new(ContentWrapperRenderer)),
     (FULL_WINDOW_OVERLAY, || Box::new(FullWindowOverlayRenderer)),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state;
+    use std::sync::Arc;
+
+    /// Builds a node with the props this module's C++ half would have produced.
+    fn node(component: &str, tag: i32, props: serde_json::Value) -> ComponentNode {
+        ComponentNode {
+            component: component.to_string(),
+            tag,
+            frame: RectF::default(),
+            scale: (1.0, 1.0),
+            props: Arc::new(props),
+            parent: None,
+            children: Vec::new(),
+        }
+    }
+
+    fn frame(x: f32, y: f32, w: f32, h: f32) -> RectF {
+        RectF { x, y, w, h }
+    }
+
+    /// A tree built from plain values, matching what core would hand a hook.
+    fn tree(
+        nodes: Vec<react_native_gpui::extensions::TestNode>,
+        edges: &[(i32, i32)],
+        top_inset: f32,
+    ) -> TreeView<'static> {
+        TreeView::for_test(nodes, edges, top_inset)
+    }
+
+    fn entry(
+        tag: i32,
+        component: &'static str,
+        frame: RectF,
+        props: serde_json::Value,
+    ) -> react_native_gpui::extensions::TestNode {
+        react_native_gpui::extensions::TestNode {
+            tag,
+            component: component.to_string(),
+            frame,
+            scale: (1.0, 1.0),
+            props,
+        }
+    }
+
+    /// A stack with one screen, its header config and its content wrapper.
+    ///
+    /// `header` is the header config's props and `content_height` the wrapper's
+    /// Yoga height, which the C++ half computes for the whole screen.
+    fn stack_with_header(
+        header: serde_json::Value,
+        content_height: f32,
+    ) -> (TreeView<'static>, i32, i32) {
+        let nodes = vec![
+            entry(
+                1,
+                STACK,
+                frame(0.0, 0.0, 400.0, 600.0),
+                serde_json::json!({}),
+            ),
+            entry(
+                2,
+                SCREEN,
+                frame(0.0, 0.0, 400.0, 600.0),
+                serde_json::json!({"activityState": 2, "stackPresentation": "card"}),
+            ),
+            entry(3, HEADER_CONFIG, frame(0.0, 0.0, 400.0, 56.0), header),
+            entry(
+                4,
+                CONTENT_WRAPPER,
+                frame(0.0, 0.0, 400.0, content_height),
+                serde_json::json!({}),
+            ),
+        ];
+        let edges = [(1, 2), (2, 3), (2, 4)];
+        (tree(nodes, &edges, 0.0), 3, 4)
+    }
+
+    #[test]
+    fn a_visible_header_pushes_the_content_down_by_its_height() {
+        // Yoga gives the wrapper the whole screen; a visible header takes the
+        // top 56 px of it, so the content starts below the bar.
+        let (tree, _, wrapper) = stack_with_header(serde_json::json!({"title": "Home"}), 600.0);
+        let node = tree.node(wrapper).expect("wrapper is mounted");
+        let laid_out = ContentWrapperRenderer
+            .layout_frame(&node, &tree)
+            .expect("the wrapper is laid out");
+        assert_eq!(laid_out.y, HEADER_HEIGHT);
+        assert_eq!(laid_out.h, 600.0 - HEADER_HEIGHT);
+    }
+
+    #[test]
+    fn a_hidden_header_leaves_the_content_where_yoga_put_it() {
+        // The C++ half gives a hidden-header screen's wrapper the full height,
+        // so any adjustment here would move the content a second time: the
+        // reported bug was content sitting 56 px above the top of the window.
+        let (tree, _, wrapper) =
+            stack_with_header(serde_json::json!({"title": "Home", "hidden": true}), 600.0);
+        let node = tree.node(wrapper).expect("wrapper is mounted");
+        let laid_out = ContentWrapperRenderer
+            .layout_frame(&node, &tree)
+            .expect("the wrapper is laid out");
+        assert_eq!(laid_out.y, 0.0);
+        assert_eq!(laid_out.h, 600.0);
+    }
+
+    #[test]
+    fn the_header_sits_below_the_window_inset_and_is_one_bar_tall() {
+        let (tree, header, _) = stack_with_header(serde_json::json!({"title": "Home"}), 600.0);
+        // A window whose title bar takes 28 px: the bar must start below it.
+        let tree = tree_with_inset(&tree, 28.0);
+        let node = tree.node(header).expect("header is mounted");
+        let laid_out = HeaderConfigRenderer
+            .layout_frame(&node, &tree)
+            .expect("the header is laid out");
+        assert_eq!(laid_out.y, 28.0);
+        assert_eq!(laid_out.h, HEADER_HEIGHT);
+    }
+
+    #[test]
+    fn a_hidden_header_takes_no_height_and_paints_nothing() {
+        let (tree, header, _) =
+            stack_with_header(serde_json::json!({"title": "Home", "hidden": true}), 600.0);
+        let node = tree.node(header).expect("header is mounted");
+        let laid_out = HeaderConfigRenderer
+            .layout_frame(&node, &tree)
+            .expect("the header is laid out");
+        assert_eq!(laid_out.h, 0.0);
+        assert!(HeaderConfigRenderer.hides_subtree(&node, &tree));
+        assert_eq!(
+            HeaderConfigRenderer.decorate(&node, &tree).display,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn the_header_paints_the_colours_react_native_asked_for() {
+        let (tree, header, _) = stack_with_header(
+            serde_json::json!({
+                "title": "Home",
+                "backgroundColor": 0xff203040u32,
+            }),
+            600.0,
+        );
+        let node = tree.node(header).expect("header is mounted");
+        let decoration = HeaderConfigRenderer.decorate(&node, &tree);
+        assert_eq!(decoration.background, Some(0xff203040));
+        assert_ne!(decoration.display, Some(false));
+    }
+
+    #[test]
+    fn a_header_without_a_background_falls_back_to_the_default() {
+        let (tree, header, _) = stack_with_header(serde_json::json!({"title": "Home"}), 600.0);
+        let node = tree.node(header).expect("header is mounted");
+        assert_eq!(
+            HeaderConfigRenderer.decorate(&node, &tree).background,
+            Some(0xff171923)
+        );
+    }
+
+    /// The same tree as `stack_with_header` but with a window inset.
+    fn tree_with_inset(source: &TreeView<'_>, inset: f32) -> TreeView<'static> {
+        let mut nodes: Vec<react_native_gpui::extensions::TestNode> = Vec::new();
+        let mut edges = Vec::new();
+        for tag in [1, 2, 3, 4] {
+            let node = source.node(tag).expect("node is mounted");
+            nodes.push(react_native_gpui::extensions::TestNode {
+                tag,
+                component: node.component,
+                frame: node.frame,
+                scale: node.scale,
+                props: (*node.props).clone(),
+            });
+            if let Some(parent) = node.parent {
+                edges.push((parent, tag));
+            }
+        }
+        tree(nodes, &edges, inset)
+    }
+}
