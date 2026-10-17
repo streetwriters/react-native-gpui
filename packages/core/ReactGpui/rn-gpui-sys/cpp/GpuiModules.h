@@ -3,6 +3,30 @@
 // installed. The platform's own modules live in cpp/modules/. A module sets the
 // hooks it needs; an unset hook means core does what it does when the library
 // is absent.
+//
+// The extension API below is what a module uses. It is generic, keyed by name,
+// and names no library.
+//
+// registerComponentProps(name, fn): JSON props for one component name.
+//   MountBatchBuilder calls it for that component and stores the result in
+//   MountOp.extension_props_json.
+// registerMountObserver(observer): per-view mount callbacks. The observer owns
+//   its state; core hands it the view and nothing else.
+// registerWindowInsetsObserver(fn): the window's insets, on change.
+// registerFrameCallback(fn): called once per frame. A list, not one slot.
+// requestFrames(owner, needsFrames): asks core to keep delivering frames while
+//   that owner needs them. Core stops when no owner asks. A request is not
+//   "busy": a library may keep a heartbeat running while it has nothing to do.
+// reportPendingWork(owner, count): how much work an owner still has queued
+//   (callbacks waiting for a frame, say). Idle detection waits for every owner
+//   to report zero; it never waits on frame requests alone.
+// registerPointerObserver(fn): raw pointer events before React Native dispatch.
+//   Each returns the gestures it recognised, which core dispatches to the
+//   target tag.
+// argb(color): a Fabric colour as 0xAARRGGBB, or 0 when unset. Declared here so
+//   a module's props extraction does not need core's private
+//   MountBatchBuilder.h.
+// turboModules: extra TurboModules, asked in registration order.
 #pragma once
 
 #include "rn-gpui-sys/src/lib.rs.h" // MountOp
@@ -35,6 +59,7 @@ using GpuiTurboModuleFn =
         const std::string& name,
         const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker)>;
 
+// Called once per frame with a steady-clock timestamp in ms.
 using GpuiFrameFn = std::function<void(double timestampMs)>;
 
 namespace extension {
@@ -43,6 +68,8 @@ using ComponentPropsFn = std::function<std::string(
     const std::string& componentName,
     const facebook::react::ShadowView& shadowView)>;
 
+// What an observer sees about a mounted view. Core fills only these fields;
+// the observer keeps any state of its own.
 struct MountObserver {
   std::function<void(
       facebook::react::SurfaceId surfaceId,
@@ -55,6 +82,8 @@ struct MountObserver {
 using WindowInsetsFn =
     std::function<void(float top, float right, float bottom, float left)>;
 
+// A raw pointer event, before React Native dispatch. `targetChain` is the hit
+// chain from the target outward; `phase` follows RN's pointer phases.
 struct RawPointerEvent {
   std::vector<int32_t> targetChain;
   float x;
@@ -63,6 +92,8 @@ struct RawPointerEvent {
   double timestamp;
 };
 
+// A gesture the observer recognised in a pointer event. Core dispatches each
+// one back to its target tag.
 struct RecognizedGesture {
   int32_t targetTag;
   std::string eventType;
@@ -79,6 +110,7 @@ struct GpuiModuleHooks {
   GpuiFrameFn frame;
 };
 
+// The extension registries. Modules write these; core reads them.
 struct GpuiExtensionHooks {
   std::unordered_map<std::string, extension::ComponentPropsFn> componentProps;
   std::vector<extension::MountObserver> mountObservers;
@@ -93,21 +125,29 @@ uint32_t argb(const facebook::react::SharedColor& color);
 // Hooks are set by the installers at startup, before any surface starts.
 GpuiModuleHooks& gpuiModuleHooks();
 
+// JSON props for one component name. `componentName` is the Fabric component
+// name; the ShadowView carries the props and layout.
 void registerComponentProps(
     const std::string& componentName,
     extension::ComponentPropsFn fn);
 
+// Appends an observer; registration order is call order.
 void registerMountObserver(extension::MountObserver observer);
 
 void registerWindowInsetsObserver(extension::WindowInsetsFn fn);
 
 void registerFrameCallback(GpuiFrameFn fn);
 
+// Records whether `owner` still needs frames. Core stops delivering them once
+// no owner asks.
 void requestFrames(const std::string& owner, bool needsFrames);
+// Whether any owner asked for frames right now.
 bool anyFrameRequested();
 void reportPendingWork(const std::string& owner, uint64_t count);
 uint64_t pendingWork();
 
+// Re-evaluates the frame chain from every demand source: native animations,
+// and any module that asked through `requestFrames`. Defined in GpuiHost.cpp.
 void updateFrameDemand();
 
 void registerPointerObserver(extension::PointerObserverFn fn);

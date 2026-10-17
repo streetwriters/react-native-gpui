@@ -1,6 +1,11 @@
+//! The lifecycle events a stack sends to its screens as they appear and leave.
+//!
+//! React Native exposes these as `topWillAppear`, `topAppear`,
+//! `topWillDisappear` and `topDisappear`, in that order around a transition.
 use gpui::App;
 use react_native_gpui::extensions::StoreHandle;
 
+/// The events an activity-state change produces, in the order they fire.
 pub fn lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
     match (previous < 1.0, previous >= 2.0, next < 1.0, next >= 2.0) {
         (true, _, false, true) => &["topWillAppear", "topAppear"],
@@ -13,6 +18,7 @@ pub fn lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
     }
 }
 
+/// Sends the "will" half of a transition: the outgoing screen then the incoming.
 pub fn dispatch_will(
     handle: &StoreHandle,
     outgoing: Option<i32>,
@@ -31,6 +37,8 @@ pub fn dispatch_will(
     }
 }
 
+/// Sends the "did" half: the outgoing screen then the incoming, and wakes
+/// Fabric so the callbacks arrive before a later pop unmounts them.
 pub fn dispatch_did(
     handle: &StoreHandle,
     outgoing: Option<i32>,
