@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { PNG } from 'pngjs';
 import {
   launchApp,
   expectNoA11yViolations,
@@ -336,28 +337,59 @@ test.each([
   await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
 });
 
-test('the default back button pops the stack', async () => {
-  await launch('NavigationFixture', 'native-stack');
+test("the module's back button pops the stack", async () => {
+  // `native-stack-native-back` is the one scenario that does not replace the
+  // back button with a JS `headerLeft`, so a click on `‹` can only reach the
+  // button the module paints. The other scenarios would pass this test with the
+  // button missing entirely.
+  await launch('NavigationFixture', 'native-stack-native-back');
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
-  const [back] = await app.query('text', '\u2039');
-  expect(back).toBeDefined();
-  await app.click(back.tag);
+  // There is no React node for a painted button, so the click goes by position:
+  // the module puts it at the header's left edge, 56x56.
+  await app.mouseDown({ x: 28, y: 28 });
+  await app.mouseUp({ x: 28, y: 28 });
   await app.waitForIdle();
+  // The navigator answers `onHeaderBackButtonClicked` by dispatching a pop, and
+  // React Native declares that event on `RNSScreen`. A dispatch to the header
+  // config is dropped, so nothing pops and this screen stays.
   await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeHidden();
 });
 
-test('a modal sheet paints over the screen underneath', async () => {
+test('a modal sheet paints a backdrop and a sheet over the screen underneath', async () => {
   await launch('NavigationFixture', 'native-stack-modal');
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
   // The sheet is painted inside the screen, so the test driver's frames — which
-  // report the Yoga origin — cannot see it. Capture it instead.
-  if (app.captureSupported) {
-    const shot = await app.screenshot();
-    expect(shot.length).toBeGreaterThan(1000);
-    fs.writeFileSync(path.resolve('.local/modal-sheet.png'), shot);
-  }
+  // report the Yoga origin — cannot see where it landed. Read the pixels it
+  // actually drew instead. The sheet is 48 px in from every edge of a window
+  // this test set to 1024x768, so a corner is backdrop and the centre is sheet.
+  if (!app.captureSupported) return;
+  const image = PNG.sync.read(await app.screenshot());
+  const pixel = (x: number, y: number) => {
+    const offset = (image.width * y + x) * 4;
+    return {
+      r: image.data[offset],
+      g: image.data[offset + 1],
+      b: image.data[offset + 2],
+    };
+  };
+  // Half-opaque black over the app background darkens it without hiding it.
+  const corner = pixel(4, 4);
+  const cornerLuma = corner.r + corner.g + corner.b;
+  expect(cornerLuma).toBeLessThan(3 * 0x60);
+  // The sheet paints 0xff171923 at its own centre.
+  const centre = pixel(
+    Math.floor(image.width / 2),
+    Math.floor(image.height / 2),
+  );
+  expect(Math.abs(centre.r - 0x17)).toBeLessThanOrEqual(0x08);
+  expect(Math.abs(centre.g - 0x19)).toBeLessThanOrEqual(0x08);
+  expect(Math.abs(centre.b - 0x23)).toBeLessThanOrEqual(0x08);
+  // And the two differ, which is what "over the screen" means: a window that
+  // painted one flat colour would pass a length check but fail here.
+  expect(cornerLuma).not.toBe(centre.r + centre.g + centre.b);
 });
 
 test('native FullWindowOverlay renders above the application', async () => {
@@ -443,6 +475,35 @@ test('native stack slide, none and fade modes finish and pop all routes', async 
   expect(app.readLogs()).toContain(
     '[nav-native] transition end route=Details closing=true',
   );
+});
+
+test('one Escape dismisses one screen exactly once', async () => {
+  // Escape runs the dismissal animation itself and then tells JavaScript, which
+  // pops the screen. When the pop batch arrived, the flag that says "this
+  // dismissal already animated" had already been cleared, so the removal ran a
+  // second exit from the rest pose: the card came back and left again, and both
+  // lifecycle halves fired twice. Count them, against a log that names the tag.
+  // The fixture logs a `[nav-native]` pair per transition, which is the part of
+  // the dismissal JavaScript observes. The lifecycle events drive those.
+  await launch('NavigationFixture', 'native-stack');
+  await app.setAnimationsEnabled(true);
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  const before = app.readLogs().length;
+  await app.press('escape');
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
+  const after = app.readLogs().slice(before);
+  const starts = [
+    ...after.matchAll(/\[nav-native\] transition start route=Details/gu),
+  ];
+  const ends = [
+    ...after.matchAll(/\[nav-native\] transition end route=Details/gu),
+  ];
+  expect(starts).toHaveLength(1);
+  expect(ends).toHaveLength(1);
+  // And the screen really is gone, rather than animating away and back.
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeHidden();
 });
 
 test('nested stack and modal preserve the tab input and scroll position', async () => {
