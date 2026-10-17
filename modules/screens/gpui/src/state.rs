@@ -80,8 +80,8 @@ pub struct State {
     /// Cards leaving in this batch, by tag.
     pub pop_plans: HashMap<i32, PopPlan>,
     /// The cards this module started a transition on: whether it is an entry
-    /// (the screen is arriving) or an exit.
-    pub roles: HashMap<i32, Role>,
+    /// (the screen is arriving) or an exit, and how far it travels.
+    pub roles: HashMap<i32, (Role, f32)>,
     /// The latest facts about each header, written by `decorate`.
     pub headers: HashMap<i32, HeaderFacts>,
 }
