@@ -1,7 +1,7 @@
 # C++ TurboModule fixture
 
 This fixture is a standard package with its specs in `src/`, C++ implementation
-under `gpui/`, and platform metadata in `react-native.config.js`. The app's
+under `desktop/`, and platform metadata in `react-native.config.js`. The app's
 normal GPUI autolink pass registers `NativeCppExample` and
 `NativeCppMainExample`, generates a spec class per spec file from
 `@react-native-gpui/codegen`, and compiles the source into the app-owned
