@@ -111,6 +111,11 @@ export const renderScreen: Record<
       ...props,
       scenario: 'native-stack-lifecycle',
     }),
+  'native-stack-native-back': props =>
+    React.createElement(require('./navigation/NavigationFixture').default, {
+      ...props,
+      scenario: 'native-stack-native-back',
+    }),
   'native-stack-modal': props =>
     React.createElement(require('./navigation/NavigationFixture').default, {
       ...props,
