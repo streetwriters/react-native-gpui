@@ -644,7 +644,7 @@ fn refresh_inherited_tree(
         vec![(node, parent)];
 
     while let Some((node, parent)) = pending.pop() {
-        let own = node.read(cx).inherit_input(top_inset, tree);
+        let own = node.read(cx).inherit_input(tree);
         let inherited = inherit(parent.as_ref().map(|(p, i)| (p, i)), &own);
         let children: Vec<Entity<RNNodeView>> = node
             .read(cx)

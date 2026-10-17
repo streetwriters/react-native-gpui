@@ -707,7 +707,7 @@ impl RNNodeView {
 
     fn origin_frame(&self, cx: &App) -> (f32, f32) {
         let stable = self.stable_paint_tree(cx);
-        self.origin_frame_with_top_inset(stable.top_inset, &stable)
+        self.origin_frame_with_tree(&stable)
     }
 
     /// `refresh_inherited` runs while `ViewStore` is being updated, so the inset
@@ -764,23 +764,14 @@ impl RNNodeView {
             .is_some_and(|renderer| renderer.hides_subtree(&self.component_node_shallow(), tree))
     }
 
-    pub(crate) fn origin_frame_with_top_inset(
-        &self,
-        top_inset: f32,
-        tree: &crate::extensions::TreeView,
-    ) -> (f32, f32) {
+    pub(crate) fn origin_frame_with_tree(&self, tree: &crate::extensions::TreeView) -> (f32, f32) {
         let frame = self.layout_frame(tree);
-        let _ = top_inset;
         (frame.x, frame.y)
     }
 
-    pub(crate) fn inherit_input(
-        &self,
-        top_inset: f32,
-        tree: &crate::extensions::TreeView,
-    ) -> InheritInput {
+    pub(crate) fn inherit_input(&self, tree: &crate::extensions::TreeView) -> InheritInput {
         InheritInput {
-            origin_frame: self.origin_frame_with_top_inset(top_inset, tree),
+            origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
             border: (self.view.border_widths.left, self.view.border_widths.top),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
