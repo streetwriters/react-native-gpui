@@ -491,10 +491,8 @@ test('the main window vetoes a close until it is forced', async () => {
   );
 
   // TODO: after the main window is closed the remaining window keeps
-  // presenting frames, so this cannot wait for idle. The budget is generous
-  // because the unmount batch arrives ~1.5s late on Linux (see the C5
-  // follow-up report); `mount` is still checked, so a stuck batch still fails.
-  await app.windowClose(1, true, { ignore: ['frames'], timeout: 10000 });
+  // presenting frames, so neither call can wait for idle.
+  await app.windowClose(1, true, { ignore: ['frames'], timeout: 1500 });
   const remaining = await app.listWindows();
   expect(remaining.windows.some(w => w.windowId === 1)).toBe(false);
   expect(remaining.windows.length).toBeGreaterThan(0);
