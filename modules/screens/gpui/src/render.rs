@@ -162,6 +162,7 @@ impl ComponentRenderer for HeaderConfigRenderer {
 
     fn layout_frame(&self, node: &ComponentNode, tree: &TreeView) -> Option<RectF> {
         let mut frame = node.frame;
+        frame.y += tree.window_top_inset();
         frame.h = if props::header_hidden(node) || !is_top_header(node, tree) {
             0.0
         } else {
