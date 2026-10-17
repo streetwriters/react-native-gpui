@@ -2473,7 +2473,9 @@ impl Render for RNNodeView {
                     animations_enabled,
                     current: Some((this.tag, this)),
                     retained: &retained,
-                    app: cx as *const _ as *const App,
+                    // The tree reads entities through the app's entity map, so
+                    // the pointer has to be the app, not this node's context.
+                    app: &**cx as *const App,
                 };
                 let handled =
                     renderer.on_key_down(&node, &event.keystroke.key, &tree, &handle, window, cx);
