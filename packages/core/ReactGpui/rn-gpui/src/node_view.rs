@@ -78,6 +78,7 @@ pub struct RNNodeView {
     pub(crate) transition: Option<(crate::extensions::Transition, Instant)>,
     pub(crate) transition_forward: bool,
     transition_progress_sent: Option<(Instant, f32)>,
+    transition_end_refreshed: Option<Instant>,
     /// Outside the entity so a scroll can move it without updating this view:
     /// gpui-fast rebuilds every view that read an updated entity.
     scroll_position: Rc<Cell<Point<f32>>>,
@@ -552,6 +553,7 @@ impl RNNodeView {
             transition: None,
             transition_forward: false,
             transition_progress_sent: None,
+            transition_end_refreshed: None,
             // `core-private:` a scroll view starts at the offset the module's
             scroll_position: Rc::new(Cell::new(point(scroll_initial.0, scroll_initial.1))),
             scroll: crate::extensions::component_scroll(
@@ -1842,6 +1844,7 @@ impl Render for RNNodeView {
         } else {
             self.transition
         };
+        let transition_started_at = transition.map(|(_, started_at)| started_at);
         let transition_progress =
             transition.map(|(transition, started_at)| transition.progress_now(started_at));
         if let (Some((_transition, started_at)), Some(progress)) = (transition, transition_progress)
@@ -1863,6 +1866,18 @@ impl Render for RNNodeView {
                 let _ = node.update(cx, |_, cx| cx.notify());
             });
             window.request_animation_frame();
+        } else if let Some(started) = transition_started_at {
+            if self.transition_end_refreshed != Some(started) {
+                self.transition_end_refreshed = Some(started);
+                let surface_id = self.surface_id;
+                cx.defer(move |cx| {
+                    if let Some(store) = crate::store::store_from(cx) {
+                        store.update(cx, |store, cx| {
+                            store.refresh_inherited(surface_id, cx);
+                        });
+                    }
+                });
+            }
         }
         let scroll = self.scroll.clone();
         let is_scroll = scroll.is_some();

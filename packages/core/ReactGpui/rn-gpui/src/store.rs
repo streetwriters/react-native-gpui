@@ -620,6 +620,18 @@ impl ViewStore {
     }
 }
 
+/// One node's refreshed state, computed while the tree is alive and applied
+/// after it is dropped.
+struct InheritedUpdate {
+    node: Entity<RNNodeView>,
+    inherited: Inherited,
+    hides_self: bool,
+    renderer_frame: Option<rn_gpui_sys::ffi::RectF>,
+    renderer_decoration: Option<crate::extensions::Decoration>,
+    changed: bool,
+    render_affecting: bool,
+}
+
 fn refresh_inherited_tree(
     node: Entity<RNNodeView>,
     top_inset: f32,
@@ -627,18 +639,15 @@ fn refresh_inherited_tree(
     tree: &crate::extensions::TreeView,
     cx: &mut Context<ViewStore>,
 ) {
-    let own = {
-        let view = node.read(cx);
-        view.inherit_input(top_inset, tree)
-    };
-    let inherited = inherit(parent.as_ref().map(|(parent, input)| (parent, input)), &own);
-    let (children, modal_children, frame, decoration, changed, render_affecting) = {
-        let view = node.read(cx);
-        let frame = crate::extensions::component_renderer(&view.component)
-            .and_then(|renderer| renderer.layout_frame(&view.component_node_shallow(), tree));
-        let decoration = crate::extensions::component_renderer(&view.component)
-            .map(|renderer| renderer.decorate(&view.component_node_shallow(), tree));
-        let children: Vec<Entity<RNNodeView>> = view
+    let mut updates: Vec<InheritedUpdate> = Vec::new();
+    let mut pending: Vec<(Entity<RNNodeView>, Option<(Inherited, InheritInput)>)> =
+        vec![(node, parent)];
+
+    while let Some((node, parent)) = pending.pop() {
+        let own = node.read(cx).inherit_input(top_inset, tree);
+        let inherited = inherit(parent.as_ref().map(|(p, i)| (p, i)), &own);
+        let children: Vec<Entity<RNNodeView>> = node
+            .read(cx)
             .children
             .iter()
             .map(|(_, child)| child.clone())
@@ -647,39 +656,51 @@ fn refresh_inherited_tree(
             .iter()
             .filter(|child| child.read(cx).view.accessibility_modal)
             .count();
-        (
-            children,
-            modal_children,
-            frame,
-            decoration,
-            !view.inherited.same(&inherited),
-            !view.inherited.same_render_affecting(&inherited),
-        )
-    };
-    if changed {
-        let hides_self = own.hides_subtree;
-        node.update(cx, |view, cx| {
-            view.renderer_frame = frame;
-            view.renderer_decoration = decoration;
-            view.inherited = inherited.clone();
-            view.inherited.window_top_inset = top_inset;
-            view.inherited.hides_subtree_self = hides_self;
-            if render_affecting {
+        let (renderer_frame, renderer_decoration, changed, render_affecting) = {
+            let view = node.read(cx);
+            let frame = crate::extensions::component_renderer(&view.component)
+                .and_then(|r| r.layout_frame(&view.component_node_shallow(), tree));
+            let decoration = crate::extensions::component_renderer(&view.component)
+                .map(|r| r.decorate(&view.component_node_shallow(), tree));
+            (
+                frame,
+                decoration,
+                !view.inherited.same(&inherited),
+                !view.inherited.same_render_affecting(&inherited),
+            )
+        };
+        for child in children {
+            let child_is_modal = child.read(cx).view.accessibility_modal;
+            let mut parent_input = own.clone();
+            parent_input.other_modal_child = modal_children > usize::from(child_is_modal);
+            pending.push((child, Some((inherited.clone(), parent_input))));
+        }
+        updates.push(InheritedUpdate {
+            node,
+            inherited,
+            hides_self: own.hides_subtree,
+            renderer_frame,
+            renderer_decoration,
+            changed,
+            render_affecting,
+        });
+    }
+
+    for update in updates {
+        update.node.update(cx, |view, cx| {
+            let renderer_changed = view.renderer_frame != update.renderer_frame
+                || view.renderer_decoration != update.renderer_decoration;
+            view.renderer_frame = update.renderer_frame;
+            view.renderer_decoration = update.renderer_decoration;
+            if update.changed {
+                view.inherited = update.inherited.clone();
+                view.inherited.window_top_inset = top_inset;
+                view.inherited.hides_subtree_self = update.hides_self;
+            }
+            if update.render_affecting || renderer_changed {
                 cx.notify();
             }
         });
-    }
-    for child in children {
-        let child_is_modal = child.read(cx).view.accessibility_modal;
-        let mut parent_input = own.clone();
-        parent_input.other_modal_child = modal_children > usize::from(child_is_modal);
-        refresh_inherited_tree(
-            child,
-            top_inset,
-            Some((inherited.clone(), parent_input)),
-            tree,
-            cx,
-        );
     }
 }
 

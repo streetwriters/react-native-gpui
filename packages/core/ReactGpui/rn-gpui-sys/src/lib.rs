@@ -5,7 +5,7 @@ pub mod ffi {
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
     }
 
-    #[derive(Clone, Copy, Debug, Default)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub struct RectF {
         pub x: f32,
         pub y: f32,
