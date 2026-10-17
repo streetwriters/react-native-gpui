@@ -436,12 +436,19 @@ fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
             .is_some_and(|state| state.progress < 1.0)
 }
 
-/// Whether the header config carries a `title` subview.
+/// Whether the header config carries a subview that paints the title.
+///
+/// React Navigation puts a custom title in a `title` subview, and a centred one
+/// in a `center` subview; either way that subview paints the title, so core must
+/// not paint a second copy.
 fn has_title_subview(config: &ComponentNode, tree: &TreeView) -> bool {
     tree.children(config.tag)
         .into_iter()
         .filter_map(|tag| tree.node(tag))
-        .any(|child| child.component == HEADER_SUBVIEW && props::subview_type(&child) == "title")
+        .any(|child| {
+            child.component == HEADER_SUBVIEW
+                && matches!(props::subview_type(&child), "title" | "center")
+        })
 }
 
 /// The live screen directly below `top` in its stack, if any.
@@ -725,6 +732,54 @@ mod tests {
             HeaderConfigRenderer.decorate(&node, &tree).display,
             Some(false)
         );
+    }
+
+    /// A header carrying a `title` or `center` subview must not paint a second
+    /// title of its own: the subview is the title.
+    #[test]
+    fn a_title_subview_suppresses_the_headers_own_title() {
+        for subview_type in ["title", "center"] {
+            let nodes = vec![
+                entry(
+                    1,
+                    STACK,
+                    frame(0.0, 0.0, 400.0, 600.0),
+                    serde_json::json!({}),
+                ),
+                entry(
+                    2,
+                    SCREEN,
+                    frame(0.0, 0.0, 400.0, 600.0),
+                    serde_json::json!({"activityState": 2, "stackPresentation": "card"}),
+                ),
+                entry(
+                    3,
+                    HEADER_CONFIG,
+                    frame(0.0, 0.0, 400.0, 56.0),
+                    serde_json::json!({"title": "Details 1"}),
+                ),
+                entry(
+                    4,
+                    HEADER_SUBVIEW,
+                    frame(0.0, 0.0, 80.0, 20.0),
+                    serde_json::json!({ "type": subview_type }),
+                ),
+            ];
+            let edges = [(1, 2), (2, 3), (3, 4)];
+            let tree = tree(nodes, &edges, 0.0);
+            let config = tree.node(3).expect("header config is mounted");
+            assert!(
+                has_title_subview(&config, &tree),
+                "a {subview_type} subview paints the title"
+            );
+        }
+    }
+
+    #[test]
+    fn a_header_without_a_title_subview_paints_its_title() {
+        let (tree, header, _) = stack_with_header(serde_json::json!({"title": "Home"}), 600.0);
+        let node = tree.node(header).expect("header is mounted");
+        assert!(!has_title_subview(&node, &tree));
     }
 
     #[test]
