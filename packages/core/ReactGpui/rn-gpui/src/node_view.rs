@@ -2454,26 +2454,30 @@ impl Render for RNNodeView {
                         !cx.reduce_motion() && !crate::animation_policy::animations_disabled(),
                     )
                 };
-                let nodes = HashMap::default();
-                let retained = HashMap::default();
+                let handle = crate::extensions::StoreHandle::new(store_entity.downgrade());
+                let node = this.component_node_shallow();
+                // The handler takes the app mutably, so the tree it reads has to
+                // own its maps rather than borrow them from the leased store.
+                let (nodes, root_tags, retained) = {
+                    let store = store_entity.read(cx);
+                    (
+                        store.nodes.clone(),
+                        store.roots.keys().copied().collect(),
+                        store.retained_subtrees.clone(),
+                    )
+                };
                 let tree = crate::extensions::TreeView {
                     nodes: &nodes,
-                    root_tags: Vec::new(),
+                    root_tags,
                     top_inset,
                     animations_enabled,
                     current: Some((this.tag, this)),
                     retained: &retained,
                     app: cx as *const _ as *const App,
                 };
-                let handle = crate::extensions::StoreHandle::new(store_entity.downgrade());
-                if renderer.on_key_down(
-                    &this.component_node_shallow(),
-                    &event.keystroke.key,
-                    &tree,
-                    &handle,
-                    window,
-                    cx,
-                ) {
+                let handled =
+                    renderer.on_key_down(&node, &event.keystroke.key, &tree, &handle, window, cx);
+                if handled {
                     cx.stop_propagation();
                 }
             }));
