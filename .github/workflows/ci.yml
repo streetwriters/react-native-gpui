@@ -20,6 +20,11 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
+  # One directory for every OS, so the cache step below has a single path to
+  # restore. ccache is React Native's own CMake launcher (it finds the binary
+  # with `find_program`), so a warm cache is what makes a C++ PR fast: without
+  # one every run recompiles ReactCommon and the native deps from scratch.
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
   # Full debug info dominates link time and the size of the Cargo cache; line
   # tables keep panic backtraces readable. OPT_LEVEL stays 0, so the C++ build
   # type (Debug) does not change.
@@ -273,6 +278,36 @@ jobs:
             packages/rn-gpui-tester/desktop -> ../../../target
           cache-on-failure: true
 
+      # The C++ below is compiled by ccache, but the cache directory is not part
+      # of `target/`, so Cargo's cache does not carry it. Restore the most recent
+      # one for this platform and let the exact key miss every run: ccache
+      # invalidates per object itself, so a stale entry is a hit, not a risk.
+      - name: Restore the ccache directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-
+
+      - name: Prepare ccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          # MSYS rewrites a leading `/` into a drive path, but CCACHE_DIR is an
+          # absolute Windows path already, so leave it alone.
+          export MSYS2_ARG_CONV_EXCL='*'
+          ccache --version
+          # Three platforms share the repo's cache budget, and Cargo and the
+          # prebuilt runtime need room too, so keep this to 1 GB each. ccache
+          # evicts its own entries LRU once it is full.
+          ccache --max-size=1G
+          # Object identity by content, not mtime: a restored cache directory
+          # gets fresh timestamps and would otherwise miss on every file.
+          ccache --set-config=compiler_check=content
+          ccache --show-config | grep -E 'cache_dir|max_size|compiler_check'
+
       - name: Cache native dependencies
         if: needs.plan.outputs.cpp_changed == 'true'
         uses: actions/cache@v4
@@ -314,6 +349,13 @@ jobs:
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "build tester" -- \
             npm run desktop -- --features test-driver --no-launch
+
+      # The hit rate is the only evidence the cache is earning its keep, and it
+      # is what a C++ PR's build time is made of.
+      - name: Report the ccache hit rate
+        if: always()
+        shell: bash
+        run: ccache --show-stats --verbose || true
 
       # The Windows runner's screen is 1024x768, so a 1024x768 window plus its
       # title bar does not fit and Windows shrinks it (the navigation e2e saw a
