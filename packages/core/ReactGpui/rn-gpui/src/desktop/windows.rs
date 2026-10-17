@@ -371,10 +371,16 @@ fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool)
     let surface_id = entry.surface_id;
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
-        store.update(cx, |store, _cx| {
-            store.unregister_window(surface_id);
-            store.host.stop_surface(surface_id);
-        });
+        // Only the registry entry is dropped here. `stop_surface` goes through
+        // Fabric's `SurfaceManager`, which can re-enter the JS thread while this
+        // update holds the store's lease; a mount batch for the surface that is
+        // still in the channel then has to wait for a lease that cannot be
+        // released until the stop returns. Deferring the stop lets queued
+        // batches apply first, which is also the order React Native expects:
+        // stop is the last thing a closing surface sees.
+        store.update(cx, |store, _cx| store.unregister_window(surface_id));
+        let host = store.read(cx).host.clone();
+        cx.defer(move |_cx| host.stop_surface(surface_id));
     }
     if remove_window {
         let _ = handle.update(cx, |_root, window, _cx| window.remove_window());
