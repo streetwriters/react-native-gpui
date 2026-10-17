@@ -93,7 +93,7 @@ async fn serve_commands(
                         )
                     })
                     .unwrap_or((0.0, 0.0, 1.0));
-                json!({"protocol": PROTOCOL_VERSION, "platform": "gpui", "scale": scale,
+                json!({"protocol": PROTOCOL_VERSION, "platform": "desktop", "scale": scale,
                     // The React instance this tree belongs to. A client uses it
                     // to wait for the replacement after a reload; it is 0 only
                     // before the host has created any instance at all.

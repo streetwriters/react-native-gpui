@@ -646,7 +646,7 @@ fn run_cmake_build(build_dir: &Path, profile: &str) {
     assert!(status.success(), "CMake build of rn_gpui_modules failed");
 }
 
-/// The app's `project.gpui.prebuilt` option (`auto`, `always` or `never`), which
+/// The app's `project.desktop.prebuilt` option (`auto`, `always` or `never`), which
 /// autolink copies into its manifest. A missing manifest or field means `auto`.
 fn prebuilt_mode(autolink_manifest: &Path) -> String {
     fs::read_to_string(autolink_manifest)
@@ -822,7 +822,9 @@ fn check_pinned_inputs(package_dir: &Path) -> Result<(), String> {
 
 fn fallback_or_panic(require: bool, reason: &str) {
     if require {
-        panic!("rn-gpui-sys: project.gpui.prebuilt is 'always' and no prebuilt runtime: {reason}");
+        panic!(
+            "rn-gpui-sys: project.desktop.prebuilt is 'always' and no prebuilt runtime: {reason}"
+        );
     }
     println!("cargo:warning=rn-gpui-sys: no prebuilt runtime ({reason}); building from source");
 }

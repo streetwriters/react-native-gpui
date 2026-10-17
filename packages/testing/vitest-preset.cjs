@@ -15,10 +15,10 @@ module.exports = {
   resolve: {
     conditions: ['react-native', 'node'],
     extensions: [
-      '.gpui.tsx',
-      '.gpui.ts',
-      '.gpui.jsx',
-      '.gpui.js',
+      '.desktop.tsx',
+      '.desktop.ts',
+      '.desktop.jsx',
+      '.desktop.js',
       '.native.tsx',
       '.native.ts',
       '.native.jsx',
@@ -34,7 +34,7 @@ module.exports = {
       {
         // React Native's own entry is Flow-typed and cannot be parsed by vitest,
         // so a module in `src-gpui` that imports `TurboModuleRegistry` from the
-        // package root — the convention there, and what `Platform.gpui.js` does
+        // package root — the convention there, and what `Platform.desktop.js` does
         // — would fail to load in a unit test and leave the registry undefined.
         // The mock exposes what those modules use; tests install what the native
         // side should report through `globalThis.__rnGpuiTestTurboModules`.
@@ -45,14 +45,14 @@ module.exports = {
         find: /^react-native\/Libraries\/Utilities\/Platform$/,
         replacement: path.join(
           gpuiRoot,
-          'src-gpui/Libraries/Utilities/Platform.gpui.js',
+          'src-gpui/Libraries/Utilities/Platform.desktop.js',
         ),
       },
       {
         find: /^react-native\/Libraries\/NativeComponent\/BaseViewConfig(?:\.ios)?$/,
         replacement: path.join(
           gpuiRoot,
-          'src-gpui/Libraries/NativeComponent/BaseViewConfig.gpui.ts',
+          'src-gpui/Libraries/NativeComponent/BaseViewConfig.desktop.ts',
         ),
       },
       {

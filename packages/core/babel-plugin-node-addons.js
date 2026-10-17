@@ -8,7 +8,7 @@
 // plugin does is tell the runtime which file to open and give it a stable name
 // for that file.
 //
-// It is a no-op unless Babel's caller reports `platform === 'gpui'`, so one
+// It is a no-op unless Babel's caller reports `platform === 'desktop'`, so one
 // `babel.config.js` works for iOS, Android and desktop.
 'use strict';
 
@@ -875,7 +875,7 @@ module.exports = function babelPluginNodeAddons(api, options = {}) {
   };
   // Read once, at config time: `api.caller` caches the answer and refuses a
   // callback once traversal has started.
-  const isGpuiPlatform = api.caller(caller => caller?.platform) === 'gpui';
+  const isGpuiPlatform = api.caller(caller => caller?.platform) === 'desktop';
 
   const missingModuleExpression = specifier => {
     const error = t.callExpression(t.identifier('Error'), [

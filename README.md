@@ -87,7 +87,7 @@ Choose how the C++ runtime is built in the app's `react-native.config.js`:
 ```js
 module.exports = {
   project: {
-    gpui: {
+    desktop: {
       prebuilt: 'auto', // 'auto' (default) | 'always' | 'never'
     },
   },

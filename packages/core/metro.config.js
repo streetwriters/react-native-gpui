@@ -6,11 +6,11 @@ const { activeJsEngineBundle } = require('./js-engine');
 
 const PACKAGE_NAME = '@react-native-gpui/core';
 const PACKAGE_DIR = __dirname;
-const ENTRY = path.join(PACKAGE_DIR, 'index.gpui.js');
+const ENTRY = path.join(PACKAGE_DIR, 'index.desktop.js');
 const SETUP_ENV = path.join(PACKAGE_DIR, 'setup-env.js');
 const SRC_DIR = path.join(PACKAGE_DIR, 'src-gpui');
-const GPUI_SUFFIX = /\.gpui\.(?:js|ts|tsx)$/;
-// Some React Native modules ship only `.ios.js`/`.android.js`; gpui uses iOS's.
+const DESKTOP_SUFFIX = /\.desktop\.(?:js|ts|tsx)$/;
+// Some React Native modules ship only `.ios.js`/`.android.js`; desktop uses iOS's.
 const FALLBACK_PLATFORM = 'ios';
 
 const isInside = (file, dir) => file.startsWith(dir + path.sep);
@@ -50,7 +50,7 @@ function nodeModulesUpToTreeRoot(directory) {
   }
 }
 
-// `src-gpui/<path>.gpui.js` replaces React Native's `<path>.js` (and its
+// `src-gpui/<path>.desktop.js` replaces React Native's `<path>.js` (and its
 // platform variants).
 function reactNativeOverrides(reactNativeDir) {
   const overrides = new Map();
@@ -58,10 +58,10 @@ function reactNativeOverrides(reactNativeDir) {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) walk(file);
-      if (!GPUI_SUFFIX.test(entry.name)) continue;
+      if (!DESKTOP_SUFFIX.test(entry.name)) continue;
       const base = path
         .relative(SRC_DIR, file)
-        .replace(GPUI_SUFFIX, '')
+        .replace(DESKTOP_SUFFIX, '')
         .split(path.sep)
         .join('/');
       for (const variant of ['.js', '.native.js', '.ios.js', '.android.js']) {
@@ -76,14 +76,14 @@ function reactNativeOverrides(reactNativeDir) {
 }
 
 // A library package declares its replacements in react-native.config.js as
-// `platforms.gpui.sourceOverrides: { '<package>/<file>': './<own file>' }`.
+// `platforms.desktop.sourceOverrides: { '<package>/<file>': './<own file>' }`.
 function libraryOverrides(packageDirs) {
   const overrides = new Map();
   for (const packageDir of packageDirs) {
     const configFile = path.join(packageDir, 'react-native.config.js');
     if (!fs.existsSync(configFile)) continue;
     const declared =
-      require(configFile).dependency?.platforms?.gpui?.sourceOverrides ?? {};
+      require(configFile).dependency?.platforms?.desktop?.sourceOverrides ?? {};
     for (const [key, target] of Object.entries(declared)) {
       overrides.set(key, path.resolve(packageDir, target));
     }
@@ -179,7 +179,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     if (moduleName.startsWith('.') && rnOverrideFiles.has(origin)) {
       const upstream = path
         .relative(SRC_DIR, origin)
-        .replace(GPUI_SUFFIX, '.js');
+        .replace(DESKTOP_SUFFIX, '.js');
       context = {
         ...context,
         originModulePath: path.join(reactNativeDir, upstream),
@@ -242,7 +242,7 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       getModulesRunBeforeMainModule: () => [SETUP_ENV],
     },
     resolver: {
-      platforms: ['gpui', 'native'],
+      platforms: ['desktop', 'native'],
       nodeModulesPaths,
       // Resolve only from `nodeModulesPaths`, not by walking up from each
       // importing file. When this package is linked (`file:`, `npm link`, a
