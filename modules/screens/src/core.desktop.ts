@@ -1,4 +1,4 @@
-import './customDirectEventTypes.gpui';
+import './customDirectEventTypes.desktop';
 
 // GPUI always ships the native screens implementation.
 export const isNativePlatformSupported = true;

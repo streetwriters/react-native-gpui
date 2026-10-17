@@ -1,5 +1,5 @@
 import React from 'react';
-import './customDirectEventTypes.gpui';
+import './customDirectEventTypes.desktop';
 import {
   Pressable,
   type ColorValue,

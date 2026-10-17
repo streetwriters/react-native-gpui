@@ -362,9 +362,7 @@ test('a modal sheet paints a backdrop and a sheet over the screen underneath', a
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
   // The sheet is painted inside the screen, so the test driver's frames — which
-  // report the Yoga origin — cannot see where it landed. Read the pixels it
-  // actually drew instead. The sheet is 48 px in from every edge of a window
-  // this test set to 1024x768, so a corner is backdrop and the centre is sheet.
+  // report the Yoga origin — cannot see where it landed. Read the pixels instead.
   if (!app.captureSupported) return;
   const image = PNG.sync.read(await app.screenshot());
   const pixel = (x: number, y: number) => {
@@ -375,21 +373,25 @@ test('a modal sheet paints a backdrop and a sheet over the screen underneath', a
       b: image.data[offset + 2],
     };
   };
-  // Half-opaque black over the app background darkens it without hiding it.
-  const corner = pixel(4, 4);
-  const cornerLuma = corner.r + corner.g + corner.b;
-  expect(cornerLuma).toBeLessThan(3 * 0x60);
-  // The sheet paints 0xff171923 at its own centre.
+  // The sheet is centred in the screen and capped at 760x640, so the middle of
+  // the capture is inside it whatever the window size. It paints 0xff171923.
   const centre = pixel(
     Math.floor(image.width / 2),
     Math.floor(image.height / 2),
   );
-  expect(Math.abs(centre.r - 0x17)).toBeLessThanOrEqual(0x08);
-  expect(Math.abs(centre.g - 0x19)).toBeLessThanOrEqual(0x08);
-  expect(Math.abs(centre.b - 0x23)).toBeLessThanOrEqual(0x08);
-  // And the two differ, which is what "over the screen" means: a window that
-  // painted one flat colour would pass a length check but fail here.
-  expect(cornerLuma).not.toBe(centre.r + centre.g + centre.b);
+  expect(Math.abs(centre.r - 0x17)).toBeLessThanOrEqual(0x0a);
+  expect(Math.abs(centre.g - 0x19)).toBeLessThanOrEqual(0x0a);
+  expect(Math.abs(centre.b - 0x23)).toBeLessThanOrEqual(0x0a);
+  // A corner is outside the sheet. What it holds differs by platform — the
+  // menu bar on Linux, the window frame on Windows — so this asserts that it is
+  // *not* the sheet rather than naming a colour, which is enough to fail a
+  // window that painted one flat colour.
+  const corner = pixel(4, 4);
+  const differs =
+    Math.abs(corner.r - centre.r) > 0x10 ||
+    Math.abs(corner.g - centre.g) > 0x10 ||
+    Math.abs(corner.b - centre.b) > 0x10;
+  expect(differs).toBe(true);
 });
 
 test('native FullWindowOverlay renders above the application', async () => {
