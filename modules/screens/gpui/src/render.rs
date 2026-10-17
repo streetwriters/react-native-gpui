@@ -11,7 +11,7 @@ use crate::stack::{
 };
 use gpui::{div, prelude::*, AnyElement, App, MouseButton, SharedString, Window};
 use react_native_gpui::extensions::{
-    store_handle, ComponentNode, ComponentRenderer, Decoration, Portal, TreeView,
+    store_handle, ComponentNode, ComponentRenderer, Decoration, Portal, StoreHandle, TreeView,
 };
 use rn_gpui_sys::ffi::RectF;
 
@@ -134,7 +134,7 @@ impl ComponentRenderer for StackRenderer {
         if crate::state::with(|state| state.native_dismiss_pending.is_some()) {
             return true;
         }
-        handle.dispatch_event(top, "topRequestClose", &serde_json::json!({}), _cx);
+        dismiss_top(top, node.tag, tree, handle, _cx);
         true
     }
 }
@@ -256,6 +256,51 @@ impl ComponentRenderer for HeaderConfigRenderer {
     }
 }
 
+/// Escape dismisses the top screen the way a native gesture would.
+///
+/// The card runs its exit animation, the screen gets the `will` pair, and only
+/// when the animation ends does it get the final progress, the `did` pair and
+/// `topDismissed`. `native_dismiss_pending` tells the stack observer that this
+/// dismissal already ran its animation, so it must not run a second one.
+fn dismiss_top(top: i32, stack: i32, tree: &TreeView, handle: &StoreHandle, cx: &mut App) {
+    crate::state::with(|state| state.native_dismiss_pending = Some(top));
+    let incoming = previous_screen(top, stack, tree);
+    crate::lifecycle::dispatch_will(handle, Some(top), incoming, cx);
+    let animation = tree
+        .node(stack)
+        .map(|node| props::stack_animation(&node).to_string())
+        .unwrap_or_default();
+    let mode = crate::transition::transition_mode(&animation);
+    let duration = mode.map(|mode| mode.duration());
+    if let Some(mode) = mode {
+        let exit = crate::transition::transition(mode, crate::transition::Role::Exit, 1.0);
+        crate::state::with(|state| {
+            state.roles.insert(top, crate::state::Role::Exit);
+        });
+        handle.start_transition(top, exit, cx);
+    }
+    let finish = move |handle: &StoreHandle, cx: &mut App| {
+        crate::state::with(|state| state.native_dismiss_pending = None);
+        handle.dispatch_event(
+            top,
+            "topTransitionProgress",
+            &serde_json::json!({"progress": 1, "closing": 1, "goingForward": 0}),
+            cx,
+        );
+        crate::lifecycle::dispatch_did(handle, Some(top), incoming, cx);
+        handle.dispatch_event(
+            top,
+            "topDismissed",
+            &serde_json::json!({ "dismissCount": 1 }),
+            cx,
+        );
+    };
+    match duration {
+        Some(duration) => handle.after(duration, cx, finish),
+        None => finish(handle, cx),
+    }
+}
+
 /// A Fabric colour as GPUI sees it, alpha included.
 fn argb(color: u32) -> gpui::Hsla {
     let alpha = color >> 24;
@@ -314,6 +359,17 @@ fn has_title_subview(config: &ComponentNode, tree: &TreeView) -> bool {
         .into_iter()
         .filter_map(|tag| tree.node(tag))
         .any(|child| child.component == HEADER_SUBVIEW && props::subview_type(&child) == "title")
+}
+
+/// The live screen directly below `top` in its stack, if any.
+fn previous_screen(top: i32, stack: i32, tree: &TreeView) -> Option<i32> {
+    let screens: Vec<i32> = tree
+        .children(stack)
+        .into_iter()
+        .filter(|tag| tree.is_live(*tag) && tree.node(*tag).is_some_and(|n| n.component == SCREEN))
+        .collect();
+    let index = screens.iter().position(|tag| *tag == top)?;
+    index.checked_sub(1).and_then(|i| screens.get(i)).copied()
 }
 
 /// The stack a screen sits in, walking up past intermediate containers.
