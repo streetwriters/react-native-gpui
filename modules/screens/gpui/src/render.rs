@@ -458,6 +458,11 @@ fn header_hidden(screen: i32, tree: &TreeView) -> bool {
         .is_some_and(|config| props::header_hidden(&config))
 }
 
+/// The gap a modal sheet leaves around itself, and the size it is capped at.
+const SHEET_MARGIN: f32 = 48.0;
+const SHEET_MAX_WIDTH: f32 = 760.0;
+const SHEET_MAX_HEIGHT: f32 = 640.0;
+
 /// A modal presentation. It paints like a screen; the difference is that the
 /// card underneath stays visible.
 pub struct ModalScreenRenderer;
@@ -470,6 +475,46 @@ impl ComponentRenderer for ModalScreenRenderer {
         _cx: &mut App,
     ) -> Option<AnyElement> {
         None
+    }
+
+    /// Paints the backdrop and the centred sheet the card sits in.
+    ///
+    /// A modal does not fill the window: it is a smaller card centred over the
+    /// screen underneath, dimmed by a backdrop unless the presentation is
+    /// transparent. Core keeps the node, its accessibility and its children, so
+    /// this only wraps them.
+    fn children(
+        &self,
+        node: &ComponentNode,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Vec<AnyElement> {
+        let material = props::is_transparent_presentation(node);
+        let mut layers = Vec::with_capacity(2);
+        if !material {
+            layers.push(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .bg(argb(0x80000000))
+                    .into_any_element(),
+            );
+        }
+        let width = (node.frame.w - SHEET_MARGIN).clamp(0.0, SHEET_MAX_WIDTH);
+        let height = (node.frame.h - SHEET_MARGIN).clamp(0.0, SHEET_MAX_HEIGHT);
+        let sheet = div()
+            .absolute()
+            .left(gpui::px(((node.frame.w - width) * 0.5).max(0.0)))
+            .top(gpui::px(((node.frame.h - height) * 0.5).max(0.0)))
+            .w(gpui::px(width))
+            .h(gpui::px(height))
+            .overflow_hidden()
+            .bg(argb(if material { 0x00000000 } else { 0xff171923 }))
+            .children(children);
+        layers.push(sheet.into_any_element());
+        layers
     }
 }
 
