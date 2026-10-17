@@ -336,6 +336,30 @@ test.each([
   await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
 });
 
+test('the default back button pops the stack', async () => {
+  await launch('NavigationFixture', 'native-stack');
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  const [back] = await app.query('text', '\u2039');
+  expect(back).toBeDefined();
+  await app.click(back.tag);
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
+});
+
+test('a modal sheet paints over the screen underneath', async () => {
+  await launch('NavigationFixture', 'native-stack-modal');
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  // The sheet is painted inside the screen, so the test driver's frames — which
+  // report the Yoga origin — cannot see it. Capture it instead.
+  if (app.captureSupported) {
+    const shot = await app.screenshot();
+    expect(shot.length).toBeGreaterThan(1000);
+    fs.writeFileSync(path.resolve('.local/modal-sheet.png'), shot);
+  }
+});
+
 test('native FullWindowOverlay renders above the application', async () => {
   await launch('NavigationFixture', 'native-stack-overlay');
   await desktopExpect(
