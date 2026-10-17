@@ -4,7 +4,6 @@ pub mod alert;
 pub mod app_menu;
 pub mod clipboard;
 pub mod context_menu;
-pub mod dev_menu;
 pub mod image;
 pub mod linking;
 pub mod main_thread;
@@ -20,7 +19,6 @@ pub fn register() {
     app_menu::register();
     clipboard::register();
     context_menu::register();
-    dev_menu::register();
     image::register();
     linking::register();
     modal::register();
