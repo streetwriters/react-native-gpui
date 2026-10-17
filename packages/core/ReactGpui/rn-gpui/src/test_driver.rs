@@ -1262,11 +1262,40 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
     }
 }
 
+/// A window the driver can draw.
+///
+/// The handle the driver was started with is the main window's, and a test that
+/// closes it leaves the handle dead: every draw then fails and a caller that
+/// waits for frames spins until its timeout. The remaining windows are still
+/// real, so fall back to one of them.
+fn drawable_window(window: AnyWindowHandle, cx: &mut gpui::AsyncApp) -> Option<AnyWindowHandle> {
+    if cx.update_window(window, |_, _, _| ()).is_ok() {
+        return Some(window);
+    }
+    let windows = cx.update(|cx| {
+        cx.try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
+            .map(|windows| {
+                windows
+                    .0
+                    .keys()
+                    .into_iter()
+                    .filter_map(|key| windows.0.get(key).map(|entry| entry.handle))
+                    .collect::<Vec<_>>()
+            })
+    })?;
+    windows
+        .into_iter()
+        .find(|candidate| cx.update_window(*candidate, |_, _, _| ()).is_ok())
+}
+
 async fn wait_for_frame(
     window: AnyWindowHandle,
     cx: &mut gpui::AsyncApp,
     timeout: Duration,
 ) -> bool {
+    let Some(window) = drawable_window(window, cx) else {
+        return false;
+    };
     if cx
         .update_window(window, move |_root, window, app| {
             draw_frame(window, app);
