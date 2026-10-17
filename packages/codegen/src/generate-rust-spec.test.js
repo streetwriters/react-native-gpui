@@ -195,8 +195,11 @@ describe('the generated glue', () => {
     );
     expect(header).toContain('returns_void: true,');
     expect(header).toContain('callback_args: &[1],');
-    // The callback is built from a RawCallback and consumes it.
-    expect(header).toContain('let callback = args.next_callback("callback")?;');
+    // The callback is built from a RawCallback and consumes it. The cursor has
+    // a name of its own, so an object parameter cannot shadow it.
+    expect(header).toContain(
+      'let callback = arguments_.next_callback("callback")?;',
+    );
     expect(header).toContain(
       'callback.invoke(vec![a0.into_value(), a1.into_value()])',
     );
@@ -246,4 +249,25 @@ describe('the generator fails', () => {
       ),
     ).toThrow(/recursive type alias Options is not supported/u);
   });
+});
+
+test('reads a callback after an object parameter', () => {
+  const generated =
+    generateFor(`import {TurboModuleRegistry, type TurboModule} from 'react-native';
+
+export type Args = {
+  title?: string;
+  buttons?: Array<Object>;
+};
+
+export interface Spec extends TurboModule {
+  readonly show: (args: Args, callback: (id: number, value: string) => void) => void;
+}
+
+export default TurboModuleRegistry.getEnforcing<Spec>('Temp');
+`);
+  expect(generated).toContain('let args: Args = arguments_.next("args")?;');
+  expect(generated).toContain(
+    'let callback = arguments_.next_callback("callback")?;',
+  );
 });

@@ -630,6 +630,10 @@ function NativeStackFlow() {
               }
             | undefined;
           const id = params?.id ?? 1;
+          // `native-stack-native-back` keeps the module's own back button: the
+          // other scenarios replace it with a JS `headerLeft`, which would make
+          // a test that clicks `‹` pass whether or not the module draws one.
+          const nativeBack = scenario === 'native-stack-native-back';
           return {
             title: `Details ${id}`,
             animation:
@@ -640,18 +644,22 @@ function NativeStackFlow() {
                 : scenario === 'native-stack-transparent-modal'
                   ? 'transparentModal'
                   : 'card',
-            headerBackVisible: false,
-            headerLeft: () => (
-              <Text
-                style={styles.nativeHeaderBack}
-                onPress={() => {
-                  console.log('[nav] native custom back');
-                  navigation.goBack();
-                }}
-              >
-                ‹
-              </Text>
-            ),
+            ...(nativeBack
+              ? {}
+              : {
+                  headerBackVisible: false,
+                  headerLeft: () => (
+                    <Text
+                      style={styles.nativeHeaderBack}
+                      onPress={() => {
+                        console.log('[nav] native custom back');
+                        navigation.goBack();
+                      }}
+                    >
+                      ‹
+                    </Text>
+                  ),
+                }),
           };
         }}
       />
@@ -774,6 +782,7 @@ function Scenario() {
     case 'native-stack':
     case 'native-stack-hidden':
     case 'native-stack-lifecycle':
+    case 'native-stack-native-back':
     case 'native-stack-modal':
     case 'native-stack-transparent-modal':
       return <NativeStackFlow />;

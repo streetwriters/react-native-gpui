@@ -79,11 +79,6 @@ class GpuiMountingManager : public IMountingManager {
   void accessibleClickAction(Tag viewTag) override;
 
  private:
-  GpuiMountedViews mountedViews() {
-    return GpuiMountedViews{
-        emittersMutex_, emitters_, animatedViews_, safeAreaFrames_};
-  }
-
   std::function<void(SurfaceId)> onAfterMount_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();
@@ -97,7 +92,6 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
-  std::unordered_map<Tag, std::array<float, 4>> safeAreaFrames_;
 };
 
 } // namespace rngpui

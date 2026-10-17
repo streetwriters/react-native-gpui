@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { PNG } from 'pngjs';
 import {
   launchApp,
   expectNoA11yViolations,
@@ -336,6 +337,63 @@ test.each([
   await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
 });
 
+test("the module's back button pops the stack", async () => {
+  // `native-stack-native-back` is the one scenario that does not replace the
+  // back button with a JS `headerLeft`, so a click on `‹` can only reach the
+  // button the module paints. The other scenarios would pass this test with the
+  // button missing entirely.
+  await launch('NavigationFixture', 'native-stack-native-back');
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  // There is no React node for a painted button, so the click goes by position:
+  // the module puts it at the header's left edge, 56x56.
+  await app.mouseDown({ x: 28, y: 28 });
+  await app.mouseUp({ x: 28, y: 28 });
+  await app.waitForIdle();
+  // The navigator answers `onHeaderBackButtonClicked` by dispatching a pop, and
+  // React Native declares that event on `RNSScreen`. A dispatch to the header
+  // config is dropped, so nothing pops and this screen stays.
+  await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeHidden();
+});
+
+test('a modal sheet paints a backdrop and a sheet over the screen underneath', async () => {
+  await launch('NavigationFixture', 'native-stack-modal');
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  // The sheet is painted inside the screen, so the test driver's frames — which
+  // report the Yoga origin — cannot see where it landed. Read the pixels instead.
+  if (!app.captureSupported) return;
+  const image = PNG.sync.read(await app.screenshot());
+  const pixel = (x: number, y: number) => {
+    const offset = (image.width * y + x) * 4;
+    return {
+      r: image.data[offset],
+      g: image.data[offset + 1],
+      b: image.data[offset + 2],
+    };
+  };
+  // The sheet is centred in the screen and capped at 760x640, so the middle of
+  // the capture is inside it whatever the window size. It paints 0xff171923.
+  const centre = pixel(
+    Math.floor(image.width / 2),
+    Math.floor(image.height / 2),
+  );
+  expect(Math.abs(centre.r - 0x17)).toBeLessThanOrEqual(0x0a);
+  expect(Math.abs(centre.g - 0x19)).toBeLessThanOrEqual(0x0a);
+  expect(Math.abs(centre.b - 0x23)).toBeLessThanOrEqual(0x0a);
+  // A corner is outside the sheet. What it holds differs by platform — the
+  // menu bar on Linux, the window frame on Windows — so this asserts that it is
+  // *not* the sheet rather than naming a colour, which is enough to fail a
+  // window that painted one flat colour.
+  const corner = pixel(4, 4);
+  const differs =
+    Math.abs(corner.r - centre.r) > 0x10 ||
+    Math.abs(corner.g - centre.g) > 0x10 ||
+    Math.abs(corner.b - centre.b) > 0x10;
+  expect(differs).toBe(true);
+});
+
 test('native FullWindowOverlay renders above the application', async () => {
   await launch('NavigationFixture', 'native-stack-overlay');
   await desktopExpect(
@@ -421,6 +479,35 @@ test('native stack slide, none and fade modes finish and pop all routes', async 
   );
 });
 
+test('one Escape dismisses one screen exactly once', async () => {
+  // Escape runs the dismissal animation itself and then tells JavaScript, which
+  // pops the screen. When the pop batch arrived, the flag that says "this
+  // dismissal already animated" had already been cleared, so the removal ran a
+  // second exit from the rest pose: the card came back and left again, and both
+  // lifecycle halves fired twice. Count them, against a log that names the tag.
+  // The fixture logs a `[nav-native]` pair per transition, which is the part of
+  // the dismissal JavaScript observes. The lifecycle events drive those.
+  await launch('NavigationFixture', 'native-stack');
+  await app.setAnimationsEnabled(true);
+  await app.getByText('Open details').click();
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  const before = app.readLogs().length;
+  await app.press('escape');
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('Home-title')).toBeVisible();
+  const after = app.readLogs().slice(before);
+  const starts = [
+    ...after.matchAll(/\[nav-native\] transition start route=Details/gu),
+  ];
+  const ends = [
+    ...after.matchAll(/\[nav-native\] transition end route=Details/gu),
+  ];
+  expect(starts).toHaveLength(1);
+  expect(ends).toHaveLength(1);
+  // And the screen really is gone, rather than animating away and back.
+  await desktopExpect(app.getByTestId('Details 1-title')).toBeHidden();
+});
+
 test('nested stack and modal preserve the tab input and scroll position', async () => {
   await launch('NavigationFixture', 'nested');
   await app.getByRole('tab', { name: 'List' }).click();
@@ -475,14 +562,10 @@ test('bundled and data URI images resolve and occupy their declared frames', asy
     expect(image?.frame.height).toBeGreaterThan(60);
     const props = (await app.getProps(image.tag)) as {
       imageUri: string;
-      imageResizeMode: number;
+      imageResizeMode: string;
     };
     expect(props.imageUri.length).toBeGreaterThan(0);
-    if (mode !== 'data-uri') {
-      expect(props.imageResizeMode).toBe(
-        { stretch: 0, contain: 1, cover: 2, center: 3 }[mode],
-      );
-    }
+    if (mode !== 'data-uri') expect(props.imageResizeMode).toBe(mode);
   }
   await expectCaptureSmoke();
 });

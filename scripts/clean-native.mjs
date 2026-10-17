@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifests = [
   'packages/core/ReactGpui/Cargo.toml',
   'packages/rn-gpui-tester/desktop/Cargo.toml',
-  'packages/rn-gpui-tester/gpui-native-module/gpui/Cargo.toml',
+  'packages/rn-gpui-tester/gpui-native-module/desktop/Cargo.toml',
 ];
 
 for (const manifest of manifests) {

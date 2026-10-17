@@ -5,7 +5,6 @@
 // the libc++ headers shipping transitively; GCC/libstdc++ does not.
 //
 //   - RN 0.87.1 uses `uint*_t` without including <cstdint> in several headers.
-//   - react-native-reanimated 4.7.1's
 //     `CSS/common/transforms/vectors.h` uses bare `size_t` and only gets it
 //     from <iostream>, which it includes *only when NDEBUG is undefined*. A
 //     Release build defines NDEBUG, so that header lost `size_t` and the build

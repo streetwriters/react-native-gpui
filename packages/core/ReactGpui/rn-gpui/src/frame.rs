@@ -181,7 +181,7 @@ impl FrameHook {
                 && !hook.state.animation_active.get()
                 && hook.now_ms() >= hook.state.active_until_ms.get();
             if gesture_only_tick {
-                hook.host.on_gesture_frame(crate::events::now_ms());
+                hook.host.on_pointer_frame(crate::events::now_ms());
             } else {
                 hook.host.on_frame(crate::events::now_ms());
             }

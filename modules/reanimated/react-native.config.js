@@ -1,8 +1,8 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
         cppProvider: 'create_gpui_reanimated_module',
       },
     },

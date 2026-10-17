@@ -33,24 +33,6 @@ namespace rngpui {
 class GpuiMountingManager;
 class GpuiLogBoxSurfaceDelegate;
 
-struct GpuiRawPointerEvent {
-  std::vector<int32_t> targetChain;
-  float x;
-  float y;
-  int32_t phase;
-  double timestamp;
-};
-
-struct GpuiRecognizedGestureEvent {
-  int32_t targetTag;
-  std::string eventType;
-  std::string payloadJson;
-};
-
-using GpuiGesturePointerProcessor =
-    std::function<std::vector<GpuiRecognizedGestureEvent>(
-        const GpuiRawPointerEvent&)>;
-
 constexpr int32_t kAppSurfaceId = 1;
 constexpr int32_t kLogBoxSurfaceId = 2;
 constexpr int32_t kAllSurfacesStopped = -1;
@@ -89,7 +71,7 @@ class GpuiHost {
   uint64_t js_heap_bytes() const;
   void on_render() const;
   void on_frame(double eventTimestampMs) const;
-  void on_gesture_frame(double eventTimestampMs) const;
+  void on_pointer_frame(double eventTimestampMs) const;
   void dispatch_event(int32_t tag, rust::Str type, rust::Str payloadJson) const;
   void emit_device_event(rust::Str event_name) const;
   void emit_device_event_bool(rust::Str event_name, bool value) const;
@@ -154,10 +136,6 @@ std::shared_ptr<facebook::react::UIManager> get_gpui_ui_manager();
 void gpui_synchronously_update_props(int32_t tag, const folly::dynamic& props);
 void register_gpui_event_listener(
     std::shared_ptr<const facebook::react::EventListener> listener);
-void register_gpui_gesture_pointer_processor(
-    GpuiGesturePointerProcessor processor);
-void rn_gpui_alert_result(int32_t id, int32_t buttonIndex);
-void rn_gpui_clipboard_result(int32_t id, rust::String text);
 /// Runs the task a module posted with `rngpui::dispatchMain`. Called on the
 /// GPUI main thread.
 void rn_gpui_run_main_task(uint64_t id);

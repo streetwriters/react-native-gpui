@@ -80,5 +80,5 @@ add_library(fbjni INTERFACE)
 find_package(OpenSSL REQUIRED)
 
 # The Hermes VM and the React Native Hermes glue live in the engine package
-# @react-native-gpui/hermes/gpui/CMakeLists.txt, which autolink adds when the
+# @react-native-gpui/hermes/desktop/CMakeLists.txt, which autolink adds when the
 # package is installed. Core has no engine of its own.

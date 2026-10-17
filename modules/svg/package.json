@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "GPUI Fabric renderer adapter for react-native-svg",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js"
   ],
   "peerDependencies": {

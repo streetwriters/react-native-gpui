@@ -81,13 +81,13 @@ function createProject({
   );
   write('node_modules/fake-module/src/NativeFake.ts', spec);
   write(
-    'node_modules/fake-module/gpui/CMakeLists.txt',
+    'node_modules/fake-module/desktop/CMakeLists.txt',
     'set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES "${CMAKE_CURRENT_LIST_DIR}/cpp/FakeModule.cpp")\n',
   );
   write('node_modules/fake-module/cpp/FakeModule.cpp', '// fake module\n');
   write(
     'node_modules/fake-module/react-native.config.js',
-    "module.exports = {dependency: {platforms: {gpui: {cmake: 'gpui', cppProvider: 'create_fake_module'}}}};\n",
+    "module.exports = {dependency: {platforms: {desktop: {cmake: 'desktop', cppProvider: 'create_fake_module'}}}};\n",
   );
   if (duplicateLibrary) {
     write(
@@ -109,7 +109,7 @@ function createProject({
     write('node_modules/fake-module-two/src/NativeFakeTwo.ts', spec);
     write(
       'node_modules/fake-module-two/react-native.config.js',
-      "module.exports = {dependency: {platforms: {gpui: {cppProvider: 'create_fake_two_module'}}}};\n",
+      "module.exports = {dependency: {platforms: {desktop: {cppProvider: 'create_fake_two_module'}}}};\n",
     );
   }
   const configPath = path.join(projectRoot, 'rn-config.json');
@@ -117,12 +117,12 @@ function createProject({
     configPath,
     `${JSON.stringify(
       {
-        ...(project ? { project: { gpui: project } } : {}),
+        ...(project ? { project: { desktop: project } } : {}),
         dependencies: {
           'fake-engine': {
             root: path.join(projectRoot, 'node_modules/fake-engine'),
             platforms: {
-              gpui: {
+              desktop: {
                 jsEngine: {
                   name: 'hermes',
                   register: 'rn_gpui_register_js_engine_hermes',
@@ -133,7 +133,7 @@ function createProject({
           'fake-module': {
             root: path.join(projectRoot, 'node_modules/fake-module'),
             platforms: {
-              gpui: { cmake: 'gpui', cppProvider: 'create_fake_module' },
+              desktop: { cmake: 'desktop', cppProvider: 'create_fake_module' },
             },
           },
           ...(duplicateLibrary
@@ -141,7 +141,7 @@ function createProject({
                 'fake-module-two': {
                   root: path.join(projectRoot, 'node_modules/fake-module-two'),
                   platforms: {
-                    gpui: { cppProvider: 'create_fake_two_module' },
+                    desktop: { cppProvider: 'create_fake_two_module' },
                   },
                 },
               }
@@ -225,7 +225,42 @@ test('throws on an unknown prebuilt mode', () => {
     project: { prebuilt: true },
   });
   expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
-    "project.gpui.prebuilt must be one of 'auto', 'always', 'never'",
+    "project.desktop.prebuilt must be one of 'auto', 'always', 'never'",
+  );
+});
+
+test('names the rename when a dependency still says platforms.gpui', () => {
+  const { projectRoot, configPath } = createProject();
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const engine = config.dependencies['fake-engine'];
+  engine.platforms = { gpui: engine.platforms.desktop };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    'fake-engine: platforms.gpui was renamed to platforms.desktop',
+  );
+});
+
+test('names the rename when a module still keeps its code under gpui/', () => {
+  const { projectRoot, configPath } = createProject();
+  const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');
+  // The config says `desktop`, but the crate was never moved out of `gpui/`.
+  fs.mkdirSync(path.join(crateRoot, 'gpui/src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(crateRoot, 'package.json'),
+    `${JSON.stringify({ name: 'fake-paint', version: '0.0.1' }, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(crateRoot, 'gpui/Cargo.toml'),
+    '[package]\nname = "fake-paint"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n',
+  );
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.dependencies['fake-paint'] = {
+    root: crateRoot,
+    platforms: { desktop: { crate: 'fake-paint' } },
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    'fake-paint: the gpui/ folder was renamed to desktop/',
   );
 });
 
@@ -259,4 +294,35 @@ test('leaves both headers untouched when nothing changed', () => {
   autolink({ projectRoot, configFile: configPath });
   const after = headers.map(header => fs.statSync(header).mtimeMs);
   expect(after).toEqual(before);
+});
+
+test('registers a crate that has no TurboModule specs', () => {
+  const { projectRoot, configPath } = createProject();
+  const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');
+  fs.mkdirSync(path.join(crateRoot, 'desktop/src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(crateRoot, 'package.json'),
+    `${JSON.stringify({ name: 'fake-paint', version: '0.0.1' }, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(crateRoot, 'desktop/Cargo.toml'),
+    '[package]\nname = "fake-paint"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n',
+  );
+  fs.writeFileSync(
+    path.join(crateRoot, 'react-native.config.js'),
+    "module.exports = {dependency: {platforms: {desktop: {crate: 'fake-paint'}}}};\n",
+  );
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.dependencies['fake-paint'] = {
+    root: crateRoot,
+    platforms: { desktop: { crate: 'fake-paint' } },
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  autolink({ projectRoot, configFile: configPath });
+  const generated = fs.readFileSync(
+    path.join(projectRoot, 'desktop/autolink/src/lib.rs'),
+    'utf8',
+  );
+  expect(generated).toContain('fake_paint::rn_gpui_register();');
 });

@@ -162,6 +162,12 @@ export const screens = [
     fixture: 'NavigationFixture',
   },
   {
+    id: 'native-stack-native-back',
+    title: 'Native stack: native back button',
+    group: 'Navigation',
+    fixture: 'NavigationFixture',
+  },
+  {
     id: 'native-stack-modal',
     title: 'Native stack: modal',
     group: 'Navigation',
@@ -202,6 +208,12 @@ export const screens = [
     title: 'Custom Fabric component',
     group: 'Native modules',
     fixture: 'GpuiComponentRegistryFixture',
+  },
+  {
+    id: 'fixture-module',
+    title: 'Module-only component',
+    group: 'Native modules',
+    fixture: 'FixtureModuleProbeFixture',
   },
   {
     id: 'node-api',

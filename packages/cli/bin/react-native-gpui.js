@@ -112,7 +112,7 @@ if (command === 'bundle') {
     'react-native',
     'bundle',
     '--platform',
-    'gpui',
+    'desktop',
     '--entry-file',
     entryFile,
     '--bundle-output',

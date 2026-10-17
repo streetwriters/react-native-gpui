@@ -6,7 +6,28 @@
 
 import React from 'react';
 import { DeviceEventEmitter } from 'react-native';
-import { request } from './index';
+import NativeGpuiAppMenu from '../specs/NativeGpuiAppMenu';
+import { DesktopError, toDesktopError } from './index';
+
+function menuModule() {
+  if (NativeGpuiAppMenu == null) {
+    throw new DesktopError(
+      'unsupported',
+      'the GpuiAppMenu native module is not available',
+    );
+  }
+  return NativeGpuiAppMenu;
+}
+
+async function request<T>(
+  run: (native: typeof NativeGpuiAppMenu) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(menuModule());
+  } catch (error) {
+    throw toDesktopError(error);
+  }
+}
 import type { Subscription } from './windows';
 
 export type MenuRole =

@@ -7,7 +7,28 @@
 import React from 'react';
 import { View } from 'react-native';
 import type { ViewProps } from 'react-native';
-import { request } from './index';
+import NativeGpuiContextMenu from '../specs/NativeGpuiContextMenu';
+import { DesktopError, toDesktopError } from './index';
+
+function contextMenuModule() {
+  if (NativeGpuiContextMenu == null) {
+    throw new DesktopError(
+      'unsupported',
+      'the GpuiContextMenu native module is not available',
+    );
+  }
+  return NativeGpuiContextMenu;
+}
+
+async function request<T>(
+  run: (native: typeof NativeGpuiContextMenu) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(contextMenuModule());
+  } catch (error) {
+    throw toDesktopError(error);
+  }
+}
 import type { MenuItemSpec } from './menu';
 
 export interface ContextMenuOptions {
