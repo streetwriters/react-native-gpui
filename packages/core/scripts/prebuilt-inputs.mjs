@@ -96,6 +96,18 @@ export function inputHash() {
   return { hash: hash.digest('hex'), files: perFile };
 }
 
+/**
+ * Whether a build should link the pinned prebuilt runtime or compile the C++
+ * from source.
+ *
+ * A changed C++ input is not an error: the pinned archive was built from
+ * different sources, so linking it would run code the checkout does not
+ * contain. The build falls back to source and verifies the change. `build.rs`
+ * makes the same decision in Rust; this is the one place that names the rule
+ * for tooling and CI.
+ *
+ * `pin` is the parsed `prebuilt-binaries.json`; omit it to read the file.
+ */
 export function runtimeChoice(pin) {
   const pinned = pin ?? readPinFile();
   const local = inputHash().hash;
