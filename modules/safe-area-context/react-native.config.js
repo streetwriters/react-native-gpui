@@ -1,8 +1,8 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
         cppProvider: 'create_gpui_safe_area_context_module',
         componentCodegenPackage: 'react-native-safe-area-context',
         componentDescriptors: [

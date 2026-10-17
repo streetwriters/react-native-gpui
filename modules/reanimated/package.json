@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "GPUI platform bindings for Reanimated 4",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],
