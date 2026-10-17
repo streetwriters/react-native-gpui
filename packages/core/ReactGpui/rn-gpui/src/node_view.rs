@@ -16,7 +16,9 @@ use std::rc::Rc;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+#[cfg(feature = "test-driver")]
+use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 static ACCESSIBILITY_ACTIVE: AtomicBool = AtomicBool::new(false);

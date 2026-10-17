@@ -141,11 +141,6 @@ impl StoreHandle {
         }
     }
 
-    /// Whether this handle records its work instead of applying it.
-    pub(crate) fn is_queued(&self) -> bool {
-        self.queued.is_some()
-    }
-
     fn record(&self, command: Command) -> bool {
         match &self.queued {
             Some(queued) => {

@@ -1,4 +1,4 @@
-use rn_gpui_module::{ModuleError, ModuleThread};
+use rn_gpui_module::ModuleThread;
 
 use crate::builtins::rn_gpui_specs::{NativeGpuiDevMenuEvents, NativeGpuiDevMenuSpec};
 
