@@ -17,6 +17,12 @@ pub struct ComponentNode {
     pub component: String,
     pub tag: i32,
     pub frame: RectF,
+    /// The scale a transform has accumulated down to this node and its own.
+    ///
+    /// A hook that draws something inside the node — a modal sheet, a caret —
+    /// has to multiply by this, because the frame it was given is in unscaled
+    /// coordinates while the element it returns is painted scaled.
+    pub scale: (f32, f32),
     pub props: Arc<Value>,
     pub parent: Option<i32>,
     pub children: Vec<ComponentNode>,
@@ -310,11 +316,75 @@ pub(crate) struct NodeSnapshot {
     pub(crate) component: String,
     pub(crate) tag: i32,
     pub(crate) frame: RectF,
+    pub(crate) scale: (f32, f32),
     pub(crate) props: Arc<Value>,
     pub(crate) parent: Option<i32>,
     pub(crate) children: Vec<i32>,
     pub(crate) surface_id: i32,
     pub(crate) transition: Option<TransitionState>,
+}
+
+/// One node of a tree built by [`TreeView::for_test`].
+#[cfg(any(test, feature = "test-driver"))]
+pub struct TestNode {
+    pub tag: i32,
+    pub component: String,
+    pub frame: RectF,
+    pub scale: (f32, f32),
+    pub props: Value,
+}
+
+impl<'a> TreeView<'a> {
+    /// A tree built from plain values, for a module's own unit tests.
+    ///
+    /// Real hooks run against a store; a module that only wants to check what
+    /// its renderer computes can hand it a tree instead of starting an app.
+    /// `edges` is `(parent, child)`, and every tag it mentions must be in
+    /// `nodes`.
+    ///
+    /// Compiled whenever the test driver is: a module's tests are a different
+    /// crate, so `cfg(test)` in core would not reach them.
+    #[cfg(any(test, feature = "test-driver"))]
+    pub fn for_test(
+        nodes: Vec<TestNode>,
+        edges: &[(i32, i32)],
+        top_inset: f32,
+    ) -> TreeView<'static> {
+        let mut map: HashMap<i32, NodeSnapshot> = HashMap::new();
+        for node in nodes {
+            let parent = edges
+                .iter()
+                .find(|(_, child)| *child == node.tag)
+                .map(|(parent, _)| *parent);
+            let children = edges
+                .iter()
+                .filter(|(parent, _)| *parent == node.tag)
+                .map(|(_, child)| *child)
+                .collect();
+            map.insert(
+                node.tag,
+                NodeSnapshot {
+                    component: node.component,
+                    tag: node.tag,
+                    frame: node.frame,
+                    scale: node.scale,
+                    props: Arc::new(node.props),
+                    parent,
+                    children,
+                    surface_id: 1,
+                    transition: None,
+                },
+            );
+        }
+        TreeView {
+            nodes: std::borrow::Cow::Owned(map),
+            root_tags: Vec::new(),
+            top_inset,
+            animations_enabled: true,
+            current: None,
+            retained: Box::leak(Box::default()),
+        }
+    }
 }
 
 impl NodeSnapshot {
@@ -323,6 +393,7 @@ impl NodeSnapshot {
             component: self.component.clone(),
             tag: self.tag,
             frame: self.frame,
+            scale: self.scale,
             props: self.props.clone(),
             parent: self.parent,
             children: Vec::new(),
@@ -724,6 +795,22 @@ pub fn register_store_observer(observer: Arc<dyn StoreObserver>) {
         .push(observer);
 }
 
+/// Serialises a test that installs an observer, and empties the registry.
+///
+/// The registry is process-wide with no unregister, so two tests that register
+/// one would see each other's hooks. Every test that installs one takes this
+/// guard for its whole body, which keeps the swaps from overlapping.
+#[cfg(test)]
+pub(crate) fn exclusive_observers() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    store_observers_registry()
+        .lock()
+        .expect("store observer registry poisoned")
+        .clear();
+    guard
+}
+
 /// The renderer registered for `component_name`, if any.
 pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
     component_renderers()
@@ -836,6 +923,7 @@ mod tests {
             component: component.to_string(),
             tag,
             frame: RectF::default(),
+            scale: (1.0, 1.0),
             props: Arc::new(json!({ "testID": format!("id-{tag}") })),
             parent: None,
             children: Vec::new(),
@@ -870,6 +958,9 @@ mod tests {
 
     #[gpui::test]
     fn an_observer_sees_mount_update_and_remove_in_order(cx: &mut TestAppContext) {
+        // The registry is process-wide: this test owns it for its whole body so
+        // a test that installs its own observer cannot run at the same time.
+        let _exclusive = exclusive_observers();
         let seen = Arc::new(Mutex::new(Vec::new()));
         register_store_observer(Arc::new(FakeObserver { seen: seen.clone() }));
         let observers = store_observers();
