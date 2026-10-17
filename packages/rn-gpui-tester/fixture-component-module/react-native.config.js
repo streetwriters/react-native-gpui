@@ -1,8 +1,8 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
         crate: 'rn-gpui-fixture-badge',
         componentDescriptors: ['FixtureBadgeComponentDescriptor'],
         componentHeaders: [

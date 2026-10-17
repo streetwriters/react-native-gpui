@@ -1,8 +1,8 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
         cppProvider: 'create_cpp_example_module',
         componentDescriptors: ['GpuiTestBoxComponentDescriptor'],
         componentHeaders: [

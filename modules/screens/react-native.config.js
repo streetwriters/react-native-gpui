@@ -1,8 +1,8 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
         crate: 'rn-gpui-screens',
         componentCodegenPackage: 'react-native-screens',
         componentDescriptors: [
@@ -26,9 +26,9 @@ module.exports = {
         ],
         // Metro: replace these files of installed packages for gpui.
         sourceOverrides: {
-          'react-native-screens/src/core.ts': './src/core.gpui.ts',
+          'react-native-screens/src/core.ts': './src/core.desktop.ts',
           'react-native-screens/src/components/FullWindowOverlay.tsx':
-            './src/FullWindowOverlay.gpui.tsx',
+            './src/FullWindowOverlay.desktop.tsx',
         },
       },
     },
