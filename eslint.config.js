@@ -33,8 +33,8 @@ module.exports = [
       '**/*.cjs',
       '**/*.config.js',
       '**/react-native.config.js',
-      'modules/*/gpui/**/*.js',
-      'packages/hermes/gpui/**/*.js',
+      'modules/*/desktop/**/*.js',
+      'packages/hermes/desktop/**/*.js',
       // Plain-JS mocks the vitest preset substitutes; they live outside any
       // package that has a Babel config, so they are parsed as modules here.
       'packages/testing/vitest/**/*.js',

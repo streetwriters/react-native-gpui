@@ -892,12 +892,22 @@ mod tests {
         seen: Arc<Mutex<Vec<String>>>,
     }
 
+    impl FakeObserver {
+        /// Records a tag the test it belongs to is about.
+        ///
+        /// The registry is process-wide, so a batch another test applies runs
+        /// this observer too; only the tag under test is recorded, which is what
+        /// keeps the assertion below about ordering rather than about timing.
+        fn record(&self, entry: String) {
+            if entry.ends_with(":7") {
+                self.seen.lock().unwrap().push(entry);
+            }
+        }
+    }
+
     impl StoreObserver for FakeObserver {
         fn on_mount(&self, node: &ComponentNode, _handle: &StoreHandle, _cx: &mut App) {
-            self.seen
-                .lock()
-                .unwrap()
-                .push(format!("mount:{}", node.tag));
+            self.record(format!("mount:{}", node.tag));
         }
 
         fn on_update(
@@ -907,14 +917,11 @@ mod tests {
             _handle: &StoreHandle,
             _cx: &mut App,
         ) {
-            self.seen
-                .lock()
-                .unwrap()
-                .push(format!("update:{}", node.tag));
+            self.record(format!("update:{}", node.tag));
         }
 
         fn on_remove(&self, tag: i32, _handle: &StoreHandle, _cx: &mut App) {
-            self.seen.lock().unwrap().push(format!("remove:{tag}"));
+            self.record(format!("remove:{tag}"));
         }
     }
 

@@ -2,25 +2,25 @@
   "includePatterns": [
     "ReactCxxPlatform/**",
     "ReactCommonOverrides/**",
-    "index.gpui.js",
+    "index.desktop.js",
     "src-gpui/**"
   ],
   "baseVersion": "0.87.1",
   "overrides": [
     {
       "type": "derived",
-      "file": "index.gpui.js",
+      "file": "index.desktop.js",
       "baseFile": "packages/react-native/index.js",
       "baseHash": "5aa61d7bd7be95533271f158851e8398cdec478a",
       "issue": 0
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Utilities/Platform.gpui.js"
+      "file": "src-gpui/Libraries/Utilities/Platform.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Modal/Modal.gpui.js"
+      "file": "src-gpui/Libraries/Modal/Modal.desktop.js"
     },
     {
       "type": "patch",
@@ -59,30 +59,30 @@
     },
     {
       "type": "patch",
-      "file": "src-gpui/Libraries/LogBox/UI/LogBoxButton.gpui.js",
+      "file": "src-gpui/Libraries/LogBox/UI/LogBoxButton.desktop.js",
       "baseFile": "packages/react-native/Libraries/LogBox/UI/LogBoxButton.js",
       "baseHash": "ec31459f5c444aa4fb155a8140297df7a7f816db",
       "issue": 0
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Alert/Alert.gpui.js"
+      "file": "src-gpui/Libraries/Alert/Alert.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Components/TextInput/TextInput.gpui.js"
+      "file": "src-gpui/Libraries/Components/TextInput/TextInput.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Components/Button.gpui.js"
+      "file": "src-gpui/Libraries/Components/Button.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Utilities/Appearance.gpui.js"
+      "file": "src-gpui/Libraries/Utilities/Appearance.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Utilities/BackHandler.gpui.js"
+      "file": "src-gpui/Libraries/Utilities/BackHandler.desktop.js"
     },
     {
       "type": "patch",
@@ -143,15 +143,15 @@
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/NativeComponent/BaseViewConfig.gpui.ts"
+      "file": "src-gpui/Libraries/NativeComponent/BaseViewConfig.desktop.ts"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Network/RCTNetworking.gpui.js"
+      "file": "src-gpui/Libraries/Network/RCTNetworking.desktop.js"
     },
     {
       "type": "platform",
-      "file": "src-gpui/Libraries/Renderer/shims/ReactNativeViewConfigRegistry.gpui.js"
+      "file": "src-gpui/Libraries/Renderer/shims/ReactNativeViewConfigRegistry.desktop.js"
     },
     {
       "type": "platform",

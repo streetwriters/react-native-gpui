@@ -322,7 +322,7 @@ export async function runDesktop({
       'react-native',
       'bundle',
       '--platform',
-      'gpui',
+      'desktop',
       '--entry-file',
       entryFile,
       '--bundle-output',
@@ -811,7 +811,7 @@ export function initDesktop({
           'react-native',
           'bundle',
           '--platform',
-          'gpui',
+          'desktop',
           '--entry-file',
           ['index.js', 'index.ts', 'index.tsx'].find(file =>
             fs.existsSync(path.join(projectRoot, file)),
@@ -968,15 +968,15 @@ export function createLibrary({
       ? {
           [`src/${specName}.ts`]: 'NativeModule.ts',
           'src/index.ts': 'index.ts',
-          'gpui/build.rs': 'build.rs',
-          'gpui/src/lib.rs': 'lib.rs',
+          'desktop/build.rs': 'build.rs',
+          'desktop/src/lib.rs': 'lib.rs',
         }
       : {
           [`src/${specName}.ts`]: 'NativeModule.ts',
           'src/index.ts': 'index.ts',
-          [`gpui/cpp/${moduleName}.hpp`]: 'RNModule.hpp',
-          [`gpui/cpp/${moduleName}.cpp`]: 'RNModule.cpp',
-          'gpui/CMakeLists.txt': 'CMakeLists.txt',
+          [`desktop/cpp/${moduleName}.hpp`]: 'RNModule.hpp',
+          [`desktop/cpp/${moduleName}.cpp`]: 'RNModule.cpp',
+          'desktop/CMakeLists.txt': 'CMakeLists.txt',
         };
   for (const [target, source] of Object.entries(moduleFiles)) {
     const targetPath = path.join(destination, target);
@@ -994,12 +994,12 @@ export function createLibrary({
   const platformConfig =
     type === 'rust'
       ? { crate: `rn-gpui-${slug}` }
-      : { cmake: 'gpui', cppProvider };
+      : { cmake: 'desktop', cppProvider };
   const packageJson = {
     name: packageName,
     version: '0.1.0',
     main: 'src/index.ts',
-    files: ['src', 'gpui', 'react-native.config.js', 'README.md'],
+    files: ['src', 'desktop', 'react-native.config.js', 'README.md'],
     codegenConfig: {
       name: codegenName,
       type: 'modules',
@@ -1017,7 +1017,7 @@ export function createLibrary({
       'module.exports = {',
       '  dependency: {',
       '    platforms: {',
-      '      gpui: {',
+      '      desktop: {',
       ...Object.entries(platformConfig).map(
         ([key, value]) => `        ${key}: ${JSON.stringify(value)},`,
       ),
@@ -1039,11 +1039,11 @@ export function createLibrary({
     );
     const cratePath = crate =>
       path.relative(
-        path.join(destination, 'gpui'),
+        path.join(destination, 'desktop'),
         path.join(platformRustRoot, crate),
       );
     fs.writeFileSync(
-      path.join(destination, 'gpui/Cargo.toml'),
+      path.join(destination, 'desktop/Cargo.toml'),
       `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-module = { path = ${JSON.stringify(cratePath('rn-gpui-module'))} }\n\n[build-dependencies]\nrn-gpui-module-build = { path = ${JSON.stringify(cratePath('rn-gpui-module-build'))} }\n`,
     );
   }
@@ -1092,7 +1092,7 @@ export function createLibrary({
 
   const language = type === 'rust' ? 'Rust' : 'C++';
   const implementation =
-    type === 'rust' ? 'gpui/src/lib.rs' : `gpui/cpp/${moduleName}.cpp`;
+    type === 'rust' ? 'desktop/src/lib.rs' : `desktop/cpp/${moduleName}.cpp`;
   const description =
     type === 'rust'
       ? 'call its typed greet(name) method.'

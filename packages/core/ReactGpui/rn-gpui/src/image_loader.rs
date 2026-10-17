@@ -251,7 +251,7 @@ mod tests {
         String::from_utf8_lossy(&out).into_owned()
     }
 
-    const CLOSE: &str = "http://localhost:8082/assets/../../node_modules/react-native/Libraries/LogBox/UI/LogBoxImages/close.png?platform=gpui&hash=369745d4a4a6fa62fa0ed495f89aa964";
+    const CLOSE: &str = "http://localhost:8082/assets/../../node_modules/react-native/Libraries/LogBox/UI/LogBoxImages/close.png?platform=desktop&hash=369745d4a4a6fa62fa0ed495f89aa964";
 
     #[test]
     fn relative_node_modules_asset_survives_metro_parsing() {
@@ -284,12 +284,12 @@ mod tests {
     #[test]
     fn query_string_is_preserved() {
         let rewritten = dev_server_asset_url(CLOSE);
-        assert!(rewritten.ends_with("?platform=gpui&hash=369745d4a4a6fa62fa0ed495f89aa964"));
+        assert!(rewritten.ends_with("?platform=desktop&hash=369745d4a4a6fa62fa0ed495f89aa964"));
     }
 
     #[test]
     fn ordinary_asset_urls_are_unchanged() {
-        let plain = "http://localhost:8082/assets/node_modules/react-native/x.png?platform=gpui";
+        let plain = "http://localhost:8082/assets/node_modules/react-native/x.png?platform=desktop";
         assert_eq!(dev_server_asset_url(plain), plain);
     }
 

@@ -328,7 +328,7 @@ if (
       specPath,
     ]),
   );
-  const schema = combineSchemasInFileList(inputs, 'gpui', null, libraryName);
+  const schema = combineSchemasInFileList(inputs, 'desktop', null, libraryName);
   const generated = generateCxxSpec({ libraryName, schema, specPaths });
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   // Keep the mtime stable so C++ that includes it is not recompiled.

@@ -1,5 +1,5 @@
 // The registry comes from the package root, as it does in the other modules in
-// this tree (`BackHandler.gpui.js`, `TextInput.gpui.js`). A relative path would
+// this tree (`BackHandler.desktop.js`, `TextInput.desktop.js`). A relative path would
 // also work in a bundle — Metro rebases a patched module's imports onto its
 // upstream location — but only there, which makes this file's own logic
 // untestable outside a running app.
@@ -115,9 +115,11 @@ const Platform = {
     return false;
   },
 
-  // `spec[OS]` wins, then the platform-neutral `spec.native`, then `default`.
+  // `spec[OS]` wins, then this platform's own `spec.desktop`, then the
+  // platform-neutral `spec.native`, then `default`.
   select: spec => {
     if (Platform.OS in spec) return spec[Platform.OS];
+    if ('desktop' in spec) return spec.desktop;
     return 'native' in spec ? spec.native : spec.default;
   },
 };

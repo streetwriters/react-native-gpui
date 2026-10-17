@@ -1265,17 +1265,17 @@ mod test_app_context_tests {
             ) {
             }
             fn after_batch(&self, tree: &TreeView, _h: &StoreHandle, _cx: &mut gpui::App) {
-                if tree.node(202).is_none() && tree.node(101).is_none() {
+                if tree.node(7202).is_none() && tree.node(7101).is_none() {
                     return;
                 }
                 self.0
                     .lock()
                     .unwrap()
                     .batches
-                    .push(describe(tree, 202, 101));
+                    .push(describe(tree, 7202, 7101));
             }
             fn on_remove(&self, tag: i32, _h: &StoreHandle, _cx: &mut gpui::App) {
-                if tag == 202 {
+                if tag == 7202 {
                     self.0.lock().unwrap().delete = Some("deleted".into());
                 }
             }
@@ -1290,7 +1290,7 @@ mod test_app_context_tests {
             ) {
                 // Other tests run their own batches against this process-wide
                 // registry, so only this test's own parent is recorded.
-                if parent != 101 {
+                if parent != 7101 {
                     return;
                 }
                 self.0
@@ -1308,7 +1308,7 @@ mod test_app_context_tests {
                 _h: &StoreHandle,
                 _cx: &mut gpui::App,
             ) {
-                if child == 202 {
+                if child == 7202 {
                     self.0.lock().unwrap().remove = Some(describe(tree, child, parent));
                 }
             }
@@ -1331,13 +1331,13 @@ mod test_app_context_tests {
         store.update(cx, |store, _| store.register_root(1, root));
 
         let mut create_parent = op(MountKind::Create);
-        create_parent.tag = 101;
+        create_parent.tag = 7101;
         let mut insert_parent = op(MountKind::Insert);
-        insert_parent.tag = 101;
+        insert_parent.tag = 7101;
         let mut create_child = op(MountKind::Create);
-        create_child.tag = 202;
+        create_child.tag = 7202;
         create_child.component = "Text".into();
-        create_child.parent_tag = 101;
+        create_child.parent_tag = 7101;
         create_child.frame = RectF {
             x: 4.0,
             y: 6.0,
@@ -1345,8 +1345,8 @@ mod test_app_context_tests {
             h: 10.0,
         };
         let mut insert_child = op(MountKind::Insert);
-        insert_child.tag = 202;
-        insert_child.parent_tag = 101;
+        insert_child.tag = 7202;
+        insert_child.parent_tag = 7101;
         insert_child.component = "Text".into();
         cx.update_entity(&store, |store, cx| {
             store.apply_batch(
@@ -1361,14 +1361,14 @@ mod test_app_context_tests {
         let inserted = seen.lock().unwrap().inserts.clone();
         assert_eq!(
             inserted.last().map(String::as_str),
-            Some("parent=[202] children=[] frame=20x10"),
+            Some("parent=[7202] children=[] frame=20x10"),
             "on_insert must see the child spliced into its parent: {inserted:?}"
         );
 
         let mut move_child = op(MountKind::Update);
-        move_child.tag = 202;
+        move_child.tag = 7202;
         move_child.component = "Text".into();
-        move_child.parent_tag = 101;
+        move_child.parent_tag = 7101;
         move_child.frame = RectF {
             x: 0.0,
             y: 0.0,
@@ -1386,14 +1386,14 @@ mod test_app_context_tests {
         });
         assert_eq!(
             seen.lock().unwrap().batches.last().map(String::as_str),
-            Some("parent=[202] children=[] frame=55x66"),
+            Some("parent=[7202] children=[] frame=55x66"),
             "the tree must report the frame an update gave the node"
         );
 
         let mut remove_child = op(MountKind::Remove);
-        remove_child.tag = 202;
+        remove_child.tag = 7202;
         remove_child.component = "Text".into();
-        remove_child.parent_tag = 101;
+        remove_child.parent_tag = 7101;
         cx.update_entity(&store, |store, cx| {
             store.apply_batch(
                 MountBatch {
@@ -1408,12 +1408,12 @@ mod test_app_context_tests {
         // which is what lets the module find it and keep it for its exit.
         assert_eq!(
             seen.lock().unwrap().remove.as_deref(),
-            Some("parent=[202] children=[] frame=55x66"),
+            Some("parent=[7202] children=[] frame=55x66"),
             "a remove hook must still see the card it is being told about"
         );
 
         let mut delete_child = op(MountKind::Delete);
-        delete_child.tag = 202;
+        delete_child.tag = 7202;
         delete_child.component = "Text".into();
         delete_child.parent_tag = -1;
         cx.update_entity(&store, |store, cx| {
@@ -1427,12 +1427,12 @@ mod test_app_context_tests {
         });
         assert_eq!(seen.lock().unwrap().delete.as_deref(), Some("deleted"));
         assert_eq!(
-            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&202)),
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&7202)),
             false,
             "a deleted tag must not linger in the snapshot map"
         );
         assert_eq!(
-            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&101)),
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&7101)),
             true,
             "its parent must still be there"
         );

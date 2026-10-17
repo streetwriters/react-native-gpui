@@ -491,7 +491,7 @@ add_react_cxx_platform_subdir(react/devsupport)
 #
 # Upstream hardcodes the Android platform string, so Metro would be asked for
 # the Android JS surface. Compile the copy override that passes
-# `platform=gpui` in place of the vendored source; overrides.json tracks it so
+# `platform=desktop` in place of the vendored source; overrides.json tracks it so
 # upstream drift is caught by `react-native-platform-override validate`.
 set(RN_GPUI_DEV_SERVER_HELPER_OVERRIDE
     "${RN_GPUI_OVERRIDES_DIR}/react/devsupport/DevServerHelper.cpp")
@@ -589,7 +589,7 @@ if(TARGET jsi AND TARGET glog)
 endif()
 
 # The engine packages' own smoke tests (for example a VM smoke test) are
-# added by their gpui/CMakeLists.txt, which autolink includes below.
+# added by their desktop/CMakeLists.txt, which autolink includes below.
 
 add_library(rn_gpui_core STATIC
   GpuiDynamic.cpp

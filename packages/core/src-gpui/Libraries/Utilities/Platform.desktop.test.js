@@ -34,7 +34,7 @@ let platform;
 beforeEach(async () => {
   registry.clear();
   globalThis.__rnGpuiTestTurboModules = registry;
-  platform ??= (await import('./Platform.gpui.js')).default;
+  platform ??= (await import('./Platform.desktop.js')).default;
   platform.__OS = null;
   platform.__constants = null;
 });
@@ -116,5 +116,14 @@ describe('Platform.select', () => {
     expect(platform.select({ linux: 1, macos: 2, default: 3 })).toBe(1);
     expect(platform.select({ macos: 2, native: 4, default: 3 })).toBe(4);
     expect(platform.select({ windows: 2, default: 3 })).toBe(3);
+  });
+
+  test('prefers desktop over native, and the OS over both', () => {
+    desktopReporting('linux');
+    // A platform-specific key ranks first, then `desktop`, then `native`.
+    expect(platform.select({ linux: 1, desktop: 2, native: 3 })).toBe(1);
+    expect(platform.select({ macos: 1, desktop: 2, native: 3 })).toBe(2);
+    expect(platform.select({ macos: 1, native: 3, default: 4 })).toBe(3);
+    expect(platform.select({ desktop: 2, default: 4 })).toBe(2);
   });
 });
