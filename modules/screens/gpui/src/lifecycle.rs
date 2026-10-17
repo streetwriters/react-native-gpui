@@ -55,6 +55,9 @@ pub fn dispatch_did(
         log::info!("[screens] tag={tag} lifecycle={event}");
         handle.dispatch_event(tag, event, &serde_json::json!({}), cx);
     }
+    // A timer can complete after the display-frame chain has gone idle, so the
+    // JavaScript that handles these events needs a render to arrive in.
+    handle.wake(cx);
 }
 
 #[cfg(test)]

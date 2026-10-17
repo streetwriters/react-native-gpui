@@ -275,7 +275,7 @@ fn dismiss_top(top: i32, stack: i32, tree: &TreeView, handle: &StoreHandle, cx: 
     if let Some(mode) = mode {
         let exit = crate::transition::transition(mode, crate::transition::Role::Exit, 1.0);
         crate::state::with(|state| {
-            state.roles.insert(top, crate::state::Role::Exit);
+            state.roles.insert(top, (crate::state::Role::Exit, 1.0));
         });
         handle.start_transition(top, exit, cx);
     }
@@ -350,7 +350,10 @@ fn is_top_header(node: &ComponentNode, tree: &TreeView) -> bool {
         .into_iter()
         .filter(|tag| tree.node(*tag).is_some_and(|n| n.component == SCREEN))
         .collect();
-    screens.last().copied() == Some(parent)
+    let is_last = screens.last().copied() == Some(parent);
+    // A screen that is leaving keeps its header while its transition runs, so
+    // the header does not blink out before the card has finished moving.
+    is_last || tree.transition(parent).is_some()
 }
 
 /// Whether the header config carries a `title` subview.

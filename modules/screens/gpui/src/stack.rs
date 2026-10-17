@@ -109,7 +109,7 @@ impl StoreObserver for StackObserver {
                         cx,
                     );
                     state::with(|state| {
-                        state.roles.insert(previous, Role::Exit);
+                        state.roles.insert(previous, (Role::Exit, distance));
                     });
                 }
             }
@@ -119,7 +119,7 @@ impl StoreObserver for StackObserver {
                 cx,
             );
             state::with(|state| {
-                state.roles.insert(child.tag, Role::Enter);
+                state.roles.insert(child.tag, (Role::Enter, 1.0));
             });
         }
         crate::lifecycle::dispatch_will(handle, previous_top, Some(child.tag), cx);
@@ -181,7 +181,7 @@ impl StoreObserver for StackObserver {
                     cx,
                 );
                 state::with(|state| {
-                    state.roles.insert(child, Role::Exit);
+                    state.roles.insert(child, (Role::Exit, 1.0));
                 });
             }
         }
@@ -231,7 +231,7 @@ impl StoreObserver for StackObserver {
             return;
         }
         for event in crate::lifecycle::lifecycle_events(before, after) {
-            log::debug!(
+            log::info!(
                 "[screens] tag={} activity={}->{} event={event}",
                 node.tag,
                 before,
@@ -252,7 +252,12 @@ impl StoreObserver for StackObserver {
         handle: &StoreHandle,
         cx: &mut gpui::App,
     ) {
-        let forward = state::with(|state| state.roles.get(&tag).copied() != Some(Role::Exit));
+        let forward = state::with(|state| {
+            state
+                .roles
+                .get(&tag)
+                .is_none_or(|(role, distance)| *role == Role::Enter || *distance < 1.0)
+        });
         handle.dispatch_event(
             tag,
             "topTransitionProgress",
@@ -363,7 +368,7 @@ fn pop_plans(
             log::info!(
                 "[screens] preserve outgoing={} descendants={}",
                 op.tag,
-                tree.children(op.tag).len()
+                descendant_count(op.tag, tree)
             );
         }
         plans.insert(
@@ -377,4 +382,15 @@ fn pop_plans(
         );
     }
     plans
+}
+
+/// How many nodes sit below `tag`, at any depth.
+fn descendant_count(tag: i32, tree: &TreeView) -> usize {
+    let mut total = 0;
+    let mut stack = tree.children(tag);
+    while let Some(next) = stack.pop() {
+        total += 1;
+        stack.extend(tree.children(next));
+    }
+    total
 }
