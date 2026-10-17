@@ -31,6 +31,47 @@ impl ComponentRenderer for ScreenRenderer {
         None
     }
 
+    fn children(
+        &self,
+        node: &ComponentNode,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Vec<AnyElement> {
+        if !props::is_modal_presentation(node) {
+            return children;
+        }
+        let material = props::is_transparent_presentation(node);
+        let width = (node.frame.w - SHEET_MARGIN).clamp(0.0, SHEET_MAX_WIDTH);
+        let height = (node.frame.h - SHEET_MARGIN).clamp(0.0, SHEET_MAX_HEIGHT);
+        let left = ((node.frame.w - width) * 0.5).max(0.0);
+        let top = ((node.frame.h - height) * 0.5).max(0.0);
+        let mut layers = Vec::with_capacity(2);
+        if !material {
+            layers.push(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .bg(argb(0x80000000))
+                    .into_any_element(),
+            );
+        }
+        layers.push(
+            div()
+                .absolute()
+                .left(gpui::px(left))
+                .top(gpui::px(top))
+                .w(gpui::px(width))
+                .h(gpui::px(height))
+                .overflow_hidden()
+                .bg(argb(if material { 0x00000000 } else { 0xff171923 }))
+                .children(children)
+                .into_any_element(),
+        );
+        layers
+    }
+
     fn hides_subtree(&self, node: &ComponentNode, tree: &TreeView) -> bool {
         if props::activity_state(node) > 0.0 {
             return false;
@@ -475,46 +516,6 @@ impl ComponentRenderer for ModalScreenRenderer {
         _cx: &mut App,
     ) -> Option<AnyElement> {
         None
-    }
-
-    /// Paints the backdrop and the centred sheet the card sits in.
-    ///
-    /// A modal does not fill the window: it is a smaller card centred over the
-    /// screen underneath, dimmed by a backdrop unless the presentation is
-    /// transparent. Core keeps the node, its accessibility and its children, so
-    /// this only wraps them.
-    fn children(
-        &self,
-        node: &ComponentNode,
-        children: Vec<AnyElement>,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> Vec<AnyElement> {
-        let material = props::is_transparent_presentation(node);
-        let mut layers = Vec::with_capacity(2);
-        if !material {
-            layers.push(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .bg(argb(0x80000000))
-                    .into_any_element(),
-            );
-        }
-        let width = (node.frame.w - SHEET_MARGIN).clamp(0.0, SHEET_MAX_WIDTH);
-        let height = (node.frame.h - SHEET_MARGIN).clamp(0.0, SHEET_MAX_HEIGHT);
-        let sheet = div()
-            .absolute()
-            .left(gpui::px(((node.frame.w - width) * 0.5).max(0.0)))
-            .top(gpui::px(((node.frame.h - height) * 0.5).max(0.0)))
-            .w(gpui::px(width))
-            .h(gpui::px(height))
-            .overflow_hidden()
-            .bg(argb(if material { 0x00000000 } else { 0xff171923 }))
-            .children(children);
-        layers.push(sheet.into_any_element());
-        layers
     }
 }
 

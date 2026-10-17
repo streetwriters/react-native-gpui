@@ -898,6 +898,91 @@ mod test_app_context_tests {
         assert_eq!(hit, Some(101));
     }
 
+    /// A decoration that changes without any inherited value changing must
+    /// still be stored, and must notify.
+    ///
+    /// The pass used to write the renderer's answer only when the *inherited*
+    /// state changed, so a module whose decoration depends on transition
+    /// progress kept its answer from the start of the transition forever.
+    #[gpui::test]
+    fn refresh_stores_a_decoration_that_changed_alone(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        static COLOUR: AtomicU32 = AtomicU32::new(0);
+
+        struct Probe;
+        impl crate::extensions::ComponentRenderer for Probe {
+            fn render(
+                &self,
+                _node: &crate::extensions::ComponentNode,
+                _window: &mut gpui::Window,
+                _cx: &mut gpui::App,
+            ) -> Option<gpui::AnyElement> {
+                None
+            }
+
+            fn decorate(
+                &self,
+                _node: &crate::extensions::ComponentNode,
+                _tree: &crate::extensions::TreeView,
+            ) -> crate::extensions::Decoration {
+                crate::extensions::Decoration {
+                    background: Some(COLOUR.load(Ordering::SeqCst)),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        crate::extensions::register_component_renderer("DecorationProbe", Arc::new(Probe));
+        let mut create = op(MountKind::Create);
+        create.component = "DecorationProbe".into();
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![create, op(MountKind::Insert)],
+                },
+                cx,
+            );
+        });
+
+        let read = |cx: &mut TestAppContext| {
+            cx.read_entity(&store, |store, _| {
+                store
+                    .nodes
+                    .get(&101)
+                    .map(|node| node.read_with(cx, |n, _| n.renderer_decoration))
+                    .flatten()
+            })
+        };
+        assert_eq!(read(cx).and_then(|d| d.background), Some(0));
+
+        // Only the decoration changes; no inherited value moves.
+        COLOUR.store(0xff00ff00, Ordering::SeqCst);
+        cx.update_entity(&store, |store, cx| {
+            store.refresh_inherited(super::APP_SURFACE_ID, cx);
+        });
+        assert_eq!(
+            read(cx).and_then(|d| d.background),
+            Some(0xff00ff00),
+            "a decoration that changed alone must be stored"
+        );
+    }
+
     #[gpui::test]
     fn test_driver_frames_follow_transforms_and_visibility_clips(cx: &mut TestAppContext) {
         let overlay_host = cx.new(|_| OverlayHost::new());
