@@ -1215,6 +1215,12 @@ export async function packageDesktop({
     arch: process.arch,
     release: true,
   });
+  // Named, because a library left out of the package is otherwise invisible until
+  // the installer or the AppImage step fails with a message that does not say
+  // which file it was looking for.
+  for (const library of libraries) {
+    console.log(`shipping library ${path.basename(library)}`);
+  }
 
   // 4. Translate, then run cargo-packager.
   const packagerConfig = toPackagerConfig(config, {

@@ -8,6 +8,7 @@ import {
   SIGNING_ENVIRONMENT,
   libraryExtension,
   parseSharedLibraryReferences,
+  recordedLibraryDirectories,
   resolveLinkedLibraryForTest,
   runtimeLibraries,
   targetProfileDir,
@@ -544,4 +545,49 @@ test('a bare soname is found in the CMake tree, and a system library is not', ()
   );
   // A library the OS provides must not be shipped.
   expect(resolveLinkedLibraryForTest('libgtk-3.so.0', root)).toBeUndefined();
+});
+
+describe('recordedLibraryDirectories', () => {
+  test('the directories CMake recorded are read back', () => {
+    // The build writes `rpath_dirs-<Config>.txt` while configuring, and that list
+    // becomes the executable's rpath. It is the only source that names the
+    // prebuilt runtime's cache, which is not under the build tree at all.
+    const root = createProject({
+      files: {
+        'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+        'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release/build/rpath_dirs-Release.txt':
+          '/opt/prebuilt/0.0.3/linux-x64/lib\n/opt/hermes/bin/linux-x64\n',
+      },
+    });
+    expect(recordedLibraryDirectories(root)).toEqual([
+      '/opt/prebuilt/0.0.3/linux-x64/lib',
+      '/opt/hermes/bin/linux-x64',
+    ]);
+  });
+
+  test('a project with no build yet records nothing', () => {
+    expect(recordedLibraryDirectories(createProject())).toEqual([]);
+  });
+});
+
+test('a prebuilt-only library is found through the recorded directories', () => {
+  // The case that failed on Linux: the app uses the prebuilt runtime, so
+  // `libjsi.so` exists only in the prebuilt cache, outside both the project and
+  // the build tree. The recorded rpath list is what makes it findable.
+  const root = createProject({
+    files: {
+      'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+      'desktop/Cargo.toml': '[package]\nname = "my-app"\nversion = "0.1.0"\n',
+    },
+  });
+  const cache = path.join(root, 'prebuilt-cache', 'linux-x64', 'lib');
+  fs.mkdirSync(cache, { recursive: true });
+  const library = path.join(cache, 'libjsi.so');
+  fs.writeFileSync(library, 'x');
+  write(
+    root,
+    'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release/build/rpath_dirs-Release.txt',
+    `${cache}\n`,
+  );
+  expect(resolveLinkedLibraryForTest('libjsi.so', root)).toBe(library);
 });

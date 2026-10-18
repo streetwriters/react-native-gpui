@@ -252,9 +252,9 @@ function resolveLinkedLibrary(reference, { binary, projectRoot }) {
     // in the directories the build produced; a system library will not be there
     // and is correctly skipped.
     for (const directory of [
-      // The CMake tree first: that is where the C++ runtime's own libraries are
-      // built, and a same-named file in some crate's `out` is not the one the
-      // executable links.
+      // What the build recorded first — it names the prebuilt cache and the
+      // engine's own directory — then the build tree, then Cargo's output.
+      ...recordedLibraryDirectories(projectRoot),
       ...cmakeLibraryDirectories(projectRoot),
       ...buildLibraryDirectories(projectRoot, { release: true }),
     ]) {
@@ -285,6 +285,50 @@ function rpathsOf(binary) {
     if (match !== null && path.isAbsolute(match[1])) out.push(match[1]);
   }
   return out;
+}
+
+/**
+ * The library directories the build itself recorded.
+ *
+ * `rn-gpui-sys` generates `rpath_dirs-<Config>.txt` while configuring CMake, and
+ * that list is what ends up in the executable's rpath. It is the only accurate
+ * answer: it names the *prebuilt* runtime's cache directory when the app used a
+ * prebuilt, and the Hermes binary directory, neither of which is under the build
+ * tree. Reading it is why a library cannot be missed by guessing at layouts.
+ */
+export function recordedLibraryDirectories(projectRoot) {
+  const root = path.join(
+    path.dirname(
+      targetProfileDir(path.join(projectRoot, 'desktop'), 'release'),
+    ),
+    'rn-gpui-cmake',
+  );
+  const directories = [];
+  for (const file of walkDirectories(root, 0, 6)) {
+    let entries;
+    try {
+      entries = fs.readdirSync(file, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^rpath_dirs-.*\.txt$/u.test(entry.name))
+        continue;
+      let text;
+      try {
+        text = fs.readFileSync(path.join(file, entry.name), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const line of text.split('\n')) {
+        const directory = line.trim();
+        if (directory && !directories.includes(directory)) {
+          directories.push(directory);
+        }
+      }
+    }
+  }
+  return directories;
 }
 
 /**
