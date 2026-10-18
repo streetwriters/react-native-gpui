@@ -8,6 +8,7 @@
  * hard-coded table, so a module that adds a library is shipped without anyone
  * updating this file.
  */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -118,7 +119,124 @@ export function runtimeLibraries(
     }
   }
 
+  // Finally, and most reliably, ask the executable what it links. A library can
+  // live outside both the profile directory and a crate's `out` — the C++
+  // bridge's `libjsi` is built by CMake under its own tree — and only the
+  // binary's own dependencies say what it needs at run time.
+  for (const file of linkedSharedLibraries(projectRoot, {
+    release,
+    extension,
+  })) {
+    libraries.add(file);
+  }
+
   return [...libraries].sort();
+}
+
+/**
+ * The shared libraries an executable links that are not system libraries.
+ *
+ * `otool -L` on macOS, `readelf -d` on Linux. A system library resolves from the
+ * OS and must not be bundled; anything resolved through a `@rpath` entry, or
+ * living under the build, is ours to ship.
+ */
+export function linkedSharedLibraries(projectRoot, { release, extension }) {
+  const binary = path.join(
+    targetProfileDir(
+      path.join(projectRoot, 'desktop'),
+      release ? 'release' : 'debug',
+    ),
+    executableName(projectRoot),
+  );
+  if (!fs.existsSync(binary)) return [];
+
+  let output;
+  try {
+    if (process.platform === 'darwin') {
+      output = execFileSync('otool', ['-L', binary], { encoding: 'utf8' });
+    } else if (process.platform === 'linux') {
+      output = execFileSync('readelf', ['-d', binary], { encoding: 'utf8' });
+    } else {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
+  const found = new Set();
+  for (const line of output.split('\n')) {
+    const match =
+      line.match(/^\s*(\S+\.dylib)\s+\(/u) ??
+      line.match(/NEEDED\)\s+Shared library: \[(\S+\.so[^\]]*)\]/u);
+    if (match === null) continue;
+    const reference = match[1];
+    const resolved = resolveLinkedLibrary(reference, { binary, projectRoot });
+    if (resolved === undefined) continue;
+    if (isSharedLibrary(path.basename(resolved), extension))
+      found.add(resolved);
+  }
+  return [...found];
+}
+
+/**
+ * Where a `@rpath`/`$ORIGIN` reference actually points, or `None` for a system
+ * library.
+ *
+ * The executable's own rpaths are what the loader uses, so they are what this
+ * walks. A reference into `/usr/lib` is the OS's to provide.
+ */
+function resolveLinkedLibrary(reference, { binary, projectRoot }) {
+  if (reference.startsWith('@rpath/')) {
+    const name = reference.slice('@rpath/'.length);
+    for (const rpath of rpathsOf(binary)) {
+      const candidate = path.join(rpath, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return undefined;
+  }
+  if (reference.startsWith('$ORIGIN')) {
+    const candidate = path.join(
+      path.dirname(binary),
+      reference.slice('$ORIGIN/'.length),
+    );
+    return fs.existsSync(candidate) ? candidate : undefined;
+  }
+  if (!path.isAbsolute(reference)) return undefined;
+  // A library under the repository belongs to the build; one under /usr or
+  // /System belongs to the OS.
+  if (reference.startsWith('/usr/') || reference.startsWith('/System/')) {
+    return undefined;
+  }
+  return reference.startsWith(projectRoot) ? reference : undefined;
+}
+
+/** The rpaths a Mach-O binary carries, absolute entries only. */
+function rpathsOf(binary) {
+  let output;
+  try {
+    output = execFileSync('otool', ['-l', binary], { encoding: 'utf8' });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of output.split('\n')) {
+    const match = line.match(/^\s+path (\S+) \(offset/u);
+    if (match !== null && path.isAbsolute(match[1])) out.push(match[1]);
+  }
+  return out;
+}
+
+/** The executable's file name, from the desktop crate's Cargo.toml. */
+function executableName(projectRoot) {
+  try {
+    const manifest = fs.readFileSync(
+      path.join(projectRoot, 'desktop', 'Cargo.toml'),
+      'utf8',
+    );
+    return manifest.match(/^name\s*=\s*"([^"]+)"/mu)?.[1] ?? '';
+  } catch {
+    return '';
+  }
 }
 
 function readManifest(file) {
@@ -137,10 +255,14 @@ function readManifest(file) {
  */
 export function buildLibraryDirectories(projectRoot, { release = true } = {}) {
   const profile = release ? 'release' : 'debug';
+  const crateDir = path.join(projectRoot, 'desktop');
   const targetFromEnv = process.env.CARGO_TARGET_DIR;
+  // The crate's own `target-dir` comes first: the scaffold sets it, so
+  // `desktop/target` is not where the libraries are.
   const roots = [
     targetFromEnv === undefined ? undefined : path.resolve(targetFromEnv),
-    path.join(projectRoot, 'desktop', 'target'),
+    path.dirname(targetProfileDir(crateDir, profile)),
+    path.join(crateDir, 'target'),
     path.join(projectRoot, 'target'),
   ].filter(Boolean);
   const directories = new Set();
@@ -161,4 +283,167 @@ export function buildLibraryDirectories(projectRoot, { release = true } = {}) {
     }
   }
   return [...directories];
+}
+
+/// The cargo-packager version this CLI drives and installs.
+///
+/// Pinned so a config written for one version is not silently handed to another:
+/// the translator emits this version's schema, and an installed copy that differs
+/// is replaced.
+export const CARGO_PACKAGER_VERSION = '0.11.8';
+
+/** cargo-packager's name for each of this phase's formats. */
+const PACKAGER_FORMAT = {
+  app: 'app',
+  dmg: 'dmg',
+  nsis: 'nsis',
+  deb: 'deb',
+  appimage: 'appimage',
+};
+
+/**
+ * Where Cargo put the executable for a profile.
+ *
+ * The desktop crate's `.cargo/config.toml` redirects `target-dir` to
+ * `build/target`, so `target/release` does not exist. Reading the setting is the
+ * only way to be right for both layouts.
+ */
+export function targetProfileDir(crateDir, profile) {
+  const compiledIn = path.join(crateDir, 'target', profile);
+  let config;
+  try {
+    config = fs.readFileSync(
+      path.join(crateDir, '.cargo', 'config.toml'),
+      'utf8',
+    );
+  } catch {
+    return compiledIn;
+  }
+  const match = config.match(/^\s*target-dir\s*=\s*"([^"]+)"/mu);
+  if (!match) return compiledIn;
+  return path.join(crateDir, path.resolve('/', match[1]).slice(1), profile);
+}
+
+/**
+ * Translates `desktop.json` into cargo-packager's config.
+ *
+ * cargo-packager is an implementation detail: users never write its JSON, and
+ * replacing it would only change this function. Pure, so the whole translation
+ * is unit-testable without packaging anything.
+ *
+ * `build` carries what the caller observed — the crate directory, the
+ * executable's name, the directories holding the bundle and assets, the icon
+ * files and the libraries to ship — because none of that is in the config file.
+ */
+export function toPackagerConfig(config, build) {
+  const {
+    crateDir,
+    binaryName,
+    bundleDir,
+    assetsDir,
+    icons = [],
+    libraries = [],
+    formats,
+    outDir,
+  } = build;
+
+  // cargo-packager resolves paths relative to the crate directory, and its
+  // schema uses forward slashes on every platform.
+  const relative = absolute =>
+    path.relative(crateDir, absolute).split(path.sep).join('/');
+
+  // The bundle and the assets travel as resources, so the release build's
+  // `resource_dir` finds them beside the executable. The bundle file and the
+  // assets directory are named separately rather than shipping the whole build
+  // directory, which holds the output of this very run.
+  const resources = [];
+  if (bundleDir !== undefined) {
+    for (const candidate of ['index.bundle', 'index.bundle.hbc']) {
+      const file = path.join(bundleDir, candidate);
+      if (fs.existsSync(file)) {
+        resources.push(relative(file));
+        break;
+      }
+    }
+  }
+  if (assetsDir !== undefined && fs.existsSync(assetsDir)) {
+    resources.push(relative(assetsDir));
+  }
+  for (const extra of config.bundle.resources ?? []) {
+    // `bundle.resources` is written relative to `desktop/`, which is the crate.
+    resources.push(relative(path.resolve(crateDir, extra)));
+  }
+
+  const config_ = {
+    $schema:
+      'https://raw.githubusercontent.com/crabnebula-dev/cargo-packager/dev/crates/packager/schema.json',
+    name: binaryName,
+    productName: config.productName,
+    version: config.version,
+    identifier: config.identifier,
+    // `binariesDir` is where the executables are; `outDir` is where the
+    // packages go. Without the first, cargo-packager looks for the binary
+    // inside the output directory.
+    binariesDir: targetProfileDir(crateDir, 'release'),
+    binaries: [{ path: binaryName, main: true }],
+    outDir: outDir ?? path.join(crateDir, 'build', 'dist'),
+    resources,
+  };
+  if (formats !== undefined) {
+    config_.formats = formats.map(format => PACKAGER_FORMAT[format]);
+  }
+  if (icons.length > 0) config_.icons = icons;
+  if (config.bundle.copyright !== undefined) {
+    config_.copyright = config.bundle.copyright;
+  }
+  if (config.bundle.category !== undefined) {
+    config_.category = config.bundle.category;
+  }
+
+  const macos = {
+    minimumSystemVersion: config.bundle.macos.minimumSystemVersion,
+  };
+  if (config.bundle.macos.entitlements !== null) {
+    macos.entitlements = relative(
+      path.resolve(process.cwd(), config.bundle.macos.entitlements),
+    );
+  }
+  if (libraries.length > 0) {
+    // These are *source* paths, and absolute: cargo-packager copies each one
+    // into Contents/Frameworks, which is where the release build's
+    // `@executable_path/../Frameworks` rpath looks. They are absolute because a
+    // library can live outside the crate — the engine's come from its own
+    // package — and cargo-packager opens the string as given rather than
+    // resolving it against the config file.
+    macos.frameworks = libraries;
+  }
+  config_.macos = macos;
+
+  if (config.bundle.windows.nsis !== undefined) {
+    config_.nsis = { installMode: config.bundle.windows.nsis.installMode };
+  }
+
+  // Linux keeps its libraries under `lib/<app>`, which is where the release
+  // build's `$ORIGIN/../lib/<app>` rpath looks. Both Linux formats map a
+  // source path to a destination inside the package, so the library goes to
+  // that directory rather than wherever resources land by default.
+  if (libraries.length > 0) {
+    const files = {};
+    for (const library of libraries) {
+      files[library] = `/usr/lib/${binaryName}/${path.basename(library)}`;
+    }
+    config_.deb = {
+      ...(config_.deb ?? {}),
+      files,
+    };
+    config_.appimage = { files };
+  }
+  if (config.bundle.linux.deb.depends.length > 0) {
+    config_.deb = {
+      ...(config_.deb ?? {}),
+      depends: config.bundle.linux.deb.depends,
+    };
+  }
+
+  return config_;
 }
