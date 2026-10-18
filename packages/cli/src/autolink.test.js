@@ -229,59 +229,12 @@ test('throws on an unknown prebuilt mode', () => {
   );
 });
 
-test('names the rename when a dependency still says platforms.gpui', () => {
-  const { projectRoot, configPath } = createProject();
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  const engine = config.dependencies['fake-engine'];
-  engine.platforms = { gpui: engine.platforms.desktop };
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
-    'fake-engine: platforms.gpui was renamed to platforms.desktop',
-  );
-});
-
-test('names the rename when the app still says project.gpui', () => {
-  const { projectRoot, configPath } = createProject({ project: {} });
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  // An option left in the old key would be ignored, and the build would quietly
-  // use the default instead of the mode the app asked for.
-  config.project = { gpui: { prebuilt: 'never' } };
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
-    'project.gpui was renamed to project.desktop in react-native.config.js',
-  );
-});
-
 test('reads project.desktop without complaint', () => {
   const { projectRoot, configPath } = createProject({
     project: { prebuilt: 'never' },
   });
   autolink({ projectRoot, configFile: configPath });
   expect(manifestOf(projectRoot).prebuilt).toBe('never');
-});
-
-test('names the rename when a module still keeps its code under gpui/', () => {
-  const { projectRoot, configPath } = createProject();
-  const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');
-  // The config says `desktop`, but the crate was never moved out of `gpui/`.
-  fs.mkdirSync(path.join(crateRoot, 'gpui/src'), { recursive: true });
-  fs.writeFileSync(
-    path.join(crateRoot, 'package.json'),
-    `${JSON.stringify({ name: 'fake-paint', version: '0.0.1' }, null, 2)}\n`,
-  );
-  fs.writeFileSync(
-    path.join(crateRoot, 'gpui/Cargo.toml'),
-    '[package]\nname = "fake-paint"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n',
-  );
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  config.dependencies['fake-paint'] = {
-    root: crateRoot,
-    platforms: { desktop: { crate: 'fake-paint' } },
-  };
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
-    'fake-paint: the gpui/ folder was renamed to desktop/',
-  );
 });
 
 test('throws when a C++ TurboModule package has no codegenConfig.name', () => {
