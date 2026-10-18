@@ -11,7 +11,7 @@
 // is to catch a package that only works because the checkout is next to it.
 // Steps are named so the workflow can report each one through step.mjs.
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -206,6 +206,126 @@ function main() {
     });
   } else {
     run(binary, [], { cwd: projectRoot, env: smoke });
+  }
+
+  // 6. Package it, install the package outside the build tree, and run that.
+  //
+  //    This is the step that catches what a build-tree run cannot: a library
+  //    left behind, a bundle the executable cannot find, an rpath that only
+  //    works from where it was compiled.
+  packageAndSmoke({ projectRoot, manifest, appDir, binary });
+}
+
+/**
+ * Build the installers, install one outside the tree, and start the result.
+ *
+ * The formats are this phase's alpha set for each OS. Each is installed the way
+ * a user would install it, not run from `dist/`.
+ */
+function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
+  run('npx', ['react-native', 'package-desktop'], {
+    cwd: projectRoot,
+    shell: process.platform === 'win32',
+  });
+
+  // `package-desktop` writes its output to `desktop/build/dist`, which is a
+  // sibling of the `build/target` the scaffold points Cargo at.
+  const distDir = path.join(projectRoot, 'desktop', 'build', 'dist');
+  const produced = fs.existsSync(distDir)
+    ? fs.readdirSync(distDir).filter(name => !name.startsWith('.'))
+    : [];
+  if (produced.length === 0) {
+    throw new Error(`package-desktop produced nothing in ${distDir}`);
+  }
+  process.stderr.write(`packages: ${produced.join(', ')}\n`);
+
+  const installDir = path.join(appDir, 'installed');
+  fs.mkdirSync(installDir, { recursive: true });
+  const smoke = { ...process.env, RN_GPUI_SMOKE: '1' };
+
+  if (process.platform === 'darwin') {
+    const app = produced.find(name => name.endsWith('.app'));
+    if (app === undefined) throw new Error('no .app was produced');
+    run('ditto', [path.join(distDir, app), path.join(installDir, app)]);
+    const installed = path.join(
+      installDir,
+      app,
+      'Contents',
+      'MacOS',
+      binaryName(manifest.name),
+    );
+    if (!fs.existsSync(installed)) {
+      throw new Error(`the app bundle has no executable at ${installed}`);
+    }
+    checkLinkage(
+      path.join(installDir, app),
+      path.join('Contents', 'MacOS', binaryName(manifest.name)),
+    );
+    run(installed, [], { cwd: installDir, env: smoke });
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const installer = produced.find(name =>
+      name.toLowerCase().endsWith('.exe'),
+    );
+    if (installer === undefined) throw new Error('no NSIS installer produced');
+    const target = path.join(installDir, 'SmokeApp');
+    run(path.join(distDir, installer), ['/S', `/D=${target}`], {
+      cwd: installDir,
+    });
+    const installed = path.join(target, binary);
+    if (!fs.existsSync(installed)) {
+      throw new Error(`the installer did not place a binary at ${installed}`);
+    }
+    checkLinkage(target, `${binaryName(manifest.name)}.exe`);
+    run(installed, [], { cwd: target, env: smoke });
+    return;
+  }
+
+  // Linux: the deb is extracted rather than installed, because installing one
+  // needs root and this only has to prove the layout.
+  const deb = produced.find(name => name.endsWith('.deb'));
+  if (deb === undefined) throw new Error('no .deb was produced');
+  const extracted = path.join(installDir, 'deb');
+  fs.mkdirSync(extracted, { recursive: true });
+  run('dpkg', ['-x', path.join(distDir, deb), extracted], { cwd: installDir });
+  const installed = path.join(
+    extracted,
+    'usr',
+    'bin',
+    binaryName(manifest.name),
+  );
+  if (!fs.existsSync(installed)) {
+    throw new Error(`the deb did not place a binary at ${installed}`);
+  }
+  checkLinkage(extracted, path.join('usr', 'bin', binaryName(manifest.name)));
+  run('xvfb-run', ['-a', '-s', '-screen 0 1280x900x24', installed], {
+    cwd: extracted,
+    env: smoke,
+  });
+}
+
+/**
+ * Fail when a packaged binary references a build path.
+ *
+ * A path like `/Users/runner/...` or `/home/runner/...` is where the app was
+ * compiled, which is not where it is being run.
+ */
+function checkLinkage(root, name) {
+  const binary = path.join(root, name);
+  const command =
+    process.platform === 'darwin'
+      ? ['otool', ['-L', binary]]
+      : ['readelf', ['-d', binary]];
+  const output = execFileSync(command[0], command[1], { encoding: 'utf8' });
+  const offenders = output
+    .split('\n')
+    .filter(line => /\/(?:Users|home|private\/var|var\/folders)\//u.test(line));
+  if (offenders.length > 0) {
+    throw new Error(
+      `packaged binary references build paths:\n${offenders.join('\n')}`,
+    );
   }
 }
 

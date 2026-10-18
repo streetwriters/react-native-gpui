@@ -256,11 +256,10 @@ function readManifest(file) {
 export function buildLibraryDirectories(projectRoot, { release = true } = {}) {
   const profile = release ? 'release' : 'debug';
   const crateDir = path.join(projectRoot, 'desktop');
-  const targetFromEnv = process.env.CARGO_TARGET_DIR;
-  // The crate's own `target-dir` comes first: the scaffold sets it, so
-  // `desktop/target` is not where the libraries are.
+  // `targetProfileDir` already applies `CARGO_TARGET_DIR` and the crate's own
+  // `target-dir`, so the other roots are only fallbacks for a library that
+  // landed somewhere less predictable.
   const roots = [
-    targetFromEnv === undefined ? undefined : path.resolve(targetFromEnv),
     path.dirname(targetProfileDir(crateDir, profile)),
     path.join(crateDir, 'target'),
     path.join(projectRoot, 'target'),
@@ -334,6 +333,11 @@ const PACKAGER_FORMAT = {
  * only way to be right for both layouts.
  */
 export function targetProfileDir(crateDir, profile) {
+  // `CARGO_TARGET_DIR` overrides everything, and CI sets it so the build cache
+  // survives a deleted app folder.
+  if (process.env.CARGO_TARGET_DIR) {
+    return path.join(path.resolve(process.env.CARGO_TARGET_DIR), profile);
+  }
   const compiledIn = path.join(crateDir, 'target', profile);
   let config;
   try {

@@ -382,6 +382,22 @@ describe('toPackagerConfig', () => {
 });
 
 describe('targetProfileDir', () => {
+  test('CARGO_TARGET_DIR wins over everything', () => {
+    // CI sets it so the Cargo cache survives a deleted app directory; a config
+    // that ignored it looked for the binary in a tree that does not exist.
+    const root = createProject();
+    const saved = process.env.CARGO_TARGET_DIR;
+    process.env.CARGO_TARGET_DIR = '/ci/target';
+    try {
+      expect(targetProfileDir(path.join(root, 'desktop'), 'release')).toBe(
+        path.join('/ci/target', 'release'),
+      );
+    } finally {
+      if (saved === undefined) delete process.env.CARGO_TARGET_DIR;
+      else process.env.CARGO_TARGET_DIR = saved;
+    }
+  });
+
   test('a crate with no cargo config uses target/<profile>', () => {
     const root = createProject();
     expect(targetProfileDir(path.join(root, 'desktop'), 'release')).toBe(
