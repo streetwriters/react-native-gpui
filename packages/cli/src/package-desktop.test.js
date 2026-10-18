@@ -314,10 +314,11 @@ describe('toPackagerConfig', () => {
     ]);
   });
 
-  test('runtime libraries land in the Linux lib directory', () => {
-    // One mapping serves both formats: cargo-packager builds the AppImage's
-    // AppDir by copying the deb's data tree, so `usr/lib/<app>` is where the
-    // binary's `$ORIGIN/../lib/<app>` rpath finds them.
+  test('runtime libraries get the directory each Linux format searches', () => {
+    // The deb installs to `usr/lib/<app>`, where the binary's
+    // `$ORIGIN/../lib/<app>` rpath looks. The AppImage needs flat `usr/lib`,
+    // which is what AppRun puts on the library path and where linuxdeploy looks
+    // when resolving the executable's dependencies.
     const config = toPackagerConfig(
       desktopConfig(),
       build({ libraries: ['/build/libjsi.so'] }),
@@ -325,7 +326,9 @@ describe('toPackagerConfig', () => {
     expect(config.deb.files).toEqual({
       '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
     });
-    expect(config.appimage.files).toEqual(config.deb.files);
+    expect(config.appimage.files).toEqual({
+      '/build/libjsi.so': '/usr/lib/libjsi.so',
+    });
   });
 
   test('Windows ships the DLLs as resources', () => {

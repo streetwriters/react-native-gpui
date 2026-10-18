@@ -97,10 +97,16 @@ fn emit_relocatable_rpaths(app_name: &str) {
         // An app bundle puts the executable in Contents/MacOS and the shipped
         // libraries in Contents/Frameworks.
         "macos" => emit("@executable_path/../Frameworks".into()),
-        // Linux installs the executable at bin/<app> and the libraries at
-        // lib/<app>; `$ORIGIN` is the executable's own directory.
+        // Linux installs the executable at `usr/bin` and ships its libraries
+        // under `usr/lib`:
+        // - the deb puts them in `usr/lib/<app>`;
+        // - an AppImage's libraries are flat in `usr/lib`, because that is the
+        //   directory AppRun puts on the library path and the one linuxdeploy
+        //   resolves dependencies from before the image is assembled.
+        // Both are covered, so one binary works in either layout.
         "linux" => {
             emit(format!("$ORIGIN/../lib/{app_name}"));
+            emit("$ORIGIN/../lib".into());
             emit("$ORIGIN".into());
         }
         // Windows has no rpath: the DLLs are copied beside the executable.

@@ -625,17 +625,23 @@ export function toPackagerConfig(config, build) {
   // source path to a destination inside the package, so the library goes to
   // that directory rather than wherever resources land by default.
   if (libraries.length > 0) {
-    // Both Linux formats get `usr/lib/<app>`, which is where the release build's
-    // `$ORIGIN/../lib/<app>` rpath looks. The AppImage needs no separate mapping:
-    // cargo-packager builds the AppDir by copying the deb's data tree, so the
-    // same path serves both, and `linuxdeploy` then finds the libraries through
-    // that rpath rather than through `LD_LIBRARY_PATH`.
-    const files = {};
+    // The two Linux formats need different directories, because they find
+    // libraries differently:
+    // - the deb installs to `usr/lib/<app>`, which is where the release build's
+    //   `$ORIGIN/../lib/<app>` rpath looks;
+    // - the AppImage's `AppRun` puts `$APPDIR/usr/lib` on the library path, and
+    //   `linuxdeploy` resolves the executable's dependencies from there before
+    //   the bundle is assembled. A library one directory deeper is reported as
+    //   `Could not find dependency`, which is how this was found.
+    const debFiles = {};
+    const appimageFiles = {};
     for (const library of libraries) {
-      files[library] = `/usr/lib/${binaryName}/${path.basename(library)}`;
+      const name = path.basename(library);
+      debFiles[library] = `/usr/lib/${binaryName}/${name}`;
+      appimageFiles[library] = `/usr/lib/${name}`;
     }
-    config_.deb = { ...(config_.deb ?? {}), files };
-    config_.appimage = { files };
+    config_.deb = { ...(config_.deb ?? {}), files: debFiles };
+    config_.appimage = { files: appimageFiles };
   }
   if (config.bundle.linux.deb.depends.length > 0) {
     config_.deb = {
