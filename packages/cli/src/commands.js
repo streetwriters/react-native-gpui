@@ -4,6 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
+import { loadDesktopConfig } from './desktop-config.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -415,9 +416,6 @@ const appPackageName = (projectRoot, packageJson) =>
     .toLowerCase()
     .replaceAll(/[^a-z0-9-]/gu, '-')}`;
 
-const appIdFromName = name =>
-  `com.example.${name.toLowerCase().replaceAll(/[^a-z0-9-]/gu, '-')}`;
-
 function snapshotTree(root, track, rememberDirectory, existingDirectories) {
   if (!fs.existsSync(root)) {
     rememberDirectory(root);
@@ -457,96 +455,30 @@ const desktopFiles = directory =>
       : [path.relative(path.join(templatesDir, 'app'), fullPath)];
   });
 
-function desktopNumber(value, fallback, label, appConfigPath) {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new Error(`${label} must be a positive number: ${appConfigPath}`);
-  }
-  return value;
-}
-
-export function desktopLaunchConfig(appConfig, appConfigPath) {
-  const desktop = appConfig.desktop ?? {};
-  const window = desktop.window;
-  const hasWindow = window !== undefined;
-  const hasDevMenu = typeof desktop.devMenu === 'boolean';
-  const hasTray = desktop.tray !== undefined;
-  if (!hasWindow && !hasDevMenu && !hasTray) return null;
-  if (
-    hasWindow &&
-    (typeof window !== 'object' || window === null || Array.isArray(window))
-  ) {
-    throw new Error(
-      `app.json desktop.window must be an object: ${appConfigPath}`,
-    );
-  }
-  if (
-    hasTray &&
-    (typeof desktop.tray !== 'object' ||
-      desktop.tray === null ||
-      Array.isArray(desktop.tray))
-  ) {
-    throw new Error(
-      `app.json desktop.tray must be an object: ${appConfigPath}`,
-    );
-  }
-
-  const settings = window ?? {};
+/**
+ * The `main.rs` an app's `desktop.json` describes.
+ *
+ * The window, dev-menu and tray chain is unchanged from when these options
+ * lived in `app.json`; only where they are read from moved.
+ */
+export function desktopLaunchConfig(config, configPath) {
+  const settings = config.window ?? {};
   const title =
     settings.title === undefined
       ? 'env!("RN_GPUI_APP_NAME")'
-      : JSON.stringify(
-          typeof settings.title === 'string'
-            ? settings.title
-            : (() => {
-                throw new Error(
-                  `app.json desktop.window.title must be a string: ${appConfigPath}`,
-                );
-              })(),
-        );
-  const width = desktopNumber(
-    settings.width,
-    1024,
-    'app.json desktop.window.width',
-    appConfigPath,
-  );
-  const height = desktopNumber(
-    settings.height,
-    768,
-    'app.json desktop.window.height',
-    appConfigPath,
-  );
+      : JSON.stringify(settings.title);
+  const width = settings.width;
+  const height = settings.height;
 
   const chain = [
     `    .window_title(${title})`,
     `    .window_size(${width}, ${height})`,
   ];
   if (settings.position !== undefined) {
-    const position = settings.position;
-    if (
-      typeof position !== 'object' ||
-      position === null ||
-      Array.isArray(position)
-    ) {
-      throw new Error(
-        `app.json desktop.window.position must be an object: ${appConfigPath}`,
-      );
-    }
-    const x = desktopNumber(
-      position.x,
-      undefined,
-      'app.json desktop.window.position.x',
-      appConfigPath,
-    );
-    const y = desktopNumber(
-      position.y,
-      undefined,
-      'app.json desktop.window.position.y',
-      appConfigPath,
-    );
+    const { x, y } = settings.position;
     if (x === undefined || y === undefined) {
       throw new Error(
-        `app.json desktop.window.position needs x and y: ${appConfigPath}`,
+        `desktop/desktop.json window.position needs x and y: ${configPath}`,
       );
     }
     chain.push(`    .window_position(${x}, ${y})`);
@@ -554,26 +486,14 @@ export function desktopLaunchConfig(appConfig, appConfigPath) {
   if (settings.restoreState === false) {
     chain.push('    .restore_window_state(false)');
   }
-  if (hasDevMenu) {
-    chain.push(`    .dev_menu(${desktop.devMenu})`);
-  }
-  if (hasTray) {
-    const tray = desktop.tray;
+  chain.push(`    .dev_menu(${config.devMenu})`);
+  if (config.tray !== undefined) {
+    const tray = config.tray;
     let trayChain = 'TrayConfig::default()';
     if (tray.component !== undefined) {
-      if (typeof tray.component !== 'string' || tray.component.length === 0) {
-        throw new Error(
-          `app.json desktop.tray.component must be a non-empty string: ${appConfigPath}`,
-        );
-      }
       trayChain += `.component(${JSON.stringify(tray.component)})`;
     }
     if (tray.tooltip !== undefined) {
-      if (typeof tray.tooltip !== 'string') {
-        throw new Error(
-          `app.json desktop.tray.tooltip must be a string: ${appConfigPath}`,
-        );
-      }
       trayChain += `.tooltip(${JSON.stringify(tray.tooltip)})`;
     }
     if (tray.accessory === false) {
@@ -589,9 +509,9 @@ export function desktopLaunchConfig(appConfig, appConfigPath) {
 
   return `//! Project-owned desktop launch configuration.
 //!
-//! Generated by \`init-desktop\` from the \`desktop\` key in \`app.json\`; edit
-//! either that file and re-run \`npx react-native init-desktop\`, or this file
-//! directly. See \`desktop/README.md\` for the full set of options.
+//! Generated by \`init-desktop\` from \`desktop/desktop.json\`; edit that file and
+//! re-run \`npx react-native init-desktop\`, or this file directly. See
+//! \`desktop/README.md\` for the full set of options.
 //!
 //! Add \`mod my_turbo_module;\` here for local Rust TurboModules. Put matching
 //! \`Native*.ts\` specs beside this file; \`run-desktop\` discovers and codegens
@@ -647,36 +567,18 @@ function scaffoldDesktop(
   if (typeof appConfig.name !== 'string' || appConfig.name.length === 0) {
     throw new Error(`app.json must define a nonempty name: ${appConfigPath}`);
   }
-  if (
-    appConfig.desktop !== undefined &&
-    (typeof appConfig.desktop !== 'object' ||
-      appConfig.desktop === null ||
-      Array.isArray(appConfig.desktop))
-  ) {
-    throw new Error(`app.json desktop must be an object: ${appConfigPath}`);
-  }
-  const appId = appConfig.desktop?.appId ?? appIdFromName(appConfig.name);
-  if (typeof appId !== 'string' || appId.length === 0) {
-    throw new Error(
-      `app.json desktop.appId must be a nonempty string: ${appConfigPath}`,
-    );
-  }
-  const launchConfig = desktopLaunchConfig(appConfig, appConfigPath);
+  // Every launch setting comes from `desktop/desktop.json`; `app.json`'s old
+  // `desktop` key is rejected by the loader with a pointer to the new file.
+  const launchConfig = desktopLaunchConfig(
+    loadDesktopConfig(projectRoot, process.platform),
+    path.join(projectRoot, 'desktop/desktop.json'),
+  );
   if (launchConfig !== null) {
     const mainPath = path.join(projectRoot, 'desktop/src/main.rs');
     if (!preserveExisting || !fs.existsSync(mainPath)) {
       beforeWrite(mainPath);
       fs.writeFileSync(mainPath, launchConfig);
     }
-  }
-  const updatedAppConfig = {
-    ...appConfig,
-    desktop: { ...appConfig.desktop, appId },
-  };
-  const serializedAppConfig = `${JSON.stringify(updatedAppConfig, null, 2)}\n`;
-  if (fs.readFileSync(appConfigPath, 'utf8') !== serializedAppConfig) {
-    beforeWrite(appConfigPath);
-    fs.writeFileSync(appConfigPath, serializedAppConfig);
   }
 
   const updatedPackageJson = {

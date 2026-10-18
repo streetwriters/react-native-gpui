@@ -23,10 +23,14 @@ fn main() {
     let desktop_root = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"),
     );
-    let app_json_path = desktop_root
+    // `app.json` names the app; `desktop/desktop.json` carries the identifier
+    // and everything else the packaging step needs. The loader the CLI uses is
+    // JavaScript, so this reads the same file directly and applies the two
+    // defaults it would apply.
+    let project_root = desktop_root
         .parent()
-        .expect("desktop folder has a React Native project root")
-        .join("app.json");
+        .expect("desktop folder has a React Native project root");
+    let app_json_path = project_root.join("app.json");
     println!("cargo:rerun-if-changed={}", app_json_path.display());
     let app_json: serde_json::Value = serde_json::from_slice(
         &std::fs::read(&app_json_path)
@@ -37,10 +41,30 @@ fn main() {
         .as_str()
         .filter(|name| !name.is_empty())
         .expect("app.json must define a nonempty name");
-    let app_id = app_json["desktop"]["appId"]
-        .as_str()
-        .filter(|app_id| !app_id.is_empty())
-        .expect("app.json must define desktop.appId; run npx react-native init-desktop");
+    if app_json["desktop"]
+        .as_object()
+        .is_some_and(|desktop| !desktop.is_empty())
+    {
+        panic!("move `app.json` desktop.* into `desktop/desktop.json` (see the README)");
+    }
+
+    let desktop_json_path = project_root.join("desktop/desktop.json");
+    println!("cargo:rerun-if-changed={}", desktop_json_path.display());
+    let desktop_json: serde_json::Value = std::fs::read(&desktop_json_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let app_id = match desktop_json["identifier"].as_str() {
+        Some(identifier) if !identifier.is_empty() => identifier.to_string(),
+        _ => format!(
+            "com.example.{}",
+            app_name
+                .to_lowercase()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect::<String>()
+        ),
+    };
     println!("cargo:rustc-env=RN_GPUI_APP_NAME={app_name}");
     println!("cargo:rustc-env=RN_GPUI_APP_ID={app_id}");
     println!(
