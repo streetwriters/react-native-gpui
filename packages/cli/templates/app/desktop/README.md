@@ -99,4 +99,5 @@ generates a protected `emitOnProgress(value)` that any thread may call, and
 version, icon, window and how it is packaged. Its schema is
 `@react-native-gpui/cli/desktop.schema.json`, so an editor completes it. A
 `desktop.<os>.json` beside it is merged over the base for that OS. The
-`Info.plist` is generated from these settings rather than hand-written.
+`Info.plist` is generated from these settings rather than hand-written, and
+`npx react-native package-desktop` builds the installers from the same file.
