@@ -4,7 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
-import { loadDesktopConfig, targetsFor } from './desktop-config.js';
+import { desktopOs, loadDesktopConfig, targetsFor } from './desktop-config.js';
 import {
   CARGO_PACKAGER_VERSION,
   runtimeLibraries,
@@ -1220,6 +1220,7 @@ export async function packageDesktop({
   const packagerConfig = toPackagerConfig(config, {
     crateDir,
     binaryName,
+    os: desktopOs(process.platform),
     bundleDir: buildDir,
     assetsDir: path.join(buildDir, 'assets'),
     icons,
