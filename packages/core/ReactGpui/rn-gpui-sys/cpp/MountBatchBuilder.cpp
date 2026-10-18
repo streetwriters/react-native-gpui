@@ -3,7 +3,6 @@
 #include "GpuiTextMeasure.h"
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
-#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
@@ -310,10 +309,13 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
   op.tag = shadowView.tag;
   op.component = std::string(shadowView.componentName);
   const std::string componentName(op.component.c_str());
-  if (gpuiModuleHooks().svgPropsJson && componentName.rfind("RNSVG", 0) == 0 &&
-      shadowView.props) {
-    op.svg_props_json =
-        gpuiModuleHooks().svgPropsJson(componentName, *shadowView.props);
+  {
+    const auto& registered =
+        gpuiExtensionHooks().componentProps.find(componentName);
+    if (registered != gpuiExtensionHooks().componentProps.end() &&
+        shadowView.props) {
+      op.extension_props_json = registered->second(componentName, shadowView);
+    }
   }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
@@ -321,14 +323,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.native_view_name = props->viewName;
       op.native_view_props = props->nativePropsJson;
     }
-  }
-  if (op.component == "ModalHostView") {
-    auto modal =
-        std::dynamic_pointer_cast<const ModalHostViewProps>(shadowView.props);
-    op.modal_visible = modal && modal->visible;
-  }
-  if (gpuiModuleHooks().screensOp) {
-    gpuiModuleHooks().screensOp(shadowView, op);
   }
 
   const auto& frame = shadowView.layoutMetrics.frame;
@@ -338,9 +332,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       (mutation.type == ShadowViewMutation::Update &&
        mutation.oldChildShadowView.layoutMetrics.frame !=
            mutation.newChildShadowView.layoutMetrics.frame);
-  if (gpuiModuleHooks().screensFrame) {
-    gpuiModuleHooks().screensFrame(op);
-  }
 
   if (mutation.type == ShadowViewMutation::Create ||
       mutation.type == ShadowViewMutation::Update) {
@@ -354,78 +345,12 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.paragraph = flattenParagraph(shadowView);
     }
     if (op.component == "TextInput") {
-      if (auto props = std::dynamic_pointer_cast<const TextInputProps>(
-              shadowView.props)) {
-        op.text_input_text = props->text;
-        op.text_input_placeholder = props->placeholder;
-        op.text_input_selection_color = argb(props->selectionColor);
-        op.text_input_multiline = props->multiline;
-        op.text_input_editable = props->editable && !props->readOnly;
-        op.text_input_secure = props->traits.secureTextEntry;
-        op.text_input_most_recent_event_count = props->mostRecentEventCount;
-        op.text_input_selection_set = props->selection.has_value();
-        if (props->selection) {
-          op.text_input_selection_start = props->selection->start;
-          op.text_input_selection_end = props->selection->end;
-        } else {
-          int32_t cursor = 0;
-          for (const auto byte : op.text_input_text) {
-            const auto value = static_cast<unsigned char>(byte);
-            if ((value & 0xC0) != 0x80) {
-              cursor += value >= 0xF0 ? 2 : 1;
-            }
-          }
-          op.text_input_selection_start = cursor;
-          op.text_input_selection_end = cursor;
-        }
-      }
       if (auto state =
               std::dynamic_pointer_cast<const ConcreteState<TextInputState>>(
                   shadowView.state)) {
         op.has_paragraph = true;
         op.paragraph =
             flattenInputText(state->getData().attributedStringBox.getValue());
-      }
-    }
-    if (op.component == "Image") {
-      if (auto imageProps =
-              std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
-          imageProps && !imageProps->sources.empty()) {
-        op.image_uri = imageProps->sources[0].uri;
-        switch (imageProps->resizeMode) {
-          case ImageResizeMode::Contain:
-            op.image_resize_mode = 1;
-            break;
-          case ImageResizeMode::Cover:
-            op.image_resize_mode = 2;
-            break;
-          case ImageResizeMode::Center:
-            op.image_resize_mode = 3;
-            break;
-          default:
-            op.image_resize_mode = 0;
-            break;
-        }
-      }
-    }
-    if (op.component == "ScrollView") {
-      if (auto props = std::dynamic_pointer_cast<const ScrollViewProps>(
-              shadowView.props)) {
-        op.scroll_horizontal = props->horizontal;
-        op.scroll_enabled = props->scrollEnabled;
-        op.scroll_indicator = props->horizontal
-            ? props->showsHorizontalScrollIndicator
-            : props->showsVerticalScrollIndicator;
-      }
-      if (auto state =
-              std::dynamic_pointer_cast<const ConcreteState<ScrollViewState>>(
-                  shadowView.state)) {
-        const auto& data = state->getData();
-        op.scroll_x = data.contentOffset.x;
-        op.scroll_y = data.contentOffset.y;
-        const auto content = data.getContentSize();
-        op.content_width = content.width;
-        op.content_height = content.height;
       }
     }
   }

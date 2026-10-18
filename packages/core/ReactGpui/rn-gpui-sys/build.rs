@@ -318,6 +318,15 @@ fn main() {
             }
         }
     }
+    // ccache for the C++ this build compiles. React Native's own
+    // `ReactNative-application.cmake` sets the launcher for the app build, but
+    // this crate configures CMake itself and never includes that file, so
+    // without this the object cache is unused — CI measured 0 cacheable calls.
+    if env::var_os("RN_GPUI_DISABLE_CCACHE").is_none() && ccache_available() {
+        for variable in ["CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER"] {
+            defines.push((variable, "ccache".to_string()));
+        }
+    }
     if msvc_target() {
         // Rust always links the release CRT (msvcrt). CMake's Debug config
         // would compile with /MDd and the final link then fails on
@@ -637,7 +646,7 @@ fn run_cmake_build(build_dir: &Path, profile: &str) {
     assert!(status.success(), "CMake build of rn_gpui_modules failed");
 }
 
-/// The app's `project.gpui.prebuilt` option (`auto`, `always` or `never`), which
+/// The app's `project.desktop.prebuilt` option (`auto`, `always` or `never`), which
 /// autolink copies into its manifest. A missing manifest or field means `auto`.
 fn prebuilt_mode(autolink_manifest: &Path) -> String {
     fs::read_to_string(autolink_manifest)
@@ -813,7 +822,9 @@ fn check_pinned_inputs(package_dir: &Path) -> Result<(), String> {
 
 fn fallback_or_panic(require: bool, reason: &str) {
     if require {
-        panic!("rn-gpui-sys: project.gpui.prebuilt is 'always' and no prebuilt runtime: {reason}");
+        panic!(
+            "rn-gpui-sys: project.desktop.prebuilt is 'always' and no prebuilt runtime: {reason}"
+        );
     }
     println!("cargo:warning=rn-gpui-sys: no prebuilt runtime ({reason}); building from source");
 }
@@ -927,6 +938,24 @@ fn emit_node_api_exports(manifest: &serde_json::Value) {
     println!("cargo:rerun-if-changed={exports}");
     println!("cargo:node_api_exports={exports}");
     println!("cargo:node_api_library={library}");
+}
+
+/// Whether a `ccache` binary is on `PATH`.
+///
+/// Only used to decide whether to hand CMake the compiler launcher: setting it
+/// to a binary that is not there fails the configure, and a machine without
+/// ccache has to build without it.
+fn ccache_available() -> bool {
+    let path = match env::var_os("PATH") {
+        Some(path) => path,
+        None => return false,
+    };
+    let exe = if cfg!(windows) {
+        "ccache.exe"
+    } else {
+        "ccache"
+    };
+    env::split_paths(&path).any(|dir| dir.join(exe).is_file())
 }
 
 fn msvc_target() -> bool {

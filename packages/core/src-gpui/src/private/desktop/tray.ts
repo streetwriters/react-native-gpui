@@ -17,7 +17,28 @@
  */
 
 import { DeviceEventEmitter } from 'react-native';
-import { request } from './index';
+import NativeGpuiTray from '../specs/NativeGpuiTray';
+import { DesktopError, toDesktopError } from './index';
+
+function trayModule() {
+  if (NativeGpuiTray == null) {
+    throw new DesktopError(
+      'unsupported',
+      'the GpuiTray native module is not available',
+    );
+  }
+  return NativeGpuiTray;
+}
+
+async function request<T>(
+  run: (native: typeof NativeGpuiTray) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(trayModule());
+  } catch (error) {
+    throw toDesktopError(error);
+  }
+}
 import type { MenuItemSpec } from './menu';
 
 export interface TrayOptions {

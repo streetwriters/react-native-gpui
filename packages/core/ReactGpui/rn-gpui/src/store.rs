@@ -1,9 +1,6 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
-use crate::node_view::{
-    inherit, screen_transition_mode, InheritInput, Inherited, RNNodeView, ScreenTransition,
-    ScreenTransitionRole,
-};
+use crate::node_view::{inherit, InheritInput, Inherited, RNNodeView};
 #[cfg(target_os = "macos")]
 use gpui::deferred;
 use gpui::{
@@ -14,24 +11,12 @@ use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(crate) fn benchmark_mode() -> Option<&'static str> {
     static MODE: OnceLock<Option<String>> = OnceLock::new();
     MODE.get_or_init(|| std::env::var("RN_GPUI_BENCH_MODE").ok())
         .as_deref()
-}
-
-fn unsupported_screens_component(name: &str) -> bool {
-    matches!(
-        name,
-        "RNSSearchBar"
-            | "RNSBottomTabs"
-            | "RNSBottomTabsScreen"
-            | "RNSScreenFooter"
-            | "RNSSplitView"
-            | "RNSSplitViewScreen"
-    ) || name.starts_with("RNSSplitView")
 }
 
 pub const APP_SURFACE_ID: i32 = 1;
@@ -61,7 +46,14 @@ pub struct ViewStore {
     pub active_touch_target: Option<crate::events::Target>,
     /// The screen whose Escape dismissal already announced its lifecycle
     /// events. The following Fabric Remove should not announce it twice.
-    pub native_dismiss_lifecycle_pending: Option<i32>,
+    pub(crate) retained_subtrees: HashMap<i32, Vec<i32>>,
+    /// What a `TreeView` reports about each mounted node, kept in step with
+    /// `nodes` as a batch is applied.
+    ///
+    /// Building this on demand copies every node in the tree, so doing it once
+    /// per insert and once per remove made a first mount of N nodes cost O(N²).
+    /// A batch now writes the entries it touches, and a hook borrows the map.
+    snapshots: HashMap<i32, crate::extensions::NodeSnapshot>,
     log_mount_ops: bool,
     /// A dropped `Subscription` unsubscribes, so the store owns it.
     pub window_bounds_subscription: Option<Subscription>,
@@ -91,7 +83,8 @@ impl ViewStore {
             pointer: Cell::new(point(px(0.), px(0.))),
             top_inset: 0.0,
             active_touch_target: None,
-            native_dismiss_lifecycle_pending: None,
+            retained_subtrees: HashMap::new(),
+            snapshots: HashMap::new(),
             log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
             window_appearance_subscription: None,
@@ -157,6 +150,7 @@ impl ViewStore {
                 self.nodes.len()
             );
             self.nodes.clear();
+            self.snapshots.clear();
             self.accessibility_modal_tags.clear();
             self.hovered.borrow_mut().clear();
             self.active_touch_target = None;
@@ -191,9 +185,10 @@ impl ViewStore {
         }
         for tag in stale {
             self.nodes.remove(&tag);
+            self.snapshots.remove(&tag);
             self.accessibility_modal_tags.remove(&tag);
             self.overlay_host.update(cx, |host, cx| {
-                host.remove_modal(tag);
+                host.remove_portal(tag);
                 cx.notify();
             });
         }
@@ -214,15 +209,6 @@ impl ViewStore {
         cx.notify();
     }
 
-    pub fn resize(&mut self, width: f32, height: f32, scale: f32) {
-        let surfaces: Vec<i32> = self.roots.keys().copied().collect();
-        for surface_id in surfaces {
-            let height = height - crate::desktop::gpui_menu::menu_bar_inset();
-            log::info!("[store] surface {surface_id} resized to {width}x{height}@{scale}x");
-            self.host.set_surface_size(surface_id, width, height, scale);
-        }
-    }
-
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
         for surface_id in self.surfaces_in_window(window) {
             let height = height - crate::desktop::gpui_menu::menu_bar_inset();
@@ -238,141 +224,57 @@ impl ViewStore {
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
-        // Mount batches are child-first: nested screen stacks are created and
-        // inserted before their outer RNSScreen is attached to its parent.
-        // Resolve the complete batch topology up front so only the outer stack
-        // owns navigation transitions and presentation behavior.
-        let mut batch_components: HashMap<i32, String> = self
-            .nodes
-            .iter()
-            .map(|(tag, node)| (*tag, node.read(cx).component.clone()))
-            .collect();
-        let mut batch_parents = HashMap::new();
-        for op in &batch.ops {
-            if matches!(op.kind, MountKind::Create) {
-                batch_components.insert(op.tag, op.component.clone());
-            } else if matches!(op.kind, MountKind::Insert) {
-                batch_parents.insert(op.tag, op.parent_tag);
-            }
-        }
-        let screen_stacks: Vec<i32> = batch_components
-            .iter()
-            .filter_map(|(tag, component)| (component == "RNSScreenStack").then_some(*tag))
-            .collect();
-        let mut nested_screen_stacks = HashSet::new();
-        for stack_tag in screen_stacks {
-            let mut cursor = Some(stack_tag);
-            let mut visited = HashSet::new();
-            while let Some(tag) = cursor {
-                if !visited.insert(tag) {
-                    break;
-                }
-                let parent_tag = batch_parents.get(&tag).copied().or_else(|| {
-                    self.nodes.get(&tag).and_then(|node| {
-                        node.read(cx)
-                            .parent
-                            .as_ref()
-                            .and_then(|parent| parent.upgrade())
-                            .map(|parent| parent.read(cx).tag)
-                    })
-                });
-                let Some(parent_tag) = parent_tag else {
-                    break;
-                };
-                if batch_components
-                    .get(&parent_tag)
-                    .is_some_and(|component| component == "RNSScreen")
-                {
-                    nested_screen_stacks.insert(stack_tag);
-                    break;
-                }
-                cursor = Some(parent_tag);
-            }
-        }
-        if std::env::var_os("RN_GPUI_DEBUG_SCREENS").is_some() && !nested_screen_stacks.is_empty() {
-            log::info!("[screens] nested stack tags={nested_screen_stacks:?}");
-        }
-        // Fabric unmounts a subtree bottom-up. Decide which outgoing cards
-        // need animation before applying any mutation, and keep their entire
-        // GPUI subtree attached until the exit finishes. Deleting registry
-        // entries still happens immediately, so retired cards cannot receive
-        // new RN events or be mistaken for live stack entries.
-        let removed_screens: HashSet<i32> = batch
-            .ops
-            .iter()
-            .filter(|op| matches!(op.kind, MountKind::Remove) && op.component == "RNSScreen")
-            .map(|op| op.tag)
-            .collect();
-        let mut pop_plans = HashMap::new();
-        let mut retained_descendants = HashSet::new();
-        for op in batch
-            .ops
-            .iter()
-            .filter(|op| matches!(op.kind, MountKind::Remove) && op.component == "RNSScreen")
-        {
-            let Some(stack) = self.nodes.get(&op.parent_tag) else {
-                continue;
-            };
-            let stack = stack.read(cx);
-            if stack.component != "RNSScreenStack" || nested_screen_stacks.contains(&op.parent_tag)
-            {
-                continue;
-            }
-            let live_screens: Vec<_> = stack
-                .children
+        let store = cx.entity().downgrade();
+        let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
+            Default::default();
+        let handle = crate::extensions::StoreHandle::queued(store.clone(), commands.clone());
+        let batch_view = crate::extensions::BatchView {
+            surface_id,
+            ops: batch
+                .ops
                 .iter()
-                .filter(|(tag, node)| {
-                    self.nodes.contains_key(tag) && node.read(cx).component == "RNSScreen"
+                .map(|op| crate::extensions::BatchOp {
+                    kind: match op.kind {
+                        MountKind::Create => crate::extensions::BatchOpKind::Create,
+                        MountKind::Delete => crate::extensions::BatchOpKind::Delete,
+                        MountKind::Insert => crate::extensions::BatchOpKind::Insert,
+                        MountKind::Remove => crate::extensions::BatchOpKind::Remove,
+                        MountKind::Update => crate::extensions::BatchOpKind::Update,
+                        _ => crate::extensions::BatchOpKind::Update,
+                    },
+                    tag: op.tag,
+                    parent_tag: op.parent_tag,
+                    index: op.index,
+                    component: op.component.clone(),
+                    props: std::sync::Arc::new(crate::extensions::parse_extension_props(
+                        &op.extension_props_json,
+                    )),
+                    props_changed: op.props_changed,
                 })
-                .map(|(tag, _)| *tag)
-                .collect();
-            if live_screens.last().copied() != Some(op.tag) {
-                continue;
+                .collect(),
+        };
+        let observers = crate::extensions::store_observers();
+        if !observers.is_empty() {
+            for observer in &observers {
+                let tree = self.tree_view(cx);
+                observer.before_batch(&batch_view, &tree, &handle, cx);
+                self.apply_commands(&commands, cx);
             }
-            let revealed = live_screens
-                .iter()
-                .rev()
-                .find(|tag| !removed_screens.contains(tag))
-                .copied();
-            let Some(screen) = self.nodes.get(&op.tag) else {
-                continue;
-            };
-            let animation = screen.read(cx).screen_stack_animation.clone();
-            let native_dismiss_already_animated =
-                self.native_dismiss_lifecycle_pending == Some(op.tag);
-            let retain = !native_dismiss_already_animated
-                && revealed.is_some()
-                && !cx.reduce_motion()
-                && !crate::animation_policy::animations_disabled()
-                && screen_transition_mode(&animation).is_some();
-            if retain {
-                let retained_before = retained_descendants.len();
-                let mut descendants: Vec<_> = screen
-                    .read(cx)
-                    .children
-                    .iter()
-                    .map(|(_, node)| node.clone())
-                    .collect();
-                while let Some(node) = descendants.pop() {
-                    let node = node.read(cx);
-                    if retained_descendants.insert(node.tag) {
-                        descendants.extend(node.children.iter().map(|(_, node)| node.clone()));
-                    }
-                }
-                log::info!(
-                    "[screens] preserve outgoing={} descendants={}",
-                    op.tag,
-                    retained_descendants.len() - retained_before
-                );
+            let pending: Vec<i32> =
+                PENDING_RETAIN.with(|pending| pending.borrow_mut().drain().collect());
+            for tag in pending {
+                self.retain_subtree(tag, cx);
             }
-            pop_plans.insert(op.tag, (revealed, animation));
         }
         for op in batch.ops.iter() {
             match op.kind {
                 MountKind::Create | MountKind::Update => {
-                    if op.view.accessibility_modal
-                        || (op.component == "ModalHostView" && op.modal_visible)
-                    {
+                    let is_visible_portal = crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some_and(|portal| portal.visible);
+                    if op.view.accessibility_modal || is_visible_portal {
                         self.accessibility_modal_tags.insert(op.tag);
                     } else {
                         self.accessibility_modal_tags.remove(&op.tag);
@@ -388,19 +290,6 @@ impl ViewStore {
             }
             match op.kind {
                 MountKind::Create => {
-                    if op.component == "RNSFullWindowOverlay" {
-                        log::info!(
-                            "[screens] full window overlay created tag={} frame={}x{}",
-                            op.tag,
-                            op.frame.w,
-                            op.frame.h
-                        );
-                    } else if unsupported_screens_component(&op.component) {
-                        log::error!(
-                            "[screens] component {} is not implemented on gpui",
-                            op.component
-                        );
-                    }
                     if op.component == "NativeViewHost" {
                         log::info!(
                             "[native-view] Fabric created tag={} factory='{}' props={}",
@@ -410,19 +299,32 @@ impl ViewStore {
                         );
                     }
                     let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
-                    self.nodes.insert(op.tag, node);
+                    self.nodes.insert(op.tag, node.clone());
+                    self.record_subtree_nodes(&[op.tag], cx);
+                    let component_node = node.read(cx).component_node(cx);
+                    for observer in &observers {
+                        observer.on_mount(&component_node, &handle, cx);
+                        self.apply_commands(&commands, cx);
+                    }
                 }
                 MountKind::Delete => {
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
-                    ) {
+                    if crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some()
+                    {
                         self.overlay_host.update(cx, |host, cx| {
-                            host.remove_modal(op.tag);
+                            host.remove_portal(op.tag);
                             cx.notify();
                         });
                     }
                     self.nodes.remove(&op.tag);
+                    self.drop_snapshot(op.tag);
+                    for observer in &observers {
+                        observer.on_remove(op.tag, &handle, cx);
+                        self.apply_commands(&commands, cx);
+                    }
                 }
                 MountKind::Insert => {
                     let Some(child) = self.nodes.get(&op.tag).cloned() else {
@@ -431,23 +333,23 @@ impl ViewStore {
                     };
                     {
                         let node = child.read(cx);
-                        if node.view.accessibility_modal
-                            || (node.component == "ModalHostView" && node.modal_visible)
-                        {
+                        let is_visible_portal = crate::extensions::component_portal(
+                            &op.component,
+                            &crate::extensions::parse_extension_props(&op.extension_props_json),
+                        )
+                        .is_some_and(|portal| portal.visible);
+                        if node.view.accessibility_modal || is_visible_portal {
                             self.accessibility_modal_tags.insert(op.tag);
                         }
                     }
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
+                    if let Some(portal) = crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
                     ) {
-                        child.update(cx, |child, _cx| child.parent = None);
-                        if op.component == "RNSFullWindowOverlay" || child.read(cx).modal_visible {
-                            if op.component == "RNSFullWindowOverlay" {
-                                log::info!("[screens] full window overlay mounted tag={}", op.tag);
-                            }
+                        child.update(cx, |child, _cx| child.set_parent(None, None));
+                        if portal.visible {
                             self.overlay_host.update(cx, |host, cx| {
-                                host.insert_modal(op.tag, child.clone());
+                                host.insert_portal(op.tag, child.clone());
                                 cx.notify();
                             });
                         }
@@ -455,201 +357,33 @@ impl ViewStore {
                     }
                     let index = op.index.max(0) as usize;
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
-                        let parent_is_screen_stack = {
-                            let parent = parent.read(cx);
-                            parent.component == "RNSScreenStack"
-                                && !nested_screen_stacks.contains(&op.parent_tag)
-                        };
-                        let previous_top_screen = parent_is_screen_stack
-                            .then(|| {
-                                parent
-                                    .read(cx)
-                                    .children
-                                    .iter()
-                                    .rev()
-                                    .find_map(|(tag, node)| {
-                                        let node = node.read(cx);
-                                        (node.component == "RNSScreen"
-                                            && self.nodes.contains_key(tag))
-                                        .then_some(*tag)
-                                    })
-                            })
-                            .flatten();
                         let parent_ref = parent.downgrade();
-                        let parent_frame_width = parent.read(cx).frame.w;
-                        let child_frame_height = child.read(cx).frame.h;
-                        let child_is_header_subview =
-                            child.read(cx).component == "RNSScreenStackHeaderSubview";
-                        let child_is_header_title_subview = child_is_header_subview
-                            && matches!(
-                                child.read(cx).screen_header_subview_type.as_str(),
-                                "center" | "title"
-                            );
-                        let parent_is_header_subview =
-                            parent.read(cx).component == "RNSScreenStackHeaderSubview";
-                        let parent_is_header_config =
-                            parent.read(cx).component == "RNSScreenStackHeaderConfig";
-                        let parent_is_screen = parent.read(cx).component == "RNSScreen";
-                        let parent_header_hidden = {
-                            let parent = parent.read(cx);
-                            parent.hidden_header_ancestor
-                                || (parent.component == "RNSScreenStackHeaderConfig"
-                                    && parent.screen_header_hidden)
-                        };
-                        let parent_screen_header_hidden = parent_is_screen
-                            && parent.read(cx).children.iter().any(|(_, sibling)| {
-                                let sibling = sibling.read(cx);
-                                sibling.component == "RNSScreenStackHeaderConfig"
-                                    && sibling.screen_header_hidden
-                            });
-                        let child_is_header_config =
-                            child.read(cx).component == "RNSScreenStackHeaderConfig";
-                        let child_header_hidden = child.read(cx).screen_header_hidden;
-                        let existing_content_wrapper = parent_is_screen
-                            .then(|| {
-                                parent.read(cx).children.iter().find_map(|(_, sibling)| {
-                                    (sibling.read(cx).component == "RNSScreenContentWrapper")
-                                        .then(|| sibling.clone())
-                                })
-                            })
-                            .flatten();
+                        let previous_children = parent.read(cx).child_tags();
                         parent.update(cx, |parent, cx| {
                             parent.insert_child(index, op.tag, child.clone());
-                            if parent_is_header_subview {
-                                parent.header_subview_content_height =
-                                    parent.header_subview_content_height.max(child_frame_height);
-                            }
-                            if parent_is_header_config && child_is_header_title_subview {
-                                parent.screen_header_has_title_subview = true;
-                            }
                             cx.notify();
                         });
-                        if parent_is_screen_stack && op.component == "RNSScreen" {
-                            let animation = child.read(cx).screen_stack_animation.clone();
-                            log::info!(
-                                "[screens] screen inserted tag={} animation={} presentation={} reduce_motion={}",
-                                op.tag,
-                                animation,
-                                child.read(cx).screen_stack_presentation,
-                                cx.reduce_motion() || crate::animation_policy::animations_disabled()
-                            );
-                            let mode = screen_transition_mode(&animation).filter(|_| {
-                                !cx.reduce_motion()
-                                    && !crate::animation_policy::animations_disabled()
-                            });
-                            let transition_duration = mode.map(|mode| match mode {
-                                crate::node_view::ScreenTransitionMode::Fade => {
-                                    Duration::from_millis(150)
-                                }
-                                _ => Duration::from_millis(240),
-                            });
-                            let transition_started_at = transition_duration.map(|_| Instant::now());
-                            if let Some(mode) = mode {
-                                let duration = transition_duration.unwrap();
-                                let started_at = transition_started_at.unwrap();
-                                log::info!(
-                                    "[screens] push transition incoming={} outgoing={:?} animation={} mode={mode:?}",
-                                    op.tag,
-                                    previous_top_screen,
-                                    animation
+                        child.update(cx, |child, _cx| {
+                            child.set_parent(Some(parent_ref), Some(op.parent_tag))
+                        });
+                        // `on_insert` sees the tree with the splice applied, so
+                        // both the parent and the child are re-recorded first.
+                        self.record_subtree_nodes(&[op.parent_tag, op.tag], cx);
+                        {
+                            let inserted = child.read(cx).component_node_shallow();
+                            for observer in &observers {
+                                let tree = self.tree_view(cx);
+                                observer.on_insert(
+                                    &inserted,
+                                    op.parent_tag,
+                                    &previous_children,
+                                    &tree,
+                                    &handle,
+                                    cx,
                                 );
-                                if child.read(cx).screen_stack_presentation == "push" {
-                                    if let Some(previous_tag) = previous_top_screen {
-                                        if let Some(previous) =
-                                            self.nodes.get(&previous_tag).cloned()
-                                        {
-                                            previous.update(cx, |previous, cx| {
-                                                previous.screen_transition =
-                                                    Some(ScreenTransition {
-                                                        mode,
-                                                        role: ScreenTransitionRole::Exit,
-                                                        started_at,
-                                                        duration,
-                                                        distance_factor: 0.12,
-                                                    });
-                                                cx.notify();
-                                            });
-                                        }
-                                    }
-                                }
-                                child.update(cx, |child, cx| {
-                                    child.screen_transition = Some(ScreenTransition {
-                                        mode,
-                                        role: ScreenTransitionRole::Enter,
-                                        started_at,
-                                        duration,
-                                        distance_factor: 1.0,
-                                    });
-                                    cx.notify();
-                                });
-                            }
-                            dispatch_screen_lifecycle_will(
-                                &self.host,
-                                previous_top_screen,
-                                Some(op.tag),
-                            );
-                            if let Some(duration) = transition_duration {
-                                let transition_started_at = transition_started_at.unwrap();
-                                let outgoing = previous_top_screen;
-                                let incoming = Some(op.tag);
-                                let host = self.host.clone();
-                                cx.spawn(async move |store, cx| {
-                                    cx.background_executor().timer(duration).await;
-                                    let _ = store.update(cx, |store, cx| {
-                                        if let Some(outgoing_node) =
-                                            outgoing.and_then(|tag| store.nodes.get(&tag).cloned())
-                                        {
-                                            outgoing_node.update(cx, |outgoing, cx| {
-                                                if outgoing.screen_transition.is_some_and(
-                                                    |transition| {
-                                                        transition.started_at
-                                                            == transition_started_at
-                                                    },
-                                                ) {
-                                                    outgoing.screen_transition = None;
-                                                    cx.notify();
-                                                }
-                                            });
-                                        }
-                                        dispatch_screen_lifecycle_did(&host, outgoing, incoming);
-                                    });
-                                })
-                                .detach();
-                            } else {
-                                dispatch_screen_lifecycle_did(
-                                    &self.host,
-                                    previous_top_screen,
-                                    Some(op.tag),
-                                );
+                                self.apply_commands(&commands, cx);
                             }
                         }
-                        if child_is_header_subview {
-                            child.update(cx, |child, _cx| {
-                                child.header_container_width = parent_frame_width;
-                            });
-                        }
-                        if parent_header_hidden {
-                            child.update(cx, |child, cx| {
-                                child.hidden_header_ancestor = true;
-                                cx.notify();
-                            });
-                        }
-                        if child.read(cx).component == "RNSScreenContentWrapper" {
-                            child.update(cx, |child, _cx| {
-                                child.screen_content_wrapper_header_hidden =
-                                    parent_screen_header_hidden;
-                            });
-                        }
-                        if parent_is_screen && child_is_header_config {
-                            if let Some(content_wrapper) = existing_content_wrapper {
-                                content_wrapper.update(cx, |wrapper, cx| {
-                                    wrapper.screen_content_wrapper_header_hidden =
-                                        child_header_hidden;
-                                    cx.notify();
-                                });
-                            }
-                        }
-                        child.update(cx, |child, _cx| child.parent = Some(parent_ref));
                     } else {
                         let root = self.root_for(surface_id, cx);
                         let (root_surface, before) = {
@@ -667,233 +401,88 @@ impl ViewStore {
                             root.insert_child(index, op.tag, child.clone());
                             cx.notify();
                         });
-                        child.update(cx, |child, _cx| child.parent = None);
+                        child.update(cx, |child, _cx| child.set_parent(None, None));
                     }
                 }
                 MountKind::Remove => {
-                    if retained_descendants.contains(&op.tag) {
-                        continue;
-                    }
-                    if matches!(
-                        op.component.as_str(),
-                        "ModalHostView" | "RNSFullWindowOverlay"
-                    ) {
+                    if crate::extensions::component_portal(
+                        &op.component,
+                        &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    )
+                    .is_some()
+                    {
                         self.overlay_host.update(cx, |host, cx| {
-                            host.remove_modal(op.tag);
+                            host.remove_portal(op.tag);
                             cx.notify();
                         });
                         continue;
                     }
+                    for observer in &observers {
+                        let tree = self.tree_view(cx);
+                        observer.on_remove_child(
+                            op.tag,
+                            op.parent_tag,
+                            self.retained_subtrees.contains_key(&op.tag),
+                            &tree,
+                            &handle,
+                            cx,
+                        );
+                        self.apply_commands(&commands, cx);
+                    }
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
-                        let mut retain_screen_for_transition = false;
-                        if op.component == "RNSScreen"
-                            && parent.read(cx).component == "RNSScreenStack"
-                        {
-                            if let Some((revealed_screen, animation)) = pop_plans.get(&op.tag) {
-                                let revealed_screen = *revealed_screen;
-                                // The revealed screen may still carry its old push-exit
-                                // offset/opacity. Restore its resting pose before painting
-                                // the outgoing card above it.
-                                if let Some(screen) = revealed_screen
-                                    .and_then(|tag| self.nodes.get(&tag))
-                                    .cloned()
-                                {
-                                    screen.update(cx, |screen, cx| {
-                                        screen.screen_transition = None;
-                                        cx.notify();
-                                    });
-                                }
-                                let mode = screen_transition_mode(&animation).filter(|_| {
-                                    !cx.reduce_motion()
-                                        && !crate::animation_policy::animations_disabled()
-                                });
-                                let duration = mode.map(|mode| match mode {
-                                    crate::node_view::ScreenTransitionMode::Fade => {
-                                        Duration::from_millis(150)
-                                    }
-                                    _ => Duration::from_millis(240),
-                                });
-                                let outgoing_mode = mode.map(|mode| match mode {
-                                    crate::node_view::ScreenTransitionMode::SlideFromRight => {
-                                        crate::node_view::ScreenTransitionMode::SlideFromLeft
-                                    }
-                                    crate::node_view::ScreenTransitionMode::SlideFromLeft => {
-                                        crate::node_view::ScreenTransitionMode::SlideFromRight
-                                    }
-                                    crate::node_view::ScreenTransitionMode::Fade => mode,
-                                });
-                                let native_dismiss_already_animated =
-                                    self.native_dismiss_lifecycle_pending == Some(op.tag);
-                                let retain_outgoing = !native_dismiss_already_animated
-                                    && outgoing_mode.is_some()
-                                    && revealed_screen.is_some();
-                                retain_screen_for_transition = retain_outgoing;
-                                log::info!(
-                                    "[screens] pop transition outgoing={} incoming={:?} animation={} outgoing_mode={outgoing_mode:?} retained={retain_outgoing}",
-                                    op.tag,
-                                    revealed_screen,
-                                    animation
-                                );
-                                if retain_outgoing {
-                                    if let (Some(mode), Some(duration), Some(screen)) =
-                                        (outgoing_mode, duration, self.nodes.get(&op.tag).cloned())
-                                    {
-                                        screen.update(cx, |screen, cx| {
-                                            screen.screen_transition = Some(ScreenTransition {
-                                                mode,
-                                                role: ScreenTransitionRole::Exit,
-                                                started_at: Instant::now(),
-                                                duration,
-                                                distance_factor: 1.0,
-                                            });
-                                            cx.notify();
-                                        });
-                                    }
-                                }
-                                if self.native_dismiss_lifecycle_pending != Some(op.tag) {
-                                    dispatch_screen_lifecycle_will(
-                                        &self.host,
-                                        Some(op.tag),
-                                        revealed_screen,
-                                    );
-                                }
-                                if retain_outgoing {
-                                    let parent_tag = op.parent_tag;
-                                    let screen_tag = op.tag;
-                                    let duration = duration.unwrap_or_default();
-                                    cx.spawn(async move |store, cx| {
-                                        cx.background_executor().timer(duration).await;
-                                        let _ = store.update(cx, |store, cx| {
-                                            if let Some(parent) =
-                                                store.nodes.get(&parent_tag).cloned()
-                                            {
-                                                parent.update(cx, |parent, cx| {
-                                                    parent.remove_child(screen_tag);
-                                                    cx.notify();
-                                                });
-                                                log::info!(
-                                                    "[screens] pop finished outgoing={screen_tag}"
-                                                );
-                                            }
-                                            // The outgoing screen is gone from its
-                                            // parent's children, which is one of
-                                            // the modal-sibling inputs.
-                                            store.refresh_inherited(surface_id, cx);
-                                            dispatch_screen_lifecycle_did(
-                                                &store.host,
-                                                Some(screen_tag),
-                                                revealed_screen,
-                                            );
-                                        });
-                                    })
-                                    .detach();
-                                }
-                                if !retain_outgoing && !native_dismiss_already_animated {
-                                    dispatch_screen_lifecycle_did(
-                                        &self.host,
-                                        Some(op.tag),
-                                        revealed_screen,
-                                    );
-                                }
-                            }
-                            if self.native_dismiss_lifecycle_pending == Some(op.tag) {
-                                self.native_dismiss_lifecycle_pending = None;
-                            }
-                        }
-                        if !retain_screen_for_transition {
-                            parent.update(cx, |parent, cx| {
-                                parent.remove_child(op.tag);
-                                cx.notify();
-                            });
-                        }
+                        parent.update(cx, |parent, cx| {
+                            parent.remove_child(op.tag);
+                            cx.notify();
+                        });
+                        self.record_subtree_nodes(&[op.parent_tag], cx);
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
                         root.update(cx, |root, cx| {
                             root.remove_child(op.tag);
                             cx.notify();
                         });
                     }
+                    // The node itself stays mounted until Fabric deletes it, so
+                    // its snapshot stays too: `is_live` and the parent's
+                    // `children` kept answering this way when the tree was
+                    // copied out on every call, and a retained card has to keep
+                    // painting from its snapshot after the removal.
                 }
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
-                        let previous_activity_state = node.read(cx).screen_activity_state;
+                        let previous_node = node.read(cx).component_node(cx);
                         node.update(cx, |node, cx| {
                             node.update_from_op(op);
                             cx.notify();
                         });
-                        if op.component == "RNSScreen" && op.props_changed {
-                            let next_activity_state = node.read(cx).screen_activity_state;
-                            for event in screen_lifecycle_events(
-                                previous_activity_state,
-                                next_activity_state,
-                            ) {
-                                log::debug!(
-                                    "[screens] tag={} activity={}->{} event={event}",
-                                    op.tag,
-                                    previous_activity_state,
-                                    next_activity_state
-                                );
-                                self.host
-                                    .dispatch_event(op.tag, event, &serde_json::json!({}));
-                            }
+                        let updated_node = node.read(cx).component_node(cx);
+                        self.record_subtree_nodes(&[op.tag], cx);
+                        for observer in &observers {
+                            observer.on_update(&updated_node, &previous_node, &handle, cx);
+                            self.apply_commands(&commands, cx);
                         }
-                        if matches!(
-                            op.component.as_str(),
-                            "ModalHostView" | "RNSFullWindowOverlay"
+                        if let Some(portal) = crate::extensions::component_portal(
+                            &op.component,
+                            &crate::extensions::parse_extension_props(&op.extension_props_json),
                         ) {
-                            let visible = node.read(cx).modal_visible;
                             self.overlay_host.update(cx, |host, cx| {
-                                if op.component == "RNSFullWindowOverlay" || visible {
-                                    host.insert_modal(op.tag, node.clone());
+                                if portal.visible {
+                                    host.insert_portal(op.tag, node.clone());
                                 } else {
-                                    host.remove_modal(op.tag);
+                                    host.remove_portal(op.tag);
                                 }
                                 cx.notify();
                             });
-                        }
-                        if op.component == "RNSScreenStackHeaderConfig" {
-                            let hidden = node.read(cx).screen_header_hidden;
-                            let header_children = node
-                                .read(cx)
-                                .children
-                                .iter()
-                                .map(|(_, child)| child.clone())
-                                .collect::<Vec<_>>();
-                            for child in header_children {
-                                set_header_ancestor_hidden(child, hidden, cx);
-                            }
-                            let parent = node
-                                .read(cx)
-                                .parent
-                                .as_ref()
-                                .and_then(|parent| parent.upgrade());
-                            if let Some(parent) = parent {
-                                let wrappers = parent
-                                    .read(cx)
-                                    .children
-                                    .iter()
-                                    .filter_map(|(_, child)| {
-                                        (child.read(cx).component == "RNSScreenContentWrapper")
-                                            .then(|| child.clone())
-                                    })
-                                    .collect::<Vec<_>>();
-                                for wrapper in wrappers {
-                                    wrapper.update(cx, |wrapper, cx| {
-                                        wrapper.screen_content_wrapper_header_hidden = hidden;
-                                        cx.notify();
-                                    });
-                                }
-                            }
                         }
                     }
                 }
                 _ => log::warn!("[store] unknown mount kind {}", op.kind.repr),
             }
-            // ScrollView's JS implementation installs `onLayout` callbacks on
-            // both its viewport and content container. Fabric's native event
-            // subscription is not reflected in BaseViewProps::onLayout here,
-            // so emit layout for mounted views; nodes without a JS listener
-            // simply discard it in their EventEmitter.
-            if op.layout_changed && matches!(op.component.as_str(), "View" | "ScrollView") {
+            let is_scroll = crate::extensions::component_scroll(
+                &op.component,
+                &crate::extensions::parse_extension_props(&op.extension_props_json),
+            )
+            .is_some();
+            if op.layout_changed && (op.component == "View" || is_scroll) {
                 self.host.dispatch_event(
                     op.tag,
                     "topLayout",
@@ -908,6 +497,11 @@ impl ViewStore {
                 );
             }
         }
+        for observer in &observers {
+            let tree = self.tree_view(cx);
+            observer.after_batch(&tree, &handle, cx);
+            self.apply_commands(&commands, cx);
+        }
         self.refresh_inherited(surface_id, cx);
         self.host.on_render();
         let hook = self.frame_hook.clone();
@@ -918,6 +512,131 @@ impl ViewStore {
         });
     }
 
+    fn apply_commands(
+        &mut self,
+        commands: &std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>>,
+        cx: &mut Context<Self>,
+    ) {
+        let queued: Vec<crate::extensions::Command> = {
+            let mut queue = commands.lock().expect("command queue poisoned");
+            queue.drain(..).collect()
+        };
+        for command in queued {
+            match command {
+                crate::extensions::Command::Transition { tag, transition } => {
+                    start_component_transition_here(self, tag, transition, cx);
+                }
+                crate::extensions::Command::ClearTransition { tag } => {
+                    if let Some(node) = self.nodes.get(&tag).cloned() {
+                        node.update(cx, |node, cx| {
+                            node.transition = None;
+                            cx.notify();
+                        });
+                        self.record_subtree_nodes(&[tag], cx);
+                    }
+                }
+                crate::extensions::Command::Dispatch { tag, name, payload } => {
+                    self.host.dispatch_event(tag, &name, &payload);
+                }
+                crate::extensions::Command::Wake => self.host.on_render(),
+                crate::extensions::Command::ReleaseRetained { tag } => {
+                    release_retained_subtree_here(self, tag, cx);
+                }
+                crate::extensions::Command::After { duration, run } => {
+                    cx.spawn(async move |_store, cx| {
+                        cx.background_executor().timer(duration).await;
+                        if let Some(run) = run.lock().ok().and_then(|mut slot| slot.take()) {
+                            let _ = cx.update(|cx| run(cx));
+                        }
+                    })
+                    .detach();
+                }
+            }
+        }
+    }
+
+    pub(crate) fn retain_subtree(&mut self, tag: i32, cx: &App) {
+        let mut descendants = Vec::new();
+        let mut stack: Vec<i32> = self
+            .nodes
+            .get(&tag)
+            .map(|node| node.read(cx).child_tags())
+            .unwrap_or_default();
+        let mut seen = HashSet::new();
+        while let Some(child) = stack.pop() {
+            if !seen.insert(child) {
+                continue;
+            }
+            descendants.push(child);
+            if let Some(node) = self.nodes.get(&child) {
+                stack.extend(node.read(cx).child_tags());
+            }
+        }
+        self.retained_subtrees.insert(tag, descendants);
+    }
+
+    pub(crate) fn tree_view<'a>(&'a self, cx: &App) -> crate::extensions::TreeView<'a> {
+        self.tree_view_at(None, cx)
+    }
+
+    /// Re-records the tags a batch just changed, so the next `TreeView` reports
+    /// them without reading the entities.
+    ///
+    /// Every mutation a snapshot covers has to call this: the batch writes here
+    /// what it used to copy out of the whole tree on every operation.
+    fn record_subtree_nodes(&mut self, tags: &[i32], cx: &App) {
+        for tag in tags {
+            if let Some(entity) = self.nodes.get(tag) {
+                let snapshot = entity.read(cx).snapshot();
+                self.snapshots.insert(*tag, snapshot);
+            }
+        }
+    }
+
+    /// Forgets a node, and every tag below it that Fabric no longer reports.
+    fn drop_snapshot(&mut self, tag: i32) {
+        self.snapshots.remove(&tag);
+    }
+
+    /// Re-reads every node, for the paths that mutate the tree outside a batch.
+    fn rebuild_snapshots(&mut self, cx: &App) {
+        self.snapshots.clear();
+        for (tag, entity) in &self.nodes {
+            let snapshot = entity.read(cx).snapshot();
+            self.snapshots.insert(*tag, snapshot);
+        }
+    }
+
+    /// A view of the tree for a hook.
+    ///
+    /// The nodes are copied into `snapshots` as the batch applies them, before
+    /// any hook runs, because a hook is handed `&mut App` and a tree that kept
+    /// entity handles would let it read a node that the same call is updating.
+    pub(crate) fn tree_view_at<'a>(
+        &'a self,
+        current: Option<(i32, &'a RNNodeView)>,
+        cx: &App,
+    ) -> crate::extensions::TreeView<'a> {
+        let root_tags = self
+            .roots
+            .values()
+            .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
+            .collect();
+        crate::extensions::TreeView {
+            nodes: std::borrow::Cow::Borrowed(&self.snapshots),
+            root_tags,
+            top_inset: self.top_inset,
+            animations_enabled: !cx.reduce_motion()
+                && !crate::animation_policy::animations_disabled(),
+            current: current.map(|(tag, node)| (tag, node.snapshot())),
+            retained: &self.retained_subtrees,
+        }
+    }
+
+    pub(crate) fn animations_enabled(&self, cx: &App) -> bool {
+        !cx.reduce_motion() && !crate::animation_policy::animations_disabled()
+    }
+
     /// Writes a node only when its value changed, and notifies it only when a
     /// value its own `render` reads changed.
     pub(crate) fn refresh_inherited(&mut self, surface_id: i32, cx: &mut Context<Self>) {
@@ -925,36 +644,64 @@ impl ViewStore {
         if let Some(root) = self.roots.get(&surface_id) {
             roots.extend(root.read(cx).children.iter().map(|(_, node)| node.clone()));
         }
-        // A ModalHostView or RNSFullWindowOverlay is spliced with no RN parent
-        // and painted by the overlay host instead, so it is a second root.
-        for (_, modal) in self.overlay_host.read(cx).modals.iter() {
-            if modal.read(cx).surface_id == surface_id && modal.read(cx).parent.is_none() {
-                roots.push(modal.clone());
+        for (_, portal) in self.overlay_host.read(cx).portals.iter() {
+            if portal.read(cx).surface_id == surface_id && portal.read(cx).parent.is_none() {
+                roots.push(portal.clone());
             }
         }
         // The pass runs while this entity is being updated, so `origin_frame`
         // cannot read the store back out of the global; hand it the value.
         let top_inset = self.top_inset;
+        let root_tags = self
+            .roots
+            .values()
+            .flat_map(|root| root.read(cx).children.iter().map(|(tag, _)| *tag))
+            .collect();
+        let animations_enabled =
+            !cx.reduce_motion() && !crate::animation_policy::animations_disabled();
+        self.rebuild_snapshots(cx);
+        let tree = crate::extensions::TreeView {
+            nodes: std::borrow::Cow::Borrowed(&self.snapshots),
+            root_tags,
+            top_inset,
+            animations_enabled,
+            current: None,
+            retained: &self.retained_subtrees,
+        };
         for root in roots {
-            refresh_inherited_tree(root, top_inset, None, cx);
+            refresh_inherited_tree(root, top_inset, None, &tree, cx);
         }
     }
+}
+
+/// One node's refreshed state, computed while the tree is alive and applied
+/// after it is dropped.
+struct InheritedUpdate {
+    node: Entity<RNNodeView>,
+    inherited: Inherited,
+    hides_self: bool,
+    renderer_frame: Option<rn_gpui_sys::ffi::RectF>,
+    renderer_decoration: Option<crate::extensions::Decoration>,
+    changed: bool,
+    render_affecting: bool,
 }
 
 fn refresh_inherited_tree(
     node: Entity<RNNodeView>,
     top_inset: f32,
     parent: Option<(Inherited, InheritInput)>,
+    tree: &crate::extensions::TreeView,
     cx: &mut Context<ViewStore>,
 ) {
-    let own = {
-        let view = node.read(cx);
-        view.inherit_input(top_inset)
-    };
-    let inherited = inherit(parent.as_ref().map(|(parent, input)| (parent, input)), &own);
-    let (children, modal_children, changed, render_affecting) = {
-        let view = node.read(cx);
-        let children: Vec<Entity<RNNodeView>> = view
+    let mut updates: Vec<InheritedUpdate> = Vec::new();
+    let mut pending: Vec<(Entity<RNNodeView>, Option<(Inherited, InheritInput)>)> =
+        vec![(node, parent)];
+
+    while let Some((node, parent)) = pending.pop() {
+        let own = node.read(cx).inherit_input(tree);
+        let inherited = inherit(parent.as_ref().map(|(p, i)| (p, i)), &own);
+        let children: Vec<Entity<RNNodeView>> = node
+            .read(cx)
             .children
             .iter()
             .map(|(_, child)| child.clone())
@@ -963,134 +710,173 @@ fn refresh_inherited_tree(
             .iter()
             .filter(|child| child.read(cx).view.accessibility_modal)
             .count();
-        (
-            children,
-            modal_children,
-            !view.inherited.same(&inherited),
-            !view.inherited.same_render_affecting(&inherited),
-        )
-    };
-    if changed {
-        node.update(cx, |view, cx| {
-            view.inherited = inherited.clone();
-            if render_affecting {
+        let (renderer_frame, renderer_decoration, changed, render_affecting) = {
+            let view = node.read(cx);
+            let frame = crate::extensions::component_renderer(&view.component)
+                .and_then(|r| r.layout_frame(&view.component_node_shallow(), tree));
+            let decoration = crate::extensions::component_renderer(&view.component)
+                .map(|r| r.decorate(&view.component_node_shallow(), tree));
+            (
+                frame,
+                decoration,
+                !view.inherited.same(&inherited),
+                !view.inherited.same_render_affecting(&inherited),
+            )
+        };
+        for child in children {
+            let child_is_modal = child.read(cx).view.accessibility_modal;
+            let mut parent_input = own.clone();
+            parent_input.other_modal_child = modal_children > usize::from(child_is_modal);
+            pending.push((child, Some((inherited.clone(), parent_input))));
+        }
+        updates.push(InheritedUpdate {
+            node,
+            inherited,
+            hides_self: own.hides_subtree,
+            renderer_frame,
+            renderer_decoration,
+            changed,
+            render_affecting,
+        });
+    }
+
+    for update in updates {
+        update.node.update(cx, |view, cx| {
+            let renderer_changed = view.renderer_frame != update.renderer_frame
+                || view.renderer_decoration != update.renderer_decoration;
+            view.renderer_frame = update.renderer_frame;
+            view.renderer_decoration = update.renderer_decoration;
+            if update.changed {
+                view.inherited = update.inherited.clone();
+                view.inherited.window_top_inset = top_inset;
+                view.inherited.hides_subtree_self = update.hides_self;
+            }
+            if update.render_affecting || renderer_changed {
                 cx.notify();
             }
         });
     }
-    for child in children {
-        let child_is_modal = child.read(cx).view.accessibility_modal;
-        let mut parent_input = own.clone();
-        parent_input.other_modal_child = modal_children > usize::from(child_is_modal);
-        refresh_inherited_tree(
-            child,
-            top_inset,
-            Some((inherited.clone(), parent_input)),
-            cx,
-        );
-    }
 }
 
-fn set_header_ancestor_hidden(node: Entity<RNNodeView>, hidden: bool, cx: &mut Context<ViewStore>) {
-    let children = node
-        .read(cx)
-        .children
-        .iter()
-        .map(|(_, child)| child.clone())
-        .collect::<Vec<_>>();
-    node.update(cx, |node, cx| {
-        node.hidden_header_ancestor = hidden;
-        cx.notify();
+pub(crate) fn start_component_transition(
+    store: &Entity<ViewStore>,
+    tag: i32,
+    transition: crate::extensions::Transition,
+    cx: &mut App,
+) {
+    store.update(cx, |store, cx| {
+        if let Some(node) = store.nodes.get(&tag).cloned() {
+            node.update(cx, |node, cx| {
+                let forward = transition.to.opacity >= transition.from.opacity;
+                node.transition = Some((transition, Instant::now()));
+                node.transition_forward = forward;
+                cx.notify();
+            });
+            store.record_subtree_nodes(&[tag], cx);
+        }
     });
-    for child in children {
-        set_header_ancestor_hidden(child, hidden, cx);
-    }
 }
 
-fn screen_lifecycle_events(previous: f32, next: f32) -> &'static [&'static str] {
-    match (previous < 1.0, previous >= 2.0, next < 1.0, next >= 2.0) {
-        (true, _, false, true) => &["topWillAppear", "topAppear"],
-        (true, _, false, false) => &["topWillAppear"],
-        (_, true, false, false) => &["topWillDisappear"],
-        (false, false, true, _) => &["topDisappear"],
-        (false, true, true, _) => &["topWillDisappear", "topDisappear"],
-        (false, false, false, true) => &["topAppear"],
-        _ => &[],
-    }
-}
-
-pub(crate) fn dispatch_screen_lifecycle_will(
-    host: &Host,
-    outgoing: Option<i32>,
-    incoming: Option<i32>,
+fn start_component_transition_here(
+    store: &mut ViewStore,
+    tag: i32,
+    transition: crate::extensions::Transition,
+    cx: &mut Context<ViewStore>,
 ) {
-    for (tag, event) in [
-        outgoing.map(|tag| (tag, "topWillDisappear")),
-        incoming.map(|tag| (tag, "topWillAppear")),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        log::info!("[screens] tag={tag} lifecycle={event}");
-        host.dispatch_event(tag, event, &serde_json::json!({}));
+    if let Some(node) = store.nodes.get(&tag).cloned() {
+        node.update(cx, |node, cx| {
+            node.transition = Some((transition, Instant::now()));
+            cx.notify();
+        });
+        store.record_subtree_nodes(&[tag], cx);
     }
 }
 
-pub(crate) fn dispatch_screen_lifecycle_did(
-    host: &Host,
-    outgoing: Option<i32>,
-    incoming: Option<i32>,
-) {
-    for (tag, event) in [
-        outgoing.map(|tag| (tag, "topDisappear")),
-        incoming.map(|tag| (tag, "topAppear")),
-    ]
-    .into_iter()
-    .flatten()
+pub(crate) fn clear_node_transition(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
+    store.update(cx, |store, cx| {
+        if let Some(node) = store.nodes.get(&tag).cloned() {
+            node.update(cx, |node, cx| {
+                node.transition = None;
+                cx.notify();
+            });
+            store.record_subtree_nodes(&[tag], cx);
+        }
+    });
+}
+
+pub(crate) fn request_retain_subtree(tag: i32) {
+    PENDING_RETAIN.with(|pending| pending.borrow_mut().insert(tag));
+}
+
+thread_local! {
+    static PENDING_RETAIN: std::cell::RefCell<std::collections::HashSet<i32>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+pub(crate) fn release_retained_subtree(store: &Entity<ViewStore>, tag: i32, cx: &mut App) {
+    store.update(cx, |store, cx| {
+        release_retained_subtree_here(store, tag, cx)
+    });
+}
+
+fn release_retained_subtree_here(store: &mut ViewStore, tag: i32, cx: &mut Context<ViewStore>) {
+    let Some(descendants) = store.retained_subtrees.remove(&tag) else {
+        return;
+    };
+    let _ = descendants;
+    if let Some(parent) = store
+        .nodes
+        .get(&tag)
+        .and_then(|node| node.read(cx).parent.clone())
+        .and_then(|parent| parent.upgrade())
     {
-        log::info!("[screens] tag={tag} lifecycle={event}");
-        host.dispatch_event(tag, event, &serde_json::json!({}));
+        parent.update(cx, |parent, cx| {
+            parent.remove_child(tag);
+            cx.notify();
+        });
     }
-    // Timer completion can happen after the display-frame chain goes idle.
-    // Wake Fabric now so callbacks arrive before a later pop unmounts them.
-    host.on_render();
+    let surface_id = store
+        .nodes
+        .get(&tag)
+        .map(|node| node.read(cx).surface_id)
+        .unwrap_or(rn_gpui_sys::ALL_SURFACES);
+    log::info!("[extensions] retained subtree released tag={tag}");
+    store.refresh_inherited(surface_id, cx);
+}
+
+pub(crate) fn after_on_store(
+    store: Entity<ViewStore>,
+    duration: std::time::Duration,
+    cx: &mut gpui::App,
+    f: impl FnOnce(&mut gpui::App) + 'static,
+) {
+    let mut f = Some(f);
+    store.update(cx, |_: &mut ViewStore, cx: &mut Context<ViewStore>| {
+        cx.spawn(async move |_store, cx| {
+            cx.background_executor().timer(duration).await;
+            if let Some(f) = f.take() {
+                let _ = cx.update(|cx| f(cx));
+            }
+        })
+        .detach();
+    });
 }
 
 #[cfg(test)]
-mod screen_lifecycle_tests {
-    use super::{screen_lifecycle_events, unsupported_screens_component};
-
-    #[test]
-    fn activity_state_edges_emit_lifecycle_in_order() {
-        assert_eq!(screen_lifecycle_events(0.0, 1.0), &["topWillAppear"]);
-        assert_eq!(screen_lifecycle_events(1.0, 2.0), &["topAppear"]);
-        assert_eq!(screen_lifecycle_events(2.0, 1.0), &["topWillDisappear"]);
-        assert_eq!(screen_lifecycle_events(1.0, 0.0), &["topDisappear"]);
-        assert_eq!(
-            screen_lifecycle_events(0.0, 2.0),
-            &["topWillAppear", "topAppear"]
-        );
-        assert_eq!(
-            screen_lifecycle_events(2.0, 0.0),
-            &["topWillDisappear", "topDisappear"]
-        );
-        assert!(screen_lifecycle_events(1.0, 1.0).is_empty());
-    }
-
-    #[test]
-    fn unsupported_screens_components_are_identified_explicitly() {
-        for name in [
-            "RNSSearchBar",
-            "RNSBottomTabs",
-            "RNSBottomTabsScreen",
-            "RNSScreenFooter",
-            "RNSSplitView",
-            "RNSSplitViewScreen",
-        ] {
-            assert!(unsupported_screens_component(name), "{name}");
-        }
-        assert!(!unsupported_screens_component("RNSScreen"));
-    }
+pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensions::StoreHandle {
+    let overlay_host = cx.new(|_| OverlayHost::new());
+    let window = cx.open_window(gpui::size(gpui::px(120.0), gpui::px(100.0)), {
+        let overlay_host = overlay_host.clone();
+        move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+    });
+    let root = window.root(cx).unwrap();
+    let any_window: gpui::AnyWindowHandle = window.into();
+    let host = crate::host::Host::test_stub();
+    let frame_hook = FrameHook::new(host.clone());
+    let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+    cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+    let _ = root;
+    crate::extensions::StoreHandle::new(store.downgrade())
 }
 
 #[cfg(test)]
@@ -1109,7 +895,6 @@ mod test_app_context_tests {
             component: "View".into(),
             native_view_name: String::new(),
             native_view_props: "{}".into(),
-            svg_props_json: String::new(),
             frame: RectF {
                 x: 10.0,
                 y: 12.0,
@@ -1121,38 +906,9 @@ mod test_app_context_tests {
                 opacity: 1.0,
                 ..Default::default()
             },
+            extension_props_json: String::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
-            image_uri: String::new(),
-            image_resize_mode: 0,
-            text_input_text: String::new(),
-            text_input_placeholder: String::new(),
-            text_input_selection_color: 0,
-            text_input_multiline: false,
-            text_input_editable: false,
-            text_input_secure: false,
-            text_input_most_recent_event_count: 0,
-            text_input_selection_set: false,
-            text_input_selection_start: 0,
-            text_input_selection_end: 0,
-            modal_visible: false,
-            screen_header_title: String::new(),
-            screen_header_subview_type: String::new(),
-            screen_header_background_color: 0,
-            screen_header_title_color: 0,
-            screen_header_tint_color: 0,
-            screen_header_hidden: false,
-            screen_header_hide_back: false,
-            screen_activity_state: 0.0,
-            screen_stack_animation: String::new(),
-            screen_stack_presentation: String::new(),
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            content_width: 0.0,
-            content_height: 0.0,
-            scroll_horizontal: false,
-            scroll_enabled: false,
-            scroll_indicator: false,
             layout_changed: false,
         }
     }
@@ -1197,6 +953,91 @@ mod test_app_context_tests {
         .unwrap();
         let hit = cx.read_entity(&store, |store, _| store.hovered.borrow().first().copied());
         assert_eq!(hit, Some(101));
+    }
+
+    /// A decoration that changes without any inherited value changing must
+    /// still be stored, and must notify.
+    ///
+    /// The pass used to write the renderer's answer only when the *inherited*
+    /// state changed, so a module whose decoration depends on transition
+    /// progress kept its answer from the start of the transition forever.
+    #[gpui::test]
+    fn refresh_stores_a_decoration_that_changed_alone(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        static COLOUR: AtomicU32 = AtomicU32::new(0);
+
+        struct Probe;
+        impl crate::extensions::ComponentRenderer for Probe {
+            fn render(
+                &self,
+                _node: &crate::extensions::ComponentNode,
+                _window: &mut gpui::Window,
+                _cx: &mut gpui::App,
+            ) -> Option<gpui::AnyElement> {
+                None
+            }
+
+            fn decorate(
+                &self,
+                _node: &crate::extensions::ComponentNode,
+                _tree: &crate::extensions::TreeView,
+            ) -> crate::extensions::Decoration {
+                crate::extensions::Decoration {
+                    background: Some(COLOUR.load(Ordering::SeqCst)),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        crate::extensions::register_component_renderer("DecorationProbe", Arc::new(Probe));
+        let mut create = op(MountKind::Create);
+        create.component = "DecorationProbe".into();
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![create, op(MountKind::Insert)],
+                },
+                cx,
+            );
+        });
+
+        let read = |cx: &mut TestAppContext| {
+            cx.read_entity(&store, |store, _| {
+                store
+                    .nodes
+                    .get(&101)
+                    .map(|node| node.read_with(cx, |n, _| n.renderer_decoration))
+                    .flatten()
+            })
+        };
+        assert_eq!(read(cx).and_then(|d| d.background), Some(0));
+
+        // Only the decoration changes; no inherited value moves.
+        COLOUR.store(0xff00ff00, Ordering::SeqCst);
+        cx.update_entity(&store, |store, cx| {
+            store.refresh_inherited(super::APP_SURFACE_ID, cx);
+        });
+        assert_eq!(
+            read(cx).and_then(|d| d.background),
+            Some(0xff00ff00),
+            "a decoration that changed alone must be stored"
+        );
     }
 
     #[gpui::test]
@@ -1298,11 +1139,309 @@ mod test_app_context_tests {
             "display:none view must be invisible"
         );
     }
+
+    /// Opening a view of the tree must not copy the tree.
+    ///
+    /// Core opens one for every observer on every insert and every remove, so
+    /// anything that copies every node per call makes a first mount of N nodes
+    /// cost O(N²). The view borrows the map the store keeps instead.
+    #[gpui::test]
+    fn opening_a_tree_view_copies_no_nodes(cx: &mut TestAppContext) {
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        // Mount a tree big enough that a per-call copy would be obvious.
+        let mut ops = Vec::new();
+        let mut parent = op(MountKind::Create);
+        parent.tag = 1;
+        ops.push(parent);
+        let mut parent_insert = op(MountKind::Insert);
+        parent_insert.tag = 1;
+        ops.push(parent_insert);
+        for row in 0..200i32 {
+            let tag = 1000 + row;
+            let mut create = op(MountKind::Create);
+            create.tag = tag;
+            create.component = "Text".into();
+            create.parent_tag = 1;
+            ops.push(create);
+            let mut insert = op(MountKind::Insert);
+            insert.tag = tag;
+            insert.component = "Text".into();
+            insert.parent_tag = 1;
+            insert.index = row;
+            ops.push(insert);
+        }
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(MountBatch { surface_id: 1, ops }, cx);
+        });
+
+        // Two hundred children, all in one view.
+        let copied = cx.read_entity(&store, |store, app| {
+            crate::node_view::reset_snapshot_count();
+            let tree = store.tree_view(app);
+            let children = tree.children(1).len();
+            assert_eq!(children, 200);
+            crate::node_view::snapshot_count()
+        });
+        assert_eq!(
+            copied, 0,
+            "opening a tree view copied {copied} nodes; it must borrow the store's own map"
+        );
+
+        // A hook that needs one node's own fields still pays for one node, not
+        // for the tree. `tree_view_at` supplies the node core is holding.
+        let copied = cx.read_entity(&store, |store, app| {
+            let node = store.nodes.get(&1005).expect("row is mounted");
+            let borrowed = node.read(app);
+            crate::node_view::reset_snapshot_count();
+            let tree = store.tree_view_at(Some((1005, &borrowed)), app);
+            assert!(tree.node(1005).is_some());
+            crate::node_view::snapshot_count()
+        });
+        assert_eq!(
+            copied, 1,
+            "a tree built around one node copies that node and nothing else"
+        );
+    }
+
+    /// A hook must see the tree as it is, not as it was before the batch.
+    ///
+    /// The snapshots a `TreeView` borrows are now written per operation instead
+    /// of copied from every node per operation. A missed write shows up here as
+    /// a hook reading a stale parent, child list or frame, because the hooks all
+    /// run inside the batch, before the trailing rebuild.
+    #[gpui::test]
+    fn the_snapshot_map_follows_each_operation(cx: &mut TestAppContext) {
+        use crate::extensions::{ComponentNode, StoreHandle, StoreObserver, TreeView};
+        use std::sync::{Arc, Mutex};
+
+        // The observer registry is process-wide, so no other test may install
+        // one while this runs.
+        let _exclusive = crate::extensions::exclusive_observers();
+
+        #[derive(Default)]
+        struct Seen {
+            /// What the tree said after each insert, in order.
+            inserts: Vec<String>,
+            /// What the tree said at the end of every batch, in order.
+            batches: Vec<String>,
+            /// What the tree said after the remove.
+            remove: Option<String>,
+            /// What the tree said after the delete.
+            delete: Option<String>,
+        }
+
+        struct Probe(Arc<Mutex<Seen>>);
+
+        fn describe(tree: &TreeView, tag: i32, parent: i32) -> String {
+            format!(
+                "parent={:?} children={:?} frame={}x{}",
+                tree.children(parent),
+                tree.children(tag),
+                tree.node(tag).map(|n| n.frame.w).unwrap_or(-1.0),
+                tree.node(tag).map(|n| n.frame.h).unwrap_or(-1.0)
+            )
+        }
+
+        impl StoreObserver for Probe {
+            fn on_mount(&self, _node: &ComponentNode, _h: &StoreHandle, _cx: &mut gpui::App) {}
+            fn on_update(
+                &self,
+                _node: &ComponentNode,
+                _previous: &ComponentNode,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+            }
+            fn after_batch(&self, tree: &TreeView, _h: &StoreHandle, _cx: &mut gpui::App) {
+                if tree.node(7202).is_none() && tree.node(7101).is_none() {
+                    return;
+                }
+                self.0
+                    .lock()
+                    .unwrap()
+                    .batches
+                    .push(describe(tree, 7202, 7101));
+            }
+            fn on_remove(&self, tag: i32, _h: &StoreHandle, _cx: &mut gpui::App) {
+                if tag == 7202 {
+                    self.0.lock().unwrap().delete = Some("deleted".into());
+                }
+            }
+            fn on_insert(
+                &self,
+                child: &ComponentNode,
+                parent: i32,
+                _previous_children: &[i32],
+                tree: &TreeView,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+                // Other tests run their own batches against this process-wide
+                // registry, so only this test's own parent is recorded.
+                if parent != 7101 {
+                    return;
+                }
+                self.0
+                    .lock()
+                    .unwrap()
+                    .inserts
+                    .push(describe(tree, child.tag, parent));
+            }
+            fn on_remove_child(
+                &self,
+                child: i32,
+                parent: i32,
+                _retained: bool,
+                tree: &TreeView,
+                _h: &StoreHandle,
+                _cx: &mut gpui::App,
+            ) {
+                if child == 7202 {
+                    self.0.lock().unwrap().remove = Some(describe(tree, child, parent));
+                }
+            }
+        }
+
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        crate::extensions::register_store_observer(Arc::new(Probe(seen.clone())));
+
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).unwrap();
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root));
+
+        let mut create_parent = op(MountKind::Create);
+        create_parent.tag = 7101;
+        let mut insert_parent = op(MountKind::Insert);
+        insert_parent.tag = 7101;
+        let mut create_child = op(MountKind::Create);
+        create_child.tag = 7202;
+        create_child.component = "Text".into();
+        create_child.parent_tag = 7101;
+        create_child.frame = RectF {
+            x: 4.0,
+            y: 6.0,
+            w: 20.0,
+            h: 10.0,
+        };
+        let mut insert_child = op(MountKind::Insert);
+        insert_child.tag = 7202;
+        insert_child.parent_tag = 7101;
+        insert_child.component = "Text".into();
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![create_parent, insert_parent, create_child, insert_child],
+                },
+                cx,
+            );
+        });
+
+        let inserted = seen.lock().unwrap().inserts.clone();
+        assert_eq!(
+            inserted.last().map(String::as_str),
+            Some("parent=[7202] children=[] frame=20x10"),
+            "on_insert must see the child spliced into its parent: {inserted:?}"
+        );
+
+        let mut move_child = op(MountKind::Update);
+        move_child.tag = 7202;
+        move_child.component = "Text".into();
+        move_child.parent_tag = 7101;
+        move_child.frame = RectF {
+            x: 0.0,
+            y: 0.0,
+            w: 55.0,
+            h: 66.0,
+        };
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![move_child],
+                },
+                cx,
+            );
+        });
+        assert_eq!(
+            seen.lock().unwrap().batches.last().map(String::as_str),
+            Some("parent=[7202] children=[] frame=55x66"),
+            "the tree must report the frame an update gave the node"
+        );
+
+        let mut remove_child = op(MountKind::Remove);
+        remove_child.tag = 7202;
+        remove_child.component = "Text".into();
+        remove_child.parent_tag = 7101;
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![remove_child],
+                },
+                cx,
+            );
+        });
+        // The hook runs before the splice is undone, exactly as it did when the
+        // tree was read from the live nodes: the leaving card is still listed,
+        // which is what lets the module find it and keep it for its exit.
+        assert_eq!(
+            seen.lock().unwrap().remove.as_deref(),
+            Some("parent=[7202] children=[] frame=55x66"),
+            "a remove hook must still see the card it is being told about"
+        );
+
+        let mut delete_child = op(MountKind::Delete);
+        delete_child.tag = 7202;
+        delete_child.component = "Text".into();
+        delete_child.parent_tag = -1;
+        cx.update_entity(&store, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops: vec![delete_child],
+                },
+                cx,
+            );
+        });
+        assert_eq!(seen.lock().unwrap().delete.as_deref(), Some("deleted"));
+        assert_eq!(
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&7202)),
+            false,
+            "a deleted tag must not linger in the snapshot map"
+        );
+        assert_eq!(
+            cx.read_entity(&store, |store, _| store.snapshots.contains_key(&7101)),
+            true,
+            "its parent must still be there"
+        );
+    }
 }
 
 fn log_mount_op(op: &MountOp) {
     log::debug!(
-        "[store]   {:<6} tag={} parent={} index={} {:<30} frame=({:.1},{:.1} {:.1}x{:.1}) props_changed={} activity={} header_subview={}",
+        "[store]   {:<6} tag={} parent={} index={} {:<30} frame=({:.1},{:.1} {:.1}x{:.1}) props_changed={} props={}",
         kind_name(op.kind),
         op.tag,
         op.parent_tag,
@@ -1313,8 +1452,7 @@ fn log_mount_op(op: &MountOp) {
         op.frame.w,
         op.frame.h,
         op.props_changed,
-        op.screen_activity_state,
-        op.screen_header_subview_type,
+        op.extension_props_json,
     );
 }
 
@@ -1336,14 +1474,14 @@ fn kind_name(kind: MountKind) -> &'static str {
 /// frame. Created before the window opens; it only toggles its own contents.
 pub struct OverlayHost {
     overlays: Vec<(i32, Entity<SurfaceRootView>)>,
-    modals: Vec<(i32, Entity<RNNodeView>)>,
+    portals: Vec<(i32, Entity<RNNodeView>)>,
 }
 
 impl OverlayHost {
     pub fn new() -> Self {
         Self {
             overlays: Vec::new(),
-            modals: Vec::new(),
+            portals: Vec::new(),
         }
     }
 
@@ -1359,17 +1497,17 @@ impl OverlayHost {
 
     pub fn clear(&mut self) {
         self.overlays.clear();
-        self.modals.clear();
+        self.portals.clear();
     }
 
-    pub fn insert_modal(&mut self, tag: i32, modal: Entity<RNNodeView>) {
-        if !self.modals.iter().any(|(existing, _)| *existing == tag) {
-            self.modals.push((tag, modal));
+    pub fn insert_portal(&mut self, tag: i32, portal: Entity<RNNodeView>) {
+        if !self.portals.iter().any(|(existing, _)| *existing == tag) {
+            self.portals.push((tag, portal));
         }
     }
 
-    pub fn remove_modal(&mut self, tag: i32) {
-        self.modals.retain(|(existing, _)| *existing != tag);
+    pub fn remove_portal(&mut self, tag: i32) {
+        self.portals.retain(|(existing, _)| *existing != tag);
     }
 }
 
@@ -1378,12 +1516,12 @@ impl Render for OverlayHost {
         // Kept absolute so the empty host is exactly 0x0: a full-size empty div
         // would swallow every hover and click meant for the app behind it.
         let host = div().absolute().top_0().left_0();
-        if self.overlays.is_empty() && self.modals.is_empty() {
+        if self.overlays.is_empty() && self.portals.is_empty() {
             host
         } else {
             host.size_full()
                 .children(self.overlays.iter().map(|(_, overlay)| overlay.clone()))
-                .children(self.modals.iter().map(|(_, modal)| modal.clone()))
+                .children(self.portals.iter().map(|(_, portal)| portal.clone()))
         }
     }
 }

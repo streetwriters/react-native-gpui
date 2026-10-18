@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { collectInputs, inputHash } from './prebuilt-inputs.mjs';
+import { collectInputs, inputHash, runtimeChoice } from './prebuilt-inputs.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
@@ -28,11 +28,23 @@ export function coveredByFiles(relPath, files) {
 }
 
 describe('collectInputs', () => {
-  test('returns the pinned hash on a matching checkout', () => {
+  test('uses the pinned prebuilt while the inputs match the pin', () => {
     const pin = JSON.parse(
       readFileSync(path.join(packageDir, 'prebuilt-binaries.json'), 'utf8'),
     );
-    expect(inputHash().hash).toBe(pin.inputHash);
+    const choice = runtimeChoice({ ...pin, inputHash: inputHash().hash });
+    expect(choice.kind).toBe('prebuilt');
+    expect(choice.version).toBe(pin.version);
+  });
+
+  test('falls back to source, with a reason, when the inputs changed', () => {
+    const pin = JSON.parse(
+      readFileSync(path.join(packageDir, 'prebuilt-binaries.json'), 'utf8'),
+    );
+    const choice = runtimeChoice({ ...pin, inputHash: 'not-the-local-hash' });
+    expect(choice.kind).toBe('source');
+    expect(choice.reason).toContain(inputHash().hash);
+    expect(choice.reason).toContain('not-the-local-hash');
   });
 
   test('keys every path without the checkout location', () => {

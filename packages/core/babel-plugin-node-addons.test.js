@@ -33,7 +33,7 @@ function write(filePath, contents = '') {
   fs.writeFileSync(filePath, contents);
 }
 
-function transform(source, { filename, platform = 'gpui', ...options }) {
+function transform(source, { filename, platform = 'desktop', ...options }) {
   return transformSync(source, {
     filename,
     caller: { name: 'metro', bundler: 'metro', platform },

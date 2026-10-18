@@ -22,7 +22,8 @@ unsafe extern "C" {
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
     fn rn_gpui_native_animations_active() -> u64;
-    fn rn_gpui_worklet_frames_pending() -> u64;
+    fn rn_gpui_frame_demand() -> u64;
+    fn rn_gpui_pending_work() -> u64;
     fn rn_gpui_request_reload();
     fn rn_gpui_reload_in_progress() -> bool;
     /// Counts the React instances created so far. It changes when a reload
@@ -92,7 +93,7 @@ async fn serve_commands(
                         )
                     })
                     .unwrap_or((0.0, 0.0, 1.0));
-                json!({"protocol": PROTOCOL_VERSION, "platform": "gpui", "scale": scale,
+                json!({"protocol": PROTOCOL_VERSION, "platform": "desktop", "scale": scale,
                     // The React instance this tree belongs to. A client uses it
                     // to wait for the replacement after a reload; it is 0 only
                     // before the host has created any instance at all.
@@ -330,7 +331,7 @@ async fn serve_commands(
                         store
                             .nodes
                             .values()
-                            .any(|node| node.read(cx).screen_transition_active(cx))
+                            .any(|node| node.read(cx).transition_active(cx))
                     })
                 {
                     if !wait_for_frame(window, cx, Duration::from_millis(16)).await {
@@ -1253,7 +1254,7 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
         .read(app)
         .nodes
         .values()
-        .filter(|node| node.read(app).screen_transition_active(app))
+        .filter(|node| node.read(app).transition_active(app))
         .cloned()
         .collect();
     for node in transitioning {
@@ -1261,11 +1262,40 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
     }
 }
 
+/// A window the driver can draw.
+///
+/// The handle the driver was started with is the main window's, and a test that
+/// closes it leaves the handle dead: every draw then fails and a caller that
+/// waits for frames spins until its timeout. The remaining windows are still
+/// real, so fall back to one of them.
+fn drawable_window(window: AnyWindowHandle, cx: &mut gpui::AsyncApp) -> Option<AnyWindowHandle> {
+    if cx.update_window(window, |_, _, _| ()).is_ok() {
+        return Some(window);
+    }
+    let windows = cx.update(|cx| {
+        cx.try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
+            .map(|windows| {
+                windows
+                    .0
+                    .keys()
+                    .into_iter()
+                    .filter_map(|key| windows.0.get(key).map(|entry| entry.handle))
+                    .collect::<Vec<_>>()
+            })
+    })?;
+    windows
+        .into_iter()
+        .find(|candidate| cx.update_window(*candidate, |_, _, _| ()).is_ok())
+}
+
 async fn wait_for_frame(
     window: AnyWindowHandle,
     cx: &mut gpui::AsyncApp,
     timeout: Duration,
 ) -> bool {
+    let Some(window) = drawable_window(window, cx) else {
+        return false;
+    };
     if cx
         .update_window(window, move |_root, window, app| {
             draw_frame(window, app);
@@ -1328,12 +1358,13 @@ fn idle_status(
         );
     }
     let native_animations = unsafe { rn_gpui_native_animations_active() };
-    let worklet_frames = unsafe { rn_gpui_worklet_frames_pending() };
-    if (native_animations > 0 || worklet_frames > 0)
+    let pending_work = unsafe { rn_gpui_pending_work() };
+    let frame_demand = unsafe { rn_gpui_frame_demand() };
+    if (native_animations > 0 || pending_work > 0)
         && !ignore.iter().any(|item| item == "animations")
     {
         busy.push(
-            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {worklet_frames} UI Worklets frame callback(s) pending")}),
+            json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
         );
     }
     if store.frame_hook.gesture_is_active() && !ignore.iter().any(|item| item == "gestures") {
@@ -1363,12 +1394,10 @@ fn idle_status(
     if !ignore.iter().any(|item| item == "animations") {
         for (tag, entity) in &store.nodes {
             let node = entity.read(cx);
-            if let Some(transition) = node.screen_transition {
-                if Instant::now().saturating_duration_since(transition.started_at)
-                    < transition.duration
-                {
-                    busy.push(json!({"source": "animations", "detail": format!("navigation transition on tag {tag}")}));
-                }
+            if node.transition_active(cx) {
+                busy.push(
+                    json!({"source": "animations", "detail": format!("transition on tag {tag}")}),
+                );
             }
         }
     }
@@ -1438,6 +1467,13 @@ fn serve_socket(listener: TcpListener, token: String, tx: Sender<Request>) {
     }
 }
 
+fn extension_props(node: &RNNodeView) -> Value {
+    if node.extension_props_json().is_empty() {
+        return Value::Object(serde_json::Map::new());
+    }
+    serde_json::from_str(node.extension_props_json()).unwrap_or(Value::Null)
+}
+
 fn paragraph_text(node: &RNNodeView) -> String {
     if node.component == "TextInput" {
         return node.input_text.clone();
@@ -1459,10 +1495,7 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
     let node = entity.read(cx);
     let origin = node.absolute_origin(cx);
     let (scale_x, scale_y) = node.cumulative_scale(cx);
-    let mut height = node.frame.h;
-    if node.component == "RNSScreenContentWrapper" && node.screen_content_wrapper_header_hidden {
-        height += 56.0;
-    }
+    let height = node.frame.h;
     Some(RectF {
         x: f32::from(origin.x),
         y: f32::from(origin.y),
@@ -1544,7 +1577,7 @@ pub(crate) fn node_visible_frame(
 ) -> Option<RectF> {
     let mut visible = node_frame(store, tag, cx)?;
     let node = store.nodes.get(&tag)?.read(cx);
-    if node.view.display_none || node.view.opacity <= 0.0 || node.hidden_header_ancestor {
+    if node.view.display_none || node.view.opacity <= 0.0 || node.inherited.hides_subtree_self {
         return None;
     }
     visible = intersect(visible, viewport)?;
@@ -1554,17 +1587,11 @@ pub(crate) fn node_visible_frame(
         let ancestor = ancestor.read(cx);
         if ancestor.view.display_none
             || ancestor.view.opacity <= 0.0
-            || ancestor.hidden_header_ancestor
-            || (ancestor.component == "RNSScreen" && ancestor.screen_activity_state == 0.0)
+            || ancestor.inherited.hides_subtree_self
         {
             return None;
         }
-        if ancestor.view.overflow_hidden
-            || matches!(
-                ancestor.component.as_str(),
-                "ScrollView" | "AndroidHorizontalScrollView"
-            )
-        {
+        if ancestor.view.overflow_hidden || ancestor.scroll.is_some() {
             visible = intersect(visible, node_frame(store, ancestor.tag, cx)?)?;
         }
         parent = ancestor.parent.as_ref().and_then(|parent| parent.upgrade());
@@ -1703,7 +1730,7 @@ fn tree_node(
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
-        "contentSize": [node.content_size.0, node.content_size.1],
+        "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
         "children": children})
 }
@@ -1747,8 +1774,8 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
             "right": node.view.border_widths.right, "bottom": node.view.border_widths.bottom},
         "borderStyles": node.view.border_styles,
         "outlineWidth": node.view.outline_width,
-        "imageUri": node.image_uri,
-        "imageResizeMode": node.image_resize_mode,
+        "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
+        "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
         "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),

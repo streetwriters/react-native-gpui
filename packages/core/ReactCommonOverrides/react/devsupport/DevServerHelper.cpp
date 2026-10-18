@@ -22,7 +22,7 @@ namespace {
 
 // Override: the cxx platform hardcodes the
 // Android bundle identifier, which makes Metro serve the Android JS surface.
-constexpr std::string_view DEFAULT_PLATFORM = "gpui";
+constexpr std::string_view DEFAULT_PLATFORM = "desktop";
 
 std::string SHA256(const std::string& input) {
   std::array<unsigned char, SHA256_DIGEST_LENGTH> hash{};

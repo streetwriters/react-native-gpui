@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "GPUI platform bindings for react-native-worklets",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],

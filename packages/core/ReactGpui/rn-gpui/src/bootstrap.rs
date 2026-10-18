@@ -320,15 +320,6 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
-    OpenUrl(String),
-    AlertRequest {
-        id: i32,
-        title: String,
-        message: String,
-        buttons: Vec<String>,
-    },
-    ClipboardRead(i32),
-    ClipboardWrite(String),
     DevMenuShow,
     DevSetting {
         name: String,
@@ -633,27 +624,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
-    let open_url_tx = tx.clone();
-    let _ = rn_gpui_sys::OPEN_URL_HANDLER.set(Box::new(move |url| {
-        let _ = open_url_tx.send_blocking(MainEvent::OpenUrl(url));
-    }));
-    let alert_tx = tx.clone();
-    let _ = rn_gpui_sys::ALERT_HANDLER.set(Box::new(move |id, title, message, buttons| {
-        let _ = alert_tx.send_blocking(MainEvent::AlertRequest {
-            id,
-            title,
-            message,
-            buttons,
-        });
-    }));
-    let clipboard_read_tx = tx.clone();
-    let _ = rn_gpui_sys::CLIPBOARD_READ_HANDLER.set(Box::new(move |id| {
-        let _ = clipboard_read_tx.send_blocking(MainEvent::ClipboardRead(id));
-    }));
-    let clipboard_write_tx = tx.clone();
-    let _ = rn_gpui_sys::CLIPBOARD_WRITE_HANDLER.set(Box::new(move |text| {
-        let _ = clipboard_write_tx.send_blocking(MainEvent::ClipboardWrite(text));
-    }));
     let desktop_tx = tx.clone();
     crate::desktop::set_command_sender(desktop_tx);
     let main_task_tx = tx.clone();
@@ -702,6 +672,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     crate::desktop::install_snapshot(&app_id);
     // The desktop shell is a Rust TurboModule: JS asks for it by name.
     crate::desktop::module::register();
+    crate::builtins::register();
 
     #[cfg(feature = "visual-capture")]
     let headless = env_bool("RN_GPUI_HEADLESS", false);
@@ -933,7 +904,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             { 0.0 }
         }).unwrap_or(0.0);
         host.set_window_top_inset(top_inset);
-        log::info!("[safe-area] native window top inset={top_inset}");
+        log::info!("[window-inset] native window top inset={top_inset}");
         let appearance = match cx.window_appearance() {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
             _ => "light",
@@ -988,7 +959,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let keyboard_hook = frame_hook.clone();
         let navigation_keyboard_subscription = cx.intercept_keystrokes(move |event, window, cx| {
             if window.window_handle().window_id() != window_id { return; }
-            if let Some(event_name) = crate::input::desktop_navigation_event(&event.keystroke) {
+            if let Some(event_name) = crate::builtins::textinput::input::desktop_navigation_event(&event.keystroke) {
                 keyboard_host.emit_device_event(event_name);
                 keyboard_hook.arm(window);
                 log::info!("[navigation] emitted {event_name} from keyboard");
@@ -1360,7 +1331,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         crate::native_view::set_probe_titlebar_transparent(window, transparent);
                         window.bounds_changed(cx);
                         window.refresh();
-                        log::info!("[safe-area] probe titlebar transparent={transparent}");
+                        log::info!("[window-inset] probe titlebar transparent={transparent}");
                     });
                 }
             }).detach();
@@ -1420,14 +1391,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             store.host.set_window_top_inset(top);
                             store.frame_hook.arm(window);
                             for node in store.nodes.values() {
-                                if node.read(cx).component == "RNSScreenStackHeaderConfig" {
+                                let component = node.read(cx).component.clone();
+                                let depends = crate::extensions::component_renderer(&component)
+                                    .is_some_and(|renderer| renderer.depends_on_window_insets());
+                                if depends {
                                     node.update(cx, |_, cx| cx.notify());
                                 }
                             }
                             store.refresh_inherited(1, cx);
                         });
                         log::info!(
-                            "[safe-area] native window top inset={top} fullscreen={}",
+                            "[window-inset] native window top inset={top} fullscreen={}",
                             window.is_fullscreen()
                         );
                     }
@@ -1665,7 +1639,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                     frame_hook.set_animation_active(active, window, cx);
                                 })
                             {
-                                log::error!(
+                                log::debug!(
                                     "[native-animated] failed to update GPUI window activity: {error}"
                                 );
                             }
@@ -1720,56 +1694,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         if let Some((window_handle, node)) = target {
                             let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
-                                    crate::input::clear_text_input(node, window, cx);
+                                    crate::builtins::textinput::input::clear_text_input(node, window, cx);
                                 });
                             });
-                        }
-                    }
-                    MainEvent::OpenUrl(url) => {
-                        let _ = cx.update(|cx| cx.open_url(&url));
-                    }
-                    MainEvent::ClipboardRead(id) => {
-                        let mut text = String::new();
-                        let _ = cx.update(|cx| {
-                            text = cx
-                                .read_from_clipboard()
-                                .and_then(|item| item.text())
-                                .unwrap_or_default();
-                        });
-                        rn_gpui_sys::ffi::rn_gpui_clipboard_result(id, text);
-                    }
-                    MainEvent::ClipboardWrite(text) => {
-                        let _ = cx.update(|cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                        });
-                    }
-                    MainEvent::AlertRequest { id, title, message, buttons } => {
-                        let target = {
-                            let mut target = None;
-                            store.update(cx, |store, _cx| target = Some(store.window));
-                            target
-                        };
-                        if let Some(window) = target {
-                            let answers: Vec<gpui::PromptButton> = buttons
-                                .iter()
-                                .map(|button| gpui::PromptButton::new(button.clone()))
-                                .collect();
-                            let receiver = cx.update_window(window, move |_root, window, cx| {
-                                window.prompt(
-                                    gpui::PromptLevel::Info,
-                                    &title,
-                                    (!message.is_empty()).then_some(message.as_str()),
-                                    &answers,
-                                    cx,
-                                )
-                            });
-                            if let Ok(receiver) = receiver {
-                                cx.spawn(async move |_cx| {
-                                    let index = receiver.await.unwrap_or(0) as i32;
-                                    rn_gpui_sys::ffi::rn_gpui_alert_result(id, index);
-                                })
-                                .detach();
-                            }
                         }
                     }
                 }

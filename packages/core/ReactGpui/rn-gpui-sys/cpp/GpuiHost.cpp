@@ -44,22 +44,25 @@
 
 namespace {
 std::atomic<bool> nativeAnimationActive{false};
-std::atomic<bool> workletsRenderActive{false};
-std::atomic<uint64_t> workletFrameCount{0};
 } // namespace
-extern "C" void rn_gpui_set_worklets_active(bool active) noexcept {
-  workletsRenderActive.store(active);
-  rngpui::rn_gpui_set_animated_active(active || nativeAnimationActive.load());
-}
 
 extern "C" uint64_t rn_gpui_native_animations_active() noexcept {
   return nativeAnimationActive.load() ? 1 : 0;
 }
-extern "C" uint64_t rn_gpui_worklet_frames_pending() noexcept {
-  return workletFrameCount.load();
+
+namespace rngpui {
+void updateFrameDemand() {
+  rn_gpui_set_animated_active(
+      nativeAnimationActive.load() || anyFrameRequested());
 }
-extern "C" void rn_gpui_set_worklet_frame_count(uint64_t count) noexcept {
-  workletFrameCount.store(count);
+} // namespace rngpui
+
+extern "C" uint64_t rn_gpui_frame_demand() noexcept {
+  return rngpui::anyFrameRequested() ? 1 : 0;
+}
+
+extern "C" uint64_t rn_gpui_pending_work() noexcept {
+  return rngpui::pendingWork();
 }
 
 extern "C" bool rn_gpui_accessibility_active();
@@ -95,17 +98,9 @@ using namespace facebook::react;
 
 namespace rngpui {
 namespace {
-std::mutex gesturePointerProcessorMutex;
-GpuiGesturePointerProcessor gesturePointerProcessor;
-std::mutex gesturePointerEventMutex;
-GpuiRawPointerEvent lastGesturePointerEvent{};
+std::mutex pointerEventMutex;
+extension::RawPointerEvent lastPointerEvent{};
 } // namespace
-
-void register_gpui_gesture_pointer_processor(
-    GpuiGesturePointerProcessor processor) {
-  std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-  gesturePointerProcessor = std::move(processor);
-}
 
 namespace {
 std::atomic<GpuiHost*> activeGpuiHost{nullptr};
@@ -119,19 +114,6 @@ std::atomic<AppCppTurboModuleProvider> appCppTurboModuleProvider{nullptr};
 std::mutex appearanceMutex;
 std::string systemAppearance{"light"};
 std::optional<std::string> appearanceOverride;
-
-struct AlertCallback {
-  std::shared_ptr<CallInvoker> jsInvoker;
-  facebook::jsi::Runtime* runtime;
-  facebook::jsi::Function callback;
-};
-std::mutex alertCallbacksMutex;
-std::unordered_map<int32_t, std::shared_ptr<AlertCallback>> alertCallbacks;
-std::atomic<int32_t> nextAlertId{1};
-
-std::mutex clipboardPromisesMutex;
-std::unordered_map<int32_t, AsyncPromise<std::string>> clipboardPromises;
-std::atomic<int32_t> nextClipboardRequestId{1};
 
 class GpuiAppearanceModule final
     : public NativeAppearanceCxxSpec<GpuiAppearanceModule> {
@@ -327,170 +309,7 @@ class GpuiAccessibilityInfoModule final
   }
 };
 
-class GpuiLinkingModule final
-    : public NativeLinkingManagerCxxSpec<GpuiLinkingModule> {
- public:
-  explicit GpuiLinkingModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeLinkingManagerCxxSpec(std::move(jsInvoker)) {}
-
-  AsyncPromise<std::optional<std::string>> getInitialURL(
-      facebook::jsi::Runtime& runtime) {
-    AsyncPromise<std::optional<std::string>> promise(runtime, jsInvoker_);
-    promise.resolve(std::nullopt);
-    return promise;
-  }
-
-  AsyncPromise<bool> canOpenURL(
-      facebook::jsi::Runtime& runtime,
-      std::string value) {
-    const auto separator = value.find(':');
-    auto scheme = separator == std::string::npos ? std::string{}
-                                                 : value.substr(0, separator);
-    std::transform(
-        scheme.begin(),
-        scheme.end(),
-        scheme.begin(),
-        [](unsigned char character) {
-          return static_cast<char>(std::tolower(character));
-        });
-    const bool supported = scheme == "http" || scheme == "https" ||
-        scheme == "mailto" || scheme == "tel";
-    AsyncPromise<bool> promise(runtime, jsInvoker_);
-    promise.resolve(supported);
-    return promise;
-  }
-
-  AsyncPromise<> openURL(facebook::jsi::Runtime& runtime, std::string value) {
-    AsyncPromise<> promise(runtime, jsInvoker_);
-    rn_gpui_open_url(std::move(value));
-    promise.resolve();
-    return promise;
-  }
-
-  AsyncPromise<> openSettings(facebook::jsi::Runtime& runtime) {
-    AsyncPromise<> promise(runtime, jsInvoker_);
-    promise.reject(
-        Error("Opening application settings is not supported by GPUI."));
-    return promise;
-  }
-
-  void addListener(facebook::jsi::Runtime&, std::string) {}
-  void removeListeners(facebook::jsi::Runtime&, double) {}
-};
-
-class GpuiAlertModule final
-    : public NativeAlertManagerCxxSpec<GpuiAlertModule> {
- public:
-  explicit GpuiAlertModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeAlertManagerCxxSpec(jsInvoker),
-        jsInvoker_(std::move(jsInvoker)) {}
-
-  void alertWithArgs(
-      facebook::jsi::Runtime& runtime,
-      facebook::jsi::Object args,
-      facebook::jsi::Function callback) {
-    auto readString =
-        [&runtime](const facebook::jsi::Object& object, const char* key) {
-          auto value = object.getProperty(runtime, key);
-          return value.isString() ? value.asString(runtime).utf8(runtime)
-                                  : std::string{};
-        };
-    const auto title = readString(args, "title");
-    const auto message = readString(args, "message");
-    std::vector<std::string> buttons;
-    auto values = args.getProperty(runtime, "buttons");
-    if (values.isObject() && values.asObject(runtime).isArray(runtime)) {
-      auto array = values.asObject(runtime).asArray(runtime);
-      const auto length = array.size(runtime);
-      buttons.reserve(length);
-      for (size_t index = 0; index < length; ++index) {
-        auto button = array.getValueAtIndex(runtime, index);
-        if (!button.isObject())
-          continue;
-        auto key = facebook::jsi::String::createFromUtf8(
-            runtime, std::to_string(index));
-        auto label = button.asObject(runtime).getProperty(runtime, key);
-        buttons.push_back(
-            label.isString() ? label.asString(runtime).utf8(runtime)
-                             : std::string{});
-      }
-    }
-    if (buttons.empty())
-      buttons.push_back("OK");
-
-    const auto id = nextAlertId.fetch_add(1, std::memory_order_relaxed);
-    auto pending = std::make_shared<AlertCallback>(
-        AlertCallback{jsInvoker_, &runtime, std::move(callback)});
-    {
-      std::lock_guard<std::mutex> lock(alertCallbacksMutex);
-      alertCallbacks.emplace(id, std::move(pending));
-    }
-    rust::Vec<rust::String> rustButtons;
-    for (const auto& button : buttons) {
-      rustButtons.push_back(rust::String(button));
-    }
-    rn_gpui_show_alert(
-        id, rust::String(title), rust::String(message), std::move(rustButtons));
-  }
-
- private:
-  std::shared_ptr<CallInvoker> jsInvoker_;
-};
-
 extern "C" void rn_gpui_request_reload();
-
-class GpuiDevMenuModule final : public NativeDevMenuCxxSpec<GpuiDevMenuModule> {
- public:
-  explicit GpuiDevMenuModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeDevMenuCxxSpec(std::move(jsInvoker)) {}
-
-  void show(facebook::jsi::Runtime& /*runtime*/) {
-    rn_gpui_dev_menu_show();
-  }
-
-  void reload(facebook::jsi::Runtime& /*runtime*/) {
-    rn_gpui_request_reload();
-  }
-
-  void setProfilingEnabled(facebook::jsi::Runtime& /*runtime*/, bool enabled) {
-    rn_gpui_dev_setting(rust::String("profiling"), enabled);
-  }
-
-  void setHotLoadingEnabled(facebook::jsi::Runtime& /*runtime*/, bool enabled) {
-    rn_gpui_dev_setting(rust::String("hotLoading"), enabled);
-  }
-
-  void toggleElementInspector(facebook::jsi::Runtime& /*runtime*/) {
-    rn_gpui_dev_setting(rust::String("inspectorToggle"), true);
-  }
-};
-
-class GpuiClipboardModule final
-    : public NativeClipboardCxxSpec<GpuiClipboardModule> {
- public:
-  explicit GpuiClipboardModule(std::shared_ptr<CallInvoker> jsInvoker)
-      : NativeClipboardCxxSpec(std::move(jsInvoker)) {}
-
-  facebook::jsi::Object getConstants(facebook::jsi::Runtime& runtime) {
-    return facebook::jsi::Object(runtime);
-  }
-
-  AsyncPromise<std::string> getString(facebook::jsi::Runtime& runtime) {
-    const auto id =
-        nextClipboardRequestId.fetch_add(1, std::memory_order_relaxed);
-    AsyncPromise<std::string> promise(runtime, jsInvoker_);
-    {
-      std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
-      clipboardPromises.emplace(id, promise);
-    }
-    rn_gpui_read_clipboard(id);
-    return promise;
-  }
-
-  void setString(facebook::jsi::Runtime&, std::string value) {
-    rn_gpui_write_clipboard(std::move(value));
-  }
-};
 
 /// Thin C shim so the vendored `DevSettingsModule` (ReactCxxPlatform) can reach
 /// the same Rust handler without depending on the cxx bridge header.
@@ -535,19 +354,6 @@ TurboModuleProviders gpui_turbo_module_providers() {
                 GpuiAccessibilityInfoModule>::kModuleName) {
           return std::make_shared<GpuiAccessibilityInfoModule>(jsInvoker);
         }
-        if (name ==
-            NativeLinkingManagerCxxSpec<GpuiLinkingModule>::kModuleName) {
-          return std::make_shared<GpuiLinkingModule>(jsInvoker);
-        }
-        if (name == NativeAlertManagerCxxSpec<GpuiAlertModule>::kModuleName) {
-          return std::make_shared<GpuiAlertModule>(jsInvoker);
-        }
-        if (name == NativeClipboardCxxSpec<GpuiClipboardModule>::kModuleName) {
-          return std::make_shared<GpuiClipboardModule>(jsInvoker);
-        }
-        if (name == NativeDevMenuCxxSpec<GpuiDevMenuModule>::kModuleName) {
-          return std::make_shared<GpuiDevMenuModule>(jsInvoker);
-        }
         return nullptr;
       }};
 }
@@ -576,38 +382,6 @@ void install_feature_flags() {
 }
 
 } // namespace
-
-void rn_gpui_alert_result(int32_t id, int32_t buttonIndex) {
-  std::shared_ptr<AlertCallback> pending;
-  {
-    std::lock_guard<std::mutex> lock(alertCallbacksMutex);
-    auto entry = alertCallbacks.find(id);
-    if (entry == alertCallbacks.end())
-      return;
-    pending = std::move(entry->second);
-    alertCallbacks.erase(entry);
-  }
-  pending->jsInvoker->invokeAsync(
-      [pending = std::move(pending), buttonIndex]() mutable {
-        pending->callback.call(
-            *pending->runtime,
-            static_cast<double>(buttonIndex),
-            facebook::jsi::String::createFromUtf8(*pending->runtime, ""));
-      });
-}
-
-void rn_gpui_clipboard_result(int32_t id, rust::String text) {
-  std::optional<AsyncPromise<std::string>> pending;
-  {
-    std::lock_guard<std::mutex> lock(clipboardPromisesMutex);
-    auto entry = clipboardPromises.find(id);
-    if (entry == clipboardPromises.end())
-      return;
-    pending = entry->second;
-    clipboardPromises.erase(entry);
-  }
-  pending->resolve(std::string(text));
-}
 
 std::unique_ptr<GpuiHost> new_gpui_host(
     rust::Str appId,
@@ -686,7 +460,7 @@ GpuiHost::GpuiHost(
             animatedFrameCallback_ = std::move(callback);
           }
           nativeAnimationActive.store(true);
-          rn_gpui_set_animated_active(true);
+          rngpui::updateFrameDemand();
         },
         [this](bool /*isAsync*/) {
           if (gpuiDebugAnimationEnabled()) {
@@ -697,7 +471,7 @@ GpuiHost::GpuiHost(
             animatedFrameCallback_ = nullptr;
           }
           nativeAnimationActive.store(false);
-          rn_gpui_set_animated_active(workletsRenderActive.load());
+          rngpui::updateFrameDemand();
         });
   };
   config.beforeInstanceDestroy = [this] {
@@ -706,7 +480,7 @@ GpuiHost::GpuiHost(
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
     animatedFrameCallback_ = nullptr;
     nativeAnimationActive.store(false);
-    rn_gpui_set_animated_active(workletsRenderActive.load());
+    rngpui::updateFrameDemand();
   };
 
   // The LogBox surface. ReactHost hands this to
@@ -1108,23 +882,20 @@ void GpuiHost::on_render() const {
 }
 
 namespace {
-void dispatchGestureTime(
+void dispatchPointerTick(
     GpuiMountingManager& mountingManager,
     double eventTimestampMs) {
-  GpuiGesturePointerProcessor processor;
+  if (gpuiExtensionHooks().pointerObservers.empty())
+    return;
+  extension::RawPointerEvent tick;
   {
-    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-    processor = gesturePointerProcessor;
+    std::lock_guard<std::mutex> lock(pointerEventMutex);
+    tick = lastPointerEvent;
   }
-  if (processor) {
-    GpuiRawPointerEvent tick;
-    {
-      std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
-      tick = lastGesturePointerEvent;
-    }
-    tick.phase = 4; // native time tick for duration-based recognizers
-    tick.timestamp = eventTimestampMs;
-    for (const auto& recognized : processor(tick)) {
+  tick.phase = 4; // native time tick for duration-based recognizers
+  tick.timestamp = eventTimestampMs;
+  for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
+    for (const auto& recognized : observer(tick)) {
       mountingManager.dispatchEvent(
           recognized.targetTag,
           recognized.eventType,
@@ -1134,18 +905,18 @@ void dispatchGestureTime(
 }
 } // namespace
 
-void GpuiHost::on_gesture_frame(double eventTimestampMs) const {
+void GpuiHost::on_pointer_frame(double eventTimestampMs) const {
   std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
   if (reactHost_->isReloading())
     return;
-  dispatchGestureTime(*mountingManager_, eventTimestampMs);
+  dispatchPointerTick(*mountingManager_, eventTimestampMs);
 }
 
 void GpuiHost::on_frame(double eventTimestampMs) const {
   std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
   if (reactHost_->isReloading())
     return;
-  dispatchGestureTime(*mountingManager_, eventTimestampMs);
+  dispatchPointerTick(*mountingManager_, eventTimestampMs);
   on_render();
   if (const auto& frame = rngpui::gpuiModuleHooks().frame) {
     const auto frameTimestampMs =
@@ -1153,6 +924,15 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
             std::chrono::steady_clock::now().time_since_epoch())
             .count();
     frame(frameTimestampMs);
+  }
+  {
+    const auto frameTimestampMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    for (const auto& frame : rngpui::gpuiExtensionHooks().frameCallbacks) {
+      frame(frameTimestampMs);
+    }
   }
   std::function<void()> animationFrame;
   {
@@ -1185,15 +965,7 @@ void GpuiHost::dispatch_pointer_event(
     float y,
     int32_t phase,
     double timestamp) const {
-  GpuiGesturePointerProcessor processor;
-  {
-    std::lock_guard<std::mutex> lock(gesturePointerProcessorMutex);
-    processor = gesturePointerProcessor;
-  }
-  if (!processor)
-    return;
-
-  GpuiRawPointerEvent event;
+  extension::RawPointerEvent event;
   try {
     const auto targetChain = folly::parseJson(std::string(targetChainJson));
     if (!targetChain.isArray())
@@ -1204,8 +976,7 @@ void GpuiHost::dispatch_pointer_event(
         event.targetChain.push_back(static_cast<int32_t>(tag.asInt()));
     }
   } catch (const std::exception& error) {
-    LOG(WARNING) << "[gesture-handler] invalid pointer target chain: "
-                 << error.what();
+    LOG(WARNING) << "[pointer] invalid target chain: " << error.what();
     return;
   }
   event.x = x;
@@ -1213,14 +984,17 @@ void GpuiHost::dispatch_pointer_event(
   event.phase = phase;
   event.timestamp = timestamp;
   {
-    std::lock_guard<std::mutex> lock(gesturePointerEventMutex);
-    lastGesturePointerEvent = event;
+    std::lock_guard<std::mutex> lock(pointerEventMutex);
+    lastPointerEvent = event;
   }
-  for (const auto& recognized : processor(event)) {
-    mountingManager_->dispatchEvent(
-        recognized.targetTag,
-        recognized.eventType,
-        folly::parseJson(recognized.payloadJson));
+
+  for (const auto& observer : gpuiExtensionHooks().pointerObservers) {
+    for (const auto& recognized : observer(event)) {
+      mountingManager_->dispatchEvent(
+          recognized.targetTag,
+          recognized.eventType,
+          folly::parseJson(recognized.payloadJson));
+    }
   }
 }
 

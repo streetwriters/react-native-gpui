@@ -13,8 +13,18 @@
 //! build script turns into a module definition (see `DEP_RN_GPUI_CORE_NODE_API_EXPORTS`).
 
 fn main() {
-    // The desktop-shell TurboModule: one method per command in the spec.
-    rn_gpui_module_build::generate(&["../../src-gpui/src/private/specs/NativeGpuiDesktop.ts"]);
+    rn_gpui_module_build::generate(&[
+        "../../src-gpui/src/private/specs/NativeGpuiDesktop.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiPerfMonitor.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiTray.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiWindows.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiAppMenu.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiContextMenu.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiDevMenu.ts",
+    ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_NODE_API_EXPORTS");

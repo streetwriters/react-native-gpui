@@ -61,8 +61,8 @@ if(MSVC)
   add_compile_definitions(BOOST_NO_RTTI)
   add_compile_definitions(BOOST_NO_TYPEID)
   # <windows.h> pulls in wingdi.h, whose BLACK and TRANSPARENT macros collide
-  # with the names bundled libraries use for colour constants (reanimated's
-  # InterpolatorRegistry defines `const std::array<uint8_t, 4> BLACK`), and
+  # with the names bundled libraries use for colour constants (one defines
+  # `const std::array<uint8_t, 4> BLACK` in its interpolator registry), and
   # WIN32_LEAN_AND_MEAN keeps the rest of the Win32 surface out of reach.
   add_compile_definitions(WIN32_LEAN_AND_MEAN)
   add_compile_definitions(NOGDI)
@@ -491,7 +491,7 @@ add_react_cxx_platform_subdir(react/devsupport)
 #
 # Upstream hardcodes the Android platform string, so Metro would be asked for
 # the Android JS surface. Compile the copy override that passes
-# `platform=gpui` in place of the vendored source; overrides.json tracks it so
+# `platform=desktop` in place of the vendored source; overrides.json tracks it so
 # upstream drift is caught by `react-native-platform-override validate`.
 set(RN_GPUI_DEV_SERVER_HELPER_OVERRIDE
     "${RN_GPUI_OVERRIDES_DIR}/react/devsupport/DevServerHelper.cpp")
@@ -589,7 +589,7 @@ if(TARGET jsi AND TARGET glog)
 endif()
 
 # The engine packages' own smoke tests (for example a VM smoke test) are
-# added by their gpui/CMakeLists.txt, which autolink includes below.
+# added by their desktop/CMakeLists.txt, which autolink includes below.
 
 add_library(rn_gpui_core STATIC
   GpuiDynamic.cpp
@@ -610,6 +610,12 @@ add_library(rn_gpui_core STATIC
   GpuiNodeAddons.cpp
   GpuiTurboModule.cpp
   MountBatchBuilder.cpp
+  # A built-in component's props extraction. It registers by component name, so
+  # the mounting manager names no component.
+  builtins/image/GpuiImageProps.cpp
+  builtins/modal/GpuiModalProps.cpp
+  builtins/scrollview/GpuiScrollViewProps.cpp
+  builtins/textinput/GpuiTextInputProps.cpp
   GpuiModules.cpp)
 if(APPLE)
   set_source_files_properties(GpuiAccessibilityMac.mm PROPERTIES
@@ -783,9 +789,9 @@ if(RN_GPUI_APP_CPP_PROVIDER_SOURCE AND EXISTS "${RN_GPUI_APP_CPP_PROVIDER_SOURCE
     # it cannot be given a link to this archive, so the link order comes from
     # link_libs-<CONFIG>.txt instead (see the link_libs section).
     target_link_libraries(rn_gpui_app_turbo_modules PRIVATE rn_gpui_core)
-    # App sources may use the active engine's headers (react-native-worklets
-    # compiles a Hermes runtime binding), which the archive does not ship. The
-    # engine targets carry them.
+    # App sources may use the active engine's headers (a package that binds the
+    # Hermes runtime needs them), which the archive does not ship. The engine
+    # targets carry them.
     if(RN_GPUI_JS_ENGINE_DEPS)
       target_link_libraries(rn_gpui_app_turbo_modules PRIVATE ${RN_GPUI_JS_ENGINE_DEPS})
     endif()
@@ -830,6 +836,10 @@ get_property(RN_GPUI_JS_ENGINE_REGISTRATIONS GLOBAL PROPERTY RN_GPUI_JS_ENGINE_R
 list(APPEND RN_GPUI_MODULE_SOURCES ${RN_GPUI_JS_ENGINE_SOURCES})
 list(APPEND RN_GPUI_MODULE_INCLUDE_DIRS ${RN_GPUI_JS_ENGINE_INCLUDE_DIRS})
 list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
+
+# Core's own built-in modules register their renderers through the same
+# generated installer, so a built-in is wired exactly like a package module.
+list(APPEND RN_GPUI_MODULE_INSTALLERS image modal scroll_view text_input)
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.

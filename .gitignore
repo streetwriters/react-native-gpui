@@ -30,3 +30,6 @@ desktop/.cache/
 
 # CI step logs, reports and packed tarballs
 /ci-out/
+
+# ccache directory, pinned by CI so one cache path works on every OS
+/.ccache/

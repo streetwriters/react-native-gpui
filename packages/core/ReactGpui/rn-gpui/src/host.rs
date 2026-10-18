@@ -183,11 +183,11 @@ impl Host {
         }
     }
 
-    pub fn on_gesture_frame(&self, timestamp: f64) {
+    pub fn on_pointer_frame(&self, timestamp: f64) {
         #[cfg(test)]
         let _ = timestamp;
         #[cfg(not(test))]
-        if let Err(error) = self.0.lock().unwrap().on_gesture_frame(timestamp) {
+        if let Err(error) = self.0.lock().unwrap().on_pointer_frame(timestamp) {
             log::error!("[gesture-frame] {error}");
         }
     }
