@@ -292,6 +292,31 @@ export function buildLibraryDirectories(projectRoot, { release = true } = {}) {
 /// is replaced.
 export const CARGO_PACKAGER_VERSION = '0.11.8';
 
+/**
+ * Signing variables cargo-packager reads from the environment itself.
+ *
+ * Nothing here is ever written into a config file: the packager skips these
+ * fields when parsing JSON precisely so a secret cannot be committed, and this
+ * CLI passes its own environment through unchanged so setting one in the shell
+ * or in CI is all a user does. They are listed so a test can assert their values
+ * never reach the generated config.
+ */
+export const SIGNING_ENVIRONMENT = [
+  'APPLE_CERTIFICATE',
+  'APPLE_CERTIFICATE_PASSWORD',
+  'APPLE_SIGNING_IDENTITY',
+  'APPLE_PROVIDER_SHORT_NAME',
+  'APPLE_TEAM_ID',
+  'APPLE_ID',
+  'APPLE_PASSWORD',
+  'APPLE_API_KEY',
+  'APPLE_API_ISSUER',
+  'APPLE_API_KEY_PATH',
+  'WINDOWS_CERTIFICATE_THUMBPRINT',
+  'WINDOWS_TIMESTAMP_SERVER_URL',
+  'WINDOWS_TSP',
+];
+
 /** cargo-packager's name for each of this phase's formats. */
 const PACKAGER_FORMAT = {
   app: 'app',

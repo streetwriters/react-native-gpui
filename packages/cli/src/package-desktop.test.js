@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import {
   buildLibraryDirectories,
   CARGO_PACKAGER_VERSION,
+  SIGNING_ENVIRONMENT,
   libraryExtension,
   runtimeLibraries,
   targetProfileDir,
@@ -338,17 +339,31 @@ describe('toPackagerConfig', () => {
   // D6: signing material comes from the environment, so no value of it may
   // appear in the generated config, whatever the caller's environment holds.
   test('no signing material appears in the output', () => {
-    const secrets = ['SUPER-SECRET', 'ANOTHER-SECRET', 'CERT-PASSWORD'];
-    process.env.APPLE_SIGNING_IDENTITY = secrets[0];
-    process.env.APPLE_CERTIFICATE = secrets[1];
-    process.env.APPLE_CERTIFICATE_PASSWORD = secrets[2];
+    const saved = new Map();
+    for (const name of SIGNING_ENVIRONMENT) {
+      saved.set(name, process.env[name]);
+      process.env[name] = `SECRET-${name}`;
+    }
     try {
-      const text = JSON.stringify(toPackagerConfig(desktopConfig(), build()));
-      for (const secret of secrets) expect(text).not.toContain(secret);
+      const text = JSON.stringify(
+        toPackagerConfig(
+          desktopConfig(),
+          build({ libraries: ['/b/lib.dylib'] }),
+        ),
+      );
+      for (const name of SIGNING_ENVIRONMENT) {
+        expect(text).not.toContain(`SECRET-${name}`);
+      }
+      // Nor may the variable names themselves appear: a config naming a
+      // credential is a config someone will fill in.
+      for (const name of SIGNING_ENVIRONMENT) {
+        expect(text).not.toContain(name);
+      }
     } finally {
-      delete process.env.APPLE_SIGNING_IDENTITY;
-      delete process.env.APPLE_CERTIFICATE;
-      delete process.env.APPLE_CERTIFICATE_PASSWORD;
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   });
 
