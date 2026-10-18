@@ -4,8 +4,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   buildLibraryDirectories,
+  CARGO_PACKAGER_VERSION,
   libraryExtension,
   runtimeLibraries,
+  targetProfileDir,
+  toPackagerConfig,
 } from './package-desktop.js';
 
 const roots = [];
@@ -174,6 +177,213 @@ describe('buildLibraryDirectories', () => {
     );
     expect(buildLibraryDirectories(root, { release: false })[0]).toContain(
       path.join('desktop', 'target', 'debug'),
+    );
+  });
+});
+
+// The translator is the whole reason cargo-packager is an implementation
+// detail: these hold what it emits for one config, so replacing the packager
+// only changes one function and one set of expectations.
+test('the packager version is pinned to one release', () => {
+  // The translator emits this version's schema, and `ensureCargoPackager`
+  // installs it, so the two cannot drift apart.
+  expect(CARGO_PACKAGER_VERSION).toMatch(/^\d+\.\d+\.\d+$/u);
+});
+
+describe('toPackagerConfig', () => {
+  const desktopConfig = overrides => {
+    const { bundle: bundleOverrides, ...rest } = overrides ?? {};
+    return {
+      productName: 'My App',
+      identifier: 'com.example.myapp',
+      version: '1.2.3',
+      window: { width: 1024, height: 768 },
+      devMenu: true,
+      ...rest,
+      bundle: {
+        targets: 'all',
+        resources: [],
+        macos: {
+          minimumSystemVersion: '13.0',
+          entitlements: null,
+          infoPlist: {},
+        },
+        windows: { nsis: { installMode: 'currentUser' } },
+        linux: { deb: { depends: [] }, appimage: {} },
+        ...bundleOverrides,
+      },
+    };
+  };
+  const build = overrides => ({
+    crateDir: '/project/desktop',
+    binaryName: 'my-app',
+    formats: ['app', 'dmg'],
+    ...overrides,
+  });
+
+  test('a minimal app gives the fields cargo-packager needs', () => {
+    const config = toPackagerConfig(desktopConfig(), build());
+    expect(config.productName).toBe('My App');
+    expect(config.identifier).toBe('com.example.myapp');
+    expect(config.version).toBe('1.2.3');
+    expect(config.binariesDir).toBe('/project/desktop/target/release');
+    expect(config.binaries).toEqual([{ path: 'my-app', main: true }]);
+    expect(config.formats).toEqual(['app', 'dmg']);
+    expect(config.outDir).toBe('/project/desktop/build/dist');
+  });
+
+  test('the bundle file and the assets directory ship as resources', () => {
+    // A directory containing this run's output cannot be shipped, so the two
+    // are named. The asset directory has to exist to be listed.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-res-'));
+    roots.push(root);
+    const crateDir = path.join(root, 'desktop');
+    fs.mkdirSync(path.join(crateDir, 'build', 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(crateDir, 'build', 'index.bundle'), 'x');
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({
+        crateDir,
+        bundleDir: path.join(crateDir, 'build'),
+        assetsDir: path.join(crateDir, 'build', 'assets'),
+      }),
+    );
+    expect(config.resources).toEqual(['build/index.bundle', 'build/assets']);
+  });
+
+  test('a bytecode bundle is shipped when that is what the build made', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-res-'));
+    roots.push(root);
+    const crateDir = path.join(root, 'desktop');
+    fs.mkdirSync(path.join(crateDir, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(crateDir, 'build', 'index.bundle.hbc'), 'x');
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({ crateDir, bundleDir: path.join(crateDir, 'build') }),
+    );
+    expect(config.resources).toEqual(['build/index.bundle.hbc']);
+  });
+
+  test('extra resources are relative to the crate', () => {
+    const config = toPackagerConfig(
+      desktopConfig({ bundle: { resources: ['extra/data.json'] } }),
+      build(),
+    );
+    expect(config.resources).toEqual(['extra/data.json']);
+  });
+
+  test('runtime libraries become macOS frameworks, by source path', () => {
+    // cargo-packager copies each entry into Contents/Frameworks itself, so the
+    // entry is where the library is, not where it lands.
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({ libraries: ['/project/desktop/build/libjsi.dylib'] }),
+    );
+    expect(config.macos.frameworks).toEqual([
+      '/project/desktop/build/libjsi.dylib',
+    ]);
+  });
+
+  test('runtime libraries land in the Linux lib directory', () => {
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({ libraries: ['/build/libjsi.so'] }),
+    );
+    expect(config.deb.files).toEqual({
+      '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
+    });
+    expect(config.appimage.files).toEqual({
+      '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
+    });
+  });
+
+  test('no libraries means no empty framework or files block', () => {
+    const config = toPackagerConfig(desktopConfig(), build());
+    expect(config.macos.frameworks).toBeUndefined();
+    expect(config.deb).toBeUndefined();
+    expect(config.appimage).toBeUndefined();
+  });
+
+  test('the NSIS install mode is carried over', () => {
+    const config = toPackagerConfig(
+      desktopConfig({
+        bundle: { windows: { nsis: { installMode: 'perMachine' } } },
+      }),
+      build({ formats: ['nsis'] }),
+    );
+    expect(config.nsis).toEqual({ installMode: 'perMachine' });
+  });
+
+  test('Debian dependencies are carried over', () => {
+    const config = toPackagerConfig(
+      desktopConfig({
+        bundle: { linux: { deb: { depends: ['libgtk-3-0'] } } },
+      }),
+      build({ formats: ['deb'] }),
+    );
+    expect(config.deb.depends).toEqual(['libgtk-3-0']);
+  });
+
+  test('a copyright and category reach the output when set', () => {
+    const config = toPackagerConfig(
+      desktopConfig({
+        bundle: { copyright: '© 2026 Me', category: 'DeveloperTool' },
+      }),
+      build(),
+    );
+    expect(config.copyright).toBe('© 2026 Me');
+    expect(config.category).toBe('DeveloperTool');
+  });
+
+  // D6: signing material comes from the environment, so no value of it may
+  // appear in the generated config, whatever the caller's environment holds.
+  test('no signing material appears in the output', () => {
+    const secrets = ['SUPER-SECRET', 'ANOTHER-SECRET', 'CERT-PASSWORD'];
+    process.env.APPLE_SIGNING_IDENTITY = secrets[0];
+    process.env.APPLE_CERTIFICATE = secrets[1];
+    process.env.APPLE_CERTIFICATE_PASSWORD = secrets[2];
+    try {
+      const text = JSON.stringify(toPackagerConfig(desktopConfig(), build()));
+      for (const secret of secrets) expect(text).not.toContain(secret);
+    } finally {
+      delete process.env.APPLE_SIGNING_IDENTITY;
+      delete process.env.APPLE_CERTIFICATE;
+      delete process.env.APPLE_CERTIFICATE_PASSWORD;
+    }
+  });
+
+  test('paths use forward slashes on every platform', () => {
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({
+        crateDir: '/project/desktop',
+        bundleDir: '/project/desktop/build',
+      }),
+    );
+    for (const entry of [...config.resources, config.binaries[0].path]) {
+      expect(entry).not.toContain('\\');
+    }
+  });
+});
+
+describe('targetProfileDir', () => {
+  test('a crate with no cargo config uses target/<profile>', () => {
+    const root = createProject();
+    expect(targetProfileDir(path.join(root, 'desktop'), 'release')).toBe(
+      path.join(root, 'desktop', 'target', 'release'),
+    );
+  });
+
+  test("the crate's target-dir setting wins", () => {
+    // The scaffold redirects `target-dir` to `build/target` so build output does
+    // not sit beside the sources; `target/release` then does not exist at all.
+    const root = createProject({
+      files: {
+        'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+      },
+    });
+    expect(targetProfileDir(path.join(root, 'desktop'), 'release')).toBe(
+      path.join(root, 'desktop', 'build', 'target', 'release'),
     );
   });
 });

@@ -4,7 +4,12 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
-import { loadDesktopConfig } from './desktop-config.js';
+import { loadDesktopConfig, targetsFor } from './desktop-config.js';
+import {
+  CARGO_PACKAGER_VERSION,
+  runtimeLibraries,
+  toPackagerConfig,
+} from './package-desktop.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -1138,4 +1143,168 @@ export function collectNodeAddons({
     `Copied ${addons.length} Node addon(s) and ${copied.length - addons.length} sibling librar(ies) to ${outDirectory}.`,
   );
   return { copied, out: outDirectory };
+}
+
+/// The `name` a desktop crate declares in its Cargo.toml.
+function desktopCrateName(crateDir) {
+  const manifest = fs.readFileSync(path.join(crateDir, 'Cargo.toml'), 'utf8');
+  const match = manifest.match(/^name\s*=\s*"([^"]+)"/mu);
+  if (!match) {
+    throw new Error(`no package name in ${path.join(crateDir, 'Cargo.toml')}`);
+  }
+  return match[1];
+}
+
+/**
+ * `package-desktop`: turn the app into installable packages for this OS.
+ *
+ * Always a release build. The steps are: load the config, produce the release
+ * bundle and binary the way `run-desktop --release` does, translate the config
+ * into cargo-packager's, and run it. cargo-packager is an implementation
+ * detail — nothing here writes its format by hand.
+ */
+export async function packageDesktop({
+  projectRoot = process.cwd(),
+  targets,
+  outDir,
+} = {}) {
+  projectRoot = path.resolve(projectRoot);
+  const config = loadDesktopConfig(projectRoot, process.platform);
+  // `--target` reaches the command as the string after the flag.
+  const requested =
+    targets === undefined || targets === true
+      ? config
+      : {
+          ...config,
+          bundle: {
+            ...config.bundle,
+            targets: String(targets)
+              .split(',')
+              .map(format => format.trim())
+              .filter(Boolean),
+          },
+        };
+  const formats = targetsFor(requested, process.platform);
+
+  // 1. The release bundle and binary.
+  await runDesktop({ projectRoot, release: true, noLaunch: true });
+
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
+  );
+  const crateDir = path.join(projectRoot, 'desktop');
+  // The executable is the crate's name, which is what `scaffoldDesktop` writes
+  // into Cargo.toml and what `cargo build` produces.
+  const binaryName = desktopCrateName(crateDir);
+  const buildDir = path.join(crateDir, 'build');
+
+  // 2. Icons, from the one PNG the config names.
+  const icons = generateIcons(config, { crateDir, projectRoot });
+
+  // 3. The libraries that have to travel with the app.
+  const libraries = runtimeLibraries(projectRoot, {
+    os: process.platform,
+    arch: process.arch,
+    release: true,
+  });
+
+  // 4. Translate, then run cargo-packager.
+  const packagerConfig = toPackagerConfig(config, {
+    crateDir,
+    binaryName,
+    bundleDir: buildDir,
+    assetsDir: path.join(buildDir, 'assets'),
+    icons,
+    libraries,
+    formats,
+    ...(outDir === undefined ? {} : { outDir: path.resolve(outDir) }),
+  });
+  // The config is written at the crate root, not in `build/`: cargo-packager
+  // resolves every path in it — the binary, the resources, the frameworks —
+  // relative to the config file's own directory, so a config one level down
+  // would look for `build/build/index.bundle`.
+  const configPath = path.join(crateDir, 'packager.json');
+  fs.mkdirSync(buildDir, { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(packagerConfig, null, 2)}\n`);
+
+  ensureCargoPackager();
+  run(
+    'cargo',
+    ['packager', '--config', 'packager.json', '--formats', formats.join(',')],
+    { cwd: crateDir },
+  );
+
+  fs.rmSync(configPath, { force: true });
+  const produced = listPackages(packagerConfig.outDir);
+  for (const file of produced) console.log(file);
+  return produced;
+}
+
+/**
+ * Installs cargo-packager when the pinned version is not the one on PATH.
+ *
+ * One line saying so: the install takes a few minutes and happens once.
+ */
+export function ensureCargoPackager() {
+  let installed;
+  try {
+    installed = execFileSync('cargo', ['packager', '--version'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    installed = '';
+  }
+  if (installed.includes(CARGO_PACKAGER_VERSION)) return;
+  console.log(
+    `installing cargo-packager ${CARGO_PACKAGER_VERSION} (once, a few minutes)`,
+  );
+  run(
+    'cargo',
+    [
+      'install',
+      'cargo-packager',
+      '--locked',
+      '--version',
+      CARGO_PACKAGER_VERSION,
+    ],
+    {},
+  );
+}
+
+/** The packages a run produced, newest first. */
+function listPackages(outDir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(outDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(outDir, entry.name))
+    .sort();
+}
+
+/**
+ * Icons for this OS, generated from the one PNG `desktop.json` names.
+ *
+ * The alpha accepts a single 1024x1024 PNG. What each packaging format wants
+ * differs, so the per-OS formats are derived here rather than asked of the user.
+ */
+function generateIcons(config, { crateDir, projectRoot }) {
+  if (config.icon === undefined) return [];
+  const source = path.resolve(crateDir, config.icon);
+  if (!fs.existsSync(source)) {
+    throw new Error(
+      `desktop.json names an icon that does not exist: ${source}`,
+    );
+  }
+  const iconDir = path.join(crateDir, 'build', 'icons');
+  fs.mkdirSync(iconDir, { recursive: true });
+  const extension = path.extname(source).toLowerCase();
+  const target = path.join(iconDir, `icon${extension}`);
+  if (path.resolve(source) !== path.resolve(target)) {
+    fs.copyFileSync(source, target);
+  }
+  return [path.relative(crateDir, target).split(path.sep).join('/')];
 }

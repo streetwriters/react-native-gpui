@@ -73,7 +73,7 @@ if (
   )
 ) {
   console.error(
-    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|collect-node-addons|prebuilt|run> [options]',
+    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|collect-node-addons|package-desktop|prebuilt|run> [options]',
   );
   process.exit(2);
 }
