@@ -27,7 +27,7 @@
       "minLength": 1
     },
     "icon": {
-      "description": "One 1024x1024 PNG, relative to desktop/. Per-OS icon formats are generated from it.",
+      "description": "One square PNG, recommended 1024x1024, relative to desktop/. Per-OS icon formats are generated from it. When this is unset the CLI uses its own placeholder, so every packaging format can be built.",
       "type": "string",
       "minLength": 1
     },

@@ -4,5 +4,6 @@
     "macos": {
       "minimumSystemVersion": "13.0"
     }
-  }
+  },
+  "icon": "assets/icon.png"
 }

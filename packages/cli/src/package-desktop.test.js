@@ -185,6 +185,32 @@ describe('buildLibraryDirectories', () => {
 // The translator is the whole reason cargo-packager is an implementation
 // detail: these hold what it emits for one config, so replacing the packager
 // only changes one function and one set of expectations.
+test('every package ships an icon', () => {
+  // cargo-packager's AppImage step refuses to build without a square icon, so
+  // the CLI always supplies one: the app's, or its own placeholder. An app that
+  // never set `icon` still packages every format.
+  const withIcon = icons =>
+    toPackagerConfig(
+      {
+        productName: 'A',
+        identifier: 'com.a.b',
+        version: '1.0.0',
+        bundle: {
+          resources: [],
+          macos: { minimumSystemVersion: '13.0', entitlements: null },
+          windows: {},
+          linux: { deb: { depends: [] }, appimage: {} },
+        },
+      },
+      { crateDir: '/p/desktop', binaryName: 'a', icons },
+    );
+
+  expect(withIcon(['build/icons/icon.png']).icons).toEqual([
+    'build/icons/icon.png',
+  ]);
+  expect(withIcon(['assets/icon.png']).icons).toEqual(['assets/icon.png']);
+});
+
 test('the packager version is pinned to one release', () => {
   // The translator emits this version's schema, and `ensureCargoPackager`
   // installs it, so the two cannot drift apart.

@@ -6,6 +6,7 @@
     "bin",
     "src",
     "templates",
+    "assets",
     "react-native.config.cjs",
     "desktop.schema.json"
   ],
