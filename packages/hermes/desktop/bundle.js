@@ -41,8 +41,14 @@ module.exports = {
   bundleExtension: '.hbc',
 
   compile: ({ input, output, sourcemapInput, sourcemapOutput, dev }) => {
+    // `-w` silences the undefined-variable warnings Hermes emits for a bundled
+    // React Native runtime, and each one quotes the whole minified source line —
+    // about 120 KB a time, 1.5-2 MB a build. That buried every CI log. React
+    // Native's own release scripts compile with warnings off for the same
+    // reason; `dev` builds keep them, because there the source is readable and a
+    // warning can be acted on.
     const args = ['-emit-binary', '-out', output];
-    if (!dev) args.push('-O');
+    if (!dev) args.push('-w', '-O');
     if (sourcemapInput) args.push('-source-map', sourcemapInput);
     if (sourcemapOutput) args.push('-output-source-map', sourcemapOutput);
     args.push(input);
