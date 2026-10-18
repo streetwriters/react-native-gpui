@@ -240,6 +240,26 @@ test('names the rename when a dependency still says platforms.gpui', () => {
   );
 });
 
+test('names the rename when the app still says project.gpui', () => {
+  const { projectRoot, configPath } = createProject({ project: {} });
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  // An option left in the old key would be ignored, and the build would quietly
+  // use the default instead of the mode the app asked for.
+  config.project = { gpui: { prebuilt: 'never' } };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    'project.gpui was renamed to project.desktop in react-native.config.js',
+  );
+});
+
+test('reads project.desktop without complaint', () => {
+  const { projectRoot, configPath } = createProject({
+    project: { prebuilt: 'never' },
+  });
+  autolink({ projectRoot, configFile: configPath });
+  expect(manifestOf(projectRoot).prebuilt).toBe('never');
+});
+
 test('names the rename when a module still keeps its code under gpui/', () => {
   const { projectRoot, configPath } = createProject();
   const crateRoot = path.join(projectRoot, 'node_modules/fake-paint');

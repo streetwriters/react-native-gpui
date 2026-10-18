@@ -60,6 +60,23 @@ function desktopPlatformFor(dependencyName, dependency) {
 }
 
 /**
+ * The app's `project.desktop` entry.
+ *
+ * The same rename applies to the app as to a dependency: `project.gpui` is
+ * rejected rather than read, because an option left in the old key would be
+ * ignored silently and the build would quietly use the default.
+ */
+function desktopProjectFor(config) {
+  const project = config.project ?? {};
+  if (project.desktop === undefined && project.gpui !== undefined) {
+    throw new Error(
+      'project.gpui was renamed to project.desktop in react-native.config.js',
+    );
+  }
+  return project.desktop;
+}
+
+/**
  * Reads the app's `project.desktop.prebuilt` option: `auto` uses the pinned
  * prebuilt C++ runtime when it matches and builds from source otherwise,
  * `always` fails the build instead of falling back, `never` builds from source.
@@ -432,7 +449,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
           shell: npxShell,
         }),
   );
-  const prebuilt = prebuiltModeFor(config.project?.desktop);
+  const prebuilt = prebuiltModeFor(desktopProjectFor(config));
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
   try {
