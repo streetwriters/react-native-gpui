@@ -312,6 +312,9 @@ describe('toPackagerConfig', () => {
   });
 
   test('runtime libraries land in the Linux lib directory', () => {
+    // One mapping serves both formats: cargo-packager builds the AppImage's
+    // AppDir by copying the deb's data tree, so `usr/lib/<app>` is where the
+    // binary's `$ORIGIN/../lib/<app>` rpath finds them.
     const config = toPackagerConfig(
       desktopConfig(),
       build({ libraries: ['/build/libjsi.so'] }),
@@ -319,9 +322,35 @@ describe('toPackagerConfig', () => {
     expect(config.deb.files).toEqual({
       '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
     });
-    expect(config.appimage.files).toEqual({
-      '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
-    });
+    expect(config.appimage.files).toEqual(config.deb.files);
+  });
+
+  test('Windows ships the DLLs as resources', () => {
+    // NSIS installs the binary and the resources, not the profile directory
+    // beside the executable, so the DLLs have to be resources or they are left
+    // behind and the app fails to start.
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({
+        os: 'windows',
+        crateDir: '/project/desktop',
+        libraries: ['/project/desktop/build/hermesvm.dll'],
+      }),
+    );
+    expect(config.resources).toContain('build/hermesvm.dll');
+  });
+
+  test('macOS and Linux do not ship libraries as resources', () => {
+    for (const platform of ['macos', 'linux']) {
+      const config = toPackagerConfig(
+        desktopConfig(),
+        build({
+          os: platform,
+          libraries: ['/project/desktop/build/libjsi.dylib'],
+        }),
+      );
+      expect(config.resources).not.toContain('build/libjsi.dylib');
+    }
   });
 
   test('no libraries means no empty framework or files block', () => {

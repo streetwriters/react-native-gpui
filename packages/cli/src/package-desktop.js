@@ -241,11 +241,13 @@ function rpathsOf(binary) {
  * `<crate>/build/target/rn-gpui-cmake/<triple>/<config>/build/...`.
  */
 function cmakeLibraryDirectories(projectRoot) {
+  // The CMake tree sits beside the Cargo profile directory, so it moves with
+  // `CARGO_TARGET_DIR`, which CI sets. Deriving it from the resolved target
+  // directory is what makes this work in a clean install as well as in the repo.
   const root = path.join(
-    projectRoot,
-    'desktop',
-    'build',
-    'target',
+    path.dirname(
+      targetProfileDir(path.join(projectRoot, 'desktop'), 'release'),
+    ),
     'rn-gpui-cmake',
   );
   const found = [];
@@ -433,6 +435,7 @@ export function toPackagerConfig(config, build) {
     libraries = [],
     formats,
     outDir,
+    os,
   } = build;
 
   // cargo-packager resolves paths relative to the crate directory, and its
@@ -456,6 +459,14 @@ export function toPackagerConfig(config, build) {
   }
   if (assetsDir !== undefined && fs.existsSync(assetsDir)) {
     resources.push(relative(assetsDir));
+  }
+  // On Windows the runtime DLLs are already staged beside the executable by the
+  // app's build.rs, and the loader looks there — but NSIS installs only the
+  // binary and the resources, so "beside the executable" has to be expressed as
+  // resources or the DLLs are left behind. Elsewhere they are handled per format
+  // below (`Frameworks`, `lib/<app>`).
+  if (os === 'windows') {
+    for (const library of libraries) resources.push(relative(library));
   }
   for (const extra of config.bundle.resources ?? []) {
     // `bundle.resources` is written relative to `desktop/`, which is the crate.
@@ -516,14 +527,16 @@ export function toPackagerConfig(config, build) {
   // source path to a destination inside the package, so the library goes to
   // that directory rather than wherever resources land by default.
   if (libraries.length > 0) {
+    // Both Linux formats get `usr/lib/<app>`, which is where the release build's
+    // `$ORIGIN/../lib/<app>` rpath looks. The AppImage needs no separate mapping:
+    // cargo-packager builds the AppDir by copying the deb's data tree, so the
+    // same path serves both, and `linuxdeploy` then finds the libraries through
+    // that rpath rather than through `LD_LIBRARY_PATH`.
     const files = {};
     for (const library of libraries) {
       files[library] = `/usr/lib/${binaryName}/${path.basename(library)}`;
     }
-    config_.deb = {
-      ...(config_.deb ?? {}),
-      files,
-    };
+    config_.deb = { ...(config_.deb ?? {}), files };
     config_.appimage = { files };
   }
   if (config.bundle.linux.deb.depends.length > 0) {
