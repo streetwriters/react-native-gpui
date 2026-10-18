@@ -455,6 +455,11 @@ const desktopFiles = directory =>
       : [path.relative(path.join(templatesDir, 'app'), fullPath)];
   });
 
+/// A number as a Rust float literal.
+function asFloat(value) {
+  return Number.isInteger(value) ? `${value}.0` : String(value);
+}
+
 /**
  * The `main.rs` an app's `desktop.json` describes.
  *
@@ -470,9 +475,11 @@ export function desktopLaunchConfig(config, configPath) {
   const width = settings.width;
   const height = settings.height;
 
+  // `window_size` takes `f32`: a JSON number reaches Rust as `1024`, which is
+  // an integer literal and does not coerce.
   const chain = [
     `    .window_title(${title})`,
-    `    .window_size(${width}, ${height})`,
+    `    .window_size(${asFloat(width)}, ${asFloat(height)})`,
   ];
   if (settings.position !== undefined) {
     const { x, y } = settings.position;
@@ -481,7 +488,7 @@ export function desktopLaunchConfig(config, configPath) {
         `desktop/desktop.json window.position needs x and y: ${configPath}`,
       );
     }
-    chain.push(`    .window_position(${x}, ${y})`);
+    chain.push(`    .window_position(${asFloat(x)}, ${asFloat(y)})`);
   }
   if (settings.restoreState === false) {
     chain.push('    .restore_window_state(false)');

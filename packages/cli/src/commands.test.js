@@ -205,7 +205,7 @@ test('the launch chain reflects the window, dev menu and tray', () => {
     'desktop/desktop.json',
   );
   expect(main).toContain('.window_title("My App")');
-  expect(main).toContain('.window_size(900, 700)');
+  expect(main).toContain('.window_size(900.0, 700.0)');
   expect(main).toContain('.dev_menu(true)');
   expect(main).toContain(
     '.tray(TrayConfig::default().component("TrayRoot").tooltip("Open"))',
@@ -228,7 +228,7 @@ test('an app asking to restore nothing and be fixed-size says so', () => {
     'desktop/desktop.json',
   );
   expect(main).toContain('.restore_window_state(false)');
-  expect(main).toContain('.window_position(10, 20)');
+  expect(main).toContain('.window_position(10.0, 20.0)');
   expect(main).toContain('.dev_menu(false)');
   expect(main).toContain('options.is_resizable = false;');
   expect(main).not.toContain('.tray(');
