@@ -318,6 +318,27 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     cwd: extracted,
     env: smoke,
   });
+
+  // The AppImage is a different packaging of the same files, and it is what most
+  // Linux users will download: it mounts itself and runs from the mount, which
+  // is where a wrong `$ORIGIN` shows up. `--appimage-extract-and-run` avoids the
+  // FUSE requirement that a container does not have.
+  const appimage = produced.find(name => name.endsWith('.AppImage'));
+  if (appimage === undefined) throw new Error('no .AppImage was produced');
+  run(
+    'xvfb-run',
+    [
+      '-a',
+      '-s',
+      '-screen 0 1280x900x24',
+      path.join(distDir, appimage),
+      '--appimage-extract-and-run',
+    ],
+    {
+      cwd: installDir,
+      env: smoke,
+    },
+  );
 }
 
 /**

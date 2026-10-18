@@ -192,6 +192,13 @@ function resolveLinkedLibrary(reference, { binary, projectRoot }) {
       const candidate = path.join(rpath, name);
       if (fs.existsSync(candidate)) return candidate;
     }
+    // A packaging build carries only relative rpaths, so the absolute library
+    // directories are not in the file to be read back out. The CMake tree is
+    // where the C++ runtime's own libraries live in that case.
+    for (const directory of cmakeLibraryDirectories(projectRoot)) {
+      const candidate = path.join(directory, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
     return undefined;
   }
   if (reference.startsWith('$ORIGIN')) {
@@ -222,6 +229,58 @@ function rpathsOf(binary) {
   for (const line of output.split('\n')) {
     const match = line.match(/^\s+path (\S+) \(offset/u);
     if (match !== null && path.isAbsolute(match[1])) out.push(match[1]);
+  }
+  return out;
+}
+
+/**
+ * Directories under the C++ build tree that hold its shared libraries.
+ *
+ * `libjsi` is built by CMake, not Cargo, so it is in neither the profile
+ * directory nor a crate's `out`: it sits under
+ * `<crate>/build/target/rn-gpui-cmake/<triple>/<config>/build/...`.
+ */
+function cmakeLibraryDirectories(projectRoot) {
+  const root = path.join(
+    projectRoot,
+    'desktop',
+    'build',
+    'target',
+    'rn-gpui-cmake',
+  );
+  const found = [];
+  let triples;
+  try {
+    triples = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const triple of triples) {
+    if (!triple.isDirectory()) continue;
+    const tripleDir = path.join(root, triple.name);
+    for (const config of fs.readdirSync(tripleDir, { withFileTypes: true })) {
+      if (!config.isDirectory()) continue;
+      const configDir = path.join(tripleDir, config.name);
+      // The libraries are at different depths per dependency, so walk.
+      for (const entry of walkDirectories(configDir)) found.push(entry);
+    }
+  }
+  return found;
+}
+
+/** Every directory at or below `root`, breadth-first, bounded in depth. */
+function walkDirectories(root, depth = 0) {
+  if (depth > 5) return [];
+  const out = [root];
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory())
+      out.push(...walkDirectories(path.join(root, entry.name), depth + 1));
   }
   return out;
 }
