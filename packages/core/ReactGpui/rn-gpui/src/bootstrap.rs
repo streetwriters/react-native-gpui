@@ -504,10 +504,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
         smoke_start_timeout();
     }
 
-    let bundle = env_string(
-        "RN_GPUI_BUNDLE",
-        "packages/rn-gpui-tester/desktop/build/index.bundle",
-    );
+    // A packaged release build has no source tree: the bundle is beside the
+    // executable. `RN_GPUI_BUNDLE`, which the CLI sets in development, still
+    // wins.
+    let bundle =
+        crate::resources::default_bundle("packages/rn-gpui-tester/desktop/build/index.bundle");
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
