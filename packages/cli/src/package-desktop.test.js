@@ -321,10 +321,12 @@ describe('toPackagerConfig', () => {
     // when resolving the executable's dependencies.
     const config = toPackagerConfig(
       desktopConfig(),
-      build({ libraries: ['/build/libjsi.so'] }),
+      build({ rpathDir: 'My App', libraries: ['/build/libjsi.so'] }),
     );
+    // `rpathDir` is the app name the rpath names, not the crate name: the
+    // libraries have to land where the binary actually looks.
     expect(config.deb.files).toEqual({
-      '/build/libjsi.so': '/usr/lib/my-app/libjsi.so',
+      '/build/libjsi.so': '/usr/lib/My App/libjsi.so',
     });
     expect(config.appimage.files).toEqual({
       '/build/libjsi.so': '/usr/lib/libjsi.so',

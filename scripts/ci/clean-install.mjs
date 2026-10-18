@@ -314,6 +314,23 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     throw new Error(`the deb did not place a binary at ${installed}`);
   }
   checkLinkage(extracted, path.join('usr', 'bin', binaryName(manifest.name)));
+  // The libraries have to be in the directory the binary's rpath names. Asking
+  // the loader rather than parsing ELF here: `ldd` reports a missing library as
+  // "not found", which names the file instead of failing later with
+  // "error while loading shared libraries".
+  const ldd = execFileSync('ldd', [installed], {
+    encoding: 'utf8',
+    env: { ...process.env, LD_LIBRARY_PATH: '' },
+  });
+  const missing = ldd
+    .split('\n')
+    .filter(line => line.includes('not found'))
+    .map(line => line.trim());
+  if (missing.length > 0) {
+    throw new Error(
+      `the deb install cannot resolve its libraries:\n${missing.join('\n')}`,
+    );
+  }
   run('xvfb-run', ['-a', '-s', '-screen 0 1280x900x24', installed], {
     cwd: extracted,
     env: smoke,
