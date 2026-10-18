@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "targets": "all",
+    "macos": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}
