@@ -7,6 +7,8 @@ import {
   CARGO_PACKAGER_VERSION,
   SIGNING_ENVIRONMENT,
   libraryExtension,
+  parseSharedLibraryReferences,
+  resolveLinkedLibraryForTest,
   runtimeLibraries,
   targetProfileDir,
   toPackagerConfig,
@@ -472,4 +474,74 @@ describe('targetProfileDir', () => {
       path.join(root, 'desktop', 'build', 'target', 'release'),
     );
   });
+});
+
+// The Linux failure this covers was invisible from macOS for a whole round: an
+// ELF `NEEDED` entry is a bare soname, so it must be resolved by searching the
+// build, while a Mach-O dependency names its own path.
+describe('parseSharedLibraryReferences', () => {
+  const readelf = `
+ 0x0000000000000001 (NEEDED)             Shared library: [libjsi.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libhermesvm.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libgtk-3.so.0]
+ 0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN/../lib/my-app]
+`;
+
+  test('ELF NEEDED entries come back as bare sonames', () => {
+    expect(parseSharedLibraryReferences(readelf, 'linux')).toEqual([
+      'libjsi.so',
+      'libhermesvm.so',
+      'libgtk-3.so.0',
+    ]);
+  });
+
+  test('a RUNPATH line is not mistaken for a library', () => {
+    expect(
+      parseSharedLibraryReferences(readelf, 'linux').some(reference =>
+        reference.includes('ORIGIN'),
+      ),
+    ).toBe(false);
+  });
+
+  test("otool's first line is the binary itself, not a dependency", () => {
+    const otool = [
+      '/build/app/Contents/MacOS/app:',
+      '\t@rpath/libjsi.dylib (compatibility version 0.0.0, current version 0.0.0)',
+      '\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1319.0.0)',
+    ].join('\n');
+    expect(parseSharedLibraryReferences(otool, 'darwin')).toEqual([
+      '@rpath/libjsi.dylib',
+      '/usr/lib/libSystem.B.dylib',
+    ]);
+  });
+
+  test('a repeated dependency is listed once', () => {
+    const repeated = `${readelf}\n 0x0 (NEEDED)  Shared library: [libjsi.so]`;
+    expect(
+      parseSharedLibraryReferences(repeated, 'linux').filter(
+        reference => reference === 'libjsi.so',
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+test('a bare soname is found in the CMake tree, and a system library is not', () => {
+  // The resolver cannot shell out to readelf on macOS, so the lookup it performs
+  // for a bare ELF name is tested directly. The layout is the scaffolded one:
+  // `.cargo/config.toml` redirects target-dir to `build/target`, and the C++
+  // runtime's libraries are under `rn-gpui-cmake/<triple>/<config>/...`.
+  const libjsi =
+    'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release/build/ReactCommon/jsi/libjsi.so';
+  const root = createProject({
+    files: {
+      'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+      'desktop/Cargo.toml': '[package]\nname = "my-app"\nversion = "0.1.0"\n',
+      [libjsi]: 'x',
+    },
+  });
+  expect(resolveLinkedLibraryForTest('libjsi.so', root)).toBe(
+    path.join(root, libjsi),
+  );
+  // A library the OS provides must not be shipped.
+  expect(resolveLinkedLibraryForTest('libgtk-3.so.0', root)).toBeUndefined();
 });

@@ -164,18 +164,56 @@ export function linkedSharedLibraries(projectRoot, { release, extension }) {
   }
 
   const found = new Set();
-  for (const line of output.split('\n')) {
-    const match =
-      line.match(/^\s*(\S+\.dylib)\s+\(/u) ??
-      line.match(/NEEDED\)\s+Shared library: \[(\S+\.so[^\]]*)\]/u);
-    if (match === null) continue;
-    const reference = match[1];
-    const resolved = resolveLinkedLibrary(reference, { binary, projectRoot });
+  for (const reference of parseSharedLibraryReferences(
+    output,
+    process.platform,
+  )) {
+    const resolved = resolveLinkedLibrary(reference, {
+      binary,
+      projectRoot,
+    });
     if (resolved === undefined) continue;
     if (isSharedLibrary(path.basename(resolved), extension))
       found.add(resolved);
   }
   return [...found];
+}
+
+/**
+ * The library references in `otool -L` or `readelf -d` output.
+ *
+ * Pure, and separate from running the tool, because the two formats differ in
+ * the way that matters most: a Mach-O dependency names a path (`@rpath/foo`,
+ * `/abs/foo`), while an ELF `NEEDED` entry is a bare soname (`libjsi.so`) that
+ * says nothing about where the file came from. That difference is invisible to
+ * anyone developing on macOS, so it is tested against recorded output.
+ */
+export function parseSharedLibraryReferences(output, platform) {
+  const references = [];
+  for (const line of output.split('\n')) {
+    // `otool -L`: an indented path, then the compatibility version in parens.
+    // The first line is the binary's own path and must be ignored.
+    const machO = platform === 'darwin' ? line.match(/^\t(\S+)\s+\(/u) : null;
+    // `readelf -d`: `0x… (NEEDED)  Shared library: [libjsi.so]`.
+    const elf = line.match(/NEEDED\)\s+Shared library: \[(\S+)\]/u);
+    const match = machO ?? elf;
+    if (match === null) continue;
+    if (!references.includes(match[1])) references.push(match[1]);
+  }
+  return references;
+}
+
+/**
+ * `resolveLinkedLibrary`, exposed for tests.
+ *
+ * The bare-soname case only happens on Linux, where these tests cannot run, so
+ * the lookup has to be exercised from macOS against a synthesised build tree.
+ */
+export function resolveLinkedLibraryForTest(reference, projectRoot) {
+  return resolveLinkedLibrary(reference, {
+    binary: path.join(projectRoot, 'desktop', 'target', 'release', 'my-app'),
+    projectRoot,
+  });
 }
 
 /**
@@ -208,7 +246,23 @@ function resolveLinkedLibrary(reference, { binary, projectRoot }) {
     );
     return fs.existsSync(candidate) ? candidate : undefined;
   }
-  if (!path.isAbsolute(reference)) return undefined;
+  if (!path.isAbsolute(reference)) {
+    // ELF `NEEDED` entries are bare sonames (`libjsi.so`), not paths, so a Linux
+    // binary says nothing about where its libraries came from. Look for the name
+    // in the directories the build produced; a system library will not be there
+    // and is correctly skipped.
+    for (const directory of [
+      // The CMake tree first: that is where the C++ runtime's own libraries are
+      // built, and a same-named file in some crate's `out` is not the one the
+      // executable links.
+      ...cmakeLibraryDirectories(projectRoot),
+      ...buildLibraryDirectories(projectRoot, { release: true }),
+    ]) {
+      const candidate = path.join(directory, reference);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return undefined;
+  }
   // A library under the repository belongs to the build; one under /usr or
   // /System belongs to the OS.
   if (reference.startsWith('/usr/') || reference.startsWith('/System/')) {
