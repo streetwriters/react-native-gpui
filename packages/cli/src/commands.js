@@ -1294,14 +1294,21 @@ function listPackages(outDir) {
 }
 
 /**
- * The icon a package ships: the one `desktop.json` names, or the CLI's default.
+ * The icon a package builds from: the one `desktop.json` names, or the CLI's
+ * placeholder.
  *
- * The alpha accepts a single 1024x1024 PNG. What each format wants differs, so
- * the per-OS assets are derived by the packager rather than asked of the user.
+ * cargo-packager derives a macOS `.icns` entry from an icon's pixel size times
+ * its density, and only a handful of those pairs are ICNS types. A 1024x1024
+ * PNG at 1x is not one of them, so a single file fails with "No matching
+ * IconType" — which is what stopped the app bundle as well as the AppImage.
+ * Naming the copy `@2x` says what the file is: a 1024px asset for a 512pt slot,
+ * which is a valid type, and every other format is derived from it.
  *
- * There is always an icon, because cargo-packager's AppImage step refuses to
- * build without a square one. An app that never set `icon` — including one
- * scaffolded before this default existed — still packages every format.
+ * The `@2x` convention is cargo-packager's own, and the copy is why no image
+ * library is needed: the CLI never rescales a user's icon, it labels it.
+ *
+ * There is always an icon: an app that never set `icon` gets the placeholder,
+ * because the AppImage step refuses to build without a square one.
  */
 function generateIcons(config, { crateDir }) {
   const source =
@@ -1313,10 +1320,10 @@ function generateIcons(config, { crateDir }) {
       `desktop.json names an icon that does not exist: ${source}`,
     );
   }
+
   const iconDir = path.join(crateDir, 'build', 'icons');
   fs.mkdirSync(iconDir, { recursive: true });
-  const extension = path.extname(source).toLowerCase();
-  const target = path.join(iconDir, `icon${extension}`);
+  const target = path.join(iconDir, `icon@2x${path.extname(source)}`);
   if (path.resolve(source) !== path.resolve(target)) {
     fs.copyFileSync(source, target);
   }
