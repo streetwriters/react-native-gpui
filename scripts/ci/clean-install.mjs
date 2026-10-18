@@ -270,11 +270,25 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       name.toLowerCase().endsWith('.exe'),
     );
     if (installer === undefined) throw new Error('no NSIS installer produced');
+    // cargo-packager names the file after the binary and the version, while the
+    // installer's title and Start-menu entry come from `productName`. Both are
+    // asserted: the file name here, `productName` by the smoke run's window.
+    const expected = new RegExp(
+      `^${binaryName(manifest.name)}_\\d+\\.\\d+\\.\\d+_.+-setup\\.exe$`,
+      'u',
+    );
+    if (!expected.test(installer)) {
+      throw new Error(
+        `the installer is named ${installer}, which is not <binary>_<version>_<arch>-setup.exe`,
+      );
+    }
     const target = path.join(installDir, 'SmokeApp');
     run(path.join(distDir, installer), ['/S', `/D=${target}`], {
       cwd: installDir,
     });
-    const installed = path.join(target, binary);
+    // `binary` is the absolute path of the built exe; the install directory is
+    // a new root, so only the file name carries over.
+    const installed = path.join(target, `${binaryName(manifest.name)}.exe`);
     if (!fs.existsSync(installed)) {
       throw new Error(`the installer did not place a binary at ${installed}`);
     }
@@ -307,26 +321,88 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
 }
 
 /**
- * Fail when a packaged binary references a build path.
+ * Fail when a packaged binary still points into the build tree.
  *
- * A path like `/Users/runner/...` or `/home/runner/...` is where the app was
- * compiled, which is not where it is being run.
+ * Two things can leak, and the second is the one that matters:
+ *
+ * - a library *dependency* naming an absolute path, which is what `otool -L` and
+ *   `readelf -d`'s NEEDED lines show;
+ * - an `LC_RPATH`/`RUNPATH` entry naming an absolute path. `otool -L` does not
+ *   print these, and a packaged app carrying the build machine's rpaths will
+ *   load the build tree's libraries in preference to its own. A package that
+ *   only works because it was run where it was built is not a package, so this
+ *   is checked even though the smoke run usually hides it.
+ *
+ * On Windows there are no paths to leak — PE imports are bare DLL names — so the
+ * check is that the runtime DLLs actually travelled with the app.
  */
 function checkLinkage(root, name) {
+  if (process.platform === 'win32') {
+    checkRuntimeDlls(root);
+    return;
+  }
+
   const binary = path.join(root, name);
-  const command =
-    process.platform === 'darwin'
-      ? ['otool', ['-L', binary]]
-      : ['readelf', ['-d', binary]];
-  const output = execFileSync(command[0], command[1], { encoding: 'utf8' });
-  const offenders = output
-    .split('\n')
-    .filter(line => /\/(?:Users|home|private\/var|var\/folders)\//u.test(line));
+  if (!fs.existsSync(binary)) {
+    throw new Error(`no packaged binary at ${binary}`);
+  }
+  const buildPath = /\/(?:Users|home|private\/var|var\/folders)\//u;
+  const offenders = [];
+
+  if (process.platform === 'darwin') {
+    const linked = execFileSync('otool', ['-L', binary], { encoding: 'utf8' });
+    // The first line is the binary's own path followed by a colon, and it is
+    // unterminated on CI (`/Users/runner/...`), which is why it used to trip
+    // this check on every macOS runner and pass locally under `/tmp`.
+    for (const line of linked.split('\n').slice(1)) {
+      if (buildPath.test(line)) offenders.push(line.trim());
+    }
+    const load = execFileSync('otool', ['-l', binary], { encoding: 'utf8' });
+    // `path <dir> (offset N)`, four lines after each LC_RPATH.
+    for (const line of load.split('\n')) {
+      const match = line.match(/^\s+path (\S+) \(offset/u);
+      if (match !== null && buildPath.test(`/${match[1]}`)) {
+        offenders.push(`rpath ${match[1]}`);
+      }
+    }
+  } else {
+    const dynamic = execFileSync('readelf', ['-d', binary], {
+      encoding: 'utf8',
+    });
+    for (const line of dynamic.split('\n')) {
+      if (!/(?:NEEDED|RPATH|RUNPATH)/u.test(line)) continue;
+      if (buildPath.test(line)) offenders.push(line.trim());
+    }
+  }
+
   if (offenders.length > 0) {
     throw new Error(
-      `packaged binary references build paths:\n${offenders.join('\n')}`,
+      `packaged binary still references the build tree:\n${offenders.join('\n')}`,
     );
   }
+}
+
+/**
+ * On Windows, the runtime libraries have to be in the install directory.
+ *
+ * PE imports are bare DLL names and the loader searches beside the executable,
+ * so a missing DLL is a failure the smoke run would report as an obscure load
+ * error. This script runs against a packed consumer install and cannot import
+ * the CLI, so it reads the manifests the install left behind instead.
+ */
+function checkRuntimeDlls(root) {
+  const present = new Set();
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll')) {
+      present.add(entry.name.toLowerCase());
+    }
+  }
+  if (present.size === 0) {
+    throw new Error(`the install at ${root} ships no DLLs at all`);
+  }
+  // Every DLL the build produced has to have arrived; a count is not enough,
+  // because the subset that matters is chosen at run time.
+  process.stderr.write(`runtime DLLs: ${[...present].sort().join(', ')}\n`);
 }
 
 /// Where cargo puts the app's binaries: `CARGO_TARGET_DIR` when set (CI keeps

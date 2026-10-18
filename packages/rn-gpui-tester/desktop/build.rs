@@ -58,6 +58,7 @@ fn main() {
     );
 
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_PACKAGING");
     let Ok(paths) = std::env::var("DEP_RN_GPUI_RUNTIME_RPATHS") else {
         return;
     };
@@ -66,8 +67,16 @@ fn main() {
         stage_shared_libraries(dirs);
         return;
     }
-    for path in dirs {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
+    // `RN_GPUI_PACKAGING` means this binary is about to be installed somewhere
+    // else, so only the relative rpaths belong in it. Keeping the absolute ones
+    // would let a packaged app load this build tree's libraries in preference to
+    // its own on the machine that built it — which hides exactly the packaging
+    // bugs the packaged run exists to catch.
+    let packaging = std::env::var("RN_GPUI_PACKAGING").is_ok();
+    if !packaging {
+        for path in dirs {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
+        }
     }
     emit_relocatable_rpaths(app_name);
 }

@@ -284,6 +284,7 @@ export async function runDesktop({
   host = 'localhost',
   features,
   noLaunch = false,
+  packaging = false,
 }) {
   projectRoot = path.resolve(projectRoot);
   const dependencyProblem = linuxBuildDependencyProblem(
@@ -404,6 +405,10 @@ export async function runDesktop({
     RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, 'autolink/autolink.json'),
     RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, 'autolink/autolink.cmake'),
   };
+  // `package-desktop` sets this: the binary is about to be installed elsewhere,
+  // so `build.rs` emits only relative rpaths. A plain release build keeps the
+  // absolute ones, because it is run from this tree.
+  if (packaging) cargoEnv.RN_GPUI_PACKAGING = '1';
   if (
     process.env.CARGO_TARGET_DIR === undefined &&
     !cargoConfigSetsTargetDir(projectRoot)
@@ -1186,12 +1191,15 @@ export async function packageDesktop({
         };
   const formats = targetsFor(requested, process.platform);
 
-  // 1. The release bundle and binary.
-  await runDesktop({ projectRoot, release: true, noLaunch: true });
+  // 1. The release bundle and binary. `packaging` makes build.rs emit only
+  //    relative rpaths, so the result carries no path into this build tree.
+  await runDesktop({
+    projectRoot,
+    release: true,
+    noLaunch: true,
+    packaging: true,
+  });
 
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
-  );
   const crateDir = path.join(projectRoot, 'desktop');
   // The executable is the crate's name, which is what `scaffoldDesktop` writes
   // into Cargo.toml and what `cargo build` produces.
@@ -1286,14 +1294,20 @@ function listPackages(outDir) {
 }
 
 /**
- * Icons for this OS, generated from the one PNG `desktop.json` names.
+ * The icon a package ships: the one `desktop.json` names, or the CLI's default.
  *
- * The alpha accepts a single 1024x1024 PNG. What each packaging format wants
- * differs, so the per-OS formats are derived here rather than asked of the user.
+ * The alpha accepts a single 1024x1024 PNG. What each format wants differs, so
+ * the per-OS assets are derived by the packager rather than asked of the user.
+ *
+ * There is always an icon, because cargo-packager's AppImage step refuses to
+ * build without a square one. An app that never set `icon` — including one
+ * scaffolded before this default existed — still packages every format.
  */
-function generateIcons(config, { crateDir, projectRoot }) {
-  if (config.icon === undefined) return [];
-  const source = path.resolve(crateDir, config.icon);
+function generateIcons(config, { crateDir }) {
+  const source =
+    config.icon === undefined
+      ? defaultIconPath()
+      : path.resolve(crateDir, config.icon);
   if (!fs.existsSync(source)) {
     throw new Error(
       `desktop.json names an icon that does not exist: ${source}`,
@@ -1307,4 +1321,9 @@ function generateIcons(config, { crateDir, projectRoot }) {
     fs.copyFileSync(source, target);
   }
   return [path.relative(crateDir, target).split(path.sep).join('/')];
+}
+
+/// The square PNG bundled with the CLI, used when an app sets no icon.
+function defaultIconPath() {
+  return path.join(cliDir, '..', 'assets', 'default-icon.png');
 }
