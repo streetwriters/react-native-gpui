@@ -39,7 +39,6 @@ jobs:
       pinned_hash: ${{ steps.hashes.outputs.pinned_hash }}
       cpp_changed: ${{ steps.hashes.outputs.cpp_changed }}
       runtime: ${{ steps.hashes.outputs.runtime }}
-      native_changed: ${{ steps.changes.outputs.native }}
       docs_only: ${{ steps.docs.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
@@ -85,73 +84,44 @@ jobs:
         id: changes
         uses: dorny/paths-filter@v3
         with:
+          # Two filters and a count, rather than a list of code extensions.
+          #
+          # `predicate-quantifier: 'every'` looks like it would say "every
+          # changed file is documentation", but it does not: the action applies
+          # the quantifier to the *patterns within one filter*, against one
+          # file (see `Filter.isMatch` in the action). No single file matches
+          # both `**/*.md` and `docs/**`, so `every` would make this filter
+          # never match and the native jobs would never be skipped.
+          #
+          # `all` matches every changed file, so comparing the two counts
+          # answers the actual question, and a file type nobody listed — a
+          # Hermes `.patch`, a `.plist`, a `.ttf`, `node-api-exports.txt` —
+          # counts as non-documentation without being named anywhere.
           filters: |
-            native:
-              - '**/*.rs'
-              - '**/*.c'
-              - '**/*.cc'
-              - '**/*.cpp'
-              - '**/*.h'
-              - '**/*.hpp'
-              - '**/*.m'
-              - '**/*.mm'
-              - '**/CMakeLists.txt'
-              - '**/*.cmake'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
-              - '**/build.rs'
-              - 'packages/core/prebuilt-binaries.json'
-            # Everything that can change behaviour. `docs_only` is derived from
-            # this below rather than from a list of documentation globs, because
-            # a filter that matches a changed README - as a documentation list
-            # does - is true for *any* PR that also touches code, and the jobs
-            # that read it would then skip native verification exactly when it
-            # is most needed.
-            code:
-              - '**/*.rs'
-              - '**/*.c'
-              - '**/*.cc'
-              - '**/*.cpp'
-              - '**/*.h'
-              - '**/*.hpp'
-              - '**/*.m'
-              - '**/*.mm'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.mjs'
-              - '**/*.mts'
-              - '**/*.cjs'
-              - '**/*.json'
-              - '**/*.yml'
-              - '**/*.yaml'
-              - '**/*.toml'
-              - '**/*.cmake'
-              - '**/*.gradle'
-              - '**/*.podspec'
-              - '**/*.sh'
-              - '**/*.ps1'
-              - '**/*.hpp'
-              - '**/CMakeLists.txt'
-              - '**/build.rs'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
-              - 'packages/core/prebuilt-binaries.json'
-              - '.github/workflows/**'
+            docs_only:
+              - '**/*.md'
+              - '**/*.mdx'
+              - 'docs/**'
+              - '.local/**'
+              - '**/LICENSE'
+            all:
+              - '**'
 
-      # "Only documentation changed" is *no code changed*, which is what the
-      # native and clean-install jobs want to skip on. Reading it from a list of
-      # documentation paths cannot express that.
+      # docs_only is "no file outside the documentation list changed", which is
+      # what the native and clean-install jobs skip on.
       - name: Decide whether native jobs can be skipped
         id: docs
         run: |
           set -euo pipefail
-          if [ "${{ steps.changes.outputs.code }}" = "true" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-          else
+          docs='${{ steps.changes.outputs.docs_only_count }}'
+          all='${{ steps.changes.outputs.all_count }}'
+          # A push with no changed files cannot skip anything, so it does not.
+          if [ "$all" -gt 0 ] && [ "$docs" = "$all" ]; then
             echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "documentation-only change: $([ "$docs" = "$all" ] && [ "$all" -gt 0 ] && echo yes || echo no) ($docs of $all file(s) are documentation)"
 
   lint:
     name: lint
