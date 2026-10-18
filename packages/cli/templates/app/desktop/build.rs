@@ -84,6 +84,34 @@ fn main() {
     for path in dirs {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
     }
+    emit_relocatable_rpaths(app_name);
+}
+
+/// rpaths that survive being installed somewhere else.
+///
+/// The absolute paths above let a development build run from this tree. A
+/// packaged app is copied to another machine, where those paths do not exist,
+/// so a release build also carries paths relative to the executable: the
+/// layout the installers produce.
+fn emit_relocatable_rpaths(app_name: &str) {
+    if std::env::var("PROFILE").as_deref() != Ok("release") {
+        return;
+    }
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let mut emit = |rpath: String| println!("cargo:rustc-link-arg=-Wl,-rpath,{rpath}");
+    match os.as_str() {
+        // An app bundle puts the executable in Contents/MacOS and the shipped
+        // libraries in Contents/Frameworks.
+        "macos" => emit("@executable_path/../Frameworks".into()),
+        // Linux installs the executable at bin/<app> and the libraries at
+        // lib/<app>; `$ORIGIN` is the executable's own directory.
+        "linux" => {
+            emit(format!("$ORIGIN/../lib/{app_name}"));
+            emit("$ORIGIN".into());
+        }
+        // Windows has no rpath: the DLLs are copied beside the executable.
+        _ => {}
+    }
 }
 
 /// Windows has no rpath: the loader finds a DLL next to the executable or on
