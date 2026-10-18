@@ -1223,9 +1223,16 @@ export async function packageDesktop({
   }
 
   // 4. Translate, then run cargo-packager.
+  // The rpath `build.rs` emits names the app, not the crate: it is
+  // `RN_GPUI_APP_NAME`, which comes from `app.json`. The deb has to install its
+  // libraries into that same directory or the binary cannot find them.
+  const appJson = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'app.json'), 'utf8'),
+  );
   const packagerConfig = toPackagerConfig(config, {
     crateDir,
     binaryName,
+    rpathDir: appJson.name,
     os: desktopOs(process.platform),
     bundleDir: buildDir,
     assetsDir: path.join(buildDir, 'assets'),

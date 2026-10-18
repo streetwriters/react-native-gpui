@@ -534,6 +534,7 @@ export function toPackagerConfig(config, build) {
     formats,
     outDir,
     os,
+    rpathDir,
   } = build;
 
   // cargo-packager resolves paths relative to the crate directory, and its
@@ -637,7 +638,11 @@ export function toPackagerConfig(config, build) {
     const appimageFiles = {};
     for (const library of libraries) {
       const name = path.basename(library);
-      debFiles[library] = `/usr/lib/${binaryName}/${name}`;
+      // `rpathDir` is the directory the release build's rpath actually names,
+      // which is the app name from `app.json` — not the crate name and not
+      // `productName`. Using anything else installs the libraries one directory
+      // away from where the binary looks, and it fails to start.
+      debFiles[library] = `/usr/lib/${rpathDir}/${name}`;
       appimageFiles[library] = `/usr/lib/${name}`;
     }
     config_.deb = { ...(config_.deb ?? {}), files: debFiles };
