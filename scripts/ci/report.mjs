@@ -22,6 +22,7 @@ export const MARKER = '<!-- rn-gpui-ci-report -->';
 /// GitHub rejects a comment body over 65,536 characters; the plan asks for a
 /// margin below that.
 export const MAX_BODY = 60_000;
+const MAX_BOUNDARY_LINES = 20;
 
 /// The stage columns, in order. A step is assigned by the first pattern its
 /// name matches, so the workflow only has to name its steps naturally.
@@ -186,6 +187,48 @@ export function buildReport({
         'needed after merge (dispatch prebuilt-binaries.yml).',
       '',
     );
+  }
+
+  if (meta.changedCppInputs?.length) {
+    lines.push('**C++ inputs changed**', '');
+    for (const file of meta.changedCppInputs.slice(0, MAX_BOUNDARY_LINES)) {
+      lines.push(`- \`${file}\``);
+    }
+    if (meta.changedCppInputs.length > MAX_BOUNDARY_LINES) {
+      lines.push(
+        `- …and ${meta.changedCppInputs.length - MAX_BOUNDARY_LINES} more`,
+      );
+    }
+    lines.push('');
+  }
+
+  if (meta.coreBoundary) {
+    const {
+      hitCount,
+      corePrivateCount,
+      corePrivate = [],
+      hits = [],
+    } = meta.coreBoundary;
+    lines.push('**Core boundary**', '');
+    lines.push(
+      hitCount === 0
+        ? '- core names no library'
+        : `- ${hitCount} place(s) still name a library: ${hits
+            .slice(0, MAX_BOUNDARY_LINES)
+            .map(hit => `\`${hit.file}:${hit.line}\``)
+            .join(', ')}${hitCount > MAX_BOUNDARY_LINES ? ', …' : ''}`,
+    );
+    lines.push(
+      `- \`// core-private:\` uses: ${corePrivateCount}${
+        corePrivateCount > 0
+          ? ` (${corePrivate
+              .slice(0, MAX_BOUNDARY_LINES)
+              .map(entry => `${entry.file}:${entry.line}`)
+              .join(', ')})`
+          : ''
+      }`,
+    );
+    lines.push('');
   }
 
   if (junitFailures.length > 0) {

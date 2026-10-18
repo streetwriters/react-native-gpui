@@ -90,7 +90,7 @@ describe('binRootFrom', () => {
   });
 
   test('honours RN_GPUI_HERMES_BIN_ROOT, which CMake also reads', () => {
-    // CMake's gpui/CMakeLists.txt and gpui/node-api-exports.test.js both accept
+    // CMake's desktop/CMakeLists.txt and desktop/node-api-exports.test.js both accept
     // this variable. When the downloader ignored it, the binaries landed in the
     // package while the build looked elsewhere, and configure failed with
     // "Hermes library not found".

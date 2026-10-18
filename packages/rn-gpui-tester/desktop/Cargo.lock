@@ -5446,7 +5446,22 @@ dependencies = [
 name = "rn-gpui-autolink"
 version = "0.1.0"
 dependencies = [
+ "rn-gpui-fixture-badge",
  "rn-gpui-native-fixture",
+ "rn-gpui-screens",
+ "rn-gpui-svg",
+]
+
+[[package]]
+name = "rn-gpui-fixture-badge"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "react-native-gpui",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
+ "rn-gpui-sys",
+ "serde_json",
 ]
 
 [[package]]
@@ -5466,6 +5481,27 @@ version = "0.1.0"
 dependencies = [
  "rn-gpui-module",
  "rn-gpui-module-build",
+]
+
+[[package]]
+name = "rn-gpui-screens"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "log",
+ "react-native-gpui",
+ "rn-gpui-sys",
+ "serde_json",
+]
+
+[[package]]
+name = "rn-gpui-svg"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "react-native-gpui",
+ "rn-gpui-sys",
+ "serde_json",
 ]
 
 [[package]]

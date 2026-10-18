@@ -1,7 +1,7 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
+      desktop: {
         crate: 'rn-gpui-native-fixture',
       },
     },

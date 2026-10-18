@@ -16,19 +16,19 @@ Everything here is built from one commit, recorded in `package.json`:
 
 ## Layout
 
-| Path                          | Contents                                                       |
-| ----------------------------- | -------------------------------------------------------------- |
-| `API/`, `public/`, `include/` | The upstream headers we compile against, byte for byte (below) |
-| `bin/<platform>-<arch>/`      | The prebuilt VM and compiler (not committed; fetched or built) |
-| `gpui/node-api-exports.txt`   | Every `napi_*`/`node_api_*` name the VM exports, one per line  |
-| `patches/`                    | Patches applied to the pinned commit before building           |
-| `scripts/fetch-binaries.mjs`  | Downloads a CI artifact or release into `bin/` and verifies it |
+| Path                           | Contents                                                       |
+| ------------------------------ | -------------------------------------------------------------- |
+| `API/`, `public/`, `include/`  | The upstream headers we compile against, byte for byte (below) |
+| `bin/<platform>-<arch>/`       | The prebuilt VM and compiler (not committed; fetched or built) |
+| `desktop/node-api-exports.txt` | Every `napi_*`/`node_api_*` name the VM exports, one per line  |
+| `patches/`                     | Patches applied to the pinned commit before building           |
+| `scripts/fetch-binaries.mjs`   | Downloads a CI artifact or release into `bin/` and verifies it |
 
-`gpui/node-api-exports.txt` lists the Node-API names the VM exports. On Windows
+`desktop/node-api-exports.txt` lists the Node-API names the VM exports. On Windows
 an addon cannot resolve those symbols from a global scope — a DLL import names
 the file it comes from — so the app's executable re-exports each one, forwarded
 to `hermesvm.dll`. The list is what that forwarding is generated from, and
-`gpui/node-api-exports.test.js` regenerates it from the installed library and
+`desktop/node-api-exports.test.js` regenerates it from the installed library and
 fails when the two disagree. Regenerate it after a Hermes bump:
 
 ```sh
@@ -57,9 +57,9 @@ enables `HERMES_ENABLE_NAPI`, so the VM implements Node-API itself: `libhermesvm
 exports the `napi_*` and `node_api_*` symbols, and an addon links against
 nothing — its imports resolve against whatever already loaded the VM.
 
-`gpui/HermesNodeAddons.cpp` creates one Node-API environment per addon through
+`desktop/HermesNodeAddons.cpp` creates one Node-API environment per addon through
 `hermes_napi_create_env` and loads the file with `hermes_napi_load_module`,
-returning the exports as a JSI value. `gpui/HermesNodeApiHost.cpp` supplies the
+returning the exports as a JSI value. `desktop/HermesNodeApiHost.cpp` supplies the
 host callbacks that environment needs: `post_work`, `cancel_work`, `post_task`
 and `fatal_exception`. `post_task` and the async-work callbacks hop to the JS
 thread through the `CallInvoker`, so core's `_requireNodeLibrary` global, path

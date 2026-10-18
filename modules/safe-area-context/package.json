@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "GPUI platform implementation for react-native-safe-area-context",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],

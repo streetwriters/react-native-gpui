@@ -20,6 +20,11 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
+  # One directory for every OS, so the cache step below has a single path to
+  # restore. ccache is React Native's own CMake launcher (it finds the binary
+  # with `find_program`), so a warm cache is what makes a C++ PR fast: without
+  # one every run recompiles ReactCommon and the native deps from scratch.
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
   # Full debug info dominates link time and the size of the Cargo cache; line
   # tables keep panic backtraces readable. OPT_LEVEL stays 0, so the C++ build
   # type (Debug) does not change.
@@ -33,8 +38,8 @@ jobs:
       local_hash: ${{ steps.hashes.outputs.local_hash }}
       pinned_hash: ${{ steps.hashes.outputs.pinned_hash }}
       cpp_changed: ${{ steps.hashes.outputs.cpp_changed }}
-      native_changed: ${{ steps.changes.outputs.native }}
-      docs_only: ${{ steps.changes.outputs.docs_only }}
+      runtime: ${{ steps.hashes.outputs.runtime }}
+      docs_only: ${{ steps.docs.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +60,13 @@ jobs:
           set -euo pipefail
           local_hash="$(node packages/core/scripts/prebuilt-inputs.mjs | awk '{print $1}')"
           pinned_hash="$(node -p "require('./packages/core/prebuilt-binaries.json').inputHash")"
+          # A changed C++ input is not a failure: the pinned archive was built
+          # from other sources, so the build compiles from source and verifies
+          # the change. `runtime` is the same decision build.rs makes.
+          runtime="$(node packages/core/scripts/prebuilt-inputs.mjs --runtime)"
           echo "local_hash=$local_hash" >> "$GITHUB_OUTPUT"
           echo "pinned_hash=$pinned_hash" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
           if [ "$local_hash" = "$pinned_hash" ]; then
             echo "cpp_changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -67,32 +77,51 @@ jobs:
             echo "| --- | --- |"
             echo "| local | \`${local_hash:0:12}\` |"
             echo "| pinned | \`${pinned_hash:0:12}\` |"
+            echo "| runtime | ${runtime} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Detect what changed
         id: changes
         uses: dorny/paths-filter@v3
         with:
+          # Two filters and a count, rather than a list of code extensions.
+          #
+          # `predicate-quantifier: 'every'` looks like it would say "every
+          # changed file is documentation", but it does not: the action applies
+          # the quantifier to the *patterns within one filter*, against one
+          # file (see `Filter.isMatch` in the action). No single file matches
+          # both `**/*.md` and `docs/**`, so `every` would make this filter
+          # never match and the native jobs would never be skipped.
+          #
+          # `all` matches every changed file, so comparing the two counts
+          # answers the actual question, and a file type nobody listed — a
+          # Hermes `.patch`, a `.plist`, a `.ttf`, `node-api-exports.txt` —
+          # counts as non-documentation without being named anywhere.
           filters: |
-            native:
-              - '**/*.rs'
-              - '**/*.c'
-              - '**/*.cc'
-              - '**/*.cpp'
-              - '**/*.h'
-              - '**/*.hpp'
-              - '**/*.m'
-              - '**/*.mm'
-              - '**/CMakeLists.txt'
-              - '**/*.cmake'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
-              - '**/build.rs'
-              - 'packages/core/prebuilt-binaries.json'
             docs_only:
               - '**/*.md'
+              - '**/*.mdx'
               - 'docs/**'
               - '.local/**'
+              - '**/LICENSE'
+            all:
+              - '**'
+
+      # docs_only is "no file outside the documentation list changed", which is
+      # what the native and clean-install jobs skip on.
+      - name: Decide whether native jobs can be skipped
+        id: docs
+        run: |
+          set -euo pipefail
+          docs='${{ steps.changes.outputs.docs_only_count }}'
+          all='${{ steps.changes.outputs.all_count }}'
+          # A push with no changed files cannot skip anything, so it does not.
+          if [ "$all" -gt 0 ] && [ "$docs" = "$all" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "documentation-only change: $([ "$docs" = "$all" ] && [ "$all" -gt 0 ] && echo yes || echo no) ($docs of $all file(s) are documentation)"
 
   lint:
     name: lint
@@ -121,6 +150,14 @@ jobs:
 
       - name: Format check
         run: node scripts/ci/step.mjs --job lint --name "format" -- npm run format:check
+
+      # Fails when core names a library. Screens' remaining hits are tolerated up
+      # to a per-file baseline (PENDING_SCREENS) until C5 moves it out; a new
+      # reference anywhere, or a growing screens count, fails.
+      - name: Core boundary
+        run: |
+          node scripts/ci/step.mjs --job lint --name "core boundary" -- \
+            node scripts/ci/check-core-boundary.mjs
 
       # JUnit is what the report reads for failing test names, and the default
       # reporter is what a human reads in the log. `npm run test:unit` keeps the
@@ -258,6 +295,36 @@ jobs:
             packages/rn-gpui-tester/desktop -> ../../../target
           cache-on-failure: true
 
+      # The C++ below is compiled by ccache, but the cache directory is not part
+      # of `target/`, so Cargo's cache does not carry it. Restore the most recent
+      # one for this platform and let the exact key miss every run: ccache
+      # invalidates per object itself, so a stale entry is a hit, not a risk.
+      - name: Restore the ccache directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-
+
+      - name: Prepare ccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          # MSYS rewrites a leading `/` into a drive path, but CCACHE_DIR is an
+          # absolute Windows path already, so leave it alone.
+          export MSYS2_ARG_CONV_EXCL='*'
+          ccache --version
+          # Three platforms share the repo's cache budget, and Cargo and the
+          # prebuilt runtime need room too, so keep this to 1 GB each. ccache
+          # evicts its own entries LRU once it is full.
+          ccache --max-size=1G
+          # Object identity by content, not mtime: a restored cache directory
+          # gets fresh timestamps and would otherwise miss on every file.
+          ccache --set-config=compiler_check=content
+          ccache --show-config | grep -E 'cache_dir|max_size|compiler_check'
+
       - name: Cache native dependencies
         if: needs.plan.outputs.cpp_changed == 'true'
         uses: actions/cache@v4
@@ -299,6 +366,13 @@ jobs:
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "build tester" -- \
             npm run desktop -- --features test-driver --no-launch
+
+      # The hit rate is the only evidence the cache is earning its keep, and it
+      # is what a C++ PR's build time is made of.
+      - name: Report the ccache hit rate
+        if: always()
+        shell: bash
+        run: ccache --show-stats --verbose || true
 
       # The Windows runner's screen is 1024x768, so a 1024x768 window plus its
       # title bar does not fit and Windows shrinks it (the navigation e2e saw a
@@ -533,31 +607,87 @@ jobs:
           fi
           find ci-out -maxdepth 2 -type d | sort
 
+      # The two lists C8 adds: what core still names, and the C++ inputs this
+      # PR changes. Both are evidence for the reviewer, so a failure to read
+      # them must not lose the report.
+      - name: Collect the boundary and input lists
+        continue-on-error: true
+        run: |
+          node scripts/ci/check-core-boundary.mjs --json > ci-out/core-boundary.json || true
+          node - <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          let changed = [];
+          try {
+            changed = execFileSync(
+              'git',
+              ['diff', '--name-only', 'origin/main...HEAD'],
+              { encoding: 'utf8' },
+            )
+              .split('\n')
+              .filter(Boolean);
+          } catch {
+            changed = [];
+          }
+          fs.writeFileSync(
+            'ci-out/changed-cpp-inputs.json',
+            JSON.stringify(changed, null, 2),
+          );
+          NODE
+
       - name: Write report metadata
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           LOCAL_HASH: ${{ needs.plan.outputs.local_hash }}
           PINNED_HASH: ${{ needs.plan.outputs.pinned_hash }}
           CPP_CHANGED: ${{ needs.plan.outputs.cpp_changed }}
+          RUNTIME: ${{ needs.plan.outputs.runtime }}
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
           fs.mkdirSync('ci-out', { recursive: true });
+          const readJson = file => {
+            try {
+              return JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch {
+              return undefined;
+            }
+          };
+          // Only the files that actually feed the prebuilt archive:
+          // `collectInputs()` is the single source of truth for those paths.
+          const { collectInputs } = require('./packages/core/scripts/prebuilt-inputs.mjs');
+          const inputPaths = new Set(collectInputs().map(entry => entry.path));
+          const prefix = 'packages/core/';
+          const changedCppInputs = () => {
+            const changed = readJson('ci-out/changed-cpp-inputs.json');
+            if (!Array.isArray(changed)) return undefined;
+            return changed
+              .filter(file => file.startsWith(prefix))
+              .map(file => file.slice(prefix.length))
+              .filter(rel => inputPaths.has(rel));
+          };
+          const boundary = readJson('ci-out/core-boundary.json');
+          const meta = {
+            pr: process.env.PR_NUMBER || undefined,
+            sha: process.env.GITHUB_SHA,
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            localHash: process.env.LOCAL_HASH || undefined,
+            pinnedHash: process.env.PINNED_HASH || undefined,
+            runtime: process.env.RUNTIME || undefined,
+            cppChanged: process.env.CPP_CHANGED === 'true',
+            changedCppInputs: changedCppInputs(),
+            coreBoundary: boundary
+              ? {
+                  hitCount: (boundary.hits ?? []).length,
+                  corePrivateCount: (boundary.corePrivate ?? []).length,
+                  corePrivate: boundary.corePrivate ?? [],
+                  hits: boundary.hits ?? [],
+                }
+              : undefined,
+          };
           fs.writeFileSync(
             'ci-out/meta.json',
-            JSON.stringify(
-              {
-                sha: process.env.GITHUB_SHA,
-                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-                repo: process.env.GITHUB_REPOSITORY,
-                pr: process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : undefined,
-                localHash: process.env.LOCAL_HASH,
-                pinnedHash: process.env.PINNED_HASH,
-                cppChanged: process.env.CPP_CHANGED === 'true',
-              },
-              null,
-              2,
-            ),
+            JSON.stringify(meta, null, 2),
           );
           NODE
 

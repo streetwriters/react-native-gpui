@@ -1,8 +1,9 @@
 module.exports = {
   dependency: {
     platforms: {
-      gpui: {
-        cmake: 'gpui',
+      desktop: {
+        cmake: 'desktop',
+        crate: 'rn-gpui-svg',
         componentCodegenPackage: 'react-native-svg',
         componentSourcePackage: 'react-native-svg',
         componentDescriptors: [

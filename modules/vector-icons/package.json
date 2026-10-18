@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "react-native": "src/index.ts",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],

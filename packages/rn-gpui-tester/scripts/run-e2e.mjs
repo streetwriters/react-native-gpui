@@ -262,7 +262,7 @@ run(
     'react-native',
     'bundle',
     '--platform',
-    'gpui',
+    'desktop',
     '--entry-file',
     'e2e/entry.ts',
     '--bundle-output',

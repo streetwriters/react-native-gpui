@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "GPUI platform integration for react-native-screens",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],

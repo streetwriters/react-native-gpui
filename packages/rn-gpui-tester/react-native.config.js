@@ -17,6 +17,6 @@ module.exports = {
       throw new Error(`${name} is not configured for rn-gpui-tester`);
     },
   })),
-  project: { gpui: {} },
+  project: { desktop: {} },
   reactNativePath: path.dirname(require.resolve('react-native/package.json')),
 };

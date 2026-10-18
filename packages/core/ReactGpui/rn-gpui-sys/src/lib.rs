@@ -5,7 +5,7 @@ pub mod ffi {
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
     }
 
-    #[derive(Clone, Copy, Debug, Default)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub struct RectF {
         pub x: f32,
         pub y: f32,
@@ -149,42 +149,12 @@ pub mod ffi {
         pub component: String,         // "View", "Paragraph", "Image", "ScrollView", ...
         pub native_view_name: String,  // Registered NativeViewFactory key
         pub native_view_props: String, // JSON object supplied to the native view factory
-        pub svg_props_json: String,    // Serialized upstream react-native-svg Fabric props
         pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
+        pub extension_props_json: String,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
-        pub image_uri: String,        // filled for "Image"
-        pub image_resize_mode: u8,    // 0 stretch, 1 contain, 2 cover, 3 center
-        pub text_input_text: String,
-        pub text_input_placeholder: String,
-        pub text_input_selection_color: u32,
-        pub text_input_multiline: bool,
-        pub text_input_editable: bool,
-        pub text_input_secure: bool,
-        pub text_input_most_recent_event_count: i32,
-        pub text_input_selection_set: bool,
-        pub text_input_selection_start: i32,
-        pub text_input_selection_end: i32,
-        pub modal_visible: bool,
-        pub screen_header_title: String,
-        pub screen_header_subview_type: String,
-        pub screen_header_background_color: u32,
-        pub screen_header_title_color: u32,
-        pub screen_header_tint_color: u32,
-        pub screen_header_hidden: bool,
-        pub screen_header_hide_back: bool,
-        pub screen_activity_state: f32,
-        pub screen_stack_animation: String,
-        pub screen_stack_presentation: String,
-        pub scroll_x: f32,
-        pub scroll_y: f32,
-        pub content_width: f32,
-        pub content_height: f32,
-        pub scroll_horizontal: bool,
-        pub scroll_enabled: bool,
-        pub scroll_indicator: bool,
         pub layout_changed: bool,
     }
 
@@ -238,9 +208,9 @@ pub mod ffi {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
         fn rn_gpui_load_font(family: &str, uri: &str) -> bool;
-        fn rn_gpui_render_font_icon(
+        fn rn_gpui_render_text_image(
             family: &str,
-            glyph: &str,
+            text: &str,
             font_size: f64,
             color: u32,
         ) -> String;
@@ -251,10 +221,6 @@ pub mod ffi {
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
         fn rn_gpui_set_animated_active(active: bool);
-        fn rn_gpui_open_url(url: String);
-        fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>);
-        fn rn_gpui_read_clipboard(id: i32);
-        fn rn_gpui_write_clipboard(text: String);
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
         /// Called from a module thread to run a task on the GPUI main thread.
@@ -402,8 +368,6 @@ pub mod ffi {
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
-        fn rn_gpui_alert_result(id: i32, button_index: i32);
-        fn rn_gpui_clipboard_result(id: i32, text: String);
         fn rn_gpui_run_main_task(id: u64);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
         fn request_reload(self: Pin<&mut GpuiHost>);
@@ -414,7 +378,7 @@ pub mod ffi {
         fn js_heap_bytes(self: &GpuiHost) -> u64;
         fn on_render(self: &GpuiHost) -> Result<()>;
         fn on_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
-        fn on_gesture_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
+        fn on_pointer_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);
@@ -458,8 +422,6 @@ pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
-pub type OpenUrlHandler = Box<dyn Fn(String) + Send + Sync>;
-pub type AlertHandler = Box<dyn Fn(i32, String, String, Vec<String>) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
@@ -468,12 +430,6 @@ pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
-pub static OPEN_URL_HANDLER: OnceLock<OpenUrlHandler> = OnceLock::new();
-pub static ALERT_HANDLER: OnceLock<AlertHandler> = OnceLock::new();
-pub type ClipboardReadHandler = Box<dyn Fn(i32) + Send + Sync>;
-pub type ClipboardWriteHandler = Box<dyn Fn(String) + Send + Sync>;
-pub static CLIPBOARD_READ_HANDLER: OnceLock<ClipboardReadHandler> = OnceLock::new();
-pub static CLIPBOARD_WRITE_HANDLER: OnceLock<ClipboardWriteHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
 pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
 pub static MAIN_THREAD_ID: OnceLock<std::thread::ThreadId> = OnceLock::new();
@@ -500,9 +456,9 @@ pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
 pub static IMAGE_CACHE_QUERY_HANDLER: OnceLock<ImageCacheQueryHandler> = OnceLock::new();
 pub type FontLoadHandler = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
-pub type FontIconHandler = Box<dyn Fn(&str, &str, f64, u32) -> String + Send + Sync>;
+pub type TextImageHandler = Box<dyn Fn(&str, &str, f64, u32) -> String + Send + Sync>;
 pub static FONT_LOAD_HANDLER: OnceLock<FontLoadHandler> = OnceLock::new();
-pub static FONT_ICON_HANDLER: OnceLock<FontIconHandler> = OnceLock::new();
+pub static TEXT_IMAGE_HANDLER: OnceLock<TextImageHandler> = OnceLock::new();
 
 fn rn_gpui_load_font(family: &str, uri: &str) -> bool {
     FONT_LOAD_HANDLER
@@ -510,10 +466,12 @@ fn rn_gpui_load_font(family: &str, uri: &str) -> bool {
         .is_some_and(|handler| handler(family, uri))
 }
 
-fn rn_gpui_render_font_icon(family: &str, glyph: &str, font_size: f64, color: u32) -> String {
-    FONT_ICON_HANDLER.get().map_or_else(String::new, |handler| {
-        handler(family, glyph, font_size, color)
-    })
+fn rn_gpui_render_text_image(family: &str, text: &str, font_size: f64, color: u32) -> String {
+    TEXT_IMAGE_HANDLER
+        .get()
+        .map_or_else(String::new, |handler| {
+            handler(family, text, font_size, color)
+        })
 }
 
 fn rn_gpui_load_image(uri: String, request_id: u64) {
@@ -591,30 +549,6 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
 fn rn_gpui_request_accessibility_focus(tag: i32) {
     if let Some(handler) = ACCESSIBILITY_FOCUS_HANDLER.get() {
         handler(tag);
-    }
-}
-
-fn rn_gpui_open_url(url: String) {
-    if let Some(handler) = OPEN_URL_HANDLER.get() {
-        handler(url);
-    }
-}
-
-fn rn_gpui_show_alert(id: i32, title: String, message: String, buttons: Vec<String>) {
-    if let Some(handler) = ALERT_HANDLER.get() {
-        handler(id, title, message, buttons);
-    }
-}
-
-fn rn_gpui_read_clipboard(id: i32) {
-    if let Some(handler) = CLIPBOARD_READ_HANDLER.get() {
-        handler(id);
-    }
-}
-
-fn rn_gpui_write_clipboard(text: String) {
-    if let Some(handler) = CLIPBOARD_WRITE_HANDLER.get() {
-        handler(text);
     }
 }
 

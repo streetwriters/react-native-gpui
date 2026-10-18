@@ -72,8 +72,8 @@ runtime surprise. The runtime crate is `rn-gpui-module`, and
 `rn-gpui-module-build` runs the generator from `build.rs`.
 
 For a reusable TurboModule library, keep its TypeScript spec under `src/` and
-its native implementation under `gpui/`, with `codegenConfig` and
-`platforms.gpui` in `package.json`; `npx react-native create-library` creates
+its native implementation under `desktop/`, with `codegenConfig` and
+`platforms.desktop` in `package.json`; `npx react-native create-library` creates
 that layout. Autolink runs React Native Codegen over the package's specs and
 writes `<codegenConfig.name>JSI.h` plus `<codegenConfig.name>.h`, the latter
 declaring one spec class per spec file (`src/NativeGreeting.ts` defines

@@ -42,7 +42,42 @@ const jsEngineName = /^[a-z][a-z0-9-]*$/u;
 const prebuiltModes = ['auto', 'always', 'never'];
 
 /**
- * Reads the app's `project.gpui.prebuilt` option: `auto` uses the pinned
+ * A dependency's `platforms.desktop` entry.
+ *
+ * The platform used to be called `gpui`. Nothing was ever published under that
+ * name, so there is no compatibility path: a dependency that still says
+ * `platforms.gpui` is told so, rather than being silently skipped.
+ */
+function desktopPlatformFor(dependencyName, dependency) {
+  const platforms = dependency.platforms ?? {};
+  if (platforms.desktop) return platforms.desktop;
+  if (platforms.gpui) {
+    throw new Error(
+      `${dependencyName}: platforms.gpui was renamed to platforms.desktop`,
+    );
+  }
+  return undefined;
+}
+
+/**
+ * The app's `project.desktop` entry.
+ *
+ * The same rename applies to the app as to a dependency: `project.gpui` is
+ * rejected rather than read, because an option left in the old key would be
+ * ignored silently and the build would quietly use the default.
+ */
+function desktopProjectFor(config) {
+  const project = config.project ?? {};
+  if (project.desktop === undefined && project.gpui !== undefined) {
+    throw new Error(
+      'project.gpui was renamed to project.desktop in react-native.config.js',
+    );
+  }
+  return project.desktop;
+}
+
+/**
+ * Reads the app's `project.desktop.prebuilt` option: `auto` uses the pinned
  * prebuilt C++ runtime when it matches and builds from source otherwise,
  * `always` fails the build instead of falling back, `never` builds from source.
  */
@@ -50,14 +85,14 @@ function prebuiltModeFor(project) {
   const prebuilt = project?.prebuilt ?? 'auto';
   if (!prebuiltModes.includes(prebuilt)) {
     throw new Error(
-      `project.gpui.prebuilt must be one of ${prebuiltModes.map(mode => `'${mode}'`).join(', ')}`,
+      `project.desktop.prebuilt must be one of ${prebuiltModes.map(mode => `'${mode}'`).join(', ')}`,
     );
   }
   return prebuilt;
 }
 
 /**
- * Validates a dependency's `platforms.gpui.jsEngine` entry. Installing a
+ * Validates a dependency's `platforms.desktop.jsEngine` entry. Installing a
  * package that declares one is how an app opts into an engine; the entry names
  * the C registration symbol core calls at startup and the optional JS tooling
  * hooks the CLI uses.
@@ -69,7 +104,7 @@ function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
     Array.isArray(jsEngine)
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.jsEngine must be an object`,
+      `${dependencyName}: platforms.desktop.jsEngine must be an object`,
     );
   }
   const {
@@ -82,25 +117,25 @@ function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
   } = jsEngine;
   if (typeof name !== 'string' || !jsEngineName.test(name)) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.jsEngine.name must be a lowercase engine name (${jsEngineName})`,
+      `${dependencyName}: platforms.desktop.jsEngine.name must be a lowercase engine name (${jsEngineName})`,
     );
   }
   if (typeof register !== 'string' || !cppIdentifier.test(register)) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.jsEngine.register must be a C identifier`,
+      `${dependencyName}: platforms.desktop.jsEngine.register must be a C identifier`,
     );
   }
   const resolveHook = (key, value) => {
     if (value === undefined) return undefined;
     if (typeof value !== 'string' || value.length === 0) {
       throw new Error(
-        `${dependencyName}: platforms.gpui.jsEngine.${key} must be a path`,
+        `${dependencyName}: platforms.desktop.jsEngine.${key} must be a path`,
       );
     }
     const resolved = path.resolve(packageRoot, value);
     if (!fs.existsSync(resolved)) {
       throw new Error(
-        `${dependencyName}: platforms.gpui.jsEngine.${key} does not exist: ${resolved}`,
+        `${dependencyName}: platforms.desktop.jsEngine.${key} does not exist: ${resolved}`,
       );
     }
     return resolved;
@@ -114,7 +149,7 @@ function jsEngineConfigFor(dependencyName, packageRoot, jsEngine) {
       !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(nodeApiLibrary))
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.jsEngine.nodeApiLibrary must be a library name when nodeApiExports is set`,
+      `${dependencyName}: platforms.desktop.jsEngine.nodeApiLibrary must be a library name when nodeApiExports is set`,
     );
   }
   return {
@@ -141,7 +176,7 @@ function componentConfigFor(dependencyName, gpui) {
     )
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.componentDescriptors must be an array of C++ identifiers`,
+      `${dependencyName}: platforms.desktop.componentDescriptors must be an array of C++ identifiers`,
     );
   }
   if (
@@ -154,7 +189,7 @@ function componentConfigFor(dependencyName, gpui) {
     )
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.componentHeaders must be an array of C++ header paths`,
+      `${dependencyName}: platforms.desktop.componentHeaders must be an array of C++ header paths`,
     );
   }
   if (headers.some(value => value.split('/').includes('..'))) {
@@ -172,7 +207,7 @@ function componentConfigFor(dependencyName, gpui) {
     !sources.every(value => typeof value === 'string')
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.componentSources must be an array of source paths`,
+      `${dependencyName}: platforms.desktop.componentSources must be an array of source paths`,
     );
   }
   if (
@@ -180,7 +215,7 @@ function componentConfigFor(dependencyName, gpui) {
     !includeDirs.every(value => typeof value === 'string')
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.componentIncludeDirs must be an array of paths`,
+      `${dependencyName}: platforms.desktop.componentIncludeDirs must be an array of paths`,
     );
   }
   if (
@@ -189,7 +224,7 @@ function componentConfigFor(dependencyName, gpui) {
       !/^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]+$/u.test(sourcePackage))
   ) {
     throw new Error(
-      `${dependencyName}: platforms.gpui.componentSourcePackage must be a package name`,
+      `${dependencyName}: platforms.desktop.componentSourcePackage must be a package name`,
     );
   }
   return { descriptors, headers, sources, includeDirs, sourcePackage };
@@ -212,7 +247,7 @@ function generateComponentCodegen({
       !/^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]+$/u.test(componentCodegenPackage)
     ) {
       throw new Error(
-        `${dependencyName}: platforms.gpui.componentCodegenPackage must be a package name`,
+        `${dependencyName}: platforms.desktop.componentCodegenPackage must be a package name`,
       );
     }
     const packageJsonPath = appRequire.resolve(
@@ -244,7 +279,7 @@ function generateComponentCodegen({
   visit(jsSrcsDir);
   const schema = appRequire(
     '@react-native/codegen/lib/cli/combine/combine-js-to-schema',
-  ).combineSchemasInFileList(specs, 'gpui', null, codegenConfig.name);
+  ).combineSchemasInFileList(specs, 'desktop', null, codegenConfig.name);
   if (
     !Object.values(schema.modules ?? {}).some(
       module => module.type === 'Component',
@@ -337,7 +372,7 @@ function generateModuleCodegen({
   generatedLibraries.set(libraryName, dependencyName);
   const schema = appRequire(
     '@react-native/codegen/lib/cli/combine/combine-js-to-schema',
-  ).combineSchemasInFileList(specPaths, 'gpui', null, libraryName);
+  ).combineSchemasInFileList(specPaths, 'desktop', null, libraryName);
   for (const name of Object.keys(schema.modules ?? {})) {
     if (schema.modules[name].type !== 'NativeModule') {
       delete schema.modules[name];
@@ -414,7 +449,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
           shell: npxShell,
         }),
   );
-  const prebuilt = prebuiltModeFor(config.project?.gpui);
+  const prebuilt = prebuiltModeFor(desktopProjectFor(config));
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
   try {
@@ -478,7 +513,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
     );
-    const gpui = dependency.platforms?.gpui;
+    const gpui = desktopPlatformFor(dependencyName, dependency);
     if (!gpui) continue;
     if (gpui.jsEngine !== undefined) {
       jsEngines.push(jsEngineConfigFor(dependencyName, root, gpui.jsEngine));
@@ -513,7 +548,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       componentConfig.descriptors.length === 0
     ) {
       throw new Error(
-        `${dependencyName}: GPUI component Codegen is enabled, but platforms.gpui.componentDescriptors is empty`,
+        `${dependencyName}: GPUI component Codegen is enabled, but platforms.desktop.componentDescriptors is empty`,
       );
     }
     appComponentSources.push(
@@ -540,7 +575,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(gpui.cppProvider)
       ) {
         throw new Error(
-          `${dependencyName}: platforms.gpui.cppProvider must be a C++ function name`,
+          `${dependencyName}: platforms.desktop.cppProvider must be a C++ function name`,
         );
       }
       const specDir = path.join(root, specDirectory);
@@ -593,11 +628,22 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     const crateName = gpui.crate;
     if (typeof crateName !== 'string' || !/^[A-Za-z0-9_-]+$/u.test(crateName)) {
       throw new Error(
-        `${dependencyName}: platforms.gpui.crate must be a Cargo crate name`,
+        `${dependencyName}: platforms.desktop.crate must be a Cargo crate name`,
       );
     }
-    const defaultCargoPath = fs.existsSync(path.join(root, 'gpui/Cargo.toml'))
-      ? 'gpui'
+    if (
+      !gpui.path &&
+      !fs.existsSync(path.join(root, 'desktop/Cargo.toml')) &&
+      fs.existsSync(path.join(root, 'gpui/Cargo.toml'))
+    ) {
+      throw new Error(
+        `${dependencyName}: the gpui/ folder was renamed to desktop/`,
+      );
+    }
+    const defaultCargoPath = fs.existsSync(
+      path.join(root, 'desktop/Cargo.toml'),
+    )
+      ? 'desktop'
       : '.';
     const cargoPath = path.resolve(root, gpui.path ?? defaultCargoPath);
     if (!fs.existsSync(path.join(cargoPath, 'Cargo.toml'))) {
@@ -695,11 +741,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     path.join(autolinkCrate, 'Cargo.toml'),
     `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ''}`,
   );
-  // A crate with specs registers its modules; the linker keeps them because
-  // `rn_gpui_register` is called here.
-  const ensureLinked = rustCrates
-    .filter(({ moduleTypes }) => moduleTypes.length > 0)
-    .map(({ alias }) => `    ${alias}::rn_gpui_register();`);
+  const ensureLinked = rustCrates.map(
+    ({ alias }) => `    ${alias}::rn_gpui_register();`,
+  );
   const generatedEnsureLinked = [
     'pub fn ensure_linked() {',
     '    unsafe {',

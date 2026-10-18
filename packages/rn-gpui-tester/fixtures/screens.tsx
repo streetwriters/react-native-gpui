@@ -111,6 +111,11 @@ export const renderScreen: Record<
       ...props,
       scenario: 'native-stack-lifecycle',
     }),
+  'native-stack-native-back': props =>
+    React.createElement(require('./navigation/NavigationFixture').default, {
+      ...props,
+      scenario: 'native-stack-native-back',
+    }),
   'native-stack-modal': props =>
     React.createElement(require('./navigation/NavigationFixture').default, {
       ...props,
@@ -146,6 +151,11 @@ export const renderScreen: Record<
   'gpui-component': props =>
     React.createElement(
       require('./components/GpuiComponentRegistryFixture').default,
+      props,
+    ),
+  'fixture-module': props =>
+    React.createElement(
+      require('./components/FixtureModuleProbeFixture').default,
       props,
     ),
   'node-api': props =>

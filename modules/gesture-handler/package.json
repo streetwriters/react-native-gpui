@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Native GPUI gesture recognition for react-native-gesture-handler",
   "files": [
-    "gpui",
+    "desktop",
     "react-native.config.js",
     "src"
   ],

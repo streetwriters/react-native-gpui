@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 let deliver;
 const source = readFileSync(
-  'packages/core/src-gpui/Libraries/Utilities/BackHandler.gpui.js',
+  'packages/core/src-gpui/Libraries/Utilities/BackHandler.desktop.js',
   'utf8',
 )
   .replace("import { DeviceEventEmitter } from 'react-native';", '')

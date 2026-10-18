@@ -31,7 +31,7 @@ function generateFor(source) {
   } = require('@react-native/codegen/lib/cli/combine/combine-js-to-schema');
   const schema = combineSchemasInFileList(
     [specPath],
-    'gpui',
+    'desktop',
     null,
     'ProbeSpec',
   );
