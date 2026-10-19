@@ -1411,6 +1411,9 @@ function ensureDsym({ crateDir, binaryName }) {
   fs.rmSync(dsym, { recursive: true, force: true });
   try {
     execFileSync('dsymutil', [binary, '-o', dsym], { stdio: 'inherit' });
+    // `dsymutil` writes the bundle read-only, and Cargo then cannot replace the
+    // binary it belongs to: "failed to remove file … Operation not permitted".
+    if (fs.existsSync(dsym)) fs.chmodSync(dsym, 0o755);
   } catch (error) {
     console.log(`could not write a dSYM for ${binaryName}: ${error.message}`);
   }
