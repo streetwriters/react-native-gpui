@@ -28,7 +28,15 @@ fn smoke_exit(code: i32, message: String) -> ! {
     use std::io::Write;
     println!("{message}");
     let _ = std::io::stdout().flush();
-    std::process::exit(code);
+    let _ = std::io::stderr().flush();
+    // `_exit`, not `std::process::exit`: `exit` runs C++ static destructors
+    // while the JS, network and inspector threads are still running, and one
+    // of them then calls into a destroyed object ("Pure virtual function
+    // called", SIGABRT). The result line is already flushed, so nothing is lost.
+    extern "C" {
+        fn _exit(code: i32) -> !;
+    }
+    unsafe { _exit(code) }
 }
 
 fn smoke_first_frame() -> ! {
