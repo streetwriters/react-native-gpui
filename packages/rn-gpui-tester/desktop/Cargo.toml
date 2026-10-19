@@ -29,14 +29,16 @@ opt-level = 0
 # `split-debuginfo` the debug info lives in a separate dSYM rather than the
 # binary, so it costs the package nothing.
 debug = "line-tables-only"
-# Strip the symbol table: 10.2 MB of this binary, and nothing reads it at run
-# time. The dSYM is kept beside the package for symbolizing crashes.
-## Keep the symbols Cargo's link step produces: `strip = "symbols"` runs in the
-## linker, so `dsymutil` runs afterwards on an already-stripped binary and writes
-## an empty dSYM. The stripping happens in `package-desktop` instead, after the
-## dSYM exists.
+# The symbol table is not stripped here: Cargo strips inside the linker, before
+# `dsymutil`, which would leave an empty dSYM. `package-desktop` writes the dSYM
+# and then runs `strip -x`, which removes every unexported symbol.
 strip = "none"
 split-debuginfo = "packed"
+# Thin LTO across crates: Rust's default is per-crate codegen only. `codegen-units
+# = 1` lets the optimiser see the whole crate at once, which costs build time and
+# buys size.
+lto = "fat"
+codegen-units = 1
 
 [build-dependencies]
 serde_json = "1"

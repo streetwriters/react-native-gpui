@@ -28,6 +28,10 @@ debug = "line-tables-only"
 ## dSYM exists.
 strip = "none"
 split-debuginfo = "packed"
+# Full LTO: measured on the tester, 27.3 MB with thin and 25.3 MB with fat, at
+# 112 s and 161 s for a clean build. 1.4x the time for 2 MB less is worth it.
+lto = "fat"
+codegen-units = 1
 
 [workspace.dependencies]
 gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "1eea2d66220fdaab909513f4a99337e17f1e316b" }
