@@ -2,6 +2,15 @@
 
 #include <react/http/IHttpClient.h>
 
+// The completion callback's declaration, exactly as cxx emits it.
+//
+// Hand-writing it is what broke the Windows build: this file has to declare
+// `rngpui::rn_gpui_http_complete` so the call below links, and a hand-written
+// version without `noexcept` is a different function when MSVC sees both in one
+// unity translation unit — C2382. macOS and Linux compile this file alone and
+// never met the generated declaration, so only Windows refused.
+#include "rn-gpui-sys/src/lib.rs.h" // rn_gpui_http_complete
+
 #include <atomic>
 #include <condition_variable>
 #include <map>
@@ -13,18 +22,6 @@
 #include "GpuiHttpClient.h"
 
 namespace rngpui {
-
-/// The Rust side's completion callback, defined by cxx at global scope.
-///
-/// Declared at namespace scope and not inside the anonymous namespace below:
-/// internal linkage here would make the linker look for a definition that no
-/// other translation unit has.
-void rn_gpui_http_complete(
-    std::uint64_t request_id,
-    int status,
-    ::rust::Str headers,
-    ::rust::Str body,
-    ::rust::Str error);
 
 namespace {
 
