@@ -863,15 +863,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
-name = "cgl"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ced0551234e87afee12411d535648dd89d2e7f34c78b753395567aff3d447ff"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1004,7 +995,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "gpui_util",
  "indexmap",
@@ -1168,19 +1159,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-graphics2"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4416167a69126e617f8d0a214af0e3c1dbdeffcb100ddf72dcd1a1ac9893c146"
-dependencies = [
- "bitflags 2.13.2",
- "block",
- "cfg-if",
- "core-foundation 0.10.1",
- "libc",
-]
-
-[[package]]
 name = "core-text"
 version = "21.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1190,20 +1168,6 @@ dependencies = [
  "core-graphics 0.24.0",
  "foreign-types",
  "libc",
-]
-
-[[package]]
-name = "core-video"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "139679cc63eb9504bdbe37e37874b0247136177655f0008588781e90863afa62"
-dependencies = [
- "block",
- "core-foundation 0.10.1",
- "core-graphics2",
- "io-surface",
- "libc",
- "metal",
 ]
 
 [[package]]
@@ -1468,7 +1432,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2389,7 +2353,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2399,7 +2363,6 @@ dependencies = [
  "bitflags 2.13.2",
  "chrono",
  "collections",
- "core-video",
  "ctor",
  "derive_more",
  "embed-resource",
@@ -2420,6 +2383,8 @@ dependencies = [
  "log",
  "lyon",
  "num_cpus",
+ "objc2-core-foundation",
+ "objc2-core-video",
  "parking",
  "parking_lot",
  "pin-project",
@@ -2457,7 +2422,7 @@ dependencies = [
 [[package]]
 name = "gpui_apple"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
  "async-task",
@@ -2465,12 +2430,14 @@ dependencies = [
  "cbindgen",
  "collections",
  "core-foundation 0.10.1",
+ "core-foundation-sys",
  "core-graphics 0.24.0",
- "core-video",
+ "core-text",
  "derive_more",
  "dispatch2",
  "etagere",
  "foreign-types",
+ "futures",
  "gpui",
  "gpui_util",
  "image",
@@ -2479,15 +2446,24 @@ dependencies = [
  "mach2",
  "metal",
  "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-core-text",
+ "objc2-core-video",
  "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
  "objc2-quartz-core 0.3.2",
+ "objc2-security",
  "parking_lot",
+ "pathfinder_geometry",
+ "smallvec",
+ "thiserror 2.0.21",
+ "zed-font-kit",
 ]
 
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2532,7 +2508,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2543,8 +2519,6 @@ dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "core-graphics 0.24.0",
- "core-text",
- "core-video",
  "ctor",
  "dispatch2",
  "foreign-types",
@@ -2558,23 +2532,22 @@ dependencies = [
  "objc",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+ "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-user-notifications",
  "parking_lot",
- "pathfinder_geometry",
  "raw-window-handle",
  "scheduler",
  "semver",
  "smallvec",
  "strum",
  "uuid",
- "zed-font-kit",
 ]
 
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2585,7 +2558,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2600,7 +2573,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "schemars",
  "serde",
@@ -2610,7 +2583,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
  "log",
@@ -2620,9 +2593,10 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
+ "async-channel",
  "console_error_panic_hook",
  "futures",
  "gpui",
@@ -2648,9 +2622,10 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
+ "ash",
  "bytemuck",
  "collections",
  "cosmic-text",
@@ -2675,7 +2650,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -2912,7 +2887,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3150,18 +3125,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "io-surface"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "554b8c5d64ec09a3a520fe58e4d48a73e00ff32899cdcbe32a4877afd4968b8e"
-dependencies = [
- "cgl",
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "leaky-cow",
-]
-
-[[package]]
 name = "is-docker"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3360,21 +3323,6 @@ name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
-
-[[package]]
-name = "leak"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd100e01f1154f2908dfa7d02219aeab25d0b9c7fa955164192e3245255a0c73"
-
-[[package]]
-name = "leaky-cow"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40a8225d44241fd324a8af2806ba635fc7c8a7e9a7de4d5cf3ef54e71f5926fc"
-dependencies = [
- "leak",
-]
 
 [[package]]
 name = "lebe"
@@ -4039,7 +3987,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
 dependencies = [
  "bitflags 2.13.2",
+ "dispatch2",
+ "objc2 0.6.4",
  "objc2-core-foundation",
+ "objc2-io-surface",
 ]
 
 [[package]]
@@ -4052,6 +4003,30 @@ dependencies = [
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
  "objc2-metal 0.2.2",
+]
+
+[[package]]
+name = "objc2-core-text"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cde0dfb48d25d2b4862161a4d5fcc0e3c24367869ad306b0c9ec0073bfed92d"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-core-video"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d425caf1df73233f29fd8a5c3e5edbc30d2d4307870f802d18f00d83dc5141a6"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-io-surface",
+ "objc2-metal 0.3.2",
 ]
 
 [[package]]
@@ -4081,6 +4056,17 @@ dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
  "libc",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-surface"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d"
+dependencies = [
+ "bitflags 2.13.2",
  "objc2 0.6.4",
  "objc2-core-foundation",
 ]
@@ -4133,6 +4119,15 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
+]
+
+[[package]]
+name = "objc2-security"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
+dependencies = [
+ "objc2-core-foundation",
 ]
 
 [[package]]
@@ -5044,7 +5039,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "derive_refineable",
 ]
@@ -5251,7 +5246,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "async-task",
  "backtrace",
@@ -5690,7 +5685,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "heapless",
  "rayon",
@@ -7702,7 +7697,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 dependencies = [
  "tracing",
  "ztracing_macro",
@@ -7711,7 +7706,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/streetwriters/gpui-fast?rev=1eea2d66220fdaab909513f4a99337e17f1e316b#1eea2d66220fdaab909513f4a99337e17f1e316b"
+source = "git+https://github.com/streetwriters/gpui-fast?rev=c380367#c380367b7605f0958f843b160a80d9ef9ea75a6e"
 
 [[package]]
 name = "zune-core"

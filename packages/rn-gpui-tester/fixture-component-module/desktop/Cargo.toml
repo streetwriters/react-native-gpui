@@ -7,7 +7,7 @@ edition = "2021"
 react-native-gpui = { path = "../../../core/ReactGpui/rn-gpui" }
 rn-gpui-module = { path = "../../../core/ReactGpui/rn-gpui-module" }
 rn-gpui-sys = { path = "../../../core/ReactGpui/rn-gpui-sys" }
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "1eea2d66220fdaab909513f4a99337e17f1e316b" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }
 serde_json = "1"
 
 [build-dependencies]
