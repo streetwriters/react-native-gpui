@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, AnyElement, App, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Window};
 use react_native_gpui::extensions::{
     register_component_renderer, ComponentNode, ComponentRenderer,
 };
@@ -41,11 +41,26 @@ impl ComponentRenderer for SvgRenderer {
         if node.component != "RNSVGSvgView" {
             return Some(div().into_any_element());
         }
+        // The frame is in unscaled coordinates and this element is painted
+        // scaled, exactly as `ComponentRenderer::render` documents, so the box
+        // has to be scaled the same way core scales the element it would have
+        // built. `size_full()` sized the image to its parent instead: the
+        // document is rasterized at the window's scale factor, and an image
+        // carries no intrinsic size, so every SVG stretched to fill whatever
+        // surrounded it and painted over the text below it.
         let frame = node.frame;
+        let (scale_x, scale_y) = node.scale;
+        let width = frame.w * scale_x;
+        let height = frame.h * scale_y;
         let document = svg_document(node, frame, cx);
         let scale = window.scale_factor();
         let image = cached_svg_image(document, frame.w, frame.h, scale);
-        Some(gpui::img(image).size_full().into_any_element())
+        Some(
+            gpui::img(image)
+                .w(px(width))
+                .h(px(height))
+                .into_any_element(),
+        )
     }
 }
 

@@ -159,6 +159,14 @@ jobs:
           node scripts/ci/step.mjs --job lint --name "core boundary" -- \
             node scripts/ci/check-core-boundary.mjs
 
+      # macOS cannot compile Linux or Windows code, so a duplicate definition in
+      # those cfg branches passes every local check and fails only on CI. This
+      # reads the attributes instead of compiling, and caught nothing else.
+      - name: Duplicate cfg functions
+        run: |
+          node scripts/ci/step.mjs --job lint --name "cfg functions" -- \
+            node scripts/ci/check-duplicate-cfg-fns.mjs
+
       # JUnit is what the report reads for failing test names, and the default
       # reporter is what a human reads in the log. `npm run test:unit` keeps the
       # pretest hook that builds @react-native-gpui/testing.
@@ -232,9 +240,77 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install -y ninja ccache nasm strawberryperl
+          # Chocolatey is a single point of failure for the whole job: when its
+          # feed returned 499, `ccache` and `nasm` could not be fetched and the
+          # build never started. Both tools are published as plain zips by their
+          # own projects, so a failed `choco install` falls back to those instead
+          # of failing the job. Ninja and Strawberry Perl ship on the runner
+          # image as well, so neither needs a fallback download.
+          $env:PATH = "C:\Program Files\NASM;$env:PATH"
+          foreach ($attempt in 1..2) {
+            choco install -y --no-progress ninja ccache nasm strawberryperl
+            if (Test-Path 'C:\Program Files\NASM\nasm.exe') { break }
+            Start-Sleep -Seconds 10
+          }
+
+          $tools = 'C:\tools\ci-tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+
+          # `curl.exe`, not `Invoke-WebRequest`: a download that fails has to say
+          # so. When the step first used Invoke-WebRequest it exited 1 with no
+          # message at all, which is indistinguishable from a dozen other causes.
+          # curl is on every Windows runner and reports its own errors.
+          function Get-Tool($url, $zip, $exe) {
+            Write-Host "downloading $url"
+            & curl.exe -sS -L --retry 3 --retry-delay 5 --max-time 300 -o $zip $url
+            if ($LASTEXITCODE -ne 0) { throw "curl failed for $url (exit $LASTEXITCODE)" }
+            if (-not (Test-Path $zip)) { throw "no file at $zip after downloading $url" }
+            Write-Host "downloaded $((Get-Item $zip).Length) bytes to $zip"
+            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter $exe | Select-Object -First 1
+            if (-not $found) { throw "$exe was not inside $url" }
+            return $found.FullName
+          }
+
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            # The official release asset, so the version is explicit.
+            $ccache = Get-Tool 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' (Join-Path $env:RUNNER_TEMP 'ccache.zip') 'ccache.exe'
+            Copy-Item $ccache (Join-Path $tools 'ccache.exe')
+          }
+
+          if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) {
+            # 2.16.03 rather than the 3.2.0 Chocolatey packaged: nasm.us has no
+            # 3.2.0 release, so that number came from Chocolatey's own build.
+            $nasm = Get-Tool 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' (Join-Path $env:RUNNER_TEMP 'nasm.zip') 'nasm.exe'
+            New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
+            Copy-Item $nasm 'C:\Program Files\NASM\nasm.exe'
+          }
+
+          # Perl openssl's configure needs. The runner image already ships
+          # Strawberry Perl, so a failed Chocolatey fetch for it is not fatal
+          # either — only the path has to be published.
+          if (-not (Test-Path 'C:\Strawberry\perl\bin\perl.exe')) {
+            throw "perl is missing and Chocolatey could not install it"
+          }
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
+          Add-Content -Path $env:GITHUB_PATH -Value $tools
+          # Assert the tools this job will need, rather than trusting the install:
+          # a missing one only shows up much later, as "NASM not found" from
+          # OpenSSL's configure, with the real cause 20 minutes back in the log.
+          $env:PATH = "$tools;C:\Program Files\NASM;C:\Strawberry\perl\bin;$env:PATH"
+          # ninja, nasm and perl are load-bearing; ccache only makes the build
+          # faster, so its absence is reported and tolerated rather than fatal.
+          $missing = @()
+          foreach ($tool in @('ninja', 'nasm', 'perl')) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
+          }
+          if ($missing.Count -gt 0) {
+            throw "missing build tools after install: $($missing -join ', ')"
+          }
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            Write-Host '::warning::ccache is unavailable; the build will be slower'
+          }
 
       - name: Set up MSVC
         if: runner.os == 'Windows'
@@ -315,6 +391,11 @@ jobs:
           # MSYS rewrites a leading `/` into a drive path, but CCACHE_DIR is an
           # absolute Windows path already, so leave it alone.
           export MSYS2_ARG_CONV_EXCL='*'
+          if ! command -v ccache >/dev/null 2>&1; then
+            # Reported by the tool-install step; the build works without it.
+            echo 'ccache not available, skipping its configuration'
+            exit 0
+          fi
           ccache --version
           # Three platforms share the repo's cache budget, and Cargo and the
           # prebuilt runtime need room too, so keep this to 1 GB each. ccache
@@ -497,11 +578,82 @@ jobs:
 
       - name: Install Windows build tools
         if: runner.os == 'Windows'
+        # Kept identical to the `native` job's step. They had drifted: this copy
+        # still had the old command, so a fix applied to the other one changed
+        # nothing here.
         shell: pwsh
         run: |
-          choco install -y ninja ccache nasm strawberryperl
+          # Chocolatey is a single point of failure for the whole job: when its
+          # feed returned 499, `ccache` and `nasm` could not be fetched and the
+          # build never started. Both tools are published as plain zips by their
+          # own projects, so a failed `choco install` falls back to those instead
+          # of failing the job. Ninja and Strawberry Perl ship on the runner
+          # image as well, so neither needs a fallback download.
+          $env:PATH = "C:\Program Files\NASM;$env:PATH"
+          foreach ($attempt in 1..2) {
+            choco install -y --no-progress ninja ccache nasm strawberryperl
+            if (Test-Path 'C:\Program Files\NASM\nasm.exe') { break }
+            Start-Sleep -Seconds 10
+          }
+
+          $tools = 'C:\tools\ci-tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+
+          # `curl.exe`, not `Invoke-WebRequest`: a download that fails has to say
+          # so. When the step first used Invoke-WebRequest it exited 1 with no
+          # message at all, which is indistinguishable from a dozen other causes.
+          # curl is on every Windows runner and reports its own errors.
+          function Get-Tool($url, $zip, $exe) {
+            Write-Host "downloading $url"
+            & curl.exe -sS -L --retry 3 --retry-delay 5 --max-time 300 -o $zip $url
+            if ($LASTEXITCODE -ne 0) { throw "curl failed for $url (exit $LASTEXITCODE)" }
+            if (-not (Test-Path $zip)) { throw "no file at $zip after downloading $url" }
+            Write-Host "downloaded $((Get-Item $zip).Length) bytes to $zip"
+            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter $exe | Select-Object -First 1
+            if (-not $found) { throw "$exe was not inside $url" }
+            return $found.FullName
+          }
+
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            # The official release asset, so the version is explicit.
+            $ccache = Get-Tool 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' (Join-Path $env:RUNNER_TEMP 'ccache.zip') 'ccache.exe'
+            Copy-Item $ccache (Join-Path $tools 'ccache.exe')
+          }
+
+          if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) {
+            # 2.16.03 rather than the 3.2.0 Chocolatey packaged: nasm.us has no
+            # 3.2.0 release, so that number came from Chocolatey's own build.
+            $nasm = Get-Tool 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' (Join-Path $env:RUNNER_TEMP 'nasm.zip') 'nasm.exe'
+            New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
+            Copy-Item $nasm 'C:\Program Files\NASM\nasm.exe'
+          }
+
+          # Perl openssl's configure needs. The runner image already ships
+          # Strawberry Perl, so a failed Chocolatey fetch for it is not fatal
+          # either — only the path has to be published.
+          if (-not (Test-Path 'C:\Strawberry\perl\bin\perl.exe')) {
+            throw "perl is missing and Chocolatey could not install it"
+          }
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
+          Add-Content -Path $env:GITHUB_PATH -Value $tools
+          # Assert the tools this job will need, rather than trusting the install:
+          # a missing one only shows up much later, as "NASM not found" from
+          # OpenSSL's configure, with the real cause 20 minutes back in the log.
+          $env:PATH = "$tools;C:\Program Files\NASM;C:\Strawberry\perl\bin;$env:PATH"
+          # ninja, nasm and perl are load-bearing; ccache only makes the build
+          # faster, so its absence is reported and tolerated rather than fatal.
+          $missing = @()
+          foreach ($tool in @('ninja', 'nasm', 'perl')) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
+          }
+          if ($missing.Count -gt 0) {
+            throw "missing build tools after install: $($missing -join ', ')"
+          }
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            Write-Host '::warning::ccache is unavailable; the build will be slower'
+          }
 
       - name: Set up MSVC
         if: runner.os == 'Windows'

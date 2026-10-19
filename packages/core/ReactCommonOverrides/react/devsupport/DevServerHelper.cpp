@@ -15,6 +15,9 @@
 #include <openssl/sha.h>
 #include <react/devsupport/inspector/Inspector.h>
 #include <react/devsupport/inspector/InspectorPackagerConnectionDelegate.h>
+#include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <iomanip>
 #include <regex>
 
@@ -66,32 +69,96 @@ std::future<std::string> DevServerHelper::downloadBundleResourceSync(
     const std::string& jsBundleUrl,
     DownloadProgressCallback&& downloadProgressCallback) {
   auto promise = std::make_shared<std::promise<std::string>>();
+  // What the server said about the response, and whether the promise has been
+  // settled: a body that is not a bundle must reject it, and a response that
+  // completes without a body must not leave the caller waiting forever.
+  struct ResponseState {
+    uint16_t status{0};
+    std::string contentType;
+    std::atomic<bool> settled{false};
+  };
+  auto state = std::make_shared<ResponseState>();
+  auto reject = [promise, state](const std::string& message) {
+    if (state->settled.exchange(true)) {
+      return;
+    }
+    LOG(WARNING) << message;
+    try {
+      throw std::runtime_error(message);
+    } catch (...) {
+      try {
+        promise->set_exception(std::current_exception());
+      } catch (...) {
+      }
+    }
+  };
   http::NetworkCallbacks callbacks{
+      .onResponse =
+          [state](
+              uint16_t responseCode,
+              http::Headers headers,
+              const std::string& /*responseUrl*/) {
+            state->status = responseCode;
+            for (auto& [name, value] : headers) {
+              std::string lower = name;
+              std::transform(
+                  lower.begin(), lower.end(), lower.begin(), [](char c) {
+                    return static_cast<char>(std::tolower(c));
+                  });
+              if (lower == "content-type") {
+                state->contentType = value;
+              }
+            }
+          },
       .onBody =
-          [jsBundleUrl, promise, downloadProgressCallback](
+          [jsBundleUrl, promise, state, reject](
               std::unique_ptr<folly::IOBuf> ioBuf) {
             std::string responseStr = ioBuf->moveToFbString().toStdString();
-            promise->set_value(responseStr);
+            // Something other than Metro may be listening on this port (another
+            // project's Metro, for example), and Metro itself answers a failed
+            // build with a JSON error. Either way the body is not a bundle, and
+            // handing it to the engine fails with a syntax error and a blank
+            // window. Reject it, so ReactHost falls back to the built-in bundle.
+            const bool okStatus = state->status == 0 ||
+                (state->status >= 200 && state->status < 300);
+            const bool javascriptType = state->contentType.empty() ||
+                state->contentType.find("javascript") != std::string::npos;
+            const auto first = responseStr.find_first_not_of(" \t\r\n");
+            const bool looksLikeData = first != std::string::npos &&
+                (responseStr[first] == '{' || responseStr[first] == '<');
+            if (!okStatus || !javascriptType || looksLikeData) {
+              reject(fmt::format(
+                  "The dev server at {} did not return a JS bundle (status {}, "
+                  "content type '{}'): {}",
+                  jsBundleUrl,
+                  state->status,
+                  state->contentType,
+                  responseStr.substr(0, 300)));
+              return;
+            }
+            if (!state->settled.exchange(true)) {
+              promise->set_value(std::move(responseStr));
+            }
           },
       .onResponseComplete =
-          [jsBundleUrl, promise, downloadProgressCallback](
+          [jsBundleUrl, promise, state, reject, downloadProgressCallback](
               const std::string& error, bool timeoutError) {
+            if (error.empty() && !timeoutError && !state->settled.load()) {
+              if (downloadProgressCallback) {
+                downloadProgressCallback(DownloadProgressStatus::FAILED);
+              }
+              reject(
+                  "The dev server at " + jsBundleUrl +
+                  " returned an empty response");
+              return;
+            }
             if (!error.empty() || timeoutError) {
               if (downloadProgressCallback) {
                 downloadProgressCallback(DownloadProgressStatus::FAILED);
               }
-              std::string errorMessage =
+              reject(
                   "Failed to download JS bundle from Url: " + jsBundleUrl +
-                  ". Error: " + (error.empty() ? "Timeout" : error);
-              LOG(WARNING) << errorMessage;
-              try {
-                throw std::runtime_error(errorMessage);
-              } catch (...) {
-                try {
-                  promise->set_exception(std::current_exception());
-                } catch (...) {
-                }
-              }
+                  ". Error: " + (error.empty() ? "Timeout" : error));
             } else if (downloadProgressCallback) {
               downloadProgressCallback(DownloadProgressStatus::FINISHED);
             }

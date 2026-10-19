@@ -11,33 +11,43 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `1eea2d66220fdaab909513f4a99337e17f1e316b` (upstream main @ 2026-10-09,
-  "ci: allow release dependency tests time to compile on Windows (#53)", plus
-  the Linux and Windows fixes below)
+- Commit: `c380367` (`rn-gpui-linux`, 2026-10-19: the carried patches below plus
+  the startup deferrals)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
+
+## Startup deferrals
+
+- `c380367` `gpui_macos: defer work the first frame does not read`
+  - `MacKeyboardLayout::new` runs on first key use rather than at platform
+    creation. It cost about 30 ms — `platform created` fell from 43 ms to 12 ms
+    once it was lazy, and nothing in the first frame reads a keyboard layout.
+  - `NSWindow.setAllowsAutomaticWindowTabbing(false)` is set once at platform
+    start instead of per window, so `NSWindow.tabGroup` is nil from the outset
+    and `tab_bar_visible` answers without asking AppKit. A window that asks for
+    a tabbing identifier re-enables it in its own initialiser.
 
 ## Carried patches on top of upstream
 
-- `bb9bd86` `gpui: map X11 windows only when shown` (honour `show: false`)
-- `40aff79` `gpui_linux: apply resizes to unmapped X11 windows`
-- `5a547b9` `gpui_linux: log a missing XInput pointer as a warning`
-- `a161424` `gpui_linux: implement render_to_image for X11 and Wayland`
-- `75603f3` `gpui: expose accessibility identifiers and states in the debug tree`
-- `6f5c836` `gpui_linux: track the X11 map state from map and unmap events`
-- `18c7c9e` `gpui_windows: deliver hover callbacks outside the window procedure`
+- `7338a98` `gpui: map X11 windows only when shown` (honour `show: false`)
+- `2895a8f` `gpui_linux: apply resizes to unmapped X11 windows`
+- `09a45a7` `gpui_linux: log a missing XInput pointer as a warning`
+- `8034d63` `gpui_linux: implement render_to_image for X11 and Wayland`
+- `f8edd01` `gpui: expose accessibility identifiers and states in the debug tree`
+- `f1abf86` `gpui_linux: track the X11 map state from map and unmap events`
+- `1db8564` `gpui_windows: deliver hover callbacks outside the window procedure`
   — the commit message says "hover and resize", but only hover is deferred in it:
   `WM_SIZE` and `WM_MOVE` still invoked their callbacks inline, so the earlier
-  pin compensated in shared `window.rs` instead. `7eb2cdd` finishes the job in
+  pin compensated in shared `window.rs` instead. `172d79f` finishes the job in
   the backend and that compensation is gone.
-- `e2fedd1` `gpui_windows: skip windows that are already gone`
-- `41011e4` `gpui: ignore platform callbacks for a window that has been removed`
-  — amended in effect by `81ae8f1`: that commit made five callbacks discard their
+- `8e846d2` `gpui_windows: skip windows that are already gone`
+- `ebf3ced` `gpui: ignore platform callbacks for a window that has been removed`
+  — amended in effect by `394557f`: that commit made five callbacks discard their
   `update` result, which also silenced a failed `App` borrow. The removed-window
   case is now a typed `WindowRemoved` error that only that case ignores; every
   other failure is logged again.
-- `7eb2cdd` `gpui_windows: defer resize and move out of the window procedure`
-- `81ae8f1` `gpui: log a failed borrow in the platform callbacks again`
-- `1eea2d6` `gpui: defer the move callback so a synchronous move cannot re-enter
+- `172d79f` `gpui_windows: defer resize and move out of the window procedure`
+- `394557f` `gpui: log a failed borrow in the platform callbacks again`
+- `ffc9655` `gpui: defer the move callback so a synchronous move cannot re-enter
 App` — a move performed from inside an `App` update (a JS `set_position`,
   which AppKit implements with `setFrameTopLeftPoint:`) is notified before that
   call returns, so `on_moved` ran `handle.update` while the caller still held

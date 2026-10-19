@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
@@ -8,6 +9,7 @@ import { desktopOs, loadDesktopConfig, targetsFor } from './desktop-config.js';
 import {
   CARGO_PACKAGER_VERSION,
   runtimeLibraries,
+  targetProfileDir,
   toPackagerConfig,
 } from './package-desktop.js';
 
@@ -419,6 +421,10 @@ export async function runDesktop({
     cwd: projectRoot,
     env: cargoEnv,
   });
+
+  // The file the runtime was told to load: the engine's compiled output in a
+  // release build, the Metro bundle otherwise. `package-desktop` stages it.
+  return { runtimeBundlePath, bundlePath };
 }
 
 const appPackageName = (projectRoot, packageJson) =>
@@ -535,6 +541,10 @@ export function desktopLaunchConfig(config, configPath) {
 //! those specs automatically.
 
 fn main() {
+    // A debug build knows where its own bundle is; a release build does not, and
+    // must not: the path would name the machine that built it. A packaged release
+    // app resolves the bundle beside its executable instead.
+    #[cfg(debug_assertions)]
     if std::env::var_os("RN_GPUI_BUNDLE").is_none() {
         std::env::set_var("RN_GPUI_BUNDLE", env!("RN_GPUI_DEFAULT_BUNDLE"));
     }
@@ -572,7 +582,7 @@ function scaffoldDesktop(
     beforeWrite(cargoPath);
     fs.writeFileSync(
       cargoPath,
-      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = false\nstrip = "debuginfo"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
+      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = "line-tables-only"\n# Cargo strips inside the linker, before dsymutil, so package-desktop writes the\n# dSYM and then strips. Full LTO: 2 MB smaller for 1.4x the build time.\nstrip = "none"\nsplit-debuginfo = "packed"\nlto = "fat"\ncodegen-units = 1\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
   }
 
@@ -1150,6 +1160,82 @@ export function collectNodeAddons({
   return { copied, out: outDirectory };
 }
 
+/// The first four bytes of a Hermes bytecode file.
+///
+/// Hermes identifies its output by content, and React Native's loader does too:
+/// the file extension is not consulted, which is why a `.bundle` holding
+/// bytecode works. The magic is `c6 1f bc 03`, followed by the version.
+const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03]);
+
+/**
+ * Strip the symbol table from the release binary, once its debug info is safe.
+ *
+ * Cargo's own `strip = "symbols"` runs inside the linker, before `dsymutil`, so
+ * it leaves an empty dSYM. Stripping here instead — after the dSYM is written and
+ * before the packager copies the binary — gets both: a 10 MB smaller binary and
+ * a debug file that can symbolize a crash.
+ */
+function stripReleaseBinary({ crateDir, binaryName }) {
+  const binary = path.join(targetProfileDir(crateDir, 'release'), binaryName);
+  if (!fs.existsSync(binary)) return;
+  try {
+    if (process.platform === 'win32') return; // The linker already omits it.
+    // `-x` removes every symbol that is not exported, which is the 10 MB the
+    // symbol table costs. `-S` only removes debug info and leaves the table.
+    execFileSync('strip', ['-x', binary], { stdio: 'inherit' });
+    console.log(`stripped symbols from ${path.basename(binary)}`);
+  } catch {
+    console.log(
+      `could not strip ${path.basename(binary)}; the package will be larger`,
+    );
+  }
+}
+
+/**
+ * Copy the bundle a release should ship to `desktop/build/package/index.bundle`.
+ *
+ * One name, one file, and the content is whatever the engine produced. A
+ * Hermes build ships bytecode; a JavaScript-only engine ships JavaScript under
+ * the same name, with one line saying so. The name never varies, so the runtime
+ * has nothing to guess and `Resources/` holds exactly one bundle.
+ */
+function stageBundle({ projectRoot, build }) {
+  const packageDir = path.join(projectRoot, 'desktop', 'build', 'package');
+  fs.mkdirSync(packageDir, { recursive: true });
+  const staged = path.join(packageDir, 'index.bundle');
+  const source = build?.runtimeBundlePath;
+  if (typeof source !== 'string' || !fs.existsSync(source)) {
+    throw new Error(
+      `the release bundle was not produced: expected ${source ?? '(no path)'}`,
+    );
+  }
+  fs.copyFileSync(source, staged);
+
+  const head = Buffer.alloc(HERMES_MAGIC.length);
+  const fd = fs.openSync(staged, 'r');
+  try {
+    fs.readSync(fd, head, 0, HERMES_MAGIC.length, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (head.equals(HERMES_MAGIC)) return staged;
+
+  // Not bytecode. That is correct for a JavaScript-only engine and a packaging
+  // mistake with Hermes, so the two are told apart by whether the engine claims
+  // to compile at all.
+  const engine = loadEngineBundle(projectRoot);
+  if (engine && typeof engine.compile === 'function') {
+    throw new Error(
+      `the Hermes engine did not produce bytecode: ${source} starts with ` +
+        `${JSON.stringify(head.toString('latin1'))}, not the Hermes magic`,
+    );
+  }
+  console.log(
+    'packaging a JavaScript bundle: the active engine compiles to bytecode only with Hermes',
+  );
+  return staged;
+}
+
 /// The `name` a desktop crate declares in its Cargo.toml.
 function desktopCrateName(crateDir) {
   const manifest = fs.readFileSync(path.join(crateDir, 'Cargo.toml'), 'utf8');
@@ -1193,18 +1279,28 @@ export async function packageDesktop({
 
   // 1. The release bundle and binary. `packaging` makes build.rs emit only
   //    relative rpaths, so the result carries no path into this build tree.
-  await runDesktop({
+  const build = await runDesktop({
     projectRoot,
     release: true,
     noLaunch: true,
     packaging: true,
   });
+  // What the release ships: one bundle, always named `index.bundle`, holding
+  // whatever the engine compiled the JavaScript into. React Native's own release
+  // builds do the same — an iOS `main.jsbundle` is bytecode when Hermes is on.
+  const shippedBundle = stageBundle({ projectRoot, build });
 
   const crateDir = path.join(projectRoot, 'desktop');
   // The executable is the crate's name, which is what `scaffoldDesktop` writes
   // into Cargo.toml and what `cargo build` produces.
   const binaryName = desktopCrateName(crateDir);
   const buildDir = path.join(crateDir, 'build');
+
+  // The binary is finished. Ask for the debug file first — it can only be
+  // collected from a binary that still has its debug info — then take the symbols
+  // off, so the packager copies the small binary.
+  ensureDsym({ crateDir, binaryName });
+  stripReleaseBinary({ crateDir, binaryName });
 
   // 2. Icons, from the one PNG the config names.
   const icons = generateIcons(config, { crateDir, projectRoot });
@@ -1234,7 +1330,7 @@ export async function packageDesktop({
     binaryName,
     rpathDir: appJson.name,
     os: desktopOs(process.platform),
-    bundleDir: buildDir,
+    bundleDir: path.dirname(shippedBundle),
     assetsDir: path.join(buildDir, 'assets'),
     icons,
     libraries,
@@ -1258,6 +1354,9 @@ export async function packageDesktop({
 
   fs.rmSync(configPath, { force: true });
   const produced = listPackages(packagerConfig.outDir);
+  // After the packages, not before: cargo-packager writes `dist` itself and would
+  // remove anything already there.
+  copyDebugSymbols({ crateDir, binaryName, outDir: packagerConfig.outDir });
   for (const file of produced) console.log(file);
   return produced;
 }
@@ -1291,6 +1390,87 @@ export function ensureCargoPackager() {
     ],
     {},
   );
+}
+
+/**
+ * Write the release dSYM if it is not there yet.
+ *
+ * Cargo does not invoke `dsymutil`, so a binary built with `strip = "none"` still
+ * has no dSYM until one is asked for. This must happen before `stripReleaseBinary`
+ * — the debug info has to be in the binary to be collected out of it.
+ */
+function ensureDsym({ crateDir, binaryName }) {
+  const profileDir = targetProfileDir(crateDir, 'release');
+  const binary = path.join(profileDir, binaryName);
+  const dsym = path.join(profileDir, `${binaryName}.dSYM`);
+  if (!fs.existsSync(binary)) return;
+  // `dsymutil` writes the bundle read-only, and Cargo then cannot replace the
+  // binary it belongs to: "failed to remove file … Operation not permitted". Make
+  // it writable before removing it.
+  if (fs.existsSync(dsym)) fs.chmodSync(dsym, 0o755);
+  fs.rmSync(dsym, { recursive: true, force: true });
+  try {
+    execFileSync('dsymutil', [binary, '-o', dsym], { stdio: 'inherit' });
+    // `dsymutil` writes the bundle read-only, and Cargo then cannot replace the
+    // binary it belongs to: "failed to remove file … Operation not permitted".
+    if (fs.existsSync(dsym)) fs.chmodSync(dsym, 0o755);
+  } catch (error) {
+    console.log(`could not write a dSYM for ${binaryName}: ${error.message}`);
+  }
+}
+
+/// Whether `file` is a directory with no files anywhere below it.
+function isEmptyDirectory(file) {
+  const stat = fs.statSync(file);
+  if (!stat.isDirectory()) return false;
+  const stack = [file];
+  while (stack.length > 0) {
+    const directory = stack.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile()) return false;
+      if (entry.isDirectory()) stack.push(path.join(directory, entry.name));
+    }
+  }
+  return true;
+}
+
+/**
+ * Put the release debug file beside the package, and not inside it.
+ *
+ * The binary is stripped of its symbol table, so a crash report is addresses and
+ * nothing else. The dSYM (or `.dwp`, or `.pdb`) is what turns those back into
+ * function names, and it must not ship: it is larger than the binary and useless
+ * to anyone who is not symbolizing.
+ */
+function copyDebugSymbols({ crateDir, binaryName, outDir }) {
+  const profileDir = targetProfileDir(crateDir, 'release');
+  // `split-debuginfo = "packed"` gives a dSYM on macOS, a `.dwp` on Linux and a
+  // `.pdb` on Windows. The unpacked `.debug` file is listed too because a
+  // toolchain that does not support packing falls back to it.
+  const candidates = [
+    path.join(profileDir, `${binaryName}.dSYM`),
+    path.join(profileDir, `${binaryName}.dwp`),
+    path.join(profileDir, `${binaryName}.pdb`),
+    path.join(profileDir, `${binaryName}.debug`),
+  ];
+  // A dSYM directory that exists but holds no DWARF is a leftover, not a result.
+  const found = candidates.filter(
+    file => fs.existsSync(file) && !isEmptyDirectory(file),
+  );
+  if (found.length === 0) {
+    console.log(
+      'no release debug file was produced; a crash report will not be symbolizable',
+    );
+    return;
+  }
+  for (const file of found) {
+    const target = path.join(outDir, path.basename(file));
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.cpSync(file, target, { recursive: true });
+    // A read-only directory here would make the next run fail to replace it.
+    fs.chmodSync(target, 0o755);
+    console.log(`debug symbols: ${target}`);
+  }
 }
 
 /** The packages a run produced, newest first. */

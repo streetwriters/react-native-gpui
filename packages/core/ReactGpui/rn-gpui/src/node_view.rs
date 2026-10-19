@@ -1893,7 +1893,21 @@ impl Render for RNNodeView {
         if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.component_node(cx);
             if let Some(painted) = renderer.render(&node, window, cx) {
-                return painted;
+                // The renderer paints the node's whole appearance, but core still
+                // owns where the node is: without this box the element is an
+                // unpositioned flow child of the parent, and a `size_full()`
+                // image fills the parent instead of the node's frame.
+                let mut placed = div().id(self.tag);
+                *placed.style() = {
+                    let mut style = self.cached_style.clone();
+                    style.position = Some(Position::Absolute);
+                    style.inset.left = Some(px(base_left).into());
+                    style.inset.top = Some(px(base_top).into());
+                    style.size.width = Some(px(frame.w * scale_x).into());
+                    style.size.height = Some(px(frame.h * scale_y).into());
+                    style
+                };
+                return placed.child(painted).into_any_element();
             }
         }
         let mut element = div().id(self.tag);

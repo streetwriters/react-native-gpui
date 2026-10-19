@@ -52,10 +52,17 @@ fn main() {
     };
     println!("cargo:rustc-env=RN_GPUI_APP_NAME={app_name}");
     println!("cargo:rustc-env=RN_GPUI_APP_ID={app_id}");
-    println!(
-        "cargo:rustc-env=RN_GPUI_DEFAULT_BUNDLE={}",
-        desktop_root.join("build/index.bundle").display()
-    );
+    // Only a debug build names the bundle it was developed against. A release
+    // binary must find the bundle beside its own executable, because the path
+    // baked in here is where this machine happened to build it — and on the
+    // machine the package is installed on, that path does not exist.
+    println!("cargo:rerun-if-env-changed=PROFILE");
+    if std::env::var("PROFILE").as_deref() == Ok("debug") {
+        println!(
+            "cargo:rustc-env=RN_GPUI_DEFAULT_BUNDLE={}",
+            desktop_root.join("build/index.bundle").display()
+        );
+    }
 
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");
     println!("cargo:rerun-if-env-changed=RN_GPUI_PACKAGING");
