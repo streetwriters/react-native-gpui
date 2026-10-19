@@ -282,7 +282,17 @@ function buildFlags() {
   const isMsvc = process.platform === 'win32';
   const isGcc = !isMsvc && process.platform === 'linux';
   const debugCxx = isMsvc ? '/Zi' : isGcc ? '-g1' : '-gline-tables-only';
-  const common = ['-w'];
+  // One section per function and per datum, so the linker can drop what an
+  // executable never reaches. `cc` (which a source build goes through) adds
+  // these itself; a prebuilt that omitted them behaved differently from a
+  // source build in exactly one visible way: an unused C++ module's call into
+  // the Rust module installers stayed live, and the `rn-gpui-sys` test binary
+  // then failed to link `rn_gpui_fixture_badge_frame` on Linux. Rust links with
+  // `--gc-sections` and reports only the undefined symbols that survive it, so
+  // without per-function sections a single live function keeps a whole object.
+  // MSVC has no equivalent flag; it dead-strips per function already.
+  const sections = isMsvc ? [] : ['-ffunction-sections', '-fdata-sections'];
+  const common = ['-w', ...sections];
   return {
     cxx: [...common, debugCxx],
     c: [...common, debugCxx],

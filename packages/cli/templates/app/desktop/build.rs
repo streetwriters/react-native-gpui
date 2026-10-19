@@ -23,10 +23,14 @@ fn main() {
     let desktop_root = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"),
     );
-    let app_json_path = desktop_root
+    // `app.json` names the app; `desktop/desktop.json` carries the identifier
+    // and everything else the packaging step needs. The loader the CLI uses is
+    // JavaScript, so this reads the same file directly and applies the two
+    // defaults it would apply.
+    let project_root = desktop_root
         .parent()
-        .expect("desktop folder has a React Native project root")
-        .join("app.json");
+        .expect("desktop folder has a React Native project root");
+    let app_json_path = project_root.join("app.json");
     println!("cargo:rerun-if-changed={}", app_json_path.display());
     let app_json: serde_json::Value = serde_json::from_slice(
         &std::fs::read(&app_json_path)
@@ -37,10 +41,30 @@ fn main() {
         .as_str()
         .filter(|name| !name.is_empty())
         .expect("app.json must define a nonempty name");
-    let app_id = app_json["desktop"]["appId"]
-        .as_str()
-        .filter(|app_id| !app_id.is_empty())
-        .expect("app.json must define desktop.appId; run npx react-native init-desktop");
+    if app_json["desktop"]
+        .as_object()
+        .is_some_and(|desktop| !desktop.is_empty())
+    {
+        panic!("move `app.json` desktop.* into `desktop/desktop.json` (see the README)");
+    }
+
+    let desktop_json_path = project_root.join("desktop/desktop.json");
+    println!("cargo:rerun-if-changed={}", desktop_json_path.display());
+    let desktop_json: serde_json::Value = std::fs::read(&desktop_json_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let app_id = match desktop_json["identifier"].as_str() {
+        Some(identifier) if !identifier.is_empty() => identifier.to_string(),
+        _ => format!(
+            "com.example.{}",
+            app_name
+                .to_lowercase()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect::<String>()
+        ),
+    };
     println!("cargo:rustc-env=RN_GPUI_APP_NAME={app_name}");
     println!("cargo:rustc-env=RN_GPUI_APP_ID={app_id}");
     println!(
@@ -49,6 +73,7 @@ fn main() {
     );
 
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");
+    println!("cargo:rerun-if-env-changed=RN_GPUI_PACKAGING");
     let Ok(paths) = std::env::var("DEP_RN_GPUI_RUNTIME_RPATHS") else {
         return;
     };
@@ -57,8 +82,50 @@ fn main() {
         stage_shared_libraries(dirs);
         return;
     }
-    for path in dirs {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
+    // `RN_GPUI_PACKAGING` means this binary is about to be installed somewhere
+    // else, so only the relative rpaths belong in it. Keeping the absolute ones
+    // would let a packaged app load this build tree's libraries in preference to
+    // its own on the machine that built it — which hides exactly the packaging
+    // bugs the packaged run exists to catch.
+    let packaging = std::env::var("RN_GPUI_PACKAGING").is_ok();
+    if !packaging {
+        for path in dirs {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{path}");
+        }
+    }
+    emit_relocatable_rpaths(app_name);
+}
+
+/// rpaths that survive being installed somewhere else.
+///
+/// The absolute paths above let a development build run from this tree. A
+/// packaged app is copied to another machine, where those paths do not exist,
+/// so a release build also carries paths relative to the executable: the
+/// layout the installers produce.
+fn emit_relocatable_rpaths(app_name: &str) {
+    if std::env::var("PROFILE").as_deref() != Ok("release") {
+        return;
+    }
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let mut emit = |rpath: String| println!("cargo:rustc-link-arg=-Wl,-rpath,{rpath}");
+    match os.as_str() {
+        // An app bundle puts the executable in Contents/MacOS and the shipped
+        // libraries in Contents/Frameworks.
+        "macos" => emit("@executable_path/../Frameworks".into()),
+        // Linux installs the executable at `usr/bin` and ships its libraries
+        // under `usr/lib`:
+        // - the deb puts them in `usr/lib/<app>`;
+        // - an AppImage's libraries are flat in `usr/lib`, because that is the
+        //   directory AppRun puts on the library path and the one linuxdeploy
+        //   resolves dependencies from before the image is assembled.
+        // Both are covered, so one binary works in either layout.
+        "linux" => {
+            emit(format!("$ORIGIN/../lib/{app_name}"));
+            emit("$ORIGIN/../lib".into());
+            emit("$ORIGIN".into());
+        }
+        // Windows has no rpath: the DLLs are copied beside the executable.
+        _ => {}
     }
 }
 

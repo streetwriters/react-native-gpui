@@ -1,0 +1,6 @@
+{
+  "$schema": "../node_modules/@react-native-gpui/cli/desktop.schema.json",
+  "productName": "React Native GPUI Tester",
+  "identifier": "org.reactnativegpui.tester",
+  "icon": "assets/icon.png"
+}

@@ -11,7 +11,7 @@
 // is to catch a package that only works because the checkout is next to it.
 // Steps are named so the workflow can report each one through step.mjs.
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -206,6 +206,305 @@ function main() {
     });
   } else {
     run(binary, [], { cwd: projectRoot, env: smoke });
+  }
+
+  // 6. Package it, install the package outside the build tree, and run that.
+  //
+  //    This is the step that catches what a build-tree run cannot: a library
+  //    left behind, a bundle the executable cannot find, an rpath that only
+  //    works from where it was compiled.
+  packageAndSmoke({ projectRoot, manifest, appDir, binary });
+}
+
+/**
+ * Build the installers, install one outside the tree, and start the result.
+ *
+ * The formats are this phase's alpha set for each OS. Each is installed the way
+ * a user would install it, not run from `dist/`.
+ */
+function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
+  run('npx', ['react-native', 'package-desktop'], {
+    cwd: projectRoot,
+    shell: process.platform === 'win32',
+  });
+
+  // `package-desktop` writes its output to `desktop/build/dist`, which is a
+  // sibling of the `build/target` the scaffold points Cargo at.
+  const distDir = path.join(projectRoot, 'desktop', 'build', 'dist');
+  const produced = fs.existsSync(distDir)
+    ? fs.readdirSync(distDir).filter(name => !name.startsWith('.'))
+    : [];
+  if (produced.length === 0) {
+    throw new Error(`package-desktop produced nothing in ${distDir}`);
+  }
+  process.stderr.write(`packages: ${produced.join(', ')}\n`);
+
+  const installDir = path.join(appDir, 'installed');
+  fs.mkdirSync(installDir, { recursive: true });
+  const smoke = { ...process.env, RN_GPUI_SMOKE: '1' };
+
+  if (process.platform === 'darwin') {
+    const app = produced.find(name => name.endsWith('.app'));
+    if (app === undefined) throw new Error('no .app was produced');
+    run('ditto', [path.join(distDir, app), path.join(installDir, app)]);
+    const installed = path.join(
+      installDir,
+      app,
+      'Contents',
+      'MacOS',
+      binaryName(manifest.name),
+    );
+    if (!fs.existsSync(installed)) {
+      throw new Error(`the app bundle has no executable at ${installed}`);
+    }
+    checkLinkage(
+      path.join(installDir, app),
+      path.join('Contents', 'MacOS', binaryName(manifest.name)),
+    );
+    run(installed, [], { cwd: installDir, env: smoke });
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const installer = produced.find(name =>
+      name.toLowerCase().endsWith('.exe'),
+    );
+    if (installer === undefined) throw new Error('no NSIS installer produced');
+    // cargo-packager names the installer file after the main binary and the
+    // version — `<binary>_<version>_<arch>-setup.exe` — and that name is not
+    // configurable, so it follows the crate rather than `productName`. What
+    // `productName` controls is the installer's title and its Start-menu entry,
+    // which nothing here reads back. Only the file name is asserted.
+    const expected = new RegExp(
+      `^${binaryName(manifest.name)}_\\d+\\.\\d+\\.\\d+_.+-setup\\.exe$`,
+      'u',
+    );
+    if (!expected.test(installer)) {
+      throw new Error(
+        `the installer is named ${installer}, which is not <binary>_<version>_<arch>-setup.exe`,
+      );
+    }
+    const target = path.join(installDir, 'SmokeApp');
+    run(path.join(distDir, installer), ['/S', `/D=${target}`], {
+      cwd: installDir,
+    });
+    // `binary` is the absolute path of the built exe; the install directory is
+    // a new root, so only the file name carries over.
+    const installed = path.join(target, `${binaryName(manifest.name)}.exe`);
+    if (!fs.existsSync(installed)) {
+      throw new Error(`the installer did not place a binary at ${installed}`);
+    }
+    checkLinkage(target, `${binaryName(manifest.name)}.exe`);
+    run(installed, [], { cwd: target, env: smoke });
+    return;
+  }
+
+  // Linux: the deb is extracted rather than installed, because installing one
+  // needs root and this only has to prove the layout.
+  const deb = produced.find(name => name.endsWith('.deb'));
+  if (deb === undefined) throw new Error('no .deb was produced');
+  const extracted = path.join(installDir, 'deb');
+  fs.mkdirSync(extracted, { recursive: true });
+  run('dpkg', ['-x', path.join(distDir, deb), extracted], { cwd: installDir });
+  const installed = path.join(
+    extracted,
+    'usr',
+    'bin',
+    binaryName(manifest.name),
+  );
+  if (!fs.existsSync(installed)) {
+    throw new Error(`the deb did not place a binary at ${installed}`);
+  }
+  checkLinkage(extracted, path.join('usr', 'bin', binaryName(manifest.name)));
+  // The libraries have to be in the directory the binary's rpath names. Asking
+  // the loader rather than parsing ELF here: `ldd` reports a missing library as
+  // "not found", which names the file instead of failing later with
+  // "error while loading shared libraries".
+  const ldd = execFileSync('ldd', [installed], {
+    encoding: 'utf8',
+    env: { ...process.env, LD_LIBRARY_PATH: '' },
+  });
+  const missing = ldd
+    .split('\n')
+    .filter(line => line.includes('not found'))
+    .map(line => line.trim());
+  if (missing.length > 0) {
+    throw new Error(
+      `the deb install cannot resolve its libraries:\n${missing.join('\n')}`,
+    );
+  }
+  run('xvfb-run', ['-a', '-s', '-screen 0 1280x900x24', installed], {
+    cwd: extracted,
+    env: smoke,
+  });
+
+  // The AppImage is a different packaging of the same files, and it is what most
+  // Linux users will download: it mounts itself and runs from the mount, which
+  // is where a wrong `$ORIGIN` shows up. `--appimage-extract-and-run` avoids the
+  // FUSE requirement that a container does not have.
+  const appimage = produced.find(name => name.endsWith('.AppImage'));
+  if (appimage === undefined) throw new Error('no .AppImage was produced');
+  run(
+    'xvfb-run',
+    [
+      '-a',
+      '-s',
+      '-screen 0 1280x900x24',
+      path.join(distDir, appimage),
+      '--appimage-extract-and-run',
+    ],
+    {
+      cwd: installDir,
+      env: smoke,
+    },
+  );
+}
+
+/**
+ * Fail when a packaged binary still points into the build tree.
+ *
+ * Two things can leak, and the second is the one that matters:
+ *
+ * - a library *dependency* naming an absolute path, which is what `otool -L` and
+ *   `readelf -d`'s NEEDED lines show;
+ * - an `LC_RPATH`/`RUNPATH` entry naming an absolute path. `otool -L` does not
+ *   print these, and a packaged app carrying the build machine's rpaths will
+ *   load the build tree's libraries in preference to its own. A package that
+ *   only works because it was run where it was built is not a package, so this
+ *   is checked even though the smoke run usually hides it.
+ *
+ * On Windows there are no paths to leak — PE imports are bare DLL names — so the
+ * check is that the runtime DLLs actually travelled with the app.
+ */
+function checkLinkage(root, name) {
+  if (process.platform === 'win32') {
+    checkRuntimeDlls(root);
+    return;
+  }
+
+  const binary = path.join(root, name);
+  if (!fs.existsSync(binary)) {
+    throw new Error(`no packaged binary at ${binary}`);
+  }
+  const buildPath = /\/(?:Users|home|private\/var|var\/folders)\//u;
+  const offenders = [];
+
+  if (process.platform === 'darwin') {
+    const linked = execFileSync('otool', ['-L', binary], { encoding: 'utf8' });
+    // The first line is the binary's own path followed by a colon, and it is
+    // unterminated on CI (`/Users/runner/...`), which is why it used to trip
+    // this check on every macOS runner and pass locally under `/tmp`.
+    for (const line of linked.split('\n').slice(1)) {
+      if (buildPath.test(line)) offenders.push(line.trim());
+    }
+    const load = execFileSync('otool', ['-l', binary], { encoding: 'utf8' });
+    // `path <dir> (offset N)`, four lines after each LC_RPATH.
+    for (const line of load.split('\n')) {
+      const match = line.match(/^\s+path (\S+) \(offset/u);
+      if (match !== null && buildPath.test(`/${match[1]}`)) {
+        offenders.push(`rpath ${match[1]}`);
+      }
+    }
+  } else {
+    const dynamic = execFileSync('readelf', ['-d', binary], {
+      encoding: 'utf8',
+    });
+    for (const line of dynamic.split('\n')) {
+      if (!/(?:NEEDED|RPATH|RUNPATH)/u.test(line)) continue;
+      if (buildPath.test(line)) offenders.push(line.trim());
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      `packaged binary still references the build tree:\n${offenders.join('\n')}`,
+    );
+  }
+}
+
+/**
+ * On Windows, the runtime libraries have to be in the install directory.
+ *
+ * PE imports are bare DLL names and the loader searches beside the executable,
+ * so a missing DLL is a failure the smoke run would report as an obscure load
+ * error. This script runs against a packed consumer install and cannot import
+ * the CLI, so it reads the manifests the install left behind instead.
+ */
+function checkRuntimeDlls(root) {
+  const present = new Set();
+  for (const name of listDlls(root)) present.add(name.toLowerCase());
+  if (present.size === 0) {
+    throw new Error(`the install at ${root} ships no DLLs at all`);
+  }
+
+  // The names that must be there. `hermesvm.dll` and `jsi.dll` are the two the
+  // runtime cannot start without, and the executable's own imports cover the
+  // rest. Only runtime-looking imports count: `kernel32.dll` and friends come
+  // from Windows itself.
+  //
+  // The build's recorded directories are deliberately not a source here. They
+  // hold third-party build output as well as shipped libraries, so requiring
+  // everything in them would fail on a DLL that is correctly not packaged.
+  const expected = new Set(['hermesvm.dll', 'jsi.dll']);
+  for (const name of importedDlls(root)) {
+    if (RUNTIME_DLL.test(name)) expected.add(name.toLowerCase());
+  }
+
+  const missing = [...expected].filter(name => !present.has(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `the install at ${root} is missing runtime DLLs: ${missing.join(', ')}` +
+        `\n  shipped: ${[...present].sort().join(', ')}`,
+    );
+  }
+  process.stderr.write(`runtime DLLs: ${[...present].sort().join(', ')}\n`);
+}
+
+/// A DLL the app is expected to ship, as opposed to a system one.
+///
+/// `kernel32.dll` and friends live in Windows itself; the runtime's own
+/// libraries are distinctive enough to name.
+const RUNTIME_DLL =
+  /^(?:hermesvm|jsi|reactnative|rn_gpui|folly|glog|double-conversion)/iu;
+
+/// Every `.dll` directly in one directory, as file names.
+function listDlls(directory) {
+  const names = new Set();
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return names;
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll')) {
+      names.add(entry.name);
+    }
+  }
+  return names;
+}
+
+/// The DLL names the installed executable imports.
+///
+/// `objdump` is on the runner because the Rust toolchain brings it. A missing
+/// `objdump` is not a failure: the expected names below still have to be there.
+function importedDlls(root) {
+  let binary;
+  try {
+    binary = fs
+      .readdirSync(root)
+      .find(name => name.toLowerCase().endsWith('.exe'));
+  } catch {
+    return [];
+  }
+  if (binary === undefined) return [];
+  try {
+    const output = execFileSync('objdump', ['-p', path.join(root, binary)], {
+      encoding: 'utf8',
+    });
+    return [...output.matchAll(/DLL Name:\s*(\S+)/gu)].map(match => match[1]);
+  } catch {
+    return [];
   }
 }
 

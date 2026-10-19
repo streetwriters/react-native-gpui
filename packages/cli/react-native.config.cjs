@@ -55,6 +55,41 @@ module.exports = {
       ],
     },
     {
+      name: 'package-desktop',
+      description:
+        'Build installable packages for this OS from desktop/desktop.json',
+      func: async (_argv, _config, options) => {
+        const { packageDesktop } = await import('./src/commands.js');
+        await packageDesktop({
+          projectRoot: options.projectRoot,
+          targets: options.target,
+          outDir: options.out,
+        });
+      },
+      options: [
+        {
+          name: '--target <formats>',
+          description:
+            'Comma-separated formats: app, dmg, nsis, deb, appimage (default: all for this OS)',
+        },
+        {
+          name: '--project-root <path>',
+          description: 'React Native project directory',
+        },
+        { name: '--out <dir>', description: 'Output directory' },
+      ],
+      examples: [
+        {
+          desc: 'Build every format this OS can produce',
+          cmd: 'npx react-native package-desktop',
+        },
+        {
+          desc: 'Build only a dmg',
+          cmd: 'npx react-native package-desktop --target dmg',
+        },
+      ],
+    },
+    {
       name: 'init-desktop',
       description: 'Add GPUI desktop support to an existing React Native app',
       func: async (_argv, _config, options) => {

@@ -153,9 +153,7 @@ fn collect_font_files(directory: &Path, files: &mut Vec<PathBuf>) {
 }
 
 pub(crate) fn install_fonts(cx: &mut App) {
-    let directory = std::env::var_os("RN_GPUI_ASSETS_DIR")
-        .map(PathBuf::from)
-        .map(|assets| assets.join("fonts"));
+    let directory = crate::resources::default_assets_dir().map(|assets| assets.join("fonts"));
     if let Some(directory) = directory {
         let mut files = Vec::new();
         collect_font_files(&directory, &mut files);

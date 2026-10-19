@@ -95,6 +95,9 @@ a JSI type. A spec `readonly onProgress: CodegenTypes.EventEmitter<number>`
 generates a protected `emitOnProgress(value)` that any thread may call, and
 `sendEvent("name", body)` covers modules used through `NativeEventEmitter`.
 
-`desktop/Info.plist` and `desktop/assets/` are the app-bundle
-metadata and icon slots used by Phase 5 packaging. Add the app icon as
-`desktop/assets/AppIcon.icns`.
+`desktop/desktop.json` is the app's own configuration: its name, identifier,
+version, icon, window and how it is packaged. Its schema is
+`@react-native-gpui/cli/desktop.schema.json`, so an editor completes it. A
+`desktop.<os>.json` beside it is merged over the base for that OS. The
+`Info.plist` is generated from these settings rather than hand-written, and
+`npx react-native package-desktop` builds the installers from the same file.
