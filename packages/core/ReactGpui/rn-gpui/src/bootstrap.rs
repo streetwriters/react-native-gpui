@@ -870,16 +870,23 @@ pub fn run_with(mut config: DesktopAppConfig) {
     });
     let platform = gpui_platform::current_platform(headless);
     startup_trace("platform created");
-    let mut waited_for_display = 0u64;
-    while platform.displays().is_empty() {
-        if waited_for_display == 0 {
-            log::warn!("no active macOS display; waiting before entering AppKit launch");
-            startup_trace("waiting for an active display");
-        }
-        std::thread::sleep(Duration::from_secs(2));
-        waited_for_display += 2;
-        if waited_for_display % 30 == 0 {
-            log::warn!("still waiting for an active macOS display ({waited_for_display}s)");
+    // A locked or absent session on macOS cannot launch AppKit, and the platform
+    // reports no display until it can. Nothing else does: on Linux GPUI starts on
+    // a placeholder connection and attaches X11 or Wayland once the app runs, so
+    // its display list is legitimately empty here — waiting for it never ends.
+    #[cfg(target_os = "macos")]
+    {
+        let mut waited_for_display = 0u64;
+        while platform.displays().is_empty() {
+            if waited_for_display == 0 {
+                log::warn!("no active display; waiting before entering AppKit launch");
+                startup_trace("waiting for an active display");
+            }
+            std::thread::sleep(Duration::from_secs(2));
+            waited_for_display += 2;
+            if waited_for_display % 30 == 0 {
+                log::warn!("still waiting for an active display ({waited_for_display}s)");
+            }
         }
     }
     startup_trace("active display detected");
@@ -990,9 +997,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         } else {
             1.0
         });
+        // A surface must not start at zero: `RN_GPUI_WIDTH=0` would otherwise
+        // reach JS as a 0x0 viewport, and Fabric would lay out the whole tree in
+        // no space at all. The window's own size is authoritative once it opens.
+        let surface_width = width.max(320.0);
+        let surface_height = height.max(240.0);
         let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
         startup_trace("host created");
-        host.set_window_metrics(width, height, estimated_scale);
+        host.set_window_metrics(surface_width, surface_height, estimated_scale);
         startup_trace("bundle load start");
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");
@@ -1004,7 +1016,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // channel until the store and its window exist, which is the same path a
         // background surface already uses.
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
-        host.start_surface(1, &module, width, height - menu_bar_inset, estimated_scale);
+        host.start_surface(
+            1,
+            &module,
+            surface_width,
+            (surface_height - menu_bar_inset).max(1.0),
+            estimated_scale,
+        );
         startup_trace("surface started");
 
         startup_trace("opening GPUI window");
@@ -1134,11 +1152,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // estimate — a restore onto another display, or a maximized window — so
         // the surface is told, through the path a resize takes.
         // A wrong estimate is corrected here, not tolerated: JS reads Dimensions at
-        // module initialization, so a surface told the wrong scale lays out at the
-        // wrong density until something resizes it.
-        if (window_scale - estimated_scale).abs() > f32::EPSILON {
+        // module initialization, so a surface told the wrong size or scale lays out
+        // against it until something resizes it. Size is checked as well as scale,
+        // because they are wrong for different reasons — the scale is a guess from
+        // the platform, the size comes from the config or the restored window
+        // state, and a window manager can override either.
+        let size_moved = (width - surface_width).abs() > f32::EPSILON
+            || (height - surface_height).abs() > f32::EPSILON;
+        if size_moved || (window_scale - estimated_scale).abs() > f32::EPSILON {
             log::info!(
-                "surface scale corrected {estimated_scale}x -> {window_scale}x after the window opened"
+                "surface corrected {surface_width}x{surface_height}@{estimated_scale}x -> \
+                 {width}x{height}@{window_scale}x after the window opened"
             );
             host.set_window_metrics(width, height, scale);
         }
