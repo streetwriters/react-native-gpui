@@ -294,7 +294,7 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     if (!fs.existsSync(installed)) {
       throw new Error(`the installer did not place a binary at ${installed}`);
     }
-    checkLinkage(target, `${binaryName(manifest.name)}.exe`, projectRoot);
+    checkLinkage(target, `${binaryName(manifest.name)}.exe`);
     run(installed, [], { cwd: target, env: smoke });
     return;
   }
@@ -376,9 +376,9 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
  * On Windows there are no paths to leak — PE imports are bare DLL names — so the
  * check is that the runtime DLLs actually travelled with the app.
  */
-function checkLinkage(root, name, projectRoot) {
+function checkLinkage(root, name) {
   if (process.platform === 'win32') {
-    checkRuntimeDlls(root, projectRoot);
+    checkRuntimeDlls(root);
     return;
   }
 
@@ -430,18 +430,22 @@ function checkLinkage(root, name, projectRoot) {
  * error. This script runs against a packed consumer install and cannot import
  * the CLI, so it reads the manifests the install left behind instead.
  */
-function checkRuntimeDlls(root, projectRoot) {
+function checkRuntimeDlls(root) {
   const present = new Set();
   for (const name of listDlls(root)) present.add(name.toLowerCase());
-
-  // The names that must be there, from two sources that cannot both be wrong:
-  // the libraries the executable imports (`objdump` shows the bare DLL names),
-  // and the engine's own runtimeFiles list. A missing DLL is otherwise only
-  // reported by the smoke run, as an obscure load error.
-  const expected = new Set(['hermesvm.dll', 'jsi.dll']);
-  for (const name of listDlls(recordedWindowsDirectories(projectRoot))) {
-    expected.add(name.toLowerCase());
+  if (present.size === 0) {
+    throw new Error(`the install at ${root} ships no DLLs at all`);
   }
+
+  // The names that must be there. `hermesvm.dll` and `jsi.dll` are the two the
+  // runtime cannot start without, and the executable's own imports cover the
+  // rest. Only runtime-looking imports count: `kernel32.dll` and friends come
+  // from Windows itself.
+  //
+  // The build's recorded directories are deliberately not a source here. They
+  // hold third-party build output as well as shipped libraries, so requiring
+  // everything in them would fail on a DLL that is correctly not packaged.
+  const expected = new Set(['hermesvm.dll', 'jsi.dll']);
   for (const name of importedDlls(root)) {
     if (RUNTIME_DLL.test(name)) expected.add(name.toLowerCase());
   }
@@ -450,7 +454,7 @@ function checkRuntimeDlls(root, projectRoot) {
   if (missing.length > 0) {
     throw new Error(
       `the install at ${root} is missing runtime DLLs: ${missing.join(', ')}` +
-        `\n  shipped: ${[...present].sort().join(', ') || '(none)'}`,
+        `\n  shipped: ${[...present].sort().join(', ')}`,
     );
   }
   process.stderr.write(`runtime DLLs: ${[...present].sort().join(', ')}\n`);
@@ -463,49 +467,21 @@ function checkRuntimeDlls(root, projectRoot) {
 const RUNTIME_DLL =
   /^(?:hermesvm|jsi|reactnative|rn_gpui|folly|glog|double-conversion)/iu;
 
-/// Every `.dll` in a directory or list of directories, as file names.
+/// Every `.dll` directly in one directory, as file names.
 function listDlls(directory) {
   const names = new Set();
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return names;
+  }
+  for (const entry of entries) {
     if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll')) {
       names.add(entry.name);
     }
   }
   return names;
-}
-
-/// The Windows library directories the build recorded, if it recorded any.
-function recordedWindowsDirectories(projectRoot) {
-  const directories = new Set();
-  const cmakeRoot = path.join(
-    projectRoot,
-    'desktop',
-    'build',
-    'target',
-    'rn-gpui-cmake',
-  );
-  let triples;
-  try {
-    triples = fs.readdirSync(cmakeRoot, { withFileTypes: true });
-  } catch {
-    return directories;
-  }
-  for (const triple of triples) {
-    if (!triple.isDirectory()) continue;
-    const tripleDir = path.join(cmakeRoot, triple.name);
-    for (const config of fs.readdirSync(tripleDir, { withFileTypes: true })) {
-      if (!config.isDirectory() || !/^Release/u.test(config.name)) continue;
-      const configDir = path.join(tripleDir, config.name);
-      for (const file of walkFiles(configDir)) {
-        if (!/^rpath_dirs-.*\.txt$/u.test(path.basename(file))) continue;
-        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-          const directory = line.trim();
-          if (directory && fs.existsSync(directory)) directories.add(directory);
-        }
-      }
-    }
-  }
-  return directories;
 }
 
 /// The DLL names the installed executable imports.
@@ -530,24 +506,6 @@ function importedDlls(root) {
   } catch {
     return [];
   }
-}
-
-/// Every file at or below `root`, bounded in depth.
-function walkFiles(root, depth = 0) {
-  if (depth > 5) return [];
-  const out = [];
-  let entries;
-  try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    const target = path.join(root, entry.name);
-    if (entry.isDirectory()) out.push(...walkFiles(target, depth + 1));
-    else if (entry.isFile()) out.push(target);
-  }
-  return out;
 }
 
 /// Where cargo puts the app's binaries: `CARGO_TARGET_DIR` when set (CI keeps
