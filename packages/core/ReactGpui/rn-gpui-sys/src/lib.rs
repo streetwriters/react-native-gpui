@@ -356,6 +356,13 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
+        include!("GpuiStartupSignpost.h");
+
+        /// A startup stage, as an `os_signpost` point event. A no-op off Apple.
+        fn rn_gpui_startup_signpost(stage: &str, elapsed_ms: u64);
+    }
+
+    unsafe extern "C++" {
         include!("GpuiHost.h");
         type GpuiHost;
 
