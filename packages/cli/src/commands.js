@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
@@ -419,6 +420,10 @@ export async function runDesktop({
     cwd: projectRoot,
     env: cargoEnv,
   });
+
+  // The file the runtime was told to load: the engine's compiled output in a
+  // release build, the Metro bundle otherwise. `package-desktop` stages it.
+  return { runtimeBundlePath, bundlePath };
 }
 
 const appPackageName = (projectRoot, packageJson) =>
@@ -1154,6 +1159,58 @@ export function collectNodeAddons({
   return { copied, out: outDirectory };
 }
 
+/// The first four bytes of a Hermes bytecode file.
+///
+/// Hermes identifies its output by content, and React Native's loader does too:
+/// the file extension is not consulted, which is why a `.bundle` holding
+/// bytecode works. The magic is `c6 1f bc 03`, followed by the version.
+const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03]);
+
+/**
+ * Copy the bundle a release should ship to `desktop/build/package/index.bundle`.
+ *
+ * One name, one file, and the content is whatever the engine produced. A
+ * Hermes build ships bytecode; a JavaScript-only engine ships JavaScript under
+ * the same name, with one line saying so. The name never varies, so the runtime
+ * has nothing to guess and `Resources/` holds exactly one bundle.
+ */
+function stageBundle({ projectRoot, build }) {
+  const packageDir = path.join(projectRoot, 'desktop', 'build', 'package');
+  fs.mkdirSync(packageDir, { recursive: true });
+  const staged = path.join(packageDir, 'index.bundle');
+  const source = build?.runtimeBundlePath;
+  if (typeof source !== 'string' || !fs.existsSync(source)) {
+    throw new Error(
+      `the release bundle was not produced: expected ${source ?? '(no path)'}`,
+    );
+  }
+  fs.copyFileSync(source, staged);
+
+  const head = Buffer.alloc(HERMES_MAGIC.length);
+  const fd = fs.openSync(staged, 'r');
+  try {
+    fs.readSync(fd, head, 0, HERMES_MAGIC.length, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (head.equals(HERMES_MAGIC)) return staged;
+
+  // Not bytecode. That is correct for a JavaScript-only engine and a packaging
+  // mistake with Hermes, so the two are told apart by whether the engine claims
+  // to compile at all.
+  const engine = loadEngineBundle(projectRoot);
+  if (engine && typeof engine.compile === 'function') {
+    throw new Error(
+      `the Hermes engine did not produce bytecode: ${source} starts with ` +
+        `${JSON.stringify(head.toString('latin1'))}, not the Hermes magic`,
+    );
+  }
+  console.log(
+    'packaging a JavaScript bundle: the active engine compiles to bytecode only with Hermes',
+  );
+  return staged;
+}
+
 /// The `name` a desktop crate declares in its Cargo.toml.
 function desktopCrateName(crateDir) {
   const manifest = fs.readFileSync(path.join(crateDir, 'Cargo.toml'), 'utf8');
@@ -1197,12 +1254,16 @@ export async function packageDesktop({
 
   // 1. The release bundle and binary. `packaging` makes build.rs emit only
   //    relative rpaths, so the result carries no path into this build tree.
-  await runDesktop({
+  const build = await runDesktop({
     projectRoot,
     release: true,
     noLaunch: true,
     packaging: true,
   });
+  // What the release ships: one bundle, always named `index.bundle`, holding
+  // whatever the engine compiled the JavaScript into. React Native's own release
+  // builds do the same — an iOS `main.jsbundle` is bytecode when Hermes is on.
+  const shippedBundle = stageBundle({ projectRoot, build });
 
   const crateDir = path.join(projectRoot, 'desktop');
   // The executable is the crate's name, which is what `scaffoldDesktop` writes
@@ -1238,7 +1299,7 @@ export async function packageDesktop({
     binaryName,
     rpathDir: appJson.name,
     os: desktopOs(process.platform),
-    bundleDir: buildDir,
+    bundleDir: path.dirname(shippedBundle),
     assetsDir: path.join(buildDir, 'assets'),
     icons,
     libraries,
