@@ -130,7 +130,16 @@ export function runtimeLibraries(
     libraries.add(file);
   }
 
-  return [...libraries].sort();
+  // One file per name. Two paths can supply the same library — the prebuilt cache
+  // and the CMake tree both hold `hermesvm` — and the packaging configs map each
+  // entry to a destination by name, so a second entry would silently target the
+  // same file twice. The first path wins, which is the recorded build order.
+  const byName = new Map();
+  for (const library of libraries) {
+    const name = path.basename(library);
+    if (!byName.has(name)) byName.set(name, library);
+  }
+  return [...byName.values()].sort();
 }
 
 /**
@@ -231,9 +240,9 @@ function resolveLinkedLibrary(reference, { binary, projectRoot }) {
       if (fs.existsSync(candidate)) return candidate;
     }
     // A packaging build carries only relative rpaths, so the absolute library
-    // directories are not in the file to be read back out. The CMake tree is
-    // where the C++ runtime's own libraries live in that case.
-    for (const directory of cmakeLibraryDirectories(projectRoot)) {
+    // directories are not in the file to be read back out. The directories the
+    // build recorded are, and they name the config it actually produced.
+    for (const directory of releaseLibraryDirectories(projectRoot)) {
       const candidate = path.join(directory, name);
       if (fs.existsSync(candidate)) return candidate;
     }
@@ -253,9 +262,9 @@ function resolveLinkedLibrary(reference, { binary, projectRoot }) {
     // and is correctly skipped.
     for (const directory of [
       // What the build recorded first — it names the prebuilt cache and the
-      // engine's own directory — then the build tree, then Cargo's output.
-      ...recordedLibraryDirectories(projectRoot),
-      ...cmakeLibraryDirectories(projectRoot),
+      // engine's own directory — then the release config's tree, then Cargo's
+      // release output.
+      ...releaseLibraryDirectories(projectRoot),
       ...buildLibraryDirectories(projectRoot, { release: true }),
     ]) {
       const candidate = path.join(directory, reference);
@@ -296,15 +305,77 @@ function rpathsOf(binary) {
  * prebuilt, and the Hermes binary directory, neither of which is under the build
  * tree. Reading it is why a library cannot be missed by guessing at layouts.
  */
-export function recordedLibraryDirectories(projectRoot) {
-  const root = path.join(
+/// Where the CMake tree for this build lives.
+///
+/// It sits beside the Cargo profile directory, so it moves with
+/// `CARGO_TARGET_DIR`, which CI sets.
+function cmakeRoot(projectRoot) {
+  return path.join(
     path.dirname(
       targetProfileDir(path.join(projectRoot, 'desktop'), 'release'),
     ),
     'rn-gpui-cmake',
   );
+}
+
+/**
+ * The release config directories under one triple.
+ *
+ * Only a release config may be searched: a `Debug` build's libraries are a
+ * different build, possibly against the other runtime, and a package that ships
+ * one is broken in a way no clean CI run can see — a fresh runner has only the
+ * single config it just built, while a developer's tree accumulates them all.
+ */
+function releaseConfigRoots(root) {
+  const found = [];
+  let triples;
+  try {
+    triples = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const triple of triples) {
+    if (!triple.isDirectory()) continue;
+    const tripleDir = path.join(root, triple.name);
+    let configs;
+    try {
+      configs = fs.readdirSync(tripleDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const config of configs) {
+      if (config.isDirectory() && RELEASE_CONFIG.test(config.name)) {
+        found.push(path.join(tripleDir, config.name));
+      }
+    }
+  }
+  // A prebuilt config first: it records the cache the package is actually
+  // linked against, so its answer outranks a source config's.
+  const rank = directory => (directory.endsWith('-prebuilt') ? 0 : 1);
+  return found.sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Every directory a release build may have put a shared library in.
+ *
+ * The recorded rpaths come first because they are the build's own answer, then
+ * the current release config's tree. Anything outside a release config is
+ * excluded on purpose — see `releaseConfigRoots`.
+ */
+export function releaseLibraryDirectories(projectRoot) {
+  return [
+    ...recordedLibraryDirectories(projectRoot),
+    ...cmakeLibraryDirectories(projectRoot),
+  ];
+}
+
+export function recordedLibraryDirectories(projectRoot) {
+  const root = cmakeRoot(projectRoot);
   const directories = [];
-  for (const file of walkDirectories(root, 0, 6)) {
+  const candidates = releaseConfigRoots(root).flatMap(config =>
+    walkDirectories(config),
+  );
+  for (const file of candidates) {
     let entries;
     try {
       entries = fs.readdirSync(file, { withFileTypes: true });
@@ -339,34 +410,19 @@ export function recordedLibraryDirectories(projectRoot) {
  * `<crate>/build/target/rn-gpui-cmake/<triple>/<config>/build/...`.
  */
 function cmakeLibraryDirectories(projectRoot) {
-  // The CMake tree sits beside the Cargo profile directory, so it moves with
-  // `CARGO_TARGET_DIR`, which CI sets. Deriving it from the resolved target
-  // directory is what makes this work in a clean install as well as in the repo.
-  const root = path.join(
-    path.dirname(
-      targetProfileDir(path.join(projectRoot, 'desktop'), 'release'),
-    ),
-    'rn-gpui-cmake',
-  );
   const found = [];
-  let triples;
-  try {
-    triples = fs.readdirSync(root, { withFileTypes: true });
-  } catch {
-    return found;
-  }
-  for (const triple of triples) {
-    if (!triple.isDirectory()) continue;
-    const tripleDir = path.join(root, triple.name);
-    for (const config of fs.readdirSync(tripleDir, { withFileTypes: true })) {
-      if (!config.isDirectory()) continue;
-      const configDir = path.join(tripleDir, config.name);
-      // The libraries are at different depths per dependency, so walk.
-      for (const entry of walkDirectories(configDir)) found.push(entry);
-    }
+  for (const configRoot of releaseConfigRoots(cmakeRoot(projectRoot))) {
+    // The libraries are at different depths per dependency, so walk.
+    for (const entry of walkDirectories(configRoot)) found.push(entry);
   }
   return found;
 }
+
+/// A CMake config directory that produces a release binary.
+///
+/// `Release-prebuilt` is what a prebuilt build configures; `RelWithDebInfo` is
+/// what an optimised build gets when debug info is kept. `Debug*` is excluded.
+const RELEASE_CONFIG = /^(?:Release|RelWithDebInfo)(?:-prebuilt)?$/u;
 
 /** Every directory at or below `root`, breadth-first, bounded in depth. */
 function walkDirectories(root, depth = 0) {

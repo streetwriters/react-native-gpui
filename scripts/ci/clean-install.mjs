@@ -270,9 +270,11 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       name.toLowerCase().endsWith('.exe'),
     );
     if (installer === undefined) throw new Error('no NSIS installer produced');
-    // cargo-packager names the file after the binary and the version, while the
-    // installer's title and Start-menu entry come from `productName`. Both are
-    // asserted: the file name here, `productName` by the smoke run's window.
+    // cargo-packager names the installer file after the main binary and the
+    // version — `<binary>_<version>_<arch>-setup.exe` — and that name is not
+    // configurable, so it follows the crate rather than `productName`. What
+    // `productName` controls is the installer's title and its Start-menu entry,
+    // which nothing here reads back. Only the file name is asserted.
     const expected = new RegExp(
       `^${binaryName(manifest.name)}_\\d+\\.\\d+\\.\\d+_.+-setup\\.exe$`,
       'u',
@@ -292,7 +294,7 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     if (!fs.existsSync(installed)) {
       throw new Error(`the installer did not place a binary at ${installed}`);
     }
-    checkLinkage(target, `${binaryName(manifest.name)}.exe`);
+    checkLinkage(target, `${binaryName(manifest.name)}.exe`, projectRoot);
     run(installed, [], { cwd: target, env: smoke });
     return;
   }
@@ -374,9 +376,9 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
  * On Windows there are no paths to leak — PE imports are bare DLL names — so the
  * check is that the runtime DLLs actually travelled with the app.
  */
-function checkLinkage(root, name) {
+function checkLinkage(root, name, projectRoot) {
   if (process.platform === 'win32') {
-    checkRuntimeDlls(root);
+    checkRuntimeDlls(root, projectRoot);
     return;
   }
 
@@ -428,19 +430,124 @@ function checkLinkage(root, name) {
  * error. This script runs against a packed consumer install and cannot import
  * the CLI, so it reads the manifests the install left behind instead.
  */
-function checkRuntimeDlls(root) {
+function checkRuntimeDlls(root, projectRoot) {
   const present = new Set();
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+  for (const name of listDlls(root)) present.add(name.toLowerCase());
+
+  // The names that must be there, from two sources that cannot both be wrong:
+  // the libraries the executable imports (`objdump` shows the bare DLL names),
+  // and the engine's own runtimeFiles list. A missing DLL is otherwise only
+  // reported by the smoke run, as an obscure load error.
+  const expected = new Set(['hermesvm.dll', 'jsi.dll']);
+  for (const name of listDlls(recordedWindowsDirectories(projectRoot))) {
+    expected.add(name.toLowerCase());
+  }
+  for (const name of importedDlls(root)) {
+    if (RUNTIME_DLL.test(name)) expected.add(name.toLowerCase());
+  }
+
+  const missing = [...expected].filter(name => !present.has(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `the install at ${root} is missing runtime DLLs: ${missing.join(', ')}` +
+        `\n  shipped: ${[...present].sort().join(', ') || '(none)'}`,
+    );
+  }
+  process.stderr.write(`runtime DLLs: ${[...present].sort().join(', ')}\n`);
+}
+
+/// A DLL the app is expected to ship, as opposed to a system one.
+///
+/// `kernel32.dll` and friends live in Windows itself; the runtime's own
+/// libraries are distinctive enough to name.
+const RUNTIME_DLL =
+  /^(?:hermesvm|jsi|reactnative|rn_gpui|folly|glog|double-conversion)/iu;
+
+/// Every `.dll` in a directory or list of directories, as file names.
+function listDlls(directory) {
+  const names = new Set();
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll')) {
-      present.add(entry.name.toLowerCase());
+      names.add(entry.name);
     }
   }
-  if (present.size === 0) {
-    throw new Error(`the install at ${root} ships no DLLs at all`);
+  return names;
+}
+
+/// The Windows library directories the build recorded, if it recorded any.
+function recordedWindowsDirectories(projectRoot) {
+  const directories = new Set();
+  const cmakeRoot = path.join(
+    projectRoot,
+    'desktop',
+    'build',
+    'target',
+    'rn-gpui-cmake',
+  );
+  let triples;
+  try {
+    triples = fs.readdirSync(cmakeRoot, { withFileTypes: true });
+  } catch {
+    return directories;
   }
-  // Every DLL the build produced has to have arrived; a count is not enough,
-  // because the subset that matters is chosen at run time.
-  process.stderr.write(`runtime DLLs: ${[...present].sort().join(', ')}\n`);
+  for (const triple of triples) {
+    if (!triple.isDirectory()) continue;
+    const tripleDir = path.join(cmakeRoot, triple.name);
+    for (const config of fs.readdirSync(tripleDir, { withFileTypes: true })) {
+      if (!config.isDirectory() || !/^Release/u.test(config.name)) continue;
+      const configDir = path.join(tripleDir, config.name);
+      for (const file of walkFiles(configDir)) {
+        if (!/^rpath_dirs-.*\.txt$/u.test(path.basename(file))) continue;
+        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+          const directory = line.trim();
+          if (directory && fs.existsSync(directory)) directories.add(directory);
+        }
+      }
+    }
+  }
+  return directories;
+}
+
+/// The DLL names the installed executable imports.
+///
+/// `objdump` is on the runner because the Rust toolchain brings it. A missing
+/// `objdump` is not a failure: the expected names below still have to be there.
+function importedDlls(root) {
+  let binary;
+  try {
+    binary = fs
+      .readdirSync(root)
+      .find(name => name.toLowerCase().endsWith('.exe'));
+  } catch {
+    return [];
+  }
+  if (binary === undefined) return [];
+  try {
+    const output = execFileSync('objdump', ['-p', path.join(root, binary)], {
+      encoding: 'utf8',
+    });
+    return [...output.matchAll(/DLL Name:\s*(\S+)/gu)].map(match => match[1]);
+  } catch {
+    return [];
+  }
+}
+
+/// Every file at or below `root`, bounded in depth.
+function walkFiles(root, depth = 0) {
+  if (depth > 5) return [];
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(target, depth + 1));
+    else if (entry.isFile()) out.push(target);
+  }
+  return out;
 }
 
 /// Where cargo puts the app's binaries: `CARGO_TARGET_DIR` when set (CI keeps

@@ -9,6 +9,7 @@ import {
   libraryExtension,
   parseSharedLibraryReferences,
   recordedLibraryDirectories,
+  releaseLibraryDirectories,
   resolveLinkedLibraryForTest,
   runtimeLibraries,
   targetProfileDir,
@@ -595,4 +596,71 @@ test('a prebuilt-only library is found through the recorded directories', () => 
     `${cache}\n`,
   );
   expect(resolveLinkedLibraryForTest('libjsi.so', root)).toBe(library);
+});
+
+describe('a package only ships libraries from its own release build', () => {
+  // A clean runner has one config, so this cannot show up on CI. A developer's
+  // tree accumulates Debug, Release and both -prebuilt variants; the first match
+  // used to win and Debug sorts first, so a release package could pick up a Debug
+  // library, or one built against the other runtime.
+  function projectWithBothConfigs() {
+    const root = createProject({
+      files: {
+        'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+        'desktop/Cargo.toml': '[package]\nname = "my-app"\nversion = "0.1.0"\n',
+        // A Debug library, and a Release one, at the same relative depth.
+        'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Debug/build/ReactCommon/jsi/libjsi.so':
+          'debug',
+        'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release/build/ReactCommon/jsi/libjsi.so':
+          'release',
+      },
+    });
+    return root;
+  }
+
+  test('the Debug copy is not found', () => {
+    const root = projectWithBothConfigs();
+    const found = resolveLinkedLibraryForTest('libjsi.so', root);
+    expect(found).toBeDefined();
+    expect(found).toContain('Release');
+    expect(found).not.toContain('Debug');
+  });
+
+  test('every directory offered to the resolver is a release config', () => {
+    const root = projectWithBothConfigs();
+    for (const directory of releaseLibraryDirectories(root)) {
+      expect(directory).not.toMatch(/[/\\]Debug/u);
+    }
+  });
+
+  test('Release-prebuilt outranks Release', () => {
+    const root = createProject({
+      files: {
+        'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+        'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release/build/rpath_dirs-Release.txt':
+          '/from/release\n',
+        'desktop/build/target/rn-gpui-cmake/x86_64-unknown-linux-gnu/Release-prebuilt/build/rpath_dirs-Release.txt':
+          '/from/release-prebuilt\n',
+      },
+    });
+    expect(recordedLibraryDirectories(root)[0]).toBe('/from/release-prebuilt');
+  });
+});
+
+test('a library reached by two paths is shipped once', () => {
+  // The prebuilt cache and the CMake tree can both hold the same engine library.
+  // The packaging configs map each entry to a destination by file name, so a
+  // second entry would target the same file twice.
+  const root = createProject({
+    files: {
+      'desktop/.cargo/config.toml': '[build]\ntarget-dir = "build/target"\n',
+      'desktop/Cargo.toml': '[package]\nname = "my-app"\nversion = "0.1.0"\n',
+      'desktop/target/release/libfoo.dylib': 'x',
+      'desktop/build/target/release/libfoo.dylib': 'x',
+    },
+  });
+  const names = runtimeLibraries(root, { os: 'darwin', arch: 'arm64' }).map(
+    file => path.basename(file),
+  );
+  expect(names.filter(name => name === 'libfoo.dylib')).toHaveLength(1);
 });

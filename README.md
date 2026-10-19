@@ -123,11 +123,11 @@ compiled.
 ## Package
 
 ```sh
-npx react-native package-desktop                  # every format this OS can build
-npx react-native package-desktop --target dmg      # one format
+npx react-native package-desktop              # every format this OS can build
+npx react-native package-desktop --target dmg  # one format
 ```
 
-It is always a release build. Output goes to `desktop/build/dist/`.
+Always a release build, into `desktop/build/dist/`.
 
 | OS      | Formats                 |
 | ------- | ----------------------- |
@@ -135,8 +135,8 @@ It is always a release build. Output goes to `desktop/build/dist/`.
 | Windows | NSIS installer (`.exe`) |
 | Linux   | `.deb`, `.AppImage`     |
 
-The app is described by `desktop/desktop.json`, next to the Rust crate it
-configures. Every field is optional.
+The app is described by `desktop/desktop.json` beside the crate; all fields are
+optional.
 
 ```json
 {
@@ -149,15 +149,17 @@ configures. Every field is optional.
 }
 ```
 
-`desktop.macos.json`, `desktop.windows.json` and `desktop.linux.json` are merged
-over the base for that OS (RFC 7386, so `null` removes a key). `app.json`'s old
-`desktop` key is no longer read; the CLI tells you to move it.
+`desktop.<os>.json` is merged over the base for that OS (RFC 7386; `null` removes
+a key). `app.json`'s old `desktop` key is rejected with a pointer to the new file.
 
-macOS is signed ad-hoc unless you set signing variables, which are read from the
-environment and never stored in the file: `APPLE_SIGNING_IDENTITY`,
-`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, and the notarization pair
-`APPLE_ID` / `APPLE_PASSWORD`. Windows installers are unsigned unless
-`WINDOWS_CERTIFICATE_THUMBPRINT` is set.
+Signing is read from the environment, never from the file: macOS is ad-hoc signed
+unless `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE` and
+`APPLE_CERTIFICATE_PASSWORD` are set (`APPLE_ID` / `APPLE_PASSWORD` notarize);
+Windows is unsigned unless `WINDOWS_CERTIFICATE_THUMBPRINT` is set.
+
+Packaging relinks the release binary without absolute rpaths, so
+`desktop/build/target/release/<app>` stops running from the checkout until
+`run-desktop --release` rebuilds it.
 
 ## License
 
