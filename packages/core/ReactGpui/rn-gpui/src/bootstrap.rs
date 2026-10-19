@@ -28,11 +28,27 @@ fn smoke_exit(code: i32, message: String) -> ! {
     use std::io::Write;
     println!("{message}");
     let _ = std::io::stdout().flush();
-    std::process::exit(code);
+    let _ = std::io::stderr().flush();
+    // `_exit`, not `std::process::exit`: `exit` runs C++ static destructors
+    // while the JS, network and inspector threads are still running, and one
+    // of them then calls into a destroyed object ("Pure virtual function
+    // called", SIGABRT). The result line is already flushed, so nothing is lost.
+    extern "C" {
+        fn _exit(code: i32) -> !;
+    }
+    unsafe { _exit(code) }
 }
 
 fn smoke_first_frame() -> ! {
     smoke_exit(0, "RN_GPUI_SMOKE: first frame rendered".to_string());
+}
+
+/// The last stage: the frame the user is waiting for is on screen.
+///
+/// Separate from `smoke_first_frame` because that only runs in smoke mode, and
+/// this trace should describe a real launch too.
+fn trace_first_frame() {
+    startup_trace("first frame presented");
 }
 
 fn smoke_timeout() -> ! {
@@ -102,7 +118,10 @@ fn smoke_arm_first_frame(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle)
         window,
         |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut gpui::App| {
             window.on_next_frame(|window, _cx| {
-                window.on_next_frame(|_window, _cx| smoke_first_frame());
+                window.on_next_frame(|_window, _cx| {
+                    trace_first_frame();
+                    smoke_first_frame()
+                });
             });
         },
     );
@@ -111,16 +130,185 @@ fn smoke_arm_first_frame(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle)
     }
 }
 
-fn startup_trace(stage: &str) {
-    #[cfg(feature = "visual-capture")]
-    {
-        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_STARTUP_TRACE").is_some()) {
-            eprintln!("[rn-gpui startup] {stage}");
-        }
+/// Milliseconds since the process started, measured once.
+///
+/// A wall-clock delta from `main` would miss dyld and the C++ static
+/// initialisers, which are part of what startup costs. Each platform has a way to
+/// ask when the process began; the fallback is simply when this was first called.
+fn process_elapsed() -> std::time::Duration {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    static PROCESS_START: std::sync::OnceLock<Option<std::time::SystemTime>> =
+        std::sync::OnceLock::new();
+    let now = START.get_or_init(std::time::Instant::now);
+    let started = PROCESS_START.get_or_init(process_start_time);
+    match started {
+        Some(start) => start.elapsed().unwrap_or_else(|_| now.elapsed()),
+        None => now.elapsed(),
     }
-    #[cfg(not(feature = "visual-capture"))]
-    let _ = stage;
+}
+
+/// When the current process started, where the OS will say.
+#[cfg(target_os = "macos")]
+fn process_start_time() -> Option<std::time::SystemTime> {
+    use std::os::raw::c_int;
+
+    // `proc_pidinfo(PROC_PIDTBSDINFO)` fills a struct whose first two fields are
+    // `pbi_flags` and `pbi_status`; the start time is the pair after them.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ProcBsdInfo {
+        pbi_flags: u32,
+        pbi_status: u32,
+        pbi_xstatus: u32,
+        pbi_pid: u32,
+        pbi_ppid: u32,
+        pbi_uid: u32,
+        pbi_gid: u32,
+        pbi_ruid: u32,
+        pbi_rgid: u32,
+        pbi_svuid: u32,
+        // The saved-group id. Named for its position in `proc_bsdinfo`, not read
+        // here; the layout is what matters for `proc_pidinfo` to fill it.
+        #[allow(dead_code)]
+        pbi_saved_gid: u32,
+        rfu_1: u32,
+        pbi_comm: [u8; 16],
+        pbi_name: [u8; 32],
+        pbi_nfiles: u32,
+        pbi_pgid: u32,
+        pbi_pjobc: u32,
+        e_tdev: u32,
+        e_tpgid: u32,
+        pbi_nice: i32,
+        pbi_start_tvsec: u64,
+        pbi_start_tvusec: u64,
+    }
+
+    extern "C" {
+        fn proc_pidinfo(
+            pid: c_int,
+            flavor: c_int,
+            arg: u64,
+            buffer: *mut std::os::raw::c_void,
+            buffersize: c_int,
+        ) -> c_int;
+    }
+    const PROC_PIDTBSDINFO: c_int = 3;
+
+    let mut info = ProcBsdInfo::default();
+    let size = std::mem::size_of::<ProcBsdInfo>() as c_int;
+    // SAFETY: `info` is a correctly sized, writable struct of the layout the
+    // call expects, and the return value is checked before it is read.
+    let written = unsafe {
+        proc_pidinfo(
+            std::process::id() as c_int,
+            PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut std::os::raw::c_void,
+            size,
+        )
+    };
+    if written != size {
+        return None;
+    }
+    std::time::UNIX_EPOCH.checked_add(std::time::Duration::new(
+        info.pbi_start_tvsec,
+        info.pbi_start_tvusec as u32 * 1_000,
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn process_start_time() -> Option<std::time::SystemTime> {
+    // `/proc/self/stat` field 22 is the start time in clock ticks since boot, and
+    // `/proc/uptime` gives the boot instant's age. Together they date the process.
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let start_ticks: u64 = stat
+        .rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()?;
+    let uptime: f64 = std::fs::read_to_string("/proc/uptime")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    // `_SC_CLK_TCK` is 100 on every Linux that matters here.
+    let started_ago = uptime - (start_ticks as f64 / 100.0);
+    std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs_f64(started_ago.max(0.0)))
+}
+
+#[cfg(target_os = "windows")]
+fn process_start_time() -> Option<std::time::SystemTime> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    extern "system" {
+        fn GetCurrentProcess() -> *mut std::os::raw::c_void;
+        fn GetProcessTimes(
+            process: *mut std::os::raw::c_void,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+    }
+    let mut creation = FileTime::default();
+    let mut exit = FileTime::default();
+    let mut kernel = FileTime::default();
+    let mut user = FileTime::default();
+    // SAFETY: all four pointers are to initialised, writable local structs.
+    let ok = unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut creation,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    // FILETIME counts 100 ns intervals since 1601-01-01.
+    let ticks = ((creation.high as u64) << 32) | creation.low as u64;
+    let since_unix = ticks.checked_sub(116_444_736_000_000_000)?;
+    std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_nanos(since_unix * 100))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn process_start_time() -> Option<std::time::SystemTime> {
+    None
+}
+
+/// Emit a startup stage, when `RN_GPUI_STARTUP_TRACE` is set.
+///
+/// One cached env check when off, which is the only cost a shipped app pays. On
+/// macOS each stage is also an `os_signpost` interval, so Instruments shows the
+/// phases by name instead of a flat profile.
+fn startup_trace(stage: &str) {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_STARTUP_TRACE").is_some()) {
+        return;
+    }
+    let elapsed = process_elapsed();
+    eprintln!("[startup] +{} {stage}", elapsed.as_millis());
+    signpost_stage(stage, elapsed);
+}
+
+/// Emit the signpost for a stage.
+///
+/// The macros in `os/signpost.h` are variadic and expand to a call whose ABI is
+/// easy to get wrong from Rust; one wrong argument crashed the app on the very
+/// first stage. The C++ side expands them as Apple intends.
+fn signpost_stage(stage: &str, elapsed: std::time::Duration) {
+    rn_gpui_sys::ffi::rn_gpui_startup_signpost(stage, elapsed.as_millis() as u64);
 }
 
 fn window_state_path(app_id: &str) -> std::path::PathBuf {
@@ -506,9 +694,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
     // A packaged release build has no source tree: the bundle is beside the
     // executable. `RN_GPUI_BUNDLE`, which the CLI sets in development, still
-    // wins.
-    let bundle =
-        crate::resources::default_bundle("packages/rn-gpui-tester/desktop/build/index.bundle");
+    // wins, and a debug build bakes in the path it was developed against.
+    //
+    // A release build with neither is a packaging mistake — no resources were
+    // installed — so the fallback names the file it looked for rather than a
+    // path into some checkout. That path must never be a repository path: it
+    // would resolve on the machine that built the app, and nowhere else.
+    let bundle = crate::resources::default_bundle("index.bundle");
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
@@ -685,24 +877,35 @@ pub fn run_with(mut config: DesktopAppConfig) {
         "using GPUI AppKit platform"
     });
     let platform = gpui_platform::current_platform(headless);
-    let mut waited_for_display = 0u64;
-    while platform.displays().is_empty() {
-        if waited_for_display == 0 {
-            log::warn!("no active macOS display; waiting before entering AppKit launch");
-            startup_trace("waiting for an active display");
-        }
-        std::thread::sleep(Duration::from_secs(2));
-        waited_for_display += 2;
-        if waited_for_display % 30 == 0 {
-            log::warn!("still waiting for an active macOS display ({waited_for_display}s)");
+    startup_trace("platform created");
+    // A locked or absent session on macOS cannot launch AppKit, and the platform
+    // reports no display until it can. Nothing else does: on Linux GPUI starts on
+    // a placeholder connection and attaches X11 or Wayland once the app runs, so
+    // its display list is legitimately empty here — waiting for it never ends.
+    #[cfg(target_os = "macos")]
+    {
+        let mut waited_for_display = 0u64;
+        while platform.displays().is_empty() {
+            if waited_for_display == 0 {
+                log::warn!("no active display; waiting before entering AppKit launch");
+                startup_trace("waiting for an active display");
+            }
+            std::thread::sleep(Duration::from_secs(2));
+            waited_for_display += 2;
+            if waited_for_display % 30 == 0 {
+                log::warn!("still waiting for an active display ({waited_for_display}s)");
+            }
         }
     }
     startup_trace("active display detected");
     let application = Application::with_platform(platform);
+    // Before any request can arrive: the C++ bridge reports completions through
+    // this handler, and it is registered once.
+    crate::http_client::install();
     application
-            .with_http_client(std::sync::Arc::new(reqwest_client::ReqwestClient::new()))
+        .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
         .run(move |cx: &mut App| {
-        startup_trace("GPUI application callback entered");
+        startup_trace("application run");
         crate::image_loader::install(cx);
         crate::text::install_fonts(cx);
         // Installed before the host starts a surface: Fabric measures paragraphs
@@ -785,6 +988,51 @@ pub fn run_with(mut config: DesktopAppConfig) {
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
             log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
         }
+        // Start React Native before the window exists.
+        //
+        // JS runs on its own thread, and a real app's startup is 50-300 ms that
+        // used to happen entirely after AppKit finished. The size and scale here
+        // are the values the window is about to be created with; anything the
+        // window alone can report (its top inset, its final scale) is applied
+        // once it exists, through the same path a resize takes.
+        // GPUI reports the scale from a window, and there is no window yet.
+        // `RN_GPUI_SCALE` overrides it for tests; otherwise the estimate is the
+        // Retina default on macOS and 1.0 elsewhere. The surface is corrected
+        // below if the window disagrees, so a wrong guess costs one resize, not a
+        // wrong layout.
+        let estimated_scale = scale_override.unwrap_or(if cfg!(target_os = "macos") {
+            2.0
+        } else {
+            1.0
+        });
+        // A surface must not start at zero: `RN_GPUI_WIDTH=0` would otherwise
+        // reach JS as a 0x0 viewport, and Fabric would lay out the whole tree in
+        // no space at all. The window's own size is authoritative once it opens.
+        let surface_width = width.max(320.0);
+        let surface_height = height.max(240.0);
+        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
+        startup_trace("host created");
+        host.set_window_metrics(surface_width, surface_height, estimated_scale);
+        startup_trace("bundle load start");
+        if !host.load_script(&bundle, &source_url) {
+            log::error!("load_script failed for {bundle}");
+            std::process::exit(1);
+        }
+        startup_trace("bundle load end");
+        log::info!("loaded {bundle}");
+        // The surface starts now as well: mount batches queue on the main-thread
+        // channel until the store and its window exist, which is the same path a
+        // background surface already uses.
+        let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
+        host.start_surface(
+            1,
+            &module,
+            surface_width,
+            (surface_height - menu_bar_inset).max(1.0),
+            estimated_scale,
+        );
+        startup_trace("surface started");
+
         startup_trace("opening GPUI window");
         let mut window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -825,7 +1073,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 },
             )
             .expect("failed to open the GPUI window");
-        startup_trace("GPUI window opened");
+        startup_trace("window open");
         let window_id = window.window_id();
 
         // A window created with `show: false` never receives the message that
@@ -888,16 +1136,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         #[cfg(any(feature = "visual-capture", feature = "perf-timing"))]
         let any_window = *window;
 
+        // React Native is already running; the window supplies the three values
+        // only it knows, and the surface is corrected if the estimate was wrong.
         let window_scale = window
             .update(cx, |_root, window, _cx| window.scale_factor())
-            .unwrap_or(2.0);
+            .unwrap_or(estimated_scale);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
-        startup_trace("React host created");
-        // NativeDeviceInfo is queried during JS module initialization; publish
-        // the actual viewport before loading the bundle that imports Dimensions.
-        host.set_window_metrics(width, height, scale);
         let top_inset = window.update(cx, |_root, window, _cx| {
             #[cfg(target_os = "macos")]
             { crate::native_view::window_top_inset(window) }
@@ -911,16 +1156,24 @@ pub fn run_with(mut config: DesktopAppConfig) {
             _ => "light",
         };
         host.set_system_appearance(appearance);
-        if !host.load_script(&bundle, &source_url) {
-            log::error!("load_script failed for {bundle}");
-            std::process::exit(1);
+        // The window may have opened at a different size or scale than the
+        // estimate — a restore onto another display, or a maximized window — so
+        // the surface is told, through the path a resize takes.
+        // A wrong estimate is corrected here, not tolerated: JS reads Dimensions at
+        // module initialization, so a surface told the wrong size or scale lays out
+        // against it until something resizes it. Size is checked as well as scale,
+        // because they are wrong for different reasons — the scale is a guess from
+        // the platform, the size comes from the config or the restored window
+        // state, and a window manager can override either.
+        let size_moved = (width - surface_width).abs() > f32::EPSILON
+            || (height - surface_height).abs() > f32::EPSILON;
+        if size_moved || (window_scale - estimated_scale).abs() > f32::EPSILON {
+            log::info!(
+                "surface corrected {surface_width}x{surface_height}@{estimated_scale}x -> \
+                 {width}x{height}@{window_scale}x after the window opened"
+            );
+            host.set_window_metrics(width, height, scale);
         }
-        startup_trace("React bundle loaded");
-        log::info!("loaded {bundle}");
-
-        let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
-        host.start_surface(1, &module, width, height - menu_bar_inset, scale);
-        startup_trace("React surface started");
         log::info!(
             "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
              menu bar inset {menu_bar_inset})",

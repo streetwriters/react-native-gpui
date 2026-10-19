@@ -71,6 +71,10 @@ impl react_native_gpui::native_view::NativeViewFactory for TesterWebView {
 
 fn main() {
     rn_gpui_autolink::ensure_linked();
+    // A debug build knows where its own bundle is; a release build does not, and
+    // must not: the path would name the machine that built it. A packaged release
+    // app resolves the bundle beside its executable instead (see `resources`).
+    #[cfg(debug_assertions)]
     if std::env::var_os("RN_GPUI_BUNDLE").is_none() {
         std::env::set_var("RN_GPUI_BUNDLE", env!("RN_GPUI_DEFAULT_BUNDLE"));
     }

@@ -604,13 +604,14 @@ export function toPackagerConfig(config, build) {
   // directory, which holds the output of this very run.
   const resources = [];
   if (bundleDir !== undefined) {
-    for (const candidate of ['index.bundle', 'index.bundle.hbc']) {
-      const file = path.join(bundleDir, candidate);
-      if (fs.existsSync(file)) {
-        resources.push(relative(file));
-        break;
-      }
+    // One file, one name. `package-desktop` stages it; there is no candidate list
+    // to get wrong, which is how a plain-JS bundle was shipped while the bytecode
+    // sat unused beside it.
+    const bundle = path.join(bundleDir, 'index.bundle');
+    if (!fs.existsSync(bundle)) {
+      throw new Error(`the staged bundle is missing: ${bundle}`);
     }
+    resources.push(relative(bundle));
   }
   if (assetsDir !== undefined && fs.existsSync(assetsDir)) {
     resources.push(relative(assetsDir));

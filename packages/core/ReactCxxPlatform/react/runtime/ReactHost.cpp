@@ -453,10 +453,16 @@ bool ReactHost::loadScriptFromDevServer() {
     reactInstance_->loadScript(std::move(script), bundleUrl);
     devServerHelper_->setupHMRClient();
     return true;
+  } catch (const std::exception& error) {
+    // The reason is logged where it is known (no server, a failed request, or
+    // a response that is not a bundle); this says what happens next.
+    LOG(WARNING) << "Not using the dev server (" << error.what()
+                 << "); loading the built-in JS bundle instead. Start Metro "
+                 << "for this app to get live reload.";
+    return false;
   } catch (...) {
-    LOG(WARNING)
-        << "Unable to download JS bundle from Metro, falling back to prebuilt JS bundle. "
-        << "To start Metro, run in command line: 'cd ~/fbsource/xplat/js && js1 run'";
+    LOG(WARNING) << "Not using the dev server; loading the built-in JS bundle "
+                 << "instead. Start Metro for this app to get live reload.";
     return false;
   }
 }

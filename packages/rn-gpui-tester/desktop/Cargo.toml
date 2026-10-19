@@ -25,8 +25,20 @@ opt-level = 3
 opt-level = 0
 
 [profile.release]
-debug = false
-strip = "debuginfo"
+# Line tables, not `false`: a release crash is worth symbolizing, and with
+# `split-debuginfo` the debug info lives in a separate dSYM rather than the
+# binary, so it costs the package nothing.
+debug = "line-tables-only"
+# The symbol table is not stripped here: Cargo strips inside the linker, before
+# `dsymutil`, which would leave an empty dSYM. `package-desktop` writes the dSYM
+# and then runs `strip -x`, which removes every unexported symbol.
+strip = "none"
+split-debuginfo = "packed"
+# Thin LTO across crates: Rust's default is per-crate codegen only. `codegen-units
+# = 1` lets the optimiser see the whole crate at once, which costs build time and
+# buys size.
+lto = "fat"
+codegen-units = 1
 
 [build-dependencies]
 serde_json = "1"

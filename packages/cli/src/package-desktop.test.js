@@ -282,17 +282,19 @@ describe('toPackagerConfig', () => {
     expect(config.resources).toEqual(['build/index.bundle', 'build/assets']);
   });
 
-  test('a bytecode bundle is shipped when that is what the build made', () => {
+  test('a missing staged bundle is an error, not a silent omission', () => {
+    // A package without its bundle starts and then dies on a machine with no
+    // build tree, so the failure belongs here rather than at first launch.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-res-'));
     roots.push(root);
     const crateDir = path.join(root, 'desktop');
     fs.mkdirSync(path.join(crateDir, 'build'), { recursive: true });
-    fs.writeFileSync(path.join(crateDir, 'build', 'index.bundle.hbc'), 'x');
-    const config = toPackagerConfig(
-      desktopConfig(),
-      build({ crateDir, bundleDir: path.join(crateDir, 'build') }),
-    );
-    expect(config.resources).toEqual(['build/index.bundle.hbc']);
+    expect(() =>
+      toPackagerConfig(
+        desktopConfig(),
+        build({ crateDir, bundleDir: path.join(crateDir, 'build') }),
+      ),
+    ).toThrow(/staged bundle is missing/u);
   });
 
   test('extra resources are relative to the crate', () => {
@@ -432,14 +434,19 @@ describe('toPackagerConfig', () => {
   });
 
   test('paths use forward slashes on every platform', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-slash-'));
+    roots.push(root);
+    const crateDir = path.join(root, 'desktop');
+    fs.mkdirSync(path.join(crateDir, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(crateDir, 'build', 'index.bundle'), 'x');
     const config = toPackagerConfig(
       desktopConfig(),
-      build({
-        crateDir: '/project/desktop',
-        bundleDir: '/project/desktop/build',
-      }),
+      build({ crateDir, bundleDir: path.join(crateDir, 'build') }),
     );
-    for (const entry of [...config.resources, config.binaries[0].path]) {
+    for (const entry of [
+      ...config.resources,
+      ...config.binaries.map(binary => binary.path),
+    ]) {
       expect(entry).not.toContain('\\');
     }
   });
