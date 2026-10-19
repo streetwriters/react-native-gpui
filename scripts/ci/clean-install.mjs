@@ -260,7 +260,22 @@ function main() {
   if (!fs.existsSync(binary)) {
     throw new Error(`release binary not found at ${binary}`);
   }
-  const smoke = { ...process.env, RN_GPUI_SMOKE: '1' };
+  //    This binary is run from the build tree, not from an install, so it is told
+  //    where its bundle is — a release binary no longer bakes that path in, by
+  //    design. The packaged runs below deliberately do not get this variable:
+  //    they have to find the bundle beside themselves.
+  const smoke = {
+    ...process.env,
+    RN_GPUI_SMOKE: '1',
+    RN_GPUI_BUNDLE: path.join(projectRoot, 'desktop', 'build', 'index.bundle'),
+    RN_GPUI_ASSETS_DIR: path.join(
+      projectRoot,
+      'desktop',
+      'build',
+      'assets',
+      'assets',
+    ),
+  };
   if (process.platform === 'linux') {
     run('xvfb-run', ['-a', '-s', '-screen 0 1280x900x24', binary], {
       cwd: projectRoot,
@@ -303,7 +318,11 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
 
   const installDir = path.join(appDir, 'installed');
   fs.mkdirSync(installDir, { recursive: true });
+  // No `RN_GPUI_BUNDLE` here: a packaged app has to find its own bundle, and
+  // passing the build-tree path would hide exactly the bug this checks for.
   const smoke = { ...process.env, RN_GPUI_SMOKE: '1' };
+  delete smoke.RN_GPUI_BUNDLE;
+  delete smoke.RN_GPUI_ASSETS_DIR;
 
   if (process.platform === 'darwin') {
     const app = produced.find(name => name.endsWith('.app'));
