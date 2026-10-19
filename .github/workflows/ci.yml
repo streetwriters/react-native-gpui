@@ -232,9 +232,31 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install -y ninja ccache nasm strawberryperl
+          # `choco install` exits 0 when a package cannot be fetched from a
+          # transient feed error, so a missing tool went unnoticed: OpenSSL only
+          # needs NASM for a source build of the C++ runtime, and until the
+          # prebuilt hash changed this job never did one.
+          # A retry, because the feed does return 504s and the failure is
+          # transient. The path is set first so the check below can find nasm
+          # wherever the installer put it.
+          $env:PATH = "C:\Program Files\NASM;$env:PATH"
+          foreach ($attempt in 1..3) {
+            choco install -y --no-progress ninja ccache nasm strawberryperl
+            if (Test-Path 'C:\Program Files\NASM\nasm.exe') { break }
+            Start-Sleep -Seconds 10
+          }
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\NASM'
+          # Assert the tools this job will need, rather than trusting the install:
+          # a missing one only shows up much later, as "NASM not found" from
+          # OpenSSL's configure, with the real cause 20 minutes back in the log.
+          $missing = @()
+          foreach ($tool in @('ninja', 'ccache', 'nasm', 'perl')) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
+          }
+          if ($missing.Count -gt 0) {
+            throw "missing build tools after install: $($missing -join ', ')"
+          }
 
       - name: Set up MSVC
         if: runner.os == 'Windows'
