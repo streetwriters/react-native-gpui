@@ -51,6 +51,68 @@ function parseArgs(argv) {
 }
 
 /// Runs a command, inheriting stdio so the workflow's wrapper captures it.
+/**
+ * Run the installed app with the build tree hidden, and assert it loaded its own
+ * bundle.
+ *
+ * Every packaged app must work on a machine that never saw the checkout. While
+ * the build tree is still on disk, a release binary with an absolute bundle path
+ * baked in works anyway — which is exactly why this bug survived CI. Moving the
+ * tree away makes that path unresolvable, and the log line names what was
+ * actually loaded.
+ */
+function smokeInstalled({
+  command,
+  args = [],
+  cwd,
+  env,
+  buildDir,
+  installRoot,
+  label,
+}) {
+  const hidden = `${buildDir}.hidden`;
+  if (fs.existsSync(buildDir)) fs.renameSync(buildDir, hidden);
+  let output;
+  try {
+    const result = spawnSync(command, args, {
+      cwd,
+      env: { ...env, RUST_LOG: 'info' },
+      encoding: 'utf8',
+    });
+    output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    process.stderr.write(output);
+    if (result.status !== 0) {
+      throw new Error(
+        `${label}: the installed app exited with ${result.status}`,
+      );
+    }
+  } finally {
+    if (fs.existsSync(hidden)) fs.renameSync(hidden, buildDir);
+  }
+
+  // `loaded <path>` is the line bootstrap logs; `Loading JS bundle from bundle
+  // path:` is React Native's. Either names the file, and both must point inside
+  // the copy that was installed.
+  const loaded = [
+    ...output.matchAll(
+      /(?:loaded|Loading JS bundle from bundle path:)\s*(\S+)/gu,
+    ),
+  ]
+    .map(match => match[1])
+    .filter(file => file.includes('index.bundle'));
+  if (loaded.length === 0) {
+    throw new Error(`${label}: the app never logged which bundle it loaded`);
+  }
+  for (const file of loaded) {
+    if (!path.resolve(file).startsWith(path.resolve(installRoot))) {
+      throw new Error(
+        `${label}: the app loaded ${file}, which is outside the install at ${installRoot}`,
+      );
+    }
+  }
+  process.stderr.write(`${label}: loaded ${loaded[0]}\n`);
+}
+
 function run(command, args, options = {}) {
   process.stderr.write(`\n$ ${command} ${args.join(' ')}\n`);
   const result = spawnSync(command, args, {
@@ -261,7 +323,14 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       path.join(installDir, app),
       path.join('Contents', 'MacOS', binaryName(manifest.name)),
     );
-    run(installed, [], { cwd: installDir, env: smoke });
+    smokeInstalled({
+      command: installed,
+      cwd: installDir,
+      env: smoke,
+      buildDir: path.join(projectRoot, 'desktop', 'build'),
+      installRoot: installDir,
+      label: 'macOS .app',
+    });
     return;
   }
 
@@ -295,7 +364,14 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       throw new Error(`the installer did not place a binary at ${installed}`);
     }
     checkLinkage(target, `${binaryName(manifest.name)}.exe`);
-    run(installed, [], { cwd: target, env: smoke });
+    smokeInstalled({
+      command: installed,
+      cwd: target,
+      env: smoke,
+      buildDir: path.join(projectRoot, 'desktop', 'build'),
+      installRoot: target,
+      label: 'Windows install',
+    });
     return;
   }
 
@@ -333,9 +409,14 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       `the deb install cannot resolve its libraries:\n${missing.join('\n')}`,
     );
   }
-  run('xvfb-run', ['-a', '-s', '-screen 0 1280x900x24', installed], {
+  smokeInstalled({
+    command: 'xvfb-run',
+    args: ['-a', '-s', '-screen 0 1280x900x24', installed],
     cwd: extracted,
     env: smoke,
+    buildDir: path.join(projectRoot, 'desktop', 'build'),
+    installRoot: extracted,
+    label: 'Linux deb',
   });
 
   // The AppImage is a different packaging of the same files, and it is what most
@@ -344,20 +425,27 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
   // FUSE requirement that a container does not have.
   const appimage = produced.find(name => name.endsWith('.AppImage'));
   if (appimage === undefined) throw new Error('no .AppImage was produced');
-  run(
-    'xvfb-run',
-    [
-      '-a',
-      '-s',
-      '-screen 0 1280x900x24',
-      path.join(distDir, appimage),
-      '--appimage-extract-and-run',
-    ],
-    {
-      cwd: installDir,
-      env: smoke,
-    },
-  );
+  // The AppImage mounts itself and runs from the mount, so it is extracted
+  // rather than mounted: FUSE is not available in a container, and an extracted
+  // tree is a stable root to assert the loaded bundle lives inside.
+  const appimageDir = path.join(installDir, 'appimage');
+  fs.mkdirSync(appimageDir, { recursive: true });
+  run(path.join(distDir, appimage), ['--appimage-extract'], {
+    cwd: appimageDir,
+  });
+  const squashfs = path.join(appimageDir, 'squashfs-root');
+  if (!fs.existsSync(squashfs)) {
+    throw new Error(`the AppImage did not extract to ${squashfs}`);
+  }
+  smokeInstalled({
+    command: 'xvfb-run',
+    args: ['-a', '-s', '-screen 0 1280x900x24', path.join(squashfs, 'AppRun')],
+    cwd: squashfs,
+    env: smoke,
+    buildDir: path.join(projectRoot, 'desktop', 'build'),
+    installRoot: squashfs,
+    label: 'Linux AppImage',
+  });
 }
 
 /**

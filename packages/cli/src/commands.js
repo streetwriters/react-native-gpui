@@ -535,6 +535,10 @@ export function desktopLaunchConfig(config, configPath) {
 //! those specs automatically.
 
 fn main() {
+    // A debug build knows where its own bundle is; a release build does not, and
+    // must not: the path would name the machine that built it. A packaged release
+    // app resolves the bundle beside its executable instead.
+    #[cfg(debug_assertions)]
     if std::env::var_os("RN_GPUI_BUNDLE").is_none() {
         std::env::set_var("RN_GPUI_BUNDLE", env!("RN_GPUI_DEFAULT_BUNDLE"));
     }
