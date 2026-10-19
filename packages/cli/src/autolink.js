@@ -308,22 +308,46 @@ function generateComponentCodegen({
     'react/renderer/components',
     libraryName,
   );
-  const generated = rnCodegen.generate(
-    {
-      libraryName,
-      schema,
-      outputDirectory,
-      packageName: packageJson.name,
-      assumeNonnull: false,
-    },
-    {
-      generators: ['descriptors', 'events', 'props', 'states', 'shadow-nodes'],
-    },
+  // Generate into a staging directory and copy only what changed, as the
+  // TurboModule path below does: Codegen rewrites every file, and a fresh
+  // mtime on these headers reruns rn-gpui-sys's build script on every launch.
+  const stagingDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'rn-gpui-codegen-'),
   );
-  if (generated !== true) {
-    throw new Error(
-      `${dependencyName}: React Native Codegen failed for Fabric components`,
+  try {
+    const generated = rnCodegen.generate(
+      {
+        libraryName,
+        schema,
+        outputDirectory: stagingDirectory,
+        packageName: packageJson.name,
+        assumeNonnull: false,
+      },
+      {
+        generators: [
+          'descriptors',
+          'events',
+          'props',
+          'states',
+          'shadow-nodes',
+        ],
+      },
     );
+    if (generated !== true) {
+      throw new Error(
+        `${dependencyName}: React Native Codegen failed for Fabric components`,
+      );
+    }
+    for (const file of findGeneratedFiles(stagingDirectory)) {
+      const target = path.join(
+        outputDirectory,
+        path.relative(stagingDirectory, file),
+      );
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      writeIfChanged(target, fs.readFileSync(file, 'utf8'));
+    }
+  } finally {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
   }
   const sources = findCppSources(outputDirectory);
   return { sources, libraryName };
