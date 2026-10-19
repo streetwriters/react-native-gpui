@@ -68,15 +68,14 @@ pub fn resource_dir(host: Host, exe: &Path, app_name: &str, appdir: Option<&Path
     }
 }
 
-/// The JavaScript bundle in `directory`, preferring a bytecode build over text.
+/// The bundle in `directory`.
 ///
-/// The release bundle step can emit Hermes bytecode (`index.bundle.hbc`) or
-/// plain JavaScript (`index.bundle`).
+/// One name, always: a packaged release ships exactly one bundle and calls it
+/// `index.bundle`, whether its content is Hermes bytecode or plain JavaScript.
+/// Nothing here branches on the extension, and neither does the loader — Hermes
+/// identifies its output by content, so a `.bundle` holding bytecode loads as
+/// bytecode.
 pub fn bundle_in(directory: &Path) -> PathBuf {
-    let bytecode = directory.join("index.bundle.hbc");
-    if bytecode.exists() {
-        return bytecode;
-    }
     directory.join("index.bundle")
 }
 
@@ -270,8 +269,10 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         assert_eq!(bundle_in(&root), root.join("index.bundle"));
+        // A stray bytecode-named file must not win: the packaged name is fixed,
+        // and a second candidate is exactly how the wrong file got shipped before.
         std::fs::write(root.join("index.bundle.hbc"), b"bytecode").unwrap();
-        assert_eq!(bundle_in(&root), root.join("index.bundle.hbc"));
+        assert_eq!(bundle_in(&root), root.join("index.bundle"));
         std::fs::remove_dir_all(&root).ok();
     }
 }
