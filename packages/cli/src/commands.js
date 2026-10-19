@@ -582,7 +582,7 @@ function scaffoldDesktop(
     beforeWrite(cargoPath);
     fs.writeFileSync(
       cargoPath,
-      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = false\n# Strip the symbol table; split-debuginfo keeps a separate debug file for\n# symbolizing a release crash.\nstrip = "symbols"\nsplit-debuginfo = "packed"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
+      `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = "line-tables-only"\n# Cargo strips inside the linker, before dsymutil, so package-desktop writes the\n# dSYM and then strips. Full LTO: 2 MB smaller for 1.4x the build time.\nstrip = "none"\nsplit-debuginfo = "packed"\nlto = "fat"\ncodegen-units = 1\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
   }
 
@@ -1404,6 +1404,10 @@ function ensureDsym({ crateDir, binaryName }) {
   const binary = path.join(profileDir, binaryName);
   const dsym = path.join(profileDir, `${binaryName}.dSYM`);
   if (!fs.existsSync(binary)) return;
+  // `dsymutil` writes the bundle read-only, and Cargo then cannot replace the
+  // binary it belongs to: "failed to remove file … Operation not permitted". Make
+  // it writable before removing it.
+  if (fs.existsSync(dsym)) fs.chmodSync(dsym, 0o755);
   fs.rmSync(dsym, { recursive: true, force: true });
   try {
     execFileSync('dsymutil', [binary, '-o', dsym], { stdio: 'inherit' });
@@ -1458,7 +1462,10 @@ function copyDebugSymbols({ crateDir, binaryName, outDir }) {
   }
   for (const file of found) {
     const target = path.join(outDir, path.basename(file));
+    fs.rmSync(target, { recursive: true, force: true });
     fs.cpSync(file, target, { recursive: true });
+    // A read-only directory here would make the next run fail to replace it.
+    fs.chmodSync(target, 0o755);
     console.log(`debug symbols: ${target}`);
   }
 }
