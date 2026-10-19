@@ -159,6 +159,14 @@ jobs:
           node scripts/ci/step.mjs --job lint --name "core boundary" -- \
             node scripts/ci/check-core-boundary.mjs
 
+      # macOS cannot compile Linux or Windows code, so a duplicate definition in
+      # those cfg branches passes every local check and fails only on CI. This
+      # reads the attributes instead of compiling, and caught nothing else.
+      - name: Duplicate cfg functions
+        run: |
+          node scripts/ci/step.mjs --job lint --name "cfg functions" -- \
+            node scripts/ci/check-duplicate-cfg-fns.mjs
+
       # JUnit is what the report reads for failing test names, and the default
       # reporter is what a human reads in the log. `npm run test:unit` keeps the
       # pretest hook that builds @react-native-gpui/testing.
