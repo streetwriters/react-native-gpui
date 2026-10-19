@@ -432,6 +432,11 @@ fn main() {
             "AppKit",
             "Metal",
             "QuartzCore",
+            // libcurl reads the system proxy settings on macOS through
+            // `SCDynamicStoreCopyProxies`. Nothing linked this framework until
+            // the Rust HTTP stack was removed: reqwest had pulled it in
+            // transitively, and without it the link fails on curl's macos.c.
+            "SystemConfiguration",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }

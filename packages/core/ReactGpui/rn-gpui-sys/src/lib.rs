@@ -330,6 +330,32 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
+        include!("GpuiHttpBridge.h");
+
+        /// Issue a request; the response arrives through `rn_gpui_http_complete`.
+        fn rn_gpui_http_request(
+            request_id: u64,
+            method: &str,
+            url: &str,
+            headers: &str,
+            body: &str,
+        );
+        fn rn_gpui_http_request_cancel(request_id: u64);
+    }
+
+    extern "Rust" {
+        /// Called by the C++ bridge when a request finishes. Implemented in
+        /// `rn-gpui`, which owns the future waiting for it.
+        fn rn_gpui_http_complete(
+            request_id: u64,
+            status: i32,
+            headers: &str,
+            body: &str,
+            error: &str,
+        );
+    }
+
+    unsafe extern "C++" {
         include!("GpuiHost.h");
         type GpuiHost;
 
@@ -451,6 +477,10 @@ pub type TrayMenuPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static TRAY_MENU_PERFORM_HANDLER: OnceLock<TrayMenuPerformHandler> = OnceLock::new();
 pub type MenuBarPerformHandler = Box<dyn Fn(String) + Send + Sync>;
 pub static MENU_BAR_PERFORM_HANDLER: OnceLock<MenuBarPerformHandler> = OnceLock::new();
+/// A finished HTTP request, reported by the bridge.
+pub type HttpCompleteHandler = Box<dyn Fn(u64, i32, String, Vec<u8>, String) + Send + Sync>;
+pub static HTTP_COMPLETE_HANDLER: OnceLock<HttpCompleteHandler> = OnceLock::new();
+
 pub type ImageHandler = Box<dyn Fn(String, u64) + Send + Sync>;
 pub static IMAGE_HANDLER: OnceLock<ImageHandler> = OnceLock::new();
 pub type ImageCacheQueryHandler = Box<dyn Fn(&str) -> bool + Send + Sync>;
@@ -472,6 +502,19 @@ fn rn_gpui_render_text_image(family: &str, text: &str, font_size: f64, color: u3
         .map_or_else(String::new, |handler| {
             handler(family, text, font_size, color)
         })
+}
+
+/// The C++ bridge reports a finished request here.
+fn rn_gpui_http_complete(request_id: u64, status: i32, headers: &str, body: &str, error: &str) {
+    if let Some(handler) = HTTP_COMPLETE_HANDLER.get() {
+        handler(
+            request_id,
+            status,
+            headers.to_string(),
+            body.as_bytes().to_vec(),
+            error.to_string(),
+        );
+    }
 }
 
 fn rn_gpui_load_image(uri: String, request_id: u64) {
