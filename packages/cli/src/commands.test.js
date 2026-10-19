@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
   collectNodeAddons,
+  desktopLaunchConfig,
   linuxBuildDependencyProblem,
   scanNodeAddonCalls,
 } from './commands.js';
@@ -189,4 +190,58 @@ test('collect-node-addons clears a stale directory when the bundle has none', ()
 test('collect-node-addons requires both arguments', () => {
   expect(() => collectNodeAddons({})).toThrow(/--bundle/u);
   expect(() => collectNodeAddons({ bundle: 'x' })).toThrow(/--out/u);
+});
+
+// The launch chain used to be built from `app.json`'s `desktop` key. It reads
+// `desktop/desktop.json` now, and these check that the generated `main.rs` is
+// the same for the same options.
+test('the launch chain reflects the window, dev menu and tray', () => {
+  const main = desktopLaunchConfig(
+    {
+      window: { width: 900, height: 700, title: 'My App', resizable: true },
+      devMenu: true,
+      tray: { component: 'TrayRoot', tooltip: 'Open', accessory: true },
+    },
+    'desktop/desktop.json',
+  );
+  expect(main).toContain('.window_title("My App")');
+  expect(main).toContain('.window_size(900.0, 700.0)');
+  expect(main).toContain('.dev_menu(true)');
+  expect(main).toContain(
+    '.tray(TrayConfig::default().component("TrayRoot").tooltip("Open"))',
+  );
+  expect(main).toContain('options.is_resizable = true;');
+});
+
+test('an app asking to restore nothing and be fixed-size says so', () => {
+  const main = desktopLaunchConfig(
+    {
+      window: {
+        width: 400,
+        height: 300,
+        resizable: false,
+        restoreState: false,
+        position: { x: 10, y: 20 },
+      },
+      devMenu: false,
+    },
+    'desktop/desktop.json',
+  );
+  expect(main).toContain('.restore_window_state(false)');
+  expect(main).toContain('.window_position(10.0, 20.0)');
+  expect(main).toContain('.dev_menu(false)');
+  expect(main).toContain('options.is_resizable = false;');
+  expect(main).not.toContain('.tray(');
+});
+
+test('a tray with accessory false disables the accessory mode', () => {
+  const main = desktopLaunchConfig(
+    {
+      window: { width: 1, height: 1 },
+      devMenu: true,
+      tray: { accessory: false },
+    },
+    'desktop/desktop.json',
+  );
+  expect(main).toContain('.tray(TrayConfig::default().accessory(false))');
 });

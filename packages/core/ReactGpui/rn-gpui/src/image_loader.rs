@@ -41,9 +41,11 @@ pub(crate) fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
         }) {
             return None;
         }
-        let assets_dir = std::env::var_os("RN_GPUI_ASSETS_DIR")
-            .map(std::path::PathBuf::from)
-            .or_else(|| std::env::current_dir().ok().map(|cwd| cwd.join("assets")))?;
+        let assets_dir = crate::resources::default_assets_dir().or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|cwd| crate::resources::assets_in(&cwd))
+        })?;
         return Some(assets_dir.join(relative_path));
     }
     let url = uri.parse::<Url>().ok()?;

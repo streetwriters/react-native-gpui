@@ -120,6 +120,47 @@ Inside this repository, `auto` uses the prebuilt runtime only while the C++
 sources match the ones it was built from, so local C++ changes are always
 compiled.
 
+## Package
+
+```sh
+npx react-native package-desktop              # every format this OS can build
+npx react-native package-desktop --target dmg  # one format
+```
+
+Always a release build, into `desktop/build/dist/`.
+
+| OS      | Formats                 |
+| ------- | ----------------------- |
+| macOS   | `.app`, `.dmg`          |
+| Windows | NSIS installer (`.exe`) |
+| Linux   | `.deb`, `.AppImage`     |
+
+The app is described by `desktop/desktop.json` beside the crate; all fields are
+optional.
+
+```json
+{
+  "$schema": "../node_modules/@react-native-gpui/cli/desktop.schema.json",
+  "productName": "My App",
+  "identifier": "com.example.myapp",
+  "icon": "assets/icon.png",
+  "window": { "title": "My App", "width": 1024, "height": 768 },
+  "bundle": { "targets": "all", "category": "DeveloperTool" }
+}
+```
+
+`desktop.<os>.json` is merged over the base for that OS (RFC 7386; `null` removes
+a key). `app.json`'s old `desktop` key is rejected with a pointer to the new file.
+
+Signing is read from the environment, never from the file: macOS is ad-hoc signed
+unless `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE` and
+`APPLE_CERTIFICATE_PASSWORD` are set (`APPLE_ID` / `APPLE_PASSWORD` notarize);
+Windows is unsigned unless `WINDOWS_CERTIFICATE_THUMBPRINT` is set.
+
+Packaging relinks the release binary without absolute rpaths, so
+`desktop/build/target/release/<app>` stops running from the checkout until
+`run-desktop --release` rebuilds it.
+
 ## License
 
 [MIT](LICENSE)

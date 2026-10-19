@@ -567,6 +567,19 @@ jobs:
             node scripts/ci/clean-install.mjs --packed ci-out/packed.json \
             --dir "$RUNNER_TEMP/rn-gpui-clean-install"
 
+      # The installers themselves, so a download proves they exist and a person
+      # can install one. Separate from the report inputs because they are large
+      # and short-lived.
+      - name: Upload the packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/rn-gpui-clean-install/SmokeApp/desktop/build/dist/**
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Upload the report inputs
         if: always()
         uses: actions/upload-artifact@v4

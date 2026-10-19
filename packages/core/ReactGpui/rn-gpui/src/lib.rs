@@ -21,6 +21,7 @@ mod test_driver;
 pub(crate) mod text;
 
 mod bootstrap;
+mod resources;
 pub use bootstrap::{run, run_with, DesktopAppConfig};
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.

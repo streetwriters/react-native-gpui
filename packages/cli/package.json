@@ -6,7 +6,9 @@
     "bin",
     "src",
     "templates",
-    "react-native.config.cjs"
+    "assets",
+    "react-native.config.cjs",
+    "desktop.schema.json"
   ],
   "bin": {
     "react-native-gpui": "./bin/react-native-gpui.js"

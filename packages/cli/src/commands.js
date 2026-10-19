@@ -4,6 +4,12 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
+import { desktopOs, loadDesktopConfig, targetsFor } from './desktop-config.js';
+import {
+  CARGO_PACKAGER_VERSION,
+  runtimeLibraries,
+  toPackagerConfig,
+} from './package-desktop.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -278,6 +284,7 @@ export async function runDesktop({
   host = 'localhost',
   features,
   noLaunch = false,
+  packaging = false,
 }) {
   projectRoot = path.resolve(projectRoot);
   const dependencyProblem = linuxBuildDependencyProblem(
@@ -398,6 +405,10 @@ export async function runDesktop({
     RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, 'autolink/autolink.json'),
     RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, 'autolink/autolink.cmake'),
   };
+  // `package-desktop` sets this: the binary is about to be installed elsewhere,
+  // so `build.rs` emits only relative rpaths. A plain release build keeps the
+  // absolute ones, because it is run from this tree.
+  if (packaging) cargoEnv.RN_GPUI_PACKAGING = '1';
   if (
     process.env.CARGO_TARGET_DIR === undefined &&
     !cargoConfigSetsTargetDir(projectRoot)
@@ -414,9 +425,6 @@ const appPackageName = (projectRoot, packageJson) =>
   `react-native-gpui-${(packageJson.name ?? path.basename(projectRoot))
     .toLowerCase()
     .replaceAll(/[^a-z0-9-]/gu, '-')}`;
-
-const appIdFromName = name =>
-  `com.example.${name.toLowerCase().replaceAll(/[^a-z0-9-]/gu, '-')}`;
 
 function snapshotTree(root, track, rememberDirectory, existingDirectories) {
   if (!fs.existsSync(root)) {
@@ -457,123 +465,52 @@ const desktopFiles = directory =>
       : [path.relative(path.join(templatesDir, 'app'), fullPath)];
   });
 
-function desktopNumber(value, fallback, label, appConfigPath) {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new Error(`${label} must be a positive number: ${appConfigPath}`);
-  }
-  return value;
+/// A number as a Rust float literal.
+function asFloat(value) {
+  return Number.isInteger(value) ? `${value}.0` : String(value);
 }
 
-export function desktopLaunchConfig(appConfig, appConfigPath) {
-  const desktop = appConfig.desktop ?? {};
-  const window = desktop.window;
-  const hasWindow = window !== undefined;
-  const hasDevMenu = typeof desktop.devMenu === 'boolean';
-  const hasTray = desktop.tray !== undefined;
-  if (!hasWindow && !hasDevMenu && !hasTray) return null;
-  if (
-    hasWindow &&
-    (typeof window !== 'object' || window === null || Array.isArray(window))
-  ) {
-    throw new Error(
-      `app.json desktop.window must be an object: ${appConfigPath}`,
-    );
-  }
-  if (
-    hasTray &&
-    (typeof desktop.tray !== 'object' ||
-      desktop.tray === null ||
-      Array.isArray(desktop.tray))
-  ) {
-    throw new Error(
-      `app.json desktop.tray must be an object: ${appConfigPath}`,
-    );
-  }
-
-  const settings = window ?? {};
+/**
+ * The `main.rs` an app's `desktop.json` describes.
+ *
+ * The window, dev-menu and tray chain is unchanged from when these options
+ * lived in `app.json`; only where they are read from moved.
+ */
+export function desktopLaunchConfig(config, configPath) {
+  const settings = config.window ?? {};
   const title =
     settings.title === undefined
       ? 'env!("RN_GPUI_APP_NAME")'
-      : JSON.stringify(
-          typeof settings.title === 'string'
-            ? settings.title
-            : (() => {
-                throw new Error(
-                  `app.json desktop.window.title must be a string: ${appConfigPath}`,
-                );
-              })(),
-        );
-  const width = desktopNumber(
-    settings.width,
-    1024,
-    'app.json desktop.window.width',
-    appConfigPath,
-  );
-  const height = desktopNumber(
-    settings.height,
-    768,
-    'app.json desktop.window.height',
-    appConfigPath,
-  );
+      : JSON.stringify(settings.title);
+  const width = settings.width;
+  const height = settings.height;
 
+  // `window_size` takes `f32`: a JSON number reaches Rust as `1024`, which is
+  // an integer literal and does not coerce.
   const chain = [
     `    .window_title(${title})`,
-    `    .window_size(${width}, ${height})`,
+    `    .window_size(${asFloat(width)}, ${asFloat(height)})`,
   ];
   if (settings.position !== undefined) {
-    const position = settings.position;
-    if (
-      typeof position !== 'object' ||
-      position === null ||
-      Array.isArray(position)
-    ) {
-      throw new Error(
-        `app.json desktop.window.position must be an object: ${appConfigPath}`,
-      );
-    }
-    const x = desktopNumber(
-      position.x,
-      undefined,
-      'app.json desktop.window.position.x',
-      appConfigPath,
-    );
-    const y = desktopNumber(
-      position.y,
-      undefined,
-      'app.json desktop.window.position.y',
-      appConfigPath,
-    );
+    const { x, y } = settings.position;
     if (x === undefined || y === undefined) {
       throw new Error(
-        `app.json desktop.window.position needs x and y: ${appConfigPath}`,
+        `desktop/desktop.json window.position needs x and y: ${configPath}`,
       );
     }
-    chain.push(`    .window_position(${x}, ${y})`);
+    chain.push(`    .window_position(${asFloat(x)}, ${asFloat(y)})`);
   }
   if (settings.restoreState === false) {
     chain.push('    .restore_window_state(false)');
   }
-  if (hasDevMenu) {
-    chain.push(`    .dev_menu(${desktop.devMenu})`);
-  }
-  if (hasTray) {
-    const tray = desktop.tray;
+  chain.push(`    .dev_menu(${config.devMenu})`);
+  if (config.tray !== undefined) {
+    const tray = config.tray;
     let trayChain = 'TrayConfig::default()';
     if (tray.component !== undefined) {
-      if (typeof tray.component !== 'string' || tray.component.length === 0) {
-        throw new Error(
-          `app.json desktop.tray.component must be a non-empty string: ${appConfigPath}`,
-        );
-      }
       trayChain += `.component(${JSON.stringify(tray.component)})`;
     }
     if (tray.tooltip !== undefined) {
-      if (typeof tray.tooltip !== 'string') {
-        throw new Error(
-          `app.json desktop.tray.tooltip must be a string: ${appConfigPath}`,
-        );
-      }
       trayChain += `.tooltip(${JSON.stringify(tray.tooltip)})`;
     }
     if (tray.accessory === false) {
@@ -589,9 +526,9 @@ export function desktopLaunchConfig(appConfig, appConfigPath) {
 
   return `//! Project-owned desktop launch configuration.
 //!
-//! Generated by \`init-desktop\` from the \`desktop\` key in \`app.json\`; edit
-//! either that file and re-run \`npx react-native init-desktop\`, or this file
-//! directly. See \`desktop/README.md\` for the full set of options.
+//! Generated by \`init-desktop\` from \`desktop/desktop.json\`; edit that file and
+//! re-run \`npx react-native init-desktop\`, or this file directly. See
+//! \`desktop/README.md\` for the full set of options.
 //!
 //! Add \`mod my_turbo_module;\` here for local Rust TurboModules. Put matching
 //! \`Native*.ts\` specs beside this file; \`run-desktop\` discovers and codegens
@@ -647,36 +584,18 @@ function scaffoldDesktop(
   if (typeof appConfig.name !== 'string' || appConfig.name.length === 0) {
     throw new Error(`app.json must define a nonempty name: ${appConfigPath}`);
   }
-  if (
-    appConfig.desktop !== undefined &&
-    (typeof appConfig.desktop !== 'object' ||
-      appConfig.desktop === null ||
-      Array.isArray(appConfig.desktop))
-  ) {
-    throw new Error(`app.json desktop must be an object: ${appConfigPath}`);
-  }
-  const appId = appConfig.desktop?.appId ?? appIdFromName(appConfig.name);
-  if (typeof appId !== 'string' || appId.length === 0) {
-    throw new Error(
-      `app.json desktop.appId must be a nonempty string: ${appConfigPath}`,
-    );
-  }
-  const launchConfig = desktopLaunchConfig(appConfig, appConfigPath);
+  // Every launch setting comes from `desktop/desktop.json`; `app.json`'s old
+  // `desktop` key is rejected by the loader with a pointer to the new file.
+  const launchConfig = desktopLaunchConfig(
+    loadDesktopConfig(projectRoot, process.platform),
+    path.join(projectRoot, 'desktop/desktop.json'),
+  );
   if (launchConfig !== null) {
     const mainPath = path.join(projectRoot, 'desktop/src/main.rs');
     if (!preserveExisting || !fs.existsSync(mainPath)) {
       beforeWrite(mainPath);
       fs.writeFileSync(mainPath, launchConfig);
     }
-  }
-  const updatedAppConfig = {
-    ...appConfig,
-    desktop: { ...appConfig.desktop, appId },
-  };
-  const serializedAppConfig = `${JSON.stringify(updatedAppConfig, null, 2)}\n`;
-  if (fs.readFileSync(appConfigPath, 'utf8') !== serializedAppConfig) {
-    beforeWrite(appConfigPath);
-    fs.writeFileSync(appConfigPath, serializedAppConfig);
   }
 
   const updatedPackageJson = {
@@ -1229,4 +1148,203 @@ export function collectNodeAddons({
     `Copied ${addons.length} Node addon(s) and ${copied.length - addons.length} sibling librar(ies) to ${outDirectory}.`,
   );
   return { copied, out: outDirectory };
+}
+
+/// The `name` a desktop crate declares in its Cargo.toml.
+function desktopCrateName(crateDir) {
+  const manifest = fs.readFileSync(path.join(crateDir, 'Cargo.toml'), 'utf8');
+  const match = manifest.match(/^name\s*=\s*"([^"]+)"/mu);
+  if (!match) {
+    throw new Error(`no package name in ${path.join(crateDir, 'Cargo.toml')}`);
+  }
+  return match[1];
+}
+
+/**
+ * `package-desktop`: turn the app into installable packages for this OS.
+ *
+ * Always a release build. The steps are: load the config, produce the release
+ * bundle and binary the way `run-desktop --release` does, translate the config
+ * into cargo-packager's, and run it. cargo-packager is an implementation
+ * detail — nothing here writes its format by hand.
+ */
+export async function packageDesktop({
+  projectRoot = process.cwd(),
+  targets,
+  outDir,
+} = {}) {
+  projectRoot = path.resolve(projectRoot);
+  const config = loadDesktopConfig(projectRoot, process.platform);
+  // `--target` reaches the command as the string after the flag.
+  const requested =
+    targets === undefined || targets === true
+      ? config
+      : {
+          ...config,
+          bundle: {
+            ...config.bundle,
+            targets: String(targets)
+              .split(',')
+              .map(format => format.trim())
+              .filter(Boolean),
+          },
+        };
+  const formats = targetsFor(requested, process.platform);
+
+  // 1. The release bundle and binary. `packaging` makes build.rs emit only
+  //    relative rpaths, so the result carries no path into this build tree.
+  await runDesktop({
+    projectRoot,
+    release: true,
+    noLaunch: true,
+    packaging: true,
+  });
+
+  const crateDir = path.join(projectRoot, 'desktop');
+  // The executable is the crate's name, which is what `scaffoldDesktop` writes
+  // into Cargo.toml and what `cargo build` produces.
+  const binaryName = desktopCrateName(crateDir);
+  const buildDir = path.join(crateDir, 'build');
+
+  // 2. Icons, from the one PNG the config names.
+  const icons = generateIcons(config, { crateDir, projectRoot });
+
+  // 3. The libraries that have to travel with the app.
+  const libraries = runtimeLibraries(projectRoot, {
+    os: process.platform,
+    arch: process.arch,
+    release: true,
+  });
+  // Named, because a library left out of the package is otherwise invisible until
+  // the installer or the AppImage step fails with a message that does not say
+  // which file it was looking for.
+  for (const library of libraries) {
+    console.log(`shipping library ${path.basename(library)}`);
+  }
+
+  // 4. Translate, then run cargo-packager.
+  // The rpath `build.rs` emits names the app, not the crate: it is
+  // `RN_GPUI_APP_NAME`, which comes from `app.json`. The deb has to install its
+  // libraries into that same directory or the binary cannot find them.
+  const appJson = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'app.json'), 'utf8'),
+  );
+  const packagerConfig = toPackagerConfig(config, {
+    crateDir,
+    binaryName,
+    rpathDir: appJson.name,
+    os: desktopOs(process.platform),
+    bundleDir: buildDir,
+    assetsDir: path.join(buildDir, 'assets'),
+    icons,
+    libraries,
+    formats,
+    ...(outDir === undefined ? {} : { outDir: path.resolve(outDir) }),
+  });
+  // The config is written at the crate root, not in `build/`: cargo-packager
+  // resolves every path in it — the binary, the resources, the frameworks —
+  // relative to the config file's own directory, so a config one level down
+  // would look for `build/build/index.bundle`.
+  const configPath = path.join(crateDir, 'packager.json');
+  fs.mkdirSync(buildDir, { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(packagerConfig, null, 2)}\n`);
+
+  ensureCargoPackager();
+  run(
+    'cargo',
+    ['packager', '--config', 'packager.json', '--formats', formats.join(',')],
+    { cwd: crateDir },
+  );
+
+  fs.rmSync(configPath, { force: true });
+  const produced = listPackages(packagerConfig.outDir);
+  for (const file of produced) console.log(file);
+  return produced;
+}
+
+/**
+ * Installs cargo-packager when the pinned version is not the one on PATH.
+ *
+ * One line saying so: the install takes a few minutes and happens once.
+ */
+export function ensureCargoPackager() {
+  let installed;
+  try {
+    installed = execFileSync('cargo', ['packager', '--version'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    installed = '';
+  }
+  if (installed.includes(CARGO_PACKAGER_VERSION)) return;
+  console.log(
+    `installing cargo-packager ${CARGO_PACKAGER_VERSION} (once, a few minutes)`,
+  );
+  run(
+    'cargo',
+    [
+      'install',
+      'cargo-packager',
+      '--locked',
+      '--version',
+      CARGO_PACKAGER_VERSION,
+    ],
+    {},
+  );
+}
+
+/** The packages a run produced, newest first. */
+function listPackages(outDir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(outDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(outDir, entry.name))
+    .sort();
+}
+
+/**
+ * The icon a package builds from: the one `desktop.json` names, or the CLI's
+ * placeholder.
+ *
+ * cargo-packager derives a macOS `.icns` entry from an icon's pixel size times
+ * its density, and only a handful of those pairs are ICNS types. A 1024x1024
+ * PNG at 1x is not one of them, so a single file fails with "No matching
+ * IconType" — which is what stopped the app bundle as well as the AppImage.
+ * Naming the copy `@2x` says what the file is: a 1024px asset for a 512pt slot,
+ * which is a valid type, and every other format is derived from it.
+ *
+ * The `@2x` convention is cargo-packager's own, and the copy is why no image
+ * library is needed: the CLI never rescales a user's icon, it labels it.
+ *
+ * There is always an icon: an app that never set `icon` gets the placeholder,
+ * because the AppImage step refuses to build without a square one.
+ */
+function generateIcons(config, { crateDir }) {
+  const source =
+    config.icon === undefined
+      ? defaultIconPath()
+      : path.resolve(crateDir, config.icon);
+  if (!fs.existsSync(source)) {
+    throw new Error(
+      `desktop.json names an icon that does not exist: ${source}`,
+    );
+  }
+
+  const iconDir = path.join(crateDir, 'build', 'icons');
+  fs.mkdirSync(iconDir, { recursive: true });
+  const target = path.join(iconDir, `icon@2x${path.extname(source)}`);
+  if (path.resolve(source) !== path.resolve(target)) {
+    fs.copyFileSync(source, target);
+  }
+  return [path.relative(crateDir, target).split(path.sep).join('/')];
+}
+
+/// The square PNG bundled with the CLI, used when an app sets no icon.
+function defaultIconPath() {
+  return path.join(cliDir, '..', 'assets', 'default-icon.png');
 }

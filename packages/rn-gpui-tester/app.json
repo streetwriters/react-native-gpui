@@ -1,7 +1,4 @@
 {
   "name": "RNGPUITester",
-  "displayName": "React Native GPUI Tester",
-  "desktop": {
-    "appId": "org.reactnativegpui.tester"
-  }
+  "displayName": "React Native GPUI Tester"
 }
