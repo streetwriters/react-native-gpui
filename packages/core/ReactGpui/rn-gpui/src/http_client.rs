@@ -3,8 +3,8 @@
 //! There used to be two complete stacks: curl and OpenSSL for React Native's
 //! `fetch`, `XHR` and `WebSocket`, and a Rust one (reqwest, hyper, tokio, rustls,
 //! ring) for the three places GPUI itself loads a URL — `img(url)`, remote fonts,
-//! and remote SVG. Only the second was ours to remove, and it was most of the
-//! binary's TLS code twice over.
+//! and remote vector images. Only the second was ours to remove, and it was most
+//! of the binary's TLS code twice over.
 //!
 //! A request is issued through the cxx bridge, which runs it on the C++ client's
 //! own thread and calls [`complete`] with the whole response. That is the shape

@@ -159,7 +159,10 @@ fn process_start_time() -> Option<std::time::SystemTime> {
         pbi_ruid: u32,
         pbi_rgid: u32,
         pbi_svuid: u32,
-        pbi_svgid: u32,
+        // The saved-group id. Named for its position in `proc_bsdinfo`, not read
+        // here; the layout is what matters for `proc_pidinfo` to fill it.
+        #[allow(dead_code)]
+        pbi_saved_gid: u32,
         rfu_1: u32,
         pbi_comm: [u8; 16],
         pbi_name: [u8; 32],
@@ -1110,6 +1113,40 @@ pub fn run_with(mut config: DesktopAppConfig) {
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
             log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
         }
+        // Start React Native before the window exists.
+        //
+        // JS runs on its own thread, and a real app's startup is 50-300 ms that
+        // used to happen entirely after AppKit finished. The size and scale here
+        // are the values the window is about to be created with; anything the
+        // window alone can report (its top inset, its final scale) is applied
+        // once it exists, through the same path a resize takes.
+        // GPUI reports the scale from a window, and there is no window yet.
+        // `RN_GPUI_SCALE` overrides it for tests; otherwise the estimate is the
+        // Retina default on macOS and 1.0 elsewhere. The surface is corrected
+        // below if the window disagrees, so a wrong guess costs one resize, not a
+        // wrong layout.
+        let estimated_scale = scale_override.unwrap_or(if cfg!(target_os = "macos") {
+            2.0
+        } else {
+            1.0
+        });
+        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
+        startup_trace("host created");
+        host.set_window_metrics(width, height, estimated_scale);
+        startup_trace("bundle load start");
+        if !host.load_script(&bundle, &source_url) {
+            log::error!("load_script failed for {bundle}");
+            std::process::exit(1);
+        }
+        startup_trace("bundle load end");
+        log::info!("loaded {bundle}");
+        // The surface starts now as well: mount batches queue on the main-thread
+        // channel until the store and its window exist, which is the same path a
+        // background surface already uses.
+        let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
+        host.start_surface(1, &module, width, height - menu_bar_inset, estimated_scale);
+        startup_trace("surface started");
+
         startup_trace("opening GPUI window");
         let mut window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1213,16 +1250,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         #[cfg(any(feature = "visual-capture", feature = "perf-timing"))]
         let any_window = *window;
 
+        // React Native is already running; the window supplies the three values
+        // only it knows, and the surface is corrected if the estimate was wrong.
         let window_scale = window
             .update(cx, |_root, window, _cx| window.scale_factor())
-            .unwrap_or(2.0);
+            .unwrap_or(estimated_scale);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
-        startup_trace("host created");
-        // NativeDeviceInfo is queried during JS module initialization; publish
-        // the actual viewport before loading the bundle that imports Dimensions.
-        host.set_window_metrics(width, height, scale);
         let top_inset = window.update(cx, |_root, window, _cx| {
             #[cfg(target_os = "macos")]
             { crate::native_view::window_top_inset(window) }
@@ -1236,17 +1270,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
             _ => "light",
         };
         host.set_system_appearance(appearance);
-        startup_trace("bundle load start");
-        if !host.load_script(&bundle, &source_url) {
-            log::error!("load_script failed for {bundle}");
-            std::process::exit(1);
+        // The window may have opened at a different size or scale than the
+        // estimate — a restore onto another display, or a maximized window — so
+        // the surface is told, through the path a resize takes.
+        // A wrong estimate is corrected here, not tolerated: JS reads Dimensions at
+        // module initialization, so a surface told the wrong scale lays out at the
+        // wrong density until something resizes it.
+        if (window_scale - estimated_scale).abs() > f32::EPSILON {
+            log::info!(
+                "surface scale corrected {estimated_scale}x -> {window_scale}x after the window opened"
+            );
+            host.set_window_metrics(width, height, scale);
         }
-        startup_trace("bundle load end");
-        log::info!("loaded {bundle}");
-
-        let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
-        host.start_surface(1, &module, width, height - menu_bar_inset, scale);
-        startup_trace("surface started");
         log::info!(
             "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
              menu bar inset {menu_bar_inset})",
