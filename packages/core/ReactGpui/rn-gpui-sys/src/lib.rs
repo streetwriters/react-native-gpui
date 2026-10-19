@@ -350,7 +350,10 @@ pub mod ffi {
             request_id: u64,
             status: i32,
             headers: &str,
-            body: &str,
+            // Bytes, not text: GPUI loads images and fonts through this client,
+            // and cxx rejects non-UTF-8 for `&str` by throwing. An image response
+            // crashed the app with "data for rust::Str is not utf-8".
+            body: &[u8],
             error: &str,
         );
     }
@@ -512,13 +515,13 @@ fn rn_gpui_render_text_image(family: &str, text: &str, font_size: f64, color: u3
 }
 
 /// The C++ bridge reports a finished request here.
-fn rn_gpui_http_complete(request_id: u64, status: i32, headers: &str, body: &str, error: &str) {
+fn rn_gpui_http_complete(request_id: u64, status: i32, headers: &str, body: &[u8], error: &str) {
     if let Some(handler) = HTTP_COMPLETE_HANDLER.get() {
         handler(
             request_id,
             status,
             headers.to_string(),
-            body.as_bytes().to_vec(),
+            body.to_vec(),
             error.to_string(),
         );
     }

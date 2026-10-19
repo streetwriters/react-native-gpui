@@ -168,11 +168,15 @@ void rn_gpui_http_request(
           return;
         }
         const auto serialized = serializeHeaders(result->headers);
+        // `rust::Slice` for the body: it is raw response bytes, and an image
+        // response is not UTF-8.
         rn_gpui_http_complete(
             request_id,
             result->status,
             ::rust::Str(serialized.data(), serialized.size()),
-            ::rust::Str(result->body.data(), result->body.size()),
+            ::rust::Slice<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(result->body.data()),
+                result->body.size()),
             ::rust::Str(result->error.data(), result->error.size()));
       })
       .detach();
