@@ -5098,6 +5098,7 @@ name = "rn-gpui-autolink"
 version = "0.1.0"
 dependencies = [
  "rn-gpui-fixture-badge",
+ "rn-gpui-fs",
  "rn-gpui-native-fixture",
  "rn-gpui-screens",
  "rn-gpui-svg",
@@ -5113,6 +5114,14 @@ dependencies = [
  "rn-gpui-module-build",
  "rn-gpui-sys",
  "serde_json",
+]
+
+[[package]]
+name = "rn-gpui-fs"
+version = "0.1.0"
+dependencies = [
+ "rn-gpui-module",
+ "rn-gpui-module-build",
 ]
 
 [[package]]

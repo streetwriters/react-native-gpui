@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
   collectNodeAddons,
+  createLibrary,
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
   scanNodeAddonCalls,
@@ -244,4 +245,42 @@ test('a tray with accessory false disables the accessory mode', () => {
     'desktop/desktop.json',
   );
   expect(main).toContain('.tray(TrayConfig::default().accessory(false))');
+});
+
+test('create-library writes a crate path that survives a symlinked destination', () => {
+  // A destination reached through a symlink is the case that broke: the path was
+  // computed from the directory as given, Cargo resolved the real one, and the
+  // crate it named did not exist there. `../../../` became necessary
+  // `../../../../`, and the build failed on a path nobody had typed.
+  //
+  // The link has to sit at a different depth from its target for the bug to
+  // appear: a sibling link such as `<dir>` and `<dir>-link` resolves to the same
+  // number of `..` levels and hides the defect. This is the shape of `/tmp` on
+  // macOS, which is a symlink to `/private/tmp`.
+  const outer = fs.mkdtempSync(nodePath.join(repoRoot, '.local', 'scaffold-'));
+  const real = nodePath.join(outer, 'nested', 'dest');
+  fs.mkdirSync(real, { recursive: true });
+  const link = nodePath.join(outer, 'link');
+  fs.symlinkSync(real, link, 'dir');
+  try {
+    createLibrary({
+      libraryName: 'fs',
+      type: 'rust',
+      destination: link,
+      packageName: '@react-native-gpui/fs',
+    });
+    const manifest = fs.readFileSync(
+      nodePath.join(link, 'desktop/Cargo.toml'),
+      'utf8',
+    );
+    const declared = manifest.match(
+      /rn-gpui-module = \{ path = "([^"]+)"/u,
+    )?.[1];
+    expect(declared).toBeDefined();
+    // The path must resolve from the real location, which is what Cargo uses.
+    const resolved = nodePath.resolve(real, 'desktop', declared);
+    expect(fs.existsSync(nodePath.join(resolved, 'Cargo.toml'))).toBe(true);
+  } finally {
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
 });
