@@ -506,9 +506,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
     // A packaged release build has no source tree: the bundle is beside the
     // executable. `RN_GPUI_BUNDLE`, which the CLI sets in development, still
-    // wins.
-    let bundle =
-        crate::resources::default_bundle("packages/rn-gpui-tester/desktop/build/index.bundle");
+    // wins, and a debug build bakes in the path it was developed against.
+    //
+    // A release build with neither is a packaging mistake — no resources were
+    // installed — so the fallback names the file it looked for rather than a
+    // path into some checkout. That path must never be a repository path: it
+    // would resolve on the machine that built the app, and nowhere else.
+    let bundle = crate::resources::default_bundle("index.bundle");
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);

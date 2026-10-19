@@ -223,6 +223,16 @@ mod tests {
     }
 
     #[test]
+    fn a_release_build_with_no_resources_does_not_name_a_checkout() {
+        // `bootstrap` passes a bare file name as the fallback. A release binary
+        // must never carry an absolute path to the machine that built it: on the
+        // installing machine that path does not exist, and the app cannot start.
+        let fallback = resolve_bundle("index.bundle", true, None);
+        assert_eq!(fallback, "index.bundle");
+        assert!(!fallback.contains('/'), "fallback must not be a path");
+    }
+
+    #[test]
     fn a_release_build_looks_beside_the_executable() {
         let root =
             std::env::temp_dir().join(format!("rn-gpui-resources-release-{}", std::process::id()));
