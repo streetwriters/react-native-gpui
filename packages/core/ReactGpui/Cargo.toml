@@ -17,8 +17,17 @@ split-debuginfo = "packed"
 debug = false
 
 [profile.release]
-debug = false
-strip = "debuginfo"
+# Line tables, not `false`: a release crash is worth symbolizing, and with
+# `split-debuginfo` the debug info lives in a separate dSYM rather than the
+# binary, so it costs the package nothing.
+debug = "line-tables-only"
+# Strip the symbol table: nothing reads it at run time.
+## Keep the symbols Cargo's link step produces: `strip = "symbols"` runs in the
+## linker, so `dsymutil` runs afterwards on an already-stripped binary and writes
+## an empty dSYM. The stripping happens in `package-desktop` instead, after the
+## dSYM exists.
+strip = "none"
+split-debuginfo = "packed"
 
 [workspace.dependencies]
 gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "1eea2d66220fdaab909513f4a99337e17f1e316b" }
