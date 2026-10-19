@@ -256,26 +256,34 @@ jobs:
           $tools = 'C:\tools\ci-tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
 
-          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
-            $zip = Join-Path $env:RUNNER_TEMP 'ccache.zip'
-            # The official release asset, so the version is explicit.
-            Invoke-WebRequest -Uri 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' -OutFile $zip
+          # `curl.exe`, not `Invoke-WebRequest`: a download that fails has to say
+          # so. When the step first used Invoke-WebRequest it exited 1 with no
+          # message at all, which is indistinguishable from a dozen other causes.
+          # curl is on every Windows runner and reports its own errors.
+          function Get-Tool($url, $zip, $exe) {
+            Write-Host "downloading $url"
+            & curl.exe -sS -L --retry 3 --retry-delay 5 --max-time 300 -o $zip $url
+            if ($LASTEXITCODE -ne 0) { throw "curl failed for $url (exit $LASTEXITCODE)" }
+            if (-not (Test-Path $zip)) { throw "no file at $zip after downloading $url" }
+            Write-Host "downloaded $((Get-Item $zip).Length) bytes to $zip"
             Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
-            $ccache = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter 'ccache.exe' | Select-Object -First 1
-            if ($ccache) { Copy-Item $ccache.FullName (Join-Path $tools 'ccache.exe') }
+            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter $exe | Select-Object -First 1
+            if (-not $found) { throw "$exe was not inside $url" }
+            return $found.FullName
+          }
+
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            # The official release asset, so the version is explicit.
+            $ccache = Get-Tool 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' (Join-Path $env:RUNNER_TEMP 'ccache.zip') 'ccache.exe'
+            Copy-Item $ccache (Join-Path $tools 'ccache.exe')
           }
 
           if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) {
-            $zip = Join-Path $env:RUNNER_TEMP 'nasm.zip'
             # 2.16.03 rather than the 3.2.0 Chocolatey packaged: nasm.us has no
             # 3.2.0 release, so that number came from Chocolatey's own build.
-            Invoke-WebRequest -Uri 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' -OutFile $zip
-            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
-            $nasm = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter 'nasm.exe' | Select-Object -First 1
-            if ($nasm) {
-              New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
-              Copy-Item $nasm.FullName 'C:\Program Files\NASM\nasm.exe'
-            }
+            $nasm = Get-Tool 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' (Join-Path $env:RUNNER_TEMP 'nasm.zip') 'nasm.exe'
+            New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
+            Copy-Item $nasm 'C:\Program Files\NASM\nasm.exe'
           }
 
           # Perl openssl's configure needs. The runner image already ships
@@ -291,12 +299,17 @@ jobs:
           # a missing one only shows up much later, as "NASM not found" from
           # OpenSSL's configure, with the real cause 20 minutes back in the log.
           $env:PATH = "$tools;C:\Program Files\NASM;C:\Strawberry\perl\bin;$env:PATH"
+          # ninja, nasm and perl are load-bearing; ccache only makes the build
+          # faster, so its absence is reported and tolerated rather than fatal.
           $missing = @()
-          foreach ($tool in @('ninja', 'ccache', 'nasm', 'perl')) {
+          foreach ($tool in @('ninja', 'nasm', 'perl')) {
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
           }
           if ($missing.Count -gt 0) {
             throw "missing build tools after install: $($missing -join ', ')"
+          }
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            Write-Host '::warning::ccache is unavailable; the build will be slower'
           }
 
       - name: Set up MSVC
@@ -378,6 +391,11 @@ jobs:
           # MSYS rewrites a leading `/` into a drive path, but CCACHE_DIR is an
           # absolute Windows path already, so leave it alone.
           export MSYS2_ARG_CONV_EXCL='*'
+          if ! command -v ccache >/dev/null 2>&1; then
+            # Reported by the tool-install step; the build works without it.
+            echo 'ccache not available, skipping its configuration'
+            exit 0
+          fi
           ccache --version
           # Three platforms share the repo's cache budget, and Cargo and the
           # prebuilt runtime need room too, so keep this to 1 GB each. ccache
@@ -581,26 +599,34 @@ jobs:
           $tools = 'C:\tools\ci-tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
 
-          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
-            $zip = Join-Path $env:RUNNER_TEMP 'ccache.zip'
-            # The official release asset, so the version is explicit.
-            Invoke-WebRequest -Uri 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' -OutFile $zip
+          # `curl.exe`, not `Invoke-WebRequest`: a download that fails has to say
+          # so. When the step first used Invoke-WebRequest it exited 1 with no
+          # message at all, which is indistinguishable from a dozen other causes.
+          # curl is on every Windows runner and reports its own errors.
+          function Get-Tool($url, $zip, $exe) {
+            Write-Host "downloading $url"
+            & curl.exe -sS -L --retry 3 --retry-delay 5 --max-time 300 -o $zip $url
+            if ($LASTEXITCODE -ne 0) { throw "curl failed for $url (exit $LASTEXITCODE)" }
+            if (-not (Test-Path $zip)) { throw "no file at $zip after downloading $url" }
+            Write-Host "downloaded $((Get-Item $zip).Length) bytes to $zip"
             Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
-            $ccache = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter 'ccache.exe' | Select-Object -First 1
-            if ($ccache) { Copy-Item $ccache.FullName (Join-Path $tools 'ccache.exe') }
+            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter $exe | Select-Object -First 1
+            if (-not $found) { throw "$exe was not inside $url" }
+            return $found.FullName
+          }
+
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            # The official release asset, so the version is explicit.
+            $ccache = Get-Tool 'https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip' (Join-Path $env:RUNNER_TEMP 'ccache.zip') 'ccache.exe'
+            Copy-Item $ccache (Join-Path $tools 'ccache.exe')
           }
 
           if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) {
-            $zip = Join-Path $env:RUNNER_TEMP 'nasm.zip'
             # 2.16.03 rather than the 3.2.0 Chocolatey packaged: nasm.us has no
             # 3.2.0 release, so that number came from Chocolatey's own build.
-            Invoke-WebRequest -Uri 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' -OutFile $zip
-            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
-            $nasm = Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter 'nasm.exe' | Select-Object -First 1
-            if ($nasm) {
-              New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
-              Copy-Item $nasm.FullName 'C:\Program Files\NASM\nasm.exe'
-            }
+            $nasm = Get-Tool 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' (Join-Path $env:RUNNER_TEMP 'nasm.zip') 'nasm.exe'
+            New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
+            Copy-Item $nasm 'C:\Program Files\NASM\nasm.exe'
           }
 
           # Perl openssl's configure needs. The runner image already ships
@@ -616,12 +642,17 @@ jobs:
           # a missing one only shows up much later, as "NASM not found" from
           # OpenSSL's configure, with the real cause 20 minutes back in the log.
           $env:PATH = "$tools;C:\Program Files\NASM;C:\Strawberry\perl\bin;$env:PATH"
+          # ninja, nasm and perl are load-bearing; ccache only makes the build
+          # faster, so its absence is reported and tolerated rather than fatal.
           $missing = @()
-          foreach ($tool in @('ninja', 'ccache', 'nasm', 'perl')) {
+          foreach ($tool in @('ninja', 'nasm', 'perl')) {
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
           }
           if ($missing.Count -gt 0) {
             throw "missing build tools after install: $($missing -join ', ')"
+          }
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            Write-Host '::warning::ccache is unavailable; the build will be slower'
           }
 
       - name: Set up MSVC
