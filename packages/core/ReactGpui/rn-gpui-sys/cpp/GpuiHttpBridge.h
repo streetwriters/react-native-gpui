@@ -5,7 +5,7 @@
 
 namespace rngpui {
 
-// One request, issued for GPUI's image, font and remote-SVG loading.
+// One request, issued for GPUI's image, font and remote vector image loading.
 //
 // GPUI's `HttpClient` is synchronous from the caller's point of view: it
 // returns a future that resolves when the response is complete. React Native's
