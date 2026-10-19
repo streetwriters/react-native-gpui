@@ -658,6 +658,14 @@ test('SVG primitives, SvgXml and remote SvgUri render from an SVG response', asy
   );
   const tree = JSON.stringify(await app.tree());
   expect(tree).toContain('React Native SVG');
+  // The fixture declares every SVG at 180x120. A renderer that returns its
+  // element without a box leaves it an unpositioned flow child, and an image with
+  // no intrinsic size fills its parent — the SVGs then paint over the label
+  // below them. Asserting the frame is what catches that; the test above only
+  // proves something was painted.
+  const uriImage = (await app.query('testID', 'svg-uri-image', true))[0];
+  expect(uriImage?.frame?.width).toBe(180);
+  expect(uriImage?.frame?.height).toBe(120);
   await expectCaptureSmoke();
 });
 
