@@ -966,10 +966,28 @@ export function createLibrary({
       path.dirname(platformPackageJson),
       'ReactGpui',
     );
+    // Both sides are resolved first: `destination` may itself be reached through
+    // a symlink (`/tmp` on macOS), and Cargo resolves the crate directory before
+    // following the relative path. A path computed from the unresolved
+    // destination then lands one level short — `../../../Users/...` instead of
+    // `../../../../Users/...` — and the build fails to find the crate, which
+    // exists. `realpathSync` on a directory that does not exist yet is not
+    // possible, so only the parts that do are resolved.
+    const resolved = target => {
+      let existing = target;
+      const tail = [];
+      while (!fs.existsSync(existing)) {
+        const parent = path.dirname(existing);
+        if (parent === existing) break;
+        tail.unshift(path.basename(existing));
+        existing = parent;
+      }
+      return path.join(fs.realpathSync(existing), ...tail);
+    };
     const cratePath = crate =>
       path.relative(
-        path.join(destination, 'desktop'),
-        path.join(platformRustRoot, crate),
+        resolved(path.join(destination, 'desktop')),
+        resolved(path.join(platformRustRoot, crate)),
       );
     fs.writeFileSync(
       path.join(destination, 'desktop/Cargo.toml'),
