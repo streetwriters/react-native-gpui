@@ -21,9 +21,11 @@ mod test_driver;
 pub(crate) mod text;
 
 mod bootstrap;
+mod http_client;
 mod resources;
 pub use bootstrap::{run, run_with, DesktopAppConfig};
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.
+pub use http_client::RnHttpClient;
 pub use rn_gpui_module as module;
 pub use rn_gpui_module::{register as register_module, ModuleError, ModuleThread, Value};

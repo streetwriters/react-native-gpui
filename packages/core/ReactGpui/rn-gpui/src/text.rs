@@ -191,7 +191,7 @@ fn load_font_source(uri: &str) -> Option<Vec<u8>> {
         use futures::io::AsyncReadExt;
         use http_client::HttpClient;
 
-        let client = reqwest_client::ReqwestClient::new();
+        let client = crate::http_client::RnHttpClient::new();
         let mut response =
             futures::executor::block_on(client.get(uri, http_client::AsyncBody::empty(), true))
                 .map_err(|error| log::warn!("failed to fetch font URI {uri}: {error:#}"))

@@ -598,6 +598,7 @@ add_library(rn_gpui_core STATIC
   GpuiRustTurboModules.cpp
   GpuiHost.cpp
   GpuiHttpClient.cpp
+  GpuiHttpBridge.cpp
   GpuiJsEngine.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp

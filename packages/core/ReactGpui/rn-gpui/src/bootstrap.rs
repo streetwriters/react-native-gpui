@@ -703,8 +703,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
     }
     startup_trace("active display detected");
     let application = Application::with_platform(platform);
+    // Before any request can arrive: the C++ bridge reports completions through
+    // this handler, and it is registered once.
+    crate::http_client::install();
     application
-            .with_http_client(std::sync::Arc::new(reqwest_client::ReqwestClient::new()))
+        .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
         .run(move |cx: &mut App| {
         startup_trace("GPUI application callback entered");
         crate::image_loader::install(cx);
