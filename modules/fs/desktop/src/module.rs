@@ -50,7 +50,12 @@ pub struct RNFsModule {
     pub events: NativeFsEvents,
     /// Open files, keyed by the number JS holds. The table belongs to the
     /// instance, so a reload closes every descriptor when it drops.
-    pub files: Mutex<std::collections::HashMap<u32, File>>,
+    ///
+    /// Each entry records whether the descriptor was opened writable. The OS
+    /// reports a write to a read-only handle as `EBADF` on Unix and `EACCES` on
+    /// Windows, and Node reports `EBADF` on both, so the answer is taken from what
+    /// the handle was opened with rather than from the errno.
+    pub files: Mutex<std::collections::HashMap<u32, (File, bool)>>,
     /// Never reused, so a stale `fd` from JS fails instead of closing an
     /// unrelated file.
     pub next_fd: AtomicU32,
@@ -84,11 +89,18 @@ impl RNFsModule {
     /// is. Holding the lock only for the lookup keeps a slow write from blocking
     /// every other call on this thread.
     pub fn file(&self, fd: f64) -> Result<File, ModuleError> {
+        self.file_and_writability(fd).map(|(file, _)| file)
+    }
+
+    /// The handle and whether it can be written to.
+    pub fn file_and_writability(&self, fd: f64) -> Result<(File, bool), ModuleError> {
         let id = descriptor(fd)?;
         let files = self.files.lock().unwrap_or_else(|e| e.into_inner());
-        let file = files.get(&id).ok_or_else(|| bad_fd(id))?;
-        file.try_clone()
-            .map_err(|error| errors::from_io(error, &id.to_string()))
+        let (file, writable) = files.get(&id).ok_or_else(|| bad_fd(id))?;
+        let cloned = file
+            .try_clone()
+            .map_err(|error| errors::from_io(error, &id.to_string()))?;
+        Ok((cloned, *writable))
     }
 }
 

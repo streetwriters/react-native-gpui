@@ -147,7 +147,10 @@ fn relative_event_path(path: &Path, roots: &[PathBuf], watching_file: bool) -> S
     }
     for root in roots {
         if let Ok(rest) = path.strip_prefix(root) {
-            return rest.to_string_lossy().into_owned();
+            // Normalised to `/`: Node reports relative paths with forward
+            // slashes on every platform, and a Windows caller would otherwise get
+            // `nested\file.txt` where Node gives `nested/file.txt`.
+            return rest.to_string_lossy().replace('\\', "/");
         }
     }
     path.to_string_lossy().into_owned()
