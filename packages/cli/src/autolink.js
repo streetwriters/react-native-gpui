@@ -120,6 +120,55 @@ function patchBlock(entries) {
 }
 
 /**
+ * A TOML string literal for a value.
+ *
+ * JSON's string syntax is a subset of TOML's for the characters paths contain, so
+ * quoting through it keeps a Windows path's backslashes escaped correctly.
+ */
+function escapeToml(value) {
+  return JSON.stringify(value);
+}
+
+/**
+ * The `[patch.crates-io]` entries that point every managed crate at core.
+ *
+ * Exported because a second root manifest needs the same table: a module crate
+ * that declares `[workspace]` to become testable is its own root, and Cargo
+ * honours `[patch]` only there. Copying the block by hand reintroduces exactly
+ * the drift these entries exist to prevent — the gpui revision is read from
+ * core's manifest here, not written down anywhere.
+ *
+ * `platformRoot` is the installed core package, whose gated gpui pin is the
+ * authority; `base` is the directory the paths are written relative to, which
+ * for an app manifest is its `desktop/` directory.
+ */
+export function managedPatchEntries(platformRoot, base) {
+  const runtimeCrate = path.join(platformRoot, 'ReactGpui/rn-gpui');
+  const pin = gpuiPin(platformRoot);
+  const relative = target =>
+    escapeToml(path.relative(base, target).split(path.sep).join('/'));
+  return [
+    ...MANAGED_CRATES.filter(
+      crate => crate !== 'gpui' && crate !== 'gpui_platform',
+    ).map(crate => [
+      crate,
+      // The directory is not always the crate name: `react-native-gpui` lives
+      // in `rn-gpui`, so the path is built from the directory, not the key.
+      `{ path = ${relative(
+        crate === 'react-native-gpui'
+          ? runtimeCrate
+          : path.join(path.dirname(runtimeCrate), crate),
+      )} }`,
+    ]),
+    ['gpui', `{ git = "${pin.gpui.git}", rev = "${pin.gpui.rev}" }`],
+    [
+      'gpui_platform',
+      `{ git = "${pin.gpuiPlatform.git}", rev = "${pin.gpuiPlatform.rev}" }`,
+    ],
+  ];
+}
+
+/**
  * Insert or replace the managed block in an app manifest.
  *
  * Idempotent: a second run must produce the same bytes, because `writeIfChanged`
@@ -1048,7 +1097,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
 
-  const escapeToml = value => JSON.stringify(value);
   const autolinkCrate = generatedDir;
   fs.mkdirSync(path.join(autolinkCrate, 'src'), { recursive: true });
   const generatedDeps = rustCrates
@@ -1179,27 +1227,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   }
   // `[patch]` is only honoured in the root manifest, so the redirection lives in
   // the app's rather than in each module crate.
-  const desktopRelative = target =>
-    escapeToml(path.relative(desktopRoot, target).split(path.sep).join('/'));
-  appCargo = applyPatchBlock(appCargo, appCargoManifest, [
-    ...MANAGED_CRATES.filter(
-      crate => crate !== 'gpui' && crate !== 'gpui_platform',
-    ).map(crate => [
-      crate,
-      // The directory is not always the crate name: `react-native-gpui` lives
-      // in `rn-gpui`, so the path is built from the directory, not the key.
-      `{ path = ${desktopRelative(
-        crate === 'react-native-gpui'
-          ? runtimeCrate
-          : path.join(path.dirname(runtimeCrate), crate),
-      )} }`,
-    ]),
-    ['gpui', `{ git = "${pin.gpui.git}", rev = "${pin.gpui.rev}" }`],
-    [
-      'gpui_platform',
-      `{ git = "${pin.gpuiPlatform.git}", rev = "${pin.gpuiPlatform.rev}" }`,
-    ],
-  ]);
+  appCargo = applyPatchBlock(
+    appCargo,
+    appCargoManifest,
+    managedPatchEntries(platformRoot, desktopRoot),
+  );
   writeIfChanged(appCargoManifest, appCargo);
   const appMain = path.join(desktopRoot, 'src/main.rs');
   if (fs.existsSync(appMain)) {
