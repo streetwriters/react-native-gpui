@@ -30,6 +30,7 @@ import {
   missingPath,
   modeFrom,
   normalizeEncoding,
+  relativeEntryName,
   toArrayBuffer,
   toPath,
   withContext,
@@ -301,10 +302,15 @@ function readdirSync(
 ): string[] | Dirent[] {
   const target = toPath(path);
   try {
-    const entries = NativeFs.readdirSync(target, options?.recursive ?? false);
+    const recursive = options?.recursive ?? false;
+    const entries = NativeFs.readdirSync(target, recursive);
     return options?.withFileTypes
       ? entries.map(entry => new Dirent(entry))
-      : entries.map(entry => entry.name);
+      : entries.map(entry =>
+          recursive
+            ? relativeEntryName(target, entry.parentPath, entry.name)
+            : entry.name,
+        );
   } catch (error) {
     throw withContext(error, 'scandir', target);
   }
