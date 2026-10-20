@@ -8,6 +8,7 @@ import {
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
   scanNodeAddonCalls,
+  scaffoldDesktop,
 } from './commands.js';
 
 // The repository root by lookup, not by counting parents: this file sits at a
@@ -270,5 +271,64 @@ test('create-library writes version requirements, not crate paths', () => {
     expect(manifest).not.toMatch(/git\s*=/u);
   } finally {
     fs.rmSync(outer, { recursive: true, force: true });
+  }
+});
+
+test('scaffoldDesktop writes the env file that exposes the desktop types', () => {
+  // The augmentation is global, and a TypeScript augmentation only applies when
+  // its declaring file is compiled. This reference is what puts it in the app's
+  // compilation, so `desktopDragRegion` and `onContextMenu` type-check without an
+  // import of the desktop entry point.
+  const root = fs.mkdtempSync(nodePath.join(repoRoot, '.local', 'envtypes-'));
+  try {
+    fs.writeFileSync(
+      nodePath.join(root, 'package.json'),
+      `${JSON.stringify({ name: 'envapp', dependencies: { 'react-native': '0.87.1' } })}\n`,
+    );
+    fs.writeFileSync(
+      nodePath.join(root, 'app.json'),
+      `${JSON.stringify({ name: 'EnvApp', displayName: 'EnvApp' })}\n`,
+    );
+    scaffoldDesktop(
+      root,
+      JSON.parse(fs.readFileSync(nodePath.join(root, 'package.json'), 'utf8')),
+    );
+
+    const envPath = nodePath.join(root, 'react-native-gpui-env.d.ts');
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).toContain(
+      '/// <reference types="@react-native-gpui/core/types" />',
+    );
+    expect(written).toContain('Do not edit');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('scaffoldDesktop keeps an app’s edited env file', () => {
+  // `preserveExisting` is how `init-desktop` runs on an app that already has a
+  // desktop folder, so an app that added its own references there must keep them.
+  const root = fs.mkdtempSync(nodePath.join(repoRoot, '.local', 'envkeep-'));
+  try {
+    fs.writeFileSync(
+      nodePath.join(root, 'package.json'),
+      `${JSON.stringify({ name: 'keepapp', dependencies: { 'react-native': '0.87.1' } })}\n`,
+    );
+    fs.writeFileSync(
+      nodePath.join(root, 'app.json'),
+      `${JSON.stringify({ name: 'KeepApp', displayName: 'KeepApp' })}\n`,
+    );
+    const envPath = nodePath.join(root, 'react-native-gpui-env.d.ts');
+    const edited = '/// <reference types="custom" />\n';
+    fs.writeFileSync(envPath, edited);
+
+    scaffoldDesktop(
+      root,
+      JSON.parse(fs.readFileSync(nodePath.join(root, 'package.json'), 'utf8')),
+      { preserveExisting: true },
+    );
+    expect(fs.readFileSync(envPath, 'utf8')).toBe(edited);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

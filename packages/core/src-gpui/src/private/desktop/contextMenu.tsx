@@ -9,6 +9,7 @@ import { View } from 'react-native';
 import type { ViewProps } from 'react-native';
 import NativeGpuiContextMenu from '../specs/NativeGpuiContextMenu';
 import { DesktopError, toDesktopError } from './index';
+import type { DesktopContextMenuEvent } from '../../../../types';
 
 function contextMenuModule() {
   if (NativeGpuiContextMenu == null) {
@@ -35,16 +36,6 @@ export interface ContextMenuOptions {
   x?: number;
   y?: number;
   windowId?: number;
-}
-
-export interface ContextMenuEvent {
-  nativeEvent: {
-    x: number;
-    y: number;
-    pageX: number;
-    pageY: number;
-    windowId?: number;
-  };
 }
 
 export const ContextMenu = {
@@ -80,7 +71,7 @@ export function ContextMenuView({
   ...viewProps
 }: ContextMenuViewProps) {
   const handleContextMenu = React.useCallback(
-    (event: ContextMenuEvent) => {
+    (event: DesktopContextMenuEvent) => {
       const { x, y, windowId } = event.nativeEvent;
       ContextMenu.show(items, { x, y, windowId })
         .then(id => {
