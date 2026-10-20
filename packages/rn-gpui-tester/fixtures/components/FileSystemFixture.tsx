@@ -154,9 +154,16 @@ export function FileSystemFixture() {
             // event has already been delivered, so the exact kind is backend
             // behaviour rather than a contract. What must hold is that the event
             // names the file this process created.
+            // The name must be relative to the watched directory and carry no
+            // separator: the native side canonicalises the root, which on macOS
+            // is where `/var` becomes `/private/var`, and strips whichever
+            // spelling the event arrived with.
             if (filename === 'watched.txt') {
               settled = true;
               resolve('watch ok');
+            } else if (filename?.includes('/') || filename?.startsWith('/')) {
+              settled = true;
+              resolve(`watch BAD absolute ${filename}`);
             }
           });
           setTimeout(() => {

@@ -45,14 +45,18 @@ function eventTypeOf(kind: string): WatchEventType {
 }
 
 /** The file a path names, relative to the watched root where it is below it. */
-function fileNameOf(eventPath: string, root: string): string {
-  if (eventPath === root) {
-    return eventPath;
-  }
-  const prefix = root.endsWith('/') ? root : `${root}/`;
-  return eventPath.startsWith(prefix)
-    ? eventPath.slice(prefix.length)
-    : eventPath;
+/**
+ * The filename a listener is given.
+ *
+ * The native side already reported it relative to the watch root, and its own
+ * name for a single-file watch: it canonicalises the root, which is where macOS
+ * decides between `/var` and `/private/var`, and it strips whichever spelling the
+ * event actually carries. Stripping a prefix here as well would be a second,
+ * weaker guess at the same question — a relative root never matches, and Windows
+ * separates with `\` — so the event path is passed through unchanged.
+ */
+function fileNameOf(eventPath: string): string {
+  return eventPath;
 }
 
 /**
@@ -108,7 +112,7 @@ export function watch(
         }
         // The encoding option only affects how a non-ASCII name is decoded, and
         // every name already arrives as a JS string.
-        listener(eventTypeOf(event.kind), fileNameOf(event.path, target));
+        listener(eventTypeOf(event.kind), fileNameOf(event.path));
       });
     })
     .catch((error: unknown) => {
