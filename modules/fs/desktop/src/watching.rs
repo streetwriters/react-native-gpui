@@ -36,36 +36,73 @@ pub struct Watcher {
     _watcher: RecommendedWatcher,
 }
 
+/// What was last reported for a path, and when.
+#[derive(Clone, Copy)]
+struct LastReport {
+    at: Instant,
+    kind: EventKindTag,
+}
+
+/// Which of the three stable names an event carries.
+///
+/// A copy of the mapping `kind_name` produces, so the debounce can compare two
+/// events without allocating the string it will not send.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum EventKindTag {
+    Create,
+    Modify,
+    Remove,
+    Other,
+}
+
 /// Per-path timestamps of the last event that was reported.
 ///
 /// Shared with the handler through an `Arc` because the handler owns its state
 /// for as long as the watcher lives, which is longer than any borrow of the
 /// module. Paths that fall out of the window are pruned on every report, so a
 /// long-running recursive watch cannot grow this without bound.
+///
+/// The rule, in one sentence: **a burst is collapsed per path and per kind, and a
+/// removal is never collapsed away.** Keeping only the first event of a burst
+/// lost the end of it — a create followed by a remove reported only `create`, so
+/// a caller was told about a file that no longer existed. Two adjustments fix
+/// that without giving up the collapsing that makes an editor's write burst
+/// readable:
+///
+/// - a path's window is per kind, so a `remove` after a `create` is a different
+///   event rather than a suppressed one;
+/// - a removal always reports, whatever the window, because it is the last state
+///   a path can reach and swallowing it leaves the caller's view permanently
+///   wrong. The cost is a possible duplicate removal for one logical deletion,
+///   which a watcher callback can tolerate; a missing one it cannot.
 #[derive(Default)]
 struct Debounce {
-    last: Mutex<HashMap<PathBuf, Instant>>,
+    last: Mutex<HashMap<(PathBuf, EventKindTag), Instant>>,
 }
 
 impl Debounce {
-    /// Whether this path's event should be delivered now.
+    /// Whether this event should be delivered now.
     ///
     /// Takes `now` rather than reading the clock so the window can be tested
     /// without sleeping.
-    fn should_report_at(&self, path: &Path, now: Instant) -> bool {
+    fn should_report_at(&self, path: &Path, kind: EventKindTag, now: Instant) -> bool {
         let mut last = self.last.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(previous) = last.get(path).copied() {
-            if now.saturating_duration_since(previous) < DEBOUNCE {
-                return false;
+        let key = (path.to_path_buf(), kind);
+        let report = match last.get(&key).copied() {
+            Some(previous) => {
+                kind == EventKindTag::Remove || now.saturating_duration_since(previous) >= DEBOUNCE
             }
+            None => true,
+        };
+        if report {
+            last.retain(|_, previous| now.saturating_duration_since(*previous) < DEBOUNCE);
+            last.insert(key, now);
         }
-        last.retain(|_, previous| now.saturating_duration_since(*previous) < DEBOUNCE);
-        last.insert(path.to_path_buf(), now);
-        true
+        report
     }
 
-    fn should_report(&self, path: &Path) -> bool {
-        self.should_report_at(path, Instant::now())
+    fn should_report(&self, path: &Path, kind: EventKindTag) -> bool {
+        self.should_report_at(path, kind, Instant::now())
     }
 }
 
@@ -81,6 +118,39 @@ fn kind_name(kind: &EventKind) -> &'static str {
         EventKind::Remove(_) => "remove",
         _ => "other",
     }
+}
+
+/// The tag `kind_name` corresponds to, for the debounce to compare by.
+fn kind_tag(kind: &EventKind) -> EventKindTag {
+    match kind {
+        EventKind::Create(_) => EventKindTag::Create,
+        EventKind::Modify(_) => EventKindTag::Modify,
+        EventKind::Remove(_) => EventKindTag::Remove,
+        _ => EventKindTag::Other,
+    }
+}
+
+/// An event path as the caller should see it.
+///
+/// Node reports the path relative to the watch root, and a name alone for a
+/// single-file watch. The platform reports an absolute path, and on macOS a
+/// *canonical* one: FSEvents resolves `/var` to `/private/var`, so a plain string
+/// prefix check against the path the caller gave strips nothing and the callback
+/// receives an absolute path. Both roots are therefore tried, and the given one
+/// last so a caller watching through a symlink still gets a relative name.
+fn relative_event_path(path: &Path, roots: &[PathBuf], watching_file: bool) -> String {
+    if watching_file {
+        return path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+    }
+    for root in roots {
+        if let Ok(rest) = path.strip_prefix(root) {
+            return rest.to_string_lossy().into_owned();
+        }
+    }
+    path.to_string_lossy().into_owned()
 }
 
 /// A notify failure as the error JS expects.
@@ -117,22 +187,35 @@ pub fn watch(module: &RNFsModule, path: String, recursive: bool) -> Result<f64, 
     let id = module.take_watcher_id();
     let debounce = Arc::new(Debounce::default());
     let events = module.events.clone();
+    // The canonical root is what macOS actually reports inside, and the given
+    // root is what the caller passed; keeping both means the relative name
+    // survives either spelling.
+    let watching_file = target.is_file();
+    let roots: Vec<PathBuf> = {
+        let mut roots = Vec::new();
+        if let Ok(canonical) = target.canonicalize() {
+            roots.push(canonical);
+        }
+        roots.push(target.clone());
+        roots
+    };
     let handler = move |result: notify::Result<notify::Event>| {
         // A backend error has nowhere to go: it is not tied to a call, and
         // reporting it through the event stream would make it look like a file
         // change. notify's thread keeps running, so later events still arrive.
         let Ok(event) = result else { return };
         let kind = kind_name(&event.kind);
+        let tag = kind_tag(&event.kind);
         // One platform event can name several paths — a directory move, for
         // instance — and a caller wants one delivery per path.
         for path in &event.paths {
-            if !debounce.should_report(path) {
+            if !debounce.should_report(path, tag) {
                 continue;
             }
             events.on_watch_event(WatchEvent {
                 id: f64::from(id),
                 kind: kind.to_string(),
-                path: path.to_string_lossy().into_owned(),
+                path: relative_event_path(path, &roots, watching_file),
             });
         }
     };
@@ -188,36 +271,119 @@ mod tests {
     fn the_first_event_for_a_path_is_reported() {
         let debounce = Debounce::default();
         let now = Instant::now();
-        assert!(debounce.should_report_at(Path::new("/a"), now));
+        assert!(debounce.should_report_at(Path::new("/a"), EventKindTag::Modify, now));
     }
 
     #[test]
     fn a_burst_is_collapsed_into_one_event() {
         let debounce = Debounce::default();
         let start = Instant::now();
-        assert!(debounce.should_report_at(Path::new("/a"), start));
-        assert!(!debounce.should_report_at(Path::new("/a"), start + Duration::from_millis(10)));
-        assert!(!debounce.should_report_at(Path::new("/a"), start + Duration::from_millis(49)));
-        assert!(debounce.should_report_at(Path::new("/a"), start + Duration::from_millis(50)));
+        assert!(debounce.should_report_at(Path::new("/a"), EventKindTag::Modify, start));
+        assert!(!debounce.should_report_at(
+            Path::new("/a"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(10)
+        ));
+        assert!(!debounce.should_report_at(
+            Path::new("/a"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(49)
+        ));
+        assert!(debounce.should_report_at(
+            Path::new("/a"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(50)
+        ));
+    }
+
+    #[test]
+    fn a_remove_inside_a_burst_is_not_swallowed() {
+        let debounce = Debounce::default();
+        let start = Instant::now();
+        let path = Path::new("/a");
+        // A create and the removal that follows it are two states of the path,
+        // not one event seen twice: reporting only the create tells a caller
+        // about a file that is already gone.
+        assert!(debounce.should_report_at(path, EventKindTag::Create, start));
+        assert!(debounce.should_report_at(
+            path,
+            EventKindTag::Remove,
+            start + Duration::from_millis(5)
+        ));
+        // A second removal for the same deletion may arrive; a missing one may
+        // not, so this is deliberately the lenient side of the trade.
+        assert!(debounce.should_report_at(
+            path,
+            EventKindTag::Remove,
+            start + Duration::from_millis(10)
+        ));
+    }
+
+    #[test]
+    fn a_modify_burst_still_collapses() {
+        let debounce = Debounce::default();
+        let start = Instant::now();
+        let path = Path::new("/a");
+        assert!(debounce.should_report_at(path, EventKindTag::Modify, start));
+        // Two writes a millisecond apart are one logical change.
+        assert!(!debounce.should_report_at(
+            path,
+            EventKindTag::Modify,
+            start + Duration::from_millis(1)
+        ));
+    }
+
+    #[test]
+    fn a_canonical_root_still_yields_a_relative_name() {
+        // macOS reports canonical paths, so a watch on `/var/...` sees
+        // `/private/var/...`. Both roots are tried, and the caller gets a name
+        // relative to the one they asked about either way.
+        let canonical = PathBuf::from("/private/var/folders/x/tmp");
+        let given = PathBuf::from("/var/folders/x/tmp");
+        let roots = vec![canonical.clone(), given];
+        let event = canonical.join("nested").join("file.txt");
+        assert_eq!(
+            relative_event_path(&event, &roots, false),
+            "nested/file.txt"
+        );
+        // A path outside every root is passed through rather than mangled.
+        assert_eq!(
+            relative_event_path(Path::new("/elsewhere/file.txt"), &roots, false),
+            "/elsewhere/file.txt"
+        );
+        // Watching a single file reports its name, which is what Node does.
+        assert_eq!(relative_event_path(&event, &roots, true), "file.txt");
     }
 
     #[test]
     fn debouncing_is_per_path() {
         let debounce = Debounce::default();
         let start = Instant::now();
-        assert!(debounce.should_report_at(Path::new("/a"), start));
-        assert!(debounce.should_report_at(Path::new("/b"), start + Duration::from_millis(1)));
-        assert!(!debounce.should_report_at(Path::new("/a"), start + Duration::from_millis(2)));
+        assert!(debounce.should_report_at(Path::new("/a"), EventKindTag::Modify, start));
+        assert!(debounce.should_report_at(
+            Path::new("/b"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(1)
+        ));
+        assert!(!debounce.should_report_at(
+            Path::new("/a"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(2)
+        ));
     }
 
     #[test]
     fn paths_outside_the_window_are_forgotten() {
         let debounce = Debounce::default();
         let start = Instant::now();
-        assert!(debounce.should_report_at(Path::new("/a"), start));
-        assert!(debounce.should_report_at(Path::new("/b"), start + Duration::from_millis(60)));
+        assert!(debounce.should_report_at(Path::new("/a"), EventKindTag::Modify, start));
+        assert!(debounce.should_report_at(
+            Path::new("/b"),
+            EventKindTag::Modify,
+            start + Duration::from_millis(60)
+        ));
         let last = debounce.last.lock().unwrap();
         assert_eq!(last.len(), 1, "the stale path should have been pruned");
-        assert!(last.contains_key(Path::new("/b")));
+        assert!(last.contains_key(&(PathBuf::from("/b"), EventKindTag::Modify)));
     }
 }
