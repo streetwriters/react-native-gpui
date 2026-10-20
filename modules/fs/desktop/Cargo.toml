@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rn-gpui-module = { path = "../../../packages/core/ReactGpui/rn-gpui-module" }
+rn-gpui-module = { version = "0.1" }
 # Dialogs with file-type filters and a default name on all three platforms, using
 # the XDG portal on Linux so no GTK is required.
 rfd = "0.15"
@@ -22,4 +22,4 @@ libc = "0.2"
 dunce = "1"
 
 [build-dependencies]
-rn-gpui-module-build = { path = "../../../packages/core/ReactGpui/rn-gpui-module-build" }
+rn-gpui-module-build = { version = "0.1" }

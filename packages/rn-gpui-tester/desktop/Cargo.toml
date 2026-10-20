@@ -50,3 +50,13 @@ rn-gpui-module-build = { path = "../../core/ReactGpui/rn-gpui-module-build" }
 rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../core/ReactGpui/rn-gpui" }
+
+[patch.crates-io]
+# Managed by @react-native-gpui/cli autolink; do not edit between these markers.
+react-native-gpui = { path = "../../core/ReactGpui/rn-gpui" }
+rn-gpui-sys = { path = "../../core/ReactGpui/rn-gpui-sys" }
+rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }
+rn-gpui-module-build = { path = "../../core/ReactGpui/rn-gpui-module-build" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }
+# End managed by autolink.
