@@ -103,6 +103,41 @@ export function toPath(path: string): string {
 }
 
 /**
+ * Node's bounds check for a buffer window, as `RangeError` with
+ * `code = 'ERR_OUT_OF_RANGE'`.
+ *
+ * Both `read` and `write` take a window into a caller's buffer, and the native
+ * side reads or writes `length` bytes before the result is trimmed to fit — so an
+ * oversized `length` would consume bytes from the file and silently drop them
+ * rather than failing. Node rejects the call instead, and its wording is
+ * reproduced because callers match on it:
+ *
+ *   The value of "length" is out of range. It must be <= 2. Received 8
+ */
+export function checkBufferRange(
+  buffer: Uint8Array,
+  offset: number | undefined,
+  length: number | undefined,
+): { offset: number; length: number } {
+  const start = offset ?? 0;
+  if (!Number.isInteger(start) || start < 0 || start > buffer.byteLength) {
+    throw nodeError(
+      'ERR_OUT_OF_RANGE',
+      `The value of "offset" is out of range. It must be >= 0 && <= ${buffer.byteLength}. Received ${start}`,
+    );
+  }
+  const count = length ?? buffer.byteLength - start;
+  const available = buffer.byteLength - start;
+  if (!Number.isInteger(count) || count < 0 || count > available) {
+    throw nodeError(
+      'ERR_OUT_OF_RANGE',
+      `The value of "length" is out of range. It must be <= ${available}. Received ${count}`,
+    );
+  }
+  return { offset: start, length: count };
+}
+
+/**
  * A recursive `readdir` entry as the path Node reports.
  *
  * Node's `readdir(dir, { recursive: true })` returns paths relative to `dir`

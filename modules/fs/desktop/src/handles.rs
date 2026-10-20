@@ -12,7 +12,7 @@
 //! blocks JS or the UI.
 
 use std::fs::File;
-use std::io::{Read as _, Write as _};
+use std::io::{Read as _, Seek as _, Write as _};
 
 use rn_gpui_module::{ArrayBuffer, ModuleError};
 
@@ -51,9 +51,30 @@ pub fn read(
     let length = crate::module::length(length)?;
     let mut file = module.file(fd)?;
 
-    let mut buffer = vec![0u8; length];
+    // Nothing larger than the file can be read, so the buffer is capped at what
+    // remains rather than at what was asked for. A caller that passes a huge
+    // `length` — which `readToEnd` used to do deliberately — would otherwise ask
+    // for that many bytes up front and get whatever the allocator did with it.
+    let cap = match offset(position)? {
+        Some(start) => file
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.len().checked_sub(start))
+            .map_or(length, |remaining| length.min(remaining as usize)),
+        None => file
+            .metadata()
+            .ok()
+            .and_then(|meta| {
+                // A cursor read starts wherever the handle is, so the remainder
+                // is measured from there rather than from the start.
+                let current = file.stream_position().ok()?;
+                meta.len().checked_sub(current)
+            })
+            .map_or(length, |remaining| length.min(remaining as usize)),
+    };
+    let mut buffer = vec![0u8; cap];
     let filled = match offset(position)? {
-        Some(offset) => read_at(&mut file, &mut buffer, offset, id)?,
+        Some(start) => read_at(&mut file, &mut buffer, start, id)?,
         None => read_cursor(&mut file, &mut buffer, id)?,
     };
     // A read that stopped at end of file is a short read, not a failure, so the
@@ -500,6 +521,20 @@ mod tests {
         assert_eq!(read_bytes(&module, fd, 8.0, 10.0).expect("read"), b"");
         assert_eq!(read_bytes(&module, fd, 8.0, -1.0).expect("read"), b"abc");
         assert_eq!(read_bytes(&module, fd, 8.0, -1.0).expect("read"), b"");
+        close_fd(&module, fd).expect("close");
+    }
+
+    #[test]
+    fn a_huge_length_only_allocates_what_the_file_holds() {
+        let dir = TempDir::new().expect("a temporary directory");
+        let module = module();
+        let (_, fd) = opened(&module, &dir, "0123456789");
+
+        // The buffer is capped at what remains, so this returns rather than
+        // trying to allocate four gigabytes. Finishing at all is the check: an
+        // allocation of `u32::MAX` bytes would abort the test process instead.
+        let bytes = read_bytes(&module, fd, u32::MAX as f64, 0.0).expect("read");
+        assert_eq!(bytes, b"0123456789");
         close_fd(&module, fd).expect("close");
     }
 
