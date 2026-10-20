@@ -2,6 +2,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  applyPatchBlock,
+  managedPatchEntries,
+} from '../../../packages/cli/src/autolink.js';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -283,12 +287,14 @@ if (process.platform === 'darwin') {
  * (`spawnSync cargo ENOENT`). The existing key is therefore found
  * case-insensitively and reused.
  */
-function prependToPathVariable(env, name, directories) {
+function prependToPathVariable(target, name, directories) {
   const key =
-    Object.keys(env).find(
+    Object.keys(target).find(
       candidate => candidate.toLowerCase() === name.toLowerCase(),
     ) ?? name;
-  env[key] = [...directories, env[key]].filter(Boolean).join(path.delimiter);
+  target[key] = [...directories, target[key]]
+    .filter(Boolean)
+    .join(path.delimiter);
   return key;
 }
 
@@ -413,6 +419,37 @@ if (fromTester.length > 0) {
     spawnSync('cargo', args, { cwd: repoRoot, env, stdio: 'inherit' }),
   );
 }
+// A crate that is its own workspace root needs the `[patch.crates-io]` table in
+// its own manifest, because Cargo honours `[patch]` only at the root and this
+// crate is not a member of the app's workspace. The block is generated here from
+// core's manifest rather than checked in: checked in, it would pin gpui at
+// whatever revision happened to be current when it was written, and the module's
+// tests would quietly build against an older gpui than the app ships — the drift
+// this branch exists to remove.
+for (const name of ownWorkspace) {
+  const entry = (record.rustCrates ?? []).find(
+    crate => crate.crateName === name,
+  );
+  const crateRoot = path.resolve(entry.cargoPath);
+  const manifestPath = path.join(crateRoot, 'Cargo.toml');
+  const before = fs.readFileSync(manifestPath, 'utf8');
+  const updated = applyPatchBlock(
+    before,
+    manifestPath,
+    managedPatchEntries(path.join(repoRoot, 'packages/core'), crateRoot),
+  );
+  if (updated !== before) {
+    // Written and then failed: a stale block is a mistake that should be
+    // corrected in the same commit as whichever pin change caused it, not
+    // silently repaired on every test run.
+    fs.writeFileSync(manifestPath, updated);
+    throw new Error(
+      `${manifestPath} had a stale [patch.crates-io] block and has been rewritten. ` +
+        "Commit the result: it must match core's gpui pin.",
+    );
+  }
+}
+
 for (const name of ownWorkspace) {
   const entry = (record.rustCrates ?? []).find(
     crate => crate.crateName === name,
