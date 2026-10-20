@@ -42,6 +42,41 @@ const ITEMS: MenuItemSpec[] = [
 function ContextMenuFixture() {
   const [chosen, setChosen] = useState('none');
   const [error, setError] = useState('');
+  const [pointer, setPointer] = useState('none');
+  const [pointerLog, setPointerLog] = useState<Array<string>>([]);
+
+  // Which button, the mask of held buttons, and the modifiers — the fields
+  // section 2 added. Logged for every press so the e2e can assert them.
+  const recordPointer = useCallback(
+    (phase: string) =>
+      (event: {
+        nativeEvent: {
+          button: number;
+          buttons: number;
+          ctrlKey: boolean;
+          shiftKey: boolean;
+          altKey: boolean;
+          metaKey: boolean;
+        };
+      }) => {
+        const n = event.nativeEvent;
+        const line = `${phase} button=${n.button} mask=${n.buttons} mods=${
+          [
+            n.ctrlKey && 'ctrl',
+            n.shiftKey && 'shift',
+            n.altKey && 'alt',
+            n.metaKey && 'meta',
+          ]
+            .filter(Boolean)
+            .join('+') || 'none'
+        }`;
+        setPointer(line);
+        // Accumulated, so a test can see the press even after the release has
+        // replaced the last line.
+        setPointerLog(previous => [...previous, line]);
+      },
+    [],
+  );
 
   const report = useCallback((id: string | null) => {
     setChosen(id ?? 'dismissed');
@@ -61,6 +96,16 @@ function ContextMenuFixture() {
   return (
     <View style={styles.page}>
       <Text style={styles.heading}>Context menus</Text>
+      <View
+        testID="pointer-probe"
+        style={styles.row}
+        pointerEvents="auto"
+        onPointerDown={recordPointer('down')}
+        onPointerUp={recordPointer('up')}
+      >
+        <Text testID="pointer-log">pointer {pointer}</Text>
+        <Text testID="pointer-history">{pointerLog.join(' | ')}</Text>
+      </View>
       <View
         testID="cm-target"
         style={styles.row}
