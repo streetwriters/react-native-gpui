@@ -432,7 +432,13 @@ for (const name of ownWorkspace) {
   );
   const crateRoot = path.resolve(entry.cargoPath);
   const manifestPath = path.join(crateRoot, 'Cargo.toml');
-  const before = fs.readFileSync(manifestPath, 'utf8');
+  const raw = fs.readFileSync(manifestPath, 'utf8');
+  // The file is committed with LF, and a Windows checkout with `core.autocrlf`
+  // reads back CRLF. Compared without normalising, every Windows run would report
+  // the block stale and rewrite a file whose content is already correct — the
+  // same mistake autolink's own readers were fixed for.
+  const newline = raw.includes('\r\n') ? '\r\n' : '\n';
+  const before = raw.replace(/\r\n/gu, '\n');
   const updated = applyPatchBlock(
     before,
     manifestPath,
@@ -441,8 +447,12 @@ for (const name of ownWorkspace) {
   if (updated !== before) {
     // Written and then failed: a stale block is a mistake that should be
     // corrected in the same commit as whichever pin change caused it, not
-    // silently repaired on every test run.
-    fs.writeFileSync(manifestPath, updated);
+    // silently repaired on every test run. The file's own newline convention is
+    // restored, so a Windows checkout is not rewritten with LF.
+    fs.writeFileSync(
+      manifestPath,
+      newline === '\r\n' ? updated.replace(/\n/gu, '\r\n') : updated,
+    );
     throw new Error(
       `${manifestPath} had a stale [patch.crates-io] block and has been rewritten. ` +
         "Commit the result: it must match core's gpui pin.",
