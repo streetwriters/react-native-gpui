@@ -71,6 +71,27 @@ descriptors. A mistake against the spec is a compile error in this crate, not a
 runtime surprise. The runtime crate is `rn-gpui-module`, and
 `rn-gpui-module-build` runs the generator from `build.rs`.
 
+A Rust module depends on core and on gpui by **version**, never by path:
+
+```toml
+[dependencies]
+rn-gpui-module = "0.1"
+gpui = "0.2"
+
+[build-dependencies]
+rn-gpui-module-build = "0.1"
+```
+
+Those crates live inside `@react-native-gpui/core`, at a path that only exists
+in this repository, so a relative path breaks the moment the package is
+installed. Autolink reads core's `Cargo.toml` for the gpui revision and writes a
+`[patch.crates-io]` table into the app's `desktop/Cargo.toml`, which is the only
+place `[patch]` applies; that table points each crate at the core the app
+actually installed and pins gpui to core's revision. It is regenerated on every
+autolink run, so edit the version in your own manifest and leave the patch
+alone. A path or git dependency on those crates is refused with an explanation
+rather than failing later in an installed app.
+
 For a reusable TurboModule library, keep its TypeScript spec under `src/` and
 its native implementation under `desktop/`, with `codegenConfig` and
 `platforms.desktop` in `package.json`; `npx react-native create-library` creates

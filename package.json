@@ -16,6 +16,7 @@
     "modules/vector-icons",
     "modules/gesture-handler",
     "modules/screens",
+    "modules/fs",
     "packages/rn-gpui-tester",
     "packages/rn-gpui-tester/gpui-native-module",
     "packages/rn-gpui-tester/gpui-cpp-native-module",

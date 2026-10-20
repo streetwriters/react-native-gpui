@@ -958,22 +958,13 @@ export function createLibrary({
     ].join('\n'),
   );
   if (type === 'rust') {
-    const appRequire = createRequire(path.join(process.cwd(), 'package.json'));
-    const platformPackageJson = appRequire.resolve(
-      '@react-native-gpui/core/package.json',
-    );
-    const platformRustRoot = path.join(
-      path.dirname(platformPackageJson),
-      'ReactGpui',
-    );
-    const cratePath = crate =>
-      path.relative(
-        path.join(destination, 'desktop'),
-        path.join(platformRustRoot, crate),
-      );
+    // Version requirements, not paths: `[patch.crates-io]` cannot redirect a
+    // `path` dependency, and a module installed from npm has no
+    // `../../../packages` above it. Autolink patches these to the core the app
+    // actually installed.
     fs.writeFileSync(
       path.join(destination, 'desktop/Cargo.toml'),
-      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-module = { path = ${JSON.stringify(cratePath('rn-gpui-module'))} }\n\n[build-dependencies]\nrn-gpui-module-build = { path = ${JSON.stringify(cratePath('rn-gpui-module-build'))} }\n`,
+      `[package]\nname = ${JSON.stringify(`rn-gpui-${slug}`)}\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nrn-gpui-module = "0.1"\n\n[build-dependencies]\nrn-gpui-module-build = "0.1"\n`,
     );
   }
   const exampleRoot = path.join(destination, 'example');

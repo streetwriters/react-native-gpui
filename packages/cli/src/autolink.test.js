@@ -299,3 +299,181 @@ test('registers a crate that has no TurboModule specs', () => {
   );
   expect(generated).toContain('fake_paint::rn_gpui_register();');
 });
+
+/**
+ * A project with one Rust module crate, so the manifest checks have something to
+ * read. The crate's manifest is the argument: the tests below vary only that.
+ */
+function projectWithRustCrate(manifest) {
+  // No codegen config: `fake-module` declares a `cppProvider`, and a C++
+  // TurboModule without a `codegenConfig.name` is refused before the manifest
+  // checks this fixture is about would run.
+  const { projectRoot, configPath } = createProject({
+    withCodegenConfig: false,
+  });
+  const config0 = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  delete config0.dependencies['fake-module'];
+  fs.writeFileSync(configPath, `${JSON.stringify(config0, null, 2)}\n`);
+  const crateRoot = path.join(projectRoot, 'node_modules/fake-rust');
+  fs.mkdirSync(path.join(crateRoot, 'desktop'), { recursive: true });
+  fs.writeFileSync(
+    path.join(crateRoot, 'package.json'),
+    `${JSON.stringify({ name: 'fake-rust', version: '0.0.1' }, null, 2)}\n`,
+  );
+  fs.writeFileSync(path.join(crateRoot, 'desktop/Cargo.toml'), manifest);
+  fs.writeFileSync(
+    path.join(crateRoot, 'react-native.config.js'),
+    "module.exports = {dependency: {platforms: {desktop: {crate: 'fake-rust'}}}};\n",
+  );
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.dependencies['fake-rust'] = {
+    root: crateRoot,
+    platforms: { desktop: { crate: 'fake-rust' } },
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  return { projectRoot, configPath, crateRoot };
+}
+
+const CARGO_HEADER =
+  '[package]\nname = "fake-rust"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n';
+
+test('the app manifest gets a managed patch block pointing at core', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  autolink({ projectRoot, configFile: configPath });
+  const appCargo = fs.readFileSync(
+    path.join(projectRoot, 'desktop/Cargo.toml'),
+    'utf8',
+  );
+  expect(appCargo).toContain('[patch.crates-io]');
+  expect(appCargo).toContain(
+    '# Managed by @react-native-gpui/cli autolink; do not edit between these markers.',
+  );
+  expect(appCargo).toMatch(
+    /^rn-gpui-module = \{ path = "[^"]+rn-gpui-module" \}$/mu,
+  );
+  expect(appCargo).toMatch(
+    /^react-native-gpui = \{ path = "[^"]+rn-gpui" \}$/mu,
+  );
+  // The rev must be core's, read from core's own manifest, not a copy.
+  const coreManifest = fs.readFileSync(
+    path.join(repoRoot, 'packages/core/ReactGpui/Cargo.toml'),
+    'utf8',
+  );
+  const rev = /^gpui = \{[^}]*rev = "([^"]+)"/mu.exec(coreManifest)?.[1];
+  expect(rev).toBeDefined();
+  expect(appCargo).toContain(
+    `gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "${rev}" }`,
+  );
+});
+
+test('a second autolink leaves the app manifest byte-identical', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  autolink({ projectRoot, configFile: configPath });
+  const manifest = path.join(projectRoot, 'desktop/Cargo.toml');
+  const once = fs.readFileSync(manifest, 'utf8');
+  autolink({ projectRoot, configFile: configPath });
+  expect(fs.readFileSync(manifest, 'utf8')).toBe(once);
+});
+
+test('an unrelated user patch table is kept, with one header', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const manifest = path.join(projectRoot, 'desktop/Cargo.toml');
+  const original = fs.readFileSync(manifest, 'utf8');
+  fs.writeFileSync(
+    manifest,
+    `${original}\n[patch.crates-io]\nserde = { path = "vendor/serde" }\n`,
+  );
+  autolink({ projectRoot, configFile: configPath });
+  const patched = fs.readFileSync(manifest, 'utf8');
+  expect(patched).toContain('serde = { path = "vendor/serde" }');
+  expect(patched.match(/^\[patch\.crates-io\]$/gmu)).toHaveLength(1);
+  expect(patched).toContain('rn-gpui-module = { path =');
+});
+
+test('a user patch table that claims a managed key is refused', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const manifest = path.join(projectRoot, 'desktop/Cargo.toml');
+  const original = fs.readFileSync(manifest, 'utf8');
+  fs.writeFileSync(
+    manifest,
+    `${original}\n[patch.crates-io]\ngpui = { path = "my-gpui" }\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /already sets gpui/u,
+  );
+});
+
+test('a module crate may not name core by path', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /must be a version requirement/u,
+  );
+});
+
+test('a module crate may not pin gpui by git', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\ngpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /must be a version requirement/u,
+  );
+});
+
+test('a gpui requirement the patch does not satisfy is refused', () => {
+  // 0.3 would resolve to the crates.io crate instead, and the only sign would be
+  // one warning Cargo prints and nobody reads.
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\ngpui = "0.3"\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /does not match the 0\.2\.2/u,
+  );
+});
+
+test('a managed crate in table form is checked too', () => {
+  // `[dependencies.gpui]` with its keys on the following lines is legal TOML, so
+  // it must not be a way past the path check.
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n\n[dependencies.gpui]\ngit = "https://github.com/streetwriters/gpui-fast"\nrev = "c380367"\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /must be a version requirement/u,
+  );
+});
+
+test('a CRLF lockfile still yields the managed block', () => {
+  // A Windows checkout with core.autocrlf gives these files CRLF endings. The
+  // lockfile pattern anchors on `\n`, so without normalising the read it finds no
+  // gpui entry and autolink throws on every Windows run. The manifest pattern
+  // survives CRLF on its own, because `\s*$` treats `\r` as whitespace.
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const coreLock = path.join(repoRoot, 'packages/core/ReactGpui/Cargo.lock');
+  const original = fs.readFileSync(coreLock, 'utf8');
+  fs.writeFileSync(coreLock, original.replace(/\n/gu, '\r\n'));
+  try {
+    autolink({ projectRoot, configFile: configPath });
+    const rev = /^gpui = \{[^}]*rev = "([^"]+)"/mu.exec(
+      fs.readFileSync(
+        path.join(repoRoot, 'packages/core/ReactGpui/Cargo.toml'),
+        'utf8',
+      ),
+    )?.[1];
+    expect(
+      fs.readFileSync(path.join(projectRoot, 'desktop/Cargo.toml'), 'utf8'),
+    ).toContain(`rev = "${rev}"`);
+  } finally {
+    fs.writeFileSync(coreLock, original);
+  }
+});

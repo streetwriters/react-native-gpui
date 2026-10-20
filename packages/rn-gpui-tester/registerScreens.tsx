@@ -45,6 +45,12 @@ export function registerScreens(testMode = false) {
     ),
   );
   AppRegistry.registerComponent(
+    'GPUIFileSystemFixture',
+    () => (props: ScreenProps) => (
+      <>{renderScreen.filesystem({ ...props, testMode })}</>
+    ),
+  );
+  AppRegistry.registerComponent(
     'TrayPopover',
     () => (props: { windowId?: number }) =>
       React.createElement(
