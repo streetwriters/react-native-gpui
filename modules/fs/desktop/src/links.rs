@@ -58,12 +58,16 @@ pub fn symlink(target: String, path: String) -> Result<(), ModuleError> {
     platform_symlink(&target, &path)
 }
 
-/// The mask `libc::access` takes, from the bitmask Node numbers.
+/// Validate the bitmask Node numbers, returning it unchanged.
 ///
-/// `X_OK` is 1 and `R_OK` is 4 in Node's table, and `access(2)` happens to use
-/// the same values, but the translation is written out rather than assumed so a
-/// platform whose constants differ still gets the right test. `F_OK` is 0: the
-/// mode is not a flag set, and asking for nothing means "does it exist".
+/// The caller gets Node's own bits back, not `access(2)`'s: `libc` 0.2 defines
+/// `R_OK`, `W_OK` and `X_OK` only for Unix, so a Windows build that named them
+/// failed with "cannot find value `R_OK` in crate `libc`". The translation to
+/// `access(2)` happens in `platform_access`, which is already Unix-only, and the
+/// Windows path reads the same Node bits directly.
+///
+/// `F_OK` is 0: the mode is not a flag set, and asking for nothing means "does
+/// it exist".
 fn access_mode(mode: f64) -> Result<i32, ModuleError> {
     if !mode.is_finite() || mode < 0.0 || mode.fract() != 0.0 {
         return Err(errors::invalid(
@@ -79,7 +83,22 @@ fn access_mode(mode: f64) -> Result<i32, ModuleError> {
             format!("EINVAL: invalid argument, mode {requested}"),
         ));
     }
-    let mut mask = 0;
+    Ok(requested)
+}
+
+/// `access(2)` is the only way to get Node's semantics — it asks the kernel about
+/// *this* process's real uid and gid, including supplementary groups — so the
+/// Unix implementation calls it rather than inspecting the mode bits, which
+/// would give a different answer for a file the caller does not own.
+#[cfg(unix)]
+fn platform_access(path: &str, requested: i32) -> Result<(), ModuleError> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    // `access(2)` uses the same values Node does for these three, but the
+    // translation is spelled out so a platform whose constants differ still asks
+    // the right question. This is the only place the `libc` constants are named.
+    let mut mask = libc::F_OK;
     if requested & access::R_OK != 0 {
         mask |= libc::R_OK;
     }
@@ -89,17 +108,6 @@ fn access_mode(mode: f64) -> Result<i32, ModuleError> {
     if requested & access::X_OK != 0 {
         mask |= libc::X_OK;
     }
-    Ok(mask)
-}
-
-/// `access(2)` is the only way to get Node's semantics — it asks the kernel about
-/// *this* process's real uid and gid, including supplementary groups — so the
-/// Unix implementation calls it rather than inspecting the mode bits, which
-/// would give a different answer for a file the caller does not own.
-#[cfg(unix)]
-fn platform_access(path: &str, mask: i32) -> Result<(), ModuleError> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt as _;
 
     // A path with an interior NUL cannot be passed to the C API at all; that is
     // an invalid argument rather than a file-system failure.
@@ -126,17 +134,17 @@ fn platform_access(path: &str, mask: i32) -> Result<(), ModuleError> {
 /// executable extensions the shell recognises, because Windows has no execute
 /// bit to test.
 #[cfg(not(unix))]
-fn platform_access(path: &str, mask: i32) -> Result<(), ModuleError> {
+fn platform_access(path: &str, requested: i32) -> Result<(), ModuleError> {
     // `F_OK` asks only that the path resolves; `metadata` follows links, which
     // matches `access`'s "does the name lead to something".
     std::fs::metadata(path).map_err(|error| errors::from_io(error, path))?;
-    if mask & libc::W_OK != 0 {
+    if requested & access::W_OK != 0 {
         std::fs::OpenOptions::new()
             .write(true)
             .open(path)
             .map_err(|error| errors::from_io(error, path))?;
     }
-    if mask & libc::X_OK != 0 && !is_executable(Path::new(path)) {
+    if requested & access::X_OK != 0 && !is_executable(Path::new(path)) {
         return Err(errors::invalid(
             "EACCES",
             format!("EACCES: permission denied, {path}"),
