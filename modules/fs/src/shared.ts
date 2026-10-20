@@ -102,6 +102,40 @@ export function toPath(path: string): string {
   return decoded;
 }
 
+/**
+ * A recursive `readdir` entry as the path Node reports.
+ *
+ * Node's `readdir(dir, { recursive: true })` returns paths relative to `dir`
+ * — `nested/deep/leaf.txt`, not `leaf.txt` — so a caller can join them onto the
+ * root and get a real path. The native side reports each entry's absolute
+ * containing directory, so the relative name is what remains after removing the
+ * root. A non-recursive listing names the direct children only, which is already
+ * what `entry.name` holds, so this is used for the recursive case alone.
+ *
+ * The separator is taken from the paths themselves rather than from a platform
+ * check: the native side returns native separators, and a module that reaches
+ * for `process.platform` needs Node's types for a question the data already
+ * answers.
+ */
+export function relativeEntryName(
+  root: string,
+  parentPath: string,
+  name: string,
+): string {
+  const separator = root.includes('\\') ? '\\' : '/';
+  const split = (value: string) => value.split(/[\\/]+/u).filter(Boolean);
+  const rootParts = split(root);
+  const parentParts = split(parentPath);
+  // Compare from the front. A parent that does not start with the root means the
+  // entry is somewhere the caller did not ask about, which should not happen, so
+  // the bare name is a safer answer than a fabricated path.
+  const inside = rootParts.every((part, index) => parentParts[index] === part);
+  if (!inside) {
+    return name;
+  }
+  return [...parentParts.slice(rootParts.length), name].join(separator);
+}
+
 /** The encoding name, folded to the set implemented here. */
 export function normalizeEncoding(
   encoding: string | null | undefined,

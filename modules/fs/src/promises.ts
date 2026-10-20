@@ -16,6 +16,7 @@ import {
   modeFrom,
   nodeError,
   normalizeEncoding,
+  relativeEntryName,
   toArrayBuffer,
   toBytes,
   toPath,
@@ -210,10 +211,15 @@ async function readdir(
 ): Promise<string[] | Dirent[]> {
   const target = toPath(path);
   try {
-    const entries = await NativeFs.readdir(target, options?.recursive ?? false);
+    const recursive = options?.recursive ?? false;
+    const entries = await NativeFs.readdir(target, recursive);
     return options?.withFileTypes
       ? entries.map(entry => new Dirent(entry as DirEntryResult))
-      : entries.map(entry => entry.name);
+      : entries.map(entry =>
+          recursive
+            ? relativeEntryName(target, entry.parentPath, entry.name)
+            : entry.name,
+        );
   } catch (error) {
     throw withContext(error, 'scandir', target);
   }

@@ -54,6 +54,25 @@ export function FileSystemFixture() {
         const names = entries.map(entry => entry.name).sort();
         record(`readdir ${names.join(',')}`);
 
+        // A recursive listing reports paths relative to the directory, as Node
+        // does — `nested/deep/leaf.txt`, not `leaf.txt` — so a caller can join
+        // them back onto the root.
+        await fs.promises.mkdir(`${dir}/nested/deep`, { recursive: true });
+        await fs.promises.writeFile(`${dir}/nested/middle.txt`, 'middle');
+        await fs.promises.writeFile(`${dir}/nested/deep/leaf.txt`, 'leaf');
+        const recursive = await fs.promises.readdir(dir, { recursive: true });
+        const expected = [
+          'nested',
+          'nested/deep',
+          'nested/deep/leaf.txt',
+          'nested/middle.txt',
+        ].join(',');
+        const actual = recursive
+          .filter(name => !name.endsWith('.bin') && !name.endsWith('note.txt'))
+          .sort()
+          .join(',');
+        record(`recursive ${actual === expected ? 'ok' : `BAD ${actual}`}`);
+
         // The sync forms must work on the JS thread.
         record(`sync ${fs.existsSync(binPath) ? 'exists' : 'missing'}`);
         record(

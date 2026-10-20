@@ -697,6 +697,7 @@ test('the file system module reads, writes and watches real files', async () => 
     'binary ok',
     'stat file size=',
     'readdir bytes.bin,note.txt',
+    'recursive ok',
     'sync exists',
     'syncRead ok',
     'enoent ok',
