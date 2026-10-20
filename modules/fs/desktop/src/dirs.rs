@@ -209,12 +209,12 @@ mod tests {
         tree(dir.path());
 
         let entries = readdir_sync(text(dir.path()), false).expect("readdir");
+        // `names` normalises separators, so the expected paths are built from a
+        // normalised root rather than the platform one.
+        let root = text(dir.path()).replace('\\', "/");
         assert_eq!(
             names(&entries),
-            vec![
-                format!("{}/nested", text(dir.path())),
-                format!("{}/top.txt", text(dir.path())),
-            ]
+            vec![format!("{root}/nested"), format!("{root}/top.txt")]
         );
 
         let top = entries
