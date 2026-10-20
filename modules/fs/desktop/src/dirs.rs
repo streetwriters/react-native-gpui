@@ -182,10 +182,15 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    /// The listed paths, with separators normalised to `/`.
+    ///
+    /// The entries themselves carry the platform separator, which on Windows is
+    /// `\`; building the expected path with `/` and comparing would test the
+    /// separator rather than the listing.
     fn names(entries: &[DirEntry]) -> Vec<String> {
         let mut names: Vec<String> = entries
             .iter()
-            .map(|entry| format!("{}/{}", entry.parent_path, entry.name))
+            .map(|entry| format!("{}/{}", entry.parent_path, entry.name).replace('\\', "/"))
             .collect();
         names.sort();
         names
@@ -234,8 +239,9 @@ mod tests {
         // Two entries per directory, three directories deep.
         assert_eq!(entries.len(), 5);
         let listed = names(&entries);
-        assert!(listed.contains(&format!("{}/nested/deep/leaf.txt", text(dir.path()))));
-        assert!(listed.contains(&format!("{}/nested/deep", text(dir.path()))));
+        let root = text(dir.path()).replace('\\', "/");
+        assert!(listed.contains(&format!("{root}/nested/deep/leaf.txt")));
+        assert!(listed.contains(&format!("{root}/nested/deep")));
 
         let deep = entries
             .iter()

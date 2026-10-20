@@ -33,11 +33,14 @@ pub fn open(
         .map_err(|error| errors::from_io(error, &path))?;
 
     let id = module.take_fd();
+    // `RDONLY` is zero, so "writable" is the presence of any write bit rather
+    // than the absence of a read bit.
+    let writable = (flags as i32) & (flags::WRONLY | flags::RDWR) != 0;
     module
         .files
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(id, file);
+        .insert(id, (file, writable));
     Ok(f64::from(id))
 }
 
@@ -90,19 +93,28 @@ pub fn write(
     position: f64,
 ) -> Result<f64, ModuleError> {
     let id = descriptor(fd)?;
-    let mut file = module.file(fd)?;
+    let (mut file, writable) = module.file_and_writability(fd)?;
+    // Checked from the flags the handle was opened with, not from what the OS
+    // says: a write to a read-only handle is `EBADF` in Node, `EACCES` on
+    // Windows and `EBADF` on Unix.
+    if !writable {
+        return Err(bad_fd(id));
+    }
     let bytes = data.as_slice();
     if bytes.is_empty() {
         return Ok(0.0);
     }
 
+    // Read before the borrow below: `positioned_write` needs `&mut File` so the
+    // Windows branch can seek, and a match guard borrowing the file would overlap.
+    let append_only = appends(&file);
     let written = match offset(position)? {
         // An append-mode descriptor appends whatever offset the caller passes:
         // a cursor write does that because the file was opened with `O_APPEND`
         // (or `FILE_APPEND_DATA`), and Linux also appends for a positioned
         // write. Ignoring the offset keeps the platforms alike and is what
         // callers of `appendFile` expect.
-        Some(offset) if !appends(&file) => write_at(&file, bytes, offset, id)?,
+        Some(start) if !append_only => write_at(&mut file, bytes, start, id)?,
         _ => write_cursor(&mut file, bytes, id)?,
     };
     Ok(written as f64)
@@ -218,7 +230,7 @@ fn read_cursor(file: &mut File, buffer: &mut [u8], id: u32) -> Result<usize, Mod
     Ok(filled)
 }
 
-fn write_at(file: &File, bytes: &[u8], offset: u64, id: u32) -> Result<usize, ModuleError> {
+fn write_at(file: &mut File, bytes: &[u8], offset: u64, id: u32) -> Result<usize, ModuleError> {
     let mut written = 0;
     while written < bytes.len() {
         match positioned_write(file, &bytes[written..], offset + written as u64) {
@@ -239,27 +251,52 @@ fn write_cursor(file: &mut File, bytes: &[u8], id: u32) -> Result<usize, ModuleE
 }
 
 #[cfg(unix)]
-fn positioned_read(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+fn positioned_read(file: &mut File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
     use std::os::unix::fs::FileExt as _;
-    file.read_at(buffer, offset)
+    // `read_at` takes `&self`, but the call sites hold `&mut File` so the
+    // Windows branch — which has to seek — shares one signature.
+    (&*file).read_at(buffer, offset)
 }
 
+/// Windows' positional read, with the cursor left where it was.
+///
+/// `FileExt::seek_read` is documented as not affecting the cursor, but on a
+/// synchronous handle — which is what `File::open` gives — the underlying
+/// `ReadFile` with an `OVERLAPPED` offset keeps the file position as a side
+/// effect. Node's positional forms leave the descriptor alone, and so does the
+/// Unix branch above, so the position is saved and restored here. Without this a
+/// positioned read moved the cursor, and a following cursor read started from the
+/// wrong place.
 #[cfg(windows)]
-fn positioned_read(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+fn positioned_read(file: &mut File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    use std::io::Seek as _;
     use std::os::windows::fs::FileExt as _;
-    file.seek_read(buffer, offset)
+    let saved = file.stream_position();
+    let result = file.seek_read(buffer, offset);
+    if let Ok(position) = saved {
+        let _ = file.seek(std::io::SeekFrom::Start(position));
+    }
+    result
 }
 
 #[cfg(unix)]
-fn positioned_write(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<usize> {
+fn positioned_write(file: &mut File, bytes: &[u8], offset: u64) -> std::io::Result<usize> {
     use std::os::unix::fs::FileExt as _;
-    file.write_at(bytes, offset)
+    (&*file).write_at(bytes, offset)
 }
 
+/// Windows' positional write, with the cursor left where it was. Same reason as
+/// `positioned_read` above.
 #[cfg(windows)]
-fn positioned_write(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<usize> {
+fn positioned_write(file: &mut File, bytes: &[u8], offset: u64) -> std::io::Result<usize> {
+    use std::io::Seek as _;
     use std::os::windows::fs::FileExt as _;
-    file.seek_write(bytes, offset)
+    let saved = file.stream_position();
+    let result = file.seek_write(bytes, offset);
+    if let Ok(position) = saved {
+        let _ = file.seek(std::io::SeekFrom::Start(position));
+    }
+    result
 }
 
 /// The generated `StatResult`, filled from `std::fs::Metadata`.
