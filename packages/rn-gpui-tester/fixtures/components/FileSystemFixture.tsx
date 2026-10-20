@@ -139,7 +139,10 @@ export function FileSystemFixture() {
           `rangeCursor ${afterRange.buffer[0] === 0x65 ? 'ok' : `BAD ${afterRange.buffer[0]}`}`,
         );
 
-        await handle.write(new Uint8Array([99]), 4);
+        // A file position, which is the third argument; the second is an offset
+        // into the buffer and is bounded by its length, so passing 4 with a
+        // one-byte buffer is `ERR_OUT_OF_RANGE` in Node.
+        await handle.write(new Uint8Array([99]), 0, 1, 4);
         await handle.close();
         const afterWrite = await fs.promises.readFile(handlePath);
         record(`handleWrite ${afterWrite[4] === 99 ? 'ok' : 'BAD'}`);
@@ -172,7 +175,13 @@ export function FileSystemFixture() {
               resolve('watch TIMEOUT');
             }
           }, 4000);
-          void fs.promises.writeFile(`${dir}/watched.txt`, 'appeared');
+          // Written after the watch exists, and only this file is waited for. An
+          // earlier write in this fixture — a handle closed a moment ago — is a
+          // real event too, and asserting on it would make the step depend on
+          // which file the backend happened to report first.
+          setTimeout(() => {
+            void fs.promises.writeFile(`${dir}/watched.txt`, 'appeared');
+          }, 150);
         });
         record(watched);
 
