@@ -109,6 +109,65 @@ fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
     crate::events::ModifierState::from_gpui(&modifiers)
 }
 
+/// Which `ComponentRenderer` hook to run for a button press or release.
+#[derive(Clone, Copy)]
+enum ComponentHook {
+    Down,
+    Up,
+}
+
+/// Runs a component renderer's mouse hook for one event.
+///
+/// The node and the renderer are resolved here rather than captured, because a
+/// component can be re-rendered between the event and the hook: a captured
+/// `ComponentNode` would describe the tree as it was when the listener was built.
+#[allow(clippy::too_many_arguments)]
+fn run_component_hook(
+    node: &gpui::WeakEntity<RNNodeView>,
+    captured: &crate::extensions::ComponentNode,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+    position: gpui::Point<gpui::Pixels>,
+    button: crate::events::Button,
+    click_count: usize,
+    modifiers: gpui::Modifiers,
+    hook: ComponentHook,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let component = node.read(cx).component.clone();
+    let Some(renderer) = crate::extensions::component_renderer(&component) else {
+        return;
+    };
+    let frame = captured.frame;
+    let local = gpui::point(
+        position.x - gpui::px(frame.x),
+        position.y - gpui::px(frame.y),
+    );
+    let event = crate::extensions::input::MouseEvent {
+        position,
+        local,
+        button,
+        buttons: button.mask(),
+        click_count,
+        modifiers: modifier_state(modifiers),
+    };
+    let mut context = crate::extensions::input::InputContext {
+        node: captured,
+        window,
+        cx,
+        captured: false,
+    };
+    let propagation = match hook {
+        ComponentHook::Down => renderer.on_mouse_down(captured, &event, &mut context),
+        ComponentHook::Up => renderer.on_mouse_up(captured, &event, &mut context),
+    };
+    if propagation == crate::extensions::input::Propagation::Stop {
+        context.cx.stop_propagation();
+    }
+}
+
 /// Sends the DOM pointer events for one non-primary button press.
 ///
 /// Shared by the middle and right listeners so the two cannot diverge; the
@@ -2674,6 +2733,72 @@ impl Render for RNNodeView {
         // under a still pointer rebuild every row. It is the first child so its
         // hitbox and handlers keep the order the node's own div would give them.
         let mut handlers = PointerHandlers::default();
+        // A component renderer that asked for input gets it through the same
+        // handlers the View props use, so ordering with RN's touch handling and
+        // the scroll-container case stays as it was.
+        let input_spec = crate::extensions::component_renderer(&self.component).map(|renderer| {
+            let node = self.component_node(cx);
+            (renderer.input(&node), node)
+        });
+        if let Some((spec, node)) = input_spec.clone() {
+            for button in [
+                crate::events::Button::Left,
+                crate::events::Button::Middle,
+                crate::events::Button::Right,
+                crate::events::Button::Back,
+                crate::events::Button::Forward,
+            ] {
+                if !spec.mouse_buttons.contains(button) {
+                    continue;
+                }
+                let down_node = cx.entity().downgrade();
+                let down_component = node.clone();
+                let handler: crate::pointer_area::PointerHandler<MouseDownEvent> =
+                    Rc::new(move |event: &MouseDownEvent, window, cx| {
+                        run_component_hook(
+                            &down_node,
+                            &down_component,
+                            window,
+                            cx,
+                            event.position,
+                            button,
+                            event.click_count,
+                            event.modifiers,
+                            ComponentHook::Down,
+                        );
+                    });
+                match button {
+                    crate::events::Button::Left => handlers.left_down.push(handler),
+                    crate::events::Button::Middle => handlers.middle_down.push(handler),
+                    crate::events::Button::Right => handlers.right_down.push(handler),
+                    crate::events::Button::Back => handlers.back_down.push(handler),
+                    crate::events::Button::Forward => handlers.forward_down.push(handler),
+                }
+                let up_node = cx.entity().downgrade();
+                let up_component = node.clone();
+                let handler: crate::pointer_area::PointerHandler<MouseUpEvent> =
+                    Rc::new(move |event: &MouseUpEvent, window, cx| {
+                        run_component_hook(
+                            &up_node,
+                            &up_component,
+                            window,
+                            cx,
+                            event.position,
+                            button,
+                            event.click_count,
+                            event.modifiers,
+                            ComponentHook::Up,
+                        );
+                    });
+                match button {
+                    crate::events::Button::Left => handlers.left_up.push(handler),
+                    crate::events::Button::Middle => handlers.middle_up.push(handler),
+                    crate::events::Button::Right => handlers.right_up.push(handler),
+                    crate::events::Button::Back => handlers.back_up.push(handler),
+                    crate::events::Button::Forward => handlers.forward_up.push(handler),
+                }
+            }
+        }
         if self.view.on_context_menu {
             let node = cx.entity().downgrade();
             // Right click, and Ctrl + click on macOS. The decision lives in
