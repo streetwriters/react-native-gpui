@@ -36,6 +36,350 @@ const findCppSources = directory => {
   });
 };
 
+/// Crates a module crate must depend on by version, never by path or git.
+///
+/// They live under `@react-native-gpui/core` at a path that only exists inside
+/// this repository. A published module crate resolves relative paths from
+/// `node_modules/@react-native-gpui/<name>/desktop`, where `../../../packages`
+/// is nowhere. So the crate names a crates.io version and autolink patches it,
+/// in the app's root manifest, to the core that is actually installed.
+const MANAGED_CRATES = [
+  'react-native-gpui',
+  'rn-gpui-sys',
+  'rn-gpui-module',
+  'rn-gpui-module-build',
+  'gpui',
+  'gpui_platform',
+];
+
+/// The version each managed crate is patched to, when it is a path dependency.
+const CORE_CRATE_VERSION = '0.1';
+
+const PATCH_BEGIN =
+  '# Managed by @react-native-gpui/cli autolink; do not edit between these markers.';
+const PATCH_END = '# End managed by autolink.';
+
+/**
+ * The gpui pin, read from core's manifest.
+ *
+ * Core owns the revision (`GPUI_PIN.md` says so), and a module that copied it
+ * would drift the moment the pin moved. The npm package ships `ReactGpui`, so
+ * the manifest is always beside the installed crate.
+ */
+function gpuiPin(platformRoot) {
+  const manifest = path.join(platformRoot, 'ReactGpui/Cargo.toml');
+  let text;
+  try {
+    // Normalised for consistency with the lockfile read below. This pattern
+    // happens to survive CRLF on its own, because `\s*$` treats `\r` as
+    // whitespace, but relying on that is a trap for the next edit.
+    text = fs.readFileSync(manifest, 'utf8').replace(/\r\n/gu, '\n');
+  } catch (error) {
+    throw new Error(
+      `could not read the gpui pin from ${manifest}: ${error.message}`,
+    );
+  }
+  const workspace = /^\[workspace\.dependencies\]\s*$/mu.exec(text);
+  if (workspace === null) {
+    throw new Error(`${manifest} has no [workspace.dependencies] table`);
+  }
+  const start = workspace.index;
+  const nextTable = text.indexOf('\n[', start + 1);
+  const table = text.slice(start, nextTable < 0 ? text.length : nextTable);
+  const pin = name => {
+    const line = new RegExp(`^${name}\\s*=\\s*\\{([^}]*)\\}`, 'mu').exec(table);
+    if (line === null) {
+      throw new Error(
+        `${manifest} declares no ${name} in [workspace.dependencies]`,
+      );
+    }
+    const git = /git\s*=\s*"([^"]+)"/u.exec(line[1]);
+    const rev = /rev\s*=\s*"([^"]+)"/u.exec(line[1]);
+    if (git === null || rev === null) {
+      throw new Error(
+        `${manifest}: ${name} is not a git dependency with a rev`,
+      );
+    }
+    return { git: git[1], rev: rev[1] };
+  };
+  return { gpui: pin('gpui'), gpuiPlatform: pin('gpui_platform') };
+}
+
+/**
+ * The managed `[patch.crates-io]` block, or the text to append.
+ *
+ * `[patch]` only takes effect in the root manifest, which is why this is written
+ * into the app rather than into each module crate.
+ */
+function patchBlock(entries) {
+  return [
+    PATCH_BEGIN,
+    ...entries.map(([name, spec]) => `${name} = ${spec}`),
+    PATCH_END,
+  ].join('\n');
+}
+
+/**
+ * A TOML string literal for a value.
+ *
+ * JSON's string syntax is a subset of TOML's for the characters paths contain, so
+ * quoting through it keeps a Windows path's backslashes escaped correctly.
+ */
+function escapeToml(value) {
+  return JSON.stringify(value);
+}
+
+/**
+ * The `[patch.crates-io]` entries that point every managed crate at core.
+ *
+ * Exported because a second root manifest needs the same table: a module crate
+ * that declares `[workspace]` to become testable is its own root, and Cargo
+ * honours `[patch]` only there. Copying the block by hand reintroduces exactly
+ * the drift these entries exist to prevent — the gpui revision is read from
+ * core's manifest here, not written down anywhere.
+ *
+ * `platformRoot` is the installed core package, whose gated gpui pin is the
+ * authority; `base` is the directory the paths are written relative to, which
+ * for an app manifest is its `desktop/` directory.
+ */
+export function managedPatchEntries(platformRoot, base) {
+  const runtimeCrate = path.join(platformRoot, 'ReactGpui/rn-gpui');
+  const pin = gpuiPin(platformRoot);
+  const relative = target =>
+    escapeToml(path.relative(base, target).split(path.sep).join('/'));
+  return [
+    ...MANAGED_CRATES.filter(
+      crate => crate !== 'gpui' && crate !== 'gpui_platform',
+    ).map(crate => [
+      crate,
+      // The directory is not always the crate name: `react-native-gpui` lives
+      // in `rn-gpui`, so the path is built from the directory, not the key.
+      `{ path = ${relative(
+        crate === 'react-native-gpui'
+          ? runtimeCrate
+          : path.join(path.dirname(runtimeCrate), crate),
+      )} }`,
+    ]),
+    ['gpui', `{ git = "${pin.gpui.git}", rev = "${pin.gpui.rev}" }`],
+    [
+      'gpui_platform',
+      `{ git = "${pin.gpuiPlatform.git}", rev = "${pin.gpuiPlatform.rev}" }`,
+    ],
+  ];
+}
+
+/**
+ * Insert or replace the managed block in an app manifest.
+ *
+ * Idempotent: a second run must produce the same bytes, because `writeIfChanged`
+ * depends on it and a rewritten manifest makes Cargo rebuild everything.
+ */
+export function applyPatchBlock(manifest, manifestPath, entries) {
+  const block = patchBlock(entries);
+  const managed = new RegExp(
+    `${PATCH_BEGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}[\\s\\S]*?${PATCH_END.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`,
+    'u',
+  );
+  if (managed.test(manifest)) {
+    return manifest.replace(managed, block);
+  }
+
+  const header = /^\[patch\.crates-io\]\s*$/mu.exec(manifest);
+  if (header !== null) {
+    // A table the user wrote. Cargo rejects a second header, so the block goes
+    // inside theirs — but a duplicate key would make the manifest invalid, and
+    // silently overwriting their line would be worse, so that is an error.
+    const start = header.index;
+    const nextTable = manifest.indexOf('\n[', start + 1);
+    const end = nextTable < 0 ? manifest.length : nextTable;
+    const body = manifest.slice(start, end);
+    for (const [name] of entries) {
+      if (new RegExp(`^${name}\\s*=`, 'mu').test(body)) {
+        throw new Error(
+          `${manifestPath}: [patch.crates-io] already sets ${name}, which autolink owns; remove that line so it can be managed`,
+        );
+      }
+    }
+    const headerEnd = start + header[0].length;
+    return `${manifest.slice(0, headerEnd)}\n${block}${manifest.slice(headerEnd)}`;
+  }
+
+  const separator = manifest.endsWith('\n') ? '' : '\n';
+  return `${manifest}${separator}\n[patch.crates-io]\n${block}\n`;
+}
+
+/// Every `[dependencies]`-style entry for a managed crate, with its raw value.
+function managedDependencyEntries(manifest) {
+  const found = [];
+  let section = '';
+  const lines = manifest.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const table = /^\[([^\]]+)\]\s*$/u.exec(line);
+    if (table !== null) {
+      section = table[1];
+      // The table form puts one crate's keys on following lines:
+      // `[dependencies.gpui]` then `git = "…"`. Rare, but legal, and skipping it
+      // would leave a way past the check this function exists for.
+      const tableForm = /^dependencies\.([A-Za-z0-9_-]+)$/u.exec(section);
+      if (tableForm !== null && MANAGED_CRATES.includes(tableForm[1])) {
+        const keys = [];
+        for (let inner = index + 1; inner < lines.length; inner += 1) {
+          if (/^\[/u.test(lines[inner])) break;
+          keys.push(lines[inner]);
+        }
+        found.push({ crate: tableForm[1], value: keys.join('\n') });
+      }
+      continue;
+    }
+    if (!/(?:^|[-.])dependencies$/u.test(section)) continue;
+    const entry = /^([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*(?:#.*)?$/u.exec(line);
+    if (entry === null) continue;
+    const renamed = /package\s*=\s*"([^"]+)"/u.exec(entry[2]);
+    const crate = renamed === null ? entry[1] : renamed[1];
+    if (!MANAGED_CRATES.includes(crate)) continue;
+    found.push({ crate, value: entry[2] });
+  }
+  return found;
+}
+
+/**
+ * Whether a version requirement accepts `version`, for the forms the ecosystem
+ * actually writes. Anything else is rejected rather than guessed at, because the
+ * failure mode is silent: a requirement the patch does not satisfy makes Cargo
+ * print one warning and resolve the real crates.io crate instead.
+ */
+function versionSatisfies(requirement, version) {
+  const text = requirement.trim();
+  const parse = value => {
+    const parts = value.split('.').map(Number);
+    if (parts.some(Number.isNaN)) return undefined;
+    return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+  };
+  const compare = (a, b) => {
+    for (let index = 0; index < 3; index += 1) {
+      if (a[index] !== b[index]) return a[index] - b[index];
+    }
+    return 0;
+  };
+  const exact = /^=\s*(\d+(?:\.\d+){0,2})$/u.exec(text);
+  if (exact !== null) return compare(parse(exact[1]), parse(version)) === 0;
+  const tilde = /^~\s*(\d+(?:\.\d+){0,2})$/u.exec(text);
+  if (tilde !== null) {
+    const [major, minor] = parse(tilde[1]);
+    const actual = parse(version);
+    return (
+      actual[0] === major &&
+      actual[1] === minor &&
+      compare(actual, [major, minor, 0]) >= 0
+    );
+  }
+  const plain = /^\^?\s*(\d+(?:\.\d+){0,2})$/u.exec(text);
+  if (plain !== null) {
+    const parts = parse(plain[1]);
+    const actual = parse(version);
+    // Caret semantics: the leftmost non-zero component may not change.
+    if (parts[0] > 0)
+      return actual[0] === parts[0] && compare(actual, parts) >= 0;
+    if (parts[1] > 0)
+      return (
+        actual[0] === 0 && actual[1] === parts[1] && compare(actual, parts) >= 0
+      );
+    return compare(actual, parts) === 0;
+  }
+  throw new Error(`unsupported version requirement "${text}"`);
+}
+
+/**
+ * Reject a module crate that names a managed crate by path or git.
+ *
+ * `[patch]` cannot redirect a `path` dependency, and a git dependency of the
+ * same repository at another rev is rejected by Cargo. Either would fail for
+ * someone installing the package, a long way from the cause, so it is refused
+ * here with the fix in the message. A version requirement that the patch does
+ * not satisfy is worse than a failure: Cargo warns once and quietly resolves the
+ * real crates.io crate, so `gpui = "0.3"` would build against Zed's gpui.
+ */
+export function validateModuleManifest(
+  dependencyName,
+  cargoPath,
+  platformRoot,
+) {
+  const manifestPath = path.join(cargoPath, 'Cargo.toml');
+  let manifest;
+  try {
+    manifest = fs.readFileSync(manifestPath, 'utf8');
+  } catch (error) {
+    throw new Error(
+      `${dependencyName}: could not read ${manifestPath}: ${error.message}`,
+    );
+  }
+  const patchedVersions = patchedCrateVersions(platformRoot);
+  for (const { crate, value } of managedDependencyEntries(manifest)) {
+    const expected =
+      crate === 'gpui' || crate === 'gpui_platform'
+        ? `{ version = "${patchedVersions[crate]}", features = [...] }`
+        : `${crate} = "${CORE_CRATE_VERSION}"`;
+    if (/\bpath\s*=/u.test(value) || /\bgit\s*=/u.test(value)) {
+      throw new Error(
+        `${dependencyName}: ${crate} must be a version requirement (e.g. ${expected}), not a path or git dependency; autolink points it at the installed @react-native-gpui/core`,
+      );
+    }
+    // A bare form is `crate = "0.1"`, where the value is the requirement with its
+    // quotes still on; an inline table is `crate = { version = "0.1" }`.
+    const bare = /^"([^"]*)"$/u.exec(value.trim())?.[1];
+    const requirement =
+      /\bversion\s*=\s*"([^"]+)"/u.exec(value)?.[1] ?? bare ?? value;
+    const version = patchedVersions[crate];
+    if (!versionSatisfies(requirement, version)) {
+      throw new Error(
+        `${dependencyName}: ${crate} requires "${requirement}", which does not match the ${version} that autolink patches to; Cargo would resolve the crates.io crate instead`,
+      );
+    }
+  }
+}
+
+/**
+ * The version each managed crate resolves to once patched.
+ *
+ * Core crates are `0.1.0`. The gpui crates come from the git pin, so their
+ * versions are read from the lockfile that describes that revision — the
+ * numbers cannot be assumed, and `gpui`'s crates.io crate is also `0.2.2`, which
+ * is exactly the collision the version check exists to catch.
+ */
+function patchedCrateVersions(platformRoot) {
+  const versions = {};
+  for (const crate of [
+    'react-native-gpui',
+    'rn-gpui-sys',
+    'rn-gpui-module',
+    'rn-gpui-module-build',
+  ]) {
+    versions[crate] = CORE_CRATE_VERSION;
+  }
+  const lockPath = path.join(platformRoot, 'ReactGpui/Cargo.lock');
+  let lock;
+  try {
+    // Same reason as the manifest above: the pattern is line-anchored.
+    lock = fs.readFileSync(lockPath, 'utf8').replace(/\r\n/gu, '\n');
+  } catch (error) {
+    throw new Error(`could not read ${lockPath}: ${error.message}`);
+  }
+  for (const crate of ['gpui', 'gpui_platform']) {
+    const block = new RegExp(
+      `\\[\\[package\\]\\]\\nname = "${crate}"\\nversion = "([^"]+)"\\nsource = "git\\+https://github\\.com/streetwriters/gpui-fast[^"]*"`,
+      'u',
+    ).exec(lock);
+    if (block === null) {
+      throw new Error(
+        `${lockPath} has no ${crate} from the gpui-fast git source`,
+      );
+    }
+    versions[crate] = block[1];
+  }
+  return versions;
+}
+
 const cppIdentifier = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const includePath = /^[A-Za-z0-9_./+-]+$/u;
 const jsEngineName = /^[a-z][a-z0-9-]*$/u;
@@ -513,6 +857,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       `@react-native-gpui/core has no Rust crate at ${runtimeCrate}`,
     );
   }
+  // Core owns the gpui revision; a module that copied it would drift as soon as
+  // the pin moved, and the copies already had.
+  const pin = gpuiPin(platformRoot);
   const rustCrates = [];
   const turboModuleSpecs = [];
   const cmakeProjects = [];
@@ -684,6 +1031,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         turboModuleSpecs.push(specPath);
       }
     }
+    validateModuleManifest(dependencyName, cargoPath, platformRoot);
     rustCrates.push({
       dependencyName,
       packageName: packageJson.name,
@@ -749,7 +1097,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
 
-  const escapeToml = value => JSON.stringify(value);
   const autolinkCrate = generatedDir;
   fs.mkdirSync(path.join(autolinkCrate, 'src'), { recursive: true });
   const generatedDeps = rustCrates
@@ -878,6 +1225,13 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       featureLines += '\ntest-driver = ["react-native-gpui/test-driver"]';
     appCargo = `${appCargo.slice(0, tableStart)}[features]${featureLines}${appCargo.slice(tableEnd)}`;
   }
+  // `[patch]` is only honoured in the root manifest, so the redirection lives in
+  // the app's rather than in each module crate.
+  appCargo = applyPatchBlock(
+    appCargo,
+    appCargoManifest,
+    managedPatchEntries(platformRoot, desktopRoot),
+  );
   writeIfChanged(appCargoManifest, appCargo);
   const appMain = path.join(desktopRoot, 'src/main.rs');
   if (fs.existsSync(appMain)) {

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
   collectNodeAddons,
+  createLibrary,
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
   scanNodeAddonCalls,
@@ -244,4 +245,30 @@ test('a tray with accessory false disables the accessory mode', () => {
     'desktop/desktop.json',
   );
   expect(main).toContain('.tray(TrayConfig::default().accessory(false))');
+});
+
+test('create-library writes version requirements, not crate paths', () => {
+  // A module crate installed from npm has no `../../../packages` above it, so a
+  // relative path to core cannot work there; `[patch.crates-io]` also cannot
+  // redirect a `path` dependency. The scaffolder therefore writes a version
+  // requirement and lets autolink patch it to the installed core.
+  const outer = fs.mkdtempSync(nodePath.join(repoRoot, '.local', 'scaffold-'));
+  try {
+    createLibrary({
+      libraryName: 'fs',
+      type: 'rust',
+      destination: outer,
+      packageName: '@react-native-gpui/fs',
+    });
+    const manifest = fs.readFileSync(
+      nodePath.join(outer, 'desktop/Cargo.toml'),
+      'utf8',
+    );
+    expect(manifest).toContain('rn-gpui-module = "0.1"');
+    expect(manifest).toContain('rn-gpui-module-build = "0.1"');
+    expect(manifest).not.toMatch(/path\s*=/u);
+    expect(manifest).not.toMatch(/git\s*=/u);
+  } finally {
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
 });

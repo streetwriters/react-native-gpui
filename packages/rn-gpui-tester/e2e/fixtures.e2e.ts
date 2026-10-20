@@ -682,3 +682,40 @@ test('Platform.constants reports the active JS engine package', async () => {
   expect(version?.text).toMatch(/^JS engine version: \S/u);
   expect(version?.text).not.toContain('unknown');
 });
+
+test('the file system module reads, writes and watches real files', async () => {
+  await launch('GPUIFileSystemFixture');
+  await desktopExpect(app.getByTestId('fs-title')).toBeVisible();
+  // Every line the fixture prints is a distinct claim; asserting them individually
+  // is what turns "the screen rendered" into "the module worked". The fixture
+  // records `BAD`, `MISMATCH`, `TIMEOUT` or `FAILED` in the line itself when a
+  // step goes wrong, so the substring check is exact rather than approximate.
+  await desktopExpect(app.getByTestId('fs-title')).toContainText('File system');
+  const tree = JSON.stringify(await app.tree());
+  for (const expected of [
+    'text ok',
+    'binary ok',
+    'stat file size=',
+    'readdir bytes.bin,note.txt',
+    'recursive ok',
+    'sync exists',
+    'syncRead ok',
+    'enoent ok',
+    'handleRead ok',
+    'handleWrite ok',
+    'writeOffset ok',
+    'range ok',
+    'rangeCursor ok',
+    'watch ok',
+    'copy ok',
+    'symlinkDir ok',
+    'paths ok',
+    'dialog ok',
+  ]) {
+    expect(tree).toContain(expected);
+  }
+  for (const failure of ['MISMATCH', 'BAD', 'TIMEOUT', 'FAILED']) {
+    expect(tree).not.toContain(failure);
+  }
+  await expectCaptureSmoke();
+});

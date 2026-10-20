@@ -33,3 +33,6 @@ desktop/.cache/
 
 # ccache directory, pinned by CI so one cache path works on every OS
 /.ccache/
+
+# Cargo ignores a dependency crate's lockfile, so a tracked one only goes stale.
+modules/*/desktop/Cargo.lock
