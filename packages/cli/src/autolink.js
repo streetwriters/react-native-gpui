@@ -125,7 +125,7 @@ function patchBlock(entries) {
  * Idempotent: a second run must produce the same bytes, because `writeIfChanged`
  * depends on it and a rewritten manifest makes Cargo rebuild everything.
  */
-function applyPatchBlock(manifest, manifestPath, entries) {
+export function applyPatchBlock(manifest, manifestPath, entries) {
   const block = patchBlock(entries);
   const managed = new RegExp(
     `${PATCH_BEGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}[\\s\\S]*?${PATCH_END.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`,

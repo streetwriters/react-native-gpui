@@ -9,3 +9,28 @@ rn-gpui-sys = "0.1"
 gpui = "0.2"
 serde_json = "1"
 log = "0.4"
+
+[dev-dependencies]
+# `TestNode` and `TreeView::for_test` are gated behind `test-driver`, and a
+# dependency cannot enable another package's feature. This is a dev-dependency
+# rather than a normal one so a build of the module never pays for it, and it
+# only becomes usable where the crate is a workspace member — see
+# packages/rn-gpui-tester/module-tests, which exists for that.
+react-native-gpui = { version = "0.1", features = ["test-driver"] }
+
+# Its own workspace root, deliberately. Cargo refuses to test a package that has
+# dev-dependencies unless it is a workspace member, and core's workspace cannot
+# hold it: a module resolves core by version and must not be a member of the
+# checkout's workspace. A root with itself as the only member satisfies the rule
+# without making the module part of anything else.
+[workspace]
+
+[patch.crates-io]
+# Managed by @react-native-gpui/cli autolink; do not edit between these markers.
+react-native-gpui = { path = "../../../packages/core/ReactGpui/rn-gpui" }
+rn-gpui-sys = { path = "../../../packages/core/ReactGpui/rn-gpui-sys" }
+rn-gpui-module = { path = "../../../packages/core/ReactGpui/rn-gpui-module" }
+rn-gpui-module-build = { path = "../../../packages/core/ReactGpui/rn-gpui-module-build" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "c380367" }
+# End managed by autolink.
