@@ -23,6 +23,57 @@ const repoRoot = path.resolve(
   '..',
 );
 
+/// The Rust modules to install into the smoke app, as package name -> tarball.
+///
+/// Found by reading each `modules/*/react-native.config.js` for a
+/// `platforms.desktop.crate`, rather than listing names: a new Rust module is
+/// then covered without editing this file. A module is only usable here if it
+/// has no peer dependency beyond `react-native`, or if the upstream package it
+/// needs is added below.
+function rustModulesFor(packed) {
+  const modules = new Map();
+  const modulesRoot = path.join(repoRoot, 'modules');
+  for (const entry of fs.readdirSync(modulesRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(modulesRoot, entry.name);
+    const configPath = path.join(dir, 'react-native.config.js');
+    if (!fs.existsSync(configPath)) continue;
+    // The config is CommonJS and only describes dependencies, so it is read as
+    // text: requiring it would execute package code to answer a question about
+    // one field.
+    if (!/crate\s*:/.test(fs.readFileSync(configPath, 'utf8'))) continue;
+    const manifestPath = path.join(dir, 'package.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const pkg = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const tarball = packed[pkg.name];
+    if (tarball === undefined) continue;
+    modules.set(pkg.name, {
+      tarball,
+      peers: Object.keys(pkg.peerDependencies ?? {}),
+    });
+  }
+  return modules;
+}
+
+/// Upstream packages a module needs at the version the repository resolves.
+///
+/// Taken from the root lockfile rather than pinned by hand: the module declares
+/// a range, and installing something outside it would fail for a reason that
+/// has nothing to do with what this check is about.
+function upstreamPeers(names) {
+  const lockPath = path.join(repoRoot, 'package-lock.json');
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  const versions = {};
+  for (const name of names) {
+    const version = lock.packages?.[`node_modules/${name}`]?.version;
+    if (version === undefined) {
+      throw new Error(`${lockPath} has no resolved version for ${name}`);
+    }
+    versions[name] = version;
+  }
+  return versions;
+}
+
 /// Every @react-native-gpui package plus the platform package, which the plan
 /// calls @react-native-gpui/core. Read from the packed map rather than listed
 /// by hand, so adding a package cannot leave the overrides behind.
@@ -188,6 +239,41 @@ function main() {
   //    dependencies to the same `file:` spec satisfies that rule, and the
   //    overrides still cover the transitive ones the app never names.
   const specs = overridesFor(packed);
+
+  // 2b. Add the Rust modules, from their tarballs.
+  //
+  //     This is the check the whole file exists for. A module crate used to name
+  //     core by a relative path that only resolves inside the checkout, so it
+  //     built here and failed for anyone installing the package. Installing the
+  //     modules into this app and building it is what proves otherwise; nothing
+  //     calls them from JS, because linking is the point.
+  const modules = rustModulesFor(packed);
+  const added = [];
+  const peers = new Set();
+  for (const [, module] of modules) {
+    for (const peer of module.peers) {
+      if (peer !== 'react-native') peers.add(peer);
+    }
+  }
+  const peerVersions = peers.size > 0 ? upstreamPeers([...peers]) : {};
+  for (const [name, module] of modules) {
+    if (manifest.dependencies?.[name] !== undefined) continue;
+    manifest.dependencies = {
+      ...manifest.dependencies,
+      [name]: module.tarball,
+    };
+    added.push(name);
+  }
+  for (const [name, version] of Object.entries(peerVersions)) {
+    if (manifest.dependencies?.[name] === undefined) {
+      manifest.dependencies = { ...manifest.dependencies, [name]: version };
+    }
+  }
+  // Every direct dependency that has a packed counterpart points at the
+  // tarball, and the overrides cover the transitive ones the app never names.
+  // Both are written after the modules are added: npm rejects an override whose
+  // spec differs from a direct dependency's, so a module added after this point
+  // would fail the install with `EOVERRIDE`.
   for (const name of Object.keys(specs)) {
     if (manifest.dependencies?.[name] !== undefined) {
       manifest.dependencies[name] = specs[name];
@@ -198,9 +284,14 @@ function main() {
   }
   manifest.overrides = { ...manifest.overrides, ...specs };
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const moduleSummary =
+    added.length === 0
+      ? 'none'
+      : `${added.join(', ')}${peers.size > 0 ? ` (with ${[...peers].join(', ')})` : ''}`;
   process.stderr.write(
     `overrides: ${Object.keys(manifest.overrides).length} package(s)\n`,
   );
+  process.stderr.write(`modules: ${moduleSummary}\n`);
 
   // 3. Install from the tarballs.
   run('npm', ['install'], {
@@ -243,6 +334,61 @@ function main() {
     cwd: projectRoot,
     shell: process.platform === 'win32',
   });
+
+  // 4b. Assert the module crates were linked from the installed core.
+  //
+  //     A build succeeding is not enough on its own: the crate could resolve to a
+  //     checkout path and still compile, which is the exact bug this check
+  //     exists to catch. Autolink records the crates it linked, so the record is
+  //     read back and each path is required to sit under this app's
+  //     `node_modules`.
+  if (added.length > 0) {
+    const autolinkPath = path.join(
+      projectRoot,
+      'desktop',
+      'autolink',
+      'autolink.json',
+    );
+    if (!fs.existsSync(autolinkPath)) {
+      throw new Error(`autolink wrote no record at ${autolinkPath}`);
+    }
+    const record = JSON.parse(fs.readFileSync(autolinkPath, 'utf8'));
+    const crates = record.rustCrates ?? [];
+    // Resolved, because on macOS `/tmp` is a symlink to `/private/tmp` and cargo
+    // reports the canonical spelling while `projectRoot` keeps the given one.
+    const nodeModules = fs.realpathSync(path.join(projectRoot, 'node_modules'));
+    for (const name of added) {
+      const entry = crates.find(crate => crate.dependencyName === name);
+      if (entry === undefined) {
+        throw new Error(
+          `autolink recorded no Rust crate for ${name}; it linked ${crates
+            .map(crate => crate.dependencyName)
+            .join(', ')}`,
+        );
+      }
+      // `cargoPath` is absolute in the record, so it is compared directly.
+      const resolved = fs.realpathSync(path.resolve(entry.cargoPath));
+      if (!resolved.startsWith(nodeModules + path.sep)) {
+        throw new Error(
+          `${name} links its crate from ${resolved}, which is outside this app's node_modules. ` +
+            'That is the bug this check exists for: a module crate must not point back into a checkout.',
+        );
+      }
+      process.stderr.write(`linked ${name} from ${resolved}\n`);
+    }
+    // The crate graph itself: core must be the installed copy.
+    const tree = execFileSync(
+      'cargo',
+      ['tree', '--manifest-path', 'desktop/Cargo.toml', '-i', 'rn-gpui-module'],
+      { cwd: projectRoot, encoding: 'utf8' },
+    );
+    const coreRoot = path.join(nodeModules, '@react-native-gpui', 'core');
+    if (!tree.includes(coreRoot)) {
+      throw new Error(
+        `rn-gpui-module does not resolve under ${coreRoot}:\n${tree}`,
+      );
+    }
+  }
 
   // 5. Run it. RN_GPUI_SMOKE=1 exits 0 on the first frame, 1 on timeout and 2
   //    on a JS error, so the exit code is the answer.
