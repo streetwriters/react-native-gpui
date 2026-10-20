@@ -231,8 +231,60 @@ fn copy_path(from: &str, to: &str, recursive: bool) -> Result<(), ModuleError> {
     copy_tree(Path::new(from), Path::new(to))
 }
 
+/// Refuse to copy a directory into itself or a directory beneath it.
+///
+/// The destination may not exist yet, so the comparison is against its nearest
+/// existing ancestor: `a` into `a/b/c` has to be caught before `a/b/c` exists,
+/// which is the whole point. Both sides are canonicalised so a symlinked path
+/// cannot slip past the check.
+///
+/// Node's code and wording are reproduced rather than invented; `cpSync` reports
+/// `ERR_FS_CP_EINVAL` with `Cannot copy /tmp/cpa/ to a subdirectory of self
+/// /tmp/cpa/sub`, and callers match on both.
+fn refuse_copy_into_self(from: &Path, to: &Path) -> Result<(), ModuleError> {
+    let resolve = |path: &Path| -> Option<std::path::PathBuf> {
+        let mut existing = path.to_path_buf();
+        let mut tail = Vec::new();
+        loop {
+            if let Ok(canonical) = existing.canonicalize() {
+                return Some(
+                    tail.iter()
+                        .rev()
+                        .fold(canonical, |base, part| base.join(part)),
+                );
+            }
+            let name = existing.file_name().map(|name| name.to_owned())?;
+            tail.push(name);
+            if !existing.pop() {
+                return None;
+            }
+        }
+    };
+    let Some(source) = resolve(from) else {
+        return Ok(());
+    };
+    let Some(destination) = resolve(to) else {
+        return Ok(());
+    };
+    if destination == source || destination.starts_with(&source) {
+        return Err(errors::invalid(
+            "ERR_FS_CP_EINVAL",
+            format!(
+                "Cannot copy {} to a subdirectory of self {}",
+                from.display(),
+                to.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn copy_tree(from: &Path, to: &Path) -> Result<(), ModuleError> {
     let target = to.to_string_lossy().into_owned();
+    // Checked before anything is created: copying a directory into its own
+    // subtree would otherwise recurse forever, and the tree it built on the way
+    // down would have to be cleaned up by the caller.
+    refuse_copy_into_self(from, to)?;
     fs::create_dir_all(to).map_err(|error| errors::from_io(error, &target))?;
     let children = fs::read_dir(from).map_err(|error| errors::from_io(error, &source(from)))?;
     for child in children {
@@ -512,6 +564,37 @@ mod tests {
         let error = block_on(copy(text(&from), text(&dir.path().join("nope")), false))
             .expect_err("a directory without recursive");
         assert_eq!(error.code.as_deref(), Some("EISDIR"));
+    }
+
+    #[test]
+    fn copying_a_directory_into_itself_is_refused() {
+        let dir = tempdir();
+        let from = dir.path().join("tree");
+        fs::create_dir_all(from.join("sub")).expect("tree");
+        fs::write(from.join("top.txt"), b"top").expect("seed");
+
+        // Into a directory beneath itself. This used to recurse until the path
+        // got too long, and left whatever it had built on the way down.
+        let into_self = from.join("sub");
+        let error = block_on(copy(text(&from), text(&into_self), true))
+            .expect_err("copy into a subdirectory of self");
+        assert_eq!(error.code.as_deref(), Some("ERR_FS_CP_EINVAL"));
+        assert!(
+            error.message.starts_with("Cannot copy"),
+            "{}",
+            error.message
+        );
+        // The check runs before anything is created, so the destination is still
+        // just the empty directory it was.
+        assert_eq!(
+            fs::read_dir(&into_self).expect("still there").count(),
+            0,
+            "nothing may be created when the copy is refused"
+        );
+
+        // The directory itself is the same case.
+        let error = block_on(copy(text(&from), text(&from), true)).expect_err("copy onto itself");
+        assert_eq!(error.code.as_deref(), Some("ERR_FS_CP_EINVAL"));
     }
 
     #[test]

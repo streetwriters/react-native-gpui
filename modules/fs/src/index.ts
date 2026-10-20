@@ -617,7 +617,7 @@ function symlink(target: string, path: string, ...args: unknown[]): void {
     promises.symlink(
       target,
       path,
-      before(args, 0, undefined) as string | undefined,
+      before(args, 0, undefined) as 'file' | 'dir' | 'junction' | undefined,
     ),
     callbackOf(args),
   );

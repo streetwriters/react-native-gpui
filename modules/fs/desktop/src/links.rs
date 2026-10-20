@@ -5,6 +5,7 @@
 //! approximated from `std::fs` where that would change the answer.
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use rn_gpui_module::ModuleError;
 
@@ -54,8 +55,8 @@ pub fn readlink(path: String) -> Result<String, ModuleError> {
         })
 }
 
-pub fn symlink(target: String, path: String) -> Result<(), ModuleError> {
-    platform_symlink(&target, &path)
+pub fn symlink(target: String, path: String, kind: Option<&str>) -> Result<(), ModuleError> {
+    platform_symlink(&target, &path, kind)
 }
 
 /// Validate the bitmask Node numbers, returning it unchanged.
@@ -171,21 +172,48 @@ fn is_executable(path: &Path) -> bool {
         .any(|candidate| candidate.eq_ignore_ascii_case(&extension))
 }
 
+/// Unix ignores the link kind: `symlink(2)` does not have one, and the target is
+/// resolved lazily on every traversal, so a link to a directory works without
+/// being declared as one.
 #[cfg(unix)]
-fn platform_symlink(target: &str, path: &str) -> Result<(), ModuleError> {
+fn platform_symlink(target: &str, path: &str, kind: Option<&str>) -> Result<(), ModuleError> {
+    let _ = kind;
     std::os::unix::fs::symlink(target, path).map_err(|error| errors::from_io(error, path))
 }
 
 /// Windows needs a different call for a file link and a directory link, and it
 /// needs the developer-mode privilege (or SeCreateSymbolicLinkPrivilege) for
 /// either. The design says to report the OS error rather than fall back to
-/// copying, so a caller without the privilege sees the real reason; `symlink_file`
-/// is used because the spec's `symlink` creates file links, and a link to a
-/// directory needs `symlink_dir` — documented here rather than guessed at, since
-/// deciding from the target would follow a link that does not exist yet.
+/// copying, so a caller without the privilege sees the real reason.
+///
+/// The kind decides which call, following Node's rules. It cannot be inferred
+/// from the target alone: a link may name a path that does not exist yet, and
+/// `metadata` would fail on exactly the case that matters. `'junction'` gets
+/// `symlink_dir` — a directory symlink rather than a true NTFS junction, which
+/// needs a different API and an absolute target; both are traversable, which is
+/// what a caller wants.
 #[cfg(not(unix))]
-fn platform_symlink(target: &str, path: &str) -> Result<(), ModuleError> {
-    std::os::windows::fs::symlink_file(target, path).map_err(|error| errors::from_io(error, path))
+fn platform_symlink(target: &str, path: &str, kind: Option<&str>) -> Result<(), ModuleError> {
+    let directory = match kind {
+        Some("dir") | Some("junction") => true,
+        Some("file") => false,
+        _ => {
+            // Node's rule when no type is given: resolve the target relative to
+            // the link's parent — the shell does the same — and take the answer
+            // from what is there.
+            let resolved = match Path::new(path).parent() {
+                Some(parent) => parent.join(target),
+                None => PathBuf::from(target),
+            };
+            resolved.is_dir()
+        }
+    };
+    let result = if directory {
+        std::os::windows::fs::symlink_dir(target, path)
+    } else {
+        std::os::windows::fs::symlink_file(target, path)
+    };
+    result.map_err(|error| errors::from_io(error, path))
 }
 
 #[cfg(test)]
@@ -283,7 +311,7 @@ mod tests {
         std::fs::write(&target, b"x").expect("write the fixture file");
         let link = dir.path().join("link.txt");
 
-        symlink(text(&target), text(&link)).expect("symlink");
+        symlink(text(&target), text(&link), None).expect("symlink");
         assert_eq!(readlink(text(&link)).expect("readlink"), text(&target));
         assert_eq!(std::fs::read(&link).expect("through the link"), b"x");
     }
@@ -296,7 +324,7 @@ mod tests {
         std::fs::write(&one, b"1").expect("write");
         std::fs::write(&two, b"2").expect("write");
 
-        let error = symlink(text(&one), text(&two)).expect_err("the name is taken");
+        let error = symlink(text(&one), text(&two), None).expect_err("the name is taken");
         #[cfg(unix)]
         assert_eq!(error.code.as_deref(), Some("EEXIST"));
         // Windows reports the same collision, but through a Win32 code whose

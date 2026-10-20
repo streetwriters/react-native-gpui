@@ -177,6 +177,23 @@ export function FileSystemFixture() {
         record(watched);
 
         // Rewriting the whole tree, then removing it.
+        // A directory symlink, listed through. This is the only thing that proves
+        // the `type` argument reached native: creating a directory link as a file
+        // link leaves a path that cannot be traversed, and only Windows has the
+        // two calls to choose between. Skipped where the platform refuses the
+        // privilege, with the reason recorded rather than a silent pass.
+        try {
+          await fs.promises.symlink(`${dir}/nested`, `${dir}/link`, 'dir');
+          const through = await fs.promises.readdir(`${dir}/link`);
+          record(
+            `symlinkDir ${through.includes('middle.txt') ? 'ok' : `BAD ${through.join(',')}`}`,
+          );
+        } catch (error) {
+          record(
+            `symlinkDir skipped ${(error as { code?: string }).code ?? ''}`,
+          );
+        }
+
         await fs.promises.copyFile(textPath, `${dir}/copy.txt`);
         record(`copy ${fs.existsSync(`${dir}/copy.txt`) ? 'ok' : 'BAD'}`);
         record(`paths ${paths.home ? 'ok' : 'BAD'}`);
