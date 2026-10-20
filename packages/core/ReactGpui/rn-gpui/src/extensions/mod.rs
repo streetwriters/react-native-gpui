@@ -1,3 +1,5 @@
+pub mod input;
+
 use gpui::{AnyElement, App, Window};
 use rn_gpui_sys::ffi::RectF;
 use serde_json::Value;
@@ -606,6 +608,86 @@ pub trait ComponentRenderer: Send + Sync + 'static {
     /// Returning `None` falls through to `content` and then to core.
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
+
+    /// Which input this component wants.
+    ///
+    /// Read when the node is built, so core only installs listeners a component
+    /// asked for. The default asks for nothing, which is what a renderer written
+    /// before these hooks existed gets.
+    fn input(&self, _node: &ComponentNode) -> input::InputSpec {
+        input::InputSpec::default()
+    }
+
+    /// A button went down inside this component.
+    fn on_mouse_down(
+        &self,
+        _node: &ComponentNode,
+        _event: &input::MouseEvent,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// A button came up inside this component.
+    fn on_mouse_up(
+        &self,
+        _node: &ComponentNode,
+        _event: &input::MouseEvent,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// The pointer moved while over this component.
+    fn on_mouse_move(
+        &self,
+        _node: &ComponentNode,
+        _event: &input::MouseEvent,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// The pointer entered or left this component.
+    fn on_hover(&self, _node: &ComponentNode, _hovered: bool, _cx: &mut input::InputContext<'_>) {}
+
+    /// The wheel or a trackpad scrolled over this component.
+    fn on_scroll(
+        &self,
+        _node: &ComponentNode,
+        _event: &input::ScrollEvent,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// A drag this component accepted moved, ended or was cancelled.
+    fn on_drag(
+        &self,
+        _node: &ComponentNode,
+        _phase: input::DragPhase,
+        _event: &input::MouseEvent,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// A context menu was requested over this component: a right click, a
+    /// Ctrl+click on macOS, or the Menu key / Shift+F10.
+    fn on_context_menu(
+        &self,
+        _node: &ComponentNode,
+        _event: &input::ContextMenuTrigger,
+        _cx: &mut input::InputContext<'_>,
+    ) -> input::Propagation {
+        input::Propagation::Continue
+    }
+
+    /// Marks this node's box as a title-bar area, like the `desktopDragRegion`
+    /// and `desktopWindowControl` props do for a `View`.
+    fn window_control(&self, _node: &ComponentNode) -> Option<input::WindowControl> {
+        None
+    }
 
     /// Whether this component is painted over the window, and how it closes.
     ///

@@ -674,7 +674,7 @@ fn install_bounds_observer(
     })
 }
 
-fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {
+pub(crate) fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {
     let windows = cx.try_global::<DesktopWindowsGlobal>()?;
     windows
         .0
