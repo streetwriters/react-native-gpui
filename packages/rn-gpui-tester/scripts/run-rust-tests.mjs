@@ -326,17 +326,65 @@ if (result.error) throw result.error;
 //
 // Both need their own fix. Listing either here would only make this script fail
 // for a reason it cannot address.
-const moduleResult = spawnSync(
-  'cargo',
-  [
-    'test',
-    '--manifest-path',
-    path.join(repoRoot, 'packages/rn-gpui-tester/desktop/Cargo.toml'),
-    '-p',
-    'rn-gpui-fs',
-  ],
-  { cwd: repoRoot, env, stdio: 'inherit' },
+// The module crates' own tests. They cannot run from their own directories: a
+// module depends on core by version requirement, and only the app's manifest
+// carries the `[patch.crates-io]` table that points it at the installed core, so
+// `cargo test` has to be rooted at the tester.
+//
+// The crates are read from autolink's record rather than listed here, so a new
+// module's tests run without editing this script.
+const autolinkRecord = path.join(
+  repoRoot,
+  'packages/rn-gpui-tester/desktop/autolink/autolink.json',
 );
+if (!fs.existsSync(autolinkRecord)) {
+  throw new Error(
+    `${autolinkRecord} is missing; run \`npm run autolink\` in packages/rn-gpui-tester first`,
+  );
+}
+const record = JSON.parse(fs.readFileSync(autolinkRecord, 'utf8'));
+
+/// Crates whose tests cannot run yet, each with the reason. Printed on every run
+/// so the gap stays visible rather than being quietly forgotten.
+const SKIPPED = new Map([
+  [
+    'rn-gpui-svg',
+    'its test binary cannot find libjsi.dylib on its rpath and aborts in dyld',
+  ],
+  [
+    'rn-gpui-screens',
+    "its tests need core's test-driver feature, which a non-workspace member cannot request",
+  ],
+]);
+
+const moduleCrates = (record.rustCrates ?? [])
+  .filter(crate => {
+    const resolved = path.resolve(crate.cargoPath ?? '');
+    return resolved.startsWith(path.join(repoRoot, 'modules') + path.sep);
+  })
+  .map(crate => crate.crateName)
+  .filter(name => typeof name === 'string')
+  .sort();
+
+const toRun = moduleCrates.filter(name => !SKIPPED.has(name));
+process.stderr.write(
+  `module crates: ${toRun.length > 0 ? toRun.join(', ') : 'none'}\n`,
+);
+for (const name of moduleCrates.filter(candidate => SKIPPED.has(candidate))) {
+  process.stderr.write(`skipped ${name}: ${SKIPPED.get(name)}\n`);
+}
+
+const moduleArgs = [
+  'test',
+  '--manifest-path',
+  'packages/rn-gpui-tester/desktop/Cargo.toml',
+];
+for (const name of toRun) moduleArgs.push('-p', name);
+const moduleResult =
+  toRun.length === 0
+    ? { status: 0, error: undefined, signal: null }
+    : spawnSync('cargo', moduleArgs, { cwd: repoRoot, env, stdio: 'inherit' });
+
 if (moduleResult.error) throw moduleResult.error;
 // Both runs must pass, and `??` is the wrong operator to say so: a passing run
 // reports status 0, which is not nullish, so `0 ?? failure` is 0 and a failing
