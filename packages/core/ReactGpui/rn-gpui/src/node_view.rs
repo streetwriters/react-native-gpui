@@ -104,6 +104,110 @@ static A11Y_TREE_DUMP_COMPLETE: AtomicBool = AtomicBool::new(false);
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]
 static A11Y_TREE_DUMP_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 
+/// The DOM view of the modifiers held during an event.
+fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
+    crate::events::ModifierState::from_gpui(&modifiers)
+}
+
+/// Sends the DOM pointer events for one non-primary button press.
+///
+/// Shared by the middle and right listeners so the two cannot diverge; the
+/// button's mask is the only thing that differs.
+fn dispatch_pointer_button(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseDownEvent,
+    button: crate::events::Button,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let target = {
+        let this = node.read(cx);
+        crate::events::target(cx, this)
+    };
+    let Some(target) = target else {
+        return;
+    };
+    crate::events::send_pointer(
+        window,
+        cx,
+        &target,
+        event.position,
+        crate::events::Phase::Start,
+        Some(button),
+        button.mask(),
+        modifier_state(event.modifiers),
+    );
+    cx.stop_propagation();
+}
+
+/// Dispatches `topContextMenu` for a press, once `events` says it is a trigger.
+///
+/// `is_left` distinguishes the Ctrl + click case from the right click so the same
+/// listener body serves both; the trigger rule itself is in
+/// `events::mouse_context_menu_trigger`, so this and the extension hooks cannot
+/// disagree.
+fn context_menu_press(
+    node: &gpui::WeakEntity<RNNodeView>,
+    position: gpui::Point<gpui::Pixels>,
+    is_left: bool,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let button = if is_left {
+        crate::events::Button::Left
+    } else {
+        crate::events::Button::Right
+    };
+    let modifiers = modifier_state(window.modifiers());
+    if crate::events::mouse_context_menu_trigger(button, modifiers, std::env::consts::OS).is_none()
+    {
+        return;
+    }
+    let (tag, surface_id) = {
+        let this = node.read(cx);
+        (this.tag, this.surface_id)
+    };
+    let x = f32::from(position.x);
+    let y = f32::from(position.y);
+    let window_id = cx
+        .try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
+        .and_then(|windows| {
+            windows
+                .0
+                .entry_for_surface(surface_id)
+                .map(|entry| entry.key)
+        })
+        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
+    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+        let store = store.0.read(cx);
+        store.host.dispatch_event(
+            tag,
+            "topContextMenu",
+            &serde_json::json!({
+                "x": x,
+                "y": y,
+                "pageX": x,
+                "pageY": y,
+                "windowId": window_id,
+                "button": button.number(),
+                "ctrlKey": modifiers.ctrl,
+                "shiftKey": modifiers.shift,
+                "altKey": modifiers.alt,
+                "metaKey": modifiers.meta,
+                "trigger": "mouse",
+            }),
+        );
+        store.frame_hook.arm(window);
+    }
+    cx.stop_propagation();
+}
+
 impl RNNodeView {
     pub(crate) fn accessibility_focus_handle(&self) -> Option<FocusHandle> {
         self.focus_handle.clone()
@@ -2572,43 +2676,20 @@ impl Render for RNNodeView {
         let mut handlers = PointerHandlers::default();
         if self.view.on_context_menu {
             let node = cx.entity().downgrade();
+            // Right click, and Ctrl + click on macOS. The decision lives in
+            // `events::mouse_context_menu_trigger` so the same rule serves the
+            // extension hooks in section 3 and is testable without a window.
+            let mouse_node = node.clone();
             handlers
                 .right_down
                 .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    let Some(node) = node.upgrade() else {
-                        return;
-                    };
-                    let (tag, surface_id) = {
-                        let this = node.read(cx);
-                        (this.tag, this.surface_id)
-                    };
-                    let x = f32::from(event.position.x);
-                    let y = f32::from(event.position.y);
-                    let window_id = cx
-                        .try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
-                        .and_then(|windows| {
-                            windows
-                                .0
-                                .entry_for_surface(surface_id)
-                                .map(|entry| entry.key)
-                        })
-                        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
-                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                        let store = store.0.read(cx);
-                        store.host.dispatch_event(
-                            tag,
-                            "topContextMenu",
-                            &serde_json::json!({
-                                "x": x,
-                                "y": y,
-                                "pageX": x,
-                                "pageY": y,
-                                "windowId": window_id,
-                            }),
-                        );
-                        store.frame_hook.arm(window);
-                    }
-                    cx.stop_propagation();
+                    context_menu_press(&mouse_node, event.position, false, window, cx);
+                }));
+            let ctrl_node = node.clone();
+            handlers
+                .left_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    context_menu_press(&ctrl_node, event.position, true, window, cx);
                 }));
         }
         // Registered before the RN touch handler so the drag region sees the press;
@@ -2684,9 +2765,42 @@ impl Render for RNNodeView {
                         &target,
                         event.position,
                         crate::events::Phase::Start,
+                        Some(crate::events::Button::Left),
+                        modifier_state(event.modifiers),
                     );
                     cx.stop_propagation();
                 }));
+            // Every other button reports the DOM pointer events only, with no
+            // touch or responder involvement, so `Pressable` never fires for a
+            // middle or right click. The right button is only wired here when the
+            // view has no `onContextMenu`, since that handler owns the press
+            // otherwise and stopping there would hide the pointer event too.
+            let middle_node = node.clone();
+            handlers
+                .middle_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    dispatch_pointer_button(
+                        &middle_node,
+                        event,
+                        crate::events::Button::Middle,
+                        window,
+                        cx,
+                    );
+                }));
+            if !self.view.on_context_menu {
+                let right_node = node.clone();
+                handlers
+                    .right_down
+                    .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                        dispatch_pointer_button(
+                            &right_node,
+                            event,
+                            crate::events::Button::Right,
+                            window,
+                            cx,
+                        );
+                    }));
+            }
             // Not `cx.listener`: a listener updates its entity every time it runs, and
             // gpui-fast rebuilds any view that read an updated entity.
             let move_node = node.clone();
@@ -2726,6 +2840,8 @@ impl Render for RNNodeView {
                                 target,
                                 event.position,
                                 crate::events::Phase::Move,
+                                None,
+                                modifier_state(event.modifiers),
                             );
                         }
                     } else {
@@ -2749,6 +2865,8 @@ impl Render for RNNodeView {
                             target,
                             event.position,
                             crate::events::Phase::End,
+                            Some(crate::events::Button::Left),
+                            modifier_state(event.modifiers),
                         );
                     }
                     let is_touch_target = {
@@ -2763,20 +2881,34 @@ impl Render for RNNodeView {
         // A child of a scrolling container moves with its content, so a pointer area
         // here would drift off the viewport.
         if is_scroll {
-            for handler in handlers.right_down {
-                element = element.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
-            }
-            for handler in handlers.left_down {
-                element = element.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
-            }
-            for handler in handlers.left_up {
-                element = element.on_mouse_up(MouseButton::Left, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
+            // The direct-listener path needs one registration per button, and
+            // the middle and side buttons go through it too, so a scroll
+            // container reports them the same way a pointer area does.
+            for (button, down, up) in [
+                (
+                    MouseButton::Right,
+                    handlers.right_down.clone(),
+                    handlers.right_up.clone(),
+                ),
+                (
+                    MouseButton::Left,
+                    handlers.left_down.clone(),
+                    handlers.left_up.clone(),
+                ),
+                (
+                    MouseButton::Middle,
+                    handlers.middle_down.clone(),
+                    handlers.middle_up.clone(),
+                ),
+            ] {
+                for handler in down {
+                    element = element
+                        .on_mouse_down(button, move |event, window, cx| handler(event, window, cx));
+                }
+                for handler in up {
+                    element = element
+                        .on_mouse_up(button, move |event, window, cx| handler(event, window, cx));
+                }
             }
             for handler in handlers.mouse_move {
                 element =

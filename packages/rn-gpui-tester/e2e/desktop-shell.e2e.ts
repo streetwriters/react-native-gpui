@@ -605,3 +605,38 @@ test.skipIf(process.platform !== 'win32')(
     expect(checkedDisabled).toMatch(/\|enabled=0\|checked=1$/);
   },
 );
+
+test('pointer events report every button, the mask and the modifiers', async () => {
+  // Section 2: `pointer_payload` used to report `button: 0` for every press and
+  // no modifiers at all, so a right or middle click was indistinguishable from a
+  // left one and a Ctrl+click could not be told apart either.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+  const probe = app.getByTestId('pointer-probe');
+
+  // A left press is button 0 with only the left bit in the mask.
+  await probe.click({ button: 'left' });
+  await app.waitForIdle();
+  // Read from the accumulated history, so the press is visible even though the
+  // release replaced the last line.
+  expect(await textOf('pointer-history')).toContain(
+    'down button=0 mask=1 mods=none',
+  );
+
+  // A middle press is button 1 and its mask bit is 4 — the DOM's bit order is
+  // not the number order. Both are asserted from the accumulated history: the
+  // number alone would pass even if the mask were always zero.
+  await probe.click({ button: 'middle' });
+  await app.waitForIdle();
+  expect(await textOf('pointer-history')).toContain(
+    'down button=1 mask=4 mods=none',
+  );
+
+  // A right press is button 2 with mask bit 2. The probe has no onContextMenu,
+  // so the press reaches the pointer handler rather than opening a menu.
+  await probe.click({ button: 'right' });
+  await app.waitForIdle();
+  expect(await textOf('pointer-history')).toContain(
+    'down button=2 mask=2 mods=none',
+  );
+});
