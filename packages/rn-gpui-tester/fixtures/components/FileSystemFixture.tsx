@@ -61,6 +61,11 @@ export function FileSystemFixture() {
         await fs.promises.writeFile(`${dir}/nested/middle.txt`, 'middle');
         await fs.promises.writeFile(`${dir}/nested/deep/leaf.txt`, 'leaf');
         const recursive = await fs.promises.readdir(dir, { recursive: true });
+        // Compared with separators normalised: Node joins recursive entries with
+        // the platform separator, so the same listing is `nested/deep` on POSIX
+        // and `nested\deep` on Windows. What is asserted is the shape — paths
+        // relative to the root, including the intermediate directories — not
+        // which character this platform's Node chose.
         const expected = [
           'nested',
           'nested/deep',
@@ -69,6 +74,7 @@ export function FileSystemFixture() {
         ].join(',');
         const actual = recursive
           .filter(name => !name.endsWith('.bin') && !name.endsWith('note.txt'))
+          .map(name => name.replace(/\\/gu, '/'))
           .sort()
           .join(',');
         record(`recursive ${actual === expected ? 'ok' : `BAD ${actual}`}`);
