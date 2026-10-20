@@ -111,6 +111,34 @@ export function FileSystemFixture() {
               : `BAD ${chunk.bytesRead} ${[...chunk.buffer].join(',')}`
           }`,
         );
+        // Node's `write(buffer, offset)` treats the number as an offset into the
+        // buffer, not into the file: writing `abcdef` from offset 4 at the cursor
+        // writes `ef` and leaves the rest alone.
+        await fs.promises.writeFile(handlePath, '0123456789');
+        const offsetHandle = await fs.promises.open(handlePath, 'r+');
+        await offsetHandle.write(new TextEncoder().encode('abcdef'), 4);
+        await offsetHandle.close();
+        const afterOffset = await fs.promises.readFile(handlePath, 'utf8');
+        record(
+          `writeOffset ${afterOffset === 'ef23456789' ? 'ok' : `BAD ${afterOffset}`}`,
+        );
+
+        // An out-of-range window is rejected before any bytes are consumed, so the
+        // cursor still points at the start afterwards.
+        const rangeHandle = await fs.promises.open(handlePath, 'r');
+        try {
+          await rangeHandle.read(new Uint8Array(4), 2, 8, 0);
+          record('range BAD accepted');
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          record(`range ${code === 'ERR_OUT_OF_RANGE' ? 'ok' : `BAD ${code}`}`);
+        }
+        const afterRange = await rangeHandle.read(2, 0, 2, 0);
+        await rangeHandle.close();
+        record(
+          `rangeCursor ${afterRange.buffer[0] === 0x65 ? 'ok' : `BAD ${afterRange.buffer[0]}`}`,
+        );
+
         await handle.write(new Uint8Array([99]), 4);
         await handle.close();
         const afterWrite = await fs.promises.readFile(handlePath);

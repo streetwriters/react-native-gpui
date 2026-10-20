@@ -10,6 +10,7 @@
 import NativeFs from './NativeFs';
 import { constants } from './constants';
 import {
+  checkBufferRange,
   decodeString,
   encodeString,
   flagFrom,
@@ -534,13 +535,15 @@ export class FileHandle {
         const bytes = await this.readToEnd(position);
         return { bytesRead: bytes.byteLength, buffer: bytes };
       }
-      const buffer = await NativeFs.read(this.fd, length, position);
+      // Validated before the native call, not after. The native side reads
+      // `length` bytes and advances the cursor, so a window that overruns the
+      // buffer used to consume bytes and then drop them when the result was
+      // trimmed to fit. Node rejects the call instead, and so must this.
+      const window = checkBufferRange(destination, offset, length);
+      const buffer = await NativeFs.read(this.fd, window.length, position);
       const bytes = new Uint8Array(buffer);
-      const bytesRead = Math.min(
-        bytes.byteLength,
-        destination.byteLength - offset,
-      );
-      destination.set(bytes.subarray(0, bytesRead), offset);
+      const bytesRead = Math.min(bytes.byteLength, window.length);
+      destination.set(bytes.subarray(0, bytesRead), window.offset);
       return { bytesRead, buffer: destination };
     } catch (error) {
       throw withContext(error, 'read', undefined);
@@ -604,13 +607,39 @@ export class FileHandle {
     let bytes: Uint8Array;
     let position: number | null = null;
     if (typeof data === 'string') {
+      // `write(string, position, encoding)`: here the number is a file position.
       const encodingName =
         typeof third === 'string' ? normalizeEncoding(third) : 'utf8';
       bytes = encodeString(data, encodingName ?? 'utf8');
       position = second ?? null;
-    } else if (data instanceof Uint8Array && typeof third === 'number') {
-      // Node's positional `write(buffer, offset, length, position)`.
-      bytes = data.subarray(second ?? 0, (second ?? 0) + third);
+    } else if (
+      data instanceof Uint8Array &&
+      third !== undefined &&
+      typeof third !== 'number'
+    ) {
+      // `write(buffer, { offset, length, position })`, which Node also accepts.
+      const options = third as unknown as {
+        offset?: number;
+        length?: number;
+        position?: number | null;
+      };
+      const window = checkBufferRange(data, options.offset, options.length);
+      bytes = data.subarray(window.offset, window.offset + window.length);
+      position = options.position ?? null;
+    } else if (
+      data instanceof Uint8Array &&
+      second !== undefined &&
+      second !== null
+    ) {
+      // `write(buffer, offset[, length[, position]])` — the numeric argument is
+      // into the *buffer*, not into the file. Reading it as a file position
+      // wrote the whole buffer at that offset instead of a slice at the cursor.
+      const window = checkBufferRange(
+        data,
+        second,
+        typeof third === 'number' ? third : undefined,
+      );
+      bytes = data.subarray(window.offset, window.offset + window.length);
       position = fourth ?? null;
     } else {
       bytes = toBytes(data);
