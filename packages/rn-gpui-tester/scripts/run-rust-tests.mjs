@@ -338,4 +338,9 @@ const moduleResult = spawnSync(
   { cwd: repoRoot, env, stdio: 'inherit' },
 );
 if (moduleResult.error) throw moduleResult.error;
-process.exitCode = result.status ?? moduleResult.status ?? 1;
+// Both runs must pass, and `??` is the wrong operator to say so: a passing run
+// reports status 0, which is not nullish, so `0 ?? failure` is 0 and a failing
+// second run would go unnoticed. `status` is null when a run was killed by a
+// signal, which counts as a failure rather than as nothing to report.
+const exitStatus = run => run.status ?? 1;
+process.exitCode = exitStatus(result) || exitStatus(moduleResult);

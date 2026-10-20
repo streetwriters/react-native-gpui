@@ -70,7 +70,10 @@ function gpuiPin(platformRoot) {
   const manifest = path.join(platformRoot, 'ReactGpui/Cargo.toml');
   let text;
   try {
-    text = fs.readFileSync(manifest, 'utf8');
+    // Normalised for consistency with the lockfile read below. This pattern
+    // happens to survive CRLF on its own, because `\s*$` treats `\r` as
+    // whitespace, but relying on that is a trap for the next edit.
+    text = fs.readFileSync(manifest, 'utf8').replace(/\r\n/gu, '\n');
   } catch (error) {
     throw new Error(
       `could not read the gpui pin from ${manifest}: ${error.message}`,
@@ -160,10 +163,24 @@ function applyPatchBlock(manifest, manifestPath, entries) {
 function managedDependencyEntries(manifest) {
   const found = [];
   let section = '';
-  for (const line of manifest.split('\n')) {
+  const lines = manifest.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const table = /^\[([^\]]+)\]\s*$/u.exec(line);
     if (table !== null) {
       section = table[1];
+      // The table form puts one crate's keys on following lines:
+      // `[dependencies.gpui]` then `git = "…"`. Rare, but legal, and skipping it
+      // would leave a way past the check this function exists for.
+      const tableForm = /^dependencies\.([A-Za-z0-9_-]+)$/u.exec(section);
+      if (tableForm !== null && MANAGED_CRATES.includes(tableForm[1])) {
+        const keys = [];
+        for (let inner = index + 1; inner < lines.length; inner += 1) {
+          if (/^\[/u.test(lines[inner])) break;
+          keys.push(lines[inner]);
+        }
+        found.push({ crate: tableForm[1], value: keys.join('\n') });
+      }
       continue;
     }
     if (!/(?:^|[-.])dependencies$/u.test(section)) continue;
@@ -294,7 +311,8 @@ function patchedCrateVersions(platformRoot) {
   const lockPath = path.join(platformRoot, 'ReactGpui/Cargo.lock');
   let lock;
   try {
-    lock = fs.readFileSync(lockPath, 'utf8');
+    // Same reason as the manifest above: the pattern is line-anchored.
+    lock = fs.readFileSync(lockPath, 'utf8').replace(/\r\n/gu, '\n');
   } catch (error) {
     throw new Error(`could not read ${lockPath}: ${error.message}`);
   }
