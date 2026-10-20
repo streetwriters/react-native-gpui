@@ -439,3 +439,41 @@ test('a gpui requirement the patch does not satisfy is refused', () => {
     /does not match the 0\.2\.2/u,
   );
 });
+
+test('a managed crate in table form is checked too', () => {
+  // `[dependencies.gpui]` with its keys on the following lines is legal TOML, so
+  // it must not be a way past the path check.
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n\n[dependencies.gpui]\ngit = "https://github.com/streetwriters/gpui-fast"\nrev = "c380367"\n`,
+  );
+  expect(() => autolink({ projectRoot, configFile: configPath })).toThrow(
+    /must be a version requirement/u,
+  );
+});
+
+test('a CRLF lockfile still yields the managed block', () => {
+  // A Windows checkout with core.autocrlf gives these files CRLF endings. The
+  // lockfile pattern anchors on `\n`, so without normalising the read it finds no
+  // gpui entry and autolink throws on every Windows run. The manifest pattern
+  // survives CRLF on its own, because `\s*$` treats `\r` as whitespace.
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const coreLock = path.join(repoRoot, 'packages/core/ReactGpui/Cargo.lock');
+  const original = fs.readFileSync(coreLock, 'utf8');
+  fs.writeFileSync(coreLock, original.replace(/\n/gu, '\r\n'));
+  try {
+    autolink({ projectRoot, configFile: configPath });
+    const rev = /^gpui = \{[^}]*rev = "([^"]+)"/mu.exec(
+      fs.readFileSync(
+        path.join(repoRoot, 'packages/core/ReactGpui/Cargo.toml'),
+        'utf8',
+      ),
+    )?.[1];
+    expect(
+      fs.readFileSync(path.join(projectRoot, 'desktop/Cargo.toml'), 'utf8'),
+    ).toContain(`rev = "${rev}"`);
+  } finally {
+    fs.writeFileSync(coreLock, original);
+  }
+});
