@@ -305,4 +305,37 @@ const result = spawnSync(
   { cwd: repoRoot, env, stdio: 'inherit' },
 );
 if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+
+// The module crates' own tests. They cannot run from their own directories: a
+// module depends on core by version requirement, and only the app's manifest
+// carries the `[patch.crates-io]` table that points it at the installed core, so
+// `cargo test` has to be rooted at the tester.
+//
+// Only `rn-gpui-fs` is listed. The other two module crates cannot be tested
+// from here, for reasons that predate this script and are not fixable by adding
+// them to it:
+//
+// - `rn-gpui-svg` links `libjsi.dylib` from the C++ runtime, and the module has
+//   no build script to put that library on its test binary's rpath, so it aborts
+//   in dyld before running a test.
+// - `rn-gpui-screens` needs core's `test-driver` feature for `TestNode`. A
+//   dev-dependency is the only way to request it, and Cargo refuses to test a
+//   package that has dev-dependencies unless it is a workspace member — which a
+//   module crate, by design, is not. `--features` is refused for the same
+//   reason.
+//
+// Both need their own fix. Listing either here would only make this script fail
+// for a reason it cannot address.
+const moduleResult = spawnSync(
+  'cargo',
+  [
+    'test',
+    '--manifest-path',
+    path.join(repoRoot, 'packages/rn-gpui-tester/desktop/Cargo.toml'),
+    '-p',
+    'rn-gpui-fs',
+  ],
+  { cwd: repoRoot, env, stdio: 'inherit' },
+);
+if (moduleResult.error) throw moduleResult.error;
+process.exitCode = result.status ?? moduleResult.status ?? 1;

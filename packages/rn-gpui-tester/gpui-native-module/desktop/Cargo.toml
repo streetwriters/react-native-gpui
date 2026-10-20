@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rn-gpui-module = { path = "../../../core/ReactGpui/rn-gpui-module" }
-
+rn-gpui-module = { version = "0.1" }
 [build-dependencies]
-rn-gpui-module-build = { path = "../../../core/ReactGpui/rn-gpui-module-build" }
+rn-gpui-module-build = { version = "0.1" }
