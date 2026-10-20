@@ -373,14 +373,14 @@ async function readlink(path: string): Promise<string> {
 async function symlink(
   target: string,
   path: string,
-  type?: string,
+  type?: 'file' | 'dir' | 'junction',
 ): Promise<void> {
-  // `type` only matters on Windows, where the native side chooses the right kind
-  // of link from the target; accepting it keeps Node's signature.
-  type;
+  // `type` is passed through rather than dropped. It is the only way to ask for a
+  // directory link on Windows, where creating one as a file link leaves a path
+  // that cannot be traversed; Unix ignores it, as the syscall does.
   const link = toPath(path);
   try {
-    await NativeFs.symlink(toPath(target), link);
+    await NativeFs.symlink(toPath(target), link, type ?? null);
   } catch (error) {
     throw withContext(error, 'symlink', link);
   }

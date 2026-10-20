@@ -104,8 +104,13 @@ impl NativeFsSpec for RNFsModule {
         links::readlink(path)
     }
 
-    async fn symlink(&self, target: String, path: String) -> Result<(), ModuleError> {
-        links::symlink(target, path)
+    async fn symlink(
+        &self,
+        target: String,
+        path: String,
+        kind: Option<String>,
+    ) -> Result<(), ModuleError> {
+        links::symlink(target, path, kind.as_deref())
     }
 
     async fn truncate(&self, path: String, length: f64) -> Result<(), ModuleError> {

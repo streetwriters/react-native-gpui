@@ -103,7 +103,12 @@ export interface Spec extends TurboModule {
   access(path: string, mode: number): Promise<void>;
   realpath(path: string): Promise<string>;
   readlink(path: string): Promise<string>;
-  symlink(target: string, path: string): Promise<void>;
+  // `type` is Node's, and only Windows acts on it: `'dir'` and `'junction'`
+  // create a directory link, `null` decides from the resolved target, and a
+  // plain `'file'` is a file link. Unix ignores it, because the syscall does.
+  // Without it a Windows directory link was created as a file link and could
+  // not be traversed.
+  symlink(target: string, path: string, type: string | null): Promise<void>;
   truncate(path: string, length: number): Promise<void>;
   utimes(path: string, atimeMs: number, mtimeMs: number): Promise<void>;
   chmod(path: string, mode: number): Promise<void>;

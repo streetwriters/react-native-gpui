@@ -708,6 +708,7 @@ test('the file system module reads, writes and watches real files', async () => 
     'rangeCursor ok',
     'watch ok',
     'copy ok',
+    'symlinkDir ok',
     'paths ok',
     'dialog ok',
   ]) {
