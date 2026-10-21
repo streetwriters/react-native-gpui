@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `c380367` (`rn-gpui-linux`, 2026-10-19: the carried patches below plus
-  the startup deferrals)
+- Commit: `a72b326` (`rn-gpui-linux`, 2026-10-22: `c380367` plus the control
+  hit-test fix below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -55,6 +55,59 @@ App` — a move performed from inside an `App` update (a JS `set_position`,
   defers through the foreground executor, as `on_appearance_changed` already
   does. macOS-only in practice, but the callback is shared, so Windows and Linux
   re-run their window tests against this pin.
+
+### Carried patch: `on_hit_test_window_control` order
+
+- `a72b326` `gpui: answer the control hit-test for the frontmost element`
+
+  The callback answered with the first entry of `window_control_hitboxes` under
+  the pointer. That list is in paint order, and an element inserts its own
+  control hitbox before its children paint, so an ancestor always won — a drag
+  region covering a title bar matched before every button inside it. On Windows
+  the whole bar therefore answered `HTCAPTION`, and a press on a caption button
+  or any interactive child became a non-client message: the window started
+  moving instead of the button receiving a mouse-down.
+
+  It now walks the real hit test front to back, the order pointer dispatch uses.
+  A frontmost hitbox that is not a control area returns `None` rather than
+  continuing the walk, because every hitbox in that list belongs to an element
+  that takes the mouse, focus, scroll or a cursor, so it owns the press.
+
+  It was fixed in the fork rather than worked around in `rn-gpui` because the
+  alternative — not marking the drag region at all on Windows — would lose
+  `HTCAPTION` and with it snap layouts, double-click maximise and the system
+  move loop (`start_window_move()` is a no-op in `gpui_windows`).
+
+> **Cargo does not notice edits to a git checkout**, which matters only if you
+> edit one by hand without bumping the pin. It fingerprints the checkout by
+> revision, so after editing `window.rs` it still reports `Fresh gpui` and links
+> the old rlib — the change looks like it does nothing. Verified by injecting a
+> `compile_error!` and watching the build succeed anyway. If you ever do this,
+> `rm -rf target/debug/.fingerprint/gpui-*` and look for a
+> `Compiling gpui v0.2.2 (…?rev=…)` line as proof it took.
+
+`on_hit_test_window_control` used to answer with the first entry of
+`rendered_frame.window_control_hitboxes` whose hitbox was under the pointer.
+That list is in _paint_ order, and an ancestor paints its own control hitbox
+before its children paint theirs, so a drag region covering a title bar always
+matched before a button inside it. On Windows the whole bar therefore answered
+`HTCAPTION`: a press on a button in the bar moved the window instead of pressing
+the button.
+
+The callback now walks `rendered_frame.hit_test(mouse_position).ids` — front to
+back, the same order pointer dispatch uses — and returns the first hitbox's
+control area, or `None` if the frontmost hitbox belongs to an element that is not
+a control area. Only hitboxes whose elements listen for the mouse, take focus,
+scroll or set a cursor are inserted at all, so "frontmost is not a control area"
+means "an interactive element owns this press", which is exactly the case where
+the window must not be moved. The hit test is computed inside the callback rather
+than read from `mouse_hit_test`, because that field is only refreshed when a mouse
+event is dispatched and the first `WM_NCHITTEST` arrives before any pointer event.
+
+To reproduce it on a fresh checkout, apply this to
+`crates/gpui/src/window.rs` and remember that **cargo does not notice edits to a
+git checkout on its own** — `cargo clean -p gpui` (or a full rebuild) is needed
+or the old rlib is reused silently.
 
 ## Upstream (from the repo's `UPSTREAM` file at that commit)
 
