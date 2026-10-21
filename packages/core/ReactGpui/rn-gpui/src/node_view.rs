@@ -213,18 +213,81 @@ fn dispatch_right_press(
     .is_some()
     {
         if let Some(owner) = owner {
-            dispatch_context_menu(
-                owner.tag,
-                event.position,
-                crate::events::Button::Right,
-                modifiers,
-                "mouse",
-                window,
-                cx,
-            );
+            // A component that asked for context menus owns the press and renders
+            // its own; a `View` with the prop dispatches to JS. The hook has to be
+            // preferred, or a `ContextMenuView` would both open natively and tell
+            // JS about a press it already handled.
+            if !run_component_context_menu(&owner, event.position, false, modifiers, window, cx) {
+                dispatch_context_menu(
+                    owner.tag,
+                    event.position,
+                    crate::events::Button::Right,
+                    modifiers,
+                    "mouse",
+                    window,
+                    cx,
+                );
+            }
         }
     }
     cx.stop_propagation();
+}
+
+/// Runs a component's `on_context_menu` hook, if the owner is a component.
+///
+/// Returns whether the hook handled the press. `false` means the owner is a plain
+/// `View` with `onContextMenu`, which the caller dispatches to JS instead.
+fn run_component_context_menu(
+    owner: &crate::events::ContextMenuOwner,
+    position: gpui::Point<gpui::Pixels>,
+    is_keyboard: bool,
+    modifiers: crate::events::ModifierState,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) -> bool {
+    let Some(entity) = owner.entity.clone() else {
+        return false;
+    };
+    let Some(node) = entity.upgrade() else {
+        return false;
+    };
+    let component = node.read(cx).component.clone();
+    let Some(renderer) = crate::extensions::component_renderer(&component) else {
+        return false;
+    };
+    let component_node = {
+        let this = node.read(cx);
+        this.component_node(cx)
+    };
+    if !renderer.input(&component_node).context_menu {
+        return false;
+    }
+    let local = gpui::point(
+        position.x - gpui::px(component_node.frame.x),
+        position.y - gpui::px(component_node.frame.y),
+    );
+    let trigger = crate::extensions::input::ContextMenuTrigger {
+        source: if is_keyboard {
+            crate::events::ContextMenuTriggerSource::Keyboard
+        } else {
+            crate::events::ContextMenuTriggerSource::Mouse
+        },
+        position,
+        local,
+        button: crate::events::Button::Right,
+        modifiers,
+    };
+    let mut context = crate::extensions::input::InputContext {
+        node: &component_node,
+        window,
+        cx,
+        captured: false,
+    };
+    let propagation = renderer.on_context_menu(&component_node, &trigger, &mut context);
+    if propagation == crate::extensions::input::Propagation::Stop {
+        context.cx.stop_propagation();
+    }
+    true
 }
 
 /// Sends the DOM pointer events for one non-primary button press.
@@ -2986,15 +3049,24 @@ impl Render for RNNodeView {
                     let Some(owner) = owner else {
                         return;
                     };
-                    dispatch_context_menu(
-                        owner.tag,
+                    if !run_component_context_menu(
+                        &owner,
                         event.position,
-                        crate::events::Button::Left,
+                        false,
                         modifiers,
-                        "mouse",
                         window,
                         cx,
-                    );
+                    ) {
+                        dispatch_context_menu(
+                            owner.tag,
+                            event.position,
+                            crate::events::Button::Left,
+                            modifiers,
+                            "mouse",
+                            window,
+                            cx,
+                        );
+                    }
                     cx.stop_propagation();
                 }));
             // Not `cx.listener`: a listener updates its entity every time it runs, and

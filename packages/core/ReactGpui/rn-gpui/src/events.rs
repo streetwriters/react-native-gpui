@@ -114,12 +114,14 @@ pub fn context_menu_owner(cx: &App, hit_node: &RNNodeView) -> Option<ContextMenu
     let mut wants = node_wants_context_menu(cx, hit_node);
     let mut pointer_events = hit_node.view.pointer_events;
     let mut parent = hit_node.parent.clone();
+    // `None` for the hit node itself, which the caller already has.
+    let mut entity: Option<WeakEntity<RNNodeView>> = None;
     loop {
         if pointer_events == POINTER_EVENTS_NONE {
             return None;
         }
         if wants {
-            return Some(ContextMenuOwner { tag });
+            return Some(ContextMenuOwner { tag, entity });
         }
         // `box-only` claims the press for itself, so the search ends with it
         // whether or not it wants a menu.
@@ -137,6 +139,7 @@ pub fn context_menu_owner(cx: &App, hit_node: &RNNodeView) -> Option<ContextMenu
         wants = node_wants_context_menu(cx, node);
         pointer_events = node.view.pointer_events;
         parent = node.parent.clone();
+        entity = Some(next);
     }
 }
 
@@ -154,9 +157,11 @@ fn node_wants_context_menu(cx: &App, node: &RNNodeView) -> bool {
 }
 
 /// Who owns a context menu for a press.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct ContextMenuOwner {
     pub tag: i32,
+    /// The owning node, or `None` when it is the hit node itself.
+    pub entity: Option<WeakEntity<RNNodeView>>,
 }
 
 pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
