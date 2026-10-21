@@ -150,6 +150,9 @@ test('the caption buttons are the native WindowControl component', async () => {
   expect(await textOf('wc-state')).toBe(
     'wc hovered=false pressed=false maximized=false',
   );
+  // Hover is not asserted here: the sample never reaches the listener under the
+  // test driver, and that is unresolved (see the plan's "Hover" note). The
+  // native path is covered by `pointer_area::hover_tests` instead.
 });
 
 test('an app menu sets, reads back and fires by accelerator', async () => {

@@ -45,6 +45,13 @@ fn elapsed_since_first_render_ms() -> u128 {
 pub struct RNNodeView {
     pub tag: i32,
     render_count: u64,
+    /// Whether the pointer was over this node at the last hover sample.
+    ///
+    /// Kept here rather than in the mouse listener because GPUI clears
+    /// `mouse_listeners` on every frame: a listener-local flag would reset at each
+    /// paint, so a component would be told it was entered repeatedly and never
+    /// told the pointer left.
+    hovered: bool,
     pub surface_id: i32,
     pub component: String,
     pub native_view_name: String,
@@ -763,6 +770,7 @@ impl RNNodeView {
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
+            hovered: false,
             surface_id,
             component: op.component.clone(),
             native_view_name: op.native_view_name.clone(),
@@ -2837,7 +2845,8 @@ impl Render for RNNodeView {
         // the scroll-container case stays as it was.
         let input_spec = crate::extensions::component_renderer(&self.component).map(|renderer| {
             let node = self.component_node(cx);
-            (renderer.input(&node), node)
+            let spec = renderer.input(&node);
+            (spec, node)
         });
         if let Some((spec, node)) = input_spec.clone() {
             for button in [
@@ -2898,14 +2907,13 @@ impl Render for RNNodeView {
                 }
             }
             if spec.hover {
-                // `node` here is the captured `ComponentNode`; hover needs the
-                // live entity so it reads the component as it is now, not as it
-                // was when the listener was built.
+                // The edge is decided here, on the entity, because the listener
+                // that reports the sample is rebuilt on every paint.
                 let hover_node = cx.entity().downgrade();
                 let hover_component = node.clone();
                 handlers
                     .hover
-                    .push(Rc::new(move |hovered: &bool, window, cx| {
+                    .push(Rc::new(move |hovered: bool, window, cx| {
                         let Some(entity) = hover_node.upgrade() else {
                             return;
                         };
@@ -2914,13 +2922,23 @@ impl Render for RNNodeView {
                         else {
                             return;
                         };
+                        let changed = entity.update(cx, |this, _| {
+                            if this.hovered == hovered {
+                                return false;
+                            }
+                            this.hovered = hovered;
+                            true
+                        });
+                        if !changed {
+                            return;
+                        }
                         let mut context = crate::extensions::input::InputContext {
                             node: &hover_component,
                             window,
                             cx,
                             captured: false,
                         };
-                        renderer.on_hover(&hover_component, *hovered, &mut context);
+                        renderer.on_hover(&hover_component, hovered, &mut context);
                     }));
             }
         }
