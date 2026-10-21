@@ -22,6 +22,12 @@ const styles = {
     borderRadius: 8,
     color: '#243247',
   },
+  nested: {
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: '#e8edf5',
+    borderRadius: 6,
+  },
 };
 
 const ITEMS: MenuItemSpec[] = [
@@ -118,6 +124,16 @@ function ContextMenuFixture() {
         }
       >
         <Text>Right-click me (onContextMenu)</Text>
+        {/* The regression this guards: a child that takes pointer input must not
+            swallow the press before the parent's context menu sees it. Both have
+            to happen — the pointer event for the child, the menu for the parent. */}
+        <View
+          testID="cm-nested-pointer"
+          style={styles.nested}
+          onPointerDown={recordPointer('nested-down')}
+        >
+          <Text>Right-click me (nested, with onPointerDown)</Text>
+        </View>
       </View>
       <ContextMenuView
         testID="cm-view"
