@@ -24,7 +24,23 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-lock="$root/.local/build.lock"
+
+# The lock lives in the repository's COMMON git dir, not in this worktree, so
+# every worktree of the same clone shares one lock. A per-worktree lock would let
+# two worktrees compile at once, which is exactly the case that exhausted memory:
+# the whole point is to serialise across every checkout on this machine.
+# `rev-parse --git-common-dir` resolves to the same path from any worktree, and
+# to `.git` in a plain clone, so this does not change single-checkout behaviour.
+common=$(cd "$root" && git rev-parse --git-common-dir 2>/dev/null || echo "")
+if [ -n "$common" ]; then
+  case "$common" in
+    /*) ;;
+    *) common="$root/$common" ;;
+  esac
+  lock="$common/rn-gpui-build.lock"
+else
+  lock="$root/.local/build.lock"
+fi
 timeout="${BUILD_LOCK_TIMEOUT:-3600}"
 
 while [ "${1:-}" = "--timeout" ]; do
