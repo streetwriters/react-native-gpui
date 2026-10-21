@@ -683,8 +683,9 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         input::Propagation::Continue
     }
 
-    /// Marks this node's box as a title-bar area, like the `desktopDragRegion`
-    /// and `desktopWindowControl` props do for a `View`.
+    /// Marks this node's box as a title-bar area. `desktopDragRegion` does the
+    /// same for a `View`; a caption button is a component rather than a prop, so
+    /// this hook is the only way to claim one.
     fn window_control(&self, _node: &ComponentNode) -> Option<input::WindowControl> {
         None
     }

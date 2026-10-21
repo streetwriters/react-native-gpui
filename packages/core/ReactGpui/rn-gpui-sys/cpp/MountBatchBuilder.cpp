@@ -231,7 +231,6 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
           std::dynamic_pointer_cast<const ViewProps>(shadowView.props)) {
     out.focusable = platformProps->focusable;
     out.desktop_drag_region = platformProps->desktopDragRegion;
-    out.desktop_window_control = platformProps->desktopWindowControl;
     out.on_context_menu = platformProps->onContextMenu;
   }
 

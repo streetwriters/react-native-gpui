@@ -16,7 +16,6 @@ export function DesktopPropsTypeProbe(): React.JSX.Element {
   return (
     <View
       desktopDragRegion
-      desktopWindowControl="minimize"
       onContextMenu={event => {
         // Every field the types promise, read to prove the shape.
         const {

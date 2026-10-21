@@ -14,6 +14,7 @@ import {
   DesktopError,
   DesktopWindow,
   TitleBar,
+  WindowControl,
   useDesktopWindow,
 } from '@react-native-gpui/core/desktop';
 
@@ -31,6 +32,9 @@ const styles = {
     backgroundColor: '#dce9ff',
     borderRadius: 8,
     color: '#164a9b',
+  },
+  stateHovered: {
+    backgroundColor: '#ffe9c7',
   },
 };
 
@@ -129,7 +133,24 @@ function WindowControlFixture() {
 
   return (
     <View style={styles.page}>
-      <TitleBar title="Window control" />
+      {/* Caption buttons are hidden on macOS by default, since the system draws
+          its own traffic lights. Forced on here so the `WindowControl` component
+          is rendered — and therefore tested — on every platform. */}
+      <TitleBar title="Window control" showCaptionButtons />
+      {/* A `WindowControl` whose state is written to the DOM, so the e2e can
+          prove the native props reader and `onControlStateChange` both work: the
+          label only changes when the round trip does. */}
+      <WindowControl
+        action="minimize"
+        testID="wc-state-probe"
+        style={({ hovered }) => [styles.row, hovered && styles.stateHovered]}
+      >
+        {({ hovered, pressed, maximized }) => (
+          <Text testID="wc-state">
+            {`wc hovered=${hovered} pressed=${pressed} maximized=${maximized}`}
+          </Text>
+        )}
+      </WindowControl>
       <Text style={styles.heading}>Windows</Text>
       <Pressable
         testID="desktop-hide-window"

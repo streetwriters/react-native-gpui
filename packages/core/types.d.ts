@@ -1,10 +1,14 @@
 /**
  * Type additions for the desktop-shell View props.
  *
- * `desktopDragRegion` and `desktopWindowControl` are parsed by
- * `HostPlatformViewProps` and listed in the GPUI `BaseViewConfig`, so Fabric
- * carries them to the renderer. React Native's own `ViewProps` does not know
- * them, so they are declared here.
+ * `desktopDragRegion` and `onContextMenu` are parsed by `HostPlatformViewProps`
+ * and listed in the GPUI `BaseViewConfig`, so Fabric carries them to the
+ * renderer. React Native's own `ViewProps` does not know them, so they are
+ * declared here.
+ *
+ * Caption buttons are not a View prop. A `WindowControl` component carries its own
+ * hover and pressed state and its own native action, so it does not need a field
+ * on every view.
  *
  * This file is published and referenced by `react-native-gpui-env.d.ts`, which
  * the CLI writes into an app's root. A module augmentation only applies when the
@@ -61,11 +65,6 @@ declare module 'react-native' {
      * press themselves keep working.
      */
     desktopDragRegion?: boolean;
-    /**
-     * A custom caption button. Windows uses the area for snap layouts; the
-     * press performs the window action everywhere.
-     */
-    desktopWindowControl?: 'minimize' | 'maximize' | 'close';
     /**
      * Called when this view's context menu is requested: a right click, Ctrl +
      * click on macOS, or the Menu key / Shift+F10 on Windows and Linux.

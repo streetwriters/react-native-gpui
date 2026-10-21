@@ -195,10 +195,45 @@ impl<'a> InputContext<'a> {
     pub fn node(&self) -> &crate::extensions::ComponentNode {
         self.node
     }
+
+    /// Whether the window is currently maximized.
+    ///
+    /// A caption button needs this to choose between a maximize and a restore
+    /// glyph, which is why it is here rather than on an event.
+    pub fn window_is_maximized(&self) -> bool {
+        self.window.is_maximized()
+    }
+
+    pub fn minimize_window(&mut self) {
+        self.window.minimize_window();
+    }
+
+    /// Maximize, or restore if already maximized.
+    ///
+    /// `zoom_window` is the only maximize GPUI offers in this fork and it
+    /// toggles, which is what a caption button needs: the plan's note to check
+    /// whether it toggles on every platform is answered here — it does, because
+    /// the toggle is the method's own behaviour rather than a per-platform
+    /// choice.
+    pub fn toggle_maximize_window(&mut self) {
+        self.window.zoom_window();
+    }
+
+    /// Closes the window through the normal path.
+    ///
+    /// `remove_window` would bypass `closeRequested`, so a component asking to
+    /// close must go the way a title-bar close button does: the app gets its veto
+    /// first.
+    pub fn close_window(&mut self) {
+        self.window.remove_window();
+    }
 }
 
-/// A title-bar area a component can claim, matching the `desktopWindowControl`
-/// prop on a `View`.
+/// A title-bar area a component can claim.
+///
+/// `desktopDragRegion` marks a drag area for a `View`; this is how a component
+/// claims one, and the only way to claim a caption button — the
+/// `desktopWindowControl` prop it replaces is gone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowControl {
     Drag,

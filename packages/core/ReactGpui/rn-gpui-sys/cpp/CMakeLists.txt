@@ -628,7 +628,9 @@ endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
-  "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeviewhost/NativeViewHost.cpp")
+  "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeviewhost/NativeViewHost.cpp"
+  "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/windowcontrol/WindowControl.cpp"
+  builtins/window_control/GpuiWindowControlProps.cpp)
 if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
@@ -841,7 +843,7 @@ list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
 
 # Core's own built-in modules register their renderers through the same
 # generated installer, so a built-in is wired exactly like a package module.
-list(APPEND RN_GPUI_MODULE_INSTALLERS image modal scroll_view text_input)
+list(APPEND RN_GPUI_MODULE_INSTALLERS image modal scroll_view text_input window_control)
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.
