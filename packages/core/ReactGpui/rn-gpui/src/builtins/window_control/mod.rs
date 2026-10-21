@@ -106,19 +106,15 @@ impl ComponentRenderer for WindowControlRenderer {
     }
 }
 
-/// Sends `onControlStateChange`, but only when something changed.
+/// Sends `onControlStateChange`.
 ///
-/// Every pointer move would otherwise re-render the app's button; the event is
-/// what drives appearance, so it must be cheap to ignore.
-fn send_state(node: &ComponentNode, hovered: bool, pressed: bool, cx: &mut InputContext<'_>) {
+/// Called on a hover edge, a press and a release — never for every pointer move —
+/// because the edge is decided by the node's own `hovered` flag.
+fn send_state(_node: &ComponentNode, hovered: bool, pressed: bool, cx: &mut InputContext<'_>) {
+    // No deduplication here: `on_hover` is only called on a real edge now that the
+    // previous state lives on the node, and a press or release is always a change.
+    // A second guess at it read a prop that never exists, so it never fired.
     let maximized = cx.window_is_maximized();
-    if node.props.get("__state")
-        == Some(
-            &serde_json::json!({ "hovered": hovered, "pressed": pressed, "maximized": maximized }),
-        )
-    {
-        return;
-    }
     cx.dispatch_event(
         "topControlStateChange",
         &serde_json::json!({
