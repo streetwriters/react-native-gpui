@@ -127,6 +127,31 @@ test('a transparent-title-bar window opens with its own window id', async () => 
   expect(await textOf('desktop-window-list')).toContain('DesktopShellChild');
 });
 
+test('the caption buttons are the native WindowControl component', async () => {
+  // `desktopWindowControl` is gone: caption buttons are a component now, so they
+  // are real nodes with test ids rather than an attribute on a `View`. Rendering
+  // them at all proves the hand-written descriptor and props reader are wired —
+  // a missing descriptor makes Fabric fail the whole surface, not just the button.
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+  await app.getByTestId('desktop-open-titlebar-window').click();
+  await app.waitForIdle();
+  expect(await textOf('desktop-window-count')).toBe('open windows: 2');
+
+  // Each must resolve, which it can only do if the component rendered.
+  for (const action of ['minimize', 'maximize', 'close']) {
+    const button = app.getByTestId(`titlebar-${action}`);
+    expect(await button.count()).toBe(1);
+  }
+
+  // Rendering alone would pass with a descriptor and no props reader. The probe
+  // label is written by JS from `onControlStateChange`, so it only changes when
+  // the props reached the Rust renderer and the event came back.
+  expect(await textOf('wc-state')).toBe(
+    'wc hovered=false pressed=false maximized=false',
+  );
+});
+
 test('an app menu sets, reads back and fires by accelerator', async () => {
   await launch('DesktopMenuFixture');
   await app.waitForIdle();

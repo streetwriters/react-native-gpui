@@ -13,6 +13,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { platform } from './index';
+import { WindowControl } from './WindowControl';
 
 export interface TitleBarProps {
   title?: string;
@@ -54,13 +55,18 @@ export function TitleBar({
       </View>
       {captionButtons
         ? CAPTION_BUTTONS.map(button => (
-            <View
+            <WindowControl
               key={button.control}
-              desktopWindowControl={button.control}
-              style={styles.captionButton}
+              action={button.control}
+              testID={`titlebar-${button.control}`}
+              style={({ hovered, pressed }) => [
+                styles.captionButton,
+                hovered && styles.captionButtonHovered,
+                pressed && styles.captionButtonPressed,
+              ]}
             >
               <Text style={styles.captionLabel}>{button.label}</Text>
-            </View>
+            </WindowControl>
           ))
         : null}
     </View>
@@ -92,6 +98,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 4,
+  },
+  captionButtonHovered: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  captionButtonPressed: {
+    backgroundColor: 'rgba(0, 0, 0, 0.16)',
   },
   captionLabel: {
     fontSize: 13,

@@ -13,6 +13,7 @@ pub mod perf_monitor;
 pub mod scrollview;
 pub mod textinput;
 pub mod tray;
+pub mod window_control;
 pub mod windows;
 
 pub fn register() {
@@ -27,5 +28,6 @@ pub fn register() {
     perf_monitor::register();
     scrollview::register();
     tray::register();
+    window_control::register();
     windows::register();
 }

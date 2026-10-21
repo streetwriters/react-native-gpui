@@ -72,6 +72,8 @@ pub(crate) struct PointerHandlers {
     pub(crate) back_up: Vec<PointerHandler<MouseUpEvent>>,
     pub(crate) forward_up: Vec<PointerHandler<MouseUpEvent>>,
     pub(crate) mouse_move: Vec<PointerHandler<MouseMoveEvent>>,
+    /// Called with `true` on enter and `false` on leave.
+    pub(crate) hover: Vec<PointerHandler<bool>>,
 }
 
 impl PointerHandlers {
@@ -80,6 +82,7 @@ impl PointerHandlers {
             .iter()
             .all(|button| self.down(*button).is_empty() && self.up(*button).is_empty())
             && self.mouse_move.is_empty()
+            && self.hover.is_empty()
     }
 
     fn down(&self, button: PointerButton) -> &Vec<PointerHandler<MouseDownEvent>> {
@@ -138,6 +141,24 @@ pub(crate) fn pointer_area(handlers: PointerHandlers) -> impl IntoElement {
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                     if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                         handler(event, window, cx);
+                    }
+                });
+            }
+            // Enter and leave: GPUI reports hovered state per hitbox, so the
+            // transition is an edge detected here rather than an event. A bool is
+            // what the hook takes, so the handlers are shared with `mouse_move`'s
+            // element only in name.
+            for handler in handlers.hover {
+                let hitbox = hitbox.clone();
+                let mut was_hovered = false;
+                window.on_mouse_event(move |_event: &MouseMoveEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Bubble {
+                        return;
+                    }
+                    let hovered = hitbox.is_hovered(window);
+                    if hovered != was_hovered {
+                        was_hovered = hovered;
+                        handler(&hovered, window, cx);
                     }
                 });
             }

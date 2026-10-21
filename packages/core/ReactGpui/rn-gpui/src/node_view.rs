@@ -2120,15 +2120,12 @@ impl Render for RNNodeView {
         if let Some(background) = decoration.background {
             element = element.bg(gpui::rgb(background));
         }
-        if self.view.desktop_drag_region {
-            element = element.window_control_area(gpui::WindowControlArea::Drag);
-        } else {
-            match self.view.desktop_window_control.as_str() {
-                "minimize" => element = element.window_control_area(gpui::WindowControlArea::Min),
-                "maximize" => element = element.window_control_area(gpui::WindowControlArea::Max),
-                "close" => element = element.window_control_area(gpui::WindowControlArea::Close),
-                _ => {}
-            }
+        // One helper decides the area, so a `View` drag region and a component
+        // that claims a caption button cannot disagree — and the component wins
+        // its own box, which is what makes a `WindowControl` inside a title bar
+        // act as a button rather than drag the window.
+        if let Some(area) = self.window_control_area(cx) {
+            element = element.window_control_area(area);
         }
         let accessibility_id = if self.view.accessibility_native_id.is_empty() {
             &self.view.test_id
@@ -2837,34 +2834,51 @@ impl Render for RNNodeView {
                     crate::events::Button::Forward => handlers.forward_up.push(handler),
                 }
             }
+            if spec.hover {
+                // `node` here is the captured `ComponentNode`; hover needs the
+                // live entity so it reads the component as it is now, not as it
+                // was when the listener was built.
+                let hover_node = cx.entity().downgrade();
+                let hover_component = node.clone();
+                handlers
+                    .hover
+                    .push(Rc::new(move |hovered: &bool, window, cx| {
+                        let Some(entity) = hover_node.upgrade() else {
+                            return;
+                        };
+                        let component = entity.read(cx).component.clone();
+                        let Some(renderer) = crate::extensions::component_renderer(&component)
+                        else {
+                            return;
+                        };
+                        let mut context = crate::extensions::input::InputContext {
+                            node: &hover_component,
+                            window,
+                            cx,
+                            captured: false,
+                        };
+                        renderer.on_hover(&hover_component, *hovered, &mut context);
+                    }));
+            }
         }
-        // Registered before the RN touch handler so the drag region sees the press;
-        // a child's handler runs first and stops propagation, so buttons inside
-        // the bar keep working.
-        if self.view.desktop_drag_region || !self.view.desktop_window_control.is_empty() {
-            let control = self.view.desktop_window_control.clone();
-            let drag_region = self.view.desktop_drag_region;
+        if self.view.desktop_drag_region {
+            // A caption button inside the bar claims its own area and handles its
+            // own press through the extension hook, so the drag must not also run
+            // there. The area is read once here because this closure outlives the
+            // borrow of `self`.
+            let claims_area = self.window_control_area(cx).is_some();
             handlers
                 .left_down
                 .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    if !control.is_empty() {
-                        match control.as_str() {
-                            "minimize" => window.minimize_window(),
-                            "maximize" => window.zoom_window(),
-                            "close" => window.remove_window(),
-                            _ => {}
-                        }
-                        cx.stop_propagation();
+                    if claims_area {
                         return;
                     }
-                    if drag_region {
-                        if event.click_count >= 2 {
-                            window.titlebar_double_click();
-                        } else {
-                            window.start_window_move();
-                        }
-                        cx.stop_propagation();
+                    if event.click_count >= 2 {
+                        window.titlebar_double_click();
+                    } else {
+                        window.start_window_move();
                     }
+                    cx.stop_propagation();
                 }));
         }
         if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
@@ -3095,6 +3109,12 @@ impl Render for RNNodeView {
             for handler in handlers.mouse_move {
                 element =
                     element.on_mouse_move(move |event, window, cx| handler(event, window, cx));
+            }
+            for handler in handlers.hover {
+                // No hover edge detection on this path: a scrolling container is
+                // not where a caption button lives, and `pointer_area` covers the
+                // components that need it.
+                let _ = handler;
             }
         } else {
             if !handlers.is_empty() {
@@ -3530,6 +3550,35 @@ impl RNNodeView {
 
     pub(crate) fn extension_props_json(&self) -> &str {
         &self.extension_props_json
+    }
+
+    /// The window-control area this node claims, if any.
+    ///
+    /// A component's `window_control()` hook is the only way to claim a caption
+    /// button now that `desktopWindowControl` is gone. `desktopDragRegion` still
+    /// marks a drag area, and a component that claimed a button overrides it so a
+    /// button inside a title bar acts as a button and does not drag the window.
+    fn window_control_area(&self, cx: &gpui::App) -> Option<gpui::WindowControlArea> {
+        let claimed = crate::extensions::component_renderer(&self.component).and_then(|renderer| {
+            let node = self.component_node(cx);
+            renderer.window_control(&node)
+        });
+        match claimed {
+            Some(crate::extensions::input::WindowControl::Minimize) => {
+                Some(gpui::WindowControlArea::Min)
+            }
+            Some(crate::extensions::input::WindowControl::Maximize) => {
+                Some(gpui::WindowControlArea::Max)
+            }
+            Some(crate::extensions::input::WindowControl::Close) => {
+                Some(gpui::WindowControlArea::Close)
+            }
+            Some(crate::extensions::input::WindowControl::Drag) => {
+                Some(gpui::WindowControlArea::Drag)
+            }
+            None if self.view.desktop_drag_region => Some(gpui::WindowControlArea::Drag),
+            None => None,
+        }
     }
 
     pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {

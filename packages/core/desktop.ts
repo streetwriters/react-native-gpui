@@ -48,8 +48,14 @@ export {
 } from './src-gpui/src/private/desktop/windowContext';
 
 export { TitleBar } from './src-gpui/src/private/desktop/TitleBar';
+export { WindowControl } from './src-gpui/src/private/desktop/WindowControl';
 
 export type { TitleBarProps } from './src-gpui/src/private/desktop/TitleBar';
+export type {
+  WindowControlAction,
+  WindowControlProps,
+  WindowControlState,
+} from './src-gpui/src/private/desktop/WindowControl';
 
 export { ApplicationMenu, Menu } from './src-gpui/src/private/desktop/menu';
 

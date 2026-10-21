@@ -2,6 +2,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
+#include <react/renderer/components/windowcontrol/WindowControl.h>
 #include "GpuiHost.h" // KAllSurfacesStopped
 #include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"
@@ -470,6 +471,8 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                   GpuiModalHostViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   NativeViewHostComponentDescriptor>());
+      result->add(concreteComponentDescriptorProvider<
+                  WindowControlComponentDescriptor>());
       result->setComponentDescriptorProviderRequest([](ComponentName name) {
         LOG(ERROR) << "Fabric component " << name
                    << " is not implemented on gpui";
