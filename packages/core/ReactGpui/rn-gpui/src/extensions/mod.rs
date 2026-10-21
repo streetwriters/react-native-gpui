@@ -716,6 +716,17 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         None
     }
 
+    /// The keymap context this component's element carries.
+    ///
+    /// Read while the node's element is built, which is the only place a
+    /// `KeyContext` can be set: GPUI keeps it on the element and pushes it onto
+    /// the dispatch tree at paint. A component that returns one takes part in
+    /// keymap resolution, which is how a `ShortcutScope` limits where its
+    /// bindings apply. `None` leaves the node out of the context stack.
+    fn key_context(&self, _node: &ComponentNode) -> Option<String> {
+        None
+    }
+
     /// The node's frame inside its parent, replacing the layout the platform
     /// computed for placement, painted size, hit testing, accessibility bounds
     /// and the test driver. `None` keeps the platform's frame.

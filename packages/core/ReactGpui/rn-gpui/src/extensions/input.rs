@@ -181,6 +181,53 @@ impl<'a> InputContext<'a> {
         self.captured = true;
     }
 
+    /// Shows a context menu for this node, in the window the press arrived in.
+    ///
+    /// The presenter decides when the menu actually appears: the native one runs
+    /// a modal tracking loop, which must not happen while GPUI is inside an
+    /// update, so it defers; the GPUI-drawn one opens its own window. Either way
+    /// this returns before the menu exists.
+    ///
+    /// `model` is already parsed, which is what lets a component decide for
+    /// itself whether its props describe a menu at all. The answer, an item id or
+    /// nothing, is dispatched to the node's tag as `topMenuSelect` or
+    /// `topMenuDismiss` when the menu closes.
+    pub fn show_context_menu(
+        &mut self,
+        model: crate::desktop::menu_model::MenuModel,
+        position: gpui::Point<gpui::Pixels>,
+    ) {
+        let window = self.window.window_handle();
+        let x = f32::from(position.x);
+        let y = f32::from(position.y);
+        let tag = self.node.tag;
+        // The selection comes back on whichever thread the platform reports it
+        // on, long after this hook returned, so it is dispatched on the main
+        // thread and to the tag rather than through the entity.
+        let responder =
+            crate::desktop::context_menu::Responder::callback(Box::new(move |selection| {
+                crate::desktop::post_to_main(Box::new(move |cx: &mut App| {
+                    let Some(store) = crate::store::store_from(cx) else {
+                        return;
+                    };
+                    let (host, frame_hook) = {
+                        let store = store.read(cx);
+                        (store.host.clone(), store.frame_hook.clone())
+                    };
+                    match selection {
+                        Some(id) => host.dispatch_event(
+                            tag,
+                            "topMenuSelect",
+                            &serde_json::json!({ "id": id }),
+                        ),
+                        None => host.dispatch_event(tag, "topMenuDismiss", &serde_json::json!({})),
+                    }
+                    let _ = window.update(cx, |_root, window, _cx| frame_hook.arm(window));
+                }));
+            }));
+        crate::desktop::context_menu::present(self.cx, model, window, (x, y), responder);
+    }
+
     /// Stops capture early, on the drag's end.
     pub fn release_pointer(&mut self) {
         self.captured = false;
@@ -210,11 +257,13 @@ impl<'a> InputContext<'a> {
 
     /// Maximize, or restore if already maximized.
     ///
-    /// `zoom_window` is the only maximize GPUI offers in this fork and it
-    /// toggles, which is what a caption button needs: the plan's note to check
-    /// whether it toggles on every platform is answered here — it does, because
-    /// the toggle is the method's own behaviour rather than a per-platform
-    /// choice.
+    /// GPUI's `zoom_window` toggles on macOS (an `NSWindow` zoom), on X11
+    /// (`_NET_WM_STATE_MAXIMIZED_*` with `Toggle`) and on Wayland
+    /// (`set_maximized` / `unset_maximized`), so asking it for a zoom is asking
+    /// for a toggle. Windows is the one platform where it only ever maximizes —
+    /// a caption button there is performed by the OS through `HTMAXBUTTON`,
+    /// which asks `IsZoomed` and sends `SW_MAXIMIZE` or `SW_NORMAL` itself, so
+    /// this hook is never the one that acts there.
     pub fn toggle_maximize_window(&mut self) {
         self.window.zoom_window();
     }
@@ -223,9 +272,24 @@ impl<'a> InputContext<'a> {
     ///
     /// `remove_window` would bypass `closeRequested`, so a component asking to
     /// close must go the way a title-bar close button does: the app gets its veto
-    /// first.
+    /// first. The close is deferred because it updates the same window this hook
+    /// is running inside, and a window cannot be updated while it is borrowed;
+    /// deferred work runs once the current update has finished, which is also
+    /// when `closeRequested` can safely reach JS.
     pub fn close_window(&mut self) {
-        self.window.remove_window();
+        let Some(key) =
+            crate::desktop::windows::window_key_for_handle(self.cx, self.window.window_handle())
+        else {
+            // A window with no registry entry is not one the desktop shell
+            // opened, so there is no veto to ask; it is not the shell's to close.
+            log::warn!("[window] a control asked to close a window the shell does not own");
+            return;
+        };
+        self.cx.defer(move |cx| {
+            if let Err(error) = crate::desktop::windows::close_window(cx, key, false) {
+                log::warn!("[window] could not close window {key}: {}", error.message);
+            }
+        });
     }
 }
 

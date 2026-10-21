@@ -197,6 +197,68 @@ test('collect-node-addons requires both arguments', () => {
 // The launch chain used to be built from `app.json`'s `desktop` key. It reads
 // `desktop/desktop.json` now, and these check that the generated `main.rs` is
 // the same for the same options.
+test('menuBar: false asks the host for no menu bar, and its absence does not', () => {
+  const hidden = desktopLaunchConfig(
+    { window: { menuBar: false }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(hidden).toContain('.menu_bar(false)');
+
+  // The default is a menu bar, so the call is only emitted when it is turned off:
+  // a chain that always emitted it would be the same thing, but the generated file
+  // reads better without a line saying what the default already is.
+  const shown = desktopLaunchConfig(
+    { window: { menuBar: true }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(shown).not.toContain('.menu_bar(');
+});
+
+test('a custom title bar and the traffic light position reach the launch chain', () => {
+  const hidden = desktopLaunchConfig(
+    {
+      window: {
+        titleBar: 'hidden',
+        trafficLightPosition: { x: 14, y: 10 },
+      },
+      devMenu: true,
+    },
+    'desktop/desktop.json',
+  );
+  expect(hidden).toContain(
+    '.title_bar(react_native_gpui::WindowTitleBar::Hidden)',
+  );
+  expect(hidden).toContain('.traffic_light_position(14.0, 10.0)');
+
+  const transparent = desktopLaunchConfig(
+    { window: { titleBar: 'transparent' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(transparent).toContain(
+    '.title_bar(react_native_gpui::WindowTitleBar::Transparent)',
+  );
+
+  // `default` is what an app that says nothing already gets, so it must not add
+  // a call that only restates it.
+  const plain = desktopLaunchConfig(
+    { window: { titleBar: 'default' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(plain).not.toContain('.title_bar(');
+  expect(plain).not.toContain('.traffic_light_position(');
+});
+
+test('a traffic light position without both coordinates is rejected', () => {
+  // The schema says `x` and `y` are both required; a launcher that silently used
+  // the origin would move the traffic lights to the corner of the window.
+  expect(() =>
+    desktopLaunchConfig(
+      { window: { trafficLightPosition: { x: 14 } }, devMenu: true },
+      'desktop/desktop.json',
+    ),
+  ).toThrow(/trafficLightPosition needs x and y/u);
+});
+
 test('the launch chain reflects the window, dev menu and tray', () => {
   const main = desktopLaunchConfig(
     {

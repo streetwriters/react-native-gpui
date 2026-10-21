@@ -50,6 +50,8 @@ function ContextMenuFixture() {
   const [error, setError] = useState('');
   const [pointer, setPointer] = useState('none');
   const [pointerLog, setPointerLog] = useState<Array<string>>([]);
+  // What JS was told, so a test can tell 'native opened it' from 'JS did'.
+  const [events, setEvents] = useState('');
 
   // Which button, the mask of held buttons, and the modifiers — the fields
   // section 2 added. Logged for every press so the e2e can assert them.
@@ -138,11 +140,45 @@ function ContextMenuFixture() {
       <ContextMenuView
         testID="cm-view"
         items={ITEMS}
-        onPress={id => setChosen(`view:${id}`)}
+        onPress={id => {
+          setChosen(`view:${id}`);
+          setEvents(previous => `${previous}|select:${id}`);
+        }}
+        onSelect={id => setEvents(previous => `${previous}|selected:${id}`)}
+        onOpen={() => setEvents(previous => `${previous}|open`)}
+        onContextMenu={() => setEvents(previous => `${previous}|contextMenu`)}
         style={styles.row}
       >
         <Text>Right-click me (ContextMenuView)</Text>
       </ContextMenuView>
+      <ContextMenuView
+        testID="cm-view-disabled"
+        items={[{ id: 'cm-should-not-open', label: 'Disabled, must not open' }]}
+        disabled
+        onContextMenu={() =>
+          setEvents(previous => `${previous}|disabled-contextMenu`)
+        }
+        style={styles.row}
+      >
+        <Text>Right-click me (ContextMenuView, disabled)</Text>
+      </ContextMenuView>
+      {/* Two native targets, one inside the other: the inner must win. */}
+      <ContextMenuView
+        testID="cm-view-outer"
+        items={[{ id: 'cm-outer', label: 'Outer' }]}
+        style={styles.row}
+      >
+        <ContextMenuView
+          testID="cm-view-inner"
+          items={[{ id: 'cm-inner', label: 'Inner' }]}
+          style={styles.nested}
+        >
+          <Text>Right-click me (nested ContextMenuView)</Text>
+        </ContextMenuView>
+      </ContextMenuView>
+      <Text testID="cm-log" style={styles.row}>
+        events: {events}
+      </Text>
       <MenuView
         testID="cm-polyfill"
         actions={[

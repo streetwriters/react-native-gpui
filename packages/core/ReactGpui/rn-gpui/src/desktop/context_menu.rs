@@ -149,6 +149,30 @@ pub fn show(
     Ok(())
 }
 
+/// Presents an already-parsed model at a position in a known window.
+///
+/// The split exists for the native `ContextMenuView`, which parses its own props
+/// before it gets here and knows which window the press arrived in. Sharing the
+/// tail means the JS command and the native path cannot disagree about which
+/// window hosts the menu or how the platform view is found.
+pub fn present(
+    cx: &mut App,
+    model: MenuModel,
+    window: AnyWindowHandle,
+    position: (f32, f32),
+    responder: Responder,
+) {
+    let request = ContextMenuRequest {
+        window,
+        x: position.0,
+        y: position.1,
+        model,
+        native_view: native_view_of(cx, window),
+    };
+    let presenter = cx.global::<ContextMenuPresenterGlobal>().0.clone();
+    presenter.show(cx, request, responder);
+}
+
 fn native_view_of(cx: &mut App, window: AnyWindowHandle) -> isize {
     window
         .update(cx, |_root, window, _cx| raw_view(window))

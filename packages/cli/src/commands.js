@@ -509,6 +509,27 @@ export function desktopLaunchConfig(config, configPath) {
   if (settings.restoreState === false) {
     chain.push('    .restore_window_state(false)');
   }
+  if (settings.menuBar === false) {
+    // Only meaningful where the bar is drawn inside the window; macOS ignores it,
+    // and the `menuBarInWindow` capability says so.
+    chain.push('    .menu_bar(false)');
+  }
+  if (settings.titleBar !== undefined && settings.titleBar !== 'default') {
+    // The default is the platform's own bar, so only the two custom kinds are
+    // emitted. The enum is spelled out in full because the generated file has no
+    // `use` lines to import it with.
+    const variant = settings.titleBar === 'hidden' ? 'Hidden' : 'Transparent';
+    chain.push(`    .title_bar(react_native_gpui::WindowTitleBar::${variant})`);
+  }
+  if (settings.trafficLightPosition !== undefined) {
+    const { x, y } = settings.trafficLightPosition;
+    if (x === undefined || y === undefined) {
+      throw new Error(
+        `desktop/desktop.json window.trafficLightPosition needs x and y: ${configPath}`,
+      );
+    }
+    chain.push(`    .traffic_light_position(${asFloat(x)}, ${asFloat(y)})`);
+  }
   chain.push(`    .dev_menu(${config.devMenu})`);
   if (config.tray !== undefined) {
     const tray = config.tray;
