@@ -46,9 +46,12 @@ export function registerScreens(testMode = false) {
   );
   AppRegistry.registerComponent(
     'GPUIFileSystemFixture',
-    () => (props: ScreenProps) => (
-      <>{renderScreen.filesystem({ ...props, testMode })}</>
-    ),
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/FileSystemFixture').FileSystemFixture,
+        { ...props, testMode },
+      ),
   );
   AppRegistry.registerComponent(
     'TrayPopover',

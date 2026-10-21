@@ -2,7 +2,7 @@
   "name": "react-native-gpui",
   "private": true,
   "version": "0.0.1",
-  "description": "React Native on GPUI \u2014 a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
+  "description": "React Native on GPUI — a desktop platform for React Native using the GPUI rendering framework (macOS, Windows, Linux).",
   "workspaces": [
     "packages/core",
     "packages/cli",
@@ -39,7 +39,8 @@
     "pretest": "npm run test:build",
     "pretest:unit": "npm run test:build",
     "pretest:e2e": "npm run test:build",
-    "desktop": "npm run desktop --workspace rn-gpui-tester --"
+    "desktop": "npm run desktop --workspace rn-gpui-tester --",
+    "typecheck": "node scripts/typecheck.mjs"
   },
   "dependencies": {
     "react": "19.2.3",

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "types": ["react", "vitest/globals", "node"],
-    "moduleSuffixes": [".gpui", ".native", ""]
+    "moduleSuffixes": [".desktop", ".native", ""]
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
   "exclude": ["node_modules", "desktop/build", "desktop/autolink"]
