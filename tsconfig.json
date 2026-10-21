@@ -1,0 +1,25 @@
+{
+  // Files without a tsconfig of their own: the modules and the CLI's templates.
+  // `packages/core`, `packages/testing` and `packages/rn-gpui-tester` have their
+  // own, and the root config files are in `tsconfig.node.json`.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["react", "node"]
+  },
+  "include": [
+    "types/**/*.d.ts",
+    "modules/*/src/**/*.ts",
+    "modules/*/src/**/*.tsx",
+    "packages/cli/templates/**/*.ts",
+    "packages/cli/templates/**/*.tsx"
+  ],
+  "exclude": [
+    "packages/cli/templates/app/desktop/vitest.e2e.config.ts",
+    "node_modules",
+    "**/node_modules",
+    "target",
+    "packages/core",
+    "packages/testing",
+    "packages/rn-gpui-tester"
+  ]
+}

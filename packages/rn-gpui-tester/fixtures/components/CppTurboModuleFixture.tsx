@@ -144,7 +144,9 @@ async function collect(
 
   publish({
     tick: await new Promise<string>(resolve => {
-      const emitter = new NativeEventEmitter(module);
+      const emitter = new NativeEventEmitter<{
+        cppExampleTick: [{ n: number }];
+      }>(module);
       const subscription2 = emitter.addListener(
         'cppExampleTick',
         (payload: { n: number }) => {

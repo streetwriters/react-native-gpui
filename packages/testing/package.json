@@ -9,12 +9,18 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./vitest-preset": "./vitest-preset.cjs",
+    "./vitest-preset": {
+      "types": "./vitest-preset.d.cts",
+      "default": "./vitest-preset.cjs"
+    },
     "./vitest-e2e": {
       "types": "./dist/vitest-e2e.d.mts",
       "default": "./dist/vitest-e2e.mjs"
     },
-    "./vitest-preset-e2e": "./vitest-preset-e2e.cjs"
+    "./vitest-preset-e2e": {
+      "types": "./vitest-preset-e2e.d.cts",
+      "default": "./vitest-preset-e2e.cjs"
+    }
   },
   "peerDependencies": {
     "react": "19.2.3",
@@ -44,6 +50,7 @@
     "dist",
     "*.js",
     "*.cjs",
+    "*.d.cts",
     "vitest"
   ]
 }

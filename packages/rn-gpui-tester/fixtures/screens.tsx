@@ -183,11 +183,6 @@ export const renderScreen: Record<
       ...props,
       ...(props.testMode ? { uri: 'http://127.0.0.1:43181/svg' } : {}),
     }),
-  filesystem: props =>
-    React.createElement(
-      require('./components/FileSystemFixture').FileSystemFixture,
-      props,
-    ),
   fonts: props =>
     React.createElement(require('./components/FontFixture').default, {
       ...props,

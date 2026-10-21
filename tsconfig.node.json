@@ -1,0 +1,17 @@
+{
+  // Node-side config files (Vitest configs). They run in Node, not React Native,
+  // so they get Node's types and none of React Native's globals.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts", "packages/cli/templates/app/desktop/vitest.e2e.config.ts"]
+}

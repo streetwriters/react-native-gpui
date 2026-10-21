@@ -10,7 +10,7 @@ import { findScreen, screens } from '../screenCatalog.ts';
 // spaces are quoted here first.
 const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const npxShell = process.platform === 'win32';
-const npxArgs = args =>
+const npxArgs = (args: string[]) =>
   npxShell ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : args;
 
 const projectRoot = path.resolve(

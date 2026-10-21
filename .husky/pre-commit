@@ -1,1 +1,2 @@
 npx --no -- lint-staged
+npm run typecheck --silent
