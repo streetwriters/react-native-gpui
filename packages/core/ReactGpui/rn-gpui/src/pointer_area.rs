@@ -79,10 +79,8 @@ pub(crate) struct PointerHandlers {
     pub(crate) back_up: Vec<PointerHandler<MouseUpEvent>>,
     pub(crate) forward_up: Vec<PointerHandler<MouseUpEvent>>,
     pub(crate) mouse_move: Vec<PointerHandler<MouseMoveEvent>>,
-    /// Called with `true` on enter and `false` on leave.
-    /// Hover transitions. Each handler is given the new state and the previous
-    /// one: a listener is rebuilt on every paint, so the state that decides
-    /// whether this is an edge must be owned by the caller, not by the closure.
+    /// Hover samples: each handler is told whether the pointer is over the area
+    /// and decides for itself whether that is a change.
     pub(crate) hover: Vec<HoverHandler>,
 }
 
@@ -155,14 +153,11 @@ pub(crate) fn pointer_area(handlers: PointerHandlers) -> impl IntoElement {
                 });
             }
             // Enter and leave: GPUI reports hovered state per hitbox, so the
-            // transition is an edge detected here rather than an event. A bool is
-            // what the hook takes, so the handlers are shared with `mouse_move`'s
-            // element only in name.
-            // Read the hovered state and hand it to the handler; the handler
-            // decides whether it is an edge, because the previous state has to
-            // outlive this closure. GPUI clears `mouse_listeners` on every frame,
-            // so a `was_hovered` local here would reset at each paint and the
-            // leave edge would never fire.
+            // transition is an edge detected by the handler rather than an event.
+            // The handler decides, because the previous state has to outlive this
+            // closure: GPUI clears `mouse_listeners` on every frame, so a
+            // `was_hovered` local here would reset at each paint and the leave edge
+            // would never fire.
             for handler in handlers.hover {
                 let hitbox = hitbox.clone();
                 window.on_mouse_event(move |_event: &MouseMoveEvent, phase, window, cx| {
