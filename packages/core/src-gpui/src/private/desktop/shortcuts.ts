@@ -227,7 +227,7 @@ export function unregister(id: string): void {
   }
 }
 
-/** Removes every shortcut. Used when an app's screens unmount. */
+/** Removes every shortcut. Used when an app's own views unmount. */
 export function clear(): void {
   if (definitions.size === 0) {
     return;
