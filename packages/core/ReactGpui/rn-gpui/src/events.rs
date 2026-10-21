@@ -93,6 +93,72 @@ struct Step {
 /// Mirrors RN's native `hitTest`: `auto` is a candidate (the deepest wins),
 /// `box-none` is never a target but its children are, `box-only` overrides any
 /// deeper candidate, `none` kills the whole subtree.
+/// The node that owns the context menu for a press on `hit_node`.
+///
+/// Right-clicking a `Text` inside a `View` with `onContextMenu` must open that
+/// view's menu. GPUI bubbles mouse events from the innermost hitbox outwards, so
+/// relying on bubbling means every node between the two needs a listener — and a
+/// node that takes pointer input stops the press before it reaches the owner.
+/// That is what made a right click on the text stop working.
+///
+/// So the innermost node that handles the press walks its ancestors instead. The
+/// walk follows the same `pointerEvents` rules as `target`: `none` ends it, and
+/// `box-only` is a candidate but its ancestors are not.
+///
+/// The result is the nearest ancestor-or-self that asked for a context menu —
+/// either a `View` with the prop or an extension component whose `InputSpec`
+/// does. `None` means nothing in the chain wants one, and the press is only a
+/// pointer event.
+pub fn context_menu_owner(cx: &App, hit_node: &RNNodeView) -> Option<ContextMenuOwner> {
+    let mut tag = hit_node.tag;
+    let mut wants = node_wants_context_menu(cx, hit_node);
+    let mut pointer_events = hit_node.view.pointer_events;
+    let mut parent = hit_node.parent.clone();
+    loop {
+        if pointer_events == POINTER_EVENTS_NONE {
+            return None;
+        }
+        if wants {
+            return Some(ContextMenuOwner { tag });
+        }
+        // `box-only` claims the press for itself, so the search ends with it
+        // whether or not it wants a menu.
+        if pointer_events == POINTER_EVENTS_BOX_ONLY {
+            return None;
+        }
+        let Some(next) = parent.clone() else {
+            return None;
+        };
+        let Some(node) = next.upgrade() else {
+            return None;
+        };
+        let node = node.read(cx);
+        tag = node.tag;
+        wants = node_wants_context_menu(cx, node);
+        pointer_events = node.view.pointer_events;
+        parent = node.parent.clone();
+    }
+}
+
+/// Whether this node wants a context menu: the View prop, or an extension
+/// component whose `InputSpec` asks for one.
+fn node_wants_context_menu(cx: &App, node: &RNNodeView) -> bool {
+    if node.view.on_context_menu {
+        return true;
+    }
+    let Some(renderer) = crate::extensions::component_renderer(&node.component) else {
+        return false;
+    };
+    let component_node = node.component_node(cx);
+    renderer.input(&component_node).context_menu
+}
+
+/// Who owns a context menu for a press.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContextMenuOwner {
+    pub tag: i32,
+}
+
 pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
     let mut steps = vec![Step {
         tag: hit_node.tag,

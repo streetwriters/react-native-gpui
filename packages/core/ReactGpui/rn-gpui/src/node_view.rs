@@ -168,6 +168,65 @@ fn run_component_hook(
     }
 }
 
+/// Handles a right press: reports the pointer event, then opens the nearest
+/// context menu.
+///
+/// One press, one node. The pointer event goes to the innermost target so RN
+/// bubbles it through the JS tree; the menu goes to the nearest ancestor-or-self
+/// that owns one, found by an explicit walk rather than by GPUI's bubbling. That
+/// walk is what lets a `Text` inside an `onContextMenu` view still open the
+/// parent's menu.
+fn dispatch_right_press(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseDownEvent,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(entity) = node.upgrade() else {
+        return;
+    };
+    let (owner, target) = {
+        let this = entity.read(cx);
+        (
+            crate::events::context_menu_owner(cx, this),
+            crate::events::target(cx, this),
+        )
+    };
+    if let Some(target) = target.as_ref() {
+        crate::events::send_pointer(
+            window,
+            cx,
+            target,
+            event.position,
+            crate::events::Phase::Start,
+            Some(crate::events::Button::Right),
+            crate::events::Button::Right.mask(),
+            modifier_state(event.modifiers),
+        );
+    }
+    let modifiers = modifier_state(event.modifiers);
+    if crate::events::mouse_context_menu_trigger(
+        crate::events::Button::Right,
+        modifiers,
+        std::env::consts::OS,
+    )
+    .is_some()
+    {
+        if let Some(owner) = owner {
+            dispatch_context_menu(
+                owner.tag,
+                event.position,
+                crate::events::Button::Right,
+                modifiers,
+                "mouse",
+                window,
+                cx,
+            );
+        }
+    }
+    cx.stop_propagation();
+}
+
 /// Sends the DOM pointer events for one non-primary button press.
 ///
 /// Shared by the middle and right listeners so the two cannot diverge; the
@@ -208,40 +267,21 @@ fn dispatch_pointer_button(
 /// listener body serves both; the trigger rule itself is in
 /// `events::mouse_context_menu_trigger`, so this and the extension hooks cannot
 /// disagree.
-fn context_menu_press(
-    node: &gpui::WeakEntity<RNNodeView>,
+fn dispatch_context_menu(
+    tag: i32,
     position: gpui::Point<gpui::Pixels>,
-    is_left: bool,
+    button: crate::events::Button,
+    modifiers: crate::events::ModifierState,
+    trigger: &str,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) {
-    let Some(node) = node.upgrade() else {
-        return;
-    };
-    let button = if is_left {
-        crate::events::Button::Left
-    } else {
-        crate::events::Button::Right
-    };
-    let modifiers = modifier_state(window.modifiers());
-    if crate::events::mouse_context_menu_trigger(button, modifiers, std::env::consts::OS).is_none()
-    {
-        return;
-    }
-    let (tag, surface_id) = {
-        let this = node.read(cx);
-        (this.tag, this.surface_id)
-    };
     let x = f32::from(position.x);
     let y = f32::from(position.y);
-    let window_id = cx
-        .try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
-        .and_then(|windows| {
-            windows
-                .0
-                .entry_for_surface(surface_id)
-                .map(|entry| entry.key)
-        })
+    // The window is resolved from the window the press arrived in, not from the
+    // pressed node's surface id: the owner may be several levels up and its
+    // surface is the same one either way.
+    let window_id = crate::desktop::windows::window_key_for_handle(cx, window.window_handle())
         .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
     if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
         let store = store.0.read(cx);
@@ -259,12 +299,11 @@ fn context_menu_press(
                 "shiftKey": modifiers.shift,
                 "altKey": modifiers.alt,
                 "metaKey": modifiers.meta,
-                "trigger": "mouse",
+                "trigger": trigger,
             }),
         );
         store.frame_hook.arm(window);
     }
-    cx.stop_propagation();
 }
 
 impl RNNodeView {
@@ -2799,24 +2838,6 @@ impl Render for RNNodeView {
                 }
             }
         }
-        if self.view.on_context_menu {
-            let node = cx.entity().downgrade();
-            // Right click, and Ctrl + click on macOS. The decision lives in
-            // `events::mouse_context_menu_trigger` so the same rule serves the
-            // extension hooks in section 3 and is testable without a window.
-            let mouse_node = node.clone();
-            handlers
-                .right_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    context_menu_press(&mouse_node, event.position, false, window, cx);
-                }));
-            let ctrl_node = node.clone();
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    context_menu_press(&ctrl_node, event.position, true, window, cx);
-                }));
-        }
         // Registered before the RN touch handler so the drag region sees the press;
         // a child's handler runs first and stops propagation, so buttons inside
         // the bar keep working.
@@ -2912,20 +2933,56 @@ impl Render for RNNodeView {
                         cx,
                     );
                 }));
-            if !self.view.on_context_menu {
-                let right_node = node.clone();
-                handlers
-                    .right_down
-                    .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                        dispatch_pointer_button(
-                            &right_node,
-                            event,
-                            crate::events::Button::Right,
-                            window,
-                            cx,
-                        );
-                    }));
-            }
+            // Every node that takes pointer input handles the right button, whether
+            // or not it owns a context menu. One press must do both jobs: report
+            // `topPointerDown` for the innermost node, and open the nearest
+            // ancestor's menu. Splitting them across two nodes is what broke a
+            // right click on a `Text` inside a view with `onContextMenu` — the
+            // text's listener stopped the press before the parent's ran.
+            let right_node = node.clone();
+            handlers
+                .right_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    dispatch_right_press(&right_node, event, window, cx);
+                }));
+            // Ctrl + click is the macOS equivalent of a right click. It is a left
+            // press, so it must not also start a touch, or a `Pressable` would
+            // fire; the check happens before any touch dispatch.
+            let ctrl_node = node.clone();
+            handlers
+                .left_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    let modifiers = modifier_state(event.modifiers);
+                    if crate::events::mouse_context_menu_trigger(
+                        crate::events::Button::Left,
+                        modifiers,
+                        std::env::consts::OS,
+                    )
+                    .is_none()
+                    {
+                        return;
+                    }
+                    let Some(entity) = ctrl_node.upgrade() else {
+                        return;
+                    };
+                    let owner = {
+                        let this = entity.read(cx);
+                        crate::events::context_menu_owner(cx, this)
+                    };
+                    let Some(owner) = owner else {
+                        return;
+                    };
+                    dispatch_context_menu(
+                        owner.tag,
+                        event.position,
+                        crate::events::Button::Left,
+                        modifiers,
+                        "mouse",
+                        window,
+                        cx,
+                    );
+                    cx.stop_propagation();
+                }));
             // Not `cx.listener`: a listener updates its entity every time it runs, and
             // gpui-fast rebuilds any view that read an updated entity.
             let move_node = node.clone();

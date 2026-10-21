@@ -213,6 +213,26 @@ test('a dismissed context menu resolves null', async () => {
   expect(await textOf('cm-chosen')).toBe('chosen: dismissed');
 });
 
+test('a right click on a child both reports the pointer event and opens the parent menu', async () => {
+  // The regression this guards: a child that takes pointer input used to stop the
+  // press before the parent's `onContextMenu` ran, so right-clicking the text
+  // inside a menu target opened nothing. One press must do both jobs.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-nested-pointer').rightClick();
+  await app.waitForIdle();
+
+  // The child's pointer event fired, with the right button and mask.
+  expect(await textOf('pointer-history')).toContain(
+    'nested-down button=2 mask=2',
+  );
+  // And the parent's menu is open — not the child's, which has none.
+  const menu = await app.getContextMenu();
+  expect(menu).not.toBeNull();
+  expect(JSON.stringify(menu?.items ?? [])).toContain('cm-open');
+});
+
 test('the ContextMenuView wrapper and the menu polyfill open menus', async () => {
   await launch('ContextMenuFixture');
   await app.waitForIdle();
