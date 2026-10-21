@@ -660,12 +660,14 @@ fn is_desktop_action(action: &dyn Action) -> bool {
 /// same dispatch when the bar returns.
 #[cfg(target_os = "windows")]
 fn set_windows_menu_attached(cx: &mut gpui::App, window_id: u32, visible: bool) -> DesktopResult {
+    use muda::ContextMenu as _;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::UI::WindowsAndMessaging::{DrawMenuBar, SetMenu};
 
     let menu = if visible {
         // Re-attach the menu that is still held in the global: hiding detached it
-        // rather than destroying it, so the same items come back.
+        // rather than destroying it, so the same items come back. `hpopupmenu` is
+        // on muda's `ContextMenu` trait, not on `Menu` itself.
         cx.try_global::<AppMenuGlobal>()
             .and_then(|global| global.0.platform_menu.as_ref())
             .map(|(menu, _)| menu.hpopupmenu() as isize)
@@ -675,10 +677,10 @@ fn set_windows_menu_attached(cx: &mut gpui::App, window_id: u32, visible: bool) 
     };
     crate::desktop::windows::with_window(cx, window_id, move |window| {
         let Ok(handle) = HasWindowHandle::window_handle(window) else {
-            return Err(DesktopError::new("window has no handle"));
+            return Err(DesktopError::failed("window has no handle"));
         };
         let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-            return Err(DesktopError::new("window handle is not Win32"));
+            return Err(DesktopError::failed("window handle is not Win32"));
         };
         unsafe {
             SetMenu(win32.hwnd.get() as _, menu as _);
