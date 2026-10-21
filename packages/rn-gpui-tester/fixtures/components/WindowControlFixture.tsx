@@ -47,6 +47,7 @@ function WindowControlFixture() {
   const [error, setError] = useState('');
   const [childId, setChildId] = useState<number | null>(null);
   const [closeRequests, setCloseRequests] = useState(0);
+  const [titleBarPresses, setTitleBarPresses] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -136,7 +137,19 @@ function WindowControlFixture() {
       {/* Caption buttons are hidden on macOS by default, since the system draws
           its own traffic lights. Forced on here so the `WindowControl` component
           is rendered — and therefore tested — on every platform. */}
-      <TitleBar title="Window control" showCaptionButtons />
+      <TitleBar title="Window control" showCaptionButtons>
+        {/* A button inside the drag region. Windows answers the hit-test with
+            `HTCAPTION` for the whole bar, so this is the case that used to take
+            the press for a window move instead of delivering it to the button. */}
+        <Pressable
+          testID="titlebar-inner-button"
+          onPress={() => setTitleBarPresses(count => count + 1)}
+        >
+          <Text testID="titlebar-inner-presses" style={styles.row}>
+            {`titlebar button: ${titleBarPresses}`}
+          </Text>
+        </Pressable>
+      </TitleBar>
       {/* A `WindowControl` whose state is written to the DOM, so the e2e can
           prove the native props reader and `onControlStateChange` both work: the
           label only changes when the round trip does. */}

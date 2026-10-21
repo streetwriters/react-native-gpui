@@ -237,6 +237,11 @@ export const renderScreen: Record<
       require('./components/WindowControlFixture').default,
       props,
     ),
+  shortcuts: props =>
+    React.createElement(
+      require('./components/ShortcutsFixture').default,
+      props,
+    ),
   'desktop-menu': props =>
     React.createElement(
       require('./components/DesktopMenuFixture').default,

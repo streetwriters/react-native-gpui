@@ -71,6 +71,44 @@
         "restoreState": {
           "description": "Whether the window remembers its size and position between launches. Defaults to true.",
           "type": "boolean"
+        },
+        "titleBar": {
+          "description": "How the window's title bar is drawn. 'default' keeps the platform's; 'transparent' keeps the window's chrome but lets the app draw under it, which on macOS leaves the traffic lights over the app's own bar; 'hidden' removes it entirely, and the app must draw and move its own bar. On Linux 'transparent' and 'hidden' both ask the compositor for client-side decorations, and a window manager that refuses leaves the native title bar in place. Defaults to 'default'.",
+          "default": "default",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["default"]
+            },
+            {
+              "type": "string",
+              "enum": ["transparent"]
+            },
+            {
+              "type": "string",
+              "enum": ["hidden"]
+            }
+          ]
+        },
+        "trafficLightPosition": {
+          "description": "Where the macOS traffic lights sit inside a transparent or hidden title bar, in points from the window's top-left corner. Ignored on Windows and Linux, which have no traffic lights. Defaults to the platform's own position.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "menuBar": {
+          "description": "Whether the main window shows a menu bar. Windows and Linux draw one inside the window; on macOS this does nothing, because the bar belongs to the system. Defaults to true.",
+          "type": "boolean"
         }
       }
     },

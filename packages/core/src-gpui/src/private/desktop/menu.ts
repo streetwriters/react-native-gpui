@@ -7,28 +7,33 @@
 import React from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiAppMenu from '../specs/NativeGpuiAppMenu';
-import { DesktopError, toDesktopError } from './index';
-
-function menuModule() {
-  if (NativeGpuiAppMenu == null) {
-    throw new DesktopError(
-      'unsupported',
-      'the GpuiAppMenu native module is not available',
-    );
-  }
-  return NativeGpuiAppMenu;
-}
-
-async function request<T>(
-  run: (native: typeof NativeGpuiAppMenu) => Promise<T>,
-): Promise<T> {
-  try {
-    return await run(menuModule());
-  } catch (error) {
-    throw toDesktopError(error);
-  }
-}
+import { nativeRequest } from './index';
 import type { Subscription } from './windows';
+
+/** Runs one GpuiAppMenu method with the shared module check. */
+function request<T>(
+  run: (native: NonNullable<typeof NativeGpuiAppMenu>) => Promise<T>,
+): Promise<T> {
+  return nativeRequest('GpuiAppMenu', check => run(check(NativeGpuiAppMenu)));
+}
+
+/** The roles a custom menu can ask the host to perform. */
+export type MenuRoleAction =
+  | 'undo'
+  | 'redo'
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'selectAll'
+  | 'minimize'
+  | 'zoom'
+  | 'toggleFullscreen'
+  | 'close'
+  | 'quit'
+  | 'hide'
+  | 'hideOthers'
+  | 'showAll'
+  | 'about';
 
 export type MenuRole =
   | 'about'
@@ -88,6 +93,8 @@ export interface MenuDescription {
   appName: string;
   userSet: boolean;
   items: MenuItemSpec[];
+  /** Whether the main window's menu bar is shown. Always true on macOS. */
+  menuBarVisible: boolean;
 }
 
 const MENU_PRESS = 'gpuiDesktop:menuPress';
@@ -109,6 +116,28 @@ export const Menu = {
 
   get(): Promise<MenuDescription> {
     return request(native => native.menuGet()) as Promise<MenuDescription>;
+  },
+
+  /**
+   * Hides or shows the menu bar drawn inside the window.
+   *
+   * A no-op on macOS, where the bar is the system's; use the `menuBarInWindow`
+   * capability to hide your own UI instead of asking for something that cannot
+   * happen. Accelerators keep working either way, because they are key bindings
+   * rather than menu-widget shortcuts. `windowId` defaults to the main window.
+   */
+  /**
+   * Runs a standard menu role, as a native menu item would.
+   *
+   * A custom menu drawn in React is ordinary views, so its role items (`copy`,
+   * `paste`, …) need this to do anything.
+   */
+  performRole(role: MenuRoleAction): Promise<void> {
+    return request(native => native.menuPerformRole(role));
+  },
+
+  setMenuBarVisible(visible: boolean, windowId?: number): Promise<void> {
+    return request(native => native.menuSetMenuBarVisible(visible, windowId));
   },
 
   addListener(
@@ -174,18 +203,33 @@ export function ApplicationMenu({ items, onPress }: ApplicationMenuProps) {
     const patches =
       previous != null && items != null ? diffItems(previous, items) : null;
     if (patches) {
+      // A rejected menu call would otherwise be an unhandled rejection with
+      // nothing to show for it: the menu simply would not match the props. Log it
+      // and carry on, the same way `ContextMenuView` does.
       for (const patch of patches) {
-        Menu.update(patch.id, patch.patch);
+        Menu.update(patch.id, patch.patch).catch(error => {
+          console.warn('ApplicationMenu: failed to update a menu item', error);
+        });
       }
     } else {
-      Menu.setApplicationMenu(items);
+      Menu.setApplicationMenu(items).catch(error => {
+        console.warn(
+          'ApplicationMenu: failed to set the application menu',
+          error,
+        );
+      });
     }
     last.current = items;
   }, [items, ready]);
 
   React.useEffect(() => {
     return () => {
-      Menu.setApplicationMenu(restore.current);
+      Menu.setApplicationMenu(restore.current).catch(error => {
+        console.warn(
+          'ApplicationMenu: failed to restore the default menu',
+          error,
+        );
+      });
     };
   }, []);
 

@@ -66,6 +66,31 @@ export {
 
 export { PerfMonitor } from './src-gpui/src/private/desktop/perfMonitor';
 
+export {
+  shortcutId,
+  Shortcut,
+  Shortcuts,
+} from './src-gpui/src/private/desktop/shortcuts';
+
+export {
+  ShortcutScope,
+  useShortcut,
+  useShortcutScope,
+} from './src-gpui/src/private/desktop/useShortcut';
+
+export type {
+  InstalledShortcut,
+  ShortcutDefinition,
+  ShortcutEvent,
+  ShortcutHandler,
+  ShortcutResolution,
+} from './src-gpui/src/private/desktop/shortcuts';
+
+export type {
+  ShortcutOptions,
+  ShortcutScopeProps,
+} from './src-gpui/src/private/desktop/useShortcut';
+
 export { Tray } from './src-gpui/src/private/desktop/tray';
 
 export type {
@@ -80,7 +105,9 @@ export type {
   DesktopContextMenuEventData,
 } from './types';
 export type {
+  ContextMenuOpenEvent,
   ContextMenuOptions,
+  ContextMenuPresentation,
   ContextMenuViewProps,
 } from './src-gpui/src/private/desktop/contextMenu';
 

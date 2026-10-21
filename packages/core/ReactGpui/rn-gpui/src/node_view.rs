@@ -1974,36 +1974,32 @@ impl RNNodeView {
     }
 }
 
+/// Reports a key to JS with the names the DOM uses.
+///
+/// `key` is the DOM's `KeyboardEvent.key`: `ArrowLeft`, `Enter`, `Escape`, a
+/// single printable character, or `" "` for space. `code` is the physical key
+/// (`KeyA`, `Digit4`, `ArrowLeft`) and `keyCode` the legacy number. Before this,
+/// only six keys were translated and everything else went out as GPUI's own
+/// spelling with `keyCode: 0`, so JS could not tell `ArrowLeft` from an unknown
+/// key.
+///
+/// The GPUI spelling is kept in `gpuiKey` for anything that still matches on it.
+/// Nothing in core reads the payload back — the internal handling matches on
+/// `event.keystroke.key` before this runs — so this is purely what JS sees.
 fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool, cx: &App) {
     let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
         return;
     };
     let host = store.0.read(cx).host.clone();
-    let code = match key.key.as_str() {
-        "tab" => "Tab",
-        "enter" => "Enter",
-        "escape" => "Escape",
-        "space" => "Space",
-        "backspace" => "Backspace",
-        "delete" => "Delete",
-        other => other,
-    };
-    let key_code = match key.key.as_str() {
-        "tab" => 9,
-        "enter" => 13,
-        "escape" => 27,
-        "space" => 32,
-        "backspace" => 8,
-        "delete" => 46,
-        _ => 0,
-    };
+    let key_name = crate::desktop::keymap::normalise_web_key(&key.key, key.modifiers.shift);
     host.dispatch_event(
         tag,
         event_type,
         &serde_json::json!({
-            "key": if key.key == "space" { " " } else { key.key.as_str() },
-            "code": code,
-            "keyCode": key_code,
+            "key": key_name,
+            "gpuiKey": key.key.as_str(),
+            "code": crate::desktop::keymap::web_code(&key.key),
+            "keyCode": crate::desktop::keymap::key_code(&key.key),
             "repeat": repeat,
             "shiftKey": key.modifiers.shift,
             "ctrlKey": key.modifiers.control,
@@ -2184,6 +2180,72 @@ impl Render for RNNodeView {
             }
         }
         let mut element = div().id(self.tag);
+        // Everything that puts this node into keymap resolution goes through one
+        // `KeyContext`, because `Div::key_context` *assigns*: a second call would
+        // silently replace the first. Building one context and merging into it
+        // means a node that is both a scope and a text input keeps both markers,
+        // instead of one vanishing with no warning.
+        //
+        // This is also the only place a context can go: GPUI keeps it on the
+        // element and pushes it onto the dispatch tree at paint, which is what
+        // makes the focus path's context stack — and so the scope precedence —
+        // real.
+        let key_context = {
+            let mut context = gpui::KeyContext::default();
+            let mut claimed = false;
+            if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
+                let node = self.component_node_shallow();
+                if let Some(declared) = renderer.key_context(&node) {
+                    match gpui::KeyContext::parse(&declared) {
+                        Ok(parsed) => {
+                            context.extend(&parsed);
+                            claimed = true;
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "[shortcut] {} has an invalid key context {declared:?}: {error}",
+                                self.component
+                            );
+                        }
+                    }
+                }
+            }
+            // A `TextInput` marks itself so a shortcut that did not ask for
+            // `allowInTextInput` can exclude itself with `!rn-text-input`. The
+            // marker is on the node's own element, so it is on the focus path of
+            // every key the input handles.
+            if self.component == "TextInput" {
+                if let Ok(marker) =
+                    gpui::KeyContext::parse(crate::desktop::keymap::TEXT_INPUT_CONTEXT)
+                {
+                    context.extend(&marker);
+                    claimed = true;
+                }
+            }
+            claimed.then_some(context)
+        };
+        if let Some(context) = key_context {
+            element = element.key_context(context);
+        }
+        // A shortcut scope owns the `ShortcutAction`s whose ids it registered.
+        // The listener is in the bubble phase, innermost node first, so the
+        // deepest scope on the focus path claims the action and an outer one
+        // never sees it — which is the "innermost wins" rule. A scope that does
+        // not own the id propagates, so an outer scope, or the app-wide handler,
+        // still gets its turn.
+        if self.component == crate::builtins::shortcut_scope::COMPONENT {
+            let tag = self.tag;
+            let scope = crate::builtins::shortcut_scope::scope_name(&self.component_node_shallow());
+            element = element.on_action(cx.listener(
+                move |_this, action: &crate::desktop::keymap::ShortcutAction, window, cx| {
+                    if !crate::desktop::keymap::scope_owns(cx, &scope, &action.id) {
+                        cx.propagate();
+                        return;
+                    }
+                    crate::desktop::keymap::dispatch_to(cx, tag, &action.id, Some(window));
+                },
+            ));
+        }
         let decoration = self.decoration(cx);
         if decoration.clip {
             element = element.overflow_hidden();
@@ -3165,8 +3227,13 @@ impl Render for RNNodeView {
                 }));
         }
         // A child of a scrolling container moves with its content, so a pointer area
-        // here would drift off the viewport.
-        if is_scroll {
+        // here would drift off the viewport. A node that claims a window-control
+        // area has the same problem for a different reason: the platform asks
+        // which element is under the pointer, and an overlay child sits in front
+        // of its own parent, so the area would never be consulted and the window
+        // could not be dragged by the node that asked to be draggable.
+        let claims_area = self.window_control_area(cx).is_some();
+        if is_scroll || claims_area {
             // The direct-listener path needs one registration per button, and
             // the middle and side buttons go through it too, so a scroll
             // container reports them the same way a pointer area does.
@@ -3215,6 +3282,11 @@ impl Render for RNNodeView {
             if !handlers.is_empty() {
                 element = element.child(pointer_area(handlers));
             }
+        }
+        // Not for a scroll container, which never had one: its content is
+        // re-parented into the scrolling child and a focus handle here would sit
+        // outside it.
+        if !is_scroll {
             if let Some(focus_child) = focus_child {
                 element = element.child(focus_child);
             }

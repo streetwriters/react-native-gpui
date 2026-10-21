@@ -1,6 +1,7 @@
 //! Windows has no anchored popover: the window opens at the click point. Linux
 //! AppIndicator only supports menus, not click-to-popover.
 
+use crate::bootstrap::WindowTitleBar;
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::menu_model::{self, MenuModel};
 use crate::desktop::windows::{self, OpenWindowOptions, WindowRoleOverride};
@@ -216,7 +217,8 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         x: Some(x),
         y: Some(y),
         resizable: false,
-        appears_transparent: false,
+        // A popover has no title bar at all; `popup` is what makes it frameless.
+        title_bar: WindowTitleBar::Default,
         traffic_light_position: None,
         role: WindowRoleOverride::TrayPopover,
         popup: true,
