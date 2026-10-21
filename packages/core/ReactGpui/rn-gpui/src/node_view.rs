@@ -3200,11 +3200,16 @@ impl Render for RNNodeView {
                 element =
                     element.on_mouse_move(move |event, window, cx| handler(event, window, cx));
             }
-            for handler in handlers.hover {
-                // No hover edge detection on this path: a scrolling container is
-                // not where a caption button lives, and `pointer_area` covers the
-                // components that need it.
-                let _ = handler;
+            // GPUI's own `on_hover` reports an edge by tracking the hovered state
+            // itself, so this path needs no bookkeeping of its own — and it takes
+            // only one listener, so the handlers are chained rather than added.
+            if !handlers.hover.is_empty() {
+                let chained = handlers.hover;
+                element = element.on_hover(move |hovered: &bool, window, cx| {
+                    for handler in &chained {
+                        handler(*hovered, window, cx);
+                    }
+                });
             }
         } else {
             if !handlers.is_empty() {
