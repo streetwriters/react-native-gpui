@@ -110,10 +110,15 @@ class GpuiHostShadowNode final : public facebook::react::ConcreteViewShadowNode<
                                      GpuiHostStateData> {
  public:
   static facebook::react::ShadowNodeTraits BaseTraits() {
-    auto traits = facebook::react::YogaLayoutableShadowNode::BaseTraits();
+    // From `ConcreteViewShadowNode`, not `YogaLayoutableShadowNode`: the latter
+    // omits `FormsView`, and Fabric's differ only emits `Create`/`Insert` for a
+    // node it considers a concrete view. Without it the shadow node is laid out
+    // by Yoga and then dropped before mounting, so the node never reaches the
+    // store — and because `FormsStackingContext` is set, its children are not
+    // hoisted into the parent either, so an entire subtree disappears silently.
+    auto traits = GpuiHostShadowNode::ConcreteViewShadowNode::BaseTraits();
     traits.set(facebook::react::ShadowNodeTraits::Trait::LeafYogaNode);
     traits.set(facebook::react::ShadowNodeTraits::Trait::MeasurableYogaNode);
-    traits.set(facebook::react::ShadowNodeTraits::Trait::FormsStackingContext);
     return traits;
   }
 
@@ -151,8 +156,10 @@ class GpuiHostContainerShadowNode final
           GpuiHostStateData> {
  public:
   static facebook::react::ShadowNodeTraits BaseTraits() {
-    auto traits = facebook::react::YogaLayoutableShadowNode::BaseTraits();
-    traits.set(facebook::react::ShadowNodeTraits::Trait::FormsStackingContext);
+    // `FormsView` for the same reason as the leaf class above; no leaf trait,
+    // so the children it was given survive to be mounted.
+    auto traits =
+        GpuiHostContainerShadowNode::ConcreteViewShadowNode::BaseTraits();
     return traits;
   }
 
