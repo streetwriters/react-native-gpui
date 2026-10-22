@@ -5356,6 +5356,7 @@ dependencies = [
 name = "rn-gpui-tester"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "react-native-gpui",
  "rn-gpui-autolink",
  "rn-gpui-module",

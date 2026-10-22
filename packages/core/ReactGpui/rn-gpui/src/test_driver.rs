@@ -685,7 +685,11 @@ async fn serve_commands(
                     store.nodes.get(&tag)?.read(cx).nearest_focus_handle(cx)
                 });
                 if let Some(handle) = handle {
-                    cx.update_window(window, move |_,window,app| { window.focus(&handle,app); json!({"focused":true}) })
+                    // Drawn after focusing, as `press` draws before it dispatches: GPUI
+                    // reports a focus change to the node's listeners on the next
+                    // frame, and a test that waits for idle would otherwise read
+                    // the app before it was told.
+                    cx.update_window(window, move |_,window,app| { window.focus(&handle,app); draw_frame(window, app); json!({"focused":true}) })
                         .unwrap_or_else(|error|json!({"error":error.to_string()}))
                 } else {json!({"error":"Target has no focusable ancestor"})}
             },

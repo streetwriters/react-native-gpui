@@ -40,6 +40,19 @@ impl Global for StoreGlobal {}
 /// rendering is applied.
 pub(crate) type HostReportQueue = crate::host_component::HostReportQueue;
 
+/// How a surface's root is shown (design 2, section 4.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceKind {
+    /// The root of a window: the menu bar, the overlay slot, the performance
+    /// monitor and the app key context belong to it.
+    Window,
+    /// Shown above a window's content through its overlay slot (LogBox).
+    Overlay,
+    /// Owned by a `ReactSurface`: GPUI places it inside any tree, and it carries
+    /// none of the window's chrome.
+    Embedded,
+}
+
 pub struct ViewStore {
     pub host: Host,
     pub frame_hook: FrameHook,
@@ -54,7 +67,15 @@ pub struct ViewStore {
     /// reported it. A `FitContent` surface reads this to size its leaf.
     pub surface_content_sizes: HashMap<i32, (f32, f32)>,
     /// Embedded surfaces that report their content size, by surface id.
-    surface_size_observers: HashMap<i32, crate::surface::SurfaceContentSize>,
+    surface_size_observers: HashMap<
+        i32,
+        (
+            crate::surface::SurfaceContentSize,
+            gpui::WeakEntity<crate::surface::ReactSurface>,
+        ),
+    >,
+    /// Where each embedded surface's box is in its window, shared with its nodes.
+    surface_origins: HashMap<i32, crate::surface::SurfaceOrigin>,
     pub overlay_host: Entity<OverlayHost>,
     /// Interior mutability on purpose: pointer movement must not update the store
     /// entity, which nearly every node reads while rendering.
@@ -107,6 +128,7 @@ impl ViewStore {
             primary_surface_id: APP_SURFACE_ID,
             surface_content_sizes: HashMap::new(),
             surface_size_observers: HashMap::new(),
+            surface_origins: HashMap::new(),
             overlay_host,
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
@@ -156,11 +178,13 @@ impl ViewStore {
         &mut self,
         surface_id: i32,
         observer: crate::surface::SurfaceContentSize,
+        surface: gpui::WeakEntity<crate::surface::ReactSurface>,
     ) {
         if let Some(size) = self.surface_content_sizes.get(&surface_id) {
             observer.set(*size);
         }
-        self.surface_size_observers.insert(surface_id, observer);
+        self.surface_size_observers
+            .insert(surface_id, (observer, surface));
     }
 
     /// The root entity for `surface_id`, making one if needed.
@@ -176,17 +200,51 @@ impl ViewStore {
         self.root_for(surface_id, cx)
     }
 
+    /// The root of an embedded surface: a surface GPUI places inside its own
+    /// tree. Unlike the root a mount batch creates for an unknown surface, it is
+    /// not shown through the overlay slot, and it carries no window chrome.
+    pub fn ensure_embedded_root(
+        &mut self,
+        surface_id: i32,
+        cx: &mut Context<Self>,
+    ) -> Entity<SurfaceRootView> {
+        if let Some(root) = self.roots.get(&surface_id) {
+            return root.clone();
+        }
+        let root = cx.new(|_| SurfaceRootView::with_kind(surface_id, SurfaceKind::Embedded));
+        self.roots.insert(surface_id, root.clone());
+        root
+    }
+
+    /// Uses `origin` as the box of `surface_id` in its window. Called before the
+    /// surface's first node mounts, so each node shares the cell.
+    pub fn use_surface_origin(&mut self, surface_id: i32, origin: crate::surface::SurfaceOrigin) {
+        self.surface_origins.insert(surface_id, origin);
+    }
+
+    /// The origin cell nodes of `surface_id` share. A surface that was never
+    /// placed by GPUI (a window root) keeps the zero origin it starts with.
+    fn origin_for(&mut self, surface_id: i32) -> crate::surface::SurfaceOrigin {
+        self.surface_origins.entry(surface_id).or_default().clone()
+    }
+
     fn root_for(&mut self, surface_id: i32, cx: &mut Context<Self>) -> Entity<SurfaceRootView> {
         if let Some(root) = self.roots.get(&surface_id) {
             return root.clone();
         }
-        let root = cx.new(|_| SurfaceRootView::new(surface_id));
-        self.roots.insert(surface_id, root.clone());
         // A surface with no registered window belongs to the main window. That
         // covers LogBox (surface 2), which C++ starts directly, and any surface
         // that mounted before the window registry adopted it.
         let window = self.window_for(surface_id).unwrap_or(self.window);
-        if surface_id != self.primary_surface_id && window == self.window {
+        let overlay = surface_id != self.primary_surface_id && window == self.window;
+        let kind = if overlay {
+            SurfaceKind::Overlay
+        } else {
+            SurfaceKind::Window
+        };
+        let root = cx.new(|_| SurfaceRootView::with_kind(surface_id, kind));
+        self.roots.insert(surface_id, root.clone());
+        if overlay {
             log::info!("[store] surface {surface_id} registered as an overlay");
             self.overlay_host.update(cx, |host, cx| {
                 host.insert(surface_id, root.clone());
@@ -419,9 +477,18 @@ impl ViewStore {
         // this batch already sees it.
         if batch.has_content_size {
             let size = (batch.content_width, batch.content_height);
+            log::debug!(
+                "[store] surface {surface_id} content size {}x{}",
+                size.0,
+                size.1
+            );
             self.surface_content_sizes.insert(surface_id, size);
-            if let Some(observer) = self.surface_size_observers.get(&surface_id) {
-                observer.set(size);
+            if let Some((observer, surface)) = self.surface_size_observers.get(&surface_id) {
+                // A changed size means the box GPUI lays out around the surface
+                // changed, so the surface is notified and the tree lays out again.
+                if observer.set(size) {
+                    let _ = surface.update(cx, |_, cx| cx.notify());
+                }
             }
         }
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
@@ -501,7 +568,11 @@ impl ViewStore {
                         );
                     }
                     let host_reports = host_reports.clone();
-                    let node = cx.new(|_| RNNodeView::from_op(op, surface_id, host_reports));
+                    let origin = self.origin_for(surface_id);
+                    let node = cx.new(|_| {
+                        RNNodeView::from_op(op, surface_id, host_reports)
+                            .with_surface_origin(origin)
+                    });
                     self.nodes.insert(op.tag, node.clone());
                     self.record_subtree_nodes(&[op.tag], cx);
                     let component_node = node.read(cx).component_node(cx);
@@ -1219,7 +1290,7 @@ pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensi
 
 #[cfg(test)]
 mod test_app_context_tests {
-    use super::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
+    use super::{OverlayHost, StoreGlobal, SurfaceKind, SurfaceRootView, ViewStore};
     use crate::{frame::FrameHook, host::Host};
     use gpui::{px, AppContext, TestAppContext};
     use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp, ParagraphFlat, RectF, ViewPropsFlat};
@@ -1358,6 +1429,35 @@ mod test_app_context_tests {
                 .get(&tag)
                 .map(|node| node.read(app).native_surface_descendants)
         })
+    }
+
+    /// An embedded surface's root belongs to the `ReactSurface` that placed it:
+    /// it must not also be shown through the window's overlay slot, where it
+    /// would cover the window it was meant to sit inside.
+    #[gpui::test]
+    fn an_embedded_root_is_not_an_overlay(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        let (embedded, overlay_count) = store.update(cx, |store, cx| {
+            let root = store.ensure_embedded_root(5, cx);
+            (root, store.overlay_host.read(cx).overlay_count())
+        });
+        assert_eq!(overlay_count, 0, "an embedded surface is not an overlay");
+        assert_eq!(
+            embedded.read_with(cx, |root, _| root.kind),
+            SurfaceKind::Embedded
+        );
+
+        // A surface a mount batch creates on its own is the LogBox case: an
+        // overlay of the main window.
+        let (logbox, overlay_count) = store.update(cx, |store, cx| {
+            let root = store.ensure_root(2, cx);
+            (root, store.overlay_host.read(cx).overlay_count())
+        });
+        assert_eq!(overlay_count, 1);
+        assert_eq!(
+            logbox.read_with(cx, |root, _| root.kind),
+            SurfaceKind::Overlay
+        );
     }
 
     /// The surface root's own count.
@@ -2226,6 +2326,12 @@ impl OverlayHost {
         }
     }
 
+    /// How many surfaces are shown through the slot, for tests.
+    #[cfg(test)]
+    pub(crate) fn overlay_count(&self) -> usize {
+        self.overlays.len()
+    }
+
     pub fn insert(&mut self, surface_id: i32, overlay: Entity<SurfaceRootView>) {
         if !self.overlays.iter().any(|(id, _)| *id == surface_id) {
             self.overlays.push((surface_id, overlay));
@@ -2269,6 +2375,7 @@ impl Render for OverlayHost {
 
 pub struct SurfaceRootView {
     surface_id: i32,
+    pub(crate) kind: SurfaceKind,
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// How many of the nodes mounted under this surface render a native
     /// surface.
@@ -2277,6 +2384,8 @@ pub struct SurfaceRootView {
     /// "is a native surface on screen" from a field rather than by walking the
     /// tree on every render (design 2, section 7 rule 6).
     native_surfaces: u32,
+    /// A GPUI-first app's content, painted where a React tree would be.
+    app_content: Option<gpui::AnyView>,
     pub overlay_host: Option<Entity<OverlayHost>>,
     pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
     pub menu_bar: Option<Entity<crate::desktop::gpui_menu::MenuBar>>,
@@ -2289,10 +2398,16 @@ pub struct SurfaceRootView {
 
 impl SurfaceRootView {
     pub fn new(surface_id: i32) -> Self {
+        Self::with_kind(surface_id, SurfaceKind::Window)
+    }
+
+    pub fn with_kind(surface_id: i32, kind: SurfaceKind) -> Self {
         Self {
             surface_id,
+            kind,
             children: Vec::new(),
             native_surfaces: 0,
+            app_content: None,
             overlay_host: None,
             perf_monitor: None,
             menu_bar: None,
@@ -2300,6 +2415,12 @@ impl SurfaceRootView {
             #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
+    }
+
+    /// Makes the root show a GPUI view instead of a React tree. The window chrome
+    /// — the menu bar, the overlay slot, the key context — stays the root's.
+    pub fn set_app_content(&mut self, view: gpui::AnyView) {
+        self.app_content = Some(view);
     }
 
     pub fn with_overlay_host(mut self, overlay_host: Entity<OverlayHost>) -> Self {
@@ -2408,6 +2529,16 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // An embedded surface is content inside somebody else's tree: the window
+        // that holds it owns the key context, the pointer-leave handling, the
+        // overlay slot, the menu bar and the navigation buttons.
+        if self.kind == SurfaceKind::Embedded {
+            return div()
+                .size_full()
+                .relative()
+                .children(self.children.iter().map(|(_, child)| child.clone()))
+                .into_any_element();
+        }
         // The root's own counter, not a walk of its children: this runs on every
         // frame the surface paints (design 2, section 7 rule 6).
         let has_fabric_native_view = self.has_native_surface();
@@ -2419,6 +2550,7 @@ impl Render for SurfaceRootView {
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         if let Some(native_view_probe) = &self.native_view_probe {
@@ -2481,7 +2613,16 @@ impl Render for SurfaceRootView {
                 .child(menu_bar)
                 .child(content)
         } else {
-            div().size_full().key_context(app_context).child(content)
+            // A flex column, as with a menu bar, so `content` (which is `flex_1`)
+            // gets the window's height. Without it the content is as tall as its
+            // children, and a GPUI view that sizes itself as a percentage of it
+            // — a GPUI-first app's layout — collapses to nothing.
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .key_context(app_context)
+                .child(content)
         };
         if self.surface_id == APP_SURFACE_ID {
             for (button, event_name) in [

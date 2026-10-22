@@ -37,8 +37,8 @@
 use crate::host::Host;
 use crate::store::{store_from, SurfaceRootView, APP_SURFACE_ID};
 use gpui::{
-    div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, Entity, IntoElement, Pixels,
-    Render, Size, Window,
+    div, prelude::*, px, AnyElement, App, Bounds, Context, Entity, IntoElement, Pixels, Render,
+    Size, Window,
 };
 use serde_json::Value;
 use std::cell::Cell;
@@ -125,6 +125,27 @@ impl SurfaceContentSize {
     }
 }
 
+/// Where a surface's box is in its window, shared with every node it mounts.
+///
+/// The element that places a surface writes it in `prepaint`, the only time GPUI
+/// says where an element is. A node adds it to the origin its own ancestors
+/// computed, so `measureInWindow`, hit testing and the test driver report window
+/// coordinates for a surface that is not at the window's origin (design 2,
+/// section 4.3). It is read live, so a surface GPUI moves without a React commit
+/// is still right.
+#[derive(Clone, Default)]
+pub struct SurfaceOrigin(std::rc::Rc<Cell<(f32, f32)>>);
+
+impl SurfaceOrigin {
+    pub(crate) fn set(&self, origin: (f32, f32)) {
+        self.0.set(origin);
+    }
+
+    pub fn get(&self) -> (f32, f32) {
+        self.0.get()
+    }
+}
+
 /// One React surface inside a GPUI tree.
 pub struct ReactSurface {
     surface_id: i32,
@@ -143,6 +164,8 @@ pub struct ReactSurface {
     sent_constraints: Cell<Option<(f32, f32, f32, f32)>>,
     /// What the React content last reported wanting.
     pub(crate) content_size: SurfaceContentSize,
+    /// Where the surface's box is in its window.
+    pub(crate) origin: SurfaceOrigin,
     /// Whether the surface has been started, so `Drop` knows whether to stop it.
     started: bool,
 }
@@ -160,6 +183,7 @@ impl ReactSurface {
             sent_size: Cell::new(None),
             sent_constraints: Cell::new(None),
             content_size: SurfaceContentSize::default(),
+            origin: SurfaceOrigin::default(),
             started: false,
         }
     }
@@ -194,7 +218,7 @@ impl ReactSurface {
     ///
     /// A `Fill` surface is told the box's exact size; a `FitContent` one is told
     /// the constraints it may occupy and reports back what it used.
-    fn start(&mut self, bounds: Bounds<Pixels>, scale: f32, cx: &mut App) {
+    fn start(&mut self, bounds: Bounds<Pixels>, scale: f32, cx: &mut Context<Self>) {
         if self.started {
             return;
         }
@@ -227,8 +251,10 @@ impl ReactSurface {
                 min_width,
                 min_height,
             } => {
-                let max_width = max_width.unwrap_or(width).max(min_width);
-                let max_height = max_height.unwrap_or(height).max(min_height);
+                // An unbounded axis is infinite. Defaulting it to the surface's own
+                // current box would freeze a surface at the size it started in.
+                let max_width = max_width.unwrap_or(f32::INFINITY).max(min_width);
+                let max_height = max_height.unwrap_or(f32::INFINITY).max(min_height);
                 host.start_surface_with_constraints(
                     self.surface_id,
                     &self.module,
@@ -247,12 +273,16 @@ impl ReactSurface {
         // as an embedded (overlay) surface of this window rather than a window
         // root, which is what keeps window chrome off it.
         let content_size = self.content_size.clone();
+        let origin = self.origin.clone();
+        let notify = cx.entity().downgrade();
         let surface_id = self.surface_id;
         self.root = Some(store.update(cx, |store, cx| {
-            let root = store.ensure_root(surface_id, cx);
+            // Before any node mounts, so every node it creates shares the cell.
+            store.use_surface_origin(surface_id, origin);
+            let root = store.ensure_embedded_root(surface_id, cx);
             // The measured size comes back with the mount batches, so the store
             // holds the current value and this picks it up from now on.
-            store.observe_surface_content_size(surface_id, content_size);
+            store.observe_surface_content_size(surface_id, content_size, notify);
             root
         }));
         self.scale = scale;
@@ -287,7 +317,7 @@ impl ReactSurface {
     }
 
     /// Keeps a `FitContent` surface's constraints in step with its box.
-    fn sync_fit_constraints(&mut self, bounds: Bounds<Pixels>, scale: f32, cx: &mut App) {
+    fn sync_fit_constraints(&mut self, scale: f32, cx: &mut App) {
         let (min_width, min_height, max_width, max_height) = match self.sizing {
             SurfaceSizing::FitContent {
                 max_width,
@@ -297,12 +327,9 @@ impl ReactSurface {
             } => (
                 min_width,
                 min_height,
-                max_width
-                    .unwrap_or(f32::from(bounds.size.width))
-                    .max(min_width),
-                max_height
-                    .unwrap_or(f32::from(bounds.size.height))
-                    .max(min_height),
+                // The same bounds `start` sent: an unbounded axis stays infinite.
+                max_width.unwrap_or(f32::INFINITY).max(min_width),
+                max_height.unwrap_or(f32::INFINITY).max(min_height),
             ),
             SurfaceSizing::Fill => return,
         };
@@ -412,53 +439,28 @@ impl Element for SurfaceHost {
                 min_width,
                 min_height,
             } => {
-                // The leaf's own preferred size is what React last reported; the
-                // measure function clamps it to what taffy offers.
-                let content = self.content_size.clone();
-                let max = gpui::size(max_width, max_height);
-                let min = gpui::size(min_width, min_height);
-                // The leaf's own size is the last size React reported, so its
-                // child (the React root, `size_full`) has a definite box to lay
-                // out in. The measure function below refines it against what
-                // taffy offers, which is what makes taffy size the rest of the
-                // tree around the surface.
-                let known_content = self.content_size.get().unwrap_or((min_width, min_height));
-                style.size.width = gpui::px(known_content.0.max(min_width)).into();
-                style.size.height = gpui::px(known_content.1.max(min_height)).into();
-                let _ = &children;
-                window.request_measured_layout(style, move |known, available, _window, _cx| {
-                    let measure = SurfaceMeasure::new(
-                        content.clone(),
-                        Size {
-                            width: max_width,
-                            height: max_height,
-                        },
-                        Size {
-                            width: min_width,
-                            height: min_height,
-                        },
-                    );
-                    let preferred = measure.measured();
-                    // `known` is a size the parent's style already fixed; the
-                    // available space is the upper bound when it is finite.
-                    let width = known.width.unwrap_or_else(|| {
-                        clamp_axis(
-                            preferred.width,
-                            available.width,
-                            max_width.map(px),
-                            px(min_width),
-                        )
-                    });
-                    let height = known.height.unwrap_or_else(|| {
-                        clamp_axis(
-                            preferred.height,
-                            available.height,
-                            max_height.map(px),
-                            px(min_height),
-                        )
-                    });
-                    gpui::size(width, height)
-                })
+                // The box is the size React last reported, clamped to the bounds
+                // the app set, and the React root is its child, so the root has a
+                // definite box to lay out in. When a commit reports a different
+                // size the store notifies the surface, GPUI lays the tree out
+                // again, and taffy sizes everything around this box (design 2,
+                // section 4.2). Nothing is guessed: before the first report the
+                // box is the minimum.
+                let measured = SurfaceMeasure::new(
+                    self.content_size.clone(),
+                    Size {
+                        width: max_width,
+                        height: max_height,
+                    },
+                    Size {
+                        width: min_width,
+                        height: min_height,
+                    },
+                )
+                .measured();
+                style.size.width = measured.width.into();
+                style.size.height = measured.height.into();
+                window.request_layout(style, children, cx)
             }
         };
         (layout, child)
@@ -469,19 +471,29 @@ impl Element for SurfaceHost {
         _id: Option<&gpui::GlobalElementId>,
         _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _request_layout: &mut Self::RequestLayoutState,
+        request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        // An element that owns a child prepaints it itself: GPUI asserts `paint`
+        // is preceded by `prepaint`, and a surface that skipped this could never
+        // show its React tree.
+        if let Some(child) = request_layout {
+            child.prepaint(window, cx);
+        }
         let scale = window.scale_factor();
         let sizing = self.sizing;
         let _ = self.surface.update(cx, |surface, cx| {
             if !surface.started {
                 surface.start(bounds, scale, cx);
             }
+            // Where this box is in the window, for the nodes inside it.
+            surface
+                .origin
+                .set((f32::from(bounds.origin.x), f32::from(bounds.origin.y)));
             match sizing {
                 SurfaceSizing::Fill => surface.sync_fill_size(bounds, scale, cx),
-                SurfaceSizing::FitContent { .. } => surface.sync_fit_constraints(bounds, scale, cx),
+                SurfaceSizing::FitContent { .. } => surface.sync_fit_constraints(scale, cx),
             }
         });
     }
@@ -502,24 +514,6 @@ impl Element for SurfaceHost {
             child.paint(window, cx);
         }
     }
-}
-
-/// Clamps one axis of a measured size to what taffy offered and what the sizing
-/// allows.
-fn clamp_axis(
-    preferred: Pixels,
-    available: gpui::AvailableSpace,
-    max: Option<Pixels>,
-    min: Pixels,
-) -> Pixels {
-    let mut size = preferred.max(min);
-    if let Some(max) = max {
-        size = size.min(max.max(min));
-    }
-    if let gpui::AvailableSpace::Definite(limit) = available {
-        size = size.min(limit.max(min));
-    }
-    size
 }
 
 /// Renders a surface at a fixed size, for an app that does not want taffy to
@@ -581,6 +575,49 @@ mod tests {
         sorted.dedup();
         assert_eq!(sorted.len(), ids.len(), "ids are unique: {ids:?}");
         assert!(ids.windows(2).all(|pair| pair[0] < pair[1]), "ids increase");
+    }
+
+    #[test]
+    fn a_surface_origin_is_shared_and_read_live() {
+        let origin = SurfaceOrigin::default();
+        let node_side = origin.clone();
+        assert_eq!(node_side.get(), (0.0, 0.0));
+        // The element that places the surface writes it; every node that holds
+        // a clone sees the new value without a React commit.
+        origin.set((240.0, 32.0));
+        assert_eq!(node_side.get(), (240.0, 32.0));
+    }
+
+    #[test]
+    fn an_unbounded_fit_axis_is_infinite_not_the_current_box() {
+        // A surface that has not measured yet has a zero box; a bound taken from
+        // it would hold the surface at zero for good.
+        let measure = SurfaceMeasure::new(
+            SurfaceContentSize::default(),
+            Size {
+                width: None,
+                height: None,
+            },
+            Size {
+                width: 0.0,
+                height: 0.0,
+            },
+        );
+        assert_eq!(measure.measured(), gpui::size(px(0.0), px(0.0)));
+        let content = SurfaceContentSize::default();
+        content.set((180.0, 96.0));
+        let measure = SurfaceMeasure::new(
+            content,
+            Size {
+                width: None,
+                height: None,
+            },
+            Size {
+                width: 0.0,
+                height: 0.0,
+            },
+        );
+        assert_eq!(measure.measured(), gpui::size(px(180.0), px(96.0)));
     }
 
     #[test]

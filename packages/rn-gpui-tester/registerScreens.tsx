@@ -61,6 +61,24 @@ export function registerScreens(testMode = false) {
         props,
       ),
   );
+  // The React content of the tester's GPUI-first example (design 2, direction A).
+  // Not in the screen catalog: only the example and its e2e place them.
+  AppRegistry.registerComponent(
+    'EmbeddedPanel',
+    () => (props: { name?: string }) =>
+      React.createElement(
+        require('./fixtures/components/EmbeddedSurfaceFixtures').EmbeddedPanel,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
+    'EmbeddedFit',
+    () => (props: { name?: string }) =>
+      React.createElement(
+        require('./fixtures/components/EmbeddedSurfaceFixtures').EmbeddedFit,
+        props,
+      ),
+  );
   AppRegistry.registerComponent(
     'DesktopShellChild',
     () => (props: { windowId?: number; label?: string }) =>

@@ -34,7 +34,11 @@ impl react_native_gpui::native_view::NativeViewFactory for BlueNativeProbe {
             let _: () = msg_send![layer, setCornerRadius: 12.0];
             let _: () = msg_send![layer, setMasksToBounds: YES];
             let _ = context.native_props.get("label");
-            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view as *mut std::ffi::c_void))
+            Ok(
+                react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(
+                    view as *mut std::ffi::c_void,
+                ),
+            )
         }
     }
 }
@@ -64,10 +68,16 @@ impl react_native_gpui::native_view::NativeViewFactory for TesterWebView {
             );
             let _: id = msg_send![view, loadHTMLString: html baseURL: nil];
             let _: () = msg_send![html, release];
-            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view as *mut std::ffi::c_void))
+            Ok(
+                react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(
+                    view as *mut std::ffi::c_void,
+                ),
+            )
         }
     }
 }
+
+mod gpui_first;
 
 fn main() {
     rn_gpui_autolink::ensure_linked();
@@ -104,6 +114,10 @@ fn main() {
             TesterWebView,
         );
     });
+
+    // `RN_GPUI_GPUI_FIRST_EXAMPLE=1` swaps the React main window for a GPUI
+    // layout that holds React surfaces (design 2, direction A).
+    let config = gpui_first::apply(config);
 
     let config = if std::env::var_os("RN_GPUI_DEMO_WINDOW").is_some() {
         config

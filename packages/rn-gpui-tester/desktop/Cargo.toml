@@ -50,6 +50,9 @@ rn-gpui-module-build = { path = "../../core/ReactGpui/rn-gpui-module-build" }
 rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../core/ReactGpui/rn-gpui" }
+# The GPUI-first example (`src/gpui_first.rs`) is a GPUI tree of its own.
+gpui = "0.2"
+serde_json = "1"
 
 [patch.crates-io]
 # Managed by @react-native-gpui/cli autolink; do not edit between these markers.

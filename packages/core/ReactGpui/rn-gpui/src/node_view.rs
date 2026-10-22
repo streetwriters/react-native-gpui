@@ -98,6 +98,9 @@ pub struct RNNodeView {
     /// The store's report queue, shared by every node. A method's context writes
     /// here; the store is the one place that applies what is written.
     host_reports: crate::store::HostReportQueue,
+    /// Where this node's surface is in its window. Zero for a window's own root
+    /// surface; a `ReactSurface` placed by GPUI writes its box here.
+    surface_origin: crate::surface::SurfaceOrigin,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
@@ -861,6 +864,7 @@ impl RNNodeView {
             host_container,
             intrinsic_size: None,
             host_reports,
+            surface_origin: crate::surface::SurfaceOrigin::default(),
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -1292,7 +1296,16 @@ impl RNNodeView {
             x -= link.scale.0 * offset.x;
             y -= link.scale.1 * offset.y;
         }
-        point(px(x), px(y))
+        // Plus where the surface's box is in its window: zero for a window's
+        // own surface, the box GPUI placed for an embedded one.
+        let (surface_x, surface_y) = self.surface_origin.get();
+        point(px(x + surface_x), px(y + surface_y))
+    }
+
+    /// Shares `origin` with the other nodes of this node's surface.
+    pub(crate) fn with_surface_origin(mut self, origin: crate::surface::SurfaceOrigin) -> Self {
+        self.surface_origin = origin;
+        self
     }
 
     #[cfg(any(test, debug_assertions))]
@@ -1317,7 +1330,8 @@ impl RNNodeView {
         }
         chain.reverse();
         let (x, y) = accumulate_origin(&chain);
-        point(px(x), px(y))
+        let (surface_x, surface_y) = self.surface_origin.get();
+        point(px(x + surface_x), px(y + surface_y))
     }
 
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {

@@ -593,6 +593,9 @@ pub fn clamp_traffic_light_position(x: f32, y: f32, width: f32, height: f32) -> 
     (clamp(x, width), clamp(y, height))
 }
 
+/// Builds the GPUI view that is a GPUI-first app's main window content.
+type GpuiRootHook = Box<dyn FnOnce(&mut App, crate::runtime::ReactRuntime) -> gpui::AnyView>;
+
 pub struct DesktopAppConfig {
     pub app_id: String,
     pub module: String,
@@ -617,6 +620,10 @@ pub struct DesktopAppConfig {
     pub on_app_ready: Option<AppReadyHook>,
 
     pub on_window_opened: Option<WindowOpenedHook>,
+    /// A GPUI-first app's main window content (design 2, section 4.1). When set,
+    /// the main window shows this view instead of starting `module` on surface 1;
+    /// React content lives in the `ReactSurface`s the view places.
+    pub gpui_root: Option<GpuiRootHook>,
 }
 
 impl DesktopAppConfig {
@@ -643,6 +650,7 @@ impl DesktopAppConfig {
             configure_window: None,
             on_app_ready: None,
             on_window_opened: None,
+            gpui_root: None,
         }
     }
 
@@ -724,6 +732,32 @@ impl DesktopAppConfig {
         callback: impl FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static,
     ) -> Self {
         self.on_window_opened = Some(Box::new(callback));
+        self
+    }
+
+    /// Makes this a GPUI-first app: the main window shows the view `build`
+    /// returns, and React content appears where that view places a
+    /// [`ReactSurface`](crate::ReactSurface) (design 2, section 4.1).
+    ///
+    /// The runtime still boots the way `run_with` always does — the JS engine, the
+    /// bundle, the modules, the store — but no React tree is started on the main
+    /// surface, so the window belongs to the app. `build` runs once, with the
+    /// [`ReactRuntime`](crate::ReactRuntime) it can open further windows through.
+    ///
+    /// ```ignore
+    /// run_with(DesktopAppConfig::from_env().gpui_first(|cx, _runtime| {
+    ///     cx.new(|cx| {
+    ///         let details = cx.new(|cx| ReactSurface::new("Details", cx));
+    ///         Root { details }
+    ///     })
+    ///     .into()
+    /// }));
+    /// ```
+    pub fn gpui_first(
+        mut self,
+        build: impl FnOnce(&mut App, crate::runtime::ReactRuntime) -> gpui::AnyView + 'static,
+    ) -> Self {
+        self.gpui_root = Some(Box::new(build));
         self
     }
 }
@@ -1099,13 +1133,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // channel until the store and its window exist, which is the same path a
         // background surface already uses.
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
-        host.start_surface(
-            1,
-            &module,
-            surface_width,
-            (surface_height - menu_bar_inset).max(1.0),
-            estimated_scale,
-        );
+        // A GPUI-first app owns its main window: no React tree starts on surface
+        // 1, and its `ReactSurface`s start their own surfaces when GPUI first
+        // gives them a box.
+        let gpui_first = config.gpui_root.is_some();
+        if let Some(build) = config.gpui_root.take() {
+            let view = build(cx, crate::runtime::ReactRuntime::new(estimated_scale));
+            root.update(cx, |root, _cx| root.set_app_content(view));
+        } else {
+            host.start_surface(
+                1,
+                &module,
+                surface_width,
+                (surface_height - menu_bar_inset).max(1.0),
+                estimated_scale,
+            );
+        }
         startup_trace("surface started");
 
         startup_trace("opening GPUI window");
@@ -1269,11 +1312,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
             );
             host.set_window_metrics(width, height, scale);
         }
-        log::info!(
-            "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
-             menu bar inset {menu_bar_inset})",
-            height - menu_bar_inset
-        );
+        if gpui_first {
+            log::info!(
+                "GPUI-first app: no React tree on surface 1 (window scale {window_scale})"
+            );
+        } else {
+            log::info!(
+                "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
+                 menu bar inset {menu_bar_inset})",
+                height - menu_bar_inset
+            );
+        }
 
         let frame_hook = crate::frame::FrameHook::new(host.clone());
         window

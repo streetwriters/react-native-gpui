@@ -35,8 +35,5 @@ pub use desktop::tray::TrayConfig;
 pub use http_client::RnHttpClient;
 pub use rn_gpui_module as module;
 pub use rn_gpui_module::{register as register_module, ModuleError, ModuleThread, Value};
-pub use runtime::{
-    content_size_px, react_view, react_view_fit, surface_content_size, GpuiFirstRoot, ReactRuntime,
-    SurfaceHosts, SurfaceLayout,
-};
+pub use runtime::ReactRuntime;
 pub use surface::{ReactSurface, SurfaceSizing};
