@@ -230,6 +230,16 @@ void GpuiMountingManager::executeMount(
                   mutation.newChildShadowView.state);
           if (state)
             scrollStates_[mutation.newChildShadowView.tag] = std::move(state);
+        } else if (rngpui::isHostComponentName(componentName)) {
+          // A host component needs its state kept so a reported size can be
+          // pushed into Yoga later; storing the size beside the state instead
+          // would never re-measure, and `measureContent` reads the state.
+          auto state =
+              std::dynamic_pointer_cast<const ConcreteState<GpuiHostStateData>>(
+                  mutation.newChildShadowView.state);
+          if (state) {
+            hostStates_[mutation.newChildShadowView.tag] = std::move(state);
+          }
         } else if (componentName == "ModalHostView") {
           auto state = std::dynamic_pointer_cast<
               const ConcreteState<ModalHostViewState>>(
@@ -247,6 +257,7 @@ void GpuiMountingManager::executeMount(
         emitters_.erase(tag);
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
+        hostStates_.erase(mutation.oldChildShadowView.tag);
       }
     }
   }
@@ -359,6 +370,34 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
   }
 }
 
+void GpuiMountingManager::setHostComponentSize(
+    Tag tag,
+    float width,
+    float height) {
+  std::shared_ptr<const ConcreteState<GpuiHostStateData>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = hostStates_.find(tag);
+    if (it == hostStates_.end()) {
+      return;
+    }
+    state = it->second;
+  }
+  const auto& data = state->getData();
+  GpuiHostStateData next = data;
+  next.width = width;
+  next.height = height;
+  if (next.measured && data.measured && data.width == width &&
+      data.height == height) {
+    return;
+  }
+  next.measured = true;
+  // `updateState` schedules the new commit that makes Yoga call
+  // `measureContent` again; writing the size anywhere else leaves the layout
+  // at its old value until something unrelated commits.
+  state->updateState(std::move(next));
+}
+
 void GpuiMountingManager::setScrollOffset(Tag tag, float x, float y) {
   std::shared_ptr<const ConcreteState<ScrollViewState>> state;
   {
@@ -449,7 +488,9 @@ void GpuiMountingManager::dispatchCommand(
   // handler, and Fabric already warned for an unknown name.
   if (isHostComponentName(std::string(view.componentName))) {
     rn_gpui_on_component_command(
-        view.tag, name, folly::toJson(args.isArray() ? args : folly::dynamic::array(args)));
+        view.tag,
+        name,
+        folly::toJson(args.isArray() ? args : folly::dynamic::array(args)));
   }
 }
 

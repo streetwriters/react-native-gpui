@@ -8,6 +8,7 @@
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Size.h>
 #include <react/renderer/uimanager/IMountingManager.h>
+#include "GpuiHostComponentsCpp.h"
 #include "GpuiImageLoader.h"
 #include "GpuiModules.h"
 
@@ -15,8 +16,8 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
-#include <optional>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace rngpui {
@@ -82,6 +83,11 @@ class GpuiMountingManager : public IMountingManager {
   void
   dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
+
+  /// Pushes a size a host component reported into its shadow node's state,
+  /// which is what `measureContent` reads, and asks for a commit so Yoga
+  /// re-measures.
+  void setHostComponentSize(Tag tag, float width, float height);
   void setWindowSize(float width, float height);
   void setWindowTopInset(float top);
   void setAccessibilityFocusedView(Tag viewTag) override;
@@ -102,6 +108,12 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
+  // A measured host component's state, so a reported size can be pushed into
+  // Yoga. Writing it to a side map instead would never re-measure anything.
+  std::unordered_map<
+      Tag,
+      std::shared_ptr<const ConcreteState<GpuiHostStateData>>>
+      hostStates_;
 };
 
 } // namespace rngpui

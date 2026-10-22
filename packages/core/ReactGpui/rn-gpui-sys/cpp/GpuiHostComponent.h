@@ -5,6 +5,8 @@
 // classes that need them are in `GpuiHostComponentsCpp.h`.
 #pragma once
 
+#include <functional>
+
 #include "rust/cxx.h"
 
 #include <cstdint>
@@ -12,9 +14,17 @@
 
 namespace rngpui {
 
+/// Notified when a host component reports a size, so it can be pushed into the
+/// shadow node's state and re-measured.
+using HostComponentSizeFn = std::function<void(int32_t, float, float)>;
+
 /// Registers a Fabric component with that name. A measured component gets a
 /// Yoga measure function that reads its shadow node's state.
 void registerHostComponent(rust::Str name, bool measured, bool container);
+
+/// Installed by the mounting manager, which owns the per-tag shadow node
+/// states.
+void setHostComponentSizeObserver(HostComponentSizeFn observer);
 
 /// Whether `name` was registered as a host component.
 bool isHostComponent(rust::Str name);

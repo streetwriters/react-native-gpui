@@ -52,13 +52,17 @@ async function textOf(testID: string): Promise<string> {
 async function frameOf(
   testID: string,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
-  const [node] = await app.query('testID', testID);
+  // `exact`, because a query with `exact = false` matches on substring: a
+  // `testID` that prefixes another node's would return whichever came first, and
+  // the assertion would be about the wrong node — or about a `View` rather than
+  // the host component it names.
+  const [node] = await app.query('testID', testID, true);
   if (!node) throw new Error(`no node for ${testID}`);
   return node.frame;
 }
 
 async function clickTestID(testID: string) {
-  const [node] = await app.query('testID', testID);
+  const [node] = await app.query('testID', testID, true);
   if (!node) throw new Error(`no node for ${testID}`);
   await app.click((node as { tag: number }).tag);
   await app.waitForIdle();
@@ -107,7 +111,9 @@ test('a measured component reports its size and its parent lays out around it', 
   await launch('HostComponentsFixture');
   await app.waitForIdle();
 
-  // text "abcd" at characterWidth 10 by lineHeight 20.
+  // text "abcd" at characterWidth 10 by lineHeight 20. The fixture opts out of
+  // the column's default stretch so the reported width is not hidden behind the
+  // container's; height would prove the measurement either way.
   const measured = await frameOf('host-measured');
   expect(measured.width).toBe(40);
   expect(measured.height).toBe(20);
@@ -126,7 +132,7 @@ test('a measured component inside a scroll view keeps tracking the scroll', asyn
   expect(before.width).toBe(54); // "scroll" (6) at characterWidth 9
   expect(before.height).toBe(18);
 
-  const scroll = await app.query('testID', 'host-scroll');
+  const scroll = await app.query('testID', 'host-scroll', true);
   const scrollTag = (scroll[0] as { tag: number }).tag;
   await app.scroll(scrollTag, 0, -20, 4);
   await app.waitForIdle();
@@ -159,7 +165,7 @@ test('a scroll view without host components keeps its composite path', async () 
   // much cheaper than one that rebuilds everything.
   await launch('HostComponentsFixture');
   await app.waitForIdle();
-  const scroll = await app.query('testID', 'host-scroll');
+  const scroll = await app.query('testID', 'host-scroll', true);
   const tag = (scroll[0] as { tag: number }).tag;
   const result = await app.scroll(tag, 0, -20, 4);
   // No absolute bound: the point is that it is bounded and the scroll worked.

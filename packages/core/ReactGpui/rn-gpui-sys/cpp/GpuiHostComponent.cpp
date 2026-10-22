@@ -41,6 +41,7 @@ HostComponentRegistry& registry() {
 /// Reported intrinsic sizes, by tag, since the last commit that consumed them.
 struct IntrinsicSizes {
   std::mutex mutex;
+  HostComponentSizeFn observer;
   std::unordered_map<int32_t, std::pair<float, float>> sizes;
 };
 
@@ -218,9 +219,16 @@ facebook::react::Size GpuiHostShadowNode::measureContent(
   return facebook::react::Size{width, height};
 }
 
+void setHostComponentSizeObserver(HostComponentSizeFn observer) {
+  auto& sizes = intrinsicSizes();
+  std::lock_guard<std::mutex> lock(sizes.mutex);
+  sizes.observer = std::move(observer);
+}
+
 bool setHostComponentIntrinsicSize(int32_t tag, float width, float height) {
   auto& sizes = intrinsicSizes();
   bool changed = false;
+  HostComponentSizeFn observer;
   {
     std::lock_guard<std::mutex> lock(sizes.mutex);
     auto found = sizes.sizes.find(tag);
@@ -228,7 +236,14 @@ bool setHostComponentIntrinsicSize(int32_t tag, float width, float height) {
         found->second.second != height) {
       sizes.sizes[tag] = {width, height};
       changed = true;
+      observer = sizes.observer;
     }
+  }
+  // Writing the map alone leaves Yoga with the old size: `measureContent` reads
+  // the shadow node's state, so the size has to be pushed there and a commit
+  // asked for. The manager owns the states, so it installs this.
+  if (changed && observer) {
+    observer(tag, width, height);
   }
   return changed;
 }

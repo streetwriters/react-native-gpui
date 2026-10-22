@@ -439,7 +439,20 @@ GpuiHost::GpuiHost(
       // The root's laid-out size, for a `FitContent` surface. Read straight off
       // the surface's committed root, which `ReactHost` exposes because the
       // shadow tree is the only place the laid-out size exists.
-      [this](SurfaceId surfaceId) { return reactHost_->surfaceContentSize(surfaceId); });
+      [this](SurfaceId surfaceId) {
+        return reactHost_->surfaceContentSize(surfaceId);
+      });
+
+  // A measured host component reports its size from the render pass, but the
+  // shadow node's state is what Yoga reads, and re-measuring needs a commit.
+  // The manager owns those states, so it takes the report and does both.
+  std::weak_ptr<GpuiMountingManager> weakMountingManager = mountingManager_;
+  rngpui::setHostComponentSizeObserver(
+      [weakMountingManager](int32_t tag, float width, float height) {
+        if (auto manager = weakMountingManager.lock()) {
+          manager->setHostComponentSize(tag, width, height);
+        }
+      });
 
   // ReactHost's constructor throws unless both factories are in the
   // ContextContainer.
@@ -686,8 +699,8 @@ void GpuiHost::start_surface_with_constraints(
     float maxWidth,
     float maxHeight,
     float scale) {
-  LayoutConstraints constraints = constraintsFrom(
-      minWidth, minHeight, maxWidth, maxHeight, scale);
+  LayoutConstraints constraints =
+      constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
   if (id == kAppSurfaceId) {
@@ -715,8 +728,8 @@ void GpuiHost::set_surface_constraints(
     float maxWidth,
     float maxHeight,
     float scale) {
-  LayoutConstraints constraints = constraintsFrom(
-      minWidth, minHeight, maxWidth, maxHeight, scale);
+  LayoutConstraints constraints =
+      constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
   if (id == kAppSurfaceId) {

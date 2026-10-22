@@ -133,6 +133,10 @@ export default function HostComponentsFixture({
             text="abcd"
             characterWidth={10}
             lineHeight={20}
+            // A column stretches its children across the axis by default, which
+            // would hide the reported width behind the container's. `flex-start`
+            // keeps the measured width visible.
+            style={{ alignSelf: 'flex-start' }}
           />
           <Text
             testID="measured-sibling"
