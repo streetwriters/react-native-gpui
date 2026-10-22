@@ -136,13 +136,25 @@ bool isMeasuredHostComponentName(const std::string& name) {
 
 facebook::react::ComponentName GpuiHostComponentDescriptor::getComponentName()
     const {
+  // `ComponentName` is a `const char*` and Fabric compares it as a pointer, so
+  // this has to be the *same* pointer the provider was built with — hence
+  // `stableName`, not the flavor's own `c_str()`. The flavor is a separate
+  // string holding the same characters at a different address, which is not
+  // enough.
   const auto* name = static_cast<const std::string*>(this->flavor_.get());
-  return name != nullptr ? name->c_str() : "GpuiHost";
+  return name != nullptr ? stableName(*name)
+                         : stableName(std::string("GpuiHost"));
 }
 
-facebook::react::ComponentHandle GpuiHostComponentDescriptor::getComponentHandle()
-    const {
-  return facebook::react::ComponentHandle(getComponentName());
+facebook::react::ComponentHandle
+GpuiHostComponentDescriptor::getComponentHandle() const {
+  // A handle is the address of the component name's stable string, and the
+  // provider's handle is `stableName(name)`. Returning `ComponentName(...)`
+  // here would be a pointer cast of whichever string this descriptor happens to
+  // point at — the flavor, which lives in a different deque — so the two
+  // addresses would differ and Fabric's registry asserts. One name, one
+  // address.
+  return facebook::react::ComponentHandle(stableName(getComponentName()));
 }
 
 void GpuiHostShadowNode::initialize() noexcept {
@@ -196,8 +208,8 @@ bool setHostComponentIntrinsicSize(int32_t tag, float width, float height) {
   {
     std::lock_guard<std::mutex> lock(sizes.mutex);
     auto found = sizes.sizes.find(tag);
-    if (found == sizes.sizes.end() ||
-        found->second.first != width || found->second.second != height) {
+    if (found == sizes.sizes.end() || found->second.first != width ||
+        found->second.second != height) {
       sizes.sizes[tag] = {width, height};
       changed = true;
     }
@@ -224,7 +236,8 @@ void clearReportedIntrinsicSize(int32_t tag) {
   sizes.sizes.erase(tag);
 }
 
-std::string hostComponentPropsJson(const facebook::react::ShadowView& shadowView) {
+std::string hostComponentPropsJson(
+    const facebook::react::ShadowView& shadowView) {
   const std::string name(shadowView.componentName);
   if (!isHostComponentName(name) || !shadowView.props) {
     return {};
