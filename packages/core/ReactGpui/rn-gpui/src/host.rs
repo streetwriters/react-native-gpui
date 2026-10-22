@@ -36,6 +36,10 @@ impl Host {
         }
         #[cfg(not(test))]
         {
+            // Every package registered its host components in `rn_gpui_register()`,
+            // before this. The registry is frozen here, ahead of the first surface,
+            // so every later lookup is lock-free (design 2, section 5.4).
+            crate::host_component::freeze();
             let host = Self(Arc::new(Mutex::new(ffi::new_gpui_host(
                 app_id, dev_host, port, js_engine, dev_mode,
             ))));
@@ -122,16 +126,13 @@ impl Host {
             self, id, module, props_json, min_width, min_height, max_width, max_height, scale,
         );
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().start_surface_with_constraints(
-            id,
-            module,
-            props_json,
-            min_width,
-            min_height,
-            max_width,
-            max_height,
-            scale,
-        )
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .start_surface_with_constraints(
+                id, module, props_json, min_width, min_height, max_width, max_height, scale,
+            )
     }
 
     /// Changes a running surface's constraints, which resizes an embedded
@@ -147,16 +148,15 @@ impl Host {
         scale: f32,
     ) {
         #[cfg(test)]
-        let _ = (self, id, min_width, min_height, max_width, max_height, scale);
+        let _ = (
+            self, id, min_width, min_height, max_width, max_height, scale,
+        );
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().set_surface_constraints(
-            id,
-            min_width,
-            min_height,
-            max_width,
-            max_height,
-            scale,
-        )
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .set_surface_constraints(id, min_width, min_height, max_width, max_height, scale)
     }
 
     pub fn stop_surface(&self, id: i32) {

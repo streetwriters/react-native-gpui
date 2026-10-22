@@ -1,47 +1,48 @@
 //! Host components: a Rust type that renders one Fabric node's content.
 //!
 //! This is the API a package uses to ship its own React Native component
-//! (design 2, section 5.1). A package registers a type under a Fabric
-//! component name; every node with that name then renders through it:
+//! (design 2, section 5). A package writes a codegen spec and implements the
+//! trait `@react-native-gpui/codegen` generates from it:
 //!
 //! ```ignore
-//! struct MyChart { props: Props, size: (f32, f32) }
+//! rn_gpui_module::include_specs!();
 //!
-//! impl HostComponent for MyChart {
-//!     fn create(props: Props, cx: &mut HostContext) -> Self { .. }
-//!     fn update(&mut self, props: Props, cx: &mut HostContext) { .. }
-//!     fn render(&mut self, children: Children, window: &mut Window, cx: &mut HostContext)
-//!         -> AnyElement { .. }
-//!     fn command(&mut self, name: &str, args: Vec<Value>, cx: &mut HostContext) { .. }
+//! impl FixtureChartSpec for Chart {
+//!     fn create(props: &FixtureChartProps, cx: &mut FixtureChartContext) -> Self { .. }
+//!     fn update(&mut self, props: &FixtureChartProps, changed: FixtureChartChanged,
+//!               cx: &mut FixtureChartContext) { .. }
+//!     fn render(&mut self, props: &FixtureChartProps, window: &mut Window,
+//!               cx: &mut FixtureChartContext) -> AnyElement { .. }
 //! }
 //!
-//! register_host_component::<MyChart>(cx, "MyChart", HostComponentOptions { measured: false });
+//! pub fn rn_gpui_register() {
+//!     react_native_gpui::host_component::register_component(fixture_chart_component::<Chart>());
+//! }
 //! ```
 //!
-//! Four things make it work, and each lives where it belongs:
+//! This module is what the generated code stands on. It owns no component's
+//! shape, only the machinery every component shares:
 //!
-//! * **Props.** `Props` is the node's whole props object, because this React
-//!   Native does not retain them as `folly::dynamic` on `Props`
-//!   (`RN_SERIALIZABLE_STATE` is Android-only), so `RawProps::toDynamic()` is
-//!   captured during the commit and carried on the mount batch as
-//!   `component_props_json`.
-//! * **Layout.** The node's size comes from Yoga, from the style the app writes.
-//!   A component with an intrinsic size calls [`HostContext::set_intrinsic_size`];
-//!   `GpuiHostShadowNode` in C++ is a leaf with a Yoga measure function that
-//!   returns the size stored in the node's state, so Yoga uses it on the next
-//!   commit.
-//! * **Events.** [`HostContext::emit`] dispatches a Fabric event to the node's
-//!   event emitter, exactly as core's own components do.
-//! * **Commands.** `dispatchCommand` forwards a command to the node's host
-//!   component, which sees the name and the arguments.
+//! * **Handles.** A node's props and event emitter are Fabric's own
+//!   `shared_ptr`s. They cross the bridge as an opaque address owned by a
+//!   [`PropsHandle`] or [`EmitterHandle`], and the generated accessors read the
+//!   C++ fields in place (5.2). Nothing is serialised.
+//! * **The registry.** Each component has a dense index, declared by autolink
+//!   from `react-native.config.js` and registered by the package. It is
+//!   frozen before the first surface starts, so a lookup takes no lock (5.4).
+//! * **Reports.** What a method reports — a size, insets, an event — goes into
+//!   the store's one ordered queue, delivered from one place (5.7).
+//! * **Commands.** The generated C++ dispatcher validates and converts a
+//!   command's arguments once; this module hands them on as [`HostArg`]s (5.6).
 
 use crate::extensions::StoreHandle;
-use gpui::{AnyElement, App, Entity, Window};
-use serde_json::Value;
+use gpui::{AnyElement, Window};
+pub use serde_json::Value;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 /// The padding a container's chrome needs around React's children.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -68,7 +69,6 @@ impl EdgeInsets {
 /// by core from [`HostReports`] — the store's single delivery point — never from
 /// the reporting node's own render. That is what keeps delivery from depending
 /// on the node rendering again (design 2, section 5.7).
-#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HostReport {
     /// The size a measured component wants, in DIPs.
     Size { tag: i32, width: f32, height: f32 },
@@ -80,12 +80,37 @@ pub(crate) enum HostReport {
         bottom: f32,
         left: f32,
     },
-    /// An event for the node's JS emitter.
-    Event {
-        tag: i32,
-        name: String,
-        payload: Value,
-    },
+    /// A typed event for the node's JS emitter. The closure owns the payload and
+    /// calls the generated shim, so nothing is built as JSON on the way.
+    Event { tag: i32, send: Box<dyn FnOnce()> },
+}
+
+impl std::fmt::Debug for HostReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Size { tag, width, height } => f
+                .debug_struct("Size")
+                .field("tag", tag)
+                .field("width", width)
+                .field("height", height)
+                .finish(),
+            Self::Insets {
+                tag,
+                top,
+                right,
+                bottom,
+                left,
+            } => f
+                .debug_struct("Insets")
+                .field("tag", tag)
+                .field("top", top)
+                .field("right", right)
+                .field("bottom", bottom)
+                .field("left", left)
+                .finish(),
+            Self::Event { tag, .. } => f.debug_struct("Event").field("tag", tag).finish(),
+        }
+    }
 }
 
 /// The reports every host component method produced since the last delivery.
@@ -100,8 +125,8 @@ pub(crate) struct HostReports {
 }
 
 impl HostReports {
-    pub(crate) fn push(&mut self, report: HostReport) {
-        self.reports.get_mut().push(report);
+    pub(crate) fn push(&self, report: HostReport) {
+        self.reports.borrow_mut().push(report);
     }
 
     /// Every report queued so far, oldest first.
@@ -137,186 +162,289 @@ impl std::fmt::Debug for HostReports {
     }
 }
 
-/// A node's props, as the same `Value` tree the module system uses.
-///
-/// One is produced per props change from Fabric's raw props, so reading a field
-/// is a map lookup and never a parse per frame.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Props(Arc<Value>);
+/// The store's report queue, shared by every node it owns.
+pub(crate) type HostReportQueue = Rc<HostReports>;
 
-impl Props {
-    /// An empty props object.
-    pub fn empty() -> Self {
-        Self(Arc::new(Value::Object(Default::default())))
+/// An owned reference to a node's Fabric props: a C++ `shared_ptr<const Props>`
+/// behind an opaque address.
+///
+/// The mount op that carried it gave up ownership, so the props live exactly as
+/// long as this handle does and are released when it drops. A generated props
+/// view reads the C++ fields in place through [`as_ptr`](Self::as_ptr); it never
+/// copies them (design 2, section 5.2).
+pub struct PropsHandle {
+    raw: usize,
+    /// Props are read on the main thread only. A handle is not `Send`, so a
+    /// borrow of its fields cannot outlive the thread that may free them.
+    _main_thread: PhantomData<*const ()>,
+}
+
+impl PropsHandle {
+    /// Takes ownership of the handle a mount op carried.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a non-zero handle C++ created for this op and that nothing
+    /// else owns.
+    pub(crate) unsafe fn from_raw(raw: usize) -> Self {
+        Self {
+            raw,
+            _main_thread: PhantomData,
+        }
     }
 
-    /// Builds props from the JSON Fabric captured.
-    pub fn from_json(json: &str) -> Self {
-        if json.is_empty() {
-            return Self::empty();
+    /// The address the generated accessors take.
+    pub fn as_ptr(&self) -> *const core::ffi::c_void {
+        self.raw as *const core::ffi::c_void
+    }
+
+    /// A handle that owns nothing, for a unit test that drives a component
+    /// without Fabric behind it. Reading a prop through it is a test bug.
+    pub fn for_test() -> Self {
+        Self {
+            raw: 0,
+            _main_thread: PhantomData,
         }
-        match serde_json::from_str(json) {
-            Ok(value @ Value::Object(_)) => Self(Arc::new(value)),
-            Ok(_) => Self::empty(),
-            Err(error) => {
-                log::warn!("[host-component] props are not a JSON object: {error}");
-                Self::empty()
+    }
+}
+
+/// A handle value a unit test puts on a mount op. It points at nothing, so
+/// dropping a handle that holds it must not release anything. Real handles are
+/// heap addresses, which are never odd.
+#[cfg(test)]
+pub(crate) const TEST_HANDLE: usize = 1;
+
+fn releases(raw: usize) -> bool {
+    #[cfg(test)]
+    if raw == TEST_HANDLE {
+        return false;
+    }
+    raw != 0
+}
+
+impl Drop for PropsHandle {
+    fn drop(&mut self) {
+        if releases(self.raw) {
+            rn_gpui_sys::ffi::releaseHostPropsHandle(self.raw);
+        }
+    }
+}
+
+impl std::fmt::Debug for PropsHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PropsHandle({:#x})", self.raw)
+    }
+}
+
+struct EmitterOwner(usize);
+
+impl Drop for EmitterOwner {
+    fn drop(&mut self) {
+        if releases(self.0) {
+            rn_gpui_sys::ffi::releaseHostEmitterHandle(self.0);
+        }
+    }
+}
+
+/// A shared reference to a node's Fabric event emitter.
+///
+/// An event queued by a component holds a clone, so the emitter outlives the
+/// call that made the event and is released with the last of them.
+#[derive(Clone)]
+pub struct EmitterHandle(Rc<EmitterOwner>);
+
+impl EmitterHandle {
+    /// Takes ownership of the handle a `Create` op carried.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a handle C++ created for this op, or zero, and nothing else
+    /// may own it.
+    pub(crate) unsafe fn from_raw(raw: usize) -> Self {
+        Self(Rc::new(EmitterOwner(raw)))
+    }
+
+    /// The address the generated event shims take.
+    pub fn as_ptr(&self) -> *const core::ffi::c_void {
+        self.0 .0 as *const core::ffi::c_void
+    }
+
+    /// An emitter that owns nothing, for a unit test.
+    pub fn for_test() -> Self {
+        Self(Rc::new(EmitterOwner(0)))
+    }
+}
+
+impl std::fmt::Debug for EmitterHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EmitterHandle({:#x})", self.0 .0)
+    }
+}
+
+/// One argument of a command, already validated against the spec by the
+/// generated C++ dispatcher (design 2, section 5.6).
+///
+/// The dispatcher checks the count and the type of every argument before this is
+/// built, so a generated method can read it by position without a fallible
+/// conversion. Integers and floats both arrive as numbers; the generated code
+/// narrows them to the type the spec declares.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HostArg {
+    Number(f64),
+    Bool(bool),
+    String(String),
+    Numbers(Vec<f64>),
+    Bools(Vec<bool>),
+    Strings(Vec<String>),
+}
+
+impl HostArg {
+    /// Converts the argument the generated C++ dispatcher built. `kind` says
+    /// which field of the bridge struct holds it.
+    pub(crate) fn from_ffi(arg: rn_gpui_sys::ffi::HostCommandArg) -> Self {
+        match arg.kind {
+            0 => Self::Number(arg.number),
+            1 => Self::Bool(arg.number != 0.0),
+            2 => Self::String(arg.text),
+            3 => Self::Numbers(arg.numbers),
+            4 => Self::Bools(arg.numbers.iter().map(|value| *value != 0.0).collect()),
+            5 => Self::Strings(arg.texts),
+            other => {
+                log::error!("[host-component] unknown command argument kind {other}");
+                Self::Number(0.0)
             }
         }
     }
 
-    /// The whole value.
-    pub fn value(&self) -> &Value {
-        &self.0
+    pub fn to_i32(&self) -> i32 {
+        match self {
+            Self::Number(value) => *value as i32,
+            Self::Bool(value) => i32::from(*value),
+            _ => 0,
+        }
     }
 
-    /// One field.
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        self.0.get(key)
+    pub fn to_f32(&self) -> f32 {
+        self.to_f64() as f32
     }
 
-    /// A string field.
-    pub fn string(&self, key: &str) -> Option<&str> {
-        self.0.get(key).and_then(Value::as_str)
+    pub fn to_f64(&self) -> f64 {
+        match self {
+            Self::Number(value) => *value,
+            Self::Bool(value) => f64::from(u8::from(*value)),
+            _ => 0.0,
+        }
     }
 
-    /// A number field, as `f32`.
-    pub fn number(&self, key: &str) -> Option<f32> {
-        self.0
-            .get(key)
-            .and_then(Value::as_f64)
-            .map(|value| value as f32)
+    pub fn to_bool(&self) -> bool {
+        match self {
+            Self::Bool(value) => *value,
+            Self::Number(value) => *value != 0.0,
+            _ => false,
+        }
     }
 
-    /// A boolean field.
-    pub fn bool(&self, key: &str) -> Option<bool> {
-        self.0.get(key).and_then(Value::as_bool)
+    pub fn to_string_value(&self) -> String {
+        match self {
+            Self::String(value) => value.clone(),
+            _ => String::new(),
+        }
     }
 
-    /// An array field's values.
-    pub fn array(&self, key: &str) -> &[Value] {
-        self.0
-            .get(key)
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+    pub fn to_i32_vec(&self) -> Vec<i32> {
+        match self {
+            Self::Numbers(values) => values.iter().map(|value| *value as i32).collect(),
+            _ => Vec::new(),
+        }
     }
 
-    /// The props a container passes to the children it renders itself.
-    pub fn inner(&self) -> Arc<Value> {
-        self.0.clone()
+    pub fn to_f32_vec(&self) -> Vec<f32> {
+        match self {
+            Self::Numbers(values) => values.iter().map(|value| *value as f32).collect(),
+            _ => Vec::new(),
+        }
     }
-}
 
-impl From<Value> for Props {
-    fn from(value: Value) -> Self {
-        if value.is_object() {
-            Self(Arc::new(value))
-        } else {
-            Self::empty()
+    pub fn to_f64_vec(&self) -> Vec<f64> {
+        match self {
+            Self::Numbers(values) => values.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn to_bool_vec(&self) -> Vec<bool> {
+        match self {
+            Self::Bools(values) => values.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn to_string_vec(&self) -> Vec<String> {
+        match self {
+            Self::Strings(values) => values.clone(),
+            _ => Vec::new(),
         }
     }
 }
 
 /// What a host component is given besides its props.
 ///
-/// It is `&mut` for the whole of a call so a component can record state —
-/// the size it measured, a command it ran — without a second borrow of the
-/// store, which is already leased while a batch is applied.
+/// A method gets one for the whole call and reports through it; each report goes
+/// straight into the store's queue, so the store's single delivery point applies
+/// it after the batch, the command or the frame that produced it (5.7). The
+/// store is leased while a batch is applied, so a component never dispatches
+/// itself.
 pub struct HostContext {
     /// The Fabric tag of the node. A command, an event or a measurement is
     /// always about this node.
     pub tag: i32,
-    /// Core's handle to the store, for events and for waking Fabric.
+    /// Core's handle to the store, for waking Fabric from a command.
     handle: Option<StoreHandle>,
-    /// The size this call reported, if any. Applied when the call returns, so
-    /// the shadow node's state changes once rather than per setter.
+    /// The size this call reported, if any, for a caller that reads it back.
     pending_size: Option<(f32, f32)>,
     /// The insets this call reported, if any: the padding a container's chrome
     /// needs around React's children (design 2, section 6.1).
     pending_insets: Option<EdgeInsets>,
-    /// Events emitted during this call, dispatched when it returns. Emitting
-    /// mid-render would re-enter the store, which is leased then.
-    pending_events: Vec<(String, Value)>,
-    /// The store's report queue, when core is driving the component. A report
-    /// is pushed here the moment it is made, so it is delivered after the batch
-    /// or the frame that produced it rather than on this node's next render.
-    queue: Option<Rc<RefCell<HostReports>>>,
+    queue: HostReportQueue,
 }
 
 impl HostContext {
     /// A context for a component core is driving: `queue` is the store's report
     /// queue.
-    pub(crate) fn new(tag: i32) -> Self {
+    pub(crate) fn queued(tag: i32, queue: HostReportQueue) -> Self {
         Self {
             tag,
             handle: None,
             pending_size: None,
             pending_insets: None,
-            pending_events: Vec::new(),
-            queue: None,
-        }
-    }
-
-    /// A context whose reports go to the store's queue as the method records
-    /// them, so delivery never waits for the node to render again.
-    pub(crate) fn queued(tag: i32, queue: Rc<RefCell<HostReports>>) -> Self {
-        Self {
-            tag,
-            handle: None,
-            pending_size: None,
-            pending_insets: None,
-            pending_events: Vec::new(),
-            queue: Some(queue),
+            queue,
         }
     }
 
     /// The same, with the store handle a command can act through.
     pub(crate) fn queued_with_handle(
         tag: i32,
-        queue: Rc<RefCell<HostReports>>,
+        queue: HostReportQueue,
         handle: StoreHandle,
     ) -> Self {
         Self {
-            tag,
             handle: Some(handle),
-            pending_size: None,
-            pending_insets: None,
-            pending_events: Vec::new(),
-            queue: Some(queue),
+            ..Self::queued(tag, queue)
         }
-    }
-
-    /// Dispatches `name` to the node's JS event emitter with `payload`.
-    ///
-    /// The event is delivered after the current call returns; JS sees it with
-    /// the node's other events, in order.
-    pub fn emit(&mut self, name: impl Into<String>, payload: Value) {
-        let name = name.into();
-        if let Some(queue) = &self.queue {
-            queue.borrow_mut().push(HostReport::Event {
-                tag: self.tag,
-                name: name.clone(),
-                payload: payload.clone(),
-            });
-        }
-        self.pending_events.push((name, payload));
     }
 
     /// Reports the size this component wants, in DIPs.
     ///
     /// Fabric stores it in the node's shadow-node state, and Yoga uses it on the
     /// next commit, which is one frame later than the call. A component should
-    /// therefore also give a sensible initial size in its `create`.
+    /// therefore also report from `create`.
     pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {
         let (width, height) = (width.max(0.0), height.max(0.0));
-        if let Some(queue) = &self.queue {
-            queue.borrow_mut().push(HostReport::Size {
-                tag: self.tag,
-                width,
-                height,
-            });
-        }
+        self.queue.push(HostReport::Size {
+            tag: self.tag,
+            width,
+            height,
+        });
         self.pending_size = Some((width, height));
     }
 
@@ -332,8 +460,8 @@ impl HostContext {
     /// border around React content — uses this to tell Fabric how much room its
     /// own chrome takes, so the React children are laid out inside what is left
     /// rather than under the chrome. Fabric stores the insets in the node's
-    /// shadow-node state and applies them on the next commit, the same one-frame
-    /// exchange the measured size uses.
+    /// shadow-node state and applies them as Yoga padding on the next commit,
+    /// the same one-frame exchange the measured size uses.
     pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {
         let insets = EdgeInsets {
             top: top.max(0.0),
@@ -341,15 +469,13 @@ impl HostContext {
             bottom: bottom.max(0.0),
             left: left.max(0.0),
         };
-        if let Some(queue) = &self.queue {
-            queue.borrow_mut().push(HostReport::Insets {
-                tag: self.tag,
-                top: insets.top,
-                right: insets.right,
-                bottom: insets.bottom,
-                left: insets.left,
-            });
-        }
+        self.queue.push(HostReport::Insets {
+            tag: self.tag,
+            top: insets.top,
+            right: insets.right,
+            bottom: insets.bottom,
+            left: insets.left,
+        });
         self.pending_insets = Some(insets);
     }
 
@@ -358,367 +484,355 @@ impl HostContext {
         self.pending_insets
     }
 
-    /// Sends `name` to JS with `args`, for a component that wants to report
-    /// something as an event but is written as a command.
-    pub fn dispatch(&mut self, name: impl Into<String>, payload: Value) {
-        self.emit(name, payload);
+    /// Queues a typed event. `send` owns the payload and calls the generated
+    /// shim; it runs when the store delivers the queue, in order with every
+    /// other report, never mid-call.
+    ///
+    /// Generated code calls this; a component calls its typed `events()`.
+    pub fn queue_event(&mut self, send: impl FnOnce() + 'static) {
+        self.queue.push(HostReport::Event {
+            tag: self.tag,
+            send: Box::new(send),
+        });
     }
 
-    /// Core's store handle, for a component that needs to dispatch to another
-    /// tag or run a deferred command.
+    /// Core's store handle, for a component that needs to run a deferred
+    /// command against the store.
     pub fn store(&self) -> Option<&StoreHandle> {
         self.handle.as_ref()
     }
 
-    /// What to apply when a call returns. Core calls this; a component's own
-    /// tests use it through [`HostContext::take_reported`].
-    pub fn take(&mut self) -> (Option<(f32, f32)>, Vec<(String, Value)>) {
-        (
-            self.pending_size.take(),
-            std::mem::take(&mut self.pending_events),
-        )
-    }
-
-    /// Whether anything was recorded that the store still has to deliver.
+    /// Whether anything is queued that the store still has to deliver.
     pub(crate) fn has_reports(&self) -> bool {
-        self.queue
-            .as_ref()
-            .is_some_and(|queue| !queue.borrow().is_empty())
+        !self.queue.is_empty()
     }
 
-    /// The insets this call reported, if any. Taken separately from the size and
-    /// events because only a container reports them.
-    ///
-    /// Public for the same reason [`HostContext::take_reported`] is: a package's
-    /// own tests drive its container directly and assert on what it reported.
-    pub fn take_insets(&mut self) -> Option<EdgeInsets> {
-        self.pending_insets.take()
-    }
-
-    /// A context for a component's own unit tests, with no store behind it.
+    /// A context for a component's own unit tests, with a private queue.
     ///
     /// A package's tests drive its component directly — call `create`, `update`
-    /// and `command`, then assert on what it reported — and there is no GPUI app
-    /// or Fabric node in that situation. This is the same object core hands the
-    /// component; only the store handle is absent.
+    /// and a command, then look at what it queued — and there is no GPUI app or
+    /// Fabric node in that situation.
     pub fn for_test(tag: i32) -> Self {
-        Self::new(tag)
+        Self::queued(tag, Rc::new(HostReports::default()))
     }
 
-    /// What this call reported: the size, then the events, as core applies
-    /// them when the call returns.
-    pub fn take_reported(&mut self) -> (Option<(f32, f32)>, Vec<(String, Value)>) {
-        self.take()
+    /// For a test: the queue this context reports into.
+    pub fn test_reports(&self) -> TestReports {
+        TestReports(self.queue.clone())
     }
 }
 
-/// The React children of a node whose host component owns its layout.
-///
-/// A leaf component ignores them. A container (design 2, section 6.1) draws its
-/// chrome around them; they are already laid out by Yoga, so a container only
-/// decides where its own chrome goes.
-pub struct Children {
-    elements: Vec<AnyElement>,
-}
+/// What a test context's queue holds, for a package's tests.
+pub struct TestReports(HostReportQueue);
 
-impl Children {
-    pub(crate) fn new(elements: Vec<AnyElement>) -> Self {
-        Self { elements }
-    }
-
-    /// No children: a leaf.
-    pub fn empty() -> Self {
-        Self {
-            elements: Vec::new(),
+impl TestReports {
+    /// Takes the reports, running each queued event, and returns what was
+    /// reported: sizes, insets, and how many events fired.
+    pub fn drain(&self) -> DrainedReports {
+        let mut drained = DrainedReports::default();
+        for report in self.0.take() {
+            match report {
+                HostReport::Size { width, height, .. } => drained.sizes.push((width, height)),
+                HostReport::Insets {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                    ..
+                } => drained.insets.push(EdgeInsets {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                }),
+                HostReport::Event { send, .. } => {
+                    drained.events += 1;
+                    send();
+                }
+            }
         }
-    }
-
-    /// Takes the children as elements.
-    pub fn into_elements(self) -> Vec<AnyElement> {
-        self.elements
-    }
-
-    /// The children, for a component that wants to wrap each one.
-    pub fn iter(&self) -> impl Iterator<Item = &AnyElement> {
-        self.elements.iter()
-    }
-
-    /// How many children there are.
-    pub fn len(&self) -> usize {
-        self.elements.len()
-    }
-
-    /// Whether there are none.
-    pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
+        drained
     }
 }
 
-/// A Rust type that renders one Fabric node.
-///
-/// Everything is `&mut self` and takes [`HostContext`] rather than an `App`,
-/// because the store is leased while a batch is applied: a component that
-/// dispatched during a call would re-enter it. `HostContext` records what to do
-/// and core applies it when the call returns.
-pub trait HostComponent: 'static {
-    /// Created on the main thread when the node is mounted.
-    fn create(props: Props, cx: &mut HostContext) -> Self
-    where
-        Self: Sized;
-
-    /// The node's props changed.
-    fn update(&mut self, props: Props, cx: &mut HostContext);
-
-    /// The GPUI content, laid out inside the node's Yoga frame.
-    fn render(
-        &mut self,
-        children: Children,
-        window: &mut Window,
-        cx: &mut HostContext,
-    ) -> AnyElement;
-
-    /// A command sent from JS (`codegenNativeCommands`).
-    fn command(&mut self, name: &str, args: Vec<Value>, cx: &mut HostContext) {
-        let _ = (name, args, cx);
-        log::debug!("[host-component] command ignored: {name}");
-    }
+/// The result of [`TestReports::drain`].
+#[derive(Debug, Default, PartialEq)]
+pub struct DrainedReports {
+    pub sizes: Vec<(f32, f32)>,
+    pub insets: Vec<EdgeInsets>,
+    pub events: usize,
 }
 
-/// What a host component asks of Fabric beyond rendering.
-#[derive(Clone, Copy, Debug, Default)]
+/// What a host component asks of Fabric beyond rendering. Declared in
+/// `react-native.config.js` (`hostComponents`), because it decides how the
+/// shadow node lays out before any Rust runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HostComponentOptions {
     /// The component measures itself and reports through
-    /// [`HostContext::set_intrinsic_size`]. Its shadow node gets a Yoga measure
-    /// function; its node is a leaf.
+    /// [`HostContext::set_intrinsic_size`]. Its shadow node is a leaf with a Yoga
+    /// measure function.
     pub measured: bool,
     /// The component's content is composited by the OS (a native view, a GPU
     /// surface) rather than painted by GPUI. A `ScrollView` holding one stays
     /// off the scroll-layer path, because a scroll-only composite frame skips
     /// the prepaint that sets a native surface's bounds.
     pub native_surface: bool,
-    /// The component is a container that draws its chrome around React
-    /// children. It receives them in [`HostComponent::render`].
+    /// The component is a container that draws chrome around React children.
+    /// Core paints the children; the component paints only its chrome.
     pub container: bool,
 }
 
-/// How a host component object is created, stored and driven.
-///
-/// A trait object stands in for `dyn HostComponent` because `create` has a
-/// return type the trait cannot make object-safe; the blanket implementation
-/// below provides it for every `T: HostComponent`.
-pub trait HostComponentObject: 'static {
-    fn create_object(props: Props, cx: &mut HostContext) -> Self
-    where
-        Self: Sized;
-    fn update_object(&mut self, props: Props, cx: &mut HostContext);
-    fn render_object(
-        &mut self,
-        children: Children,
-        window: &mut Window,
-        cx: &mut HostContext,
-    ) -> AnyElement;
-    fn command_object(&mut self, name: &str, args: Vec<Value>, cx: &mut HostContext);
+/// How a host component object is driven. Generated code implements it for each
+/// component's instance (a user type plus the props view built once per props
+/// version); core stores a `Box<dyn HostObject>` on the node.
+pub trait HostObject: 'static {
+    /// The node's props changed. `props` replaces the previous version; `changed`
+    /// is the mask C++ computed against what this object last saw, one bit per
+    /// prop, and is never empty.
+    fn update(&mut self, props: PropsHandle, changed: &[u64], cx: HostContext);
+
+    /// The GPUI content, painted beneath the React children and laid out inside
+    /// the node's Yoga frame.
+    fn render(&mut self, window: &mut Window, cx: HostContext) -> AnyElement;
+
+    /// Content painted above a container's React children (a focus ring, a
+    /// badge), if the component has any.
+    fn render_overlay(&mut self, window: &mut Window, cx: HostContext) -> Option<AnyElement>;
+
+    /// A command from JS, by its index in the spec's `COMMANDS`.
+    fn command(&mut self, index: u32, args: &[HostArg], cx: HostContext);
 }
 
-impl<T: HostComponent> HostComponentObject for T {
-    fn create_object(props: Props, cx: &mut HostContext) -> Self {
-        T::create(props, cx)
-    }
+/// A generated registration value: a component's name and how to create it.
+pub trait HostComponentSpec: 'static {
+    /// The Fabric component name the spec declares.
+    const NAME: &'static str;
 
-    fn update_object(&mut self, props: Props, cx: &mut HostContext) {
-        self.update(props, cx)
-    }
-
-    fn render_object(
-        &mut self,
-        children: Children,
-        window: &mut Window,
-        cx: &mut HostContext,
-    ) -> AnyElement {
-        self.render(children, window, cx)
-    }
-
-    fn command_object(&mut self, name: &str, args: Vec<Value>, cx: &mut HostContext) {
-        self.command(name, args, cx)
-    }
+    /// Creates the component for a node that just mounted.
+    fn create(props: PropsHandle, emitter: EmitterHandle, cx: HostContext) -> Box<dyn HostObject>;
 }
 
-/// One registered host component: how to make it, and what it declared.
+type CreateFn = fn(PropsHandle, EmitterHandle, HostContext) -> Box<dyn HostObject>;
+
+/// One registry slot: what autolink declared, and what the package registered.
 #[derive(Clone)]
-pub struct HostComponentRegistration {
-    /// A constructor typed for the component's own type, erased behind the
-    /// object trait.
-    constructor: Arc<dyn Fn(Props, &mut HostContext) -> Box<dyn HostComponentObject> + Send + Sync>,
+pub struct HostEntry {
+    pub name: String,
     pub options: HostComponentOptions,
+    create: Option<CreateFn>,
 }
 
-impl HostComponentRegistration {
-    /// Creates the component's object.
-    pub fn create(&self, props: Props, cx: &mut HostContext) -> Box<dyn HostComponentObject> {
-        (self.constructor)(props, cx)
+impl HostEntry {
+    /// Whether a package registered code for this declaration.
+    pub fn is_registered(&self) -> bool {
+        self.create.is_some()
+    }
+
+    /// Creates the component's object, or `None` when the package never
+    /// registered one for this declaration.
+    pub(crate) fn create(
+        &self,
+        props: PropsHandle,
+        emitter: EmitterHandle,
+        cx: HostContext,
+    ) -> Option<Box<dyn HostObject>> {
+        self.create.map(|create| create(props, emitter, cx))
     }
 }
 
-impl std::fmt::Debug for HostComponentRegistration {
+impl std::fmt::Debug for HostEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostComponentRegistration")
+        f.debug_struct("HostEntry")
+            .field("name", &self.name)
             .field("options", &self.options)
+            .field("registered", &self.create.is_some())
             .finish()
     }
 }
 
-fn registry() -> &'static Mutex<HashMap<String, HostComponentRegistration>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, HostComponentRegistration>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Whether any host component was ever registered, as a relaxed load.
-///
-/// Frozen once it is true: packages register before the first surface. The
-/// per-node checks go through this first, so an app with no host components
-/// never takes the registry lock (design 2, section 7, rule 1).
-fn any_registered_flag() -> &'static std::sync::atomic::AtomicBool {
-    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether any host component was ever declared, as a relaxed load. Every
+/// per-op and per-node check goes through this first, so an app with no host
+/// components pays one predictable branch (design 2, section 7, rule 1).
+fn any_declared_flag() -> &'static AtomicBool {
+    static FLAG: AtomicBool = AtomicBool::new(false);
     &FLAG
 }
 
-/// Whether any host component was ever registered.
+/// Whether any host component was ever declared.
 pub fn any_host_components() -> bool {
-    any_registered_flag().load(std::sync::atomic::Ordering::Relaxed)
+    any_declared_flag().load(Ordering::Relaxed)
 }
 
-/// Registers `T` for the Fabric component `name`, replacing any earlier
-/// registration and telling Fabric that the component exists.
+fn pending() -> &'static Mutex<Vec<Option<HostEntry>>> {
+    static PENDING: Mutex<Vec<Option<HostEntry>>> = Mutex::new(Vec::new());
+    &PENDING
+}
+
+fn frozen() -> &'static OnceLock<Box<[Option<HostEntry>]>> {
+    static FROZEN: OnceLock<Box<[Option<HostEntry>]>> = OnceLock::new();
+    &FROZEN
+}
+
+/// Declares the component at `index`. Autolink calls this for every
+/// `hostComponents` entry before any package registers, so the registry has its
+/// shape from `react-native.config.js` and a package's registration only has to
+/// supply the code.
 ///
-/// Called from a module's `rn_gpui_register()`, before the runtime starts. The
-/// C++ side gets a descriptor for the name, so Fabric lays the node out even
-/// though no generated code describes it.
-pub fn register_host_component<T: HostComponent>(
-    cx: &mut App,
-    name: impl Into<String>,
-    options: HostComponentOptions,
-) {
-    let name = name.into();
-    let registration = HostComponentRegistration {
-        constructor: Arc::new(|props, cx| Box::new(T::create_object(props, cx))),
+/// The index is the position in autolink's global order, which the generated C++
+/// bakes in as well: both halves index their arrays with it, and no name is
+/// looked up on a hot path (5.4).
+pub fn declare_host_component(index: u32, name: &str, options: HostComponentOptions) {
+    if frozen().get().is_some() {
+        log::error!("[host-component] {name} declared after the registry froze; ignored");
+        debug_assert!(
+            false,
+            "{name} declared after the host component registry froze"
+        );
+        return;
+    }
+    let mut slots = pending().lock().expect("host component registry poisoned");
+    let index = index as usize;
+    if slots.len() <= index {
+        slots.resize(index + 1, None);
+    }
+    slots[index] = Some(HostEntry {
+        name: name.to_string(),
         options,
-    };
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .insert(name.clone(), registration);
-    any_registered_flag().store(true, std::sync::atomic::Ordering::Relaxed);
-    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
-    let _ = cx;
+        create: None,
+    });
+    any_declared_flag().store(true, Ordering::Relaxed);
 }
 
-/// Registers `T` without an `App`, for a caller that has no GPUI context yet.
-pub fn register_host_component_without_app<T: HostComponent>(
-    name: impl Into<String>,
-    options: HostComponentOptions,
-) {
-    let name = name.into();
-    let registration = HostComponentRegistration {
-        constructor: Arc::new(|props, cx| Box::new(T::create_object(props, cx))),
-        options,
-    };
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .insert(name.clone(), registration);
-    any_registered_flag().store(true, std::sync::atomic::Ordering::Relaxed);
-    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
-}
-
-/// The registration for `name`, if there is one.
+/// Registers the code for a declared component. `spec` is the value the
+/// generated `<name>_component::<T>()` returns.
 ///
-/// The flag check first is rule 1: an app with no host components never takes
-/// the registry lock.
-pub fn host_component(name: &str) -> Option<HostComponentRegistration> {
+/// Called from a package's `rn_gpui_register()`, after autolink declared every
+/// component and before the first surface starts. A component that was not
+/// declared in `react-native.config.js` is an error: C++ would have no
+/// descriptor for it, so Fabric could never mount it.
+pub fn register_component<C: HostComponentSpec>(spec: C) {
+    let _ = spec;
+    if frozen().get().is_some() {
+        log::error!(
+            "[host-component] {} registered after the registry froze; ignored",
+            C::NAME
+        );
+        debug_assert!(
+            false,
+            "{} registered after the host component registry froze",
+            C::NAME
+        );
+        return;
+    }
+    let mut slots = pending().lock().expect("host component registry poisoned");
+    match slots
+        .iter_mut()
+        .flatten()
+        .find(|entry| entry.name == C::NAME)
+    {
+        Some(entry) => entry.create = Some(C::create as CreateFn),
+        None => {
+            log::error!(
+                "[host-component] {} is registered but not declared under platforms.desktop.hostComponents",
+                C::NAME
+            );
+            debug_assert!(false, "{} is not declared in hostComponents", C::NAME);
+        }
+    }
+}
+
+/// Freezes the registry. Called once, before the first surface starts; every
+/// later read is lock-free.
+///
+/// Logs each declared component its package never registered: autolink's
+/// generated bootstrap checks the same thing, and this is the net for a build
+/// that skipped it.
+pub fn freeze() {
+    frozen().get_or_init(|| {
+        let slots = std::mem::take(&mut *pending().lock().expect("host component registry poisoned"));
+        for entry in slots.iter().flatten() {
+            if entry.create.is_none() {
+                log::error!(
+                    "[host-component] {} is declared in hostComponents but no package registered it",
+                    entry.name
+                );
+            }
+        }
+        slots.into_boxed_slice()
+    });
+}
+
+/// The entry at `index`, if there is one.
+///
+/// Lock-free once the registry froze. A unit test never freezes it (the global
+/// is shared by every test in the process), so there it reads the pending list
+/// under its lock instead.
+pub fn entry(index: u32) -> Option<HostEntry> {
+    crate::counters::bump(crate::counters::Counter::HostRegistryLookups);
+    if let Some(slots) = frozen().get() {
+        return slots.get(index as usize).cloned().flatten();
+    }
     if !any_host_components() {
         return None;
     }
-    registry()
+    pending()
         .lock()
         .expect("host component registry poisoned")
-        .get(name)
+        .get(index as usize)
         .cloned()
+        .flatten()
 }
 
-/// Whether `name` is a registered host component.
-pub fn is_host_component(name: &str) -> bool {
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .contains_key(name)
-}
-
-/// Whether `name` was registered as a measured host component.
-pub fn is_measured_host_component(name: &str) -> bool {
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .get(name)
-        .is_some_and(|registration| registration.options.measured)
-}
-
-/// Whether `name` renders content the OS composites (so a `ScrollView` holding
-/// it must stay off the scroll-layer path).
-pub fn renders_native_surface(name: &str) -> bool {
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .get(name)
-        .is_some_and(|registration| registration.options.native_surface)
-}
-
-/// Every registered host component, for the descriptor registry and tests.
-pub fn host_components() -> Vec<(String, HostComponentOptions)> {
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .iter()
-        .map(|(name, registration)| (name.clone(), registration.options))
-        .collect()
-}
-
-/// Whether `name` is registered as a container: a component that draws chrome
-/// around React children and reports the room that chrome takes.
+/// Whether a package registered code for the component declared at `index`.
 ///
-/// A container is expected to call [`HostContext::set_insets`]; the flag is what
-/// lets autolink check that a package's declaration matches its registration,
-/// because a container that never reports insets would draw its children under
-/// its own chrome.
-pub fn is_container_host_component(name: &str) -> bool {
-    registry()
-        .lock()
-        .expect("host component registry poisoned")
-        .get(name)
-        .is_some_and(|registration| registration.options.container)
+/// Autolink's bootstrap asks this once per declaration at startup. It is not a
+/// lookup on a hot path, so it is not counted as one.
+pub fn is_registered(index: u32) -> bool {
+    let check = |slots: &[Option<HostEntry>]| {
+        slots
+            .get(index as usize)
+            .and_then(Option::as_ref)
+            .is_some_and(HostEntry::is_registered)
+    };
+    match frozen().get() {
+        Some(slots) => check(slots),
+        None => check(&pending().lock().expect("host component registry poisoned")),
+    }
 }
 
-/// Runs `f` on a node's live host component, if it has one.
-///
-/// What `f` reports is queued on the store like any other report, and applied
-/// by the store as soon as this call returns rather than on the node's next
-/// render.
-pub fn with_host_component<R>(
-    node: &Entity<crate::node_view::RNNodeView>,
-    cx: &mut App,
-    f: impl FnOnce(&mut Box<dyn HostComponentObject>, &mut HostContext) -> R,
-) -> Option<R> {
-    let result = node.update(cx, |node, _cx| node.with_host_component(f));
-    let reports = node.read(cx).host_reports();
-    if reports.borrow().is_empty() {
-        return result;
+/// Whether the component at `index` renders content the OS composites (so a
+/// `ScrollView` holding it must stay off the scroll-layer path).
+pub fn renders_native_surface(index: u32) -> bool {
+    entry(index).is_some_and(|entry| entry.options.native_surface)
+}
+
+/// Every declared host component with its index, for tests.
+pub fn host_components() -> Vec<(u32, String, HostComponentOptions)> {
+    let collect = |slots: &[Option<HostEntry>]| {
+        slots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                entry
+                    .as_ref()
+                    .map(|entry| (index as u32, entry.name.clone(), entry.options))
+            })
+            .collect()
+    };
+    match frozen().get() {
+        Some(slots) => collect(slots),
+        None => collect(&pending().lock().expect("host component registry poisoned")),
     }
-    if let Some(store) = crate::store::store_from(cx) {
-        // Deferred, because `node` is leased for this call and delivering a
-        // size updates the node's own diagnostic copy. It still runs in this
-        // update, so nothing observes the delay.
-        cx.defer(move |cx| store.update(cx, |store, cx| store.flush_host_reports(cx)));
-    }
-    result
+}
+
+#[doc(hidden)]
+pub use crate::counters::note_props_bytes_copied;
+
+/// Parses the JSON text of an `UnsafeMixed` prop into a [`Value`]. Generated
+/// accessors call it once per props version, on the first read; text that is not
+/// JSON reads as `null`, as an unset prop does.
+pub fn parse_value(text: &str) -> Value {
+    serde_json::from_str(text).unwrap_or(Value::Null)
 }
 
 /// Pushes a reported size into the node's shadow-node state, so Yoga uses it on
@@ -740,221 +854,261 @@ pub(crate) fn apply_insets(tag: i32, top: f32, right: f32, bottom: f32, left: f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{div, prelude::*, IntoElement};
-    use serde_json::json;
+    use gpui::{div, prelude::*};
 
-    struct Card {
-        title: String,
-        taps: u32,
+    /// A stand-in for a generated instance: it records what it was driven with.
+    struct Fake {
+        log: Rc<RefCell<Vec<String>>>,
     }
 
-    impl HostComponent for Card {
-        fn create(props: Props, cx: &mut HostContext) -> Self {
-            cx.set_intrinsic_size(120.0, 40.0);
-            Self {
-                title: props.string("title").unwrap_or_default().to_string(),
-                taps: 0,
+    impl HostObject for Fake {
+        fn update(&mut self, _props: PropsHandle, changed: &[u64], mut cx: HostContext) {
+            self.log.borrow_mut().push(format!("update {changed:?}"));
+            cx.set_intrinsic_size(30.0, 40.0);
+        }
+
+        fn render(&mut self, _window: &mut Window, _cx: HostContext) -> AnyElement {
+            div().into_any_element()
+        }
+
+        fn render_overlay(&mut self, _window: &mut Window, _cx: HostContext) -> Option<AnyElement> {
+            None
+        }
+
+        fn command(&mut self, index: u32, args: &[HostArg], mut cx: HostContext) {
+            self.log
+                .borrow_mut()
+                .push(format!("command {index} {args:?}"));
+            cx.queue_event(|| {});
+        }
+    }
+
+    struct FakeSpec;
+
+    thread_local! {
+        static LOG: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    }
+
+    impl HostComponentSpec for FakeSpec {
+        const NAME: &'static str = "TestHostComponentFake";
+
+        fn create(
+            _props: PropsHandle,
+            _emitter: EmitterHandle,
+            mut cx: HostContext,
+        ) -> Box<dyn HostObject> {
+            cx.set_intrinsic_size(10.0, 20.0);
+            Box::new(Fake {
+                log: LOG.with(Rc::clone),
+            })
+        }
+    }
+
+    fn queue() -> HostReportQueue {
+        Rc::new(HostReports::default())
+    }
+
+    #[test]
+    fn a_context_records_every_report_in_order() {
+        let shared = queue();
+        let mut cx = HostContext::queued(7, shared.clone());
+        cx.set_intrinsic_size(40.0, 20.0);
+        cx.set_insets(1.0, 2.0, 3.0, 4.0);
+        cx.queue_event(|| {});
+        let reports = shared.take();
+        assert_eq!(reports.len(), 3);
+        assert!(matches!(
+            reports[0],
+            HostReport::Size {
+                tag: 7,
+                width,
+                height
+            } if width == 40.0 && height == 20.0
+        ));
+        assert!(matches!(
+            reports[1],
+            HostReport::Insets {
+                tag: 7,
+                top,
+                right,
+                bottom,
+                left
+            } if (top, right, bottom, left) == (1.0, 2.0, 3.0, 4.0)
+        ));
+        assert!(matches!(reports[2], HostReport::Event { tag: 7, .. }));
+    }
+
+    #[test]
+    fn a_queued_event_runs_only_when_it_is_delivered() {
+        let shared = queue();
+        let mut cx = HostContext::queued(1, shared.clone());
+        let fired = Rc::new(Cell::new(0));
+        let counter = fired.clone();
+        cx.queue_event(move || counter.set(counter.get() + 1));
+        assert_eq!(fired.get(), 0, "queueing must not dispatch mid-call");
+        for report in shared.take() {
+            if let HostReport::Event { send, .. } = report {
+                send();
             }
         }
-
-        fn update(&mut self, props: Props, _cx: &mut HostContext) {
-            self.title = props.string("title").unwrap_or_default().to_string();
-        }
-
-        fn render(
-            &mut self,
-            _children: Children,
-            _window: &mut Window,
-            _cx: &mut HostContext,
-        ) -> AnyElement {
-            div().child(self.title.clone()).into_any_element()
-        }
-
-        fn command(&mut self, name: &str, args: Vec<Value>, cx: &mut HostContext) {
-            match name {
-                "tap" => {
-                    self.taps += 1;
-                    cx.emit("onTap", json!({ "taps": self.taps }));
-                }
-                "resize" => {
-                    let width = args.first().and_then(Value::as_f64).unwrap_or(0.0) as f32;
-                    let height = args.get(1).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-                    cx.set_intrinsic_size(width, height);
-                }
-                _ => {}
-            }
-        }
+        assert_eq!(fired.get(), 1);
     }
 
     #[test]
-    fn props_read_fields_without_parsing_per_access() {
-        let props = Props::from_json(r#"{"title":"hi","count":3,"on":true,"list":[1,2]}"#);
-        assert_eq!(props.string("title"), Some("hi"));
-        assert_eq!(props.number("count"), Some(3.0));
-        assert_eq!(props.bool("on"), Some(true));
-        assert_eq!(props.array("list").len(), 2);
-        assert!(props.get("missing").is_none());
-    }
-
-    #[test]
-    fn a_props_payload_that_is_not_an_object_reads_as_empty() {
-        assert_eq!(Props::from_json("[1,2,3]"), Props::empty());
-        assert_eq!(Props::from_json("not json"), Props::empty());
-        assert_eq!(Props::from_json(""), Props::empty());
-        // The array is still rejected when it arrives through `From<Value>`.
-        assert_eq!(Props::from(json!([1])), Props::empty());
-    }
-
-    #[test]
-    fn a_context_collects_a_size_and_events_until_it_is_taken() {
-        let mut cx = HostContext::new(7);
-        assert_eq!(cx.tag, 7);
-        cx.emit("onChange", json!({ "value": 1 }));
-        cx.set_intrinsic_size(10.0, 20.0);
-        let (size, events) = cx.take();
-        assert_eq!(size, Some((10.0, 20.0)));
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].0, "onChange");
-        // Taking empties it, so returning twice does not double-apply.
-        let (size, events) = cx.take();
-        assert_eq!(size, None);
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn a_container_is_distinguishable_from_an_element_component() {
-        let name = "TestHostComponentContainer";
-        register_host_component_without_app::<Card>(
-            name,
-            HostComponentOptions {
-                container: true,
-                ..Default::default()
-            },
-        );
-        assert!(is_container_host_component(name));
-        assert!(
-            !is_container_host_component("TestHostComponentNotAContainer"),
-            "an unregistered name is not a container"
-        );
-
-        // A later registration without the flag takes the flag away, which is
-        // what makes the declaration check meaningful after a reload.
-        register_host_component_without_app::<Card>(name, HostComponentOptions::default());
-        assert!(!is_container_host_component(name));
-    }
-
-    #[test]
-    fn a_container_reports_insets_for_its_chrome_and_they_are_clamped() {
-        let mut cx = HostContext::for_test(1);
-        assert_eq!(cx.insets(), None);
-        cx.set_insets(20.0, -4.0, 8.0, 12.0);
-        let insets = cx.take_insets().expect("reported");
+    fn two_reports_of_the_same_kind_both_survive() {
+        let shared = queue();
+        let mut cx = HostContext::queued(1, shared.clone());
+        cx.set_intrinsic_size(1.0, 1.0);
+        cx.set_intrinsic_size(2.0, 2.0);
         assert_eq!(
-            insets,
-            EdgeInsets {
-                top: 20.0,
-                right: 0.0,
-                bottom: 8.0,
-                left: 12.0,
-            },
-            "a negative inset is a mistake, not an outward push"
+            shared.take().len(),
+            2,
+            "the queue appends, never overwrites"
         );
-        // Taking empties it, so a second return does not re-apply it.
-        assert_eq!(cx.take_insets(), None);
-        assert_eq!(EdgeInsets::ZERO.top, 0.0);
     }
 
     #[test]
     fn a_negative_reported_size_is_clamped_to_zero() {
-        let mut cx = HostContext::new(1);
+        let mut cx = HostContext::for_test(1);
         cx.set_intrinsic_size(-5.0, -1.0);
         assert_eq!(cx.intrinsic_size(), Some((0.0, 0.0)));
     }
 
     #[test]
-    fn a_registered_component_is_created_updated_and_driven_by_commands() {
-        let name = "TestHostComponentCard";
-        register_host_component_without_app::<Card>(
-            name,
-            HostComponentOptions {
-                measured: true,
-                ..Default::default()
-            },
+    fn insets_are_clamped_and_read_back() {
+        let mut cx = HostContext::for_test(1);
+        assert_eq!(cx.insets(), None);
+        cx.set_insets(20.0, -4.0, 8.0, 12.0);
+        assert_eq!(
+            cx.insets(),
+            Some(EdgeInsets {
+                top: 20.0,
+                right: 0.0,
+                bottom: 8.0,
+                left: 12.0,
+            }),
+            "a negative inset is a mistake, not an outward push"
         );
-        assert!(is_host_component(name));
-        assert!(is_measured_host_component(name));
-        assert!(!renders_native_surface(name));
-
-        let registration = host_component(name).expect("registered");
-        let mut cx = HostContext::new(3);
-        let mut object = registration.create(Props::from_json(r#"{"title":"hello"}"#), &mut cx);
-        // `create` reported an initial size.
-        assert_eq!(cx.take().0, Some((120.0, 40.0)));
-
-        object.command_object("tap", Vec::new(), &mut cx);
-        let (_, events) = cx.take();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].0, "onTap");
-
-        object.command_object("resize", vec![json!(300), json!(200)], &mut cx);
-        assert_eq!(cx.take().0, Some((300.0, 200.0)));
-
-        object.update_object(Props::from_json(r#"{"title":"bye"}"#), &mut cx);
+        assert_eq!(EdgeInsets::ZERO.top, 0.0);
     }
 
     #[test]
-    fn registering_a_name_twice_replaces_the_component() {
-        struct Other;
-        impl HostComponent for Other {
-            fn create(_props: Props, _cx: &mut HostContext) -> Self {
-                Self
-            }
-            fn update(&mut self, _props: Props, _cx: &mut HostContext) {}
-            fn render(
-                &mut self,
-                _children: Children,
-                _window: &mut Window,
-                _cx: &mut HostContext,
-            ) -> AnyElement {
-                div().into_any_element()
-            }
-        }
+    fn a_test_context_drains_what_it_was_given() {
+        let mut cx = HostContext::for_test(2);
+        cx.set_intrinsic_size(3.0, 4.0);
+        cx.set_insets(1.0, 1.0, 1.0, 1.0);
+        cx.queue_event(|| {});
+        let drained = cx.test_reports().drain();
+        assert_eq!(drained.sizes, vec![(3.0, 4.0)]);
+        assert_eq!(drained.insets.len(), 1);
+        assert_eq!(drained.events, 1);
+        assert_eq!(cx.test_reports().drain(), DrainedReports::default());
+    }
 
-        let name = "TestHostComponentReplaced";
-        register_host_component_without_app::<Card>(
-            name,
+    /// A frame in which several nodes report claims one delivery, not one each.
+    #[test]
+    fn a_report_queue_claims_a_single_frame_flush() {
+        let shared = queue();
+        let mut first = HostContext::queued(1, shared.clone());
+        let mut second = HostContext::queued(2, shared.clone());
+        first.set_intrinsic_size(1.0, 1.0);
+        second.set_intrinsic_size(2.0, 2.0);
+        assert!(!shared.claim_flush(), "the first report schedules");
+        assert!(shared.claim_flush(), "the second joins it");
+        assert_eq!(shared.take().len(), 2, "and both are still queued");
+    }
+
+    #[test]
+    fn command_arguments_narrow_to_the_declared_type() {
+        assert_eq!(HostArg::Number(2.9).to_i32(), 2);
+        assert_eq!(HostArg::Number(1.5).to_f32(), 1.5);
+        assert!(HostArg::Bool(true).to_bool());
+        assert_eq!(HostArg::String("a".into()).to_string_value(), "a");
+        assert_eq!(HostArg::Numbers(vec![1.0, 2.0]).to_i32_vec(), vec![1, 2]);
+        assert_eq!(
+            HostArg::Strings(vec!["x".into()]).to_string_vec(),
+            vec!["x".to_string()]
+        );
+        // A mismatch cannot happen after C++ validated it; if it ever did it is
+        // a neutral value, not a panic in the middle of a frame.
+        assert_eq!(HostArg::String("a".into()).to_i32(), 0);
+    }
+
+    #[test]
+    fn a_declared_component_is_created_by_its_registration() {
+        declare_host_component(
+            900,
+            FakeSpec::NAME,
             HostComponentOptions {
                 measured: true,
                 ..Default::default()
             },
         );
-        assert!(is_measured_host_component(name));
-        register_host_component_without_app::<Other>(name, HostComponentOptions::default());
-        assert!(is_host_component(name));
-        assert!(
-            !is_measured_host_component(name),
-            "the later registration decides whether the component measures"
+        register_component(FakeSpec);
+        let entry = entry(900).expect("declared");
+        assert_eq!(entry.name, FakeSpec::NAME);
+        assert!(entry.options.measured);
+
+        let shared = queue();
+        let mut object = entry
+            .create(
+                PropsHandle::for_test(),
+                EmitterHandle::for_test(),
+                HostContext::queued(3, shared.clone()),
+            )
+            .expect("registered");
+        assert!(matches!(
+            shared.take()[0],
+            HostReport::Size { width, height, .. } if (width, height) == (10.0, 20.0)
+        ));
+
+        object.update(
+            PropsHandle::for_test(),
+            &[0b101],
+            HostContext::queued(3, shared.clone()),
         );
+        object.command(
+            1,
+            &[HostArg::Number(5.0)],
+            HostContext::queued(3, shared.clone()),
+        );
+        LOG.with(|log| {
+            assert_eq!(
+                *log.borrow(),
+                vec![
+                    "update [5]".to_string(),
+                    "command 1 [Number(5.0)]".to_string()
+                ]
+            );
+        });
+        assert_eq!(
+            shared.take().len(),
+            2,
+            "the update's size and the command's event"
+        );
+    }
+
+    #[test]
+    fn a_declaration_nobody_registered_has_no_code() {
+        declare_host_component(
+            901,
+            "TestHostComponentUnregistered",
+            HostComponentOptions::default(),
+        );
+        let entry = entry(901).expect("declared");
+        assert!(entry
+            .create(
+                PropsHandle::for_test(),
+                EmitterHandle::for_test(),
+                HostContext::for_test(1)
+            )
+            .is_none());
     }
 
     #[test]
     fn the_registry_reports_what_each_component_declared() {
-        struct Native;
-        impl HostComponent for Native {
-            fn create(_props: Props, _cx: &mut HostContext) -> Self {
-                Self
-            }
-            fn update(&mut self, _props: Props, _cx: &mut HostContext) {}
-            fn render(
-                &mut self,
-                _children: Children,
-                _window: &mut Window,
-                _cx: &mut HostContext,
-            ) -> AnyElement {
-                div().into_any_element()
-            }
-        }
-        register_host_component_without_app::<Native>(
+        declare_host_component(
+            902,
             "TestHostComponentNative",
             HostComponentOptions {
                 native_surface: true,
@@ -962,73 +1116,18 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(renders_native_surface("TestHostComponentNative"));
+        assert!(renders_native_surface(902));
         let found = host_components()
             .into_iter()
-            .find(|(name, _)| name == "TestHostComponentNative")
+            .find(|(index, _, _)| *index == 902)
             .expect("listed");
-        assert!(found.1.container);
-        assert!(!found.1.measured);
-        assert!(!renders_native_surface("TestHostComponentCard"));
-    }
-
-    /// A context wired to a queue reports into it the moment it is called, not
-    /// when some node renders: that is the whole of design 2 section 5.7.
-    #[test]
-    fn a_queued_context_records_every_report_in_order() {
-        let shared = std::rc::Rc::new(RefCell::new(HostReports::default()));
-        let mut cx = HostContext::queued(7, shared.clone());
-        cx.set_intrinsic_size(40.0, 20.0);
-        cx.set_insets(1.0, 2.0, 3.0, 4.0);
-        cx.emit("onTap", json!({ "taps": 1 }));
-        let reports = shared.borrow().take();
-        assert_eq!(
-            reports,
-            vec![
-                HostReport::Size {
-                    tag: 7,
-                    width: 40.0,
-                    height: 20.0
-                },
-                HostReport::Insets {
-                    tag: 7,
-                    top: 1.0,
-                    right: 2.0,
-                    bottom: 3.0,
-                    left: 4.0
-                },
-                HostReport::Event {
-                    tag: 7,
-                    name: "onTap".to_string(),
-                    payload: json!({ "taps": 1 })
-                },
-            ],
-            "every report is kept, oldest first, so none overwrites another"
+        assert_eq!(found.1, "TestHostComponentNative");
+        assert!(found.2.container);
+        assert!(!found.2.measured);
+        assert!(!renders_native_surface(901));
+        assert!(
+            !renders_native_surface(12345),
+            "an unknown index renders nothing"
         );
-    }
-
-    /// A plain context is what a unit test builds without a store; it still
-    /// records locally, so `take` and `take_insets` behave as before.
-    #[test]
-    fn a_plain_context_keeps_its_reports_on_the_context() {
-        let mut cx = HostContext::new(3);
-        cx.set_intrinsic_size(10.0, 20.0);
-        cx.set_insets(5.0, 6.0, 7.0, 8.0);
-        assert!(!cx.has_reports(), "there is no queue to deliver into");
-        assert_eq!(cx.take(), (Some((10.0, 20.0)), Vec::new()));
-        assert_eq!(cx.take_insets().map(|insets| insets.top), Some(5.0));
-    }
-
-    /// A frame in which several nodes report claims one delivery, not one each.
-    #[test]
-    fn a_report_queue_claims_a_single_frame_flush() {
-        let queue = std::rc::Rc::new(RefCell::new(HostReports::default()));
-        let mut first = HostContext::queued(1, queue.clone());
-        let mut second = HostContext::queued(2, queue.clone());
-        first.set_intrinsic_size(1.0, 1.0);
-        second.set_intrinsic_size(2.0, 2.0);
-        assert!(!queue.borrow().claim_flush(), "the first report schedules");
-        assert!(queue.borrow().claim_flush(), "the second joins it");
-        assert_eq!(queue.borrow().take().len(), 2, "and both are still queued");
     }
 }

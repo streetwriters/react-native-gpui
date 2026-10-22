@@ -7,25 +7,13 @@
 
 #include "rust/cxx.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 namespace rngpui {
 
 class GpuiMountingManager;
-
-/// Registers a Fabric component with that name. A measured component gets a
-/// Yoga measure function that reads its shadow node's state.
-void registerHostComponent(rust::Str name, bool measured, bool container);
-
-/// Whether any host component was ever registered.
-///
-/// The answer is frozen once it is true: registrations happen before the first
-/// surface. A hot path checks this before it touches the registry, so an app
-/// with no host components pays one relaxed load and never a lock (design 2,
-/// section 7, rule 1).
-bool anyHostComponents();
 
 /// Names the mounting manager host component reports are pushed through.
 ///
@@ -49,13 +37,17 @@ void reportHostComponentInsets(
     float bottom,
     float left);
 
-/// Whether `name` was registered as a host component.
-bool isHostComponent(rust::Str name);
+/// Releases a props handle a mount op gave Rust. A handle is a heap
+/// `shared_ptr<const Props>` holder, so releasing it drops one reference.
+void releaseHostPropsHandle(std::size_t handle);
 
-/// Whether `name` was registered as a measured host component.
-bool isMeasuredHostComponent(rust::Str name);
+/// Releases an event emitter handle a `Create` op gave Rust.
+void releaseHostEmitterHandle(std::size_t handle);
 
-/// Whether a name was registered as a container that accepts React children.
-bool isContainerHostComponent(rust::Str name);
+/// How many times the registry was asked for a component, for the test driver's
+/// counters. Counted only on the path an app with host components takes: an app
+/// without any never reaches the lookup (design 2, section 7, rule 1).
+uint64_t hostEntryLookups();
+void resetHostEntryLookups();
 
 } // namespace rngpui

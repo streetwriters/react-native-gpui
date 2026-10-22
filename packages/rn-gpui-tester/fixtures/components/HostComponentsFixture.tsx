@@ -33,6 +33,13 @@ const POINTS: FixtureChartPoint[] = [
   { x: 2, y: 2 },
 ];
 
+// The `large-series` scenario: a chart big enough that copying its props on every
+// commit would show up in the counters (design 2, section 9.2).
+const LARGE_POINTS: FixtureChartPoint[] = Array.from(
+  { length: 10_000 },
+  (_, index) => ({ x: index, y: Math.sin(index / 50) * 100 }),
+);
+
 export default function HostComponentsFixture({
   scenario,
 }: {
@@ -49,6 +56,8 @@ export default function HostComponentsFixture({
   // to tell a report from a selection.
   const expectingReport = useRef(false);
   const [reportToken, setReportToken] = useState(0);
+  // A prop that is not `points`, so changing it must not resend the series.
+  const [titleCount, setTitleCount] = useState(0);
 
   const onPointSelected = useCallback(
     (event: { nativeEvent: { index: number; x: number; y: number } }) => {
@@ -84,8 +93,8 @@ export default function HostComponentsFixture({
           <FixtureChart
             ref={chart}
             testID="host-chart"
-            points={POINTS}
-            title="Series"
+            points={scenario === 'large-series' ? LARGE_POINTS : POINTS}
+            title={`Series ${titleCount}`}
             lineColor={0xff2563eb}
             reportToken={reportToken}
             onPointSelected={onPointSelected}
@@ -114,6 +123,14 @@ export default function HostComponentsFixture({
           >
             <Text style={{ color: '#f8fafc', paddingTop: 8 }}>
               report series
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="host-chart-title"
+            onPress={() => setTitleCount(count => count + 1)}
+          >
+            <Text style={{ color: '#f8fafc', paddingTop: 8 }}>
+              change title
             </Text>
           </Pressable>
           <Pressable

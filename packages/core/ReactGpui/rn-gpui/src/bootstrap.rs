@@ -508,11 +508,13 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
-    /// A command Fabric sent to a component that has a host component.
-    ComponentCommand {
+    /// A command Fabric sent to a host component: its index in the spec's
+    /// `COMMANDS` and its arguments, already validated by the generated C++
+    /// dispatcher (design 2, section 5.6).
+    HostCommand {
         tag: i32,
-        name: String,
-        args_json: String,
+        command: u32,
+        args: Vec<crate::host_component::HostArg>,
     },
     DevMenuShow,
     DevSetting {
@@ -867,16 +869,17 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_COMMAND_HANDLER.set(Box::new(move |tag, focus| {
         let _ = text_input_command_tx.send_blocking(MainEvent::TextInputCommand { tag, focus });
     }));
-    let component_command_tx = tx.clone();
-    let _ = rn_gpui_sys::COMPONENT_COMMAND_HANDLER.set(Box::new(
-        move |tag, name, args_json| {
-            let _ = component_command_tx.send_blocking(MainEvent::ComponentCommand {
-                tag,
-                name,
-                args_json,
-            });
-        },
-    ));
+    let host_command_tx = tx.clone();
+    let _ = rn_gpui_sys::HOST_COMMAND_HANDLER.set(Box::new(move |tag, command, args| {
+        let _ = host_command_tx.send_blocking(MainEvent::HostCommand {
+            tag,
+            command,
+            args: args
+                .into_iter()
+                .map(crate::host_component::HostArg::from_ffi)
+                .collect(),
+        });
+    }));
     let accessibility_focus_tx = tx.clone();
     let _ = rn_gpui_sys::ACCESSIBILITY_FOCUS_HANDLER.set(Box::new(move |tag| {
         let _ = accessibility_focus_tx.send_blocking(MainEvent::AccessibilityFocus(tag));
@@ -2037,16 +2040,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             });
                         }
                     }
-                    MainEvent::ComponentCommand {
-                        tag,
-                        name,
-                        args_json,
-                    } => {
-                        let args: Vec<serde_json::Value> = serde_json::from_str(&args_json)
-                            .unwrap_or(serde_json::Value::Array(Vec::new()))
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default();
+                    MainEvent::HostCommand { tag, command, args } => {
                         let target = {
                             let mut target = None;
                             store.update(cx, |store, _cx| {
@@ -2060,7 +2054,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             // call through the context it was given.
                             let _ = cx.update_window(window_handle, move |_root, _window, cx| {
                                 node.update(cx, |node, cx| {
-                                    node.dispatch_host_component_command(name, args, cx);
+                                    node.dispatch_host_command(command, &args, cx);
                                 });
                             });
                         }

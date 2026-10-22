@@ -354,6 +354,27 @@ export class DesktopApp {
     this.idleOptions = options;
   }
 
+  /**
+   * The performance counters of design 2, section 7: how much work host
+   * components and native surfaces cost, as counts a test can assert exactly.
+   * `reset` zeroes them after reading, so a test measures a single action.
+   */
+  async hostCounters(options: { reset?: boolean } = {}): Promise<{
+    /** Lookups in the Rust registry: one per host component node created. */
+    hostRegistryLookups: number;
+    /**
+     * Lookups in the C++ table: one per mount op, once any host component is
+     * registered. A lock-free search of a few entries; reported, not zero.
+     */
+    hostEntryLookups: number;
+    nativeSurfaceWalkNodes: number;
+    hostPropsBytesCopied: number;
+    hostUpdateCalls: number;
+    hostReportsDelivered: number;
+  }> {
+    return this.request('hostCounters', { reset: options.reset ?? false });
+  }
+
   async idleStatus(
     options: Pick<IdleOptions, 'ignore' | 'ignoreUrls'> = {},
   ): Promise<{

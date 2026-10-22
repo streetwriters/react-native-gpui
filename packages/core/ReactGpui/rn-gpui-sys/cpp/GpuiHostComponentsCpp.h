@@ -2,10 +2,16 @@
 //
 // Kept apart from `GpuiHostComponent.h` because that header is included by the
 // cxx bridge, which is compiled without React Native's include paths.
+//
+// Everything a package gets for free lives here as templates over the types
+// React Native's codegen generated for its spec: the shadow node, the component
+// descriptor, the props and emitter handles. The generated C++ file of a
+// package only instantiates them (design 2, section 5.3).
 #pragma once
 
 #include "GpuiHostComponent.h"
 
+#include <react/renderer/componentregistry/ComponentDescriptorProvider.h>
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
 #include <react/renderer/components/view/ViewEventEmitter.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -13,15 +19,18 @@
 #include <react/renderer/core/ComponentDescriptor.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/core/ConcreteState.h>
+#include <react/renderer/core/EventEmitter.h>
+#include <react/renderer/core/LayoutConstraints.h>
 #include <react/renderer/core/LayoutContext.h>
-#include <react/renderer/core/PropsParserContext.h>
-#include <react/renderer/core/RawProps.h>
+#include <react/renderer/core/Props.h>
 #include <react/renderer/mounting/ShadowView.h>
 
-#include <folly/json.h>
+#include <folly/dynamic.h>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -29,60 +38,46 @@ namespace facebook::react {
 class ComponentDescriptorProviderRegistry;
 }
 
-namespace rngpui {
+// ---------------------------------------------------------------------------
+// The C ABI between the generated Rust and the generated C++ file.
+//
+// These mirror `COMPONENT_ABI` in `generate-rust-spec.js` field for field. They
+// live here once, in the global namespace, so every package's generated file
+// uses the same definitions and the layout checks below are made once.
+// ---------------------------------------------------------------------------
 
-/// A props class that keeps every prop, untyped.
-///
-/// It extends `ViewProps`, so a host component's node still honours the usual
-/// `style` (opacity, background, borders, accessibility, layout direction), and
-/// adds the JSON payload the Rust side reads. A package's component therefore
-/// gets core's styling for free and its own props as data.
-class GpuiHostProps final : public facebook::react::ViewProps {
- public:
-  GpuiHostProps() = default;
-
-  GpuiHostProps(
-      const facebook::react::PropsParserContext& context,
-      const GpuiHostProps& sourceProps,
-      const facebook::react::RawProps& rawProps)
-      : facebook::react::ViewProps(context, sourceProps, rawProps) {
-    setFromRawProps(rawProps);
-  }
-
-  /// Fabric calls this on the iterator-setter path. The class needs no
-  /// per-field knowledge, which is the point: every name is kept.
-  void setProp(
-      const facebook::react::PropsParserContext& context,
-      facebook::react::RawPropsPropNameHash hash,
-      const char* propName,
-      const facebook::react::RawValue& value);
-
-  /// The whole props object as JSON, captured from the raw props.
-  const std::string& propsJson() const {
-    return propsJson_;
-  }
-
- private:
-  void setFromRawProps(const facebook::react::RawProps& rawProps) {
-    // `toDynamic` is the only way to read props generically in this React
-    // Native: `Props::rawProps` only exists under `RN_SERIALIZABLE_STATE`,
-    // which is Android-only here (see `cmake-utils/react-native-flags.cmake`).
-    auto dynamic = rawProps.toDynamic();
-    if (dynamic.isObject()) {
-      propsJson_ = folly::toJson(dynamic);
-      propsDynamic_ = std::move(dynamic);
-    } else {
-      propsJson_ = "{}";
-      propsDynamic_ = folly::dynamic::object();
-    }
-  }
-
-  std::string propsJson_ = "{}";
-  folly::dynamic propsDynamic_ = folly::dynamic::object();
+/// A borrowed C++ `std::string`: bytes and an explicit length.
+struct RnGpuiStr {
+  const uint8_t* data;
+  size_t len;
 };
 
-/// The state a measured host component keeps: its intrinsic size, and the
-/// insets a container reports for its chrome (design 2, section 6.1).
+/// A borrowed C++ `std::vector<T>` of plain data.
+struct RnGpuiSlice {
+  const void* data;
+  size_t len;
+};
+
+/// A C++ `SharedColor`: `present` is false when React left the color unset.
+struct RnGpuiOptU32 {
+  uint32_t value;
+  bool present;
+};
+
+static_assert(sizeof(RnGpuiStr) == 2 * sizeof(void*));
+static_assert(offsetof(RnGpuiStr, data) == 0);
+static_assert(offsetof(RnGpuiStr, len) == sizeof(void*));
+static_assert(sizeof(RnGpuiSlice) == 2 * sizeof(void*));
+static_assert(offsetof(RnGpuiSlice, data) == 0);
+static_assert(offsetof(RnGpuiSlice, len) == sizeof(void*));
+static_assert(sizeof(RnGpuiOptU32) == 8);
+static_assert(offsetof(RnGpuiOptU32, value) == 0);
+static_assert(offsetof(RnGpuiOptU32, present) == 4);
+
+namespace rngpui {
+
+/// The state every host component keeps: its intrinsic size, and the insets a
+/// container reports for its chrome (design 2, sections 5.9 and 6.1).
 struct GpuiHostStateData {
   float width = 0.f;
   float height = 0.f;
@@ -97,108 +92,192 @@ struct GpuiHostStateData {
   float insetBottom = 0.f;
 };
 
-/// One shadow node for every host component: a leaf whose measure function
-/// returns the size in its state.
+/// What a props handle owns: one reference to the node's Fabric props.
 ///
-/// The component name is a per-family flavor rather than a C++ class, which is
-/// how a package gets a Fabric component without generating a shadow node.
-extern const char GpuiHostComponentName[];
+/// A handle crosses the bridge as the address of a heap-allocated holder, so
+/// Rust reads the props in place and the props live exactly as long as the
+/// handle does. One 16-byte allocation per props version that reaches Rust, and
+/// nothing is serialised (design 2, section 5.2).
+struct HostPropsHandle {
+  std::shared_ptr<const facebook::react::Props> props;
+};
 
-class GpuiHostShadowNode final : public facebook::react::ConcreteViewShadowNode<
-                                     GpuiHostComponentName,
-                                     GpuiHostProps,
-                                     facebook::react::ViewEventEmitter,
-                                     GpuiHostStateData> {
+/// What an emitter handle owns: one reference to the node's event emitter.
+struct HostEmitterHandle {
+  std::shared_ptr<const facebook::react::EventEmitter> emitter;
+};
+
+/// The handle for `props`, as the address Rust owns. Zero for a null pointer.
+inline std::size_t makeHostPropsHandle(
+    const std::shared_ptr<const facebook::react::Props>& props) {
+  return props ? reinterpret_cast<std::size_t>(new HostPropsHandle{props}) : 0;
+}
+
+/// The handle for `emitter`, as the address Rust owns. Zero for a null pointer.
+inline std::size_t makeHostEmitterHandle(
+    const std::shared_ptr<const facebook::react::EventEmitter>& emitter) {
+  return emitter ? reinterpret_cast<std::size_t>(new HostEmitterHandle{emitter})
+                 : 0;
+}
+
+/// The props a generated accessor reads: the handle's props, as the component's
+/// own generated props class. The handle was made from a node of that component
+/// (the registry index on the op says so), so the downcast is exact.
+template <class P>
+inline const P& hostProps(const void* handle) {
+  return static_cast<const P&>(
+      *static_cast<const HostPropsHandle*>(handle)->props);
+}
+
+/// The emitter a generated event shim dispatches through.
+template <class E>
+inline const E& hostEmitter(const void* handle) {
+  return static_cast<const E&>(
+      *static_cast<const HostEmitterHandle*>(handle)->emitter);
+}
+
+/// One command argument, already validated against the spec by the generated
+/// dispatcher. Mirrors `HostCommandArg` in the bridge, without cxx types, so
+/// the generated file does not need the bridge header.
+struct HostCommandValue {
+  enum Kind : uint8_t {
+    Number = 0,
+    Bool = 1,
+    String = 2,
+    Numbers = 3,
+    Bools = 4,
+    Strings = 5,
+  };
+  Kind kind = Number;
+  double number = 0;
+  std::string text;
+  std::vector<double> numbers;
+  std::vector<std::string> texts;
+};
+
+/// Sends a validated command to the Rust host component of node `tag`, as the
+/// `command`-th entry of its spec's `COMMANDS`.
+void dispatchHostCommand(
+    int32_t tag,
+    uint32_t command,
+    std::vector<HostCommandValue>&& args);
+
+// ---------------------------------------------------------------------------
+// Shadow nodes and descriptors (design 2, section 5.3).
+// ---------------------------------------------------------------------------
+
+/// A leaf host component: its measure function returns the size in its state,
+/// when it declares itself `measured`.
+///
+/// Built from `ConcreteViewShadowNode::BaseTraits()`, not from
+/// `YogaLayoutableShadowNode`'s: the latter omits `FormsView`, and Fabric's
+/// differ only emits `Create`/`Insert` for a node it considers a concrete view.
+/// Without it the node is laid out by Yoga and then dropped before mounting.
+template <const char* Name, class P, class E, bool Measured>
+class GpuiHostLeafShadowNode final
+    : public facebook::react::
+          ConcreteViewShadowNode<Name, P, E, GpuiHostStateData> {
+  using Base =
+      facebook::react::ConcreteViewShadowNode<Name, P, E, GpuiHostStateData>;
+
  public:
   static facebook::react::ShadowNodeTraits BaseTraits() {
-    // From `ConcreteViewShadowNode`, not `YogaLayoutableShadowNode`: the latter
-    // omits `FormsView`, and Fabric's differ only emits `Create`/`Insert` for a
-    // node it considers a concrete view. Without it the shadow node is laid out
-    // by Yoga and then dropped before mounting, so the node never reaches the
-    // store — and because `FormsStackingContext` is set, its children are not
-    // hoisted into the parent either, so an entire subtree disappears silently.
-    auto traits = GpuiHostShadowNode::ConcreteViewShadowNode::BaseTraits();
+    auto traits = Base::BaseTraits();
     traits.set(facebook::react::ShadowNodeTraits::Trait::LeafYogaNode);
-    traits.set(facebook::react::ShadowNodeTraits::Trait::MeasurableYogaNode);
+    if constexpr (Measured) {
+      traits.set(facebook::react::ShadowNodeTraits::Trait::MeasurableYogaNode);
+    }
     return traits;
   }
 
-  GpuiHostShadowNode(
+  GpuiHostLeafShadowNode(
       const facebook::react::ShadowNodeFragment& fragment,
       const facebook::react::ShadowNodeFamily::Shared& family,
-      facebook::react::ShadowNodeTraits traits);
+      facebook::react::ShadowNodeTraits traits)
+      : Base(fragment, family, traits) {
+    initialize();
+  }
 
-  GpuiHostShadowNode(
+  GpuiHostLeafShadowNode(
       const facebook::react::ShadowNode& sourceShadowNode,
-      const facebook::react::ShadowNodeFragment& fragment);
+      const facebook::react::ShadowNodeFragment& fragment)
+      : Base(sourceShadowNode, fragment) {
+    initialize();
+  }
 
-  /// The measured size the node's state holds, clamped to the constraints.
+  /// The size the node's state holds, clamped to the constraints.
   facebook::react::Size measureContent(
-      const facebook::react::LayoutContext& layoutContext,
+      const facebook::react::LayoutContext& /*layoutContext*/,
       const facebook::react::LayoutConstraints& layoutConstraints)
-      const override;
+      const override {
+    const auto& stateData = this->getStateData();
+    float width = stateData.width;
+    float height = stateData.height;
+    if (!stateData.measured) {
+      // Nothing reported yet: the design says a component should report from
+      // `create`, and the style's own minimum is the closest thing to a size
+      // until it does.
+      width = layoutConstraints.minimumSize.width;
+      height = layoutConstraints.minimumSize.height;
+    }
+    width = std::clamp(
+        width,
+        layoutConstraints.minimumSize.width,
+        layoutConstraints.maximumSize.width);
+    height = std::clamp(
+        height,
+        layoutConstraints.minimumSize.height,
+        layoutConstraints.maximumSize.height);
+    return facebook::react::Size{width, height};
+  }
 
  private:
-  void initialize() noexcept;
+  void initialize() noexcept {
+    if constexpr (Measured) {
+      // Compile time, so building a shadow node asks nothing of a registry.
+      this->enableMeasurement();
+    }
+  }
 };
 
 /// A container host component: it draws chrome *around* React children.
 ///
-/// A separate class rather than a trait on `GpuiHostShadowNode`, because Fabric
-/// couples the two traits involved: `MeasurableYogaNode` asserts that
-/// `LeafYogaNode` is set, and a leaf cannot hold children — Fabric drops them,
-/// so the subtree never reaches the mount batch at all. A component is
-/// therefore either a measurable leaf or a container, never both.
+/// A separate class rather than a trait on the leaf, because Fabric couples the
+/// two traits involved: `MeasurableYogaNode` asserts that `LeafYogaNode` is
+/// set, and a leaf cannot hold children — Fabric drops them, so the subtree
+/// never reaches the mount batch at all. A component is therefore either a
+/// measurable leaf or a container, never both, and autolink rejects a
+/// declaration that asks for both.
+template <const char* Name, class P, class E>
 class GpuiHostContainerShadowNode final
-    : public facebook::react::ConcreteViewShadowNode<
-          GpuiHostComponentName,
-          GpuiHostProps,
-          facebook::react::ViewEventEmitter,
-          GpuiHostStateData> {
+    : public facebook::react::
+          ConcreteViewShadowNode<Name, P, E, GpuiHostStateData> {
  public:
-  static facebook::react::ShadowNodeTraits BaseTraits() {
-    // `FormsView` for the same reason as the leaf class above; no leaf trait,
-    // so the children it was given survive to be mounted.
-    auto traits =
-        GpuiHostContainerShadowNode::ConcreteViewShadowNode::BaseTraits();
-    return traits;
-  }
-
-  using ConcreteViewShadowNode::ConcreteViewShadowNode;
+  using facebook::react::ConcreteViewShadowNode<Name, P, E, GpuiHostStateData>::
+      ConcreteViewShadowNode;
 };
 
-/// The descriptor for one host component. The name comes from the provider's
-/// flavor, which is what lets one class serve every registered name.
-class GpuiHostComponentDescriptor final
-    : public facebook::react::ConcreteComponentDescriptor<GpuiHostShadowNode> {
+/// The descriptor of a container: applies the insets the component reported for
+/// its chrome as real Yoga padding, so its React children are laid out inside
+/// it.
+///
+/// `adopt`, not `layout`: Yoga runs `YGNodeCalculateLayout` and only then calls
+/// `layout()` to read the results back, so padding set there changes nothing
+/// that is read again. `adopt` runs on every create and every clone, including
+/// the clone `updateState` produces, which is the point at which padding still
+/// influences layout. `SafeAreaViewComponentDescriptor` does the same thing for
+/// the same reason.
+///
+/// This replaces any padding from the component's own style, which SafeAreaView
+/// shares: a container's chrome padding is authored natively and the style's is
+/// not.
+template <class ShadowNodeT>
+class GpuiHostContainerDescriptor final
+    : public facebook::react::ConcreteComponentDescriptor<ShadowNodeT> {
  public:
-  using ConcreteComponentDescriptor::ConcreteComponentDescriptor;
+  using facebook::react::ConcreteComponentDescriptor<
+      ShadowNodeT>::ConcreteComponentDescriptor;
 
-  facebook::react::ComponentName getComponentName() const override;
-  facebook::react::ComponentHandle getComponentHandle() const override;
-};
-
-/// The same descriptor for a container, which builds the child-accepting shadow
-/// node instead of the measurable leaf.
-class GpuiHostContainerComponentDescriptor final
-    : public facebook::react::ConcreteComponentDescriptor<
-          GpuiHostContainerShadowNode> {
- public:
-  using ConcreteComponentDescriptor::ConcreteComponentDescriptor;
-
-  /// Applies the insets the component reported for its chrome as real Yoga
-  /// padding, so its React children are laid out inside it.
-  ///
-  /// `adopt`, not `layout`: Yoga runs `YGNodeCalculateLayout` and only then
-  /// calls `layout()` to read the results back, so padding set there changes
-  /// nothing that is read again. `adopt` runs on every create and every clone,
-  /// including the clone `updateState` produces, which is the point at which
-  /// padding still influences layout. `SafeAreaViewComponentDescriptor` does
-  /// the same thing for the same reason.
-  ///
-  /// Note this replaces any padding from the component's own style, which
-  /// SafeAreaView shares; a container's chrome padding is authored natively and
-  /// the style's padding is not.
   void adopt(facebook::react::ShadowNode& shadowNode) const override {
     auto& layoutable =
         static_cast<facebook::react::YogaLayoutableShadowNode&>(shadowNode);
@@ -210,54 +289,68 @@ class GpuiHostContainerComponentDescriptor final
     // clone copies the source node's Yoga style and does not re-run
     // `updateYogaProps`, so skipping the all-zero case would leave a previous
     // padding in place and a container could never shrink its chrome back.
-    // `SafeAreaViewComponentDescriptor` sets it unconditionally for this
-    // reason.
     //
     // `RectangleEdges` is ordered left, top, right, bottom — not top-first.
     layoutable.setPadding(facebook::react::RectangleEdges<float>{
         data.insetLeft, data.insetTop, data.insetRight, data.insetBottom});
-    facebook::react::ConcreteComponentDescriptor<
-        GpuiHostContainerShadowNode>::adopt(shadowNode);
+    facebook::react::ConcreteComponentDescriptor<ShadowNodeT>::adopt(
+        shadowNode);
   }
-
-  facebook::react::ComponentName getComponentName() const override;
-  facebook::react::ComponentHandle getComponentHandle() const override;
 };
 
-/// Picks the descriptor class from the name the provider was registered with,
-/// so one registration loop serves both kinds of host component.
-facebook::react::ComponentDescriptor::Unique makeHostComponentDescriptor(
-    const facebook::react::ComponentDescriptorParameters& parameters);
+// ---------------------------------------------------------------------------
+// The registry (design 2, section 5.4).
+// ---------------------------------------------------------------------------
 
-/// One registered host component.
-struct GpuiHostComponentRegistration {
-  std::string name;
-  /// Whether the component measures itself. A measured component's shadow node
-  /// gets a Yoga measure function and core applies its reported size.
+/// What the generated C++ file knows about one component, registered at
+/// startup.
+///
+/// The index is the component's position in autolink's global order, which the
+/// generated Rust bakes in too: both halves index their arrays with it, so no
+/// hot path looks a component up by name.
+struct HostComponentEntry {
+  uint32_t index = 0;
+  const char* name = "";
+  /// `Name::Handle()` of the component's shadow node: what a `ShadowView`
+  /// carries, and the key of the table lookup.
+  facebook::react::ComponentHandle handle = 0;
   bool measured = false;
-
-  GpuiHostComponentRegistration(std::string name, bool measured)
-      : name(std::move(name)), measured(measured) {}
+  bool container = false;
+  bool nativeSurface = false;
+  /// Builds the Fabric descriptor provider for the component.
+  facebook::react::ComponentDescriptorProvider (*provider)() = nullptr;
+  /// Compares two props objects of this component and sets one bit per changed
+  /// prop in `words`, which holds `changeWords` zeroed words.
+  void (*changed)(
+      const facebook::react::Props& before,
+      const facebook::react::Props& after,
+      uint64_t* words) = nullptr;
+  uint32_t changeWords = 1;
+  /// Validates a command's arguments against the spec and dispatches it.
+  /// Returns whether the name is one of the spec's commands.
+  bool (*command)(
+      int32_t tag,
+      const std::string& name,
+      const folly::dynamic& args) = nullptr;
 };
 
-/// Whether `name` was registered as a host component, by a `std::string`, for
-/// C++ callers that already have one (the bridged overloads take `rust::Str`).
-bool isHostComponentName(const std::string& name);
+/// Registers a component. Called from the generated file's
+/// `rn_gpui_register_host_components_<Library>()`, before the first surface
+/// starts. Registering after the registry froze is an error.
+void registerHostComponentEntry(const HostComponentEntry& entry);
 
-/// Whether `name` was registered as a measured host component.
-bool isMeasuredHostComponentName(const std::string& name);
+/// Whether any host component was ever registered, as one relaxed load. Every
+/// per-op check goes through this first, so an app with no host components pays
+/// one predictable branch (design 2, section 7, rule 1).
+bool anyHostComponents();
 
-/// The process-wide list of host components, so the descriptor registry can
-/// ask about a name before that component is registered.
-std::vector<GpuiHostComponentRegistration>& hostComponentRegistrations();
+/// The entry for the component `handle` names, or null. Lock-free: the table is
+/// built once, when the descriptors are registered, and never changes.
+const HostComponentEntry* hostComponentEntry(
+    facebook::react::ComponentHandle handle);
 
-/// Serialises a commit's generic props for `shadowView` when `componentName`
-/// is a host component; empty otherwise.
-std::string hostComponentPropsJson(
-    const facebook::react::ShadowView& shadowView);
-
-/// Registers the descriptor provider for every host component in the registry
-/// with Fabric's provider registry.
+/// Adds the descriptor provider of every registered component to Fabric's
+/// provider registry, and freezes the registry.
 void registerHostComponentDescriptors(
     facebook::react::ComponentDescriptorProviderRegistry& registry);
 

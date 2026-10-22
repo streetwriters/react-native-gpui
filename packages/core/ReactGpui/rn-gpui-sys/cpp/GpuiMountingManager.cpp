@@ -232,7 +232,8 @@ void GpuiMountingManager::executeMount(
             scrollStates_[mutation.newChildShadowView.tag] = std::move(state);
         } else if (
             rngpui::anyHostComponents() &&
-            rngpui::isHostComponentName(componentName)) {
+            rngpui::hostComponentEntry(
+                mutation.newChildShadowView.componentHandle) != nullptr) {
           // A host component's state is where a reported size or inset is
           // applied (`measureContent` and `adopt` read it), so the manager
           // holds it for as long as the node exists. Create inserts it, Delete
@@ -545,14 +546,22 @@ void GpuiMountingManager::dispatchCommand(
     }
     return;
   }
-  // A component core does not know: forward the command to its host component,
-  // which sees the name and the arguments. Everything else has no command
-  // handler, and Fabric already warned for an unknown name.
-  if (isHostComponentName(std::string(view.componentName))) {
-    rn_gpui_on_component_command(
-        view.tag,
-        name,
-        folly::toJson(args.isArray() ? args : folly::dynamic::array(args)));
+  // A host component: its generated dispatcher validates the arguments against
+  // the spec once and sends the command on as a typed value (design 2, section
+  // 5.6). Everything else has no command handler, and Fabric already warned for
+  // an unknown name.
+  if (!rngpui::anyHostComponents()) {
+    return;
+  }
+  const auto* entry = rngpui::hostComponentEntry(view.componentHandle);
+  if (entry == nullptr || entry->command == nullptr) {
+    return;
+  }
+  const folly::dynamic normalized =
+      args.isArray() ? args : folly::dynamic::array(args);
+  if (!entry->command(view.tag, name, normalized)) {
+    LOG(ERROR) << "[host-component] " << entry->name << " has no command '"
+               << name << "'";
   }
 }
 

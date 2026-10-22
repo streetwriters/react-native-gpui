@@ -8,6 +8,7 @@ rn-gpui-module-build = "0.1"
 
 [dependencies]
 react-native-gpui = "0.1"
+rn-gpui-module = "0.1"
 gpui = "0.2"
 serde_json = "1"
 log = "0.4"

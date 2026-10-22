@@ -317,9 +317,58 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.extension_props_json = registered->second(componentName, shadowView);
     }
   }
-  // A host component's own props, untyped. Core knows none of its names, so
-  // this is the only path by which they reach the Rust side.
-  op.component_props_json = rngpui::hostComponentPropsJson(shadowView);
+  // A host component's own props reach Rust as a handle to Fabric's props,
+  // never as text (design 2, section 5.2). With none registered, this is one
+  // relaxed load per op (rule 1).
+  op.host_index = -1;
+  op.host_props_handle = 0;
+  op.host_emitter_handle = 0;
+  op.host_changed = 0;
+  if (rngpui::anyHostComponents() &&
+      (mutation.type == ShadowViewMutation::Create ||
+       mutation.type == ShadowViewMutation::Update)) {
+    if (const auto* entry =
+            rngpui::hostComponentEntry(shadowView.componentHandle)) {
+      op.host_index = static_cast<int32_t>(entry->index);
+      if (mutation.type == ShadowViewMutation::Create) {
+        // The component gets its full props, and the emitter its events go
+        // through. The mask is not consulted on create.
+        op.host_props_handle = rngpui::makeHostPropsHandle(shadowView.props);
+        op.host_emitter_handle =
+            rngpui::makeHostEmitterHandle(shadowView.eventEmitter);
+      } else {
+        // Compared against `oldChildShadowView`, which is what Rust last
+        // received, so the mask is relative to what the component has seen even
+        // when several clones happened in between. The same pointer means a
+        // layout-only, state-only or reparenting update: nothing crosses.
+        const auto& before = mutation.oldChildShadowView.props;
+        const auto& after = mutation.newChildShadowView.props;
+        if (before && after && before.get() != after.get()) {
+          uint64_t inlineWords[2] = {0, 0};
+          std::vector<uint64_t> heapWords;
+          uint64_t* words = inlineWords;
+          if (entry->changeWords > 2) {
+            heapWords.assign(entry->changeWords, 0);
+            words = heapWords.data();
+          }
+          entry->changed(*before, *after, words);
+          bool any = false;
+          for (uint32_t word = 0; word < entry->changeWords; ++word) {
+            any = any || words[word] != 0;
+          }
+          // A zero mask is React resending a value equal to the old one: Rust
+          // keeps the props it has, and the component is not called.
+          if (any) {
+            op.host_props_handle = rngpui::makeHostPropsHandle(after);
+            op.host_changed = words[0];
+            for (uint32_t word = 1; word < entry->changeWords; ++word) {
+              op.host_changed_more.push_back(words[word]);
+            }
+          }
+        }
+      }
+    }
+  }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
             shadowView.props)) {

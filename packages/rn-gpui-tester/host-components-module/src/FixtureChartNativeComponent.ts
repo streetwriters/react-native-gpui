@@ -44,4 +44,9 @@ export const Commands: FixtureChartCommands =
     supportedCommands: ['selectPoint', 'reportSeries'],
   });
 
-export default codegenNativeComponent<NativeProps>('FixtureChart');
+// `interfaceOnly`: React Native generates the props class and the event emitter
+// from this spec, and core supplies the shadow node and the descriptor, so the
+// package writes no C++ (design 2, section 5.1).
+export default codegenNativeComponent<NativeProps>('FixtureChart', {
+  interfaceOnly: true,
+});

@@ -113,7 +113,25 @@ test('a second command reports the series again', async () => {
   // the update path still broken.
   await clickTestID('host-chart-token');
   expect(await textOf('host-components-series')).toContain('series reports: 2');
-  expect(await textOf('host-components-selected')).toContain('index=0');
+  // The coordinates are the first point's own, (0, 1): an `update` that saw
+  // props with the series missing would report (0, 0).
+  expect(await textOf('host-components-selected')).toContain('index=0 x=0 y=1');
+});
+
+test('props survive a partial update', async () => {
+  await launch('HostComponentsFixture');
+  await app.waitForIdle();
+
+  await clickTestID('host-chart-select');
+  expect(await textOf('host-components-selected')).toContain('index=2 x=2 y=2');
+
+  // `title` is a different prop from `points`. Fabric hands the props class only
+  // what React resent, so a props class rebuilt from that alone would lose the
+  // series here; the typed props keep what was not resent.
+  await clickTestID('host-chart-title');
+  await clickTestID('host-chart-title');
+  await clickTestID('host-chart-report');
+  expect(await textOf('host-components-selected')).toContain('index=2 x=2 y=2');
 });
 
 test('a measured component reports its size and its parent lays out around it', async () => {
@@ -167,16 +185,69 @@ test('a container host component insets its React children by the chrome it repo
   expect(child.x - card.x).toBeGreaterThanOrEqual(12);
 });
 
-test('a scroll view without host components keeps its composite path', async () => {
-  // The regression guard for section 8: a tree with no host component must not
-  // pay for the manual-offset strategy. `renderedViewsTotal` is the count of
-  // node views rebuilt across the scrolled frames, so a composited scroll is
-  // much cheaper than one that rebuilds everything.
+/**
+ * The performance rules of design 2, section 7, asserted with counts: timings
+ * are noisy and these are exact.
+ */
+test('a tree with no host component pays nothing for them', async () => {
+  // The tester links the fixtures, so the C++ table exists and each mount op
+  // does one lock-free lookup in it (`hostEntryLookups`). Everything that costs
+  // more than that is behind a node that actually is a host component, and this
+  // tree has none.
+  await launch('TextFixture');
+  await app.waitForIdle();
+  const counters = await app.hostCounters();
+  expect(counters.hostRegistryLookups).toBe(0);
+  expect(counters.nativeSurfaceWalkNodes).toBe(0);
+  expect(counters.hostPropsBytesCopied).toBe(0);
+  expect(counters.hostUpdateCalls).toBe(0);
+  expect(counters.hostReportsDelivered).toBe(0);
+});
+
+test('a host component costs nothing for a prop it did not change', async () => {
+  await launch('HostComponentsFixture', 'large-series');
+  await app.waitForIdle();
+  await app.hostCounters({ reset: true });
+
+  // 100 changes to `title`, with 10,000 points beside it.
+  for (let index = 0; index < 100; index += 1) {
+    await clickTestID('host-chart-title');
+  }
+  const counters = await app.hostCounters({ reset: true });
+  // Not one byte of the props is copied, serialised or parsed (rule 4), and the
+  // component's `update` ran once per change, not once per commit.
+  expect(counters.hostPropsBytesCopied).toBe(0);
+  expect(counters.hostUpdateCalls).toBe(100);
+});
+
+test('a layout-only commit does not call the component', async () => {
   await launch('HostComponentsFixture');
   await app.waitForIdle();
-  const scroll = await app.query('testID', 'host-scroll', true);
-  const tag = (scroll[0] as { tag: number }).tag;
-  const result = await app.scroll(tag, 0, -20, 4);
-  // No absolute bound: the point is that it is bounded and the scroll worked.
-  expect(result.renderedViewsTotal).toBeGreaterThanOrEqual(0);
+  await app.hostCounters({ reset: true });
+
+  // Resizing the window re-lays out the tree and commits, without changing any
+  // prop of the chart: the props object is the same one, so nothing crosses and
+  // `update` is not called (5.2).
+  await app.setWindowSize(900, 700);
+  await app.waitForIdle();
+  await app.setWindowSize(1024, 768);
+  await app.waitForIdle();
+  const counters = await app.hostCounters({ reset: true });
+  expect(counters.hostUpdateCalls).toBe(0);
+  expect(counters.hostPropsBytesCopied).toBe(0);
+});
+
+test('a scroll view holding only GPUI components keeps the composited scroll', async () => {
+  await launch('HostComponentsFixture');
+  await app.waitForIdle();
+  const [scroll] = await app.query('testID', 'host-scroll', true);
+  const props = (await app.getProps((scroll as { tag: number }).tag)) as {
+    scrollStrategy: string | null;
+  };
+  // A host component that paints GPUI elements has none of a native surface's
+  // limits, so it must not push its scroll view onto the manual-offset path.
+  expect(props.scrollStrategy).toBe('GpuiLayer');
+  await app.hostCounters({ reset: true });
+  const counters = await app.hostCounters();
+  expect(counters.nativeSurfaceWalkNodes).toBe(0);
 });

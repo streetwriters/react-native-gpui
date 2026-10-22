@@ -15,6 +15,15 @@
 //! depends on it.
 
 fn main() {
+    // The typed trait, props view and events for each component spec. The
+    // specs are the same `codegenNativeComponent` files React Native's own
+    // codegen reads for the C++ props, so both halves come from one source.
+    rn_gpui_module_build::generate(&[
+        "../src/FixtureChartNativeComponent.ts",
+        "../src/FixtureMeasuredLabelNativeComponent.ts",
+        "../src/FixtureCardNativeComponent.ts",
+    ]);
+
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");
     println!("cargo:rerun-if-changed=build.rs");
 

@@ -38,8 +38,7 @@ impl Global for StoreGlobal {}
 /// ([`dispatch_host_component_command`](crate::node_view::RNNodeView::dispatch_host_component_command)),
 /// and once after a frame's renders, which is where a report made while
 /// rendering is applied.
-pub(crate) type HostReportQueue =
-    std::rc::Rc<std::cell::RefCell<crate::host_component::HostReports>>;
+pub(crate) type HostReportQueue = crate::host_component::HostReportQueue;
 
 pub struct ViewStore {
     pub host: Host,
@@ -119,9 +118,7 @@ impl ViewStore {
             window_bounds_subscription: None,
             window_appearance_subscription: None,
             navigation_keyboard_subscription: None,
-            host_reports: std::rc::Rc::new(std::cell::RefCell::new(
-                crate::host_component::HostReports::default(),
-            )),
+            host_reports: std::rc::Rc::new(crate::host_component::HostReports::default()),
         }
     }
 
@@ -310,6 +307,7 @@ impl ViewStore {
             let Some(node) = self.nodes.get(&tag).cloned() else {
                 break;
             };
+            crate::counters::bump(crate::counters::Counter::NativeSurfaceWalkNodes);
             let mut next = None;
             node.update(cx, |node, cx| {
                 next = node.parent_tag_cached();
@@ -810,8 +808,12 @@ impl ViewStore {
         if !crate::host_component::any_host_components() {
             return;
         }
-        self.host_reports.borrow().release_flush();
-        let reports = self.host_reports.borrow().take();
+        self.host_reports.release_flush();
+        let reports = self.host_reports.take();
+        crate::counters::add(
+            crate::counters::Counter::HostReportsDelivered,
+            reports.len() as u64,
+        );
         for report in reports {
             match report {
                 crate::host_component::HostReport::Size { tag, width, height } => {
@@ -830,9 +832,10 @@ impl ViewStore {
                     bottom,
                     left,
                 } => crate::host_component::apply_insets(tag, top, right, bottom, left),
-                crate::host_component::HostReport::Event { tag, name, payload } => {
-                    self.host.dispatch_event(tag, &name, &payload);
-                }
+                // The closure owns the payload and calls the generated shim, which
+                // fills the event struct React Native generated and hands it to
+                // the generated emitter. No JSON is built on the way.
+                crate::host_component::HostReport::Event { send, .. } => send(),
             }
         }
     }
@@ -1242,47 +1245,43 @@ mod test_app_context_tests {
                 ..Default::default()
             },
             extension_props_json: String::new(),
-            component_props_json: String::new(),
+            host_index: -1,
+            host_props_handle: 0,
+            host_emitter_handle: 0,
+            host_changed: 0,
+            host_changed_more: Vec::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             layout_changed: false,
         }
     }
 
-    /// A host component whose content the OS composites, for the counter
-    /// tests below. Registered once per name; the registry rejects nothing, so
-    /// re-registering is harmless.
+    /// The registry index each native test component was declared at.
+    fn native_indices() -> &'static std::sync::Mutex<std::collections::HashMap<String, i32>> {
+        static INDICES: std::sync::OnceLock<
+            std::sync::Mutex<std::collections::HashMap<String, i32>>,
+        > = std::sync::OnceLock::new();
+        INDICES.get_or_init(Default::default)
+    }
+
+    /// Declares a host component whose content the OS composites, for the
+    /// counter tests below. Declared once per name at a fresh index; an op for it
+    /// carries that index, as a real one does.
     fn register_native_component(name: &str) {
-        struct Native;
-        impl crate::host_component::HostComponent for Native {
-            fn create(
-                _props: crate::host_component::Props,
-                _cx: &mut crate::host_component::HostContext,
-            ) -> Self {
-                Self
-            }
-            fn update(
-                &mut self,
-                _props: crate::host_component::Props,
-                _cx: &mut crate::host_component::HostContext,
-            ) {
-            }
-            fn render(
-                &mut self,
-                _children: crate::host_component::Children,
-                _window: &mut gpui::Window,
-                _cx: &mut crate::host_component::HostContext,
-            ) -> gpui::AnyElement {
-                gpui::IntoElement::into_any_element(gpui::div())
-            }
+        let mut indices = native_indices().lock().unwrap();
+        if indices.contains_key(name) {
+            return;
         }
-        crate::host_component::register_host_component_without_app::<Native>(
+        let index = 1000 + indices.len() as u32;
+        crate::host_component::declare_host_component(
+            index,
             name,
             crate::host_component::HostComponentOptions {
                 native_surface: true,
                 ..Default::default()
             },
         );
+        indices.insert(name.to_string(), index as i32);
     }
 
     /// Builds a store whose surface root is a real window root, and returns
@@ -1323,6 +1322,11 @@ mod test_app_context_tests {
         let mut create = op(MountKind::Create);
         create.tag = tag;
         create.component = component.into();
+        // A test component declared with `register_native_component` carries its
+        // registry index, as a real op does.
+        if let Some(index) = native_indices().lock().unwrap().get(component) {
+            create.host_index = *index;
+        }
         create
     }
 

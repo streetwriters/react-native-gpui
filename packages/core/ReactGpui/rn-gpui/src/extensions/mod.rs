@@ -862,6 +862,21 @@ pub trait StoreObserver: Send + Sync + 'static {
     }
 }
 
+/// Whether any component renderer was ever registered, as a relaxed load.
+///
+/// Every node and every render asks the registry whether its component has a
+/// renderer. An app that registered none answers from this flag, without taking
+/// the registry's lock or hashing a name (design 2, section 7, rule 1).
+fn any_renderers_flag() -> &'static std::sync::atomic::AtomicBool {
+    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLAG
+}
+
+/// Whether any component renderer was ever registered.
+pub fn any_component_renderers() -> bool {
+    any_renderers_flag().load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn component_renderers() -> &'static Mutex<HashMap<String, Arc<dyn ComponentRenderer>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn ComponentRenderer>>>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -886,6 +901,7 @@ pub fn register_component_renderer(
         .lock()
         .expect("component renderer registry poisoned")
         .insert(component_name.into(), renderer);
+    any_renderers_flag().store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Registers `observer`; observers are notified in registration order.
@@ -929,6 +945,9 @@ pub fn component_renders_native_surface(component_name: &str) -> bool {
 }
 
 pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
+    if !any_component_renderers() {
+        return None;
+    }
     component_renderers()
         .lock()
         .expect("component renderer registry poisoned")

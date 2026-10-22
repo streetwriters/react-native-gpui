@@ -1296,7 +1296,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     '',
     'fn expect_host_component(index: u32, name: &str) {',
     '    assert!(',
-    '        react_native_gpui::host_component::entry(index).is_some_and(|entry| entry.is_registered()),',
+    '        react_native_gpui::host_component::is_registered(index),',
     '        "{name}: declared under platforms.desktop.hostComponents but no rn_gpui_register() registered it; call react_native_gpui::host_component::register_component from the crate that owns the component.",',
     '    );',
     '}',

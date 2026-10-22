@@ -123,6 +123,26 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            // The counters design 2, section 7 is checked with: how much work a
+            // host component or a native surface cost, as counts a test can
+            // assert exactly instead of timings it cannot. `reset` zeroes them
+            // after reading, so a test measures one action.
+            "hostCounters" => {
+                use crate::counters::{read, reset, Counter};
+                let counters = json!({
+                    "hostRegistryLookups": read(Counter::HostRegistryLookups),
+                    "hostEntryLookups": rn_gpui_sys::ffi::hostEntryLookups(),
+                    "nativeSurfaceWalkNodes": read(Counter::NativeSurfaceWalkNodes),
+                    "hostPropsBytesCopied": read(Counter::HostPropsBytesCopied),
+                    "hostUpdateCalls": read(Counter::HostUpdateCalls),
+                    "hostReportsDelivered": read(Counter::HostReportsDelivered),
+                });
+                if params.get("reset").and_then(Value::as_bool).unwrap_or(false) {
+                    reset();
+                    rn_gpui_sys::ffi::resetHostEntryLookups();
+                }
+                counters
+            }
             "getWindowSize" => cx
                 .update_window(window, |_, window, _| {
                     let size = window.viewport_size();
@@ -1780,6 +1800,7 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
         "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
         "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
+        "scrollStrategy": node.scroll_strategy_name(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),
             "end": node.input_text[..node.input_selection.end].encode_utf16().count()

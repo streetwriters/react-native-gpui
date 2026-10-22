@@ -4970,6 +4970,7 @@ dependencies = [
  "gpui",
  "log",
  "react-native-gpui",
+ "rn-gpui-module",
  "rn-gpui-module-build",
  "serde_json",
 ]

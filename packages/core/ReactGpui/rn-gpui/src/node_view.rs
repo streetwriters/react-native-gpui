@@ -80,20 +80,21 @@ pub struct RNNodeView {
     extension_props: std::sync::Arc<serde_json::Value>,
     #[cfg(target_os = "macos")]
     native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
-    /// The host component rendering this node, when its component name has a
-    /// registration. Created on the main thread when the node is mounted.
-    host_component: Option<Box<dyn crate::host_component::HostComponentObject>>,
-    /// The props this node's host component was last given.
-    host_component_props: crate::host_component::Props,
+    /// The host component rendering this node, when its op carried a registry
+    /// index. Created on the main thread when the node is mounted, and the only
+    /// thing about the component this node ever looks up: from here on it is a
+    /// vtable call, never a name lookup (design 2, section 5.4).
+    host_component: Option<Box<dyn crate::host_component::HostObject>>,
+    /// The registry index the host component was created from, for the
+    /// declaration (container, native surface) the node needs while rendering.
+    host_index: i32,
+    /// Whether the host component is a container: core paints its React children
+    /// between its chrome and its overlay.
+    host_container: bool,
     /// The intrinsic size this node's host component last reported. Exposed to
     /// the test driver and to diagnostics; Yoga has the authoritative copy, in
     /// the shadow node's state.
     intrinsic_size: Option<(f32, f32)>,
-    /// The padding this node's host component reported for its own chrome
-    /// (design 2, section 6.1). A container's React children are painted inside
-    /// it; Yoga applies the same values as padding through the shadow node's
-    /// state.
-    host_insets: crate::host_component::EdgeInsets,
     /// The store's report queue, shared by every node. A method's context writes
     /// here; the store is the one place that applies what is written.
     host_reports: crate::store::HostReportQueue,
@@ -422,17 +423,18 @@ fn dispatch_context_menu(
 /// the op rather than from a registry, because it switches on having a factory
 /// name and that can change on a later update.
 fn renders_native_surface_for_op(op: &MountOp) -> bool {
-    // Rule 1: with no host component registered there is nothing to ask, and the
-    // registries behind `renders_native_surface` are keyed by component name. The
-    // extension registry still has to be consulted, because an extension
-    // renderer can declare a native surface without a host component.
     if op.component == "NativeViewHost" {
-        !op.native_view_name.is_empty()
-    } else {
-        (crate::host_component::any_host_components()
-            && crate::host_component::renders_native_surface(&op.component))
-            || crate::extensions::component_renders_native_surface(&op.component)
+        return !op.native_view_name.is_empty();
     }
+    // A host component declared it in `react-native.config.js`; the index is on
+    // the op, so no name is looked up.
+    if op.host_index >= 0 && crate::host_component::renders_native_surface(op.host_index as u32) {
+        return true;
+    }
+    // Rule 1: an extension renderer can still declare a native surface without a
+    // host component, but an app with none registered never takes that lock.
+    crate::extensions::any_component_renderers()
+        && crate::extensions::component_renders_native_surface(&op.component)
 }
 
 impl RNNodeView {
@@ -835,15 +837,7 @@ impl RNNodeView {
         .unwrap_or((0.0, 0.0));
         // `create` reports into the store's queue, so what it says is applied
         // when the batch is done rather than on this node's first render.
-        let host_component = crate::host_component::host_component(&op.component).map(|_| {
-            // Created here rather than in the store so every path that makes a
-            // node — a batch, a test, a reload — gets one.
-            let mut host = crate::host_component::HostContext::queued(op.tag, host_reports.clone());
-            let registration =
-                crate::host_component::host_component(&op.component).expect("checked above");
-            let props = crate::host_component::Props::from_json(&op.component_props_json);
-            registration.create(props, &mut host)
-        });
+        let (host_component, host_container) = Self::create_host_component(op, &host_reports);
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
@@ -863,9 +857,9 @@ impl RNNodeView {
             native_surface_descendants: u32::from(renders_native_surface),
             native_surface_counted: false,
             host_component,
-            host_component_props: crate::host_component::Props::from_json(&op.component_props_json),
+            host_index: op.host_index,
+            host_container,
             intrinsic_size: None,
-            host_insets: crate::host_component::EdgeInsets::ZERO,
             host_reports,
             frame: if crate::extensions::component_portal(
                 &op.component,
@@ -1019,24 +1013,101 @@ impl RNNodeView {
             }
             self.scroll_handle_stale = true;
         }
+        // Independent of `props_changed`: C++ decides whether the component's own
+        // props changed (the mask) and sends a handle only when they did.
+        self.update_host_component(op);
         if op.props_changed {
-            if self.host_component.is_some() {
-                let props = crate::host_component::Props::from_json(&op.component_props_json);
-                if props != self.host_component_props {
-                    self.host_component_props = props.clone();
-                    // Queued, not carried: the store delivers it when the batch
-                    // this update belongs to is applied.
-                    let mut host = self.host_context();
-                    if let Some(component) = self.host_component.as_mut() {
-                        component.update_object(props, &mut host);
-                    }
-                }
-            }
             self.extension_props_json = op.extension_props_json.clone();
             self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &self.extension_props_json,
             ));
         }
+    }
+
+    /// Creates the host component an op names by registry index, if it names
+    /// one. Returns it with whether it is a container.
+    ///
+    /// Created here rather than in the store so every path that makes a node — a
+    /// batch, a test, a reload — gets one. The op's handles are claimed first, so
+    /// they are released even when nothing is registered for the index.
+    fn create_host_component(
+        op: &MountOp,
+        host_reports: &crate::store::HostReportQueue,
+    ) -> (Option<Box<dyn crate::host_component::HostObject>>, bool) {
+        // SAFETY: C++ made these handles for this op and gave them to Rust; this
+        // is the only place a `Create` op's are claimed.
+        let (props, emitter) = unsafe { Self::claim_host_handles(op) };
+        let Some(entry) = (op.host_index >= 0)
+            .then(|| crate::host_component::entry(op.host_index as u32))
+            .flatten()
+        else {
+            return (None, false);
+        };
+        let (Some(props), Some(emitter)) = (props, emitter) else {
+            // A declaration nobody registered code for has nothing to create (the
+            // registry already said so at startup); a registered component that
+            // arrives without its handles is a bug in the mount builder.
+            if entry.is_registered() {
+                log::error!(
+                    "[host-component] {} (tag {}) was created without its props or emitter",
+                    entry.name,
+                    op.tag
+                );
+            }
+            return (None, entry.options.container);
+        };
+        let cx = crate::host_component::HostContext::queued(op.tag, host_reports.clone());
+        let object = entry.create(props, emitter, cx);
+        if object.is_none() {
+            log::error!(
+                "[host-component] {} is declared but no package registered it; the node renders nothing",
+                entry.name
+            );
+        }
+        (object, entry.options.container)
+    }
+
+    /// Takes ownership of the handles an op carried, so they are released when
+    /// the result drops.
+    ///
+    /// # Safety
+    ///
+    /// The handles must have been made by C++ for this op and not claimed before.
+    unsafe fn claim_host_handles(
+        op: &MountOp,
+    ) -> (
+        Option<crate::host_component::PropsHandle>,
+        Option<crate::host_component::EmitterHandle>,
+    ) {
+        let props = (op.host_props_handle != 0)
+            .then(|| crate::host_component::PropsHandle::from_raw(op.host_props_handle));
+        let emitter = (op.host_emitter_handle != 0)
+            .then(|| crate::host_component::EmitterHandle::from_raw(op.host_emitter_handle));
+        (props, emitter)
+    }
+
+    /// Hands the component its new props, when C++ found its own props changed.
+    ///
+    /// C++ compared this commit's props with the ones it last sent (the old shadow
+    /// view), so an op with no handle is a layout-only, state-only or reparenting
+    /// update and the component is not called at all (design 2, section 5.2).
+    fn update_host_component(&mut self, op: &MountOp) {
+        if op.host_props_handle == 0 {
+            return;
+        }
+        // SAFETY: as in `create_host_component`; an `Update` op's props handle is
+        // claimed only here.
+        let props = unsafe { crate::host_component::PropsHandle::from_raw(op.host_props_handle) };
+        let Some(component) = self.host_component.as_mut() else {
+            // Dropping `props` released it.
+            return;
+        };
+        let mut changed = Vec::with_capacity(1 + op.host_changed_more.len());
+        changed.push(op.host_changed);
+        changed.extend_from_slice(&op.host_changed_more);
+        let cx = crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+        crate::counters::bump(crate::counters::Counter::HostUpdateCalls);
+        component.update(props, &changed, cx);
     }
 
     pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
@@ -2182,19 +2253,19 @@ fn schedule_frame_host_report_flush(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) {
-    if reports.borrow().is_empty() || reports.borrow().claim_flush() {
+    if reports.is_empty() || reports.claim_flush() {
         return;
     }
     let reports = reports.clone();
     window.defer(cx, move |_window, cx| {
-        reports.borrow().release_flush();
+        reports.release_flush();
         match crate::store::store_from(cx) {
             Some(store) => {
                 store.update(cx, |store, cx| store.flush_host_reports(cx));
             }
             // No store to deliver into: drop them rather than let the queue grow.
             None => {
-                let _ = reports.borrow().take();
+                let _ = reports.take();
             }
         }
     });
@@ -3666,52 +3737,44 @@ impl Render for RNNodeView {
                 self.scroll_indicator = None;
             }
         } else if self.host_component.is_some() {
-            // A registered host component owns this node's content. It renders
+            // A registered host component owns this node's content. It paints
             // inside the node's own box — which already carries the style, the
             // radius, the hit testing and the accessibility node — so a
-            // component only has to draw its content, not position the node.
-            let children: Vec<AnyElement> = ordered_children
-                .iter()
-                .map(|(_, child)| child.clone().into_any_element())
-                .collect();
-            // The context writes what the component reports straight into the
-            // store's queue; the store applies it after this frame's renders.
-            // Nothing is held on the node, so nothing about delivery depends on
-            // this render having happened (design 2, section 5.7).
-            let mut host = self.host_context();
-            let rendered = if let Some(component) = self.host_component.as_mut() {
-                Some(component.render_object(
-                    crate::host_component::Children::new(children),
-                    window,
-                    &mut host,
-                ))
-            } else {
-                None
+            // component only draws its content, never positions the node.
+            //
+            // Core paints the React children, positioned by Yoga: the component's
+            // chrome goes beneath them and its optional overlay above (design 2,
+            // section 6.1). A component never receives or places the children.
+            //
+            // Each call gets its own context, which writes what the component
+            // reports straight into the store's queue; the store applies it after
+            // this frame's renders, so nothing about delivery depends on this
+            // render having happened (section 5.7).
+            let chrome_cx = self.host_context();
+            let overlay_cx = self.host_context();
+            let container = self.host_container;
+            let (chrome, overlay) = match self.host_component.as_mut() {
+                Some(component) => (
+                    Some(component.render(window, chrome_cx)),
+                    if container {
+                        component.render_overlay(window, overlay_cx)
+                    } else {
+                        None
+                    },
+                ),
+                None => (None, None),
             };
             // A report made while rendering is applied once, after this frame's
             // renders, however many nodes reported.
             schedule_frame_host_report_flush(&self.host_reports, window, cx);
-            // The insets this render reported, for painting. Yoga applies them
-            // to the children's layout through the shadow node's state.
-            if let Some(insets) = host.insets() {
-                self.host_insets = insets;
-            }
-            // A container's chrome is drawn inside the node's own box, so its
-            // React children are inset by what the component reported.
-            let insets = self.host_insets;
-            element = if insets == crate::host_component::EdgeInsets::ZERO {
-                element.children(rendered)
-            } else {
-                element.child(
-                    div()
-                        .size_full()
-                        .pt(px(insets.top * scale_y))
-                        .pb(px(insets.bottom * scale_y))
-                        .pl(px(insets.left * scale_x))
-                        .pr(px(insets.right * scale_x))
-                        .children(rendered),
+            element = element
+                .children(chrome)
+                .children(
+                    ordered_children
+                        .iter()
+                        .map(|(_, child)| child.clone().into_any_element()),
                 )
-            };
+                .children(overlay);
         } else {
             let content =
                 crate::extensions::component_renderer(&self.component).and_then(|renderer| {
@@ -3990,6 +4053,179 @@ fn rule_segment_spans(length: f32, thickness: f32, style: u8) -> Vec<(f32, f32)>
     spans
 }
 
+/// The node's side of a host component (design 2, section 5): it is created from
+/// the registry index on its op, handed new props only when C++ sent a handle,
+/// and never looks the component up by name.
+#[cfg(test)]
+mod host_component_node_tests {
+    use super::*;
+    use crate::host_component::{
+        declare_host_component, register_component, EmitterHandle, HostArg, HostComponentOptions,
+        HostComponentSpec, HostContext, HostObject, PropsHandle, TEST_HANDLE,
+    };
+    use rn_gpui_sys::ffi::{MountKind, ParagraphFlat};
+    use std::cell::RefCell;
+
+    thread_local! {
+        static LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn log() -> Vec<String> {
+        LOG.with(|log| log.borrow().clone())
+    }
+
+    struct Fake;
+
+    impl HostObject for Fake {
+        fn update(&mut self, _props: PropsHandle, changed: &[u64], _cx: HostContext) {
+            LOG.with(|log| log.borrow_mut().push(format!("update {changed:?}")));
+        }
+
+        fn render(&mut self, _window: &mut Window, _cx: HostContext) -> AnyElement {
+            gpui::IntoElement::into_any_element(gpui::div())
+        }
+
+        fn render_overlay(&mut self, _window: &mut Window, _cx: HostContext) -> Option<AnyElement> {
+            None
+        }
+
+        fn command(&mut self, index: u32, args: &[HostArg], _cx: HostContext) {
+            LOG.with(|log| log.borrow_mut().push(format!("command {index} {args:?}")));
+        }
+    }
+
+    struct FakeSpec;
+
+    impl HostComponentSpec for FakeSpec {
+        const NAME: &'static str = "NodeTestFake";
+
+        fn create(
+            _props: PropsHandle,
+            _emitter: EmitterHandle,
+            mut cx: HostContext,
+        ) -> Box<dyn HostObject> {
+            LOG.with(|log| log.borrow_mut().push("create".to_string()));
+            cx.set_intrinsic_size(7.0, 9.0);
+            Box::new(Fake)
+        }
+    }
+
+    const REGISTERED: u32 = 960;
+    const UNREGISTERED: u32 = 961;
+
+    fn declare() {
+        declare_host_component(
+            REGISTERED,
+            FakeSpec::NAME,
+            HostComponentOptions {
+                container: true,
+                ..Default::default()
+            },
+        );
+        register_component(FakeSpec);
+        declare_host_component(
+            UNREGISTERED,
+            "NodeTestUnregistered",
+            HostComponentOptions::default(),
+        );
+    }
+
+    fn op(kind: MountKind, index: i32) -> MountOp {
+        MountOp {
+            kind,
+            tag: 42,
+            parent_tag: -1,
+            index: 0,
+            component: "NodeTestFake".into(),
+            native_view_name: String::new(),
+            native_view_props: "{}".into(),
+            frame: RectF {
+                x: 0.0,
+                y: 0.0,
+                w: 10.0,
+                h: 10.0,
+            },
+            props_changed: true,
+            view: ViewPropsFlat::default(),
+            extension_props_json: String::new(),
+            host_index: index,
+            host_props_handle: 0,
+            host_emitter_handle: 0,
+            host_changed: 0,
+            host_changed_more: Vec::new(),
+            has_paragraph: false,
+            paragraph: ParagraphFlat::default(),
+            layout_changed: false,
+        }
+    }
+
+    fn queue() -> crate::store::HostReportQueue {
+        std::rc::Rc::new(crate::host_component::HostReports::default())
+    }
+
+    #[test]
+    fn a_node_creates_its_component_from_the_index_on_its_op() {
+        declare();
+        LOG.with(|log| log.borrow_mut().clear());
+        let mut create = op(MountKind::Create, REGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let reports = queue();
+        let node = RNNodeView::from_op(&create, 1, reports.clone());
+        assert!(node.host_component.is_some());
+        assert!(
+            node.host_container,
+            "the declaration says it is a container"
+        );
+        assert_eq!(log(), vec!["create".to_string()]);
+        // What `create` reported joined the store's queue, not the node.
+        assert_eq!(reports.take().len(), 1);
+    }
+
+    #[test]
+    fn an_op_without_a_host_index_never_touches_the_registry() {
+        declare();
+        let node = RNNodeView::from_op(&op(MountKind::Create, -1), 1, queue());
+        assert!(node.host_component.is_none());
+        assert!(!node.host_container);
+    }
+
+    #[test]
+    fn a_declaration_nobody_registered_leaves_the_node_empty() {
+        declare();
+        let mut create = op(MountKind::Create, UNREGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let node = RNNodeView::from_op(&create, 1, queue());
+        assert!(node.host_component.is_none());
+    }
+
+    #[test]
+    fn an_update_reaches_the_component_only_when_c_plus_plus_sent_props() {
+        declare();
+        LOG.with(|log| log.borrow_mut().clear());
+        let mut create = op(MountKind::Create, REGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let mut node = RNNodeView::from_op(&create, 1, queue());
+
+        // A layout-only update carries no handle: the component is not called.
+        node.update_from_op(&op(MountKind::Update, REGISTERED as i32));
+        assert_eq!(log(), vec!["create".to_string()]);
+
+        // A props update carries the handle and the mask, both words of it.
+        let mut update = op(MountKind::Update, REGISTERED as i32);
+        update.host_props_handle = TEST_HANDLE;
+        update.host_changed = 0b101;
+        update.host_changed_more = vec![0b1];
+        node.update_from_op(&update);
+        assert_eq!(
+            log(),
+            vec!["create".to_string(), "update [5, 1]".to_string()]
+        );
+    }
+}
+
 #[cfg(test)]
 mod border_segment_tests {
     use super::rule_segment_spans;
@@ -4066,32 +4302,34 @@ impl RNNodeView {
 
     /// Runs a Fabric command on this node's host component.
     ///
-    /// Whatever the command reports goes into the store's queue, which the
-    /// callback applies as soon as the command returns — the third of the three
-    /// delivery points in design 2, section 5.7.
-    pub(crate) fn dispatch_host_component_command(
+    /// `command` is the index in the spec's `COMMANDS`, and `args` were validated
+    /// against the spec by the generated C++ dispatcher. Whatever the command
+    /// reports goes into the store's queue, which the callback applies as soon as
+    /// the command returns — the second of the three delivery points in design 2,
+    /// section 5.7.
+    pub(crate) fn dispatch_host_command(
         &mut self,
-        name: String,
-        args: Vec<serde_json::Value>,
+        command: u32,
+        args: &[crate::host_component::HostArg],
         cx: &mut gpui::App,
     ) {
         if self.host_component.is_none() {
             log::debug!(
-                "[host-component] command '{name}' for tag {} with no component",
+                "[host-component] command {command} for tag {} with no component",
                 self.tag
             );
             return;
         }
         let handle = crate::store::store_from(cx)
             .map(|store| crate::extensions::StoreHandle::new(store.downgrade()));
-        let mut host = match handle {
+        let host = match handle {
             Some(handle) => self.host_context_with_handle(handle),
             None => self.host_context(),
         };
         if let Some(component) = self.host_component.as_mut() {
-            component.command_object(&name, args, &mut host);
+            component.command(command, args, host);
         }
-        if host.has_reports() {
+        if !self.host_reports.is_empty() {
             // The command's delivery point. Deferred rather than run here
             // because this node is leased for the command: delivering a size
             // updates the node's own diagnostic copy, which would need a second
@@ -4105,20 +4343,20 @@ impl RNNodeView {
         }
     }
 
-    /// Runs `f` on this node's host component, if it has one.
+    /// How this node scrolls its content, by name, if it scrolls.
     ///
-    /// What `f` reports is queued for the store, the same way a command's is.
-    pub(crate) fn with_host_component<R>(
-        &mut self,
-        f: impl FnOnce(
-            &mut Box<dyn crate::host_component::HostComponentObject>,
-            &mut crate::host_component::HostContext,
-        ) -> R,
-    ) -> Option<R> {
-        let mut cx = self.host_context();
-        self.host_component
-            .as_mut()
-            .map(|component| f(component, &mut cx))
+    /// The strategy is a decision made from the counts of design 2, section 7,
+    /// rule 6 (a native surface below forces the manual offset), and it changes
+    /// what a scroll costs, so the test driver reports it for a test to assert
+    /// rather than inferring it from timings.
+    pub(crate) fn scroll_strategy_name(&self) -> Option<&'static str> {
+        self.scroll.as_ref()?;
+        Some(
+            match crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface()) {
+                crate::scroll_layers::ScrollStrategy::GpuiLayer => "GpuiLayer",
+                crate::scroll_layers::ScrollStrategy::ManualOffset => "ManualOffset",
+            },
+        )
     }
 
     pub(crate) fn extension_props_json(&self) -> &str {

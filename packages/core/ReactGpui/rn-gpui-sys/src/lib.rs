@@ -139,6 +139,18 @@ pub mod ffi {
         Update = 16,
     }
 
+    /// One validated command argument. `kind` says which field holds it: 0 a
+    /// number (`number`), 1 a bool (`number` as 0 or 1), 2 a string (`text`),
+    /// 3 an array of numbers, 4 of bools (`numbers`, each 0 or 1), 5 of strings.
+    #[derive(Clone, Debug, Default)]
+    pub struct HostCommandArg {
+        pub kind: u8,
+        pub number: f64,
+        pub text: String,
+        pub numbers: Vec<f64>,
+        pub texts: Vec<String>,
+    }
+
     #[derive(Clone, Debug)]
     pub struct MountOp {
         pub kind: MountKind,
@@ -152,14 +164,24 @@ pub mod ffi {
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
-        /// The node's own props as a JSON object, for a component core does not
-        /// know: the generic payload a registered host component receives.
+        /// The registry index of the host component this op is for, or `-1`.
         ///
-        /// Filled from Fabric's `RawProps::toDynamic` during the commit.
-        /// `Props::rawProps` would be cheaper, but it only exists when
-        /// `RN_SERIALIZABLE_STATE` is defined, and that is Android-only in this
-        /// React Native (see `cmake-utils/react-native-flags.cmake`).
-        pub component_props_json: String,
+        /// Both halves index their arrays with it (design 2, section 5.4), so
+        /// nothing looks a component up by name once a node exists.
+        pub host_index: i32,
+        /// An owned handle to the node's Fabric props (a `shared_ptr<const
+        /// Props>`), or zero. Set on `Create`, and on an `Update` only when the
+        /// props changed in a way the component can see: Rust takes ownership and
+        /// the generated accessors read the C++ fields in place (5.2).
+        pub host_props_handle: usize,
+        /// An owned handle to the node's event emitter, on `Create` only.
+        pub host_emitter_handle: usize,
+        /// The props that changed since the props Rust last received, one bit per
+        /// prop: the first 64 here, any more in `host_changed_more`. Computed in
+        /// C++ against `oldChildShadowView`, so it is relative to what the
+        /// component has seen even when several clones happened in between.
+        pub host_changed: u64,
+        pub host_changed_more: Vec<u64>,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub layout_changed: bool,
@@ -244,9 +266,10 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
-        /// A command Fabric dispatched to a component core does not know. The
-        /// runtime routes it to the node's host component.
-        fn rn_gpui_on_component_command(tag: i32, name: &str, args_json: &str);
+        /// A command Fabric dispatched to a host component. The generated C++
+        /// dispatcher already validated the arguments against the spec and
+        /// resolved the command to its index in the spec's `COMMANDS`.
+        fn rn_gpui_on_host_command(tag: i32, command: u32, args: Vec<HostCommandArg>);
         fn rn_gpui_set_animated_active(active: bool);
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
@@ -309,16 +332,14 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("GpuiHostComponent.h");
 
-        /// Registers a Fabric component with that name. A measured component
-        /// gets a Yoga measure function that reads its shadow node's state.
-        fn registerHostComponent(name: &str, measured: bool, container: bool);
-        /// Whether any host component was ever registered. Frozen once true, so
-        /// an app without host components pays one load and never a lock.
-        fn anyHostComponents() -> bool;
-        /// Whether a name was registered as a host component.
-        fn isHostComponent(name: &str) -> bool;
-        /// Whether a name was registered as a measured host component.
-        fn isMeasuredHostComponent(name: &str) -> bool;
+        /// Releases a props handle a mount op gave Rust.
+        fn releaseHostPropsHandle(handle: usize);
+        /// Releases an event emitter handle a `Create` op gave Rust.
+        fn releaseHostEmitterHandle(handle: usize);
+        /// How many times the C++ registry was asked for a component since the
+        /// last reset. Only the test driver reads it (design 2, section 9.2).
+        fn hostEntryLookups() -> u64;
+        fn resetHostEntryLookups();
         /// Pushes a size a host component measured into its shadow node's state,
         /// which is what Yoga reads, and asks for the commit that re-measures.
         fn reportHostComponentSize(tag: i32, width: f32, height: f32);
@@ -529,9 +550,9 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
-/// One command for one tag: the component name and its arguments as a JSON
-/// array. Called on the JS/Fabric thread.
-pub type ComponentCommandHandler = Box<dyn Fn(i32, String, String) + Send + Sync>;
+/// One command for one tag: the command's index and its validated arguments.
+/// Called on the JS/Fabric thread.
+pub type HostCommandHandler = Box<dyn Fn(i32, u32, Vec<ffi::HostCommandArg>) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
@@ -540,7 +561,7 @@ pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::ne
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
-pub static COMPONENT_COMMAND_HANDLER: OnceLock<ComponentCommandHandler> = OnceLock::new();
+pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
 pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
@@ -675,9 +696,9 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
     }
 }
 
-fn rn_gpui_on_component_command(tag: i32, name: &str, args_json: &str) {
-    if let Some(handler) = COMPONENT_COMMAND_HANDLER.get() {
-        handler(tag, name.to_string(), args_json.to_string());
+fn rn_gpui_on_host_command(tag: i32, command: u32, args: Vec<ffi::HostCommandArg>) {
+    if let Some(handler) = HOST_COMMAND_HANDLER.get() {
+        handler(tag, command, args);
     }
 }
 
