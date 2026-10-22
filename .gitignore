@@ -1,5 +1,8 @@
 # Dependency / build artifacts
 node_modules/
+# Also match a symlink: `node_modules/` only matches a directory, so a checkout
+# whose dependencies are symlinked would otherwise have the link committed.
+node_modules
 target/
 build/
 *.o
