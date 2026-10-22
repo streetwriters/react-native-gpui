@@ -108,9 +108,11 @@ test('a second command reports the series again', async () => {
   expect(await textOf('host-components-series')).toContain('series reports: 1');
 
   // A prop change reports too: `reportToken` is the chart's own trigger, and it
-  // emits from `update`, which used to drop its events.
+  // emits from `update`, which used to drop its events. The count must go *up*
+  // after the bump — asserting the unchanged selection text would pass even with
+  // the update path still broken.
   await clickTestID('host-chart-token');
-  expect(await textOf('host-components-series')).toContain('series reports: 1');
+  expect(await textOf('host-components-series')).toContain('series reports: 2');
   expect(await textOf('host-components-selected')).toContain('index=0');
 });
 

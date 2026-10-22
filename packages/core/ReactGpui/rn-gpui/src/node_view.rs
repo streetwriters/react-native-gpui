@@ -73,9 +73,11 @@ pub struct RNNodeView {
     /// The padding this node's host component reported for its own chrome
     /// (design 2, section 6.1). A container's React children are inset by it.
     host_insets: crate::host_component::EdgeInsets,
-    /// A report `create` produced, which has no `App` to dispatch with. Flushed
-    /// on the next render, which does.
-    pending_host_report: Option<(
+    /// Reports `create` and `update` produced, which have no `App` to dispatch
+    /// with. A queue rather than a slot: an update can arrive before the first
+    /// render flushed what create reported, and a slot would silently drop it.
+    /// Flushed in order on the next render.
+    pending_host_reports: Vec<(
         Option<crate::host_component::EdgeInsets>,
         Option<(f32, f32)>,
         Vec<(String, serde_json::Value)>,
@@ -789,7 +791,7 @@ impl RNNodeView {
         .unwrap_or((0.0, 0.0));
         // Built before the literal so `create`'s report can be carried on the
         // node: there is no `App` here to dispatch with.
-        let mut pending_host_report = None;
+        let mut pending_host_reports = Vec::new();
         let host_component = crate::host_component::host_component(&op.component).map(|_| {
             // Created here rather than in the store so every path that makes a
             // node — a batch, a test, a reload — gets one.
@@ -804,7 +806,7 @@ impl RNNodeView {
                 crate::host_component::report_intrinsic_size(op.tag, width, height);
             }
             if !events.is_empty() || insets.is_some() {
-                pending_host_report = Some((insets, size, events));
+                pending_host_reports.push((insets, size, events));
             }
             object
         });
@@ -828,7 +830,7 @@ impl RNNodeView {
                 .has_intrinsic_size
                 .then_some((op.intrinsic_width, op.intrinsic_height)),
             host_insets: crate::host_component::EdgeInsets::ZERO,
-            pending_host_report,
+            pending_host_reports,
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -988,7 +990,7 @@ impl RNNodeView {
                     // `update_from_op` has no `App`, so the events and insets are
                     // carried to the next render, which does.
                     if !events.is_empty() || insets.is_some() {
-                        self.pending_host_report = Some((insets, size, events));
+                        self.pending_host_reports.push((insets, size, events));
                     }
                 }
             }
@@ -3601,7 +3603,7 @@ impl Render for RNNodeView {
             let (size, events) = host.take();
             // A report `create`/`update` produced could not be dispatched there
             // (no `App`), so it is delivered now, before this render's own.
-            if let Some((insets, size, events)) = self.pending_host_report.take() {
+            for (insets, size, events) in std::mem::take(&mut self.pending_host_reports) {
                 apply_host_report(self.tag, insets, size, events, cx);
             }
             if let Some(insets) = host.take_insets() {

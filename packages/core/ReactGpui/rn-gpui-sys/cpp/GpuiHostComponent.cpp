@@ -247,20 +247,22 @@ void setHostComponentInsets(
     float left) {
   auto& insets = hostComponentInsets();
   HostComponentInsetsFn observer;
-  bool changed = false;
   {
+    // The observer is read, but nothing is recorded yet: this map is only a
+    // dedupe cache, and recording before the observer confirms it reached a
+    // shadow node would suppress every later identical report — so a report
+    // that arrived before the node existed would never be applied at all.
     std::lock_guard<std::mutex> lock(insets.mutex);
-    auto found = insets.values.find(tag);
-    if (found == insets.values.end() ||
-        found->second != std::array<float, 4>{top, right, bottom, left}) {
-      insets.values[tag] = {top, right, bottom, left};
-      changed = true;
-      observer = insets.observer;
-    }
+    observer = insets.observer;
   }
-  if (changed && observer) {
-    observer(tag, top, right, bottom, left);
+  if (!observer) {
+    return;
   }
+  observer(tag, top, right, bottom, left);
+  // Recorded only after the observer had its chance, so a report that found no
+  // shadow node yet is not remembered as applied.
+  std::lock_guard<std::mutex> lock(insets.mutex);
+  insets.values[tag] = {top, right, bottom, left};
 }
 
 std::array<float, 4> reportedHostComponentInsets(int32_t tag) {
@@ -288,13 +290,15 @@ bool setHostComponentIntrinsicSize(int32_t tag, float width, float height) {
         found->second.second != height) {
       sizes.sizes[tag] = {width, height};
       changed = true;
-      observer = sizes.observer;
     }
+    // Read unconditionally: gating the observer on `changed` means a size that
+    // found no shadow node yet is never retried with the same value.
+    observer = sizes.observer;
   }
   // Writing the map alone leaves Yoga with the old size: `measureContent` reads
   // the shadow node's state, so the size has to be pushed there and a commit
   // asked for. The manager owns the states, so it installs this.
-  if (changed && observer) {
+  if (observer) {
     observer(tag, width, height);
   }
   return changed;

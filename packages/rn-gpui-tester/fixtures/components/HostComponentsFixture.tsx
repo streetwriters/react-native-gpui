@@ -118,7 +118,12 @@ export default function HostComponentsFixture({
           </Pressable>
           <Pressable
             testID="host-chart-token"
-            onPress={() => setReportToken(token => token + 1)}
+            onPress={() => {
+              // The chart emits from `update` when the token changes, and it
+              // answers through the same event, so this counts it the same way.
+              expectingReport.current = true;
+              setReportToken(token => token + 1);
+            }}
           >
             <Text style={{ color: '#f8fafc', paddingTop: 8 }}>
               bump report token

@@ -206,12 +206,16 @@ class GpuiHostContainerComponentDescriptor final
         static_cast<const facebook::react::ConcreteState<GpuiHostStateData>&>(
             *shadowNode.getState());
     const auto& data = state.getData();
-    if (data.insetTop != 0.f || data.insetRight != 0.f ||
-        data.insetBottom != 0.f || data.insetLeft != 0.f) {
-      // `RectangleEdges` is ordered left, top, right, bottom — not top-first.
-      layoutable.setPadding(facebook::react::RectangleEdges<float>{
-          data.insetLeft, data.insetTop, data.insetRight, data.insetBottom});
-    }
+    // Applied unconditionally, even when every inset is zero. A state-only
+    // clone copies the source node's Yoga style and does not re-run
+    // `updateYogaProps`, so skipping the all-zero case would leave a previous
+    // padding in place and a container could never shrink its chrome back.
+    // `SafeAreaViewComponentDescriptor` sets it unconditionally for this
+    // reason.
+    //
+    // `RectangleEdges` is ordered left, top, right, bottom — not top-first.
+    layoutable.setPadding(facebook::react::RectangleEdges<float>{
+        data.insetLeft, data.insetTop, data.insetRight, data.insetBottom});
     facebook::react::ConcreteComponentDescriptor<
         GpuiHostContainerShadowNode>::adopt(shadowNode);
   }
