@@ -23,7 +23,7 @@ pub(crate) mod text;
 mod bootstrap;
 mod http_client;
 mod resources;
-pub use bootstrap::{run, run_with, DesktopAppConfig};
+pub use bootstrap::{run, run_with, DesktopAppConfig, WindowTitleBar};
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.
 pub use http_client::RnHttpClient;

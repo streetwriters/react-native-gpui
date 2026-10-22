@@ -26,7 +26,6 @@ export default {
     importantForAccessibility: true,
     focusable: true,
     desktopDragRegion: true,
-    desktopWindowControl: true,
     onContextMenu: true,
     onContextMenuCapture: true,
     // RN omits iOS listener flags when Platform.OS is an out-of-tree platform.

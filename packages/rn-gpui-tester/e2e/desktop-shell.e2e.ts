@@ -127,6 +127,34 @@ test('a transparent-title-bar window opens with its own window id', async () => 
   expect(await textOf('desktop-window-list')).toContain('DesktopShellChild');
 });
 
+test('the caption buttons are the native WindowControl component', async () => {
+  // `desktopWindowControl` is gone: caption buttons are a component now, so they
+  // are real nodes with test ids rather than an attribute on a `View`. Rendering
+  // them at all proves the hand-written descriptor and props reader are wired —
+  // a missing descriptor makes Fabric fail the whole surface, not just the button.
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+  await app.getByTestId('desktop-open-titlebar-window').click();
+  await app.waitForIdle();
+  expect(await textOf('desktop-window-count')).toBe('open windows: 2');
+
+  // Each must resolve, which it can only do if the component rendered.
+  for (const action of ['minimize', 'maximize', 'close']) {
+    const button = app.getByTestId(`titlebar-${action}`);
+    expect(await button.count()).toBe(1);
+  }
+
+  // Rendering alone would pass with a descriptor and no props reader. The probe
+  // label is written by JS from `onControlStateChange`, so it only changes when
+  // the props reached the Rust renderer and the event came back.
+  expect(await textOf('wc-state')).toBe(
+    'wc hovered=false pressed=false maximized=false',
+  );
+  // Hover is not asserted here: the sample never reaches the listener under the
+  // test driver, and that is unresolved (see the plan's "Hover" note). The
+  // native path is covered by `pointer_area::hover_tests` instead.
+});
+
 test('an app menu sets, reads back and fires by accelerator', async () => {
   await launch('DesktopMenuFixture');
   await app.waitForIdle();
@@ -213,6 +241,26 @@ test('a dismissed context menu resolves null', async () => {
   expect(await textOf('cm-chosen')).toBe('chosen: dismissed');
 });
 
+test('a right click on a child both reports the pointer event and opens the parent menu', async () => {
+  // The regression this guards: a child that takes pointer input used to stop the
+  // press before the parent's `onContextMenu` ran, so right-clicking the text
+  // inside a menu target opened nothing. One press must do both jobs.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-nested-pointer').rightClick();
+  await app.waitForIdle();
+
+  // The child's pointer event fired, with the right button and mask.
+  expect(await textOf('pointer-history')).toContain(
+    'nested-down button=2 mask=2',
+  );
+  // And the parent's menu is open — not the child's, which has none.
+  const menu = await app.getContextMenu();
+  expect(menu).not.toBeNull();
+  expect(JSON.stringify(menu?.items ?? [])).toContain('cm-open');
+});
+
 test('the ContextMenuView wrapper and the menu polyfill open menus', async () => {
   await launch('ContextMenuFixture');
   await app.waitForIdle();
@@ -231,6 +279,71 @@ test('the ContextMenuView wrapper and the menu polyfill open menus', async () =>
   expect(model).toContain('"enabled":false');
   expect(await app.selectContextMenuItem('poly-nested')).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: poly:poly-nested');
+});
+
+test('a native ContextMenuView opens without telling JS about the press', async () => {
+  // The point of section 4: the menu opens from native, so JS never hears about
+  // the press — only about the item that was chosen. If `topContextMenu` were
+  // dispatched too, an app with an `onContextMenu` handler would open a second,
+  // JS-driven menu on top of the native one.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+  expect((await textOf('cm-log')).trim()).toBe('events:');
+
+  await app.getByTestId('cm-view').rightClick();
+  await app.waitForIdle();
+  expect(await app.getContextMenu()).not.toBeNull();
+
+  // `open` comes from the native component, so the menu really did open without
+  // JS. `onContextMenu` also runs afterwards — deliberately, so an app with one
+  // handler serves both paths — but it arrives after the menu is up and cannot
+  // cancel it, which is the guarantee worth asserting: the open is not the result
+  // of the JS handler.
+  const log = await textOf('cm-log');
+  expect(log).toContain('open');
+  expect(log.indexOf('open')).toBeLessThan(log.lastIndexOf('contextMenu'));
+
+  expect(await app.selectContextMenuItem('cm-open')).toBe(true);
+  expect(await textOf('cm-chosen')).toBe('chosen: view:cm-open');
+  // And the choice reported back through the same path JS could see.
+  expect(await textOf('cm-log')).toContain('select:cm-open');
+});
+
+test('a disabled ContextMenuView opens nothing and leaves the press to JS', async () => {
+  // A disabled view must not claim the press: claiming it and showing no menu
+  // would swallow the right click entirely.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  // `getContextMenu` reports the last menu the fake presenter saw and is never
+  // null once anything has been shown, so `shown` is what proves whether *this*
+  // press opened one. Its own items are distinctive, so a wrong owner names
+  // itself in the failure.
+  const before = (await app.getContextMenu())?.shown ?? 0;
+  await app.getByTestId('cm-view-disabled').rightClick();
+  await app.waitForIdle();
+  const after = await app.getContextMenu();
+  expect(after?.shown ?? 0).toBe(before);
+  expect(JSON.stringify(after?.items ?? [])).not.toContain(
+    'cm-should-not-open',
+  );
+});
+
+test('a nested ContextMenuView opens the inner menu only', async () => {
+  // Two native targets, one inside the other. The innermost claims the press and
+  // stops propagation, so exactly one menu opens — the inner one.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-view-inner').rightClick();
+  await app.waitForIdle();
+
+  const menu = await app.getContextMenu();
+  expect(menu).not.toBeNull();
+  const model = JSON.stringify(menu?.items ?? []);
+  expect(model).toContain('cm-inner');
+  expect(model).not.toContain('cm-outer');
+  await app.dismissContextMenu();
 });
 
 test('the perf monitor toggles and reports its counters', async () => {
@@ -605,3 +718,187 @@ test.skipIf(process.platform !== 'win32')(
     expect(checkedDisabled).toMatch(/\|enabled=0\|checked=1$/);
   },
 );
+
+test('a button inside the title bar receives its press on every platform', async () => {
+  // Section 6 item 7. The title bar is a drag region, which on Windows is a
+  // `HTCAPTION` window-control area, so the press on a child button used to be
+  // taken for a window move: `WM_NCHITTEST` answered with the bar's area because
+  // the bar's hitbox is registered before its children paint, and the button
+  // never saw a mouse-down. The fix makes the hit-test answer for whichever
+  // element is really under the pointer, so this press reaches the button and the
+  // window does not move.
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+
+  const boundsBefore = await app.getWindowBounds();
+  expect(await textOf('titlebar-inner-presses')).toBe('titlebar button: 0');
+
+  await app.getByTestId('titlebar-inner-button').click();
+  await app.waitForIdle();
+
+  expect(await textOf('titlebar-inner-presses')).toBe('titlebar button: 1');
+
+  // The press must not also have dragged the window, which is what happened
+  // when the whole bar answered `HTCAPTION`.
+  const boundsAfter = await app.getWindowBounds();
+  expect(boundsAfter.x).toBe(boundsBefore.x);
+  expect(boundsAfter.y).toBe(boundsBefore.y);
+});
+
+test('pointer events report every button, the mask and the modifiers', async () => {
+  // Section 2: `pointer_payload` used to report `button: 0` for every press and
+  // no modifiers at all, so a right or middle click was indistinguishable from a
+  // left one and a Ctrl+click could not be told apart either.
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+  const probe = app.getByTestId('pointer-probe');
+
+  // A left press is button 0 with only the left bit in the mask.
+  await probe.click({ button: 'left' });
+  await app.waitForIdle();
+  // Read from the accumulated history, so the press is visible even though the
+  // release replaced the last line.
+  expect(await textOf('pointer-history')).toContain(
+    'down button=0 mask=1 mods=none',
+  );
+
+  // A middle press is button 1 and its mask bit is 4 — the DOM's bit order is
+  // not the number order. Both are asserted from the accumulated history: the
+  // number alone would pass even if the mask were always zero.
+  await probe.click({ button: 'middle' });
+  await app.waitForIdle();
+  expect(await textOf('pointer-history')).toContain(
+    'down button=1 mask=4 mods=none',
+  );
+
+  // A right press is button 2 with mask bit 2. The probe has no onContextMenu,
+  // so the press reaches the pointer handler rather than opening a menu.
+  await probe.click({ button: 'right' });
+  await app.waitForIdle();
+  expect(await textOf('pointer-history')).toContain(
+    'down button=2 mask=2 mods=none',
+  );
+});
+
+/**
+ * Keyboard shortcuts.
+ *
+ * These are the tests the design depends on, because they exercise the *focus
+ * path*: a `ShortcutScope` element contributing its context to the dispatch
+ * tree, and a focused `TextInput` contributing `rn-text-input`. The Rust unit
+ * tests hand `bindings_for_input` a context vector; only this proves the vector
+ * is what a real mounted tree produces.
+ */
+test('an inner scope overrides the outer scope and the window for one key', async () => {
+  await launch(
+    'ShortcutsFixture',
+    'debug',
+    {},
+    { RN_GPUI_DEBUG_SHORTCUTS: '1' },
+  );
+  await app.waitForIdle();
+
+  // `mod+j` is bound at the window level, in the outer scope and in the inner
+  // scope. All three are live bindings; only the innermost may run.
+  await app.getByTestId('scope-inner-focus').click();
+  await app.waitForIdle();
+  await app.press('mod-j');
+  await app.waitForIdle();
+
+  const log = await textOf('shortcut-log');
+  expect(log).toBe('inner:mod+j');
+});
+
+test('a shortcut beats a menu accelerator with the same keys', async () => {
+  await launch(
+    'ShortcutsFixture',
+    'debug',
+    {},
+    { RN_GPUI_DEBUG_SHORTCUTS: '1' },
+  );
+  await app.waitForIdle();
+
+  // The menu item is CmdOrCtrl+Alt+K, and the inner scope binds the same keys.
+  // Before this work the interceptor consumed the key first and the menu item
+  // won; the binding is now the outermost context, so the scope beats it.
+  expect(await textOf('shortcut-menu-presses')).toBe('menu:0');
+  await app.getByTestId('scope-inner-focus').click();
+  await app.waitForIdle();
+  await app.press('mod-alt-k');
+  await app.waitForIdle();
+
+  expect(await textOf('shortcut-log')).toBe('inner:mod+alt+k');
+  // The menu item did *not* run: the key was consumed before the menu path.
+  expect(await textOf('shortcut-menu-presses')).toBe('menu:0');
+});
+
+test('a text input keeps its keys unless the shortcut opts in', async () => {
+  await launch('ShortcutsFixture');
+  await app.waitForIdle();
+
+  // Focus the input inside the inner scope; `mod+a` is bound there, but with
+  // `allowInTextInput: false`, so the input's own select-all stays in charge and
+  // the shortcut must not run.
+  await app.getByTestId('scope-inner-input').click();
+  await app.waitForIdle();
+  await app.press('mod-a');
+  await app.waitForIdle();
+  expect(await textOf('shortcut-log')).toBe('');
+
+  // Opting in flips it: the same key now fires the shortcut even with the input
+  // focused.
+  await app.getByTestId('shortcut-toggle-allow-in-input').click();
+  await app.waitForIdle();
+  await app.getByTestId('scope-inner-input').click();
+  await app.waitForIdle();
+  await app.press('mod-a');
+  await app.waitForIdle();
+  expect(await textOf('shortcut-log')).toBe('select-all');
+});
+
+test('a two-key chord fires only after both keys', async () => {
+  await launch('ShortcutsFixture');
+  await app.waitForIdle();
+  await app.getByTestId('scope-inner-focus').click();
+  await app.waitForIdle();
+
+  // The first key alone must not fire it, and must not fire anything else.
+  await app.press('mod-k');
+  await app.waitForIdle();
+  expect(await textOf('shortcut-log')).toBe('');
+
+  await app.press('mod-s');
+  await app.waitForIdle();
+  expect(await textOf('shortcut-log')).toBe('chord');
+});
+
+test('a remap moves the binding and the menu label with it', async () => {
+  await launch('ShortcutsFixture');
+  await app.waitForIdle();
+
+  // The menu label is built from the shortcut's keys, so it is the observable
+  // that proves a user keymap reached the registry.
+  await app.getByTestId('shortcut-read').click();
+  await app.waitForIdle();
+  expect(await textOf('shortcut-installed')).toContain(
+    'shortcut:mod+shift+p@mod+shift+p',
+  );
+
+  await app.getByTestId('shortcut-remap').click();
+  await app.waitForIdle();
+  expect(await textOf('shortcut-user-keys')).toBe('mod+shift+o');
+
+  // The old keys no longer fire it, and the new ones do — which is only true if
+  // the remap rebuilt the keymap rather than just the label.
+  await app.press('mod-shift-p');
+  await app.waitForIdle();
+  expect(await textOf('shortcut-log')).toBe('');
+
+  await app.press('mod-shift-o');
+  await app.waitForIdle();
+  // Both handlers run: the hook's, and the one attached through
+  // `Shortcut.addHandler` to the same id.
+  expect(await textOf('shortcut-log')).toBe(
+    'window:mod+shift+o,palette:mod+shift+o',
+  );
+});

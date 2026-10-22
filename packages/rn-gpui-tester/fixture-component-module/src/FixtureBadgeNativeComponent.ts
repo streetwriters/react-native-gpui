@@ -5,12 +5,12 @@ import {
 } from 'react-native';
 
 export type FixtureBadgeTappedEvent = Readonly<{
-  count: Int32;
+  count: CodegenTypes.Int32;
 }>;
 
 export interface NativeProps extends ViewProps {
   label?: string;
-  tickCount?: CodegenTypes.WithDefault<Int32, 0>;
+  tickCount?: CodegenTypes.WithDefault<CodegenTypes.Int32, 0>;
   onFixtureBadgeTapped?: CodegenTypes.DirectEventHandler<FixtureBadgeTappedEvent>;
 }
 

@@ -8,6 +8,7 @@
     "js-engine.js",
     "navigation.ts",
     "desktop.ts",
+    "types.d.ts",
     "babel-plugin-node-addons.js",
     "polyfills",
     "NativeViewHost.tsx",

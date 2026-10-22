@@ -93,6 +93,77 @@ struct Step {
 /// Mirrors RN's native `hitTest`: `auto` is a candidate (the deepest wins),
 /// `box-none` is never a target but its children are, `box-only` overrides any
 /// deeper candidate, `none` kills the whole subtree.
+/// The node that owns the context menu for a press on `hit_node`.
+///
+/// Right-clicking a `Text` inside a `View` with `onContextMenu` must open that
+/// view's menu. GPUI bubbles mouse events from the innermost hitbox outwards, so
+/// relying on bubbling means every node between the two needs a listener — and a
+/// node that takes pointer input stops the press before it reaches the owner.
+/// That is what made a right click on the text stop working.
+///
+/// So the innermost node that handles the press walks its ancestors instead. The
+/// walk follows the same `pointerEvents` rules as `target`: `none` ends it, and
+/// `box-only` is a candidate but its ancestors are not.
+///
+/// The result is the nearest ancestor-or-self that asked for a context menu —
+/// either a `View` with the prop or an extension component whose `InputSpec`
+/// does. `None` means nothing in the chain wants one, and the press is only a
+/// pointer event.
+pub fn context_menu_owner(cx: &App, hit_node: &RNNodeView) -> Option<ContextMenuOwner> {
+    let mut tag = hit_node.tag;
+    let mut wants = node_wants_context_menu(cx, hit_node);
+    let mut pointer_events = hit_node.view.pointer_events;
+    let mut parent = hit_node.parent.clone();
+    // `None` for the hit node itself, which the caller already has.
+    let mut entity: Option<WeakEntity<RNNodeView>> = None;
+    loop {
+        if pointer_events == POINTER_EVENTS_NONE {
+            return None;
+        }
+        if wants {
+            return Some(ContextMenuOwner { tag, entity });
+        }
+        // `box-only` claims the press for itself, so the search ends with it
+        // whether or not it wants a menu.
+        if pointer_events == POINTER_EVENTS_BOX_ONLY {
+            return None;
+        }
+        let Some(next) = parent.clone() else {
+            return None;
+        };
+        let Some(node) = next.upgrade() else {
+            return None;
+        };
+        let node = node.read(cx);
+        tag = node.tag;
+        wants = node_wants_context_menu(cx, node);
+        pointer_events = node.view.pointer_events;
+        parent = node.parent.clone();
+        entity = Some(next);
+    }
+}
+
+/// Whether this node wants a context menu: the View prop, or an extension
+/// component whose `InputSpec` asks for one.
+fn node_wants_context_menu(cx: &App, node: &RNNodeView) -> bool {
+    if node.view.on_context_menu {
+        return true;
+    }
+    let Some(renderer) = crate::extensions::component_renderer(&node.component) else {
+        return false;
+    };
+    let component_node = node.component_node(cx);
+    renderer.input(&component_node).context_menu
+}
+
+/// Who owns a context menu for a press.
+#[derive(Clone)]
+pub struct ContextMenuOwner {
+    pub tag: i32,
+    /// The owning node, or `None` when it is the hit node itself.
+    pub entity: Option<WeakEntity<RNNodeView>>,
+}
+
 pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
     let mut steps = vec![Step {
         tag: hit_node.tag,
@@ -187,16 +258,142 @@ fn touch_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, active:
     Value::Object(payload)
 }
 
-/// `buttons` is 1 while the button is held; `button` is -1 for a move.
-fn pointer_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, buttons: i32) -> Value {
+/// Delivers only the DOM pointer events for a button, with no touch or responder
+/// side effects.
+///
+/// This is the path a middle or right press takes. `send` also dispatches
+/// `topTouchStart` and feeds RN's responder system, which would make a
+/// `Pressable` react to a right click; a non-primary button must not do that.
+pub fn send_pointer(
+    window: &mut Window,
+    cx: &mut App,
+    target: &Target,
+    position: Point<Pixels>,
+    phase: Phase,
+    button: Option<Button>,
+    buttons: i32,
+    modifiers: ModifierState,
+) {
+    let Some(store_global) = cx.try_global::<StoreGlobal>() else {
+        log::warn!("[events] no store global yet; dropping {phase:?}");
+        return;
+    };
+    let store = store_global.0.clone();
+    let (host, frame_hook) = {
+        let store = store.read(cx);
+        (store.host.clone(), store.frame_hook.clone())
+    };
+    let tag = target.tag;
+    let location = target.local_position(position);
+    let (name, event) = match phase {
+        Phase::Start => (
+            "topPointerDown",
+            pointer_payload(tag, position, location, button, buttons, modifiers),
+        ),
+        Phase::Move => (
+            "topPointerMove",
+            pointer_payload(tag, position, location, None, buttons, modifiers),
+        ),
+        Phase::End => (
+            "topPointerUp",
+            pointer_payload(tag, position, location, button, buttons, modifiers),
+        ),
+        Phase::Cancel => (
+            "topPointerCancel",
+            pointer_payload(tag, position, location, None, buttons, modifiers),
+        ),
+    };
+    host.dispatch_event(tag, name, &event);
+    frame_hook.arm(window);
+}
+
+/// The W3C number for a mouse button.
+///
+/// The order is W3C's, not the order the platform reports them in: 0 primary,
+/// 1 auxiliary (middle), 2 secondary (right), then the two side buttons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    Left = 0,
+    Middle = 1,
+    Right = 2,
+    Back = 3,
+    Forward = 4,
+}
+
+impl Button {
+    pub fn number(self) -> i32 {
+        self as i32
+    }
+
+    /// The bit this button contributes to `buttons`, matching
+    /// `PointerEvent::buttons` and `MouseEvent.button`: 1 left, 2 right,
+    /// 4 middle, 8 back, 16 forward. Note that the *bit* order differs from the
+    /// *number* order — middle is 4 here and 1 there — because the DOM's mask
+    /// predates its numbering.
+    pub fn mask(self) -> i32 {
+        match self {
+            Button::Left => 1,
+            Button::Middle => 4,
+            Button::Right => 2,
+            Button::Back => 8,
+            Button::Forward => 16,
+        }
+    }
+}
+
+/// Which modifier keys were held: the four flags React Native reports on an
+/// event, and the CSS-style `altKey` rather than GPUI's platform spelling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModifierState {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl ModifierState {
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// From GPUI's modifier set.
+    ///
+    /// GPUI spells the platform key `platform` — Command on macOS, Windows on
+    /// Windows, Super on Linux — and the DOM calls the same key `metaKey`, so that
+    /// is the mapping. `function` has no DOM equivalent and is dropped.
+    pub fn from_gpui(modifiers: &gpui::Modifiers) -> Self {
+        Self {
+            ctrl: modifiers.control,
+            shift: modifiers.shift,
+            alt: modifiers.alt,
+            meta: modifiers.platform,
+        }
+    }
+}
+
+/// `button` is the button that changed, and -1 for a move, as the DOM reports it.
+/// `buttons` is the mask of everything currently held. `modifiers` are the keys
+/// held at the time.
+fn pointer_payload(
+    tag: i32,
+    page: Point<Pixels>,
+    location: Point<Pixels>,
+    button: Option<Button>,
+    buttons: i32,
+    modifiers: ModifierState,
+) -> Value {
     let (x, y) = (f32::from(page.x), f32::from(page.y));
     json!({
         "pointerId": POINTER_ID,
         "pointerType": "mouse",
         "isPrimary": true,
         "pressure": if buttons == 0 { 0.0 } else { 0.5 },
-        "button": if buttons == 0 { -1 } else { 0 },
+        "button": button.map_or(-1, Button::number),
         "buttons": buttons,
+        "ctrlKey": modifiers.ctrl,
+        "shiftKey": modifiers.shift,
+        "altKey": modifiers.alt,
+        "metaKey": modifiers.meta,
         "clientX": x,
         "clientY": y,
         // `x`/`y` are aliases of `clientX`/`clientY`, and `pageX`/`pageY` equal
@@ -217,12 +414,19 @@ fn pointer_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, butto
     })
 }
 
+/// Delivers a pointer/touch sequence for one button.
+///
+/// Touch events and the responder system stay left-button only, so a right click
+/// never makes a `Pressable` fire: the DOM's pointer events are the only channel
+/// that reports the other buttons.
 pub fn send(
     window: &mut Window,
     cx: &mut App,
     target: &Target,
     position: Point<Pixels>,
     phase: Phase,
+    button: Option<Button>,
+    modifiers: ModifierState,
 ) {
     let Some(store_global) = cx.try_global::<StoreGlobal>() else {
         log::warn!("[events] no store global yet; dropping {phase:?}");
@@ -274,7 +478,14 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerDown",
-                &pointer_payload(tag, position, location, 1),
+                &pointer_payload(
+                    tag,
+                    position,
+                    location,
+                    button,
+                    button.map_or(0, Button::mask),
+                    modifiers,
+                ),
             );
         }
         Phase::Move => {
@@ -286,7 +497,14 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerMove",
-                &pointer_payload(tag, position, location, 1),
+                &pointer_payload(
+                    tag,
+                    position,
+                    location,
+                    button,
+                    button.map_or(0, Button::mask),
+                    modifiers,
+                ),
             );
         }
         Phase::End => {
@@ -298,7 +516,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerUp",
-                &pointer_payload(tag, position, location, 0),
+                &pointer_payload(tag, position, location, button, 0, modifiers),
             );
         }
         Phase::Cancel => {
@@ -310,7 +528,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerCancel",
-                &pointer_payload(tag, position, location, 0),
+                &pointer_payload(tag, position, location, button, 0, modifiers),
             );
         }
     }
@@ -324,7 +542,15 @@ pub fn send(
 
 pub fn cancel_active_touch(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
     if let Some(target) = active_touch_target(cx) {
-        send(window, cx, &target, position, Phase::Cancel);
+        send(
+            window,
+            cx,
+            &target,
+            position,
+            Phase::Cancel,
+            Some(Button::Left),
+            ModifierState::none(),
+        );
     }
 }
 
@@ -371,24 +597,24 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
         host.dispatch_event(
             *tag,
             "topPointerOut",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
         host.dispatch_event(
             *tag,
             "topPointerLeave",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
     }
     for tag in next[..next.len() - shared].iter().rev() {
         host.dispatch_event(
             *tag,
             "topPointerOver",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
         host.dispatch_event(
             *tag,
             "topPointerEnter",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
     }
     if previous != next {
@@ -428,15 +654,204 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
         host.dispatch_event(
             *tag,
             "topPointerOut",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
         host.dispatch_event(
             *tag,
             "topPointerLeave",
-            &pointer_payload(*tag, position, location, 0),
+            &pointer_payload(*tag, position, location, None, 0, ModifierState::none()),
         );
     }
     if !previous.is_empty() {
         store.read(cx).frame_hook.arm(window);
+    }
+}
+
+/// How a context menu was requested, for the `trigger` field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextMenuTriggerSource {
+    /// A pointer: a right click, or Ctrl + click on macOS.
+    Mouse,
+    /// The Menu key or Shift+F10, which only Windows and Linux report.
+    Keyboard,
+}
+
+/// When a mouse-down should open a context menu.
+///
+/// Right-click is the obvious case. The others exist because the platforms
+/// disagree on the rest: macOS has no Menu key, so Ctrl + click is the keyboard
+/// alternative there, while Windows and Linux have both the Menu key and
+/// Shift+F10. A right-click opens on press rather than release because that is
+/// what macOS and most Linux desktops do.
+///
+/// `platform` is a `std::env::consts::OS` value so this stays testable without a
+/// window.
+pub fn mouse_context_menu_trigger(
+    button: Button,
+    modifiers: ModifierState,
+    platform: &str,
+) -> Option<ContextMenuTriggerSource> {
+    match button {
+        Button::Right => Some(ContextMenuTriggerSource::Mouse),
+        // Ctrl + click, on macOS only: elsewhere Ctrl + click is a right click at
+        // the window-manager level and never arrives as a left press.
+        Button::Left if platform == "macos" && modifiers.ctrl => {
+            Some(ContextMenuTriggerSource::Mouse)
+        }
+        _ => None,
+    }
+}
+
+/// Whether a key event is the keyboard way to open a context menu.
+///
+/// The Menu key is `ContextMenu` on Windows and Linux; Shift+F10 is the older
+/// equivalent that both also accept. macOS has neither, so it returns `false`
+/// there — Ctrl + click covers it.
+pub fn keyboard_context_menu_trigger(key: &str, shift: bool, platform: &str) -> bool {
+    if platform == "macos" {
+        return false;
+    }
+    key == "contextmenu" || (shift && key == "f10")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_right_click_is_a_mouse_trigger_everywhere() {
+        for platform in ["macos", "windows", "linux"] {
+            assert_eq!(
+                mouse_context_menu_trigger(Button::Right, ModifierState::none(), platform),
+                Some(ContextMenuTriggerSource::Mouse),
+                "{platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_click_is_only_a_trigger_on_macos() {
+        let ctrl = ModifierState {
+            ctrl: true,
+            ..ModifierState::none()
+        };
+        assert_eq!(
+            mouse_context_menu_trigger(Button::Left, ctrl, "macos"),
+            Some(ContextMenuTriggerSource::Mouse)
+        );
+        // Elsewhere the window manager turns it into a right click, so a left
+        // press with Ctrl is an ordinary press.
+        assert_eq!(
+            mouse_context_menu_trigger(Button::Left, ctrl, "windows"),
+            None
+        );
+        assert_eq!(
+            mouse_context_menu_trigger(Button::Left, ctrl, "linux"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_plain_left_click_is_never_a_trigger() {
+        assert_eq!(
+            mouse_context_menu_trigger(Button::Left, ModifierState::none(), "macos"),
+            None
+        );
+        // Other modifiers do not make a left press a context menu on their own.
+        for modifiers in [
+            ModifierState {
+                shift: true,
+                ..ModifierState::none()
+            },
+            ModifierState {
+                alt: true,
+                ..ModifierState::none()
+            },
+            ModifierState {
+                meta: true,
+                ..ModifierState::none()
+            },
+        ] {
+            assert_eq!(
+                mouse_context_menu_trigger(Button::Left, modifiers, "macos"),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn the_keyboard_trigger_is_the_menu_key_or_shift_f10() {
+        assert!(keyboard_context_menu_trigger(
+            "contextmenu",
+            false,
+            "windows"
+        ));
+        assert!(keyboard_context_menu_trigger("contextmenu", false, "linux"));
+        assert!(keyboard_context_menu_trigger("f10", true, "windows"));
+        assert!(keyboard_context_menu_trigger("f10", true, "linux"));
+        // Shift+F10 only; plain F10 must not open a menu.
+        assert!(!keyboard_context_menu_trigger("f10", false, "windows"));
+        // macOS has neither key.
+        assert!(!keyboard_context_menu_trigger(
+            "contextmenu",
+            false,
+            "macos"
+        ));
+    }
+
+    #[test]
+    fn buttons_use_the_w3c_numbers_and_the_dom_mask() {
+        assert_eq!(Button::Left.number(), 0);
+        assert_eq!(Button::Middle.number(), 1);
+        assert_eq!(Button::Right.number(), 2);
+        assert_eq!(Button::Back.number(), 3);
+        assert_eq!(Button::Forward.number(), 4);
+
+        // The mask is not the number shifted: the DOM's bit order predates its
+        // numbering, so middle is 4 in the mask and 1 in the number.
+        assert_eq!(Button::Left.mask(), 1);
+        assert_eq!(Button::Right.mask(), 2);
+        assert_eq!(Button::Middle.mask(), 4);
+        assert_eq!(Button::Back.mask(), 8);
+        assert_eq!(Button::Forward.mask(), 16);
+    }
+
+    #[test]
+    fn modifiers_map_from_gpui_with_platform_keys_as_meta() {
+        // GPUI spells the platform key `platform`: Command, Windows or Super. The
+        // DOM calls all of those `metaKey`.
+        let state = ModifierState::from_gpui(&gpui::Modifiers {
+            control: true,
+            alt: true,
+            shift: true,
+            platform: true,
+            function: true,
+        });
+        assert!(state.ctrl && state.alt && state.shift && state.meta);
+        // Start all-false and set one at a time, so a mistake in the mapping shows.
+        assert_eq!(
+            ModifierState::from_gpui(&gpui::Modifiers::default()),
+            ModifierState::none()
+        );
+        assert_eq!(
+            ModifierState::from_gpui(&gpui::Modifiers {
+                platform: true,
+                ..gpui::Modifiers::default()
+            }),
+            ModifierState {
+                meta: true,
+                ..ModifierState::none()
+            }
+        );
+        assert_eq!(
+            ModifierState::from_gpui(&gpui::Modifiers {
+                control: true,
+                ..gpui::Modifiers::default()
+            }),
+            ModifierState {
+                ctrl: true,
+                ..ModifierState::none()
+            }
+        );
     }
 }

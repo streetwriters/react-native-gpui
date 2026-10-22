@@ -210,8 +210,12 @@ impl ViewStore {
     }
 
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
+        // Per surface, not per call: the menu bar can be hidden in one window and
+        // shown in another, so the inset has to follow the window the surface
+        // belongs to.
         for surface_id in self.surfaces_in_window(window) {
-            let height = height - crate::desktop::gpui_menu::menu_bar_inset();
+            let height =
+                height - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32);
             log::info!(
                 "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
             );
@@ -1577,6 +1581,55 @@ impl SurfaceRootView {
     }
 }
 
+/// The invisible grab border of a window with client-side decorations.
+///
+/// A frameless window has no native frame to drag, so the app supplies one. It
+/// is drawn only where the compositor really did give client-side decorations:
+/// an X11 window manager that ignores the request keeps its own frame, and a
+/// second, invisible border inside it would take presses from the content with
+/// no way to tell the user why.
+#[cfg(target_os = "linux")]
+fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
+    if !matches!(
+        window.window_decorations(),
+        gpui::Decorations::Client { .. }
+    ) {
+        return None;
+    }
+    if !window.is_resizable() {
+        return None;
+    }
+    let size = window.viewport_size();
+    let (width, height) = (f32::from(size.width), f32::from(size.height));
+    let mut border = div().absolute().inset_0().size_full();
+    for edge in crate::desktop::client_frame::EDGES {
+        let bounds = crate::desktop::client_frame::border_bounds(edge, width, height);
+        border = border.child(
+            div()
+                .absolute()
+                .left(bounds.origin.x)
+                .top(bounds.origin.y)
+                .w(bounds.size.width)
+                .h(bounds.size.height)
+                // No background: the border only exists to catch the press, and
+                // painting it would put an eight-pixel band over the app's own
+                // edges.
+                .cursor(crate::desktop::client_frame::edge_cursor(edge))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    move |event: &gpui::MouseDownEvent, window, cx| {
+                        if event.click_count > 1 {
+                            return;
+                        }
+                        window.start_window_resize(edge);
+                        cx.stop_propagation();
+                    },
+                ),
+        );
+    }
+    Some(border.into_any_element())
+}
+
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(target_os = "macos")]
@@ -1644,15 +1697,24 @@ impl Render for SurfaceRootView {
                 let _ = crate::desktop::gpui_menu::MenuPopup::dismiss(cx);
             }))
             .child(root);
+        // The root carries the app key context, so a shortcut with no scope can
+        // match with nothing focused: GPUI evaluates a context predicate against
+        // the focus path's contexts, and an empty stack matches nothing at all —
+        // including a negation. Since this is the shallowest context, every
+        // `ShortcutScope` inside it outranks it, which is the documented
+        // "innermost wins, window scope last" order.
+        let app_context =
+            gpui::KeyContext::parse(crate::desktop::keymap::APP_CONTEXT).unwrap_or_default();
         let mut window_root = if let Some(menu_bar) = self.menu_bar.clone() {
             div()
                 .size_full()
                 .flex()
                 .flex_col()
+                .key_context(app_context)
                 .child(menu_bar)
                 .child(content)
         } else {
-            div().size_full().child(content)
+            div().size_full().key_context(app_context).child(content)
         };
         if self.surface_id == APP_SURFACE_ID {
             for (button, event_name) in [
@@ -1678,6 +1740,12 @@ impl Render for SurfaceRootView {
                     }),
                 );
             }
+        }
+        // Last, so the border paints in front of the app: whichever edge the
+        // pointer is nearest is what a press there resizes.
+        #[cfg(target_os = "linux")]
+        if let Some(border) = resize_border(_window) {
+            window_root = window_root.child(border);
         }
         window_root.into_any_element()
     }

@@ -9,28 +9,22 @@
 
 import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiWindows from '../specs/NativeGpuiWindows';
-import { DesktopError, toDesktopError } from './index';
-
-function windowsModule() {
-  if (NativeGpuiWindows == null) {
-    throw new DesktopError(
-      'unsupported',
-      'the GpuiWindows native module is not available',
-    );
-  }
-  return NativeGpuiWindows;
-}
-
-async function request<T>(
-  run: (native: typeof NativeGpuiWindows) => Promise<T>,
-): Promise<T> {
-  try {
-    return await run(windowsModule());
-  } catch (error) {
-    throw toDesktopError(error);
-  }
-}
+import { nativeRequest } from './index';
 import { useDesktopWindowId } from './windowContext';
+
+/** Runs one `GpuiWindows` method with the shared module check. */
+function request<T>(
+  run: (native: NonNullable<typeof NativeGpuiWindows>) => Promise<T>,
+): Promise<T> {
+  return nativeRequest('GpuiWindows', check => run(check(NativeGpuiWindows)));
+}
+
+/// How many `closeRequested` listeners each window has.
+///
+/// The host intercepts the OS close itself, so it only needs telling when the
+/// first listener arrives and the last one goes. Keeping the count here, per
+/// window, is what lets two listeners coexist.
+const closeInterceptors = new Map<number, number>();
 
 export interface WindowBounds {
   x: number;
@@ -223,13 +217,26 @@ export class DesktopWindow {
       }
     });
     if (event === 'closeRequested') {
-      this.interceptClose(true);
+      // Counted per window, so two listeners can coexist: the host intercepts
+      // while at least one is attached, and removing one leaves the other
+      // working. A plain true/false pair turned interception off for both.
+      const count = (closeInterceptors.get(this.id) ?? 0) + 1;
+      closeInterceptors.set(this.id, count);
+      if (count === 1) {
+        this.interceptClose(true);
+      }
     }
     return {
       remove: () => {
         emitter.remove();
         if (event === 'closeRequested') {
-          this.interceptClose(false);
+          const count = Math.max(0, (closeInterceptors.get(this.id) ?? 1) - 1);
+          if (count === 0) {
+            closeInterceptors.delete(this.id);
+            this.interceptClose(false);
+          } else {
+            closeInterceptors.set(this.id, count);
+          }
         }
       },
     };

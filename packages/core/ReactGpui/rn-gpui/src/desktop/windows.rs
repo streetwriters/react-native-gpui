@@ -1,6 +1,7 @@
 //! One `ViewStore` owns every window: Fabric tags are unique across the
 //! surfaces of a React instance, so nodes stay in one map.
 
+use crate::bootstrap::WindowTitleBar;
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::platform_window;
 use crate::store::{store_from, StoreGlobal, SurfaceRootView};
@@ -145,7 +146,10 @@ pub struct OpenWindowOptions {
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub resizable: bool,
-    pub appears_transparent: bool,
+    /// What kind of title bar the window asks for. `Default` keeps the
+    /// platform's, which is what a secondary window gets unless it says
+    /// otherwise.
+    pub title_bar: WindowTitleBar,
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
     pub popup: bool,
@@ -202,10 +206,14 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         // just another window that happens to open under the icon.
         titlebar: (!options.popup).then(|| TitlebarOptions {
             title: Some(title.clone().into()),
-            appears_transparent: options.appears_transparent,
-            traffic_light_position: options
-                .traffic_light_position
-                .map(|(x, y)| point(px(x), px(y))),
+            // macOS and Windows express "the app draws the bar" as a transparent
+            // title bar. Linux has no such flag and uses the decorations request
+            // below instead.
+            appears_transparent: options.title_bar.is_custom(),
+            traffic_light_position: options.traffic_light_position.map(|(x, y)| {
+                let (x, y) = crate::bootstrap::clamp_traffic_light_position(x, y, width, height);
+                point(px(x), px(y))
+            }),
         }),
         is_resizable: options.resizable,
         is_movable: !options.popup,
@@ -216,14 +224,18 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         // deactivation that dismisses it (see `platform_window::prepare_popover`).
         // A frameless window with no decorations is what Electron's Linux tray
         // menu uses too. `WindowDecorations::Client` is GPUI's frameless mode.
+        // A custom title bar asks for the same thing: on X11 and Wayland it is
+        // what removes the window manager's frame, and the app draws both the bar
+        // and the resize border itself.
         kind: WindowKind::Normal,
-        window_decorations: options.popup.then_some(WindowDecorations::Client),
+        window_decorations: (options.popup || options.title_bar.is_custom())
+            .then_some(WindowDecorations::Client),
         // The popover is mapped after it is prepared: the X11 window manager
         // reads `_NET_WM_WINDOW_TYPE`, `_NET_WM_STATE` and the size hints when
         // the window is mapped, so they are set on it while it is still hidden.
         show: !options.popup,
-        // A transparent title bar means the app draws and moves the bar itself.
-        app_owns_titlebar_drag: options.appears_transparent,
+        // A custom title bar means the app draws and moves the bar itself.
+        app_owns_titlebar_drag: options.title_bar.is_custom(),
         ..Default::default()
     };
 
@@ -243,6 +255,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
 
     let (w, h, scale) = handle
         .update(cx, |_root, window, _cx| {
+            // A compositor can refuse the decorations request for one window and
+            // grant it for another, so the capability follows the newest window.
+            crate::desktop::capabilities::note_window_decorations(window.window_decorations());
             let size = window.viewport_size();
             (
                 f32::from(size.width),
@@ -453,7 +468,7 @@ pub fn focus(cx: &mut App, key: u32) -> DesktopResult {
     Ok(json!({"windowId": key, "focused": true}))
 }
 
-fn with_window(
+pub(crate) fn with_window(
     cx: &mut App,
     key: u32,
     action: impl FnOnce(&mut gpui::Window) -> Result<(), DesktopError>,
@@ -674,7 +689,7 @@ fn install_bounds_observer(
     })
 }
 
-fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {
+pub(crate) fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {
     let windows = cx.try_global::<DesktopWindowsGlobal>()?;
     windows
         .0

@@ -546,6 +546,44 @@ pub enum WindowTitleBar {
     Hidden,
 }
 
+impl WindowTitleBar {
+    /// What a `desktop.json` value or a `titleBar` prop names.
+    ///
+    /// An unknown name falls back to the default bar rather than failing: the
+    /// schema is what rejects a typo in `desktop.json`, and a secondary window
+    /// opened by an app built against an older schema must still open.
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "transparent" => Self::Transparent,
+            "hidden" => Self::Hidden,
+            _ => Self::Default,
+        }
+    }
+
+    /// Whether the app draws the bar itself, which is what lets the platform
+    /// drop its own chrome.
+    pub fn is_custom(self) -> bool {
+        !matches!(self, Self::Default)
+    }
+}
+
+/// Keeps the traffic lights inside the window they belong to.
+///
+/// A position from `desktop.json` is app-authored, so it can name somewhere the
+/// window does not reach; AppKit would then move the buttons off screen with no
+/// way to drag them back. A non-finite coordinate is treated as the origin rather
+/// than propagated, because `f32::clamp` panics on `NaN`.
+pub fn clamp_traffic_light_position(x: f32, y: f32, width: f32, height: f32) -> (f32, f32) {
+    fn clamp(value: f32, limit: f32) -> f32 {
+        if !value.is_finite() || !(limit > 0.0) {
+            0.0
+        } else {
+            value.clamp(0.0, limit)
+        }
+    }
+    (clamp(x, width), clamp(y, height))
+}
+
 pub struct DesktopAppConfig {
     pub app_id: String,
     pub module: String,
@@ -564,6 +602,8 @@ pub struct DesktopAppConfig {
     pub dev_menu: Option<bool>,
     pub tray: Option<crate::desktop::tray::TrayConfig>,
     pub traffic_light_position: Option<(f32, f32)>,
+    /// Whether the main window shows a menu bar. Windows and Linux only.
+    pub menu_bar: bool,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
     pub on_window_opened: Option<WindowOpenedHook>,
@@ -589,6 +629,7 @@ impl DesktopAppConfig {
             dev_menu: None,
             tray: None,
             traffic_light_position: None,
+            menu_bar: true,
             configure_window: None,
             on_app_ready: None,
             on_window_opened: None,
@@ -643,6 +684,15 @@ impl DesktopAppConfig {
 
     pub fn traffic_light_position(mut self, x: f32, y: f32) -> Self {
         self.traffic_light_position = Some((x, y));
+        self
+    }
+
+    /// Whether the main window shows a menu bar.
+    ///
+    /// Only Windows and Linux draw one inside the window; on macOS the bar is the
+    /// system's, so this is ignored there.
+    pub fn menu_bar(mut self, visible: bool) -> Self {
+        self.menu_bar = visible;
         self
     }
 
@@ -947,6 +997,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
             }
         }
         crate::desktop::perf_monitor::install(cx);
+        // Shortcut bindings are ordinary keymap bindings; this only installs the
+        // handler for the ones with no scope element, which is the last stop
+        // after every element on the focus path had its turn.
+        crate::desktop::keymap::register(cx);
 
         // The overlay slot (LogBox) has to be in the app root's element tree from the
         // first frame: GPUI only re-renders entities the window tracked while drawing.
@@ -1038,15 +1092,25 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
-        if config.title_bar != WindowTitleBar::Default {
+        if config.title_bar.is_custom() {
             let titlebar = window_options.titlebar.get_or_insert_with(Default::default);
+            // macOS and Windows both express "no system chrome" as a transparent
+            // title bar. Linux has no such flag: it asks the compositor for
+            // client-side decorations instead, which is the same outcome — the
+            // window keeps no title bar and the app draws and moves its own.
             titlebar.appears_transparent = true;
             if let Some((x, y)) = config.traffic_light_position {
+                let (x, y) = clamp_traffic_light_position(x, y, width, height);
                 titlebar.traffic_light_position = Some(point(px(x), px(y)));
             }
             // The app draws and moves the bar itself, so AppKit must not also
             // treat the content view as titlebar chrome.
             window_options.app_owns_titlebar_drag = true;
+            // Ignored on macOS and Windows; on X11 and Wayland it is what
+            // removes the server-side frame. A compositor that cannot do
+            // client-side decorations falls back to the server's, and
+            // `window.window_decorations()` then says so.
+            window_options.window_decorations = Some(gpui::WindowDecorations::Client);
         }
         #[cfg(feature = "test-driver")]
         if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
@@ -1075,6 +1139,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .expect("failed to open the GPUI window");
         startup_trace("window open");
         let window_id = window.window_id();
+        // What the compositor actually gave, which is the only authority on
+        // whether the request for client-side decorations was granted. A window
+        // manager that ignored it kept its own frame, and the app then has to
+        // know not to draw a second set of caption buttons beside it.
+        let applied_decorations = window
+            .update(cx, |_root, window, _cx| window.window_decorations())
+            .ok();
+        if let Some(decorations) = applied_decorations {
+            crate::desktop::capabilities::note_window_decorations(decorations);
+        }
 
         // A window created with `show: false` never receives the message that
         // carries its initial size on Windows, and GPUI creates the HWND with
@@ -1225,6 +1299,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // The menu bar is prepared inside a window update (it needs the window
         // for the activation observer) and attached to the root afterwards,
         // outside any update that has already leased the root.
+        // `window.menuBar: false` hides the bar before it is ever drawn, so the
+        // window opens at the right size instead of shrinking once the bar goes.
+        if !config.menu_bar {
+            crate::desktop::gpui_menu::set_menu_bar_visible(
+                crate::desktop::windows::MAIN_WINDOW_KEY,
+                false,
+            );
+        }
         let menu_bar = window
             .update(cx, |_root, window, cx| {
                 crate::desktop::gpui_menu::prepare(window, cx, 1)
@@ -2022,5 +2104,84 @@ fn run_as_accessory_app() {
     unsafe {
         let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
         let _: bool = msg_send![app, setActivationPolicy: ACCESSORY];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_title_bar_name_maps_to_the_enum_the_schema_documents() {
+        assert_eq!(
+            WindowTitleBar::from_name("default"),
+            WindowTitleBar::Default
+        );
+        assert_eq!(
+            WindowTitleBar::from_name("transparent"),
+            WindowTitleBar::Transparent
+        );
+        assert_eq!(WindowTitleBar::from_name("hidden"), WindowTitleBar::Hidden);
+    }
+
+    #[test]
+    fn an_unknown_title_bar_name_keeps_the_platform_bar() {
+        // The schema rejects a typo in `desktop.json`, but a secondary window's
+        // `titleBar` prop comes from JS and an older app can send anything. A
+        // window with the platform's own bar is the harmless outcome; a failed
+        // `open` would leave the app with no window at all.
+        assert_eq!(WindowTitleBar::from_name(""), WindowTitleBar::Default);
+        assert_eq!(WindowTitleBar::from_name("Hidden"), WindowTitleBar::Default);
+        assert_eq!(
+            WindowTitleBar::from_name("nonsense"),
+            WindowTitleBar::Default
+        );
+    }
+
+    #[test]
+    fn only_the_two_custom_kinds_are_custom() {
+        assert!(!WindowTitleBar::Default.is_custom());
+        assert!(WindowTitleBar::Transparent.is_custom());
+        assert!(WindowTitleBar::Hidden.is_custom());
+    }
+
+    #[test]
+    fn a_traffic_light_position_inside_the_window_is_unchanged() {
+        assert_eq!(
+            clamp_traffic_light_position(14.0, 10.0, 520.0, 360.0),
+            (14.0, 10.0)
+        );
+        assert_eq!(
+            clamp_traffic_light_position(0.0, 0.0, 520.0, 360.0),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_traffic_light_position_outside_the_window_is_pulled_back() {
+        // AppKit would move the buttons past the edge and leave no way to drag
+        // them back, so the host clamps instead.
+        assert_eq!(
+            clamp_traffic_light_position(900.0, 700.0, 520.0, 360.0),
+            (520.0, 360.0)
+        );
+        assert_eq!(
+            clamp_traffic_light_position(-4.0, -8.0, 520.0, 360.0),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_non_finite_or_degenerate_traffic_light_position_is_the_origin() {
+        // `f32::clamp` panics on NaN, and a window with no size has nowhere to
+        // put the buttons, so both answers are the origin rather than a panic.
+        assert_eq!(
+            clamp_traffic_light_position(f32::NAN, f32::INFINITY, 520.0, 360.0),
+            (0.0, 0.0)
+        );
+        assert_eq!(
+            clamp_traffic_light_position(10.0, 10.0, 0.0, 0.0),
+            (0.0, 0.0)
+        );
     }
 }

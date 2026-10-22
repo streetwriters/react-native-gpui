@@ -63,12 +63,105 @@ pub fn should_use_gpui_menu_bar() -> bool {
     }
 }
 
+/// The inset the React surface leaves at the top of a window for the menu bar.
+///
+/// This is the process-wide answer, for callers with no window in hand. A caller
+/// that knows its window must use [`menu_bar_inset_for`], because the bar can be
+/// hidden for one window and shown in another — the main window and a popover can
+/// disagree, and the surface size has to follow the window it belongs to.
 pub fn menu_bar_inset() -> f32 {
     if should_use_gpui_menu_bar() {
         MENU_BAR_HEIGHT
     } else {
         0.0
     }
+}
+
+/// The inset for one window, honouring a runtime hide.
+pub fn menu_bar_inset_for(_cx: &gpui::App, window_id: u32) -> f32 {
+    menu_bar_inset_for_window_id(window_id)
+}
+
+/// The inset for a window id, for callers with no `Context`.
+///
+/// `ViewStore::resize_window` is one: it is handed an `AnyWindowHandle` and the
+/// surface id, and the thread local holds the answer without needing `cx`.
+pub fn menu_bar_inset_for_window_id(window_id: u32) -> f32 {
+    if !should_use_gpui_menu_bar() || menu_bar_hidden(window_id) {
+        0.0
+    } else {
+        MENU_BAR_HEIGHT
+    }
+}
+
+/// Whether this window draws its menu bar.
+///
+/// macOS answers `false` always: its menu bar is the system's, and there is
+/// nothing in the window to hide. The capability `menuBarInWindow` reports the
+/// same thing to JS, so an app can hide its own UI on the one platform where
+/// hiding does nothing.
+pub fn menu_bar_in_window(window_id: u32) -> bool {
+    should_use_gpui_menu_bar() && !menu_bar_hidden(window_id)
+}
+
+pub fn menu_bar_hidden(window_id: u32) -> bool {
+    HIDDEN_MENU_BARS.with(|hidden| hidden.borrow().contains(&window_id))
+}
+
+thread_local! {
+    /// Windows whose bar was hidden, mirrored here so the answer is available
+    /// without a `Context` — `menu_bar_inset` is called from window plumbing that
+    /// has one, but the JS getter and the tests do not.
+    static HIDDEN_MENU_BARS: std::cell::RefCell<std::collections::HashSet<u32>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Re-applies the surface size after the inset changed.
+///
+/// The React surface is laid out to the window's size minus the inset, and the
+/// window will not send a resize of its own just because the bar went away, so
+/// the store has to be told the new answer.
+pub fn resize_surfaces_for_menu_bar(cx: &mut gpui::App, window_id: u32) {
+    let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+        return;
+    };
+    let store = store.0.clone();
+    let handle = {
+        let windows = cx.global::<crate::desktop::windows::DesktopWindowsGlobal>();
+        windows.0.get(window_id).map(|entry| entry.handle)
+    };
+    let Some(handle) = handle else {
+        return;
+    };
+    let size = handle
+        .update(cx, |_, window, _| window.viewport_size())
+        .ok();
+    let Some(size) = size else {
+        return;
+    };
+    let scale = handle
+        .update(cx, |_, window, _| window.scale_factor())
+        .unwrap_or(1.0);
+    store.update(cx, |store, _| {
+        store.resize_window(handle, f32::from(size.width), f32::from(size.height), scale);
+    });
+}
+
+/// Shows or hides the menu bar of one window.
+///
+/// The set lives in a thread local rather than in `AppMenuGlobal` because a global
+/// is handed out by shared reference and the attached `muda::Menu` on Windows
+/// makes the state impossible to clone and replace. One set, one source of truth:
+/// the inset and the JS getter both read it.
+pub fn set_menu_bar_visible(window_id: u32, visible: bool) {
+    HIDDEN_MENU_BARS.with(|hidden| {
+        let mut hidden = hidden.borrow_mut();
+        if visible {
+            hidden.remove(&window_id);
+        } else {
+            hidden.insert(window_id);
+        }
+    });
 }
 
 pub struct MenuBar {
@@ -686,6 +779,39 @@ mod tests {
     use super::*;
     use crate::desktop::menu_model;
     use serde_json::json;
+
+    #[test]
+    fn hiding_one_windows_bar_leaves_the_others_alone() {
+        // The inset is per window: a hidden bar in one window must not shrink
+        // another window's surface, which is why this is a set of ids rather than
+        // one flag.
+        set_menu_bar_visible(7, false);
+        assert!(menu_bar_hidden(7));
+        assert!(!menu_bar_hidden(8));
+        set_menu_bar_visible(7, true);
+        assert!(!menu_bar_hidden(7));
+    }
+
+    #[test]
+    fn the_inset_follows_the_windows_own_visibility() {
+        // Both ids are put into a known state first: the hidden set is process
+        // wide, so another test may have hidden either of them already.
+        set_menu_bar_visible(9, true);
+        set_menu_bar_visible(10, true);
+
+        set_menu_bar_visible(9, false);
+        assert_eq!(menu_bar_inset_for_window_id(9), 0.0);
+        assert_eq!(
+            menu_bar_inset_for_window_id(10),
+            if should_use_gpui_menu_bar() {
+                MENU_BAR_HEIGHT
+            } else {
+                0.0
+            },
+            "hiding one window's bar must not shrink another window",
+        );
+        set_menu_bar_visible(9, true);
+    }
 
     #[test]
     fn popup_size_grows_with_the_items() {

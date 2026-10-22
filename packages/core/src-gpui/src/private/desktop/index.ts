@@ -86,6 +86,35 @@ export async function request<T>(
   }
 }
 
+/**
+ * Runs one method on any desktop TurboModule, turning its rejection into a
+ * `DesktopError`.
+ *
+ * Every module used to carry its own `xxxModule()` guard and `request()` wrapper,
+ * which meant five copies of the same "is the shell there, and did it throw"
+ * logic that could drift apart. One helper keeps the error shape identical
+ * everywhere. `name` is only for the message, because a missing module reports
+ * nothing useful on its own.
+ */
+export async function nativeRequest<T>(
+  name: string,
+  run: (check: <M>(module: M | null | undefined) => M) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(<M>(module: M | null | undefined): M => {
+      if (module == null) {
+        throw new DesktopError(
+          'unsupported',
+          `the ${name} native module is not available`,
+        );
+      }
+      return module;
+    });
+  } catch (error) {
+    throw toDesktopError(error);
+  }
+}
+
 const NO_CAPABILITIES: DesktopCapabilities = {
   nativeAppMenu: false,
   nativeContextMenu: false,
@@ -94,6 +123,8 @@ const NO_CAPABILITIES: DesktopCapabilities = {
   windowPosition: false,
   alwaysOnTop: false,
   transparentTitlebar: false,
+  clientDecorations: false,
+  menuBarInWindow: false,
 };
 
 /** Read synchronously; never touches the GPUI main thread. */

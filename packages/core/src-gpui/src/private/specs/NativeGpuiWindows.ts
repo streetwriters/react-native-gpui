@@ -1,4 +1,4 @@
-import type { Int32, TurboModule } from 'react-native';
+import type { CodegenTypes, TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 export type WindowBounds = {
@@ -9,7 +9,7 @@ export type WindowBounds = {
 };
 
 export type WindowState = {
-  windowId: Int32;
+  windowId: CodegenTypes.Int32;
   bounds: WindowBounds;
   isMaximized: boolean;
   isFullscreen: boolean;
@@ -19,11 +19,11 @@ export type WindowState = {
 };
 
 export type WindowHandle = {
-  windowId: Int32;
+  windowId: CodegenTypes.Int32;
 };
 
 export type WindowListEntry = {
-  windowId: Int32;
+  windowId: CodegenTypes.Int32;
   component: string;
 };
 
@@ -53,33 +53,53 @@ export type WindowOpenOptions = {
 export interface Spec extends TurboModule {
   windowOpen(options: WindowOpenOptions): Promise<WindowHandle>;
   windowList(): Promise<WindowList>;
-  windowGetState(windowId: Int32): Promise<WindowState>;
-  windowClose(windowId: Int32, force: boolean): Promise<void>;
-  windowFocus(windowId: Int32): Promise<void>;
-  windowSetTitle(windowId: Int32, title: string): Promise<void>;
-  windowSetSize(windowId: Int32, width: number, height: number): Promise<void>;
-  windowSetPosition(windowId: Int32, x: number, y: number): Promise<void>;
+  windowGetState(windowId: CodegenTypes.Int32): Promise<WindowState>;
+  windowClose(windowId: CodegenTypes.Int32, force: boolean): Promise<void>;
+  windowFocus(windowId: CodegenTypes.Int32): Promise<void>;
+  windowSetTitle(windowId: CodegenTypes.Int32, title: string): Promise<void>;
+  windowSetSize(
+    windowId: CodegenTypes.Int32,
+    width: number,
+    height: number,
+  ): Promise<void>;
+  windowSetPosition(
+    windowId: CodegenTypes.Int32,
+    x: number,
+    y: number,
+  ): Promise<void>;
   windowSetMinSize(
-    windowId: Int32,
+    windowId: CodegenTypes.Int32,
     width: number,
     height: number,
   ): Promise<void>;
   windowSetMaxSize(
-    windowId: Int32,
+    windowId: CodegenTypes.Int32,
     width: number,
     height: number,
   ): Promise<void>;
-  windowSetResizable(windowId: Int32, resizable: boolean): Promise<void>;
-  windowSetFullscreen(windowId: Int32, fullscreen: boolean): Promise<void>;
-  windowSetAlwaysOnTop(windowId: Int32, onTop: boolean): Promise<void>;
-  windowMinimize(windowId: Int32): Promise<void>;
-  windowMaximize(windowId: Int32): Promise<void>;
-  windowUnmaximize(windowId: Int32): Promise<void>;
-  windowToggleMaximize(windowId: Int32): Promise<void>;
-  windowShow(windowId: Int32): Promise<void>;
-  windowHide(windowId: Int32): Promise<void>;
-  windowStartDragging(windowId: Int32): Promise<void>;
-  windowInterceptClose(windowId: Int32, on: boolean): Promise<void>;
+  windowSetResizable(
+    windowId: CodegenTypes.Int32,
+    resizable: boolean,
+  ): Promise<void>;
+  windowSetFullscreen(
+    windowId: CodegenTypes.Int32,
+    fullscreen: boolean,
+  ): Promise<void>;
+  windowSetAlwaysOnTop(
+    windowId: CodegenTypes.Int32,
+    onTop: boolean,
+  ): Promise<void>;
+  windowMinimize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowMaximize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowUnmaximize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowToggleMaximize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowShow(windowId: CodegenTypes.Int32): Promise<void>;
+  windowHide(windowId: CodegenTypes.Int32): Promise<void>;
+  windowStartDragging(windowId: CodegenTypes.Int32): Promise<void>;
+  windowInterceptClose(
+    windowId: CodegenTypes.Int32,
+    on: boolean,
+  ): Promise<void>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;

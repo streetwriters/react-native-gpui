@@ -104,7 +104,6 @@ pub mod ffi {
         pub focusable: bool,
         pub desktop_drag_region: bool,
         /// "minimize" | "maximize" | "close" for a custom caption button.
-        pub desktop_window_control: String,
         pub on_context_menu: bool,
     }
 

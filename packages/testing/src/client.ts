@@ -70,8 +70,8 @@ export type ClickOptions = {
 
 export type IdleOptions = {
   timeout?: number;
-  ignoreUrls?: string[];
-  ignore?: Array<
+  ignoreUrls?: readonly string[];
+  ignore?: ReadonlyArray<
     | 'frames'
     | 'animations'
     | 'gestures'
