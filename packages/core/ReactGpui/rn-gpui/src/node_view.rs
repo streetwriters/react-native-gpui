@@ -1239,6 +1239,12 @@ impl RNNodeView {
         point(px(x + surface_x), px(y + surface_y))
     }
 
+    /// Whether GPUI placed this node's surface, so its frames are window
+    /// coordinates.
+    pub(crate) fn surface_is_placed(&self) -> bool {
+        self.surface_origin.is_placed()
+    }
+
     /// Shares `origin` with the other nodes of this node's surface.
     pub(crate) fn with_surface_origin(mut self, origin: crate::surface::SurfaceOrigin) -> Self {
         self.surface_origin = origin;

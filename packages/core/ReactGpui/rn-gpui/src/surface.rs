@@ -121,15 +121,21 @@ impl SurfaceContentSize {
 
 /// Where a surface's box is in its window, shared with every node it mounts.
 #[derive(Clone, Default)]
-pub struct SurfaceOrigin(std::rc::Rc<Cell<(f32, f32)>>);
+pub struct SurfaceOrigin(std::rc::Rc<Cell<Option<(f32, f32)>>>);
 
 impl SurfaceOrigin {
     pub(crate) fn set(&self, origin: (f32, f32)) {
-        self.0.set(origin);
+        self.0.set(Some(origin));
     }
 
     pub fn get(&self) -> (f32, f32) {
-        self.0.get()
+        self.0.get().unwrap_or_default()
+    }
+
+    /// Whether GPUI placed the surface, which makes its nodes' frames window
+    /// coordinates already.
+    pub fn is_placed(&self) -> bool {
+        self.0.get().is_some()
     }
 }
 
