@@ -429,6 +429,14 @@ describe('the generated file', () => {
     expect(header).toContain('fn rn_gpui_fixture_chart_props_cards_at(');
   });
 
+  test('converts a props string with a checked conversion, never unchecked', () => {
+    // `from_utf8_unchecked` with only a `debug_assert` is undefined behaviour in
+    // a release build. This repo supports more than one JS engine, so it cannot
+    // assume each replaces invalid sequences before they reach a props string.
+    expect(countOf(header, 'from_utf8_unchecked(')).toBe(0);
+    expect(header).toContain('match core::str::from_utf8(bytes)');
+  });
+
   test('imports only what a component needs', () => {
     expect(header).toContain('use gpui::{AnyElement, Window};');
     expect(header).toContain(

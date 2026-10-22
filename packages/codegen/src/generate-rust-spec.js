@@ -1011,11 +1011,24 @@ unsafe fn rn_gpui_str<'a>(text: RnGpuiStr) -> &'a str {
         return "";
     }
     let bytes = core::slice::from_raw_parts(text.data, text.len);
-    debug_assert!(
-        core::str::from_utf8(bytes).is_ok(),
-        "a props string was not UTF-8",
-    );
-    core::str::from_utf8_unchecked(bytes)
+    // Checked, not \`from_utf8_unchecked\`. A release build has no \`debug_assert\`,
+    // so an engine that hands through a lone surrogate as invalid UTF-8 would be
+    // undefined behaviour rather than a bad character. This repository supports
+    // more than one JS engine and cannot assume each replaces invalid sequences.
+    // \`from_utf8\` is SIMD-fast; on the failure path the offending bytes are
+    // replaced rather than truncated, so a caller sees \`U+FFFD\` where the input
+    // was not text instead of silently reading a different string.
+    match core::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!(
+                "[host-component] a props string was not UTF-8 at byte {}: {}",
+                error.valid_up_to(),
+                error,
+            );
+            ""
+        }
+    }
 }
 
 /// The elements of a \`RnGpuiSlice\`, borrowed as a \`&[T]\`.
