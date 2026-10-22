@@ -86,11 +86,13 @@ class GpuiMountingManager : public IMountingManager {
 
   /// Pushes a size a host component reported into its shadow node's state,
   /// which is what `measureContent` reads, and asks for a commit so Yoga
-  /// re-measures.
+  /// re-measures. A size equal to the state's current one is dropped here, by
+  /// comparing against the state data rather than a second copy of it.
   void setHostComponentSize(Tag tag, float width, float height);
 
-  /// Applies a container's reported insets as Yoga padding around its React
-  /// children, and asks for the commit that re-lays them out.
+  /// Pushes a container's reported insets into its shadow node's state, where
+  /// `adopt` applies them as Yoga padding. Insets equal to the state's current
+  /// ones are dropped here, for the same reason.
   void setHostComponentInsets(
       Tag tag,
       float top,
@@ -117,8 +119,10 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
-  // A measured host component's state, so a reported size can be pushed into
-  // Yoga. Writing it to a side map instead would never re-measure anything.
+  // Every mounted host component's state, by tag: inserted on Create and erased
+  // on Delete. A report is pushed through the state the node already has, so
+  // there is no second copy of a size or an inset to keep in step — and nothing
+  // to leak when a node goes away.
   std::unordered_map<
       Tag,
       std::shared_ptr<const ConcreteState<GpuiHostStateData>>>

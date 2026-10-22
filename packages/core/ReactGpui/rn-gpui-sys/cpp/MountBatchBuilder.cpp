@@ -320,14 +320,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
   // A host component's own props, untyped. Core knows none of its names, so
   // this is the only path by which they reach the Rust side.
   op.component_props_json = rngpui::hostComponentPropsJson(shadowView);
-  {
-    const auto reported = rngpui::reportedIntrinsicSize(op.tag);
-    if (reported.present) {
-      op.has_intrinsic_size = true;
-      op.intrinsic_width = reported.width;
-      op.intrinsic_height = reported.height;
-    }
-  }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
             shadowView.props)) {

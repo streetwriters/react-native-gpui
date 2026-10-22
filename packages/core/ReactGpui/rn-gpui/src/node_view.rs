@@ -56,6 +56,26 @@ pub struct RNNodeView {
     pub component: String,
     pub native_view_name: String,
     pub native_view_props: String,
+    /// Whether this node's own content is composited by the OS rather than
+    /// painted by GPUI. Decided once, when the node is created, from its
+    /// registry entry; only a `NativeViewHost` can change it later, when an
+    /// update gives it a factory name (design 2, section 7 rule 6).
+    pub(crate) renders_native_surface: bool,
+    /// How many nodes in this subtree render a native surface, this node
+    /// included.
+    ///
+    /// The store maintains it by walking the parent chain on insert and remove,
+    /// which is O(depth) per structural change; a `ScrollView` and the surface
+    /// root read their own counter instead of walking their subtree on every
+    /// render.
+    pub(crate) native_surface_descendants: u32,
+    /// Whether this node's contribution has been added to its ancestors.
+    ///
+    /// Fabric sends `Remove` before `Delete` but both arrive, and a `Delete`
+    /// with no `Remove` also happens; without this flag the second one would
+    /// subtract a contribution that had already been taken off, and every
+    /// ancestor would under-count.
+    pub(crate) native_surface_counted: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
     #[cfg(target_os = "macos")]
@@ -65,23 +85,18 @@ pub struct RNNodeView {
     host_component: Option<Box<dyn crate::host_component::HostComponentObject>>,
     /// The props this node's host component was last given.
     host_component_props: crate::host_component::Props,
-    /// The intrinsic size Fabric last reported for this node, from the host
-    /// component's measured size. Exposed to the test driver and to
-    /// diagnostics; Yoga has the authoritative copy, in the shadow node's
-    /// state.
+    /// The intrinsic size this node's host component last reported. Exposed to
+    /// the test driver and to diagnostics; Yoga has the authoritative copy, in
+    /// the shadow node's state.
     intrinsic_size: Option<(f32, f32)>,
     /// The padding this node's host component reported for its own chrome
-    /// (design 2, section 6.1). A container's React children are inset by it.
+    /// (design 2, section 6.1). A container's React children are painted inside
+    /// it; Yoga applies the same values as padding through the shadow node's
+    /// state.
     host_insets: crate::host_component::EdgeInsets,
-    /// Reports `create` and `update` produced, which have no `App` to dispatch
-    /// with. A queue rather than a slot: an update can arrive before the first
-    /// render flushed what create reported, and a slot would silently drop it.
-    /// Flushed in order on the next render.
-    pending_host_reports: Vec<(
-        Option<crate::host_component::EdgeInsets>,
-        Option<(f32, f32)>,
-        Vec<(String, serde_json::Value)>,
-    )>,
+    /// The store's report queue, shared by every node. A method's context writes
+    /// here; the store is the one place that applies what is written.
+    host_reports: crate::store::HostReportQueue,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
@@ -395,6 +410,28 @@ fn dispatch_context_menu(
             }),
         );
         store.frame_hook.arm(window);
+    }
+}
+
+/// Whether a newly created node's own content is composited by the OS.
+///
+/// Asked once per node, when it is created, and stored on the node: the
+/// registries below are process-wide maps keyed by component name, so asking
+/// them again on a render or an update would put two string hashes and a lock
+/// on a hot path (design 2, section 7 rule 2). `NativeViewHost` is decided from
+/// the op rather than from a registry, because it switches on having a factory
+/// name and that can change on a later update.
+fn renders_native_surface_for_op(op: &MountOp) -> bool {
+    // Rule 1: with no host component registered there is nothing to ask, and the
+    // registries behind `renders_native_surface` are keyed by component name. The
+    // extension registry still has to be consulted, because an extension
+    // renderer can declare a native surface without a host component.
+    if op.component == "NativeViewHost" {
+        !op.native_view_name.is_empty()
+    } else {
+        (crate::host_component::any_host_components()
+            && crate::host_component::renders_native_surface(&op.component))
+            || crate::extensions::component_renders_native_surface(&op.component)
     }
 }
 
@@ -778,7 +815,14 @@ impl RNNodeView {
         None
     }
 
-    pub fn from_op(op: &MountOp, surface_id: i32) -> Self {
+    pub(crate) fn from_op(
+        op: &MountOp,
+        surface_id: i32,
+        host_reports: crate::store::HostReportQueue,
+    ) -> Self {
+        // Asked of the registries once, here, so no render or update pays a
+        // string lookup on a hot path (design 2, section 7 rule 2).
+        let renders_native_surface = renders_native_surface_for_op(op);
         // `core-private:` TextInput reads its own props out of the module JSON.
         let text_input =
             crate::builtins::textinput::input::TextInputProps::from_json(&op.extension_props_json);
@@ -789,26 +833,16 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
-        // Built before the literal so `create`'s report can be carried on the
-        // node: there is no `App` here to dispatch with.
-        let mut pending_host_reports = Vec::new();
+        // `create` reports into the store's queue, so what it says is applied
+        // when the batch is done rather than on this node's first render.
         let host_component = crate::host_component::host_component(&op.component).map(|_| {
             // Created here rather than in the store so every path that makes a
             // node — a batch, a test, a reload — gets one.
-            let mut host = crate::host_component::HostContext::new(op.tag);
+            let mut host = crate::host_component::HostContext::queued(op.tag, host_reports.clone());
             let registration =
                 crate::host_component::host_component(&op.component).expect("checked above");
             let props = crate::host_component::Props::from_json(&op.component_props_json);
-            let mut object = registration.create(props, &mut host);
-            let (size, events) = host.take();
-            let insets = host.take_insets();
-            if let Some((width, height)) = size {
-                crate::host_component::report_intrinsic_size(op.tag, width, height);
-            }
-            if !events.is_empty() || insets.is_some() {
-                pending_host_reports.push((insets, size, events));
-            }
-            object
+            registration.create(props, &mut host)
         });
         let mut view = Self {
             tag: op.tag,
@@ -823,14 +857,16 @@ impl RNNodeView {
                 &op.extension_props_json,
             )),
             native_view_host: None,
-
+            renders_native_surface,
+            // Its own count only; the store adds it to each ancestor when the
+            // node is inserted.
+            native_surface_descendants: u32::from(renders_native_surface),
+            native_surface_counted: false,
             host_component,
             host_component_props: crate::host_component::Props::from_json(&op.component_props_json),
-            intrinsic_size: op
-                .has_intrinsic_size
-                .then_some((op.intrinsic_width, op.intrinsic_height)),
+            intrinsic_size: None,
             host_insets: crate::host_component::EdgeInsets::ZERO,
-            pending_host_reports,
+            host_reports,
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -919,8 +955,18 @@ impl RNNodeView {
             self.native_view_props = op.native_view_props.clone();
             self.native_view_host = None;
         }
-        if op.has_intrinsic_size {
-            self.intrinsic_size = Some((op.intrinsic_width, op.intrinsic_height));
+        // A `NativeViewHost` is composited only while it has a factory name,
+        // which an update can give it or take away. The counter is adjusted
+        // here, before the store walks the parent chain: it reads the delta
+        // from this node and carries it up (design 2, section 7 rule 6).
+        if self.component == "NativeViewHost" {
+            let renders = !self.native_view_name.is_empty();
+            if renders != self.renders_native_surface {
+                self.renders_native_surface = renders;
+                self.native_surface_descendants = self
+                    .native_surface_descendants
+                    .saturating_add_signed(if renders { 1 } else { -1 });
+            }
         }
         self.frame = if crate::extensions::component_portal(
             &op.component,
@@ -978,19 +1024,11 @@ impl RNNodeView {
                 let props = crate::host_component::Props::from_json(&op.component_props_json);
                 if props != self.host_component_props {
                     self.host_component_props = props.clone();
-                    let mut host = crate::host_component::HostContext::new(self.tag);
+                    // Queued, not carried: the store delivers it when the batch
+                    // this update belongs to is applied.
+                    let mut host = self.host_context();
                     if let Some(component) = self.host_component.as_mut() {
                         component.update_object(props, &mut host);
-                    }
-                    let (size, events) = host.take();
-                    let insets = host.take_insets();
-                    if let Some((width, height)) = size {
-                        crate::host_component::report_intrinsic_size(self.tag, width, height);
-                    }
-                    // `update_from_op` has no `App`, so the events and insets are
-                    // carried to the next render, which does.
-                    if !events.is_empty() || insets.is_some() {
-                        self.pending_host_reports.push((insets, size, events));
                     }
                 }
             }
@@ -1013,6 +1051,42 @@ impl RNNodeView {
 
     pub fn remove_child(&mut self, tag: i32) {
         self.children.retain(|(child_tag, _)| *child_tag != tag);
+    }
+
+    /// Whether any node in this subtree, this one included, renders a native
+    /// surface.
+    ///
+    /// Reads the counter the store maintains, so it is O(1): a `ScrollView`
+    /// asks it on every render and must not walk its subtree (design 2,
+    /// section 7 rule 6).
+    pub(crate) fn subtree_renders_native_surface(&self) -> bool {
+        self.native_surface_descendants > 0
+    }
+
+    /// Claims this node's contribution, so a second `Remove` or a `Delete`
+    /// after a `Remove` subtracts nothing.
+    pub(crate) fn take_native_surface_contribution(&mut self) -> u32 {
+        if !self.native_surface_counted {
+            return 0;
+        }
+        self.native_surface_counted = false;
+        self.native_surface_descendants
+    }
+
+    /// Records that this node's contribution is now part of its ancestors'
+    /// counts.
+    pub(crate) fn mark_native_surface_counted(&mut self) {
+        self.native_surface_counted = true;
+    }
+
+    /// Adds `delta` to this subtree's count.
+    pub(crate) fn add_native_surface_descendants(&mut self, delta: u32) {
+        self.native_surface_descendants = self.native_surface_descendants.saturating_add(delta);
+    }
+
+    /// Removes `delta` from this subtree's count.
+    pub(crate) fn sub_native_surface_descendants(&mut self, delta: u32) {
+        self.native_surface_descendants = self.native_surface_descendants.saturating_sub(delta);
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {
@@ -1337,41 +1411,6 @@ fn accessibility_action_for_name(name: &str) -> Option<gpui::AccessibleAction> {
         "collapse" => gpui::AccessibleAction::Collapse,
         _ => return None,
     })
-}
-
-/// Applies what a host component reported. `create` and `update` used to take the
-/// size and drop the events, so a component that emitted from `update` — a chart
-/// answering a prop change, say — was silently ignored; the events and insets are
-/// now delivered the same way `render` and a command deliver them.
-fn apply_host_report(
-    tag: i32,
-    insets: Option<crate::host_component::EdgeInsets>,
-    size: Option<(f32, f32)>,
-    events: Vec<(String, serde_json::Value)>,
-    cx: &mut App,
-) {
-    if let Some(insets) = insets {
-        rn_gpui_sys::ffi::setHostComponentInsets(
-            tag,
-            insets.top,
-            insets.right,
-            insets.bottom,
-            insets.left,
-        );
-    }
-    if let Some((width, height)) = size {
-        crate::host_component::report_intrinsic_size(tag, width, height);
-    }
-    if events.is_empty() {
-        return;
-    }
-    let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
-        return;
-    };
-    let host = store.0.read(cx).host.clone();
-    for (name, payload) in events {
-        host.dispatch_event(tag, &name, &payload);
-    }
 }
 
 fn dispatch_accessibility_event(
@@ -2116,6 +2155,36 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 
 pub(crate) static RENDER_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
+
+/// Queues one delivery of the host reports made during this frame's renders.
+///
+/// The third of the three delivery points in design 2, section 5.7: a report
+/// made from `render` has no store to write through while the node is being
+/// rendered, so the store applies it at the end of the effect cycle instead.
+/// The queue itself claims the flush, so a frame in which a hundred nodes
+/// reported still delivers once.
+fn schedule_frame_host_report_flush(
+    reports: &crate::store::HostReportQueue,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) {
+    if reports.borrow().is_empty() || reports.borrow().claim_flush() {
+        return;
+    }
+    let reports = reports.clone();
+    window.defer(cx, move |_window, cx| {
+        reports.borrow().release_flush();
+        match crate::store::store_from(cx) {
+            Some(store) => {
+                store.update(cx, |store, cx| store.flush_host_reports(cx));
+            }
+            // No store to deliver into: drop them rather than let the queue grow.
+            None => {
+                let _ = reports.borrow().take();
+            }
+        }
+    });
+}
 
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -3463,11 +3532,12 @@ impl Render for RNNodeView {
             // tests pin both halves). Such a container offsets its own content
             // instead, which never reports `Overflow::Scroll` and so is never
             // composited as a layer.
-            let strategy = crate::scroll_layers::scroll_strategy(
-                self.children
-                    .iter()
-                    .any(|(_, child)| crate::store::node_tree_contains_native_view(child, cx)),
-            );
+            //
+            // The answer is this node's own counter rather than a walk of its
+            // subtree: a scrolling list re-renders on every frame and must not
+            // pay a subtree walk per render (design 2, section 7 rule 6).
+            let strategy =
+                crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface());
             if scroll.enabled {
                 // This listener runs before GPUI's, so it defers and reports
                 // where the offset ended up. It runs for both strategies: it is
@@ -3590,7 +3660,11 @@ impl Render for RNNodeView {
                 .iter()
                 .map(|(_, child)| child.clone().into_any_element())
                 .collect();
-            let mut host = crate::host_component::HostContext::new(self.tag);
+            // The context writes what the component reports straight into the
+            // store's queue; the store applies it after this frame's renders.
+            // Nothing is held on the node, so nothing about delivery depends on
+            // this render having happened (design 2, section 5.7).
+            let mut host = self.host_context();
             let rendered = if let Some(component) = self.host_component.as_mut() {
                 Some(component.render_object(
                     crate::host_component::Children::new(children),
@@ -3600,35 +3674,13 @@ impl Render for RNNodeView {
             } else {
                 None
             };
-            let (size, events) = host.take();
-            // A report `create`/`update` produced could not be dispatched there
-            // (no `App`), so it is delivered now, before this render's own.
-            for (insets, size, events) in std::mem::take(&mut self.pending_host_reports) {
-                apply_host_report(self.tag, insets, size, events, cx);
-            }
-            if let Some(insets) = host.take_insets() {
+            // A report made while rendering is applied once, after this frame's
+            // renders, however many nodes reported.
+            schedule_frame_host_report_flush(&self.host_reports, window, cx);
+            // The insets this render reported, for painting. Yoga applies them
+            // to the children's layout through the shadow node's state.
+            if let Some(insets) = host.insets() {
                 self.host_insets = insets;
-                // Reported to Fabric as well: the children are laid out by Yoga,
-                // so keeping the insets only here would inset them when painting
-                // and leave their layout overlapping the chrome.
-                rn_gpui_sys::ffi::setHostComponentInsets(
-                    self.tag,
-                    insets.top,
-                    insets.right,
-                    insets.bottom,
-                    insets.left,
-                );
-            }
-            if let Some((width, height)) = size {
-                crate::host_component::report_intrinsic_size(self.tag, width, height);
-            }
-            if !events.is_empty() {
-                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                    let host = store.0.read(cx).host.clone();
-                    for (name, payload) in events {
-                        host.dispatch_event(self.tag, &name, &payload);
-                    }
-                }
             }
             // A container's chrome is drawn inside the node's own box, so its
             // React children are inset by what the component reported.
@@ -3961,49 +4013,87 @@ impl RNNodeView {
         self.intrinsic_size
     }
 
+    /// Records the size the store just delivered, for the test driver and for
+    /// diagnostics. Yoga reads the shadow node's state, not this.
+    pub(crate) fn set_intrinsic_size(&mut self, width: f32, height: f32) {
+        self.intrinsic_size = Some((width, height));
+    }
+
+    /// A context whose reports go to the store's queue.
+    ///
+    /// Every method core drives — `create`, `update`, `render`, a command — gets
+    /// one of these, so a report is queued the moment it is made and applied
+    /// from the store's single delivery point. Nothing about delivery depends on
+    /// this node rendering again.
+    /// The store's report queue, for a caller that has just run a method.
+    pub(crate) fn host_reports(&self) -> crate::store::HostReportQueue {
+        self.host_reports.clone()
+    }
+
+    fn host_context(&self) -> crate::host_component::HostContext {
+        crate::host_component::HostContext::queued(self.tag, self.host_reports.clone())
+    }
+
+    /// The same, with the store handle a command can act through.
+    fn host_context_with_handle(
+        &self,
+        handle: crate::extensions::StoreHandle,
+    ) -> crate::host_component::HostContext {
+        crate::host_component::HostContext::queued_with_handle(
+            self.tag,
+            self.host_reports.clone(),
+            handle,
+        )
+    }
+
     pub fn scroll_offset(&self) -> Point<f32> {
         self.scroll_position.get()
     }
 
     /// Runs a Fabric command on this node's host component.
     ///
-    /// The component's own events are dispatched through the store, which the
-    /// caller may be holding for the command, so they are queued on the store's
-    /// handle rather than emitted mid-call and applied as it returns.
+    /// Whatever the command reports goes into the store's queue, which the
+    /// callback applies as soon as the command returns — the third of the three
+    /// delivery points in design 2, section 5.7.
     pub(crate) fn dispatch_host_component_command(
         &mut self,
         name: String,
         args: Vec<serde_json::Value>,
         cx: &mut gpui::App,
     ) {
-        let Some(component) = self.host_component.as_mut() else {
+        if self.host_component.is_none() {
             log::debug!(
                 "[host-component] command '{name}' for tag {} with no component",
                 self.tag
             );
             return;
-        };
-        let tag = self.tag;
+        }
         let handle = crate::store::store_from(cx)
             .map(|store| crate::extensions::StoreHandle::new(store.downgrade()));
         let mut host = match handle {
-            Some(handle) => crate::host_component::HostContext::with_handle(tag, handle),
-            None => crate::host_component::HostContext::new(tag),
+            Some(handle) => self.host_context_with_handle(handle),
+            None => self.host_context(),
         };
-        component.command_object(&name, args, &mut host);
-        let (size, events) = host.take();
-        if let Some((width, height)) = size {
-            crate::host_component::report_intrinsic_size(tag, width, height);
+        if let Some(component) = self.host_component.as_mut() {
+            component.command_object(&name, args, &mut host);
         }
-        if let Some(store) = crate::store::store_from(cx) {
-            let host = store.read(cx).host.clone();
-            for (name, payload) in events {
-                host.dispatch_event(tag, &name, &payload);
+        if host.has_reports() {
+            // The command's delivery point. Deferred rather than run here
+            // because this node is leased for the command: delivering a size
+            // updates the node's own diagnostic copy, which would need a second
+            // lease on it. The deferred callback runs at the end of this update,
+            // so the report is still applied before anything else observes it.
+            if let Some(store) = crate::store::store_from(cx) {
+                cx.defer(move |cx| {
+                    store.update(cx, |store, cx| store.flush_host_reports(cx));
+                });
             }
         }
     }
 
     /// Runs `f` on this node's host component, if it has one.
+    ///
+    /// What `f` reports is queued for the store, the same way a command's is.
     pub(crate) fn with_host_component<R>(
         &mut self,
         f: impl FnOnce(
@@ -4011,30 +4101,10 @@ impl RNNodeView {
             &mut crate::host_component::HostContext,
         ) -> R,
     ) -> Option<R> {
-        let mut cx = crate::host_component::HostContext::new(self.tag);
-        let result = self
-            .host_component
+        let mut cx = self.host_context();
+        self.host_component
             .as_mut()
-            .map(|component| f(component, &mut cx));
-        if let Some((width, height)) = cx.take().0 {
-            crate::host_component::report_intrinsic_size(self.tag, width, height);
-        }
-        result
-    }
-
-    /// Whether this node renders content the OS composites rather than GPUI.
-    ///
-    /// `NativeViewHost` is one such node. A host component that returns a
-    /// native surface is another, and says so through its renderer; until a
-    /// host component has rendered once the answer is the component's
-    /// declaration, which is why the renderer is consulted by name rather than
-    /// by stored state.
-    pub(crate) fn renders_native_surface(&self) -> bool {
-        if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
-            return true;
-        }
-        crate::host_component::renders_native_surface(&self.component)
-            || crate::extensions::component_renders_native_surface(&self.component)
+            .map(|component| f(component, &mut cx))
     }
 
     pub(crate) fn extension_props_json(&self) -> &str {

@@ -443,23 +443,11 @@ GpuiHost::GpuiHost(
         return reactHost_->surfaceContentSize(surfaceId);
       });
 
-  // A measured host component reports its size from the render pass, but the
-  // shadow node's state is what Yoga reads, and re-measuring needs a commit.
-  // The manager owns those states, so it takes the report and does both.
-  std::weak_ptr<GpuiMountingManager> weakMountingManager = mountingManager_;
-  rngpui::setHostComponentSizeObserver(
-      [weakMountingManager](int32_t tag, float width, float height) {
-        if (auto manager = weakMountingManager.lock()) {
-          manager->setHostComponentSize(tag, width, height);
-        }
-      });
-  rngpui::setHostComponentInsetsObserver(
-      [weakMountingManager](
-          int32_t tag, float top, float right, float bottom, float left) {
-        if (auto manager = weakMountingManager.lock()) {
-          manager->setHostComponentInsets(tag, top, right, bottom, left);
-        }
-      });
+  // A host component reports its size and insets from a method or a render,
+  // but the shadow node's state is what Yoga reads, and applying either needs a
+  // commit. The manager owns one state per mounted host node, so it is where a
+  // report goes; there is no observer indirection and no side table.
+  rngpui::setHostComponentStateManager(mountingManager_);
 
   // ReactHost's constructor throws unless both factories are in the
   // ContextContainer.

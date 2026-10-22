@@ -230,10 +230,13 @@ void GpuiMountingManager::executeMount(
                   mutation.newChildShadowView.state);
           if (state)
             scrollStates_[mutation.newChildShadowView.tag] = std::move(state);
-        } else if (rngpui::isHostComponentName(componentName)) {
-          // A host component needs its state kept so a reported size can be
-          // pushed into Yoga later; storing the size beside the state instead
-          // would never re-measure, and `measureContent` reads the state.
+        } else if (
+            rngpui::anyHostComponents() &&
+            rngpui::isHostComponentName(componentName)) {
+          // A host component's state is where a reported size or inset is
+          // applied (`measureContent` and `adopt` read it), so the manager
+          // holds it for as long as the node exists. Create inserts it, Delete
+          // erases it: nothing here outlives the node.
           auto state =
               std::dynamic_pointer_cast<const ConcreteState<GpuiHostStateData>>(
                   mutation.newChildShadowView.state);
@@ -370,6 +373,36 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
   }
 }
 
+namespace {
+/// The manager host component reports go to. Set once, when the host makes its
+/// manager; the two report functions below read it on the main thread.
+std::weak_ptr<GpuiMountingManager>& hostComponentStateManager() {
+  static std::weak_ptr<GpuiMountingManager> manager;
+  return manager;
+}
+} // namespace
+
+void setHostComponentStateManager(std::weak_ptr<GpuiMountingManager> manager) {
+  hostComponentStateManager() = std::move(manager);
+}
+
+void reportHostComponentSize(int32_t tag, float width, float height) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    manager->setHostComponentSize(tag, width, height);
+  }
+}
+
+void reportHostComponentInsets(
+    int32_t tag,
+    float top,
+    float right,
+    float bottom,
+    float left) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    manager->setHostComponentInsets(tag, top, right, bottom, left);
+  }
+}
+
 void GpuiMountingManager::setHostComponentSize(
     Tag tag,
     float width,
@@ -384,17 +417,18 @@ void GpuiMountingManager::setHostComponentSize(
     state = it->second;
   }
   const auto& data = state->getData();
+  if (data.measured && data.width == width && data.height == height) {
+    // Equal to the state the node already has: nothing to commit, and the
+    // comparison is against that state rather than a cache of the last report.
+    return;
+  }
   GpuiHostStateData next = data;
   next.width = width;
   next.height = height;
-  if (next.measured && data.measured && data.width == width &&
-      data.height == height) {
-    return;
-  }
   next.measured = true;
-  // `updateState` schedules the new commit that makes Yoga call
-  // `measureContent` again; writing the size anywhere else leaves the layout
-  // at its old value until something unrelated commits.
+  // `updateState` schedules the commit that makes Yoga call `measureContent`
+  // again; writing the size anywhere else leaves the layout at its old value
+  // until something unrelated commits.
   state->updateState(std::move(next));
 }
 

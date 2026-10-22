@@ -1,8 +1,6 @@
 // The C++ half of the host component API. See GpuiHostComponent.h for why each
 // piece exists.
 
-#include <array>
-
 #include "GpuiHostComponentsCpp.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -14,6 +12,7 @@
 #include <folly/json.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <deque>
 #include <unordered_set>
@@ -40,28 +39,12 @@ HostComponentRegistry& registry() {
   return registry;
 }
 
-/// Reported intrinsic sizes, by tag, since the last commit that consumed them.
-struct IntrinsicSizes {
-  std::mutex mutex;
-  HostComponentSizeFn observer;
-  std::unordered_map<int32_t, std::pair<float, float>> sizes;
-};
-
-/// The insets a container reported, by tag, pending `updateState`.
-struct HostComponentInsets {
-  std::mutex mutex;
-  std::unordered_map<int32_t, std::array<float, 4>> values;
-  HostComponentInsetsFn observer;
-};
-
-HostComponentInsets& hostComponentInsets() {
-  static HostComponentInsets insets;
-  return insets;
-}
-
-IntrinsicSizes& intrinsicSizes() {
-  static IntrinsicSizes sizes;
-  return sizes;
+/// Frozen the first time a component is registered, so a hot path can skip the
+/// registry with one relaxed load. An app with no host components never takes
+/// the registry lock (design 2, section 7, rule 1).
+std::atomic<bool>& anyHostComponentsFlag() {
+  static std::atomic<bool> flag{false};
+  return flag;
 }
 
 /// Stable C++ names for the registered components.
@@ -122,6 +105,7 @@ void registerHostComponent(rust::Str name, bool measured, bool container) {
   std::lock_guard<std::mutex> lock(reg.mutex);
   reg.measured[componentName] = measured;
   reg.container[componentName] = container;
+  anyHostComponentsFlag().store(true, std::memory_order_release);
   auto& list = hostComponentRegistrations();
   auto found = std::find_if(list.begin(), list.end(), [&](const auto& entry) {
     return entry.name == componentName;
@@ -131,6 +115,10 @@ void registerHostComponent(rust::Str name, bool measured, bool container) {
   } else {
     found->measured = measured;
   }
+}
+
+bool anyHostComponents() {
+  return anyHostComponentsFlag().load(std::memory_order_acquire);
 }
 
 bool isHostComponent(rust::Str name) {
@@ -231,96 +219,6 @@ facebook::react::Size GpuiHostShadowNode::measureContent(
       layoutConstraints.minimumSize.height,
       layoutConstraints.maximumSize.height);
   return facebook::react::Size{width, height};
-}
-
-void setHostComponentInsetsObserver(HostComponentInsetsFn observer) {
-  auto& insets = hostComponentInsets();
-  std::lock_guard<std::mutex> lock(insets.mutex);
-  insets.observer = std::move(observer);
-}
-
-void setHostComponentInsets(
-    int32_t tag,
-    float top,
-    float right,
-    float bottom,
-    float left) {
-  auto& insets = hostComponentInsets();
-  HostComponentInsetsFn observer;
-  {
-    // The observer is read, but nothing is recorded yet: this map is only a
-    // dedupe cache, and recording before the observer confirms it reached a
-    // shadow node would suppress every later identical report — so a report
-    // that arrived before the node existed would never be applied at all.
-    std::lock_guard<std::mutex> lock(insets.mutex);
-    observer = insets.observer;
-  }
-  if (!observer) {
-    return;
-  }
-  observer(tag, top, right, bottom, left);
-  // Recorded only after the observer had its chance, so a report that found no
-  // shadow node yet is not remembered as applied.
-  std::lock_guard<std::mutex> lock(insets.mutex);
-  insets.values[tag] = {top, right, bottom, left};
-}
-
-std::array<float, 4> reportedHostComponentInsets(int32_t tag) {
-  auto& insets = hostComponentInsets();
-  std::lock_guard<std::mutex> lock(insets.mutex);
-  auto found = insets.values.find(tag);
-  return found != insets.values.end() ? found->second
-                                      : std::array<float, 4>{0, 0, 0, 0};
-}
-
-void setHostComponentSizeObserver(HostComponentSizeFn observer) {
-  auto& sizes = intrinsicSizes();
-  std::lock_guard<std::mutex> lock(sizes.mutex);
-  sizes.observer = std::move(observer);
-}
-
-bool setHostComponentIntrinsicSize(int32_t tag, float width, float height) {
-  auto& sizes = intrinsicSizes();
-  bool changed = false;
-  HostComponentSizeFn observer;
-  {
-    std::lock_guard<std::mutex> lock(sizes.mutex);
-    auto found = sizes.sizes.find(tag);
-    if (found == sizes.sizes.end() || found->second.first != width ||
-        found->second.second != height) {
-      sizes.sizes[tag] = {width, height};
-      changed = true;
-    }
-    // Read unconditionally: gating the observer on `changed` means a size that
-    // found no shadow node yet is never retried with the same value.
-    observer = sizes.observer;
-  }
-  // Writing the map alone leaves Yoga with the old size: `measureContent` reads
-  // the shadow node's state, so the size has to be pushed there and a commit
-  // asked for. The manager owns the states, so it installs this.
-  if (observer) {
-    observer(tag, width, height);
-  }
-  return changed;
-}
-
-ReportedIntrinsicSize reportedIntrinsicSize(int32_t tag) {
-  ReportedIntrinsicSize result;
-  auto& sizes = intrinsicSizes();
-  std::lock_guard<std::mutex> lock(sizes.mutex);
-  auto found = sizes.sizes.find(tag);
-  if (found != sizes.sizes.end()) {
-    result.present = true;
-    result.width = found->second.first;
-    result.height = found->second.second;
-  }
-  return result;
-}
-
-void clearReportedIntrinsicSize(int32_t tag) {
-  auto& sizes = intrinsicSizes();
-  std::lock_guard<std::mutex> lock(sizes.mutex);
-  sizes.sizes.erase(tag);
 }
 
 std::string hostComponentPropsJson(

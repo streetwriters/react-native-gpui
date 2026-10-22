@@ -163,12 +163,6 @@ pub mod ffi {
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub layout_changed: bool,
-        /// The component measured a size of its own during this commit and
-        /// wrote it into its shadow node's state; the value is here so the
-        /// runtime can store it without another round trip to Fabric.
-        pub has_intrinsic_size: bool,
-        pub intrinsic_width: f32,
-        pub intrinsic_height: f32,
     }
 
     // `Default` so a caller with nothing to say about content size — every test,
@@ -318,17 +312,19 @@ pub mod ffi {
         /// Registers a Fabric component with that name. A measured component
         /// gets a Yoga measure function that reads its shadow node's state.
         fn registerHostComponent(name: &str, measured: bool, container: bool);
+        /// Whether any host component was ever registered. Frozen once true, so
+        /// an app without host components pays one load and never a lock.
+        fn anyHostComponents() -> bool;
         /// Whether a name was registered as a host component.
         fn isHostComponent(name: &str) -> bool;
         /// Whether a name was registered as a measured host component.
         fn isMeasuredHostComponent(name: &str) -> bool;
-        /// Records a size a host component measured, so the next commit's
-        /// `MountOp` carries it (`has_intrinsic_size` / `intrinsic_*`) and the
-        /// Rust store can store it without asking Fabric again.
-        fn setHostComponentIntrinsicSize(tag: i32, width: f32, height: f32) -> bool;
-        /// Records the insets a container reported for its chrome, so its shadow
-        /// node can apply them as padding around the React children.
-        fn setHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
+        /// Pushes a size a host component measured into its shadow node's state,
+        /// which is what Yoga reads, and asks for the commit that re-measures.
+        fn reportHostComponentSize(tag: i32, width: f32, height: f32);
+        /// Pushes the insets a container reported for its chrome into its shadow
+        /// node's state, where they become Yoga padding around the children.
+        fn reportHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
     }
 
     unsafe extern "C++" {

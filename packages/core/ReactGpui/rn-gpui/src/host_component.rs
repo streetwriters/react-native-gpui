@@ -38,7 +38,9 @@
 use crate::extensions::StoreHandle;
 use gpui::{AnyElement, App, Entity, Window};
 use serde_json::Value;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The padding a container's chrome needs around React's children.
@@ -58,6 +60,81 @@ impl EdgeInsets {
         bottom: 0.0,
         left: 0.0,
     };
+}
+
+/// One thing a host component reported from a method, waiting to be applied.
+///
+/// A report is recorded by the [`HostContext`] the method was given, and applied
+/// by core from [`HostReports`] — the store's single delivery point — never from
+/// the reporting node's own render. That is what keeps delivery from depending
+/// on the node rendering again (design 2, section 5.7).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum HostReport {
+    /// The size a measured component wants, in DIPs.
+    Size { tag: i32, width: f32, height: f32 },
+    /// The padding a container's chrome needs around React's children.
+    Insets {
+        tag: i32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        left: f32,
+    },
+    /// An event for the node's JS emitter.
+    Event {
+        tag: i32,
+        name: String,
+        payload: Value,
+    },
+}
+
+/// The reports every host component method produced since the last delivery.
+///
+/// One per store, and ordered: a report is appended when its method returns and
+/// applied in that order, so nothing overwrites anything else. `flush_scheduled`
+/// keeps a frame in which many nodes reported to a single deferred delivery.
+#[derive(Default)]
+pub(crate) struct HostReports {
+    reports: RefCell<Vec<HostReport>>,
+    flush_scheduled: Cell<bool>,
+}
+
+impl HostReports {
+    pub(crate) fn push(&mut self, report: HostReport) {
+        self.reports.get_mut().push(report);
+    }
+
+    /// Every report queued so far, oldest first.
+    pub(crate) fn take(&self) -> Vec<HostReport> {
+        std::mem::take(&mut self.reports.borrow_mut())
+    }
+
+    /// Whether there is nothing to deliver.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.reports.borrow().is_empty()
+    }
+
+    /// Claims the frame's delivery, returning whether one was already claimed.
+    ///
+    /// A frame in which many nodes report schedules one deferred delivery, not
+    /// one per node.
+    pub(crate) fn claim_flush(&self) -> bool {
+        self.flush_scheduled.replace(true)
+    }
+
+    /// Allows the next report to schedule a delivery again.
+    pub(crate) fn release_flush(&self) {
+        self.flush_scheduled.set(false);
+    }
+}
+
+impl std::fmt::Debug for HostReports {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostReports")
+            .field("reports", &self.reports.borrow().len())
+            .field("flush_scheduled", &self.flush_scheduled.get())
+            .finish()
+    }
 }
 
 /// A node's props, as the same `Value` tree the module system uses.
@@ -161,9 +238,15 @@ pub struct HostContext {
     /// Events emitted during this call, dispatched when it returns. Emitting
     /// mid-render would re-enter the store, which is leased then.
     pending_events: Vec<(String, Value)>,
+    /// The store's report queue, when core is driving the component. A report
+    /// is pushed here the moment it is made, so it is delivered after the batch
+    /// or the frame that produced it rather than on this node's next render.
+    queue: Option<Rc<RefCell<HostReports>>>,
 }
 
 impl HostContext {
+    /// A context for a component core is driving: `queue` is the store's report
+    /// queue.
     pub(crate) fn new(tag: i32) -> Self {
         Self {
             tag,
@@ -171,16 +254,36 @@ impl HostContext {
             pending_size: None,
             pending_insets: None,
             pending_events: Vec::new(),
+            queue: None,
         }
     }
 
-    pub(crate) fn with_handle(tag: i32, handle: StoreHandle) -> Self {
+    /// A context whose reports go to the store's queue as the method records
+    /// them, so delivery never waits for the node to render again.
+    pub(crate) fn queued(tag: i32, queue: Rc<RefCell<HostReports>>) -> Self {
+        Self {
+            tag,
+            handle: None,
+            pending_size: None,
+            pending_insets: None,
+            pending_events: Vec::new(),
+            queue: Some(queue),
+        }
+    }
+
+    /// The same, with the store handle a command can act through.
+    pub(crate) fn queued_with_handle(
+        tag: i32,
+        queue: Rc<RefCell<HostReports>>,
+        handle: StoreHandle,
+    ) -> Self {
         Self {
             tag,
             handle: Some(handle),
             pending_size: None,
             pending_insets: None,
             pending_events: Vec::new(),
+            queue: Some(queue),
         }
     }
 
@@ -189,7 +292,15 @@ impl HostContext {
     /// The event is delivered after the current call returns; JS sees it with
     /// the node's other events, in order.
     pub fn emit(&mut self, name: impl Into<String>, payload: Value) {
-        self.pending_events.push((name.into(), payload));
+        let name = name.into();
+        if let Some(queue) = &self.queue {
+            queue.borrow_mut().push(HostReport::Event {
+                tag: self.tag,
+                name: name.clone(),
+                payload: payload.clone(),
+            });
+        }
+        self.pending_events.push((name, payload));
     }
 
     /// Reports the size this component wants, in DIPs.
@@ -198,7 +309,15 @@ impl HostContext {
     /// next commit, which is one frame later than the call. A component should
     /// therefore also give a sensible initial size in its `create`.
     pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {
-        self.pending_size = Some((width.max(0.0), height.max(0.0)));
+        let (width, height) = (width.max(0.0), height.max(0.0));
+        if let Some(queue) = &self.queue {
+            queue.borrow_mut().push(HostReport::Size {
+                tag: self.tag,
+                width,
+                height,
+            });
+        }
+        self.pending_size = Some((width, height));
     }
 
     /// The size last reported, if this call reported one.
@@ -216,12 +335,22 @@ impl HostContext {
     /// shadow-node state and applies them on the next commit, the same one-frame
     /// exchange the measured size uses.
     pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {
-        self.pending_insets = Some(EdgeInsets {
+        let insets = EdgeInsets {
             top: top.max(0.0),
             right: right.max(0.0),
             bottom: bottom.max(0.0),
             left: left.max(0.0),
-        });
+        };
+        if let Some(queue) = &self.queue {
+            queue.borrow_mut().push(HostReport::Insets {
+                tag: self.tag,
+                top: insets.top,
+                right: insets.right,
+                bottom: insets.bottom,
+                left: insets.left,
+            });
+        }
+        self.pending_insets = Some(insets);
     }
 
     /// The insets last reported, if this call reported any.
@@ -248,6 +377,13 @@ impl HostContext {
             self.pending_size.take(),
             std::mem::take(&mut self.pending_events),
         )
+    }
+
+    /// Whether anything was recorded that the store still has to deliver.
+    pub(crate) fn has_reports(&self) -> bool {
+        self.queue
+            .as_ref()
+            .is_some_and(|queue| !queue.borrow().is_empty())
     }
 
     /// The insets this call reported, if any. Taken separately from the size and
@@ -436,6 +572,21 @@ fn registry() -> &'static Mutex<HashMap<String, HostComponentRegistration>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Whether any host component was ever registered, as a relaxed load.
+///
+/// Frozen once it is true: packages register before the first surface. The
+/// per-node checks go through this first, so an app with no host components
+/// never takes the registry lock (design 2, section 7, rule 1).
+fn any_registered_flag() -> &'static std::sync::atomic::AtomicBool {
+    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLAG
+}
+
+/// Whether any host component was ever registered.
+pub fn any_host_components() -> bool {
+    any_registered_flag().load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Registers `T` for the Fabric component `name`, replacing any earlier
 /// registration and telling Fabric that the component exists.
 ///
@@ -456,6 +607,7 @@ pub fn register_host_component<T: HostComponent>(
         .lock()
         .expect("host component registry poisoned")
         .insert(name.clone(), registration);
+    any_registered_flag().store(true, std::sync::atomic::Ordering::Relaxed);
     rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
     let _ = cx;
 }
@@ -474,11 +626,18 @@ pub fn register_host_component_without_app<T: HostComponent>(
         .lock()
         .expect("host component registry poisoned")
         .insert(name.clone(), registration);
+    any_registered_flag().store(true, std::sync::atomic::Ordering::Relaxed);
     rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
 }
 
 /// The registration for `name`, if there is one.
+///
+/// The flag check first is rule 1: an app with no host components never takes
+/// the registry lock.
 pub fn host_component(name: &str) -> Option<HostComponentRegistration> {
+    if !any_host_components() {
+        return None;
+    }
     registry()
         .lock()
         .expect("host component registry poisoned")
@@ -539,21 +698,43 @@ pub fn is_container_host_component(name: &str) -> bool {
 }
 
 /// Runs `f` on a node's live host component, if it has one.
+///
+/// What `f` reports is queued on the store like any other report, and applied
+/// by the store as soon as this call returns rather than on the node's next
+/// render.
 pub fn with_host_component<R>(
     node: &Entity<crate::node_view::RNNodeView>,
     cx: &mut App,
     f: impl FnOnce(&mut Box<dyn HostComponentObject>, &mut HostContext) -> R,
 ) -> Option<R> {
-    node.update(cx, |node, _cx| node.with_host_component(f))
+    let result = node.update(cx, |node, _cx| node.with_host_component(f));
+    let reports = node.read(cx).host_reports();
+    if reports.borrow().is_empty() {
+        return result;
+    }
+    if let Some(store) = crate::store::store_from(cx) {
+        // Deferred, because `node` is leased for this call and delivering a
+        // size updates the node's own diagnostic copy. It still runs in this
+        // update, so nothing observes the delay.
+        cx.defer(move |cx| store.update(cx, |store, cx| store.flush_host_reports(cx)));
+    }
+    result
 }
 
-/// Sends a size to Fabric's shadow node, so Yoga uses it on the next commit.
+/// Pushes a reported size into the node's shadow-node state, so Yoga uses it on
+/// the next commit.
 ///
-/// The C++ side stores it in the node's state and the next mount batch carries
-/// it back as `has_intrinsic_size`; the store then records it on the node for
-/// the test driver and for diagnostics.
-pub fn report_intrinsic_size(tag: i32, width: f32, height: f32) -> bool {
-    rn_gpui_sys::ffi::setHostComponentIntrinsicSize(tag, width, height)
+/// Called by the store's delivery point, once per queued report. The mounting
+/// manager owns the state and drops a size it already holds, so a component
+/// that reports the same size every render costs nothing after the first.
+pub(crate) fn apply_size(tag: i32, width: f32, height: f32) {
+    rn_gpui_sys::ffi::reportHostComponentSize(tag, width, height);
+}
+
+/// Pushes reported insets into the node's shadow-node state, where the container
+/// descriptor applies them as Yoga padding around the children.
+pub(crate) fn apply_insets(tag: i32, top: f32, right: f32, bottom: f32, left: f32) {
+    rn_gpui_sys::ffi::reportHostComponentInsets(tag, top, right, bottom, left);
 }
 
 #[cfg(test)]
@@ -789,5 +970,65 @@ mod tests {
         assert!(found.1.container);
         assert!(!found.1.measured);
         assert!(!renders_native_surface("TestHostComponentCard"));
+    }
+
+    /// A context wired to a queue reports into it the moment it is called, not
+    /// when some node renders: that is the whole of design 2 section 5.7.
+    #[test]
+    fn a_queued_context_records_every_report_in_order() {
+        let shared = std::rc::Rc::new(RefCell::new(HostReports::default()));
+        let mut cx = HostContext::queued(7, shared.clone());
+        cx.set_intrinsic_size(40.0, 20.0);
+        cx.set_insets(1.0, 2.0, 3.0, 4.0);
+        cx.emit("onTap", json!({ "taps": 1 }));
+        let reports = shared.borrow().take();
+        assert_eq!(
+            reports,
+            vec![
+                HostReport::Size {
+                    tag: 7,
+                    width: 40.0,
+                    height: 20.0
+                },
+                HostReport::Insets {
+                    tag: 7,
+                    top: 1.0,
+                    right: 2.0,
+                    bottom: 3.0,
+                    left: 4.0
+                },
+                HostReport::Event {
+                    tag: 7,
+                    name: "onTap".to_string(),
+                    payload: json!({ "taps": 1 })
+                },
+            ],
+            "every report is kept, oldest first, so none overwrites another"
+        );
+    }
+
+    /// A plain context is what a unit test builds without a store; it still
+    /// records locally, so `take` and `take_insets` behave as before.
+    #[test]
+    fn a_plain_context_keeps_its_reports_on_the_context() {
+        let mut cx = HostContext::new(3);
+        cx.set_intrinsic_size(10.0, 20.0);
+        cx.set_insets(5.0, 6.0, 7.0, 8.0);
+        assert!(!cx.has_reports(), "there is no queue to deliver into");
+        assert_eq!(cx.take(), (Some((10.0, 20.0)), Vec::new()));
+        assert_eq!(cx.take_insets().map(|insets| insets.top), Some(5.0));
+    }
+
+    /// A frame in which several nodes report claims one delivery, not one each.
+    #[test]
+    fn a_report_queue_claims_a_single_frame_flush() {
+        let queue = std::rc::Rc::new(RefCell::new(HostReports::default()));
+        let mut first = HostContext::queued(1, queue.clone());
+        let mut second = HostContext::queued(2, queue.clone());
+        first.set_intrinsic_size(1.0, 1.0);
+        second.set_intrinsic_size(2.0, 2.0);
+        assert!(!queue.borrow().claim_flush(), "the first report schedules");
+        assert!(queue.borrow().claim_flush(), "the second joins it");
+        assert_eq!(queue.borrow().take().len(), 2, "and both are still queued");
     }
 }
