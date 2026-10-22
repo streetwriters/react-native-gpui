@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `a72b326` (`rn-gpui-linux`, 2026-10-22: `c380367` plus the control
-  hit-test fix below)
+- Commit: `40700ec` (`rn-gpui-linux`, 2026-10-22: `a72b326` plus the
+  removed-window fix below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -77,6 +77,21 @@ App` — a move performed from inside an `App` update (a JS `set_position`,
   alternative — not marking the drag region at all on Windows — would lose
   `HTCAPTION` and with it snap layouts, double-click maximise and the system
   move loop (`start_window_move()` is a no-op in `gpui_windows`).
+
+### Carried patch: every window callback ignores a removed window
+
+- `40700ec` `gpui: ignore a window removed before a platform callback arrives`
+
+  `ebf3ced` routed five platform callbacks through `ignore_if_window_removed`;
+  the rest (`on_resize`, `on_moved`, `on_visual_viewport_changed`,
+  `on_insets_changed`, `on_appearance_changed`, `on_button_layout_changed`, the
+  frame request and the input callbacks) still ended in `.log_err()`. A macOS
+  popup that was dismissed could receive a resize or move after it was removed,
+  and the e2e `opening and closing a popup repeatedly logs no errors` caught
+  `ERROR gpui::window] window not found` on CI. Every
+  `handle.update(...).log_err()` in `Window::new` now goes through the same
+  helper, so only the removed-window case is ignored and any other failure is
+  still logged.
 
 > **Cargo does not notice edits to a git checkout**, which matters only if you
 > edit one by hand without bumping the pin. It fingerprints the checkout by
