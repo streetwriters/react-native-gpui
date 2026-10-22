@@ -68,7 +68,6 @@ pub struct RNNodeView {
     pub(crate) native_surface_counted: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
-    #[cfg(target_os = "macos")]
     native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
     /// The host component rendering this node, when its op carried a registry
     /// index. Created on the main thread when the node is mounted, and the only

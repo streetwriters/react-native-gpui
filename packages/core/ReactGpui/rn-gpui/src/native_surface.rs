@@ -301,12 +301,15 @@ mod imp {
         _surface: &WindowCompositionSurface,
         view: NativeViewHandle,
     ) -> Result<()> {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CHILD,
+        use windows_sys::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CHILD},
         };
+        let hwnd = view.hwnd as HWND;
+        // SAFETY: the factory keeps the `HWND` alive for the surface's lifetime.
         unsafe {
-            let style = GetWindowLongW(view.hwnd, GWL_STYLE);
-            SetWindowLongW(view.hwnd, GWL_STYLE, style | WS_CHILD as i32);
+            let style = GetWindowLongW(hwnd, GWL_STYLE);
+            SetWindowLongW(hwnd, GWL_STYLE, style | WS_CHILD as i32);
         }
         Ok(())
     }
