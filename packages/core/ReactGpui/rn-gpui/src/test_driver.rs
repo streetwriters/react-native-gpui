@@ -434,23 +434,6 @@ async fn serve_commands(
                                     .unwrap_or_else(|| "no hit target".to_owned());
                                 json!({"error": format!("click target tag {tag} is covered by {cover}")})
                             } else {
-                                // A real click on a focusable element focuses it
-                                // before the press is delivered, and nothing in the
-                                // runtime does that. A test that clicks a control
-                                // and then presses a key therefore depends on some
-                                // other element happening to hold focus, which is
-                                // a fragile thing to rely on.
-                                if let Some(handle) = cx.read_entity(&store, |store, cx| {
-                                    store
-                                        .nodes
-                                        .get(&tag)
-                                        .and_then(|node| node.read(cx).nearest_focus_handle(cx))
-                                }) {
-                                    cx.update_window(window, move |_root, window, app| {
-                                        window.focus(&handle, app);
-                                    })
-                                    .ok();
-                                }
                                 let dispatched =
                                     cx.update_window(window, move |_root, window, app| {
                                         draw_frame(window, app);
