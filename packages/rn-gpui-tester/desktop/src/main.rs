@@ -34,7 +34,7 @@ impl react_native_gpui::native_view::NativeViewFactory for BlueNativeProbe {
             let _: () = msg_send![layer, setCornerRadius: 12.0];
             let _: () = msg_send![layer, setMasksToBounds: YES];
             let _ = context.native_props.get("label");
-            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view))
+            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view as *mut std::ffi::c_void))
         }
     }
 }
@@ -64,7 +64,7 @@ impl react_native_gpui::native_view::NativeViewFactory for TesterWebView {
             );
             let _: id = msg_send![view, loadHTMLString: html baseURL: nil];
             let _: () = msg_send![html, release];
-            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view))
+            Ok(react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(view as *mut std::ffi::c_void))
         }
     }
 }

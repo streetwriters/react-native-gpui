@@ -750,6 +750,18 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         Decoration::default()
     }
 
+    /// Whether this component's content is composited by the OS rather than
+    /// painted by GPUI (a native view, a GPU surface).
+    ///
+    /// A surface like that has its bounds set in `prepaint`, which a
+    /// scroll-only composite frame skips, so a `ScrollView` holding one has to
+    /// stay off the scroll-layer path. Core cannot see that from the element,
+    /// because the decision is made while a `ScrollView` renders and before the
+    /// node's content is built, so the component declares it here.
+    fn renders_native_surface(&self) -> bool {
+        false
+    }
+
     fn children(
         &self,
         _node: &ComponentNode,
@@ -906,6 +918,16 @@ pub(crate) fn exclusive_observers() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// The renderer registered for `component_name`, if any.
+/// Whether a component's content is composited by the OS rather than painted
+/// by GPUI.
+///
+/// Read while a mount batch is applied and while a `ScrollView` renders, before
+/// any of the component's content exists, so it is a declaration on the
+/// renderer rather than something observed from a rendered element.
+pub fn component_renders_native_surface(component_name: &str) -> bool {
+    component_renderer(component_name).is_some_and(|renderer| renderer.renders_native_surface())
+}
+
 pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
     component_renderers()
         .lock()

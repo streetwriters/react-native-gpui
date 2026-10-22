@@ -1,7 +1,6 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::{inherit, InheritInput, Inherited, RNNodeView};
-#[cfg(target_os = "macos")]
 use gpui::deferred;
 use gpui::{
     div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement,
@@ -34,6 +33,11 @@ pub struct ViewStore {
     pub(crate) accessibility_modal_tags: BTreeSet<i32>,
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
     pub primary_surface_id: i32,
+    /// The size each surface's root was laid out at, as the last mount batch
+    /// reported it. A `FitContent` surface reads this to size its leaf.
+    pub surface_content_sizes: HashMap<i32, (f32, f32)>,
+    /// Embedded surfaces that report their content size, by surface id.
+    surface_size_observers: HashMap<i32, crate::surface::SurfaceContentSize>,
     pub overlay_host: Entity<OverlayHost>,
     /// Interior mutability on purpose: pointer movement must not update the store
     /// entity, which nearly every node reads while rendering.
@@ -78,6 +82,8 @@ impl ViewStore {
             accessibility_modal_tags: BTreeSet::new(),
             roots: HashMap::new(),
             primary_surface_id: APP_SURFACE_ID,
+            surface_content_sizes: HashMap::new(),
+            surface_size_observers: HashMap::new(),
             overlay_host,
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
@@ -121,6 +127,27 @@ impl ViewStore {
 
     /// Fabric references the `RootView` as a parent that is never itself mounted,
     /// so the root view is created the first time a node is spliced into it.
+    /// Lets `observer` be told when `surface_id`'s root changes size.
+    pub fn observe_surface_content_size(
+        &mut self,
+        surface_id: i32,
+        observer: crate::surface::SurfaceContentSize,
+    ) {
+        if let Some(size) = self.surface_content_sizes.get(&surface_id) {
+            observer.set(*size);
+        }
+        self.surface_size_observers.insert(surface_id, observer);
+    }
+
+    /// The root entity for `surface_id`, making one if needed.
+    ///
+    /// A surface that GPUI placed (an embedded `ReactSurface`) asks for its root
+    /// before any mount batch arrives, so its tree has somewhere to mount from
+    /// the first frame.
+    pub fn ensure_root(&mut self, surface_id: i32, cx: &mut Context<Self>) -> Entity<SurfaceRootView> {
+        self.root_for(surface_id, cx)
+    }
+
     fn root_for(&mut self, surface_id: i32, cx: &mut Context<Self>) -> Entity<SurfaceRootView> {
         if let Some(root) = self.roots.get(&surface_id) {
             return root.clone();
@@ -227,6 +254,16 @@ impl ViewStore {
     /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
+        // The root's laid-out size, which a `FitContent` surface sizes itself
+        // from. Recorded before the ops are applied so a surface that mounts in
+        // this batch already sees it.
+        if batch.has_content_size {
+            let size = (batch.content_width, batch.content_height);
+            self.surface_content_sizes.insert(surface_id, size);
+            if let Some(observer) = self.surface_size_observers.get(&surface_id) {
+                observer.set(size);
+            }
+        }
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
         let store = cx.entity().downgrade();
         let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
@@ -911,9 +948,13 @@ mod test_app_context_tests {
                 ..Default::default()
             },
             extension_props_json: String::new(),
+            component_props_json: String::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             layout_changed: false,
+            has_intrinsic_size: false,
+            intrinsic_width: 0.0,
+            intrinsic_height: 0.0,
         }
     }
 
@@ -937,6 +978,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![op(MountKind::Create), op(MountKind::Insert)],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1016,6 +1058,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create, op(MountKind::Insert)],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1071,6 +1114,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create, insert],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1121,6 +1165,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![hidden],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1187,7 +1232,7 @@ mod test_app_context_tests {
             ops.push(insert);
         }
         cx.update_entity(&store, |store, cx| {
-            store.apply_batch(MountBatch { surface_id: 1, ops }, cx);
+            store.apply_batch(MountBatch { surface_id: 1, ops, ..Default::default() }, cx);
         });
 
         // Two hundred children, all in one view.
@@ -1357,6 +1402,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create_parent, insert_parent, create_child, insert_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1384,6 +1430,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![move_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1403,6 +1450,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![remove_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1425,6 +1473,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![delete_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1632,7 +1681,6 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(target_os = "macos")]
         let has_fabric_native_view = self
             .children
             .iter()
@@ -1651,28 +1699,21 @@ impl Render for SurfaceRootView {
             root = root.child(native_view_probe.clone());
         }
         if let Some(overlay_host) = &self.overlay_host {
-            #[cfg(target_os = "macos")]
-            {
-                let has_native_composition = has_fabric_native_view || {
-                    #[cfg(feature = "visual-capture")]
-                    {
-                        self.native_view_probe.is_some()
-                    }
-                    #[cfg(not(feature = "visual-capture"))]
-                    {
-                        false
-                    }
-                };
-                if has_native_composition {
-                    // GPUI's deferred pass targets the window composition overlay
-                    // surface, above native views.
-                    root = root.child(deferred(overlay_host.clone()).priority(100));
-                } else {
-                    root = root.child(overlay_host.clone());
+            let has_native_composition = has_fabric_native_view || {
+                #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+                {
+                    self.native_view_probe.is_some()
                 }
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
+                #[cfg(not(all(target_os = "macos", feature = "visual-capture")))]
+                {
+                    false
+                }
+            };
+            if has_native_composition {
+                // GPUI's deferred pass targets the window composition overlay
+                // surface, above native views.
+                root = root.child(deferred(overlay_host.clone()).priority(100));
+            } else {
                 root = root.child(overlay_host.clone());
             }
         }
@@ -1751,10 +1792,16 @@ impl Render for SurfaceRootView {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn node_tree_contains_native_view(node: &Entity<RNNodeView>, cx: &App) -> bool {
+/// Whether any node in this subtree renders a native surface.
+///
+/// A native surface is composited by the OS and its bounds are set in
+/// `prepaint`, which a scroll-only composite frame skips; a `ScrollView` that
+/// holds one must therefore stay off the scroll-layer path (see
+/// [`crate::scroll_layers`]). The check is not macOS-only any more: the
+/// surface type is cross-platform, so the scroll decision is too.
+pub(crate) fn node_tree_contains_native_view(node: &Entity<RNNodeView>, cx: &App) -> bool {
     let node = node.read(cx);
-    node.component == "NativeViewHost"
+    node.renders_native_surface()
         || node
             .children
             .iter()

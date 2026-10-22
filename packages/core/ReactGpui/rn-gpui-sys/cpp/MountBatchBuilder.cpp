@@ -1,4 +1,5 @@
 #include "MountBatchBuilder.h"
+#include "GpuiHostComponentsCpp.h"
 #include "GpuiModules.h"
 #include "GpuiTextMeasure.h"
 
@@ -314,6 +315,17 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
     if (registered != gpuiExtensionHooks().componentProps.end() &&
         shadowView.props) {
       op.extension_props_json = registered->second(componentName, shadowView);
+    }
+  }
+  // A host component's own props, untyped. Core knows none of its names, so
+  // this is the only path by which they reach the Rust side.
+  op.component_props_json = rngpui::hostComponentPropsJson(shadowView);
+  {
+    const auto reported = rngpui::reportedIntrinsicSize(op.tag);
+    if (reported.present) {
+      op.has_intrinsic_size = true;
+      op.intrinsic_width = reported.width;
+      op.intrinsic_height = reported.height;
     }
   }
   if (op.component == "NativeViewHost") {

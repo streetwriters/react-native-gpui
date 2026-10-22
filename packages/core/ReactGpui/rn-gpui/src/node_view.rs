@@ -59,7 +59,20 @@ pub struct RNNodeView {
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
     #[cfg(target_os = "macos")]
-    native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
+    native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
+    /// The host component rendering this node, when its component name has a
+    /// registration. Created on the main thread when the node is mounted.
+    host_component: Option<Box<dyn crate::host_component::HostComponentObject>>,
+    /// The props this node's host component was last given.
+    host_component_props: crate::host_component::Props,
+    /// The intrinsic size Fabric last reported for this node, from the host
+    /// component's measured size. Exposed to the test driver and to
+    /// diagnostics; Yoga has the authoritative copy, in the shadow node's
+    /// state.
+    intrinsic_size: Option<(f32, f32)>,
+    /// The padding this node's host component reported for its own chrome
+    /// (design 2, section 6.1). A container's React children are inset by it.
+    host_insets: crate::host_component::EdgeInsets,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
@@ -779,8 +792,24 @@ impl RNNodeView {
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
-            #[cfg(target_os = "macos")]
             native_view_host: None,
+            host_component: crate::host_component::host_component(&op.component).map(|_| {
+                // Created here rather than in the store so every path that
+                // makes a node — a batch, a test, a reload — gets one.
+                let mut host = crate::host_component::HostContext::new(op.tag);
+                let registration = crate::host_component::host_component(&op.component)
+                    .expect("checked above");
+                let props = crate::host_component::Props::from_json(&op.component_props_json);
+                let mut object = registration.create(props, &mut host);
+                let (size, _events) = host.take();
+                if let Some((width, height)) = size {
+                    crate::host_component::report_intrinsic_size(op.tag, width, height);
+                }
+                object
+            }),
+            host_component_props: crate::host_component::Props::from_json(&op.component_props_json),
+            intrinsic_size: op.has_intrinsic_size.then_some((op.intrinsic_width, op.intrinsic_height)),
+            host_insets: crate::host_component::EdgeInsets::ZERO,
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -867,10 +896,10 @@ impl RNNodeView {
         {
             self.native_view_name = op.native_view_name.clone();
             self.native_view_props = op.native_view_props.clone();
-            #[cfg(target_os = "macos")]
-            {
-                self.native_view_host = None;
-            }
+            self.native_view_host = None;
+        }
+        if op.has_intrinsic_size {
+            self.intrinsic_size = Some((op.intrinsic_width, op.intrinsic_height));
         }
         self.frame = if crate::extensions::component_portal(
             &op.component,
@@ -924,6 +953,20 @@ impl RNNodeView {
             self.scroll_handle_stale = true;
         }
         if op.props_changed {
+            if self.host_component.is_some() {
+                let props = crate::host_component::Props::from_json(&op.component_props_json);
+                if props != self.host_component_props {
+                    self.host_component_props = props.clone();
+                    let mut host = crate::host_component::HostContext::new(self.tag);
+                    if let Some(component) = self.host_component.as_mut() {
+                        component.update_object(props, &mut host);
+                    }
+                    let (size, _events) = host.take();
+                    if let Some((width, height)) = size {
+                        crate::host_component::report_intrinsic_size(self.tag, width, height);
+                    }
+                }
+            }
             self.extension_props_json = op.extension_props_json.clone();
             self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &self.extension_props_json,
@@ -2081,12 +2124,13 @@ impl Render for RNNodeView {
         if self.view.display_none || hidden_portal {
             return div().id(self.tag).size_0().into_any_element();
         }
-        #[cfg(target_os = "macos")]
         if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
             if self.native_view_host.is_none() {
-                match crate::native_view::NativeViewSurface::create(
-                    &self.native_view_name,
-                    &self.native_view_props,
+                match crate::native_surface::NativeSurface::create(
+                    crate::native_surface::NativeSurfaceContent::Factory {
+                        name: self.native_view_name.clone(),
+                        props: self.native_view_props.clone(),
+                    },
                     window,
                     cx,
                 ) {
@@ -3291,9 +3335,8 @@ impl Render for RNNodeView {
                 element = element.child(focus_child);
             }
         }
-        #[cfg(target_os = "macos")]
         if let Some(native_view_host) = &self.native_view_host {
-            element = element.child(crate::native_view::NativeViewSurfaceElement {
+            element = element.child(crate::native_surface::NativeSurfaceElement {
                 surface: native_view_host.clone(),
             });
         }
@@ -3351,10 +3394,23 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
+            // A native surface has its bounds set in `prepaint`, and a
+            // scroll-only composite frame skips the content's prepaint; the
+            // surface would stay where it was last painted while GPUI's content
+            // scrolled out from under it (see `crate::scroll_layers`, whose
+            // tests pin both halves). Such a container offsets its own content
+            // instead, which never reports `Overflow::Scroll` and so is never
+            // composited as a layer.
+            let strategy = crate::scroll_layers::scroll_strategy(
+                self.children
+                    .iter()
+                    .any(|(_, child)| crate::store::node_tree_contains_native_view(child, cx)),
+            );
             if scroll.enabled {
-                // GPUI scrolls this container itself, which lets gpui-fast composite the
-                // content as a scroll layer. This listener runs before GPUI's, so it defers
-                // and reports where the offset ended up.
+                // This listener runs before GPUI's, so it defers and reports
+                // where the offset ended up. It runs for both strategies: it is
+                // what tells JS the view scrolled and what syncs Fabric's copy
+                // of the offset.
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
                     position: self.scroll_position.clone(),
@@ -3375,16 +3431,80 @@ impl Render for RNNodeView {
             // node's own element: whatever sits inside a scrolling container
             // moves with its content, and the indicator must not.
             let mut scroller = div().id("scroller").absolute().top_0().left_0().size_full();
-            scroller = if !scroll.enabled {
-                scroller.overflow_hidden()
-            } else if scroll.horizontal {
-                scroller.overflow_x_scroll().overflow_y_hidden()
-            } else {
-                scroller.overflow_y_scroll().overflow_x_hidden()
-            };
-            element = element
-                .overflow_hidden()
-                .child(scroller.track_scroll(&self.scroll_handle).child(content));
+            match strategy {
+                crate::scroll_layers::ScrollStrategy::GpuiLayer => {
+                    scroller = if !scroll.enabled {
+                        scroller.overflow_hidden()
+                    } else if scroll.horizontal {
+                        scroller.overflow_x_scroll().overflow_y_hidden()
+                    } else {
+                        scroller.overflow_y_scroll().overflow_x_hidden()
+                    };
+                    element = element
+                        .overflow_hidden()
+                        .child(scroller.track_scroll(&self.scroll_handle).child(content));
+                }
+                crate::scroll_layers::ScrollStrategy::ManualOffset => {
+                    // Move the content inside a clipped box. `manual_offset`
+                    // is read while the node renders, so every frame either
+                    // path takes prepaints the content and re-sets a native
+                    // surface's bounds.
+                    let (offset_x, offset_y) = (self.scroll_offset().x, self.scroll_offset().y);
+                    let moved = div()
+                        .relative()
+                        .flex_none()
+                        .left(px(-offset_x * scale_x))
+                        .top(px(-offset_y * scale_y))
+                        .w(px(scroll.content_size.0.max(frame.w)))
+                        .h(px(scroll.content_size.1.max(frame.h)))
+                        .children(ordered_children.iter().map(|(_, child)| child.clone()));
+                    // No element scrolls here, so the node handles the wheel
+                    // itself: it moves its own offset by the same deltas GPUI
+                    // would have applied, and then lets `Scroller::sync` report
+                    // it, so JS sees exactly the events the layer path sends.
+                    if scroll.enabled {
+                        let horizontal = scroll.horizontal;
+                        let max = (
+                            (scroll.content_size.0 - frame.w).max(0.0),
+                            (scroll.content_size.1 - frame.h).max(0.0),
+                        );
+                        let position = self.scroll_position.clone();
+                        let handle = self.scroll_handle.clone();
+                        let scale = (scale_x, scale_y);
+                        let view = cx.entity();
+                        scroller = scroller.on_scroll_wheel(
+                            move |event: &gpui::ScrollWheelEvent, _window, _cx| {
+                                let mut delta = event.delta.pixel_delta(px(20.));
+                                let (dx, dy) = if horizontal {
+                                    (f32::from(delta.x) + f32::from(delta.y), 0.0)
+                                } else {
+                                    (0.0, f32::from(delta.y) + f32::from(delta.x))
+                                };
+                                let current = position.get();
+                                let next = point(
+                                    (current.x - dx / scale.0.max(f32::EPSILON))
+                                        .clamp(0.0, max.0),
+                                    (current.y - dy / scale.1.max(f32::EPSILON))
+                                        .clamp(0.0, max.1),
+                                );
+                                if (next.x - current.x).abs() < 0.01
+                                    && (next.y - current.y).abs() < 0.01
+                                {
+                                    return;
+                                }
+                                position.set(next);
+                                handle.set_offset(point(
+                                    px(-next.x * scale.0),
+                                    px(-next.y * scale.1),
+                                ));
+                                let _ = view.update(_cx, |_, cx| cx.notify());
+                            },
+                        );
+                    }
+                    scroller = scroller.overflow_hidden().child(moved);
+                    element = element.overflow_hidden().child(scroller);
+                }
+            }
             if scroll.indicator && scroll.enabled {
                 let horizontal = scroll.horizontal;
                 if self
@@ -3401,6 +3521,56 @@ impl Render for RNNodeView {
             } else {
                 self.scroll_indicator = None;
             }
+        } else if self.host_component.is_some() {
+            // A registered host component owns this node's content. It renders
+            // inside the node's own box — which already carries the style, the
+            // radius, the hit testing and the accessibility node — so a
+            // component only has to draw its content, not position the node.
+            let children: Vec<AnyElement> = ordered_children
+                .iter()
+                .map(|(_, child)| child.clone().into_any_element())
+                .collect();
+            let mut host = crate::host_component::HostContext::new(self.tag);
+            let rendered = if let Some(component) = self.host_component.as_mut() {
+                Some(component.render_object(
+                    crate::host_component::Children::new(children),
+                    window,
+                    &mut host,
+                ))
+            } else {
+                None
+            };
+            let (size, events) = host.take();
+            if let Some(insets) = host.take_insets() {
+                self.host_insets = insets;
+            }
+            if let Some((width, height)) = size {
+                crate::host_component::report_intrinsic_size(self.tag, width, height);
+            }
+            if !events.is_empty() {
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    let host = store.0.read(cx).host.clone();
+                    for (name, payload) in events {
+                        host.dispatch_event(self.tag, &name, &payload);
+                    }
+                }
+            }
+            // A container's chrome is drawn inside the node's own box, so its
+            // React children are inset by what the component reported.
+            let insets = self.host_insets;
+            element = if insets == crate::host_component::EdgeInsets::ZERO {
+                element.children(rendered)
+            } else {
+                element.child(
+                    div()
+                        .size_full()
+                        .pt(px(insets.top * scale_y))
+                        .pb(px(insets.bottom * scale_y))
+                        .pl(px(insets.left * scale_x))
+                        .pr(px(insets.right * scale_x))
+                        .children(rendered),
+                )
+            };
         } else {
             let content =
                 crate::extensions::component_renderer(&self.component).and_then(|renderer| {
@@ -3711,8 +3881,82 @@ mod border_segment_tests {
 const SCROLL_STATE_SYNC_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 impl RNNodeView {
+    /// The intrinsic size Fabric last reported, if the component measures.
+    pub fn intrinsic_size(&self) -> Option<(f32, f32)> {
+        self.intrinsic_size
+    }
+
     pub fn scroll_offset(&self) -> Point<f32> {
         self.scroll_position.get()
+    }
+
+    /// Runs a Fabric command on this node's host component.
+    ///
+    /// The component's own events are dispatched through the store, which the
+    /// caller may be holding for the command, so they are queued on the store's
+    /// handle rather than emitted mid-call and applied as it returns.
+    pub(crate) fn dispatch_host_component_command(
+        &mut self,
+        name: String,
+        args: Vec<serde_json::Value>,
+        cx: &mut gpui::App,
+    ) {
+        let Some(component) = self.host_component.as_mut() else {
+            log::debug!("[host-component] command '{name}' for tag {} with no component", self.tag);
+            return;
+        };
+        let tag = self.tag;
+        let handle = crate::store::store_from(cx)
+            .map(|store| crate::extensions::StoreHandle::new(store.downgrade()));
+        let mut host = match handle {
+            Some(handle) => crate::host_component::HostContext::with_handle(tag, handle),
+            None => crate::host_component::HostContext::new(tag),
+        };
+        component.command_object(&name, args, &mut host);
+        let (size, events) = host.take();
+        if let Some((width, height)) = size {
+            crate::host_component::report_intrinsic_size(tag, width, height);
+        }
+        if let Some(store) = crate::store::store_from(cx) {
+            let host = store.read(cx).host.clone();
+            for (name, payload) in events {
+                host.dispatch_event(tag, &name, &payload);
+            }
+        }
+    }
+
+    /// Runs `f` on this node's host component, if it has one.
+    pub(crate) fn with_host_component<R>(
+        &mut self,
+        f: impl FnOnce(
+            &mut Box<dyn crate::host_component::HostComponentObject>,
+            &mut crate::host_component::HostContext,
+        ) -> R,
+    ) -> Option<R> {
+        let mut cx = crate::host_component::HostContext::new(self.tag);
+        let result = self
+            .host_component
+            .as_mut()
+            .map(|component| f(component, &mut cx));
+        if let Some((width, height)) = cx.take().0 {
+            crate::host_component::report_intrinsic_size(self.tag, width, height);
+        }
+        result
+    }
+
+    /// Whether this node renders content the OS composites rather than GPUI.
+    ///
+    /// `NativeViewHost` is one such node. A host component that returns a
+    /// native surface is another, and says so through its renderer; until a
+    /// host component has rendered once the answer is the component's
+    /// declaration, which is why the renderer is consulted by name rather than
+    /// by stored state.
+    pub(crate) fn renders_native_surface(&self) -> bool {
+        if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
+            return true;
+        }
+        crate::host_component::renders_native_surface(&self.component)
+            || crate::extensions::component_renders_native_surface(&self.component)
     }
 
     pub(crate) fn extension_props_json(&self) -> &str {

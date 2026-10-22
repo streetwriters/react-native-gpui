@@ -508,6 +508,12 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
+    /// A command Fabric sent to a component that has a host component.
+    ComponentCommand {
+        tag: i32,
+        name: String,
+        args_json: String,
+    },
     DevMenuShow,
     DevSetting {
         name: String,
@@ -534,6 +540,7 @@ pub(crate) enum MainEvent {
 
 pub type WindowOptionsHook = Box<dyn FnOnce(&mut WindowOptions) + 'static>;
 pub type AppReadyHook = Box<dyn FnOnce(&mut App) + 'static>;
+
 pub type WindowOpenedHook = Box<dyn FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -606,6 +613,7 @@ pub struct DesktopAppConfig {
     pub menu_bar: bool,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
+
     pub on_window_opened: Option<WindowOpenedHook>,
 }
 
@@ -859,6 +867,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_COMMAND_HANDLER.set(Box::new(move |tag, focus| {
         let _ = text_input_command_tx.send_blocking(MainEvent::TextInputCommand { tag, focus });
     }));
+    let component_command_tx = tx.clone();
+    let _ = rn_gpui_sys::COMPONENT_COMMAND_HANDLER.set(Box::new(
+        move |tag, name, args_json| {
+            let _ = component_command_tx.send_blocking(MainEvent::ComponentCommand {
+                tag,
+                name,
+                args_json,
+            });
+        },
+    ));
     let accessibility_focus_tx = tx.clone();
     let _ = rn_gpui_sys::ACCESSIBILITY_FOCUS_HANDLER.set(Box::new(move |tag| {
         let _ = accessibility_focus_tx.send_blocking(MainEvent::AccessibilityFocus(tag));
@@ -1133,7 +1151,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 window_options,
                 {
                     let root = root.clone();
-                    move |_window, _cx| root.clone()
+                    move |_window, _cx| root
                 },
             )
             .expect("failed to open the GPUI window");
@@ -2015,6 +2033,34 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
                                     node.focus_for_accessibility(window, cx);
+                                });
+                            });
+                        }
+                    }
+                    MainEvent::ComponentCommand {
+                        tag,
+                        name,
+                        args_json,
+                    } => {
+                        let args: Vec<serde_json::Value> = serde_json::from_str(&args_json)
+                            .unwrap_or(serde_json::Value::Array(Vec::new()))
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        if let Some((window_handle, node)) = target {
+                            // The component runs with the store leased for a
+                            // command, so anything it emits is applied after the
+                            // call through the context it was given.
+                            let _ = cx.update_window(window_handle, move |_root, _window, cx| {
+                                node.update(cx, |node, cx| {
+                                    node.dispatch_host_component_command(name, args, cx);
                                 });
                             });
                         }

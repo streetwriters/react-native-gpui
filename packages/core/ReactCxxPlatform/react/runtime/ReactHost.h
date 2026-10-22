@@ -26,6 +26,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <optional>
 #include <unordered_set>
 
 namespace facebook::react {
@@ -99,6 +100,12 @@ class ReactHost {
   std::unordered_set<SurfaceId> getRunningSurfaces() const noexcept;
 
   void runOnScheduler(std::function<void(Scheduler &scheduler)> &&task) const;
+
+  // react-native-gpui: the size a surface's root was laid out at, for an
+  // embedded surface started with constraints rather than an exact size (design
+  // 2, `FitContent`). Nothing when the surface is not running or has not been
+  // laid out yet. Called on the scheduler thread from `executeMount`.
+  std::optional<Size> surfaceContentSize(SurfaceId surfaceId) const;
 
   void runOnRuntimeScheduler(
       std::function<void(jsi::Runtime &runtime)> &&task,

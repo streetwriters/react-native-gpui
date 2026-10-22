@@ -6,6 +6,7 @@
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
 #include "GpuiHost.h" // KAllSurfacesStopped
+#include "GpuiHostComponentsCpp.h"
 #include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
@@ -149,6 +150,19 @@ void GpuiMountingManager::executeMount(
     MountingTransaction&& transaction) {
   MountBatch batch;
   batch.surface_id = surfaceId;
+  // The root's size is what a `FitContent` surface reports back to GPUI, and
+  // the root shadow node is the only place it is known. A surface started with
+  // an exact size reports that size, so a caller that does not care never sees
+  // anything but its own request.
+  if (contentSize_) {
+    if (auto size = contentSize_(surfaceId)) {
+      if (size->width > 0.f || size->height > 0.f) {
+        batch.content_width = size->width;
+        batch.content_height = size->height;
+        batch.has_content_size = true;
+      }
+    }
+  }
   {
     std::lock_guard<std::mutex> lock(emittersMutex_);
     for (const auto& mutation : transaction.getMutations()) {
@@ -428,8 +442,15 @@ void GpuiMountingManager::dispatchCommand(
     } else if (name == "clear") {
       rn_gpui_on_text_input_clear(view.tag);
     }
+    return;
   }
-  (void)args;
+  // A component core does not know: forward the command to its host component,
+  // which sees the name and the arguments. Everything else has no command
+  // handler, and Fabric already warned for an unknown name.
+  if (isHostComponentName(std::string(view.componentName))) {
+    rn_gpui_on_component_command(
+        view.tag, name, folly::toJson(args.isArray() ? args : folly::dynamic::array(args)));
+  }
 }
 
 void GpuiMountingManager::setSchedulerTaskExecutor(
@@ -484,6 +505,11 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                    << " is not implemented on gpui";
       });
       rn_gpui_register_app_components(*result);
+      // A host component is registered by name at run time, so its descriptor
+      // has to be added after the app's own components and before the registry
+      // is built. This is what lets a package ship a Fabric component without
+      // generating any C++ for it.
+      registerHostComponentDescriptors(*result);
       return result;
     }();
     return registry->createComponentDescriptorRegistry(

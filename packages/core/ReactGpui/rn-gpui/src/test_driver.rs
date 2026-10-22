@@ -1732,6 +1732,9 @@ fn tree_node(
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
+        // The size a measured host component reported, so an e2e test can see
+        // that Yoga used it without having to infer it from the frame.
+        "intrinsicSize": node.intrinsic_size().map(|(width, height)| json!([width, height])).unwrap_or(Value::Null),
         "children": children})
 }
 

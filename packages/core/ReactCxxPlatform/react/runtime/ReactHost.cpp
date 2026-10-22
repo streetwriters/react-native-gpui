@@ -515,6 +515,24 @@ std::unordered_set<SurfaceId> ReactHost::getRunningSurfaces() const noexcept {
   return surfaceManager_->getRunningSurfaces();
 }
 
+std::optional<Size> ReactHost::surfaceContentSize(
+    SurfaceId surfaceId) const {
+  if (surfaceManager_ == nullptr) {
+    return std::nullopt;
+  }
+  const auto coordinator =
+      surfaceManager_->findMountingCoordinator(surfaceId);
+  if (coordinator == nullptr) {
+    return std::nullopt;
+  }
+  const auto root = coordinator->getBaseRevision().rootShadowNode;
+  if (root == nullptr) {
+    return std::nullopt;
+  }
+  const auto& frame = root->getLayoutMetrics().frame;
+  return Size{frame.size.width, frame.size.height};
+}
+
 void ReactHost::runOnScheduler(
     std::function<void(Scheduler& scheduler)>&& task) const {
   if (!isReloadingReactInstance_) {

@@ -6,6 +6,7 @@
 #include <react/renderer/components/modal/ModalHostViewState.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
+#include <react/renderer/graphics/Size.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 #include "GpuiImageLoader.h"
 #include "GpuiModules.h"
@@ -14,6 +15,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <mutex>
 #include <unordered_map>
 
@@ -44,8 +46,15 @@ class GpuiImageLoader final : public IImageLoader {
 
 class GpuiMountingManager : public IMountingManager {
  public:
-  explicit GpuiMountingManager(std::function<void(SurfaceId)>&& onAfterMount)
-      : onAfterMount_(std::move(onAfterMount)) {}
+  /// `contentSize` returns the size a surface's root was laid out at, or
+  /// nothing when the surface is not running. It is asked once per mount batch,
+  /// which is what a `FitContent` surface reports back to GPUI.
+  explicit GpuiMountingManager(
+      std::function<void(SurfaceId)>&& onAfterMount,
+      std::function<std::optional<facebook::react::Size>(SurfaceId)>&&
+          contentSize = nullptr)
+      : onAfterMount_(std::move(onAfterMount)),
+        contentSize_(std::move(contentSize)) {}
 
   void executeMount(SurfaceId surfaceId, MountingTransaction&& tx) override;
   void synchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props)
@@ -80,6 +89,7 @@ class GpuiMountingManager : public IMountingManager {
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
+  std::function<std::optional<facebook::react::Size>(SurfaceId)> contentSize_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();
   std::mutex emittersMutex_;

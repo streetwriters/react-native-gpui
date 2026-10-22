@@ -152,15 +152,46 @@ pub mod ffi {
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
+        /// The node's own props as a JSON object, for a component core does not
+        /// know: the generic payload a registered host component receives.
+        ///
+        /// Filled from Fabric's `RawProps::toDynamic` during the commit.
+        /// `Props::rawProps` would be cheaper, but it only exists when
+        /// `RN_SERIALIZABLE_STATE` is defined, and that is Android-only in this
+        /// React Native (see `cmake-utils/react-native-flags.cmake`).
+        pub component_props_json: String,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub layout_changed: bool,
+        /// The component measured a size of its own during this commit and
+        /// wrote it into its shadow node's state; the value is here so the
+        /// runtime can store it without another round trip to Fabric.
+        pub has_intrinsic_size: bool,
+        pub intrinsic_width: f32,
+        pub intrinsic_height: f32,
     }
 
-    #[derive(Clone, Debug)]
+    // `Default` so a caller with nothing to say about content size — every test,
+    // and every caller that only mounts — states `surface_id` and `ops` and lets
+    // the rest be zero. Without it, adding a field to this struct breaks every
+    // initialiser in the tree.
+    #[derive(Clone, Debug, Default)]
     pub struct MountBatch {
         pub surface_id: i32,
         pub ops: Vec<MountOp>,
+        /// The size Fabric laid this surface's root out at, in DIPs.
+        ///
+        /// An embedded `FitContent` surface is started with constraints rather
+        /// than an exact size, so this is the only way the GPUI side learns how
+        /// big the React tree wants to be. It is reported with every batch,
+        /// because the root can be resized by a commit that changes nothing
+        /// else.
+        pub content_width: f32,
+        pub content_height: f32,
+        /// Whether the surface's root was laid out at all in this commit. A
+        /// batch from a surface whose root has not been measured yet reports
+        /// zeros, which must not be mistaken for an empty tree.
+        pub has_content_size: bool,
     }
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -219,6 +250,9 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
+        /// A command Fabric dispatched to a component core does not know. The
+        /// runtime routes it to the node's host component.
+        fn rn_gpui_on_component_command(tag: i32, name: &str, args_json: &str);
         fn rn_gpui_set_animated_active(active: bool);
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
@@ -276,6 +310,22 @@ pub mod ffi {
         );
         /// Drops the module instance, which stops its thread.
         fn rn_gpui_rust_module_drop(handle: u64);
+    }
+
+    unsafe extern "C++" {
+        include!("GpuiHostComponent.h");
+
+        /// Registers a Fabric component with that name. A measured component
+        /// gets a Yoga measure function that reads its shadow node's state.
+        fn registerHostComponent(name: &str, measured: bool);
+        /// Whether a name was registered as a host component.
+        fn isHostComponent(name: &str) -> bool;
+        /// Whether a name was registered as a measured host component.
+        fn isMeasuredHostComponent(name: &str) -> bool;
+        /// Records a size a host component measured, so the next commit's
+        /// `MountOp` carries it (`has_intrinsic_size` / `intrinsic_*`) and the
+        /// Rust store can store it without asking Fabric again.
+        fn setHostComponentIntrinsicSize(tag: i32, width: f32, height: f32) -> bool;
     }
 
     unsafe extern "C++" {
@@ -400,6 +450,30 @@ pub mod ffi {
             height: f32,
             scale: f32,
         );
+        /// Starts a surface whose size is a range rather than a point. Fabric
+        /// lays the root out against the constraints and reports the size it
+        /// used in every mount batch.
+        fn start_surface_with_constraints(
+            self: Pin<&mut GpuiHost>,
+            surface_id: i32,
+            module_name: &str,
+            props_json: &str,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+            scale: f32,
+        );
+        /// Changes a running surface's constraints.
+        fn set_surface_constraints(
+            self: Pin<&mut GpuiHost>,
+            surface_id: i32,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+            scale: f32,
+        );
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
@@ -456,6 +530,9 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+/// One command for one tag: the component name and its arguments as a JSON
+/// array. Called on the JS/Fabric thread.
+pub type ComponentCommandHandler = Box<dyn Fn(i32, String, String) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
@@ -464,6 +541,7 @@ pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::ne
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static COMPONENT_COMMAND_HANDLER: OnceLock<ComponentCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
 pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
@@ -595,6 +673,12 @@ fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
 fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
+    }
+}
+
+fn rn_gpui_on_component_command(tag: i32, name: &str, args_json: &str) {
+    if let Some(handler) = COMPONENT_COMMAND_HANDLER.get() {
+        handler(tag, name.to_string(), args_json.to_string());
     }
 }
 

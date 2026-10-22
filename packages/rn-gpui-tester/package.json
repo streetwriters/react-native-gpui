@@ -17,6 +17,7 @@
     "@react-native-gpui/core": "file:../core",
     "@react-native-gpui/cpp-module-fixture": "file:./gpui-cpp-native-module",
     "@react-native-gpui/fixture-component-module": "file:./fixture-component-module",
+    "@react-native-gpui/host-components-fixture": "file:./host-components-module",
     "@react-native-gpui/fonts": "file:../../modules/fonts",
     "@react-native-gpui/fs": "file:../../modules/fs",
     "@react-native-gpui/gesture-handler": "file:../../modules/gesture-handler",

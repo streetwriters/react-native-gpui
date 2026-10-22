@@ -571,7 +571,68 @@ function componentConfigFor(dependencyName, gpui) {
       `${dependencyName}: platforms.desktop.componentSourcePackage must be a package name`,
     );
   }
-  return { descriptors, headers, sources, includeDirs, sourcePackage };
+  return {
+    descriptors,
+    headers,
+    sources,
+    includeDirs,
+    sourcePackage,
+    hostComponents: hostComponentsFor(dependencyName, gpui),
+  };
+}
+
+/**
+ * The host components a package registers, from
+ * `platforms.desktop.hostComponents`.
+ *
+ * A host component is a Rust type registered by Fabric component name; it needs
+ * no generated C++ at all. What the platform needs is the *list*, so that
+ * autolink can emit the bootstrap that registers each one, and whether each
+ * measures itself (design 2, section 5.3).
+ */
+function hostComponentsFor(dependencyName, gpui) {
+  const hostComponents = gpui.hostComponents ?? [];
+  if (!Array.isArray(hostComponents)) {
+    throw new Error(
+      `${dependencyName}: platforms.desktop.hostComponents must be an array`,
+    );
+  }
+  return hostComponents.map(entry => {
+    if (
+      entry === null ||
+      typeof entry !== 'object' ||
+      typeof entry.name !== 'string' ||
+      !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(entry.name)
+    ) {
+      throw new Error(
+        `${dependencyName}: each platforms.desktop.hostComponents entry needs a "name" that is a component identifier`,
+      );
+    }
+    if (entry.measured !== undefined && typeof entry.measured !== 'boolean') {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "measured"`,
+      );
+    }
+    if (
+      entry.nativeSurface !== undefined &&
+      typeof entry.nativeSurface !== 'boolean'
+    ) {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "nativeSurface"`,
+      );
+    }
+    if (entry.container !== undefined && typeof entry.container !== 'boolean') {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "container"`,
+      );
+    }
+    return {
+      name: entry.name,
+      measured: entry.measured === true,
+      nativeSurface: entry.nativeSurface === true,
+      container: entry.container === true,
+    };
+  });
 }
 
 function generateComponentCodegen({
@@ -869,6 +930,8 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const appComponentSources = [];
   const appComponentIncludeDirs = [];
   const componentNames = new Map();
+  const hostComponentNames = new Map();
+  const hostComponents = [];
   const jsEngines = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
   const generatedLibraries = new Map();
@@ -906,6 +969,19 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
     appComponentDescriptors.push(...componentConfig.descriptors);
     appComponentHeaders.push(...componentConfig.headers);
+    for (const hostComponent of componentConfig.hostComponents) {
+      const previousDependency = hostComponentNames.get(hostComponent.name);
+      if (previousDependency) {
+        throw new Error(
+          `${dependencyName}: host component ${hostComponent.name} is already declared by ${previousDependency}`,
+        );
+      }
+      hostComponentNames.set(hostComponent.name, dependencyName);
+      hostComponents.push({
+        ...hostComponent,
+        dependencyName,
+      });
+    }
     const generatedCodegen = generateComponentCodegen({
       appRequire,
       packageJson,
@@ -914,9 +990,18 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       gpui,
       generatedRoot: codegenRoot,
     });
+    // A host component declares no descriptor of its own: core owns the props
+    // class, the shadow node and the descriptor, and the package supplies only
+    // the name. Such a package still has `*NativeComponent.ts` specs, because JS
+    // needs the view config, so codegen produces sources with no descriptor list.
+    // The check therefore only applies to packages that render through their own
+    // Fabric components.
+    const declaresHostComponents = Array.isArray(gpui.hostComponents)
+      && gpui.hostComponents.length > 0;
     if (
       generatedCodegen.sources.length > 0 &&
-      componentConfig.descriptors.length === 0
+      componentConfig.descriptors.length === 0 &&
+      !declaresHostComponents
     ) {
       throw new Error(
         `${dependencyName}: GPUI component Codegen is enabled, but platforms.desktop.componentDescriptors is empty`,
@@ -1087,6 +1172,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     cppTurboModules,
     cmakeProjects,
     appComponentDescriptors,
+    hostComponents,
     appComponentHeaders: [...new Set(appComponentHeaders)],
     appComponentSources: [...new Set(appComponentSources)],
     appComponentIncludeDirs: [...new Set(appComponentIncludeDirs)],
@@ -1110,7 +1196,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     .join('\n');
   writeIfChanged(
     path.join(autolinkCrate, 'Cargo.toml'),
-    `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ''}`,
+    `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nreact-native-gpui = { path = ${escapeToml(
+      path.relative(autolinkCrate, runtimeCrate).split(path.sep).join('/'),
+    )} }\n${generatedDeps}`,
   );
   const ensureLinked = rustCrates.map(
     ({ alias }) => `    ${alias}::rn_gpui_register();`,
@@ -1121,11 +1209,45 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     '        rn_gpui_initialize_app_turbo_modules();',
     '    }',
     ...ensureLinked,
+    '    ensure_host_components();',
+    '}',
+  ].join('\n');
+  // A package declares its host components in `platforms.desktop.hostComponents`
+  // and registers them from its own `rn_gpui_register()`. Autolink's job is to
+  // check that the two agree: a declaration with no registration is a package
+  // whose component would silently render as an empty view, and a registration
+  // with no declaration is a component Fabric would not lay out.
+  const hostComponentChecks = hostComponents
+    .map(
+      ({ name, measured, container }) =>
+        `    expect_host_component(${JSON.stringify(name)}, ${measured ? 'true' : 'false'}, ${container ? 'true' : 'false'});`,
+    )
+    .join('\n');
+  const generatedEnsureHostComponents = [
+    'fn expect_host_component(name: &str, measured: bool, container: bool) {',
+    '    assert!(',
+    '        react_native_gpui::host_component::is_host_component(name),',
+    '        "{name}: declared under platforms.desktop.hostComponents but no rn_gpui_register() registered it; call register_host_component from the crate that owns the component.",',
+    '    );',
+    '    assert_eq!(',
+    '        react_native_gpui::host_component::is_measured_host_component(name),',
+    '        measured,',
+    '        "{name}: hostComponents.measured does not match the registration",',
+    '    );',
+    '    assert_eq!(',
+    '        react_native_gpui::host_component::is_container_host_component(name),',
+    '        container,',
+    '        "{name}: hostComponents.container does not match the registration",',
+    '    );',
+    '}',
+    '',
+    'pub fn ensure_host_components() {',
+    hostComponentChecks || '    // No package declares a host component.',
     '}',
   ].join('\n');
   writeIfChanged(
     path.join(autolinkCrate, 'src/lib.rs'),
-    `// Generated by @react-native-gpui/cli autolink; do not edit.\nextern "C" {\n    fn rn_gpui_initialize_app_turbo_modules();\n}\n${generatedEnsureLinked}\n`,
+    `// Generated by @react-native-gpui/cli autolink; do not edit.\nextern "C" {\n    fn rn_gpui_initialize_app_turbo_modules();\n}\n${generatedEnsureLinked}\n\n${generatedEnsureHostComponents}\n`,
   );
 
   const appCargoManifest = path.join(desktopRoot, 'Cargo.toml');
