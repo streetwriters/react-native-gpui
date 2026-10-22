@@ -516,15 +516,15 @@ std::unordered_set<SurfaceId> ReactHost::getRunningSurfaces() const noexcept {
 
 std::optional<Size> ReactHost::surfaceContentSize(
     SurfaceId surfaceId) const {
-  if (surfaceManager_ == nullptr) {
+  if (isReloadingReactInstance_ || scheduler_ == nullptr) {
     return std::nullopt;
   }
-  const auto coordinator =
-      surfaceManager_->findMountingCoordinator(surfaceId);
-  if (coordinator == nullptr) {
+  const auto uiManager = scheduler_->getUIManager();
+  if (uiManager == nullptr) {
     return std::nullopt;
   }
-  const auto root = coordinator->getBaseRevision().rootShadowNode;
+  const auto root =
+      uiManager->getShadowTreeRevisionProvider()->getCurrentRevision(surfaceId);
   if (root == nullptr) {
     return std::nullopt;
   }
