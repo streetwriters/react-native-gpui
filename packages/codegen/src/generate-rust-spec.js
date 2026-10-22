@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 /// `@react-native/codegen` belongs to the app, not to this package, so it is
 /// resolved from the spec being generated and then from here.
-function loadTypeScriptParser(hints) {
+export function loadTypeScriptParser(hints) {
   const failures = [];
   for (const hint of hints) {
     try {
@@ -481,6 +481,40 @@ class SpecGenerator {
   }
 }
 
+/// Parses the component specs in `specPaths` into the same generators the Rust
+/// half renders from, so the C++ half is derived from one model of each prop and
+/// the two cannot disagree about a shape.
+export function parseComponents({ specPaths }) {
+  const TypeScriptParser = loadTypeScriptParser([
+    ...specPaths.map(specPath => path.resolve(specPath)),
+    path.join(process.cwd(), 'package.json'),
+    import.meta.url,
+  ]);
+  const parser = new TypeScriptParser();
+  const found = [];
+  for (const specPath of specPaths) {
+    const schema = parser.parseFile(specPath);
+    for (const [hasteModuleName, module] of Object.entries(
+      schema.modules ?? {},
+    )) {
+      if (module.type !== 'Component') continue;
+      for (const [componentName, component] of Object.entries(
+        module.components ?? {},
+      )) {
+        const generator = new ComponentGenerator({
+          specPath,
+          hasteModuleName,
+          componentName,
+          component,
+        });
+        generator.collect();
+        found.push(generator);
+      }
+    }
+  }
+  return found;
+}
+
 export function generateRustSpec({ specPaths }) {
   const TypeScriptParser = loadTypeScriptParser([
     ...specPaths.map(specPath => path.resolve(specPath)),
@@ -922,42 +956,48 @@ function renderEnum(enumType) {
 const COMPONENT_IMPORTS = `#[allow(unused_imports)]
 use gpui::{AnyElement, Window};
 #[allow(unused_imports)]
-use react_native_gpui::host_component::HostContext;
+use react_native_gpui::host_component::{
+    EmitterHandle, HostArg, HostComponentSpec, HostContext, HostObject, PropsHandle, Value,
+};
 `;
 
 /// The C ABI between the generated Rust and the generated C++ file, emitted
 /// once per generated file that declares a host component.
 ///
 /// Each struct is `#[repr(C)]` with pointer-sized fields in a fixed order, so
-/// the C++ file can declare the same four structs and pass them by value:
+/// the C++ side can declare the same three structs and pass them by value; they
+/// live once in core's `GpuiHostComponentsCpp.h`, with layout checks:
 ///
 /// ```c
 /// struct RnGpuiStr { const uint8_t* data; size_t len; };
 /// struct RnGpuiSlice { const void* data; size_t len; };
-/// struct RnGpuiStrSlice { const RnGpuiStr* data; size_t len; };
 /// struct RnGpuiOptU32 { uint32_t value; bool present; };
 /// ```
 ///
 /// Shims the C++ file implements, so both halves agree on the names:
 ///
-/// * props: `rn_gpui_<component>_props_<prop>`, first argument the opaque
-///   `shared_ptr<const <Component>Props>` handle;
-/// * a generated view: `rn_gpui_<view type>_<field>`, first argument an opaque
-///   handle to that C++ struct;
+/// * props: `rn_gpui_<component>_props_<prop>`, first argument the opaque props
+///   handle a `PropsHandle` owns;
+/// * a generated view: `rn_gpui_<view type>_<field>`, first argument the address
+///   of that C++ struct;
 /// * events: `rn_gpui_<component>_event_<event>`, first argument the opaque
-///   emitter handle, then the payload's leaves as arguments (a scalar by value,
-///   a string as bytes and a length, an array as a pointer and a length). The
-///   C++ shim assigns them into the event struct React Native generated, so the
-///   two payload layouts never have to be declared twice (5.5);
-/// * the change mask: `rn_gpui_<component>_changed`, two props handles.
+///   emitter handle an `EmitterHandle` owns, then the payload's leaves as
+///   arguments (a scalar by value, a string as bytes and a length, an array as a
+///   pointer and a length). The C++ shim assigns them into the event struct React
+///   Native generated, so the two payload layouts never have to be declared
+///   twice (5.5).
+///
+/// The change mask is computed in C++ against the previous shadow view and
+/// arrives on the mount op, so there is no shim for it.
 ///
 /// What each returns: `i32` for `Int32` and for an enum's value, `f32` for
 /// `Float`, `f64` for `Double`/`number`, `bool` for `boolean`, a `RnGpuiStr`
 /// for a `std::string` (bytes plus length), a `RnGpuiOptU32` for a
-/// `SharedColor`, an opaque handle for an `ImageSource` or a struct,
-/// `RnGpuiSlice` for a `std::vector` of plain data, `RnGpuiStrSlice` for a
-/// `std::vector<std::string>`, `_len`/`_at` for a `std::vector` of anything
-/// else, and `RnGpuiStr` of JSON text for a `folly::dynamic`. No shim allocates.
+/// `SharedColor`, the address of the field for an `ImageSource` or a struct,
+/// `RnGpuiSlice` for a `std::vector` of plain data, `_len`/`_at` for a
+/// `std::vector` of anything else (strings and structs), and, for a
+/// `folly::dynamic`, JSON text handed to a callback. No shim allocates except
+/// that last one, which serialises once per props object.
 const COMPONENT_ABI = `/// A borrowed C++ \`std::string\`: bytes and an explicit length.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -984,14 +1024,6 @@ pub struct RnGpuiSlice {
     pub len: usize,
 }
 
-/// A borrowed C++ \`std::vector<std::string>\`.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct RnGpuiStrSlice {
-    pub data: *const RnGpuiStr,
-    pub len: usize,
-}
-
 /// A C++ \`SharedColor\`: \`present\` is false when React left the color unset.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1002,29 +1034,30 @@ pub struct RnGpuiOptU32 {
 
 /// The bytes of a \`RnGpuiStr\`, borrowed as a \`&str\`.
 ///
+/// The conversion is checked: a props string came from a JS string, which an
+/// engine may hand over with a lone surrogate, and an unchecked conversion of
+/// invalid UTF-8 is undefined behaviour in a release build. On failure it logs
+/// the offset and returns an empty string rather than reading a different
+/// string than the one JS sent.
+///
 /// # Safety
 ///
 /// \`text\` must have been read from a live C++ \`std::string\` and must outlive
-/// the borrow this returns. Its bytes came from a JS string, so they are UTF-8.
+/// the borrow this returns.
 unsafe fn rn_gpui_str<'a>(text: RnGpuiStr) -> &'a str {
     if text.data.is_null() || text.len == 0 {
         return "";
     }
     let bytes = core::slice::from_raw_parts(text.data, text.len);
     // Checked, not \`from_utf8_unchecked\`. A release build has no \`debug_assert\`,
-    // so an engine that hands through a lone surrogate as invalid UTF-8 would be
-    // undefined behaviour rather than a bad character. This repository supports
-    // more than one JS engine and cannot assume each replaces invalid sequences.
-    // \`from_utf8\` is SIMD-fast; on the failure path the offending bytes are
-    // replaced rather than truncated, so a caller sees \`U+FFFD\` where the input
-    // was not text instead of silently reading a different string.
+    // and \`from_utf8\` is SIMD-fast; on the failure path the offending bytes are
+    // reported by offset.
     match core::str::from_utf8(bytes) {
         Ok(text) => text,
         Err(error) => {
-            log::warn!(
-                "[host-component] a props string was not UTF-8 at byte {}: {}",
-                error.valid_up_to(),
-                error,
+            eprintln!(
+                "[host-component] a props string is not UTF-8 (valid up to byte {})",
+                error.valid_up_to()
             );
             ""
         }
@@ -1044,49 +1077,73 @@ unsafe fn rn_gpui_slice<'a, T>(slice: RnGpuiSlice) -> &'a [T] {
     core::slice::from_raw_parts(slice.data.cast::<T>(), slice.len)
 }
 
+/// The callback a JSON-text shim hands its bytes to: it appends them to the
+/// \`String\` \`context\` points at.
+unsafe extern "C" fn rn_gpui_collect_text(
+    context: *mut core::ffi::c_void,
+    data: *const u8,
+    len: usize,
+) {
+    if data.is_null() || len == 0 {
+        return;
+    }
+    // The one copy a props read can make; counted so a test can assert no other.
+    react_native_gpui::host_component::note_props_bytes_copied(len);
+    let out = &mut *context.cast::<String>();
+    out.push_str(&String::from_utf8_lossy(core::slice::from_raw_parts(data, len)));
+}
+
+/// The signature of that callback, as the shims take it.
+type RnGpuiTextSink = unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize);
+
 /// A borrowed C++ \`std::vector<std::string>\`, read one string at a time.
 ///
 /// The strings in a props struct cannot be lent out as a \`&[&str]\` without
-/// allocating, so this reads each one on demand instead.
+/// allocating, so each one is read on demand through the \`_at\` shim.
 #[derive(Clone, Copy)]
 pub struct RnGpuiStrArray<'a> {
-    items: &'a [RnGpuiStr],
+    owner: *const core::ffi::c_void,
+    len: usize,
+    at: unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr,
+    _borrow: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> RnGpuiStrArray<'a> {
     /// # Safety
     ///
-    /// \`slice\` must be a live C++ \`std::vector<std::string>\` that outlives
-    /// \`'a\`.
-    unsafe fn new(slice: RnGpuiStrSlice) -> Self {
-        let items = if slice.data.is_null() || slice.len == 0 {
-            &[]
-        } else {
-            core::slice::from_raw_parts(slice.data, slice.len)
-        };
-        Self { items }
+    /// \`owner\` must be a live C++ \`std::vector<std::string>\`'s owner that
+    /// outlives \`'a\`, \`len\` its length, and \`at\` the shim that reads one
+    /// string.
+    unsafe fn new(
+        owner: *const core::ffi::c_void,
+        len: usize,
+        at: unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr,
+    ) -> Self {
+        Self {
+            owner,
+            len,
+            at,
+            _borrow: core::marker::PhantomData,
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.len == 0
     }
 
     pub fn get(&self, index: usize) -> Option<&'a str> {
-        self.items
-            .get(index)
-            .copied()
-            .map(|text| unsafe { rn_gpui_str(text) })
+        if index >= self.len {
+            return None;
+        }
+        Some(unsafe { rn_gpui_str((self.at)(self.owner, index)) })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &'a str> + '_ {
-        self.items
-            .iter()
-            .copied()
-            .map(|text| unsafe { rn_gpui_str(text) })
+        (0..self.len).filter_map(move |index| self.get(index))
     }
 }
 `;
@@ -1186,7 +1243,7 @@ function enumMemberName(value, numeric, index, propName) {
 /// One component's generated Rust: the layout mirrors, the enums, the views,
 /// the props view, the change mask, the events, the context, the trait and the
 /// registration value.
-class ComponentGenerator {
+export class ComponentGenerator {
   constructor({ specPath, hasteModuleName, componentName, component }) {
     this.specPath = specPath;
     this.hasteModuleName = hasteModuleName;
@@ -1289,6 +1346,7 @@ class ComponentGenerator {
     const name = this.claim(`${this.name}${pascal(propName)}`);
     const declared = {
       name,
+      propName,
       numeric,
       members: options.map((option, index) => ({
         name: enumMemberName(option, numeric, index, propName),
@@ -1420,6 +1478,14 @@ class ComponentGenerator {
           return { kind: 'array-string' };
         }
         const elementScalar = scalarType(element);
+        if (elementScalar === 'bool') {
+          // React Native's generated field is a `std::vector<bool>`, which is
+          // bit-packed: it has no contiguous elements to lend out as a slice.
+          this.fail(
+            `prop ${propName}`,
+            'an array of booleans is a bit-packed std::vector<bool> in C++ and cannot be borrowed; use an array of Int32',
+          );
+        }
         if (elementScalar) {
           return { kind: 'array-scalar', rustType: elementScalar };
         }
@@ -1716,7 +1782,7 @@ function accessorDoc(shape) {
     case 'image':
       return 'A borrowed view over the C++ `ImageSource`.';
     case 'mixed':
-      return 'The `UnsafeMixed` value as JSON text: the one accessor that copies.';
+      return 'The `UnsafeMixed` value, parsed once on the first read: the one accessor that copies.';
     case 'array-scalar':
       return `The elements, borrowed, as \`&[${shape.rustType}]\`.`;
     case 'array-string':
@@ -1787,16 +1853,28 @@ function accessor({ shimPrefix, shape, name, jsName, owner }) {
       externs.push(`    fn ${shim}(${owner}: ${HANDLE}) -> ${HANDLE};`);
       break;
     case 'mixed':
-      lines.push(`    pub fn ${name}(&self) -> &str {`);
-      lines.push(`        self.mixed_${name}`);
-      lines.push('            .get_or_init(|| {');
+      // `folly::dynamic` has no layout to lend out, so the C++ shim serialises it
+      // once and hands the text to a callback; the view parses it into a `Value`
+      // on the first read and keeps it, so a props object pays for it at most
+      // once (5.2's "the only path that copies").
+      lines.push(`    pub fn ${name}(&self) -> &Value {`);
+      lines.push(`        self.mixed_${name}.get_or_init(|| {`);
+      lines.push('            let mut text = String::new();');
+      lines.push('            unsafe {');
+      lines.push(`                ${shim}(`);
+      lines.push('                    self.handle,');
+      lines.push('                    rn_gpui_collect_text,');
+      lines.push('                    (&mut text as *mut String).cast(),');
+      lines.push('                );');
+      lines.push('            }');
       lines.push(
-        `                unsafe { rn_gpui_str(${shim}(self.handle)) }.to_owned()`,
+        '            react_native_gpui::host_component::parse_value(&text)',
       );
-      lines.push('            })');
-      lines.push('            .as_str()');
+      lines.push('        })');
       lines.push('    }');
-      externs.push(`    fn ${shim}(${owner}: ${HANDLE}) -> RnGpuiStr;`);
+      externs.push(
+        `    fn ${shim}(${owner}: ${HANDLE}, sink: RnGpuiTextSink, context: *mut core::ffi::c_void);`,
+      );
       break;
     case 'array-scalar':
       lines.push(`    pub fn ${name}(&self) -> &[${shape.rustType}] {`);
@@ -1806,11 +1884,15 @@ function accessor({ shimPrefix, shape, name, jsName, owner }) {
       break;
     case 'array-string':
       lines.push(`    pub fn ${name}(&self) -> RnGpuiStrArray<'_> {`);
+      lines.push(`        let len = unsafe { ${shim}_len(self.handle) };`);
       lines.push(
-        `        unsafe { RnGpuiStrArray::new(${shim}(self.handle)) }`,
+        `        unsafe { RnGpuiStrArray::new(self.handle, len, ${shim}_at) }`,
       );
       lines.push('    }');
-      externs.push(`    fn ${shim}(${owner}: ${HANDLE}) -> RnGpuiStrSlice;`);
+      externs.push(`    fn ${shim}_len(${owner}: ${HANDLE}) -> usize;`);
+      externs.push(
+        `    fn ${shim}_at(${owner}: ${HANDLE}, index: usize) -> RnGpuiStr;`,
+      );
       break;
     case 'mirror':
       lines.push(`    pub fn ${name}(&self) -> ${shape.name} {`);
@@ -1992,7 +2074,7 @@ function renderPayload(payload) {
 /// A field is passed as its C++ event struct holds it: a scalar by value, an
 /// enum as its `i32`, a string as a pointer and a length, an array as a pointer
 /// and a length (a string array through a temporary `RnGpuiStr` slice).
-function flattenPayload(generator, payload) {
+function flattenPayload(generator, payload, indent = BODY) {
   const params = [];
   const lines = [];
   const args = [];
@@ -2022,7 +2104,7 @@ function flattenPayload(generator, payload) {
         return;
       case 'array-string': {
         const strings = `__${argument}_strings`;
-        const head = `${BODY}let ${strings}: Vec<RnGpuiStr> = ${local}`;
+        const head = `${indent}let ${strings}: Vec<RnGpuiStr> = ${local}`;
         if (
           `${head}.iter().map(|text| RnGpuiStr::of(text)).collect();`.length <=
           WIDTH
@@ -2032,9 +2114,9 @@ function flattenPayload(generator, payload) {
           );
         } else {
           lines.push(head);
-          lines.push(`${BODY}    .iter()`);
-          lines.push(`${BODY}    .map(|text| RnGpuiStr::of(text))`);
-          lines.push(`${BODY}    .collect();`);
+          lines.push(`${indent}    .iter()`);
+          lines.push(`${indent}    .map(|text| RnGpuiStr::of(text))`);
+          lines.push(`${indent}    .collect();`);
         }
         params.push(`${argument}_data: *const RnGpuiStr`);
         params.push(`${argument}_len: usize`);
@@ -2067,7 +2149,7 @@ function flattenPayload(generator, payload) {
           (field, index) => `${field.name}: ${locals[index]}`,
         ),
         expression,
-        BODY,
+        indent,
       ),
     );
     declared.fields.forEach((field, index) => {
@@ -2086,12 +2168,13 @@ function renderComponentEvents(generator) {
     docComment([
       `The typed events of a \`${generator.name}\` node (design 2, 5.1, 5.5).`,
       '',
-      'Each method calls the generated `extern "C"` shim for its event, which',
-      'fills the C++ event struct React Native generated and dispatches it. The',
-      'payload crosses as its leaves — a scalar by value, a string as bytes and a',
-      'length, an array as a pointer and a length — so 5.5\'s "strings as pointer',
-      'and length" holds without a second `#[repr(C)]` copy of every payload.',
-      'There is no JSON on the event path.',
+      'An event is queued, not sent: the payload is owned by a closure that',
+      "joins the store's one ordered report queue (5.7) and runs when the store",
+      'delivers it. The closure calls the generated `extern "C"` shim for the',
+      'event, which fills the C++ event struct React Native generated and hands it',
+      'to the generated emitter. The payload crosses as its leaves — a scalar by',
+      'value, a string as bytes and a length, an array as a pointer and a length —',
+      'so no JSON is built on the way.',
     ]),
   );
   lines.push(`pub struct ${generator.eventsName}<'a> {`);
@@ -2104,16 +2187,13 @@ function renderComponentEvents(generator) {
     const shim = `rn_gpui_${snakeCase(generator.name)}_event_${snakeCase(event.name)}`;
     if (!first) lines.push('');
     first = false;
-    lines.push(`    /// Sends \`${event.jsName}\`.`);
+    lines.push(`    /// Queues \`${event.jsName}\`.`);
     if (event.payload === null) {
-      lines.push(`    pub fn ${event.name}(&self) {`);
-      if (`${shim}(self.context.emitter())`.length <= 88) {
-        lines.push(`        unsafe { ${shim}(self.context.emitter()) }`);
-      } else {
-        lines.push('        unsafe {');
-        lines.push(`            ${shim}(self.context.emitter())`);
-        lines.push('        }');
-      }
+      lines.push(`    pub fn ${event.name}(&mut self) {`);
+      lines.push('        let emitter = self.context.emitter.clone();');
+      lines.push('        self.context.host.queue_event(move || {');
+      lines.push(`            unsafe { ${shim}(emitter.as_ptr()) }`);
+      lines.push('        });');
       lines.push('    }');
       generator.shims.push(`    fn ${shim}(emitter: ${HANDLE});`);
       continue;
@@ -2122,12 +2202,17 @@ function renderComponentEvents(generator) {
       params,
       lines: flatten,
       args,
-    } = flattenPayload(generator, event.payload);
+    } = flattenPayload(generator, event.payload, '            ');
     lines.push(
-      `    pub fn ${event.name}(&self, value: ${event.payload.name}) {`,
+      `    pub fn ${event.name}(&mut self, value: ${event.payload.name}) {`,
     );
+    lines.push('        let emitter = self.context.emitter.clone();');
+    lines.push('        self.context.host.queue_event(move || {');
     lines.push(...flatten);
-    lines.push(...unsafeCallLines(shim, ['self.context.emitter()', ...args]));
+    lines.push(
+      ...unsafeCallLines(shim, ['emitter.as_ptr()', ...args], '            '),
+    );
+    lines.push('        });');
     lines.push('    }');
     generator.shims.push(
       `    fn ${shim}(${['emitter: ' + HANDLE, ...params].join(', ')});`,
@@ -2145,21 +2230,23 @@ function renderContext(generator) {
       "the component's typed events (design 2, 5.1).",
       '',
       "Core builds one per call from the node's [`HostContext`] and the event",
-      'emitter handle it took at create (5.5), and takes the host context back',
-      'afterwards to apply what the call reported (5.7).',
+      'emitter handle it took at create (5.5). What the call reports goes straight',
+      "into the store's queue, which delivers it after the batch, the command or",
+      'the frame that produced it (5.7).',
     ]),
   );
   lines.push(`pub struct ${generator.contextName} {`);
   lines.push('    host: HostContext,');
-  lines.push(`    emitter: ${HANDLE},`);
+  lines.push('    emitter: EmitterHandle,');
   lines.push('}');
   lines.push('');
   lines.push(`impl ${generator.contextName} {`);
   lines.push(
-    "    /// Core builds one for a call: the node's host context and emitter",
+    "    /// Core builds one for a call: the node's host context and emitter.",
   );
-  lines.push('    /// handle. The emitter must stay alive for the call.');
-  lines.push(`    pub fn new(host: HostContext, emitter: ${HANDLE}) -> Self {`);
+  lines.push(
+    '    pub fn new(host: HostContext, emitter: EmitterHandle) -> Self {',
+  );
   lines.push('        Self { host, emitter }');
   lines.push('    }');
   lines.push('');
@@ -2174,11 +2261,6 @@ function renderContext(generator) {
   lines.push('    /// reported in this call.');
   lines.push('    pub fn host_mut(&mut self) -> &mut HostContext {');
   lines.push('        &mut self.host');
-  lines.push('    }');
-  lines.push('');
-  lines.push('    /// The host context, once the call is over.');
-  lines.push('    pub fn into_host(self) -> HostContext {');
-  lines.push('        self.host');
   lines.push('    }');
   lines.push('');
   lines.push('    /// The Fabric tag of the node.');
@@ -2209,11 +2291,6 @@ function renderContext(generator) {
   lines.push(`    pub fn events(&mut self) -> ${generator.eventsName}<'_> {`);
   lines.push(`        ${generator.eventsName} { context: self }`);
   lines.push('    }');
-  lines.push('');
-  lines.push('    /// The emitter handle the event shims take.');
-  lines.push(`    fn emitter(&self) -> ${HANDLE} {`);
-  lines.push('        self.emitter');
-  lines.push('    }');
   lines.push('}');
   return lines;
 }
@@ -2229,9 +2306,13 @@ function renderView(generator, view) {
       'mirror.',
     ]),
   );
+  const mixedFields = view.fields.filter(field => field.shape.kind === 'mixed');
   lines.push(`pub struct ${view.name}<'a> {`);
   lines.push(`    handle: ${HANDLE},`);
   lines.push("    _borrow: core::marker::PhantomData<&'a ()>,");
+  for (const field of mixedFields) {
+    lines.push(`    mixed_${field.name}: std::cell::OnceCell<Value>,`);
+  }
   lines.push('}');
   lines.push('');
   lines.push(`impl<'a> ${view.name}<'a> {`);
@@ -2247,6 +2328,9 @@ function renderView(generator, view) {
   lines.push('        Self {');
   lines.push('            handle,');
   lines.push('            _borrow: core::marker::PhantomData,');
+  for (const field of mixedFields) {
+    lines.push(`            mixed_${field.name}: std::cell::OnceCell::new(),`);
+  }
   lines.push('        }');
   lines.push('    }');
   for (const field of view.fields) {
@@ -2341,9 +2425,9 @@ function renderPropsView(generator) {
   lines.push(`pub struct ${generator.propsName} {`);
   lines.push(`    handle: ${HANDLE},`);
   for (const prop of mixed) {
-    // The only copying accessor: the JSON text of a `folly::dynamic` is parsed
+    // The only copying accessor: a `folly::dynamic` is serialised and parsed
     // once per props object, on first read.
-    lines.push(`    mixed_${prop.name}: std::cell::OnceCell<String>,`);
+    lines.push(`    mixed_${prop.name}: std::cell::OnceCell<Value>,`);
   }
   lines.push('}');
   lines.push('');
@@ -2398,9 +2482,9 @@ function renderChanged(generator) {
       'more use one word per 64 (`CHANGE_WORDS` words in all), so 65 props take',
       'two words, 128 take two, 129 take three.',
       '',
-      `The generated C++ \`rn_gpui_${snakeCase(generator.name)}_changed\` writes the`,
-      'same words, so the mask crosses the ABI as one `u64` (one word) or as an',
-      'out-parameter (more than one) and needs no translation.',
+      'C++ computes it against the previous shadow view and the mount op carries',
+      'the words, so it is always relative to the props this component last saw',
+      'and needs no translation.',
     ]),
   );
   lines.push('#[repr(transparent)]');
@@ -2422,7 +2506,18 @@ function renderChanged(generator) {
   lines.push('        Self { words }');
   lines.push('    }');
   lines.push('');
-  lines.push('    /// The words, for core to pass to the C++ comparison.');
+  lines.push(
+    '    /// A mask from the words the mount op carried. Missing words are zero.',
+  );
+  lines.push('    pub fn from_slice(words: &[u64]) -> Self {');
+  lines.push(`        let mut out = [0u64; ${words}];`);
+  lines.push('        for (slot, word) in out.iter_mut().zip(words) {');
+  lines.push('            *slot = *word;');
+  lines.push('        }');
+  lines.push('        Self { words: out }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// The words.');
   lines.push(`    pub const fn words(&self) -> [u64; ${words}] {`);
   lines.push('        self.words');
   lines.push('    }');
@@ -2499,6 +2594,24 @@ function renderSpecTrait(generator) {
   lines.push('        window: &mut Window,');
   lines.push(`        cx: &mut ${generator.contextName},`);
   lines.push('    ) -> AnyElement;');
+  lines.push('');
+  lines.push(
+    "    /// Content painted above a container's React children (a focus ring, a",
+  );
+  lines.push('    /// badge), if the component has any (design 2, 6.1).');
+  lines.push('    ///');
+  lines.push(
+    '    /// Core calls this only for a component declared `container: true`.',
+  );
+  lines.push('    fn render_overlay(');
+  lines.push('        &mut self,');
+  lines.push(`        props: &${generator.propsName},`);
+  lines.push('        window: &mut Window,');
+  lines.push(`        cx: &mut ${generator.contextName},`);
+  lines.push('    ) -> Option<AnyElement> {');
+  lines.push('        let _ = (props, window, cx);');
+  lines.push('        None');
+  lines.push('    }');
   for (const command of generator.commands) {
     lines.push('');
     lines.push(
@@ -2524,10 +2637,11 @@ function renderRegistration(generator) {
     docComment([
       `The registration value for [\`${generator.specName}\`] (design 2, 5.1).`,
       '',
-      `\`react_native_gpui::register_component(${generator.registrationFn}::<T>())\``,
+      `\`react_native_gpui::host_component::register_component(${generator.registrationFn}::<T>())\``,
       'registers `T` for the Fabric component [`NAME`](Self::NAME) before the',
-      'first surface starts. Core then reads the rest of what this carries — the',
-      'props, events and commands it declares — without taking a lock (5.4).',
+      'first surface starts. The component must be declared under',
+      '`platforms.desktop.hostComponents` in `react-native.config.js`: autolink',
+      'gives it its registry index and its layout flags from there (5.1, 5.4).',
     ]),
   );
   lines.push(
@@ -2590,6 +2704,157 @@ function renderRegistration(generator) {
   return lines;
 }
 
+function renderComponentInstance(generator) {
+  const lines = [];
+  const instance = `${generator.name}Instance`;
+  const spec = generator.specName;
+  lines.push(
+    docComment([
+      `One mounted \`${generator.name}\` node: the user's component, the props`,
+      'view built once for the props version it was last given, and the handles',
+      'that keep the C++ props and emitter alive (design 2, 5.2).',
+      '',
+      'Core stores it as a `Box<dyn HostObject>` on the node, so after the node is',
+      'created every call is a vtable call and nothing looks the component up.',
+    ]),
+  );
+  lines.push(`struct ${instance}<T: ${spec}> {`);
+  lines.push('    component: T,');
+  lines.push(`    props: ${generator.propsName},`);
+  lines.push(
+    '    /// Owns the C++ props `props` reads. Declared after it, so it drops last.',
+  );
+  lines.push('    #[allow(dead_code)]');
+  lines.push('    handle: PropsHandle,');
+  lines.push('    emitter: EmitterHandle,');
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl<T: ${spec}> HostObject for ${instance}<T> {`);
+  lines.push(
+    '    fn update(&mut self, props: PropsHandle, changed: &[u64], cx: HostContext) {',
+  );
+  lines.push(
+    '        // The new view is built once and kept: the `UnsafeMixed` caches in it',
+  );
+  lines.push('        // then serialise at most once per props version.');
+  lines.push(
+    `        self.props = unsafe { ${generator.propsName}::from_handle(props.as_ptr()) };`,
+  );
+  lines.push(
+    '        // The previous props are released only now, after the view stopped',
+  );
+  lines.push('        // pointing at them.');
+  lines.push('        self.handle = props;');
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+  );
+  lines.push(
+    `        let changed = ${generator.changedName}::from_slice(changed);`,
+  );
+  lines.push('        self.component.update(&self.props, changed, &mut cx);');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn render(&mut self, window: &mut Window, cx: HostContext) -> AnyElement {',
+  );
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+  );
+  lines.push('        self.component.render(&self.props, window, &mut cx)');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn render_overlay(&mut self, window: &mut Window, cx: HostContext) -> Option<AnyElement> {',
+  );
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+  );
+  lines.push(
+    '        self.component.render_overlay(&self.props, window, &mut cx)',
+  );
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn command(&mut self, index: u32, args: &[HostArg], cx: HostContext) {',
+  );
+  if (generator.commands.length === 0) {
+    lines.push('        let _ = (index, args, cx);');
+  } else {
+    lines.push(
+      `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+    );
+    lines.push('        match index {');
+    generator.commands.forEach((command, commandIndex) => {
+      const values = command.params.map((parameter, position) => {
+        const argument = `args[${position}]`;
+        return commandArgumentExpression(parameter.rustType, argument);
+      });
+      const call = `self.component.${command.name}(${[...values, '&mut cx'].join(', ')})`;
+      lines.push(`            ${commandIndex} => ${call},`);
+    });
+    lines.push('            _ => {}');
+    lines.push('        }');
+  }
+  lines.push('    }');
+  lines.push('}');
+  lines.push('');
+  lines.push(
+    `impl<T: ${spec}> HostComponentSpec for ${generator.registrationType}<T> {`,
+  );
+  lines.push(`    const NAME: &'static str = ${rustString(generator.name)};`);
+  lines.push('');
+  lines.push(
+    '    fn create(props: PropsHandle, emitter: EmitterHandle, cx: HostContext) -> Box<dyn HostObject> {',
+  );
+  lines.push(
+    `        let view = unsafe { ${generator.propsName}::from_handle(props.as_ptr()) };`,
+  );
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, emitter.clone());`,
+  );
+  lines.push('        let component = T::create(&view, &mut cx);');
+  lines.push(`        Box::new(${instance} {`);
+  lines.push('            component,');
+  lines.push('            props: view,');
+  lines.push('            handle: props,');
+  lines.push('            emitter,');
+  lines.push('        })');
+  lines.push('    }');
+  lines.push('}');
+  return lines;
+}
+
+/// How a command argument is read from the `HostArg` core hands the instance.
+/// The C++ dispatcher validated the type, so the read is infallible.
+function commandArgumentExpression(rustType, argument) {
+  switch (rustType) {
+    case 'i32':
+      return `${argument}.to_i32()`;
+    case 'f32':
+      return `${argument}.to_f32()`;
+    case 'f64':
+      return `${argument}.to_f64()`;
+    case 'bool':
+      return `${argument}.to_bool()`;
+    case 'String':
+      return `${argument}.to_string_value()`;
+    case 'Vec<i32>':
+      return `${argument}.to_i32_vec()`;
+    case 'Vec<f32>':
+      return `${argument}.to_f32_vec()`;
+    case 'Vec<f64>':
+      return `${argument}.to_f64_vec()`;
+    case 'Vec<bool>':
+      return `${argument}.to_bool_vec()`;
+    case 'Vec<String>':
+      return `${argument}.to_string_vec()`;
+    default:
+      throw new Error(
+        `generate-rust-spec: unsupported command argument ${rustType}`,
+      );
+  }
+}
+
 /// Renders one component: its types first, then the API over them.
 function renderComponent(generator) {
   generator.collect();
@@ -2647,6 +2912,8 @@ function renderComponent(generator) {
   lines.push('');
   lines.push(...renderRegistration(generator));
   lines.push('');
+  lines.push(...renderComponentInstance(generator));
+  lines.push('');
   lines.push(
     '// The shims the generated C++ file implements (design 2, 5.2, 5.5, 5.6).',
   );
@@ -2655,25 +2922,6 @@ function renderComponent(generator) {
   );
   lines.push('#[allow(dead_code, clippy::all)]');
   lines.push('unsafe extern "C" {');
-  if (generator.changeWords === 1) {
-    lines.push(
-      `    /// Compares two \`${generator.name}Props\`; bit \`i\` is \`PROPS[i]\`.`,
-    );
-    lines.push(
-      ...wrapDeclaration(
-        `    fn rn_gpui_${snakeCase(generator.name)}_changed(old: ${HANDLE}, new: ${HANDLE}) -> u64;`,
-      ),
-    );
-  } else {
-    lines.push(
-      `    /// Compares two \`${generator.name}Props\`, writing \`CHANGE_WORDS\` words.`,
-    );
-    lines.push(
-      ...wrapDeclaration(
-        `    fn rn_gpui_${snakeCase(generator.name)}_changed(old: ${HANDLE}, new: ${HANDLE}, out: *mut u64);`,
-      ),
-    );
-  }
   // A shim carries one argument per leaf of its type, so a long one is wrapped
   // one parameter per line rather than running past the margin.
   for (const shim of generator.shims) {
