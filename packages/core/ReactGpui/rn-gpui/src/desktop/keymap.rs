@@ -463,7 +463,7 @@ pub struct ShortcutState {
     /// only worth doing when this changes: a re-render must not thrash the
     /// keymap.
     built: String,
-    /// A rebuild was asked for and an `on_next_frame` is already waiting.
+    /// A rebuild was asked for and a deferred one is already waiting.
     scheduled: bool,
 }
 
@@ -635,11 +635,16 @@ fn signature(shortcuts: &[Shortcut]) -> String {
     rows.join("\n")
 }
 
-/// Rebuilds on the next frame.
+/// Rebuilds once the current update has finished.
 ///
 /// Debounced because a render pass can install shortcuts several times — a
 /// mount batch, a props update, a user keymap change — and each rebuild clears
 /// and re-adds every binding in the app.
+///
+/// Deferred on the app, not on a window's next frame: GPUI runs a window's
+/// next-frame callbacks from the platform's frame request, and a hidden or
+/// offscreen window (every e2e window on Windows) never gets one, so the
+/// bindings would never be installed.
 fn schedule_rebuild(cx: &mut App) {
     if cx
         .try_global::<ShortcutGlobal>()
@@ -648,19 +653,13 @@ fn schedule_rebuild(cx: &mut App) {
         return;
     }
     ensure_global(cx).0.scheduled = true;
-    let Some(window) = cx.active_window() else {
-        rebuild_now(cx);
-        return;
-    };
-    let _ = window.update(cx, |_root, window, _cx| {
-        window.on_next_frame(move |_window, cx| {
-            if cx
-                .try_global::<ShortcutGlobal>()
-                .is_some_and(|state| state.0.scheduled)
-            {
-                rebuild_now(cx);
-            }
-        });
+    cx.defer(|cx| {
+        if cx
+            .try_global::<ShortcutGlobal>()
+            .is_some_and(|state| state.0.scheduled)
+        {
+            rebuild_now(cx);
+        }
     });
 }
 
