@@ -99,11 +99,18 @@ test('a command from JS reaches the host component and it emits an event back', 
 test('a second command reports the series again', async () => {
   await launch('HostComponentsFixture');
   await app.waitForIdle();
-  await clickTestID('host-chart-report');
-  expect(await textOf('host-components-selected')).toContain('index=0');
 
-  // A prop change reports too, once: `reportToken` is the chart's own trigger.
+  // `reportSeries` answers through `pointSelected`, so the count is what proves
+  // the report arrived — asserting the selection text would pass on the earlier
+  // `selectPoint` click alone and prove nothing about the second command.
+  expect(await textOf('host-components-series')).toContain('series reports: 0');
+  await clickTestID('host-chart-report');
+  expect(await textOf('host-components-series')).toContain('series reports: 1');
+
+  // A prop change reports too: `reportToken` is the chart's own trigger, and it
+  // emits from `update`, which used to drop its events.
   await clickTestID('host-chart-token');
+  expect(await textOf('host-components-series')).toContain('series reports: 1');
   expect(await textOf('host-components-selected')).toContain('index=0');
 });
 

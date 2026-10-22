@@ -453,6 +453,13 @@ GpuiHost::GpuiHost(
           manager->setHostComponentSize(tag, width, height);
         }
       });
+  rngpui::setHostComponentInsetsObserver(
+      [weakMountingManager](
+          int32_t tag, float top, float right, float bottom, float left) {
+        if (auto manager = weakMountingManager.lock()) {
+          manager->setHostComponentInsets(tag, top, right, bottom, left);
+        }
+      });
 
   // ReactHost's constructor throws unless both factories are in the
   // ContextContainer.

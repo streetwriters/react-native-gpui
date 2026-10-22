@@ -12,6 +12,7 @@
 #include <react/renderer/components/view/YogaLayoutableShadowNode.h>
 #include <react/renderer/core/ComponentDescriptor.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
+#include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/core/LayoutContext.h>
 #include <react/renderer/core/PropsParserContext.h>
 #include <react/renderer/core/RawProps.h>
@@ -184,6 +185,36 @@ class GpuiHostContainerComponentDescriptor final
           GpuiHostContainerShadowNode> {
  public:
   using ConcreteComponentDescriptor::ConcreteComponentDescriptor;
+
+  /// Applies the insets the component reported for its chrome as real Yoga
+  /// padding, so its React children are laid out inside it.
+  ///
+  /// `adopt`, not `layout`: Yoga runs `YGNodeCalculateLayout` and only then
+  /// calls `layout()` to read the results back, so padding set there changes
+  /// nothing that is read again. `adopt` runs on every create and every clone,
+  /// including the clone `updateState` produces, which is the point at which
+  /// padding still influences layout. `SafeAreaViewComponentDescriptor` does
+  /// the same thing for the same reason.
+  ///
+  /// Note this replaces any padding from the component's own style, which
+  /// SafeAreaView shares; a container's chrome padding is authored natively and
+  /// the style's padding is not.
+  void adopt(facebook::react::ShadowNode& shadowNode) const override {
+    auto& layoutable =
+        static_cast<facebook::react::YogaLayoutableShadowNode&>(shadowNode);
+    const auto& state =
+        static_cast<const facebook::react::ConcreteState<GpuiHostStateData>&>(
+            *shadowNode.getState());
+    const auto& data = state.getData();
+    if (data.insetTop != 0.f || data.insetRight != 0.f ||
+        data.insetBottom != 0.f || data.insetLeft != 0.f) {
+      // `RectangleEdges` is ordered left, top, right, bottom — not top-first.
+      layoutable.setPadding(facebook::react::RectangleEdges<float>{
+          data.insetLeft, data.insetTop, data.insetRight, data.insetBottom});
+    }
+    facebook::react::ConcreteComponentDescriptor<
+        GpuiHostContainerShadowNode>::adopt(shadowNode);
+  }
 
   facebook::react::ComponentName getComponentName() const override;
   facebook::react::ComponentHandle getComponentHandle() const override;

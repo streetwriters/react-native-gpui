@@ -326,6 +326,9 @@ pub mod ffi {
         /// `MountOp` carries it (`has_intrinsic_size` / `intrinsic_*`) and the
         /// Rust store can store it without asking Fabric again.
         fn setHostComponentIntrinsicSize(tag: i32, width: f32, height: f32) -> bool;
+        /// Records the insets a container reported for its chrome, so its shadow
+        /// node can apply them as padding around the React children.
+        fn setHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
     }
 
     unsafe extern "C++" {

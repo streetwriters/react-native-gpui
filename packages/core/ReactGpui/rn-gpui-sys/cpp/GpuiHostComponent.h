@@ -26,6 +26,24 @@ void registerHostComponent(rust::Str name, bool measured, bool container);
 /// states.
 void setHostComponentSizeObserver(HostComponentSizeFn observer);
 
+/// Notified when a container reports the insets its chrome needs, so they can
+/// be applied as Yoga padding around the React children.
+using HostComponentInsetsFn =
+    std::function<void(int32_t, float, float, float, float)>;
+
+/// Installed by the mounting manager, which owns the per-tag shadow node
+/// states.
+void setHostComponentInsetsObserver(HostComponentInsetsFn observer);
+
+/// Records the insets a container reported, and notifies the observer so its
+/// shadow node can apply them as padding.
+void setHostComponentInsets(
+    int32_t tag,
+    float top,
+    float right,
+    float bottom,
+    float left);
+
 /// Whether `name` was registered as a host component.
 bool isHostComponent(rust::Str name);
 

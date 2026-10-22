@@ -1,6 +1,8 @@
 // The C++ half of the host component API. See GpuiHostComponent.h for why each
 // piece exists.
 
+#include <array>
+
 #include "GpuiHostComponentsCpp.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -44,6 +46,18 @@ struct IntrinsicSizes {
   HostComponentSizeFn observer;
   std::unordered_map<int32_t, std::pair<float, float>> sizes;
 };
+
+/// The insets a container reported, by tag, pending `updateState`.
+struct HostComponentInsets {
+  std::mutex mutex;
+  std::unordered_map<int32_t, std::array<float, 4>> values;
+  HostComponentInsetsFn observer;
+};
+
+HostComponentInsets& hostComponentInsets() {
+  static HostComponentInsets insets;
+  return insets;
+}
 
 IntrinsicSizes& intrinsicSizes() {
   static IntrinsicSizes sizes;
@@ -217,6 +231,44 @@ facebook::react::Size GpuiHostShadowNode::measureContent(
       layoutConstraints.minimumSize.height,
       layoutConstraints.maximumSize.height);
   return facebook::react::Size{width, height};
+}
+
+void setHostComponentInsetsObserver(HostComponentInsetsFn observer) {
+  auto& insets = hostComponentInsets();
+  std::lock_guard<std::mutex> lock(insets.mutex);
+  insets.observer = std::move(observer);
+}
+
+void setHostComponentInsets(
+    int32_t tag,
+    float top,
+    float right,
+    float bottom,
+    float left) {
+  auto& insets = hostComponentInsets();
+  HostComponentInsetsFn observer;
+  bool changed = false;
+  {
+    std::lock_guard<std::mutex> lock(insets.mutex);
+    auto found = insets.values.find(tag);
+    if (found == insets.values.end() ||
+        found->second != std::array<float, 4>{top, right, bottom, left}) {
+      insets.values[tag] = {top, right, bottom, left};
+      changed = true;
+      observer = insets.observer;
+    }
+  }
+  if (changed && observer) {
+    observer(tag, top, right, bottom, left);
+  }
+}
+
+std::array<float, 4> reportedHostComponentInsets(int32_t tag) {
+  auto& insets = hostComponentInsets();
+  std::lock_guard<std::mutex> lock(insets.mutex);
+  auto found = insets.values.find(tag);
+  return found != insets.values.end() ? found->second
+                                      : std::array<float, 4>{0, 0, 0, 0};
 }
 
 void setHostComponentSizeObserver(HostComponentSizeFn observer) {

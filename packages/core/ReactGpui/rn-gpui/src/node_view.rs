@@ -73,6 +73,13 @@ pub struct RNNodeView {
     /// The padding this node's host component reported for its own chrome
     /// (design 2, section 6.1). A container's React children are inset by it.
     host_insets: crate::host_component::EdgeInsets,
+    /// A report `create` produced, which has no `App` to dispatch with. Flushed
+    /// on the next render, which does.
+    pending_host_report: Option<(
+        Option<crate::host_component::EdgeInsets>,
+        Option<(f32, f32)>,
+        Vec<(String, serde_json::Value)>,
+    )>,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
@@ -780,6 +787,27 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
+        // Built before the literal so `create`'s report can be carried on the
+        // node: there is no `App` here to dispatch with.
+        let mut pending_host_report = None;
+        let host_component = crate::host_component::host_component(&op.component).map(|_| {
+            // Created here rather than in the store so every path that makes a
+            // node — a batch, a test, a reload — gets one.
+            let mut host = crate::host_component::HostContext::new(op.tag);
+            let registration =
+                crate::host_component::host_component(&op.component).expect("checked above");
+            let props = crate::host_component::Props::from_json(&op.component_props_json);
+            let mut object = registration.create(props, &mut host);
+            let (size, events) = host.take();
+            let insets = host.take_insets();
+            if let Some((width, height)) = size {
+                crate::host_component::report_intrinsic_size(op.tag, width, height);
+            }
+            if !events.is_empty() || insets.is_some() {
+                pending_host_report = Some((insets, size, events));
+            }
+            object
+        });
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
@@ -793,23 +821,14 @@ impl RNNodeView {
                 &op.extension_props_json,
             )),
             native_view_host: None,
-            host_component: crate::host_component::host_component(&op.component).map(|_| {
-                // Created here rather than in the store so every path that
-                // makes a node — a batch, a test, a reload — gets one.
-                let mut host = crate::host_component::HostContext::new(op.tag);
-                let registration = crate::host_component::host_component(&op.component)
-                    .expect("checked above");
-                let props = crate::host_component::Props::from_json(&op.component_props_json);
-                let mut object = registration.create(props, &mut host);
-                let (size, _events) = host.take();
-                if let Some((width, height)) = size {
-                    crate::host_component::report_intrinsic_size(op.tag, width, height);
-                }
-                object
-            }),
+
+            host_component,
             host_component_props: crate::host_component::Props::from_json(&op.component_props_json),
-            intrinsic_size: op.has_intrinsic_size.then_some((op.intrinsic_width, op.intrinsic_height)),
+            intrinsic_size: op
+                .has_intrinsic_size
+                .then_some((op.intrinsic_width, op.intrinsic_height)),
             host_insets: crate::host_component::EdgeInsets::ZERO,
+            pending_host_report,
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -961,9 +980,15 @@ impl RNNodeView {
                     if let Some(component) = self.host_component.as_mut() {
                         component.update_object(props, &mut host);
                     }
-                    let (size, _events) = host.take();
+                    let (size, events) = host.take();
+                    let insets = host.take_insets();
                     if let Some((width, height)) = size {
                         crate::host_component::report_intrinsic_size(self.tag, width, height);
+                    }
+                    // `update_from_op` has no `App`, so the events and insets are
+                    // carried to the next render, which does.
+                    if !events.is_empty() || insets.is_some() {
+                        self.pending_host_report = Some((insets, size, events));
                     }
                 }
             }
@@ -1310,6 +1335,41 @@ fn accessibility_action_for_name(name: &str) -> Option<gpui::AccessibleAction> {
         "collapse" => gpui::AccessibleAction::Collapse,
         _ => return None,
     })
+}
+
+/// Applies what a host component reported. `create` and `update` used to take the
+/// size and drop the events, so a component that emitted from `update` — a chart
+/// answering a prop change, say — was silently ignored; the events and insets are
+/// now delivered the same way `render` and a command deliver them.
+fn apply_host_report(
+    tag: i32,
+    insets: Option<crate::host_component::EdgeInsets>,
+    size: Option<(f32, f32)>,
+    events: Vec<(String, serde_json::Value)>,
+    cx: &mut App,
+) {
+    if let Some(insets) = insets {
+        rn_gpui_sys::ffi::setHostComponentInsets(
+            tag,
+            insets.top,
+            insets.right,
+            insets.bottom,
+            insets.left,
+        );
+    }
+    if let Some((width, height)) = size {
+        crate::host_component::report_intrinsic_size(tag, width, height);
+    }
+    if events.is_empty() {
+        return;
+    }
+    let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+        return;
+    };
+    let host = store.0.read(cx).host.clone();
+    for (name, payload) in events {
+        host.dispatch_event(tag, &name, &payload);
+    }
 }
 
 fn dispatch_accessibility_event(
@@ -3482,10 +3542,8 @@ impl Render for RNNodeView {
                                 };
                                 let current = position.get();
                                 let next = point(
-                                    (current.x - dx / scale.0.max(f32::EPSILON))
-                                        .clamp(0.0, max.0),
-                                    (current.y - dy / scale.1.max(f32::EPSILON))
-                                        .clamp(0.0, max.1),
+                                    (current.x - dx / scale.0.max(f32::EPSILON)).clamp(0.0, max.0),
+                                    (current.y - dy / scale.1.max(f32::EPSILON)).clamp(0.0, max.1),
                                 );
                                 if (next.x - current.x).abs() < 0.01
                                     && (next.y - current.y).abs() < 0.01
@@ -3541,8 +3599,23 @@ impl Render for RNNodeView {
                 None
             };
             let (size, events) = host.take();
+            // A report `create`/`update` produced could not be dispatched there
+            // (no `App`), so it is delivered now, before this render's own.
+            if let Some((insets, size, events)) = self.pending_host_report.take() {
+                apply_host_report(self.tag, insets, size, events, cx);
+            }
             if let Some(insets) = host.take_insets() {
                 self.host_insets = insets;
+                // Reported to Fabric as well: the children are laid out by Yoga,
+                // so keeping the insets only here would inset them when painting
+                // and leave their layout overlapping the chrome.
+                rn_gpui_sys::ffi::setHostComponentInsets(
+                    self.tag,
+                    insets.top,
+                    insets.right,
+                    insets.bottom,
+                    insets.left,
+                );
             }
             if let Some((width, height)) = size {
                 crate::host_component::report_intrinsic_size(self.tag, width, height);
@@ -3902,7 +3975,10 @@ impl RNNodeView {
         cx: &mut gpui::App,
     ) {
         let Some(component) = self.host_component.as_mut() else {
-            log::debug!("[host-component] command '{name}' for tag {} with no component", self.tag);
+            log::debug!(
+                "[host-component] command '{name}' for tag {} with no component",
+                self.tag
+            );
             return;
         };
         let tag = self.tag;

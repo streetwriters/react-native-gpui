@@ -174,10 +174,16 @@ export default function HostComponentsFixture({
           text="scroll"
           characterWidth={9}
           lineHeight={18}
+          // Same as the column above: a stretched cross axis would hide the
+          // reported width behind the scroll view's.
+          style={{ alignSelf: 'flex-start' }}
         />
         <Text testID="scroll-sibling" style={{ color: '#94a3b8' }}>
           next to a measured label inside a scroll view
         </Text>
+        {/* Filler, so the content is taller than the 80-tall view: a scroll of a
+            view that cannot scroll proves nothing about tracking. */}
+        <View testID="scroll-filler" style={{ height: 400 }} />
       </ScrollView>
     </View>
   );

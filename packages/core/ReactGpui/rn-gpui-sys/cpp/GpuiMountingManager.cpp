@@ -398,6 +398,34 @@ void GpuiMountingManager::setHostComponentSize(
   state->updateState(std::move(next));
 }
 
+void GpuiMountingManager::setHostComponentInsets(
+    Tag tag,
+    float top,
+    float right,
+    float bottom,
+    float left) {
+  std::shared_ptr<const ConcreteState<GpuiHostStateData>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = hostStates_.find(tag);
+    if (it == hostStates_.end()) {
+      return;
+    }
+    state = it->second;
+  }
+  const auto& data = state->getData();
+  if (data.insetTop == top && data.insetRight == right &&
+      data.insetBottom == bottom && data.insetLeft == left) {
+    return;
+  }
+  GpuiHostStateData next = data;
+  next.insetTop = top;
+  next.insetRight = right;
+  next.insetBottom = bottom;
+  next.insetLeft = left;
+  state->updateState(std::move(next));
+}
+
 void GpuiMountingManager::setScrollOffset(Tag tag, float x, float y) {
   std::shared_ptr<const ConcreteState<ScrollViewState>> state;
   {

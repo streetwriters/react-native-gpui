@@ -88,6 +88,15 @@ class GpuiMountingManager : public IMountingManager {
   /// which is what `measureContent` reads, and asks for a commit so Yoga
   /// re-measures.
   void setHostComponentSize(Tag tag, float width, float height);
+
+  /// Applies a container's reported insets as Yoga padding around its React
+  /// children, and asks for the commit that re-lays them out.
+  void setHostComponentInsets(
+      Tag tag,
+      float top,
+      float right,
+      float bottom,
+      float left);
   void setWindowSize(float width, float height);
   void setWindowTopInset(float top);
   void setAccessibilityFocusedView(Tag viewTag) override;
