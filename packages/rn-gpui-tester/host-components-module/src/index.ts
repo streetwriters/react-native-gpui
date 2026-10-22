@@ -1,7 +1,8 @@
-export {
-  default as FixtureChart,
-  Commands as FixtureChartCommands,
-} from './FixtureChartNativeComponent';
+export { default as FixtureChart } from './FixtureChartNativeComponent';
+// `Commands` is deliberately not re-exported: React Native's codegen plugin
+// reserves that name for the result of `codegenNativeCommands` and rejects the
+// module if any other file exports it. Import it from the spec when a caller
+// needs to dispatch a command.
 export type {
   NativeProps as FixtureChartProps,
   FixtureChartPoint,

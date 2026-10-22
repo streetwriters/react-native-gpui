@@ -996,8 +996,8 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     // needs the view config, so codegen produces sources with no descriptor list.
     // The check therefore only applies to packages that render through their own
     // Fabric components.
-    const declaresHostComponents = Array.isArray(gpui.hostComponents)
-      && gpui.hostComponents.length > 0;
+    const declaresHostComponents =
+      Array.isArray(gpui.hostComponents) && gpui.hostComponents.length > 0;
     if (
       generatedCodegen.sources.length > 0 &&
       componentConfig.descriptors.length === 0 &&
@@ -1007,8 +1007,14 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `${dependencyName}: GPUI component Codegen is enabled, but platforms.desktop.componentDescriptors is empty`,
       );
     }
+    // A package that declares host components gets no generated C++ sources: core
+    // owns the props class, the shadow node and the descriptor for each name, so
+    // compiling codegen's own would register a second descriptor under the same
+    // component name. Fabric asserts the two handles match and the app dies at
+    // startup with `componentDescriptor->getComponentHandle() == provider.handle`.
+    // The specs are still read from JS, which is what the view config needs.
     appComponentSources.push(
-      ...generatedCodegen.sources,
+      ...(declaresHostComponents ? [] : generatedCodegen.sources),
       ...componentConfig.sources.map(source =>
         path.resolve(componentSourceRoot, source),
       ),

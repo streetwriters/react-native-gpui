@@ -4,10 +4,12 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import {
   FixtureCard,
   FixtureChart,
-  FixtureChartCommands,
   FixtureMeasuredLabel,
   type FixtureChartPoint,
 } from '@react-native-gpui/host-components-fixture';
+// From the spec, not the package index: `Commands` is reserved by the codegen
+// plugin and cannot be re-exported.
+import { Commands as FixtureChartCommands } from '@react-native-gpui/host-components-fixture/src/FixtureChartNativeComponent';
 
 /**
  * Host components (design 2, section 5.1 and 6.1).
@@ -42,11 +44,20 @@ export default function HostComponentsFixture({
   const chartHandle = () => chart.current ?? undefined;
   const [selected, setSelected] = useState<string>('none');
   const [seriesReports, setSeriesReports] = useState(0);
+  // `reportSeries` answers through the same `pointSelected` event, so a press of
+  // the report button sets this before the command runs and the handler reads it
+  // to tell a report from a selection.
+  const expectingReport = useRef(false);
   const [reportToken, setReportToken] = useState(0);
 
   const onPointSelected = useCallback(
     (event: { nativeEvent: { index: number; x: number; y: number } }) => {
       const { index, x, y } = event.nativeEvent;
+      if (expectingReport.current) {
+        expectingReport.current = false;
+        setSeriesReports(count => count + 1);
+        return;
+      }
       setSelected(`index=${index} x=${x} y=${y}`);
     },
     [],
@@ -94,7 +105,10 @@ export default function HostComponentsFixture({
             testID="host-chart-report"
             onPress={() => {
               const handle = chartHandle();
-              if (handle) FixtureChartCommands.reportSeries(handle);
+              if (handle) {
+                expectingReport.current = true;
+                FixtureChartCommands.reportSeries(handle);
+              }
             }}
           >
             <Text style={{ color: '#f8fafc', paddingTop: 8 }}>
