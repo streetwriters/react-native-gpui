@@ -1,5 +1,9 @@
 # Dependency / build artifacts
 node_modules/
+# Also match a symlink: `node_modules/` only matches a directory, and a worktree
+# that symlinks its dependencies into place would otherwise have the link itself
+# committed, pointing at an absolute path on one machine.
+node_modules
 target/
 build/
 *.o
