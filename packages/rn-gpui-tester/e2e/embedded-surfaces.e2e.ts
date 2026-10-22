@@ -7,6 +7,9 @@ import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
  */
 
 const HEADER = 32;
+/** Linux draws its own title bar inside the window, above the GPUI layout. */
+const CLIENT_FRAME = process.platform === 'linux' ? 26 : 0;
+const TOP = HEADER + CLIENT_FRAME;
 const SIDEBAR = 240;
 /** The fit panel: a 24-high button, an 8-high target, a 20-high label, and 22 per row. */
 const fitHeight = (rows: number) => 24 + 8 + 20 + rows * 22;
@@ -61,13 +64,13 @@ test('a Fill surface takes the box GPUI gave it, and its nodes report window coo
   await launchExample(1024, 768);
   expect(await frameOf('side-root')).toEqual({
     x: 0,
-    y: HEADER,
+    y: TOP,
     width: SIDEBAR,
-    height: 768 - HEADER,
+    height: 768 - TOP,
   });
   const first = await frameOf('side-first');
   expect(first.x).toBe(8);
-  expect(first.y).toBeGreaterThan(HEADER);
+  expect(first.y).toBeGreaterThan(TOP);
   expect(first.width).toBe(SIDEBAR - 16);
 });
 
@@ -75,7 +78,7 @@ test('a FitContent surface is as big as its React content', async () => {
   await launchExample();
   expect(await frameOf('fit-root')).toEqual({
     x: SIDEBAR,
-    y: HEADER,
+    y: TOP,
     width: 180,
     height: fitHeight(2),
   });
@@ -84,17 +87,17 @@ test('a FitContent surface is as big as its React content', async () => {
 test('GPUI lays out around a FitContent surface when its content grows', async () => {
   await launchExample(1024, 768);
   const below = await frameOf('below-root');
-  expect(below.y).toBe(HEADER + fitHeight(2));
+  expect(below.y).toBe(TOP + fitHeight(2));
   expect(below.x).toBe(SIDEBAR);
-  expect(below.height).toBe(768 - HEADER - fitHeight(2));
+  expect(below.height).toBe(768 - TOP - fitHeight(2));
 
   await app.click((await node('fit-grow')).tag);
   await app.waitForIdle();
   expect((await frameOf('fit-root')).height).toBe(fitHeight(3));
   const moved = await frameOf('below-root');
-  expect(moved.y).toBe(HEADER + fitHeight(3));
-  expect(moved.height).toBe(768 - HEADER - fitHeight(3));
-  expect((await frameOf('side-root')).height).toBe(768 - HEADER);
+  expect(moved.y).toBe(TOP + fitHeight(3));
+  expect(moved.height).toBe(768 - TOP - fitHeight(3));
+  expect((await frameOf('side-root')).height).toBe(768 - TOP);
 });
 
 test('resizing the window resizes every Fill surface and leaves the fit one alone', async () => {
@@ -103,13 +106,13 @@ test('resizing the window resizes every Fill surface and leaves the fit one alon
   await app.waitForIdle();
   expect(await frameOf('side-root')).toEqual({
     x: 0,
-    y: HEADER,
+    y: TOP,
     width: SIDEBAR,
-    height: 600 - HEADER,
+    height: 600 - TOP,
   });
   const below = await frameOf('below-root');
   expect(below.width).toBe(900 - SIDEBAR);
-  expect(below.height).toBe(600 - HEADER - fitHeight(2));
+  expect(below.height).toBe(600 - TOP - fitHeight(2));
   expect((await frameOf('fit-root')).height).toBe(fitHeight(2));
 });
 
