@@ -56,8 +56,9 @@ export default function HostComponentsFixture({
       if (expectingReport.current) {
         expectingReport.current = false;
         setSeriesReports(count => count + 1);
-        return;
       }
+      // `reportSeries` answers through this same event, so the selection text
+      // records the last reported point either way.
       setSelected(`index=${index} x=${x} y=${y}`);
     },
     [],
