@@ -1,10 +1,10 @@
-import type { Int32, TurboModule } from 'react-native';
+import type { CodegenTypes, TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 export type ContextMenuOptions = {
   x?: number;
   y?: number;
-  windowId?: Int32;
+  windowId?: CodegenTypes.Int32;
 };
 
 export type ContextMenuSelection = {

@@ -45,6 +45,13 @@ fn elapsed_since_first_render_ms() -> u128 {
 pub struct RNNodeView {
     pub tag: i32,
     render_count: u64,
+    /// Whether the pointer was over this node at the last hover sample.
+    ///
+    /// Kept here rather than in the mouse listener because GPUI clears
+    /// `mouse_listeners` on every frame: a listener-local flag would reset at each
+    /// paint, so a component would be told it was entered repeatedly and never
+    /// told the pointer left.
+    hovered: bool,
     pub surface_id: i32,
     pub component: String,
     pub native_view_name: String,
@@ -103,6 +110,271 @@ static A11Y_TREE_DUMP_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static A11Y_TREE_DUMP_COMPLETE: AtomicBool = AtomicBool::new(false);
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]
 static A11Y_TREE_DUMP_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+
+/// The DOM view of the modifiers held during an event.
+fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
+    crate::events::ModifierState::from_gpui(&modifiers)
+}
+
+/// Which `ComponentRenderer` hook to run for a button press or release.
+#[derive(Clone, Copy)]
+enum ComponentHook {
+    Down,
+    Up,
+}
+
+/// Runs a component renderer's mouse hook for one event.
+///
+/// The node and the renderer are resolved here rather than captured, because a
+/// component can be re-rendered between the event and the hook: a captured
+/// `ComponentNode` would describe the tree as it was when the listener was built.
+#[allow(clippy::too_many_arguments)]
+fn run_component_hook(
+    node: &gpui::WeakEntity<RNNodeView>,
+    captured: &crate::extensions::ComponentNode,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+    position: gpui::Point<gpui::Pixels>,
+    button: crate::events::Button,
+    click_count: usize,
+    modifiers: gpui::Modifiers,
+    hook: ComponentHook,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let component = node.read(cx).component.clone();
+    let Some(renderer) = crate::extensions::component_renderer(&component) else {
+        return;
+    };
+    let frame = captured.frame;
+    let local = gpui::point(
+        position.x - gpui::px(frame.x),
+        position.y - gpui::px(frame.y),
+    );
+    let event = crate::extensions::input::MouseEvent {
+        position,
+        local,
+        button,
+        buttons: button.mask(),
+        click_count,
+        modifiers: modifier_state(modifiers),
+    };
+    let mut context = crate::extensions::input::InputContext {
+        node: captured,
+        window,
+        cx,
+        captured: false,
+    };
+    let propagation = match hook {
+        ComponentHook::Down => renderer.on_mouse_down(captured, &event, &mut context),
+        ComponentHook::Up => renderer.on_mouse_up(captured, &event, &mut context),
+    };
+    if propagation == crate::extensions::input::Propagation::Stop {
+        context.cx.stop_propagation();
+    }
+}
+
+/// Handles a right press: reports the pointer event, then opens the nearest
+/// context menu.
+///
+/// One press, one node. The pointer event goes to the innermost target so RN
+/// bubbles it through the JS tree; the menu goes to the nearest ancestor-or-self
+/// that owns one, found by an explicit walk rather than by GPUI's bubbling. That
+/// walk is what lets a `Text` inside an `onContextMenu` view still open the
+/// parent's menu.
+fn dispatch_right_press(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseDownEvent,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(entity) = node.upgrade() else {
+        return;
+    };
+    let (owner, target) = {
+        let this = entity.read(cx);
+        (
+            crate::events::context_menu_owner(cx, this),
+            crate::events::target(cx, this),
+        )
+    };
+    if let Some(target) = target.as_ref() {
+        crate::events::send_pointer(
+            window,
+            cx,
+            target,
+            event.position,
+            crate::events::Phase::Start,
+            Some(crate::events::Button::Right),
+            crate::events::Button::Right.mask(),
+            modifier_state(event.modifiers),
+        );
+    }
+    let modifiers = modifier_state(event.modifiers);
+    if crate::events::mouse_context_menu_trigger(
+        crate::events::Button::Right,
+        modifiers,
+        std::env::consts::OS,
+    )
+    .is_some()
+    {
+        if let Some(owner) = owner {
+            // A component that asked for context menus owns the press and renders
+            // its own; a `View` with the prop dispatches to JS. The hook has to be
+            // preferred, or a `ContextMenuView` would both open natively and tell
+            // JS about a press it already handled.
+            if !run_component_context_menu(&owner, event.position, false, modifiers, window, cx) {
+                dispatch_context_menu(
+                    owner.tag,
+                    event.position,
+                    crate::events::Button::Right,
+                    modifiers,
+                    "mouse",
+                    window,
+                    cx,
+                );
+            }
+        }
+    }
+    cx.stop_propagation();
+}
+
+/// Runs a component's `on_context_menu` hook, if the owner is a component.
+///
+/// Returns whether the hook handled the press. `false` means the owner is a plain
+/// `View` with `onContextMenu`, which the caller dispatches to JS instead.
+fn run_component_context_menu(
+    owner: &crate::events::ContextMenuOwner,
+    position: gpui::Point<gpui::Pixels>,
+    is_keyboard: bool,
+    modifiers: crate::events::ModifierState,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) -> bool {
+    let Some(entity) = owner.entity.clone() else {
+        return false;
+    };
+    let Some(node) = entity.upgrade() else {
+        return false;
+    };
+    let component = node.read(cx).component.clone();
+    let Some(renderer) = crate::extensions::component_renderer(&component) else {
+        return false;
+    };
+    let component_node = {
+        let this = node.read(cx);
+        this.component_node(cx)
+    };
+    if !renderer.input(&component_node).context_menu {
+        return false;
+    }
+    let local = gpui::point(
+        position.x - gpui::px(component_node.frame.x),
+        position.y - gpui::px(component_node.frame.y),
+    );
+    let trigger = crate::extensions::input::ContextMenuTrigger {
+        source: if is_keyboard {
+            crate::events::ContextMenuTriggerSource::Keyboard
+        } else {
+            crate::events::ContextMenuTriggerSource::Mouse
+        },
+        position,
+        local,
+        button: crate::events::Button::Right,
+        modifiers,
+    };
+    let mut context = crate::extensions::input::InputContext {
+        node: &component_node,
+        window,
+        cx,
+        captured: false,
+    };
+    let propagation = renderer.on_context_menu(&component_node, &trigger, &mut context);
+    if propagation == crate::extensions::input::Propagation::Stop {
+        context.cx.stop_propagation();
+    }
+    true
+}
+
+/// Sends the DOM pointer events for one non-primary button press.
+///
+/// Shared by the middle and right listeners so the two cannot diverge; the
+/// button's mask is the only thing that differs.
+fn dispatch_pointer_button(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseDownEvent,
+    button: crate::events::Button,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let target = {
+        let this = node.read(cx);
+        crate::events::target(cx, this)
+    };
+    let Some(target) = target else {
+        return;
+    };
+    crate::events::send_pointer(
+        window,
+        cx,
+        &target,
+        event.position,
+        crate::events::Phase::Start,
+        Some(button),
+        button.mask(),
+        modifier_state(event.modifiers),
+    );
+    cx.stop_propagation();
+}
+
+/// Dispatches `topContextMenu` for a press, once `events` says it is a trigger.
+///
+/// `is_left` distinguishes the Ctrl + click case from the right click so the same
+/// listener body serves both; the trigger rule itself is in
+/// `events::mouse_context_menu_trigger`, so this and the extension hooks cannot
+/// disagree.
+fn dispatch_context_menu(
+    tag: i32,
+    position: gpui::Point<gpui::Pixels>,
+    button: crate::events::Button,
+    modifiers: crate::events::ModifierState,
+    trigger: &str,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let x = f32::from(position.x);
+    let y = f32::from(position.y);
+    // The window is resolved from the window the press arrived in, not from the
+    // pressed node's surface id: the owner may be several levels up and its
+    // surface is the same one either way.
+    let window_id = crate::desktop::windows::window_key_for_handle(cx, window.window_handle())
+        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
+    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+        let store = store.0.read(cx);
+        store.host.dispatch_event(
+            tag,
+            "topContextMenu",
+            &serde_json::json!({
+                "x": x,
+                "y": y,
+                "pageX": x,
+                "pageY": y,
+                "windowId": window_id,
+                "button": button.number(),
+                "ctrlKey": modifiers.ctrl,
+                "shiftKey": modifiers.shift,
+                "altKey": modifiers.alt,
+                "metaKey": modifiers.meta,
+                "trigger": trigger,
+            }),
+        );
+        store.frame_hook.arm(window);
+    }
+}
 
 impl RNNodeView {
     pub(crate) fn accessibility_focus_handle(&self) -> Option<FocusHandle> {
@@ -498,6 +770,7 @@ impl RNNodeView {
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
+            hovered: false,
             surface_id,
             component: op.component.clone(),
             native_view_name: op.native_view_name.clone(),
@@ -1701,36 +1974,32 @@ impl RNNodeView {
     }
 }
 
+/// Reports a key to JS with the names the DOM uses.
+///
+/// `key` is the DOM's `KeyboardEvent.key`: `ArrowLeft`, `Enter`, `Escape`, a
+/// single printable character, or `" "` for space. `code` is the physical key
+/// (`KeyA`, `Digit4`, `ArrowLeft`) and `keyCode` the legacy number. Before this,
+/// only six keys were translated and everything else went out as GPUI's own
+/// spelling with `keyCode: 0`, so JS could not tell `ArrowLeft` from an unknown
+/// key.
+///
+/// The GPUI spelling is kept in `gpuiKey` for anything that still matches on it.
+/// Nothing in core reads the payload back — the internal handling matches on
+/// `event.keystroke.key` before this runs — so this is purely what JS sees.
 fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool, cx: &App) {
     let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
         return;
     };
     let host = store.0.read(cx).host.clone();
-    let code = match key.key.as_str() {
-        "tab" => "Tab",
-        "enter" => "Enter",
-        "escape" => "Escape",
-        "space" => "Space",
-        "backspace" => "Backspace",
-        "delete" => "Delete",
-        other => other,
-    };
-    let key_code = match key.key.as_str() {
-        "tab" => 9,
-        "enter" => 13,
-        "escape" => 27,
-        "space" => 32,
-        "backspace" => 8,
-        "delete" => 46,
-        _ => 0,
-    };
+    let key_name = crate::desktop::keymap::normalise_web_key(&key.key, key.modifiers.shift);
     host.dispatch_event(
         tag,
         event_type,
         &serde_json::json!({
-            "key": if key.key == "space" { " " } else { key.key.as_str() },
-            "code": code,
-            "keyCode": key_code,
+            "key": key_name,
+            "gpuiKey": key.key.as_str(),
+            "code": crate::desktop::keymap::web_code(&key.key),
+            "keyCode": crate::desktop::keymap::key_code(&key.key),
             "repeat": repeat,
             "shiftKey": key.modifiers.shift,
             "ctrlKey": key.modifiers.control,
@@ -1911,6 +2180,72 @@ impl Render for RNNodeView {
             }
         }
         let mut element = div().id(self.tag);
+        // Everything that puts this node into keymap resolution goes through one
+        // `KeyContext`, because `Div::key_context` *assigns*: a second call would
+        // silently replace the first. Building one context and merging into it
+        // means a node that is both a scope and a text input keeps both markers,
+        // instead of one vanishing with no warning.
+        //
+        // This is also the only place a context can go: GPUI keeps it on the
+        // element and pushes it onto the dispatch tree at paint, which is what
+        // makes the focus path's context stack — and so the scope precedence —
+        // real.
+        let key_context = {
+            let mut context = gpui::KeyContext::default();
+            let mut claimed = false;
+            if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
+                let node = self.component_node_shallow();
+                if let Some(declared) = renderer.key_context(&node) {
+                    match gpui::KeyContext::parse(&declared) {
+                        Ok(parsed) => {
+                            context.extend(&parsed);
+                            claimed = true;
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "[shortcut] {} has an invalid key context {declared:?}: {error}",
+                                self.component
+                            );
+                        }
+                    }
+                }
+            }
+            // A `TextInput` marks itself so a shortcut that did not ask for
+            // `allowInTextInput` can exclude itself with `!rn-text-input`. The
+            // marker is on the node's own element, so it is on the focus path of
+            // every key the input handles.
+            if self.component == "TextInput" {
+                if let Ok(marker) =
+                    gpui::KeyContext::parse(crate::desktop::keymap::TEXT_INPUT_CONTEXT)
+                {
+                    context.extend(&marker);
+                    claimed = true;
+                }
+            }
+            claimed.then_some(context)
+        };
+        if let Some(context) = key_context {
+            element = element.key_context(context);
+        }
+        // A shortcut scope owns the `ShortcutAction`s whose ids it registered.
+        // The listener is in the bubble phase, innermost node first, so the
+        // deepest scope on the focus path claims the action and an outer one
+        // never sees it — which is the "innermost wins" rule. A scope that does
+        // not own the id propagates, so an outer scope, or the app-wide handler,
+        // still gets its turn.
+        if self.component == crate::builtins::shortcut_scope::COMPONENT {
+            let tag = self.tag;
+            let scope = crate::builtins::shortcut_scope::scope_name(&self.component_node_shallow());
+            element = element.on_action(cx.listener(
+                move |_this, action: &crate::desktop::keymap::ShortcutAction, window, cx| {
+                    if !crate::desktop::keymap::scope_owns(cx, &scope, &action.id) {
+                        cx.propagate();
+                        return;
+                    }
+                    crate::desktop::keymap::dispatch_to(cx, tag, &action.id, Some(window));
+                },
+            ));
+        }
         let decoration = self.decoration(cx);
         if decoration.clip {
             element = element.overflow_hidden();
@@ -1918,15 +2253,12 @@ impl Render for RNNodeView {
         if let Some(background) = decoration.background {
             element = element.bg(gpui::rgb(background));
         }
-        if self.view.desktop_drag_region {
-            element = element.window_control_area(gpui::WindowControlArea::Drag);
-        } else {
-            match self.view.desktop_window_control.as_str() {
-                "minimize" => element = element.window_control_area(gpui::WindowControlArea::Min),
-                "maximize" => element = element.window_control_area(gpui::WindowControlArea::Max),
-                "close" => element = element.window_control_area(gpui::WindowControlArea::Close),
-                _ => {}
-            }
+        // One helper decides the area, so a `View` drag region and a component
+        // that claims a caption button cannot disagree — and the component wins
+        // its own box, which is what makes a `WindowControl` inside a title bar
+        // act as a button rather than drag the window.
+        if let Some(area) = self.window_control_area(cx) {
+            element = element.window_control_area(area);
         }
         let accessibility_id = if self.view.accessibility_native_id.is_empty() {
             &self.view.test_id
@@ -2570,74 +2902,126 @@ impl Render for RNNodeView {
         // under a still pointer rebuild every row. It is the first child so its
         // hitbox and handlers keep the order the node's own div would give them.
         let mut handlers = PointerHandlers::default();
-        if self.view.on_context_menu {
-            let node = cx.entity().downgrade();
-            handlers
-                .right_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    let Some(node) = node.upgrade() else {
-                        return;
-                    };
-                    let (tag, surface_id) = {
-                        let this = node.read(cx);
-                        (this.tag, this.surface_id)
-                    };
-                    let x = f32::from(event.position.x);
-                    let y = f32::from(event.position.y);
-                    let window_id = cx
-                        .try_global::<crate::desktop::windows::DesktopWindowsGlobal>()
-                        .and_then(|windows| {
-                            windows
-                                .0
-                                .entry_for_surface(surface_id)
-                                .map(|entry| entry.key)
-                        })
-                        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
-                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                        let store = store.0.read(cx);
-                        store.host.dispatch_event(
-                            tag,
-                            "topContextMenu",
-                            &serde_json::json!({
-                                "x": x,
-                                "y": y,
-                                "pageX": x,
-                                "pageY": y,
-                                "windowId": window_id,
-                            }),
+        // A component renderer that asked for input gets it through the same
+        // handlers the View props use, so ordering with RN's touch handling and
+        // the scroll-container case stays as it was.
+        let input_spec = crate::extensions::component_renderer(&self.component).map(|renderer| {
+            let node = self.component_node(cx);
+            let spec = renderer.input(&node);
+            (spec, node)
+        });
+        if let Some((spec, node)) = input_spec.clone() {
+            for button in [
+                crate::events::Button::Left,
+                crate::events::Button::Middle,
+                crate::events::Button::Right,
+                crate::events::Button::Back,
+                crate::events::Button::Forward,
+            ] {
+                if !spec.mouse_buttons.contains(button) {
+                    continue;
+                }
+                let down_node = cx.entity().downgrade();
+                let down_component = node.clone();
+                let handler: crate::pointer_area::PointerHandler<MouseDownEvent> =
+                    Rc::new(move |event: &MouseDownEvent, window, cx| {
+                        run_component_hook(
+                            &down_node,
+                            &down_component,
+                            window,
+                            cx,
+                            event.position,
+                            button,
+                            event.click_count,
+                            event.modifiers,
+                            ComponentHook::Down,
                         );
-                        store.frame_hook.arm(window);
-                    }
-                    cx.stop_propagation();
-                }));
+                    });
+                match button {
+                    crate::events::Button::Left => handlers.left_down.push(handler),
+                    crate::events::Button::Middle => handlers.middle_down.push(handler),
+                    crate::events::Button::Right => handlers.right_down.push(handler),
+                    crate::events::Button::Back => handlers.back_down.push(handler),
+                    crate::events::Button::Forward => handlers.forward_down.push(handler),
+                }
+                let up_node = cx.entity().downgrade();
+                let up_component = node.clone();
+                let handler: crate::pointer_area::PointerHandler<MouseUpEvent> =
+                    Rc::new(move |event: &MouseUpEvent, window, cx| {
+                        run_component_hook(
+                            &up_node,
+                            &up_component,
+                            window,
+                            cx,
+                            event.position,
+                            button,
+                            event.click_count,
+                            event.modifiers,
+                            ComponentHook::Up,
+                        );
+                    });
+                match button {
+                    crate::events::Button::Left => handlers.left_up.push(handler),
+                    crate::events::Button::Middle => handlers.middle_up.push(handler),
+                    crate::events::Button::Right => handlers.right_up.push(handler),
+                    crate::events::Button::Back => handlers.back_up.push(handler),
+                    crate::events::Button::Forward => handlers.forward_up.push(handler),
+                }
+            }
+            if spec.hover {
+                // The edge is decided here, on the entity, because the listener
+                // that reports the sample is rebuilt on every paint.
+                let hover_node = cx.entity().downgrade();
+                let hover_component = node.clone();
+                handlers
+                    .hover
+                    .push(Rc::new(move |hovered: bool, window, cx| {
+                        let Some(entity) = hover_node.upgrade() else {
+                            return;
+                        };
+                        let component = entity.read(cx).component.clone();
+                        let Some(renderer) = crate::extensions::component_renderer(&component)
+                        else {
+                            return;
+                        };
+                        let changed = entity.update(cx, |this, _| {
+                            if this.hovered == hovered {
+                                return false;
+                            }
+                            this.hovered = hovered;
+                            true
+                        });
+                        if !changed {
+                            return;
+                        }
+                        let mut context = crate::extensions::input::InputContext {
+                            node: &hover_component,
+                            window,
+                            cx,
+                            captured: false,
+                        };
+                        renderer.on_hover(&hover_component, hovered, &mut context);
+                    }));
+            }
         }
-        // Registered before the RN touch handler so the drag region sees the press;
-        // a child's handler runs first and stops propagation, so buttons inside
-        // the bar keep working.
-        if self.view.desktop_drag_region || !self.view.desktop_window_control.is_empty() {
-            let control = self.view.desktop_window_control.clone();
-            let drag_region = self.view.desktop_drag_region;
+        if self.view.desktop_drag_region {
+            // A caption button inside the bar claims its own area and handles its
+            // own press through the extension hook, so the drag must not also run
+            // there. The area is read once here because this closure outlives the
+            // borrow of `self`.
+            let claims_area = self.window_control_area(cx).is_some();
             handlers
                 .left_down
                 .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    if !control.is_empty() {
-                        match control.as_str() {
-                            "minimize" => window.minimize_window(),
-                            "maximize" => window.zoom_window(),
-                            "close" => window.remove_window(),
-                            _ => {}
-                        }
-                        cx.stop_propagation();
+                    if claims_area {
                         return;
                     }
-                    if drag_region {
-                        if event.click_count >= 2 {
-                            window.titlebar_double_click();
-                        } else {
-                            window.start_window_move();
-                        }
-                        cx.stop_propagation();
+                    if event.click_count >= 2 {
+                        window.titlebar_double_click();
+                    } else {
+                        window.start_window_move();
                     }
+                    cx.stop_propagation();
                 }));
         }
         if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
@@ -2684,7 +3068,85 @@ impl Render for RNNodeView {
                         &target,
                         event.position,
                         crate::events::Phase::Start,
+                        Some(crate::events::Button::Left),
+                        modifier_state(event.modifiers),
                     );
+                    cx.stop_propagation();
+                }));
+            // Every other button reports the DOM pointer events only, with no
+            // touch or responder involvement, so `Pressable` never fires for a
+            // middle or right click. The right button is only wired here when the
+            // view has no `onContextMenu`, since that handler owns the press
+            // otherwise and stopping there would hide the pointer event too.
+            let middle_node = node.clone();
+            handlers
+                .middle_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    dispatch_pointer_button(
+                        &middle_node,
+                        event,
+                        crate::events::Button::Middle,
+                        window,
+                        cx,
+                    );
+                }));
+            // Every node that takes pointer input handles the right button, whether
+            // or not it owns a context menu. One press must do both jobs: report
+            // `topPointerDown` for the innermost node, and open the nearest
+            // ancestor's menu. Splitting them across two nodes is what broke a
+            // right click on a `Text` inside a view with `onContextMenu` — the
+            // text's listener stopped the press before the parent's ran.
+            let right_node = node.clone();
+            handlers
+                .right_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    dispatch_right_press(&right_node, event, window, cx);
+                }));
+            // Ctrl + click is the macOS equivalent of a right click. It is a left
+            // press, so it must not also start a touch, or a `Pressable` would
+            // fire; the check happens before any touch dispatch.
+            let ctrl_node = node.clone();
+            handlers
+                .left_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    let modifiers = modifier_state(event.modifiers);
+                    if crate::events::mouse_context_menu_trigger(
+                        crate::events::Button::Left,
+                        modifiers,
+                        std::env::consts::OS,
+                    )
+                    .is_none()
+                    {
+                        return;
+                    }
+                    let Some(entity) = ctrl_node.upgrade() else {
+                        return;
+                    };
+                    let owner = {
+                        let this = entity.read(cx);
+                        crate::events::context_menu_owner(cx, this)
+                    };
+                    let Some(owner) = owner else {
+                        return;
+                    };
+                    if !run_component_context_menu(
+                        &owner,
+                        event.position,
+                        false,
+                        modifiers,
+                        window,
+                        cx,
+                    ) {
+                        dispatch_context_menu(
+                            owner.tag,
+                            event.position,
+                            crate::events::Button::Left,
+                            modifiers,
+                            "mouse",
+                            window,
+                            cx,
+                        );
+                    }
                     cx.stop_propagation();
                 }));
             // Not `cx.listener`: a listener updates its entity every time it runs, and
@@ -2726,6 +3188,8 @@ impl Render for RNNodeView {
                                 target,
                                 event.position,
                                 crate::events::Phase::Move,
+                                None,
+                                modifier_state(event.modifiers),
                             );
                         }
                     } else {
@@ -2749,6 +3213,8 @@ impl Render for RNNodeView {
                             target,
                             event.position,
                             crate::events::Phase::End,
+                            Some(crate::events::Button::Left),
+                            modifier_state(event.modifiers),
                         );
                     }
                     let is_touch_target = {
@@ -2761,31 +3227,66 @@ impl Render for RNNodeView {
                 }));
         }
         // A child of a scrolling container moves with its content, so a pointer area
-        // here would drift off the viewport.
-        if is_scroll {
-            for handler in handlers.right_down {
-                element = element.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
-            }
-            for handler in handlers.left_down {
-                element = element.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
-            }
-            for handler in handlers.left_up {
-                element = element.on_mouse_up(MouseButton::Left, move |event, window, cx| {
-                    handler(event, window, cx)
-                });
+        // here would drift off the viewport. A node that claims a window-control
+        // area has the same problem for a different reason: the platform asks
+        // which element is under the pointer, and an overlay child sits in front
+        // of its own parent, so the area would never be consulted and the window
+        // could not be dragged by the node that asked to be draggable.
+        let claims_area = self.window_control_area(cx).is_some();
+        if is_scroll || claims_area {
+            // The direct-listener path needs one registration per button, and
+            // the middle and side buttons go through it too, so a scroll
+            // container reports them the same way a pointer area does.
+            for (button, down, up) in [
+                (
+                    MouseButton::Right,
+                    handlers.right_down.clone(),
+                    handlers.right_up.clone(),
+                ),
+                (
+                    MouseButton::Left,
+                    handlers.left_down.clone(),
+                    handlers.left_up.clone(),
+                ),
+                (
+                    MouseButton::Middle,
+                    handlers.middle_down.clone(),
+                    handlers.middle_up.clone(),
+                ),
+            ] {
+                for handler in down {
+                    element = element
+                        .on_mouse_down(button, move |event, window, cx| handler(event, window, cx));
+                }
+                for handler in up {
+                    element = element
+                        .on_mouse_up(button, move |event, window, cx| handler(event, window, cx));
+                }
             }
             for handler in handlers.mouse_move {
                 element =
                     element.on_mouse_move(move |event, window, cx| handler(event, window, cx));
             }
+            // GPUI's own `on_hover` reports an edge by tracking the hovered state
+            // itself, so this path needs no bookkeeping of its own — and it takes
+            // only one listener, so the handlers are chained rather than added.
+            if !handlers.hover.is_empty() {
+                let chained = handlers.hover;
+                element = element.on_hover(move |hovered: &bool, window, cx| {
+                    for handler in &chained {
+                        handler(*hovered, window, cx);
+                    }
+                });
+            }
         } else {
             if !handlers.is_empty() {
                 element = element.child(pointer_area(handlers));
             }
+        }
+        // Not for a scroll container, which never had one: its content is
+        // re-parented into the scrolling child and a focus handle here would sit
+        // outside it.
+        if !is_scroll {
             if let Some(focus_child) = focus_child {
                 element = element.child(focus_child);
             }
@@ -3216,6 +3717,35 @@ impl RNNodeView {
 
     pub(crate) fn extension_props_json(&self) -> &str {
         &self.extension_props_json
+    }
+
+    /// The window-control area this node claims, if any.
+    ///
+    /// A component's `window_control()` hook is the only way to claim a caption
+    /// button now that `desktopWindowControl` is gone. `desktopDragRegion` still
+    /// marks a drag area, and a component that claimed a button overrides it so a
+    /// button inside a title bar acts as a button and does not drag the window.
+    fn window_control_area(&self, cx: &gpui::App) -> Option<gpui::WindowControlArea> {
+        let claimed = crate::extensions::component_renderer(&self.component).and_then(|renderer| {
+            let node = self.component_node(cx);
+            renderer.window_control(&node)
+        });
+        match claimed {
+            Some(crate::extensions::input::WindowControl::Minimize) => {
+                Some(gpui::WindowControlArea::Min)
+            }
+            Some(crate::extensions::input::WindowControl::Maximize) => {
+                Some(gpui::WindowControlArea::Max)
+            }
+            Some(crate::extensions::input::WindowControl::Close) => {
+                Some(gpui::WindowControlArea::Close)
+            }
+            Some(crate::extensions::input::WindowControl::Drag) => {
+                Some(gpui::WindowControlArea::Drag)
+            }
+            None if self.view.desktop_drag_region => Some(gpui::WindowControlArea::Drag),
+            None => None,
+        }
     }
 
     pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {

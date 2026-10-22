@@ -31,6 +31,8 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
             window_position: capabilities::window_position(),
             always_on_top: capabilities::always_on_top(),
             transparent_titlebar: capabilities::transparent_titlebar(),
+            menu_bar_in_window: capabilities::menu_bar_in_window(),
+            client_decorations: capabilities::client_decorations(),
         })
     }
 

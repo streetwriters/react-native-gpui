@@ -4,15 +4,19 @@
  * The bar is a drag region: pressing it moves the window and a double click
  * zooms (or minimizes, per the user's macOS setting). On macOS the traffic
  * lights stay visible above a transparent title bar, so the bar leaves room for
- * them; on Windows and Linux it can draw its own caption buttons.
+ * them; elsewhere it draws its own caption buttons, but only where the window
+ * really is frameless — a Linux compositor can refuse the request and leave the
+ * window manager's own title bar in place, and a second set of buttons beside it
+ * would be a bug.
  *
  * @format
  */
 
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { platform } from './index';
+import { capabilities } from './index';
+import { WindowControl } from './WindowControl';
 
 export interface TitleBarProps {
   title?: string;
@@ -28,10 +32,6 @@ const CAPTION_BUTTONS = [
   { control: 'close' as const, label: '\u00d7' },
 ];
 
-function hostOs(): string {
-  return platform() ?? 'macos';
-}
-
 export function TitleBar({
   title,
   trafficLightInset,
@@ -39,9 +39,16 @@ export function TitleBar({
   style,
   children,
 }: TitleBarProps) {
-  const isMac = hostOs() === 'macos';
+  // `Platform.OS` is the host, reported by the desktop module, so it needs no
+  // fallback: it is `macos`, `windows` or `linux` on a desktop build.
+  const isMac = Platform.OS === 'macos';
+  // A window that kept its native title bar already has buttons, so drawing a
+  // second set would only ever be wrong. `clientDecorations` is the capability
+  // that says whether the window is really frameless, which on Linux depends on
+  // what the compositor granted.
+  const frameless = capabilities().clientDecorations;
   const inset = trafficLightInset ?? (isMac ? 78 : 0);
-  const captionButtons = showCaptionButtons ?? !isMac;
+  const captionButtons = showCaptionButtons ?? (frameless && !isMac);
   return (
     <View desktopDragRegion style={[styles.bar, { paddingLeft: inset }, style]}>
       {title != null ? (
@@ -54,13 +61,18 @@ export function TitleBar({
       </View>
       {captionButtons
         ? CAPTION_BUTTONS.map(button => (
-            <View
+            <WindowControl
               key={button.control}
-              desktopWindowControl={button.control}
-              style={styles.captionButton}
+              action={button.control}
+              testID={`titlebar-${button.control}`}
+              style={({ hovered, pressed }) => [
+                styles.captionButton,
+                hovered && styles.captionButtonHovered,
+                pressed && styles.captionButtonPressed,
+              ]}
             >
               <Text style={styles.captionLabel}>{button.label}</Text>
-            </View>
+            </WindowControl>
           ))
         : null}
     </View>
@@ -92,6 +104,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 4,
+  },
+  captionButtonHovered: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  captionButtonPressed: {
+    backgroundColor: 'rgba(0, 0, 0, 0.16)',
   },
   captionLabel: {
     fontSize: 13,

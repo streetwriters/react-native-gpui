@@ -166,7 +166,9 @@ async function collect(
 
   publish({
     tick: await new Promise<string>(resolve => {
-      const emitter = new NativeEventEmitter(module);
+      const emitter = new NativeEventEmitter<{
+        fixtureTick: [{ n: number }];
+      }>(module);
       const tickSubscription = emitter.addListener(
         'fixtureTick',
         (payload: { n: number }) => {

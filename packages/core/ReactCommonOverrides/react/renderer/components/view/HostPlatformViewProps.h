@@ -25,18 +25,22 @@ class HostPlatformViewProps : public BaseViewProps {
             "desktopDragRegion",
             sourceProps.desktopDragRegion,
             false)),
-        desktopWindowControl(convertRawProp(
-            context,
-            rawProps,
-            "desktopWindowControl",
-            sourceProps.desktopWindowControl,
-            {})),
-        onContextMenu(convertRawProp(
-            context,
-            rawProps,
-            "onContextMenu",
-            sourceProps.onContextMenu,
-            false)) {}
+        // Either handler is enough to make the view a context-menu target. Fabric
+        // turns a function prop into `true`, so a view with only the capture
+        // handler used to get no listener at all.
+        onContextMenu(
+            convertRawProp(
+                context,
+                rawProps,
+                "onContextMenu",
+                sourceProps.onContextMenu,
+                false) ||
+            convertRawProp(
+                context,
+                rawProps,
+                "onContextMenuCapture",
+                false,
+                false)) {}
 
   void setProp(
       const PropsParserContext& context,
@@ -48,16 +52,17 @@ class HostPlatformViewProps : public BaseViewProps {
     switch (hash) {
       RAW_SET_PROP_SWITCH_CASE_BASIC(focusable);
       RAW_SET_PROP_SWITCH_CASE_BASIC(desktopDragRegion);
-      RAW_SET_PROP_SWITCH_CASE_BASIC(desktopWindowControl);
+      // There is one stored flag, so only `onContextMenu` gets a case here; a
+      // second case would need a field that does not exist. An update to either
+      // prop still re-parses through the constructor above, where the two are
+      // OR'd, so a view that swaps `onContextMenu` for `onContextMenuCapture`
+      // keeps its listener.
       RAW_SET_PROP_SWITCH_CASE_BASIC(onContextMenu);
     }
   }
 
   bool focusable{false};
   bool desktopDragRegion{false};
-  /// "minimize" | "maximize" | "close": a custom caption button. Windows uses
-  /// it for snap layouts; elsewhere the press is an ordinary button.
-  std::string desktopWindowControl{};
   /// True when the view has an `onContextMenu` handler (RN turns a function
   /// prop into this boolean marker).
   bool onContextMenu{false};

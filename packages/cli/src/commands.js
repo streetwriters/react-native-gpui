@@ -509,6 +509,27 @@ export function desktopLaunchConfig(config, configPath) {
   if (settings.restoreState === false) {
     chain.push('    .restore_window_state(false)');
   }
+  if (settings.menuBar === false) {
+    // Only meaningful where the bar is drawn inside the window; macOS ignores it,
+    // and the `menuBarInWindow` capability says so.
+    chain.push('    .menu_bar(false)');
+  }
+  if (settings.titleBar !== undefined && settings.titleBar !== 'default') {
+    // The default is the platform's own bar, so only the two custom kinds are
+    // emitted. The enum is spelled out in full because the generated file has no
+    // `use` lines to import it with.
+    const variant = settings.titleBar === 'hidden' ? 'Hidden' : 'Transparent';
+    chain.push(`    .title_bar(react_native_gpui::WindowTitleBar::${variant})`);
+  }
+  if (settings.trafficLightPosition !== undefined) {
+    const { x, y } = settings.trafficLightPosition;
+    if (x === undefined || y === undefined) {
+      throw new Error(
+        `desktop/desktop.json window.trafficLightPosition needs x and y: ${configPath}`,
+      );
+    }
+    chain.push(`    .traffic_light_position(${asFloat(x)}, ${asFloat(y)})`);
+  }
   chain.push(`    .dev_menu(${config.devMenu})`);
   if (config.tray !== undefined) {
     const tray = config.tray;
@@ -559,7 +580,13 @@ ${chain.join('\n')};
 `;
 }
 
-function scaffoldDesktop(
+/// The file that pulls the published type augmentation into an app's build.
+const ENV_TYPES_FILE = 'react-native-gpui-env.d.ts';
+const ENV_TYPES_CONTENT = `/// <reference types="@react-native-gpui/core/types" />
+// Added by react-native-gpui. Do not edit: it is regenerated.
+`;
+
+export function scaffoldDesktop(
   projectRoot,
   packageJson,
   { preserveExisting = false, beforeWrite = () => {} } = {},
@@ -584,6 +611,17 @@ function scaffoldDesktop(
       cargoPath,
       `[package]\nname = ${JSON.stringify(appPackageName(projectRoot, packageJson))}\nversion = "0.1.0"\nedition = "2021"\n\n# Set CARGO_PROFILE_DEV_DEBUG=full to opt into full debug information.\n[profile.dev]\ndebug = "line-tables-only"\nsplit-debuginfo = "packed"\n\n# Dependencies are optimized even in a dev build: GPUI rebuilds and paints the\n# element tree on every frame, and they are only compiled once.\n[profile.dev.package."*"]\ndebug = false\nopt-level = 3\n\n# The C++ bridge picks its CMake build type from this crate's opt-level, and a\n# Release build of React Native has no dev server, inspector or Fast Refresh.\n[profile.dev.package.rn-gpui-sys]\nopt-level = 0\n\n[profile.release]\ndebug = "line-tables-only"\n# Cargo strips inside the linker, before dsymutil, so package-desktop writes the\n# dSYM and then strips. Full LTO: 2 MB smaller for 1.4x the build time.\nstrip = "none"\nsplit-debuginfo = "packed"\nlto = "fat"\ncodegen-units = 1\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n`,
     );
+  }
+
+  // The type augmentation for the desktop View props is global, and a TypeScript
+  // augmentation only applies when the file declaring it is compiled. This
+  // reference is what puts it in the app's compilation, the way Next.js and Vite
+  // write theirs, so `desktopDragRegion` and `onContextMenu` type-check without an
+  // import of the desktop entry point.
+  const envPath = path.join(projectRoot, ENV_TYPES_FILE);
+  if (!preserveExisting || !fs.existsSync(envPath)) {
+    beforeWrite(envPath);
+    fs.writeFileSync(envPath, ENV_TYPES_CONTENT);
   }
 
   const appConfigPath = path.join(projectRoot, 'app.json');
@@ -793,6 +831,7 @@ export function initDesktop({
     for (const step of [
       'Install @react-native-gpui/core and @react-native-gpui/cli in the app.',
       'Copy the desktop/ scaffold from @react-native-gpui/cli/templates/app/desktop.',
+      'Add react-native-gpui-env.d.ts to the app root: /// <reference types="@react-native-gpui/core/types" />',
       'Run npm install (or your package manager), then npx react-native run-desktop.',
     ]) {
       console.error(`  - ${step}`);

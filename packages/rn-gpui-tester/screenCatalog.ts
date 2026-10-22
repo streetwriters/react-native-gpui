@@ -324,6 +324,12 @@ export const screens = [
     fixture: 'DesktopMenuFixture',
   },
   {
+    id: 'shortcuts',
+    title: 'Keyboard shortcuts',
+    group: 'Platform',
+    fixture: 'ShortcutsFixture',
+  },
+  {
     id: 'context-menu',
     title: 'Context menus',
     group: 'Platform',

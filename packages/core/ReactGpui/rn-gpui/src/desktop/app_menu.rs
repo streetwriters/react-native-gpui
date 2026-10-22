@@ -106,6 +106,15 @@ pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
     // because a window with no focused element has no dispatch path for the
     // keymap to resolve, and a global shortcut must work in that state too.
     let interceptor = cx.intercept_keystrokes(|event, window, cx| {
+        // Yield to a shortcut. The keymap resolves a keystroke from the focused
+        // element's context, and a shortcut in a scope outranks the app-wide
+        // menu accelerator — but an interceptor runs *before* the keymap is
+        // consulted, so handling the key here would take it away from a shortcut
+        // that is entitled to it. Asking the keymap first is what keeps the
+        // precedence the rest of this design promises.
+        if crate::desktop::keymap::claims_keystroke(cx, window, &event.keystroke) {
+            return;
+        }
         if handle_accelerator(cx, window, &event.keystroke) {
             cx.stop_propagation();
         }
@@ -210,12 +219,40 @@ pub fn update_item(cx: &mut App, id: &str, patch: &Value) -> DesktopResult {
     Ok(json!({"id": id}))
 }
 
+/// Shows or hides the in-window menu bar of one window.
+///
+/// Windows detaches the `muda` menu from the HWND rather than destroying it: the
+/// menu stays alive in the global so the same items can be shown again, and
+/// accelerators are GPUI key bindings that never went through the menu widget, so
+/// they keep working either way. Linux skips attaching the bar and drops the
+/// inset, which is what makes the React surface grow into the space.
+pub fn set_menu_bar_visible(cx: &mut gpui::App, window_id: u32, visible: bool) -> DesktopResult {
+    crate::desktop::gpui_menu::set_menu_bar_visible(window_id, visible);
+    #[cfg(target_os = "windows")]
+    {
+        set_windows_menu_attached(cx, window_id, visible)?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = cx;
+    }
+    // The surface size follows the bar, and the window has to relayout for the
+    // inset change to reach the React root.
+    crate::desktop::gpui_menu::resize_surfaces_for_menu_bar(cx, window_id);
+    Ok(json!({"windowId": window_id, "menuBarVisible": visible}))
+}
+
 pub fn menu_json(cx: &App) -> Value {
     let state = &cx.global::<AppMenuGlobal>().0;
     json!({
         "appName": state.app_name,
         "userSet": state.user_set,
         "items": nodes_json(&state.model.items),
+        // The main window's bar, which is the one an app asks about. A hidden
+        // bar is per window, so this reports the window the call is about.
+        "menuBarVisible": !crate::desktop::gpui_menu::menu_bar_hidden(
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+        ),
     })
 }
 
@@ -614,6 +651,47 @@ fn is_desktop_action(action: &dyn Action) -> bool {
 
 /// Windows: `muda` attaches a native Win32 menu to the window's HWND.
 ///
+/// Attaches or detaches the native menu bar on the window's HWND.
+///
+/// `muda` 0.15 has no hide/show for an HWND, so this uses `SetMenu` directly and
+/// keeps the `muda::Menu` alive in `AppMenuGlobal` either way: detaching is what
+/// hiding means, and the same menu is re-attached to show it again. The window
+/// subclass `muda` installed stays in place, so clicks still route back to the
+/// same dispatch when the bar returns.
+#[cfg(target_os = "windows")]
+fn set_windows_menu_attached(cx: &mut gpui::App, window_id: u32, visible: bool) -> DesktopResult {
+    use muda::ContextMenu as _;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DrawMenuBar, SetMenu};
+
+    let menu = if visible {
+        // Re-attach the menu that is still held in the global: hiding detached it
+        // rather than destroying it, so the same items come back. `hpopupmenu` is
+        // on muda's `ContextMenu` trait, not on `Menu` itself.
+        cx.try_global::<AppMenuGlobal>()
+            .and_then(|global| global.0.platform_menu.as_ref())
+            .map(|(menu, _)| menu.hpopupmenu() as isize)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    crate::desktop::windows::with_window(cx, window_id, move |window| {
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return Err(DesktopError::failed("window has no handle"));
+        };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return Err(DesktopError::failed("window handle is not Win32"));
+        };
+        unsafe {
+            SetMenu(win32.hwnd.get() as _, menu as _);
+            // The client size changed, so the frame has to be redrawn; GPUI picks
+            // the new size up from the `WM_SIZE` that follows.
+            DrawMenuBar(win32.hwnd.get() as _);
+        }
+        Ok(())
+    })
+}
+
 /// The built `muda::Menu` is returned rather than dropped: installing it leaves
 /// a window subclass whose `dwRefData` points into the menu, so dropping it here
 /// would leave the window calling through freed memory on its next message.
@@ -818,17 +896,30 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
     AcceleratorAction::Press(id.to_string())
 }
 
+/// A menu accelerator, as a keymap binding in the app-wide context.
+///
+/// The context matters. A shortcut belongs to a `ShortcutScope`, so its binding
+/// matches at a greater depth than anything in the window root's `rn-app`; GPUI
+/// dispatches the bindings for one keystroke in precedence order, so a scoped
+/// shortcut consumes the key first and the menu item never runs. Without a
+/// context the accelerator would tie with the window scope and win by being
+/// added later, which is the behaviour this work set out to fix.
 fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
+    let context = crate::desktop::keymap::APP_CONTEXT;
     match action {
         AcceleratorAction::Press(id) => {
-            KeyBinding::new(keystroke, MenuAccelerator { id: id.clone() }, None)
+            KeyBinding::new(keystroke, MenuAccelerator { id: id.clone() }, Some(context))
         }
-        AcceleratorAction::Edit(kind) => {
-            KeyBinding::new(keystroke, MenuEditAction { kind: kind.clone() }, None)
-        }
-        AcceleratorAction::Host(kind) => {
-            KeyBinding::new(keystroke, MenuHostAction { kind: kind.clone() }, None)
-        }
+        AcceleratorAction::Edit(kind) => KeyBinding::new(
+            keystroke,
+            MenuEditAction { kind: kind.clone() },
+            Some(context),
+        ),
+        AcceleratorAction::Host(kind) => KeyBinding::new(
+            keystroke,
+            MenuHostAction { kind: kind.clone() },
+            Some(context),
+        ),
     }
 }
 
@@ -1049,6 +1140,57 @@ fn focused_text_input(cx: &mut App, window: gpui::AnyWindowHandle) -> Option<Ent
         }
     }
     result.ok().flatten()
+}
+
+/// Runs a standard menu role, as a menu item or accelerator would.
+///
+/// A custom menu drawn in React is ordinary views, so nothing native performs its
+/// role items. This is the one entry point that does, which is why it exists:
+/// without it a custom "Copy" row would look right and do nothing.
+///
+/// It goes through the same dispatch the native menu uses, so the action, the
+/// window and the effect are identical however the user asked for it.
+pub fn perform_role(cx: &mut App, role: &str) -> DesktopResult {
+    let handle = cx.active_window();
+    match role {
+        "undo" => perform_edit(cx, "undo", handle),
+        "redo" => perform_edit(cx, "redo", handle),
+        "cut" => perform_edit(cx, "cut", handle),
+        "copy" => perform_edit(cx, "copy", handle),
+        "paste" => perform_edit(cx, "paste", handle),
+        "selectAll" => perform_edit(cx, "selectAll", handle),
+        "minimize" => {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, _| window.minimize_window());
+            }
+        }
+        "zoom" => {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, _| window.zoom_window());
+            }
+        }
+        "toggleFullscreen" => {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+            }
+        }
+        "close" => {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, _| window.remove_window());
+            }
+        }
+        "quit" | "hide" | "hideOthers" | "showAll" | "about" => {
+            perform_host_action(cx, role, handle)
+        }
+        // A menu with no action of its own: nothing to do, and saying so is
+        // better than silently pretending.
+        other => {
+            return Err(DesktopError::failed(format!(
+                "{other} is not a role this platform can perform"
+            )))
+        }
+    }
+    Ok(json!({"role": role}))
 }
 
 fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>) {

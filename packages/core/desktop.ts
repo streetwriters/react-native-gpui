@@ -48,8 +48,14 @@ export {
 } from './src-gpui/src/private/desktop/windowContext';
 
 export { TitleBar } from './src-gpui/src/private/desktop/TitleBar';
+export { WindowControl } from './src-gpui/src/private/desktop/WindowControl';
 
 export type { TitleBarProps } from './src-gpui/src/private/desktop/TitleBar';
+export type {
+  WindowControlAction,
+  WindowControlProps,
+  WindowControlState,
+} from './src-gpui/src/private/desktop/WindowControl';
 
 export { ApplicationMenu, Menu } from './src-gpui/src/private/desktop/menu';
 
@@ -59,6 +65,31 @@ export {
 } from './src-gpui/src/private/desktop/contextMenu';
 
 export { PerfMonitor } from './src-gpui/src/private/desktop/perfMonitor';
+
+export {
+  shortcutId,
+  Shortcut,
+  Shortcuts,
+} from './src-gpui/src/private/desktop/shortcuts';
+
+export {
+  ShortcutScope,
+  useShortcut,
+  useShortcutScope,
+} from './src-gpui/src/private/desktop/useShortcut';
+
+export type {
+  InstalledShortcut,
+  ShortcutDefinition,
+  ShortcutEvent,
+  ShortcutHandler,
+  ShortcutResolution,
+} from './src-gpui/src/private/desktop/shortcuts';
+
+export type {
+  ShortcutOptions,
+  ShortcutScopeProps,
+} from './src-gpui/src/private/desktop/useShortcut';
 
 export { Tray } from './src-gpui/src/private/desktop/tray';
 
@@ -70,8 +101,13 @@ export type {
 export type { PerfMetrics } from './src-gpui/src/private/desktop/perfMonitor';
 
 export type {
-  ContextMenuEvent,
+  DesktopContextMenuEvent,
+  DesktopContextMenuEventData,
+} from './types';
+export type {
+  ContextMenuOpenEvent,
   ContextMenuOptions,
+  ContextMenuPresentation,
   ContextMenuViewProps,
 } from './src-gpui/src/private/desktop/contextMenu';
 
@@ -84,7 +120,10 @@ export type {
   MenuRole,
 } from './src-gpui/src/private/desktop/menu';
 
-import './src-gpui/src/private/desktop/types';
+// The augmentation lives in the published `types.d.ts`, which an app's
+// `react-native-gpui-env.d.ts` references. Importing it here as well means an app
+// that imports this desktop entry needs nothing further.
+import type {} from './types';
 
 import { capabilities, request } from './src-gpui/src/private/desktop';
 import type { DesktopAppInfo } from './src-gpui/src/private/specs/NativeGpuiDesktop';

@@ -6,6 +6,7 @@ use crate::builtins::rn_gpui_specs::{
 };
 use crate::desktop::app_menu;
 use crate::desktop::errors::{DesktopError, DesktopResult};
+use crate::desktop::windows::MAIN_WINDOW_KEY;
 
 const MODULE: &str = "GpuiAppMenu";
 
@@ -92,6 +93,31 @@ impl NativeGpuiAppMenuSpec for AppMenuModule {
     async fn menu_update(&self, id: String, patch: MenuItemPatch) -> Result<(), ModuleError> {
         on_main(move |cx| {
             app_menu::update_item(cx, &id, &value_json(patch.into_value()))?;
+            Ok(serde_json::Value::Null)
+        })
+        .await?
+        .map(|_| ())
+        .map_err(module_error)
+    }
+
+    async fn menu_set_menu_bar_visible(
+        &self,
+        visible: bool,
+        window_id: Option<f64>,
+    ) -> Result<(), ModuleError> {
+        let window_id = window_id.map(|id| id as u32).unwrap_or(MAIN_WINDOW_KEY);
+        on_main(move |cx| {
+            app_menu::set_menu_bar_visible(cx, window_id, visible)?;
+            Ok(serde_json::Value::Null)
+        })
+        .await?
+        .map(|_| ())
+        .map_err(module_error)
+    }
+
+    async fn menu_perform_role(&self, role: String) -> Result<(), ModuleError> {
+        on_main(move |cx| {
+            app_menu::perform_role(cx, &role)?;
             Ok(serde_json::Value::Null)
         })
         .await?

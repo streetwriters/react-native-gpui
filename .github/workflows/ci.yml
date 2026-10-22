@@ -148,6 +148,9 @@ jobs:
       - name: Lint
         run: node scripts/ci/step.mjs --job lint --name "lint" -- npm run lint
 
+      - name: Typecheck
+        run: node scripts/ci/step.mjs --job lint --name "typecheck" -- npm run typecheck
+
       - name: Format check
         run: node scripts/ci/step.mjs --job lint --name "format" -- npm run format:check
 

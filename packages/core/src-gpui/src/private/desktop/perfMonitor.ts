@@ -8,26 +8,15 @@
  */
 
 import NativeGpuiPerfMonitor from '../specs/NativeGpuiPerfMonitor';
-import { DesktopError, toDesktopError } from './index';
+import { nativeRequest } from './index';
 
-function perfModule() {
-  if (NativeGpuiPerfMonitor == null) {
-    throw new DesktopError(
-      'unsupported',
-      'the GpuiPerfMonitor native module is not available',
-    );
-  }
-  return NativeGpuiPerfMonitor;
-}
-
-async function request<T>(
-  run: (native: typeof NativeGpuiPerfMonitor) => Promise<T>,
+/** Runs one GpuiPerfMonitor method with the shared module check. */
+function request<T>(
+  run: (native: NonNullable<typeof NativeGpuiPerfMonitor>) => Promise<T>,
 ): Promise<T> {
-  try {
-    return await run(perfModule());
-  } catch (error) {
-    throw toDesktopError(error);
-  }
+  return nativeRequest('GpuiPerfMonitor', check =>
+    run(check(NativeGpuiPerfMonitor)),
+  );
 }
 
 export interface PerfMetrics {

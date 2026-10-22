@@ -28,6 +28,14 @@ export type DesktopCapabilities = {
   windowPosition: boolean;
   alwaysOnTop: boolean;
   transparentTitlebar: boolean;
+  /**
+   * Whether a frameless window can still be resized, so an app may draw its own
+   * caption buttons. Always true on macOS and Windows; on Linux it follows what
+   * the compositor granted the newest window.
+   */
+  clientDecorations: boolean;
+  /** Whether the menu bar is drawn in the window, so hiding it does anything. */
+  menuBarInWindow: boolean;
 };
 
 export type DesktopAppInfo = {

@@ -1,5 +1,6 @@
 use rn_gpui_module::{FromValue, ModuleError, ModuleThread, Path, Value};
 
+use crate::bootstrap::WindowTitleBar;
 use crate::builtins::main_thread::on_main;
 use crate::builtins::rn_gpui_specs::{
     NativeGpuiWindowsEvents, NativeGpuiWindowsSpec, WindowHandle, WindowList, WindowOpenOptions,
@@ -96,7 +97,13 @@ impl NativeGpuiWindowsSpec for WindowsModule {
                 x: options.x.map(|value| value as f32),
                 y: options.y.map(|value| value as f32),
                 resizable: options.resizable.unwrap_or(true),
-                appears_transparent: options.title_bar.as_deref() == Some("transparent"),
+                // The same enum the main window's `desktop.json` maps to, so
+                // `transparent` and `hidden` mean one thing in both places.
+                title_bar: options
+                    .title_bar
+                    .as_deref()
+                    .map(WindowTitleBar::from_name)
+                    .unwrap_or_default(),
                 traffic_light_position: options
                     .traffic_light_position
                     .map(|position| (position.x as f32, position.y as f32)),
