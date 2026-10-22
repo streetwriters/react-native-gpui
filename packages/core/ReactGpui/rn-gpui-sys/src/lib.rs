@@ -317,7 +317,7 @@ pub mod ffi {
 
         /// Registers a Fabric component with that name. A measured component
         /// gets a Yoga measure function that reads its shadow node's state.
-        fn registerHostComponent(name: &str, measured: bool);
+        fn registerHostComponent(name: &str, measured: bool, container: bool);
         /// Whether a name was registered as a host component.
         fn isHostComponent(name: &str) -> bool;
         /// Whether a name was registered as a measured host component.

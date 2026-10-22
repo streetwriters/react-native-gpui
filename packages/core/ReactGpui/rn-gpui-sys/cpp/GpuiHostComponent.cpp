@@ -27,6 +27,10 @@ namespace {
 struct HostComponentRegistry {
   std::mutex mutex;
   std::unordered_map<std::string, bool> measured;
+  /// A container accepts React children. Without this a host component is a
+  /// leaf, and Fabric drops any children the element was given — the subtree
+  /// never reaches the mount batch at all, so nothing shows up to debug.
+  std::unordered_map<std::string, bool> container;
 };
 
 HostComponentRegistry& registry() {
@@ -97,11 +101,12 @@ std::vector<GpuiHostComponentRegistration>& hostComponentRegistrations() {
   return registrations;
 }
 
-void registerHostComponent(rust::Str name, bool measured) {
+void registerHostComponent(rust::Str name, bool measured, bool container) {
   const std::string componentName(name);
   auto& reg = registry();
   std::lock_guard<std::mutex> lock(reg.mutex);
   reg.measured[componentName] = measured;
+  reg.container[componentName] = container;
   auto& list = hostComponentRegistrations();
   auto found = std::find_if(list.begin(), list.end(), [&](const auto& entry) {
     return entry.name == componentName;
@@ -115,6 +120,17 @@ void registerHostComponent(rust::Str name, bool measured) {
 
 bool isHostComponent(rust::Str name) {
   return isHostComponentName(std::string(name));
+}
+
+bool isContainerHostComponentName(const std::string& name) {
+  auto& reg = registry();
+  std::lock_guard<std::mutex> lock(reg.mutex);
+  auto found = reg.container.find(name);
+  return found != reg.container.end() && found->second;
+}
+
+bool isContainerHostComponent(rust::Str name) {
+  return isContainerHostComponentName(std::string(name));
 }
 
 bool isMeasuredHostComponent(rust::Str name) {
@@ -249,6 +265,28 @@ std::string hostComponentPropsJson(
   return {};
 }
 
+facebook::react::ComponentName
+GpuiHostContainerComponentDescriptor::getComponentName() const {
+  const auto* name = static_cast<const std::string*>(this->flavor_.get());
+  return name != nullptr ? stableName(*name)
+                         : stableName(std::string("GpuiHost"));
+}
+
+facebook::react::ComponentHandle
+GpuiHostContainerComponentDescriptor::getComponentHandle() const {
+  return facebook::react::ComponentHandle(stableName(getComponentName()));
+}
+
+facebook::react::ComponentDescriptor::Unique makeHostComponentDescriptor(
+    const facebook::react::ComponentDescriptorParameters& parameters) {
+  const auto* name = static_cast<const std::string*>(parameters.flavor.get());
+  if (name != nullptr && isContainerHostComponentName(*name)) {
+    return std::make_unique<const GpuiHostContainerComponentDescriptor>(
+        parameters);
+  }
+  return std::make_unique<const GpuiHostComponentDescriptor>(parameters);
+}
+
 void registerHostComponentDescriptors(
     facebook::react::ComponentDescriptorProviderRegistry& registry) {
   // Every registered name needs a provider whose `name` is that name. Fabric
@@ -279,8 +317,7 @@ void registerHostComponentDescriptors(
         facebook::react::ComponentHandle(stableName(component.name)),
         facebook::react::ComponentName(stableName(component.name)),
         flavorPointer,
-        &facebook::react::concreteComponentDescriptorConstructor<
-            GpuiHostComponentDescriptor>};
+        &makeHostComponentDescriptor};
     registry.add(provider);
   }
 }

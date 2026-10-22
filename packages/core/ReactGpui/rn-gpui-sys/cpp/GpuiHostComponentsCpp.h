@@ -9,13 +9,13 @@
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
 #include <react/renderer/components/view/ViewEventEmitter.h>
 #include <react/renderer/components/view/ViewProps.h>
-#include <react/renderer/core/ComponentDescriptor.h>
-#include <react/renderer/mounting/ShadowView.h>
-#include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/components/view/YogaLayoutableShadowNode.h>
+#include <react/renderer/core/ComponentDescriptor.h>
+#include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/core/LayoutContext.h>
 #include <react/renderer/core/PropsParserContext.h>
 #include <react/renderer/core/RawProps.h>
+#include <react/renderer/mounting/ShadowView.h>
 
 #include <folly/json.h>
 
@@ -103,12 +103,11 @@ struct GpuiHostStateData {
 /// how a package gets a Fabric component without generating a shadow node.
 extern const char GpuiHostComponentName[];
 
-class GpuiHostShadowNode final
-    : public facebook::react::ConcreteViewShadowNode<
-          GpuiHostComponentName,
-          GpuiHostProps,
-          facebook::react::ViewEventEmitter,
-          GpuiHostStateData> {
+class GpuiHostShadowNode final : public facebook::react::ConcreteViewShadowNode<
+                                     GpuiHostComponentName,
+                                     GpuiHostProps,
+                                     facebook::react::ViewEventEmitter,
+                                     GpuiHostStateData> {
  public:
   static facebook::react::ShadowNodeTraits BaseTraits() {
     auto traits = facebook::react::YogaLayoutableShadowNode::BaseTraits();
@@ -130,10 +129,34 @@ class GpuiHostShadowNode final
   /// The measured size the node's state holds, clamped to the constraints.
   facebook::react::Size measureContent(
       const facebook::react::LayoutContext& layoutContext,
-      const facebook::react::LayoutConstraints& layoutConstraints) const override;
+      const facebook::react::LayoutConstraints& layoutConstraints)
+      const override;
 
  private:
   void initialize() noexcept;
+};
+
+/// A container host component: it draws chrome *around* React children.
+///
+/// A separate class rather than a trait on `GpuiHostShadowNode`, because Fabric
+/// couples the two traits involved: `MeasurableYogaNode` asserts that
+/// `LeafYogaNode` is set, and a leaf cannot hold children — Fabric drops them,
+/// so the subtree never reaches the mount batch at all. A component is
+/// therefore either a measurable leaf or a container, never both.
+class GpuiHostContainerShadowNode final
+    : public facebook::react::ConcreteViewShadowNode<
+          GpuiHostComponentName,
+          GpuiHostProps,
+          facebook::react::ViewEventEmitter,
+          GpuiHostStateData> {
+ public:
+  static facebook::react::ShadowNodeTraits BaseTraits() {
+    auto traits = facebook::react::YogaLayoutableShadowNode::BaseTraits();
+    traits.set(facebook::react::ShadowNodeTraits::Trait::FormsStackingContext);
+    return traits;
+  }
+
+  using ConcreteViewShadowNode::ConcreteViewShadowNode;
 };
 
 /// The descriptor for one host component. The name comes from the provider's
@@ -146,6 +169,23 @@ class GpuiHostComponentDescriptor final
   facebook::react::ComponentName getComponentName() const override;
   facebook::react::ComponentHandle getComponentHandle() const override;
 };
+
+/// The same descriptor for a container, which builds the child-accepting shadow
+/// node instead of the measurable leaf.
+class GpuiHostContainerComponentDescriptor final
+    : public facebook::react::ConcreteComponentDescriptor<
+          GpuiHostContainerShadowNode> {
+ public:
+  using ConcreteComponentDescriptor::ConcreteComponentDescriptor;
+
+  facebook::react::ComponentName getComponentName() const override;
+  facebook::react::ComponentHandle getComponentHandle() const override;
+};
+
+/// Picks the descriptor class from the name the provider was registered with,
+/// so one registration loop serves both kinds of host component.
+facebook::react::ComponentDescriptor::Unique makeHostComponentDescriptor(
+    const facebook::react::ComponentDescriptorParameters& parameters);
 
 /// One registered host component.
 struct GpuiHostComponentRegistration {
@@ -171,7 +211,8 @@ std::vector<GpuiHostComponentRegistration>& hostComponentRegistrations();
 
 /// Serialises a commit's generic props for `shadowView` when `componentName`
 /// is a host component; empty otherwise.
-std::string hostComponentPropsJson(const facebook::react::ShadowView& shadowView);
+std::string hostComponentPropsJson(
+    const facebook::react::ShadowView& shadowView);
 
 /// Registers the descriptor provider for every host component in the registry
 /// with Fabric's provider registry.

@@ -14,13 +14,16 @@ namespace rngpui {
 
 /// Registers a Fabric component with that name. A measured component gets a
 /// Yoga measure function that reads its shadow node's state.
-void registerHostComponent(rust::Str name, bool measured);
+void registerHostComponent(rust::Str name, bool measured, bool container);
 
 /// Whether `name` was registered as a host component.
 bool isHostComponent(rust::Str name);
 
 /// Whether `name` was registered as a measured host component.
 bool isMeasuredHostComponent(rust::Str name);
+
+/// Whether a name was registered as a container that accepts React children.
+bool isContainerHostComponent(rust::Str name);
 
 /// Records a size a host component measured, so the next commit's `MountOp`
 /// carries it and the Rust store can store it.

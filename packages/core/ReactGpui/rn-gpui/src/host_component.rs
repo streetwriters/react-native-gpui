@@ -418,11 +418,7 @@ pub struct HostComponentRegistration {
 
 impl HostComponentRegistration {
     /// Creates the component's object.
-    pub fn create(
-        &self,
-        props: Props,
-        cx: &mut HostContext,
-    ) -> Box<dyn HostComponentObject> {
+    pub fn create(&self, props: Props, cx: &mut HostContext) -> Box<dyn HostComponentObject> {
         (self.constructor)(props, cx)
     }
 }
@@ -460,7 +456,7 @@ pub fn register_host_component<T: HostComponent>(
         .lock()
         .expect("host component registry poisoned")
         .insert(name.clone(), registration);
-    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured);
+    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
     let _ = cx;
 }
 
@@ -478,7 +474,7 @@ pub fn register_host_component_without_app<T: HostComponent>(
         .lock()
         .expect("host component registry poisoned")
         .insert(name.clone(), registration);
-    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured);
+    rn_gpui_sys::ffi::registerHostComponent(&name, options.measured, options.container);
 }
 
 /// The registration for `name`, if there is one.
