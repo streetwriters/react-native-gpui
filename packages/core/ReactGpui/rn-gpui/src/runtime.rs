@@ -238,11 +238,17 @@ impl<'a> SurfaceHosts<'a> {
     }
 
     /// A `Fill` surface with `initialProps`.
-    pub fn fill_with(&mut self, module: &str, props: serde_json::Value) -> gpui::Entity<ReactSurface> {
+    pub fn fill_with(
+        &mut self,
+        module: &str,
+        props: serde_json::Value,
+    ) -> gpui::Entity<ReactSurface> {
         let module = module.to_owned();
-        let surface = self
-            .cx
-            .new(|cx| ReactSurface::new(module, cx).props(props).sizing(SurfaceSizing::Fill));
+        let surface = self.cx.new(|cx| {
+            ReactSurface::new(module, cx)
+                .props(props)
+                .sizing(SurfaceSizing::Fill)
+        });
         self.surfaces.borrow_mut().push(surface.clone());
         surface
     }

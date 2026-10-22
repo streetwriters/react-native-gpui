@@ -149,11 +149,9 @@ mod tests {
             if self.strategy == ScrollStrategy::ManualOffset {
                 content = content.top(px(-self.offset));
             }
-            content = content
-                .child(div().h(px(500.)))
-                .child(BoundsProbe {
-                    prepaints: self.probe.clone(),
-                });
+            content = content.child(div().h(px(500.))).child(BoundsProbe {
+                prepaints: self.probe.clone(),
+            });
             let mut scroller = div().id("scroller").absolute().top_0().left_0().size_full();
             scroller = match self.strategy {
                 ScrollStrategy::GpuiLayer => scroller
@@ -161,8 +159,7 @@ mod tests {
                     .track_scroll(&self.handle)
                     .child(content),
                 ScrollStrategy::ManualOffset => {
-                    let has_scroll =
-                        self.handle.offset().y != px(0.) || self.offset != 0.;
+                    let has_scroll = self.handle.offset().y != px(0.) || self.offset != 0.;
                     scroller = scroller.overflow_hidden();
                     let _ = has_scroll;
                     let entity = cx.entity().downgrade();

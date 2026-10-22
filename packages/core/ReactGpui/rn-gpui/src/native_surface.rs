@@ -64,7 +64,9 @@ impl NativeViewHandle {
     /// until the runtime releases it when the Fabric node unmounts.
     #[cfg(target_os = "macos")]
     pub unsafe fn from_owned_nsview(view: *mut std::ffi::c_void) -> Self {
-        Self { view: view as usize }
+        Self {
+            view: view as usize,
+        }
     }
 
     /// Transfer an `HWND` to the runtime. The factory keeps ownership and is
@@ -322,7 +324,10 @@ mod imp {
     /// offset already place it. The factory owns the `HWND`; the runtime only
     /// styles it as a child and hides it when the surface does.
     #[cfg(target_os = "windows")]
-    pub(super) fn attach(_surface: &WindowCompositionSurface, view: NativeViewHandle) -> Result<()> {
+    pub(super) fn attach(
+        _surface: &WindowCompositionSurface,
+        view: NativeViewHandle,
+    ) -> Result<()> {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CHILD,
         };

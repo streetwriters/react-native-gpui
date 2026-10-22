@@ -8,8 +8,8 @@
 //! does not expose and are only meaningful on macOS.
 
 use cocoa::{base::id, foundation::NSRect};
-use objc::{msg_send, sel, sel_impl};
 use gpui::Window;
+use objc::{msg_send, sel, sel_impl};
 
 // The host-facing names moved to `native_surface`; these aliases keep the
 // existing `react_native_gpui::native_view::*` paths working.

@@ -37,8 +37,8 @@
 use crate::host::Host;
 use crate::store::{store_from, SurfaceRootView, APP_SURFACE_ID};
 use gpui::{
-    div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, Entity, IntoElement,
-    Pixels, Render, Size, Window,
+    div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, Entity, IntoElement, Pixels,
+    Render, Size, Window,
 };
 use serde_json::Value;
 use std::cell::Cell;
@@ -199,7 +199,10 @@ impl ReactSurface {
             return;
         }
         let Some(store) = store_from(cx) else {
-            log::warn!("[surface] no store yet; surface {} will start on a later frame", self.surface_id);
+            log::warn!(
+                "[surface] no store yet; surface {} will start on a later frame",
+                self.surface_id
+            );
             return;
         };
         let host: Host = store.read(cx).host.clone();
@@ -276,7 +279,10 @@ impl ReactSurface {
                 .read(cx)
                 .host
                 .set_surface_size(self.surface_id, width, height, scale);
-            log::debug!("[surface] surface {} resized to {width}x{height}", self.surface_id);
+            log::debug!(
+                "[surface] surface {} resized to {width}x{height}",
+                self.surface_id
+            );
         }
     }
 
@@ -291,7 +297,9 @@ impl ReactSurface {
             } => (
                 min_width,
                 min_height,
-                max_width.unwrap_or(f32::from(bounds.size.width)).max(min_width),
+                max_width
+                    .unwrap_or(f32::from(bounds.size.width))
+                    .max(min_width),
                 max_height
                     .unwrap_or(f32::from(bounds.size.height))
                     .max(min_height),
@@ -532,17 +540,16 @@ pub struct SurfaceMeasure {
 }
 
 impl SurfaceMeasure {
-    pub(crate) fn new(
-        content: SurfaceContentSize,
-        max: Size<Option<f32>>,
-        min: Size<f32>,
-    ) -> Self {
+    pub(crate) fn new(content: SurfaceContentSize, max: Size<Option<f32>>, min: Size<f32>) -> Self {
         Self { content, max, min }
     }
 
     /// The size to lay the leaf out at, clamped to the constraints.
     pub fn measured(&self) -> Size<Pixels> {
-        let (width, height) = self.content.get().unwrap_or((self.min.width, self.min.height));
+        let (width, height) = self
+            .content
+            .get()
+            .unwrap_or((self.min.width, self.min.height));
         let width = self
             .max
             .width
@@ -605,8 +612,14 @@ mod tests {
         let content = SurfaceContentSize::default();
         let measure = SurfaceMeasure::new(
             content.clone(),
-            Size { width: Some(200.0), height: Some(100.0) },
-            Size { width: 10.0, height: 10.0 },
+            Size {
+                width: Some(200.0),
+                height: Some(100.0),
+            },
+            Size {
+                width: 10.0,
+                height: 10.0,
+            },
         );
         // Nothing reported yet: the minimum, so the leaf is never zero-sized
         // before the first measurement comes back.
@@ -630,8 +643,14 @@ mod tests {
         let content = SurfaceContentSize::default();
         let measure = SurfaceMeasure::new(
             content.clone(),
-            Size { width: None, height: None },
-            Size { width: 0.0, height: 0.0 },
+            Size {
+                width: None,
+                height: None,
+            },
+            Size {
+                width: 0.0,
+                height: 0.0,
+            },
         );
         assert!(content.set((321.0, 123.0)));
         assert_eq!(measure.measured(), gpui::size(px(321.0), px(123.0)));
