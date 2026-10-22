@@ -1,18 +1,10 @@
 //! The macOS-only window helpers, and the `NativeViewHost` compatibility
 //! layer over [`crate::native_surface`].
-//!
-//! The native *view* itself — the composition surface, its bounds, the factory
-//! registry — is cross-platform now and lives in `crate::native_surface`. What
-//! stays here is (a) re-exports under the old names so existing users keep
-//! compiling, and (b) the AppKit queries below, which read window state GPUI
-//! does not expose and are only meaningful on macOS.
 
 use cocoa::{base::id, foundation::NSRect};
 use gpui::Window;
 use objc::{msg_send, sel, sel_impl};
 
-// The host-facing names moved to `native_surface`; these aliases keep the
-// existing `react_native_gpui::native_view::*` paths working.
 pub use crate::native_surface::{
     has_native_view_factory, register_native_view_factory, NativeSurface, NativeSurfaceContent,
     NativeSurfaceElement, NativeViewContext, NativeViewFactory, NativeViewHandle, Result,

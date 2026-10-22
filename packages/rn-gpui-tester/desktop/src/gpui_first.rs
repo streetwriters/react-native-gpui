@@ -1,4 +1,4 @@
-//! A GPUI-first example (design 2, section 8 item 9): an app whose window is a
+//! A GPUI-first example: an app whose window is a
 //! GPUI layout, with React content where it places a `ReactSurface`.
 //!
 //! ```text
@@ -14,7 +14,7 @@
 //! Three surfaces in one window, two sizings. The header, the sidebar's box and
 //! the split are plain GPUI; what is inside each surface is React. The fit
 //! surface grows when its React content grows, and the surface below it moves
-//! with it, which is the exchange of design 2, section 3: GPUI gives a size
+//! with it, which is the exchange at the boundary: GPUI gives a size
 //! constraint, React reports a measured size, and each engine lays out its own
 //! side of the boundary.
 //!
@@ -53,7 +53,6 @@ impl Render for ExampleRoot {
                     .flex_row()
                     .flex_1()
                     .min_h_0()
-                    // The sidebar's box is GPUI's: a fixed width, the full height.
                     .child(
                         div()
                             .w(px(240.0))
@@ -67,9 +66,7 @@ impl Render for ExampleRoot {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            // As big as its React content, and no bigger.
                             .child(div().flex_none().child(self.fit.clone()))
-                            // Whatever is left.
                             .child(div().flex_1().min_h_0().child(self.below.clone())),
                     ),
             )

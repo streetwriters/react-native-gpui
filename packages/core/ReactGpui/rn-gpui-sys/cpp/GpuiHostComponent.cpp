@@ -1,5 +1,3 @@
-// The C++ half of the host component API. See GpuiHostComponent.h for why each
-// piece exists.
 
 #include "GpuiHostComponentsCpp.h"
 
@@ -14,9 +12,7 @@
 #include <mutex>
 
 namespace rngpui {
-
 namespace {
-
 /// What is registered while the app starts. Written by the generated files'
 /// registration functions, then frozen into `FrozenTable` and never written
 /// again.
@@ -31,7 +27,7 @@ PendingEntries& pending() {
 }
 
 /// Set by the first registration, before anything can ask for a component, so a
-/// hot path skips everything below with one relaxed load (rule 1).
+/// hot path skips everything below with one relaxed load.
 std::atomic<bool>& anyFlag() {
   static std::atomic<bool> flag{false};
   return flag;
@@ -53,7 +49,6 @@ std::atomic<const FrozenTable*>& frozenTable() {
   static std::atomic<const FrozenTable*> table{nullptr};
   return table;
 }
-
 } // namespace
 
 void registerHostComponentEntry(const HostComponentEntry& entry) {
@@ -114,20 +109,13 @@ void registerHostComponentDescriptors(
   }
   for (uint32_t index = 0; index < table->entries.size(); ++index) {
     const auto& entry = table->entries[index];
-    // A gap is an index autolink declared that no generated file registered.
     if (entry.provider == nullptr) {
       continue;
     }
-    // Fabric asks the provider registry per component name. The provider the
-    // generated file built is exactly what
-    // `concreteComponentDescriptorProvider` makes, so the name and handle are
-    // the shadow node's own and cannot drift.
     registry.add(entry.provider());
     table->byHandle.emplace_back(entry.handle, index);
   }
   std::sort(table->byHandle.begin(), table->byHandle.end());
-  // Published once and kept for the life of the process: a hot path reads it
-  // without a lock because it never changes.
   frozenTable().store(table.release(), std::memory_order_release);
 }
 
@@ -160,16 +148,7 @@ void dispatchHostCommand(
   }
   rn_gpui_on_host_command(tag, command, std::move(converted));
 }
-
 } // namespace rngpui
-
-// ---------------------------------------------------------------------------
-// `ImageSource` accessors, shared by every package.
-//
-// An `ImageSource` prop is lent to Rust as the address of the C++ object, and
-// these read it in place. They live in core, not in a package's generated file,
-// so two packages with an image prop do not define the same symbols.
-// ---------------------------------------------------------------------------
 
 namespace {
 using ImageSource = facebook::react::ImageSource;
@@ -180,7 +159,6 @@ RnGpuiStr borrow(const std::string& text) {
 } // namespace
 
 extern "C" {
-
 RnGpuiStr rn_gpui_image_source_uri(const void* image) {
   return borrow(static_cast<const ImageSource*>(image)->uri);
 }
@@ -208,5 +186,4 @@ RnGpuiStr rn_gpui_image_source_body(const void* image) {
 RnGpuiStr rn_gpui_image_source_method(const void* image) {
   return borrow(static_cast<const ImageSource*>(image)->method);
 }
-
 } // extern "C"

@@ -1,12 +1,3 @@
-// The classes behind the host component API, which need React Native's types.
-//
-// Kept apart from `GpuiHostComponent.h` because that header is included by the
-// cxx bridge, which is compiled without React Native's include paths.
-//
-// Everything a package gets for free lives here as templates over the types
-// React Native's codegen generated for its spec: the shadow node, the component
-// descriptor, the props and emitter handles. The generated C++ file of a
-// package only instantiates them (design 2, section 5.3).
 #pragma once
 
 #include "GpuiHostComponent.h"
@@ -38,14 +29,6 @@ namespace facebook::react {
 class ComponentDescriptorProviderRegistry;
 }
 
-// ---------------------------------------------------------------------------
-// The C ABI between the generated Rust and the generated C++ file.
-//
-// These mirror `COMPONENT_ABI` in `generate-rust-spec.js` field for field. They
-// live here once, in the global namespace, so every package's generated file
-// uses the same definitions and the layout checks below are made once.
-// ---------------------------------------------------------------------------
-
 /// A borrowed C++ `std::string`: bytes and an explicit length.
 struct RnGpuiStr {
   const uint8_t* data;
@@ -75,9 +58,8 @@ static_assert(offsetof(RnGpuiOptU32, value) == 0);
 static_assert(offsetof(RnGpuiOptU32, present) == 4);
 
 namespace rngpui {
-
 /// The state every host component keeps: its intrinsic size, and the insets a
-/// container reports for its chrome (design 2, sections 5.9 and 6.1).
+/// container reports for its chrome.
 struct GpuiHostStateData {
   float width = 0.f;
   float height = 0.f;
@@ -93,11 +75,6 @@ struct GpuiHostStateData {
 };
 
 /// What a props handle owns: one reference to the node's Fabric props.
-///
-/// A handle crosses the bridge as the address of a heap-allocated holder, so
-/// Rust reads the props in place and the props live exactly as long as the
-/// handle does. One 16-byte allocation per props version that reaches Rust, and
-/// nothing is serialised (design 2, section 5.2).
 struct HostPropsHandle {
   std::shared_ptr<const facebook::react::Props> props;
 };
@@ -162,17 +139,8 @@ void dispatchHostCommand(
     uint32_t command,
     std::vector<HostCommandValue>&& args);
 
-// ---------------------------------------------------------------------------
-// Shadow nodes and descriptors (design 2, section 5.3).
-// ---------------------------------------------------------------------------
-
 /// A leaf host component: its measure function returns the size in its state,
 /// when it declares itself `measured`.
-///
-/// Built from `ConcreteViewShadowNode::BaseTraits()`, not from
-/// `YogaLayoutableShadowNode`'s: the latter omits `FormsView`, and Fabric's
-/// differ only emits `Create`/`Insert` for a node it considers a concrete view.
-/// Without it the node is laid out by Yoga and then dropped before mounting.
 template <const char* Name, class P, class E, bool Measured>
 class GpuiHostLeafShadowNode final
     : public facebook::react::
@@ -214,9 +182,6 @@ class GpuiHostLeafShadowNode final
     float width = stateData.width;
     float height = stateData.height;
     if (!stateData.measured) {
-      // Nothing reported yet: the design says a component should report from
-      // `create`, and the style's own minimum is the closest thing to a size
-      // until it does.
       width = layoutConstraints.minimumSize.width;
       height = layoutConstraints.minimumSize.height;
     }
@@ -234,20 +199,12 @@ class GpuiHostLeafShadowNode final
  private:
   void initialize() noexcept {
     if constexpr (Measured) {
-      // Compile time, so building a shadow node asks nothing of a registry.
       this->enableMeasurement();
     }
   }
 };
 
 /// A container host component: it draws chrome *around* React children.
-///
-/// A separate class rather than a trait on the leaf, because Fabric couples the
-/// two traits involved: `MeasurableYogaNode` asserts that `LeafYogaNode` is
-/// set, and a leaf cannot hold children — Fabric drops them, so the subtree
-/// never reaches the mount batch at all. A component is therefore either a
-/// measurable leaf or a container, never both, and autolink rejects a
-/// declaration that asks for both.
 template <const char* Name, class P, class E>
 class GpuiHostContainerShadowNode final
     : public facebook::react::
@@ -260,17 +217,6 @@ class GpuiHostContainerShadowNode final
 /// The descriptor of a container: applies the insets the component reported for
 /// its chrome as real Yoga padding, so its React children are laid out inside
 /// it.
-///
-/// `adopt`, not `layout`: Yoga runs `YGNodeCalculateLayout` and only then calls
-/// `layout()` to read the results back, so padding set there changes nothing
-/// that is read again. `adopt` runs on every create and every clone, including
-/// the clone `updateState` produces, which is the point at which padding still
-/// influences layout. `SafeAreaViewComponentDescriptor` does the same thing for
-/// the same reason.
-///
-/// This replaces any padding from the component's own style, which SafeAreaView
-/// shares: a container's chrome padding is authored natively and the style's is
-/// not.
 template <class ShadowNodeT>
 class GpuiHostContainerDescriptor final
     : public facebook::react::ConcreteComponentDescriptor<ShadowNodeT> {
@@ -285,12 +231,6 @@ class GpuiHostContainerDescriptor final
         static_cast<const facebook::react::ConcreteState<GpuiHostStateData>&>(
             *shadowNode.getState());
     const auto& data = state.getData();
-    // Applied unconditionally, even when every inset is zero. A state-only
-    // clone copies the source node's Yoga style and does not re-run
-    // `updateYogaProps`, so skipping the all-zero case would leave a previous
-    // padding in place and a container could never shrink its chrome back.
-    //
-    // `RectangleEdges` is ordered left, top, right, bottom — not top-first.
     layoutable.setPadding(facebook::react::RectangleEdges<float>{
         data.insetLeft, data.insetTop, data.insetRight, data.insetBottom});
     facebook::react::ConcreteComponentDescriptor<ShadowNodeT>::adopt(
@@ -298,16 +238,8 @@ class GpuiHostContainerDescriptor final
   }
 };
 
-// ---------------------------------------------------------------------------
-// The registry (design 2, section 5.4).
-// ---------------------------------------------------------------------------
-
 /// What the generated C++ file knows about one component, registered at
 /// startup.
-///
-/// The index is the component's position in autolink's global order, which the
-/// generated Rust bakes in too: both halves index their arrays with it, so no
-/// hot path looks a component up by name.
 struct HostComponentEntry {
   uint32_t index = 0;
   const char* name = "";
@@ -341,7 +273,7 @@ void registerHostComponentEntry(const HostComponentEntry& entry);
 
 /// Whether any host component was ever registered, as one relaxed load. Every
 /// per-op check goes through this first, so an app with no host components pays
-/// one predictable branch (design 2, section 7, rule 1).
+/// one predictable branch.
 bool anyHostComponents();
 
 /// The entry for the component `handle` names, or null. Lock-free: the table is
@@ -353,5 +285,4 @@ const HostComponentEntry* hostComponentEntry(
 /// provider registry, and freezes the registry.
 void registerHostComponentDescriptors(
     facebook::react::ComponentDescriptorProviderRegistry& registry);
-
 } // namespace rngpui

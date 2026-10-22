@@ -355,7 +355,7 @@ export class DesktopApp {
   }
 
   /**
-   * The performance counters of design 2, section 7: how much work host
+   * The performance counters: how much work host
    * components and native surfaces cost, as counts a test can assert exactly.
    * `reset` zeroes them after reading, so a test measures a single action.
    */

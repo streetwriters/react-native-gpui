@@ -2,19 +2,12 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 /**
- * React content that lives inside a GPUI layout (design 2, direction A).
- *
- * These are the modules the tester's GPUI-first example places in
- * `ReactSurface`s. Each testID is prefixed with the surface's `name` prop, so one
- * module can be placed twice and the e2e can tell the copies apart.
+ * React content that lives inside a GPUI layout.
  */
 
 /** A surface that fills the box GPUI gives it, with two focusable targets. */
 export function EmbeddedPanel({ name = 'panel' }: { name?: string }) {
   const [focused, setFocused] = useState('none');
-  // A focus event does not reach JS from a test app, but a key does: the
-  // target that holds focus is the one the key arrives at. So a target reports
-  // that it has focus when it receives a key.
   const target = (id: string) => ({
     testID: `${name}-${id}`,
     focusable: true,

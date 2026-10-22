@@ -123,10 +123,6 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
-            // The counters design 2, section 7 is checked with: how much work a
-            // host component or a native surface cost, as counts a test can
-            // assert exactly instead of timings it cannot. `reset` zeroes them
-            // after reading, so a test measures one action.
             "hostCounters" => {
                 use crate::counters::{read, reset, Counter};
                 let counters = json!({
@@ -685,10 +681,6 @@ async fn serve_commands(
                     store.nodes.get(&tag)?.read(cx).nearest_focus_handle(cx)
                 });
                 if let Some(handle) = handle {
-                    // Drawn after focusing, as `press` draws before it dispatches: GPUI
-                    // reports a focus change to the node's listeners on the next
-                    // frame, and a test that waits for idle would otherwise read
-                    // the app before it was told.
                     cx.update_window(window, move |_,window,app| { window.focus(&handle,app); draw_frame(window, app); json!({"focused":true}) })
                         .unwrap_or_else(|error|json!({"error":error.to_string()}))
                 } else {json!({"error":"Target has no focusable ancestor"})}
@@ -1756,8 +1748,6 @@ fn tree_node(
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
-        // The size a measured host component reported, so an e2e test can see
-        // that Yoga used it without having to infer it from the frame.
         "intrinsicSize": node.intrinsic_size().map(|(width, height)| json!([width, height])).unwrap_or(Value::Null),
         "children": children})
 }

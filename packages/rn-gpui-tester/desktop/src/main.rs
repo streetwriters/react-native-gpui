@@ -115,8 +115,6 @@ fn main() {
         );
     });
 
-    // `RN_GPUI_GPUI_FIRST_EXAMPLE=1` swaps the React main window for a GPUI
-    // layout that holds React surfaces (design 2, direction A).
     let config = gpui_first::apply(config);
 
     let config = if std::env::var_os("RN_GPUI_DEMO_WINDOW").is_some() {

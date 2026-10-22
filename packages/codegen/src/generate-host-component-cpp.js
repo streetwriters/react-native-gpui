@@ -1,23 +1,3 @@
-// The C++ half of a host component package (design 2, sections 5.2 to 5.6).
-//
-// The Rust generator declares every shim a component needs as an `extern "C"`
-// function. This file's output implements them against the props class and the
-// event emitter React Native's own codegen generated for the same spec (with
-// `interfaceOnly: true`, which leaves the shadow node and the descriptor to
-// core), and registers the component with core's registry.
-//
-// Nothing is serialised. A props accessor reads the C++ field in place through
-// the opaque handle; an event shim fills the generated event struct and calls
-// the generated emitter; the change mask is computed here, against the previous
-// shadow view, and rides the mount op. The `static_assert`s are the point of
-// generating this rather than writing it by hand: they check every layout the
-// Rust half mirrors against the real headers at compile time, so a codegen
-// change that reorders a struct breaks the build instead of corrupting a prop at
-// run time.
-//
-// Both halves are derived from the model `ComponentGenerator` builds, so they
-// cannot disagree about what a prop is.
-
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { parseComponents, snakeCase } from './generate-rust-spec.js';
@@ -171,8 +151,6 @@ class ComponentCpp {
     this.out.push(...lines);
   }
 
-  // ---- static checks -------------------------------------------------------
-
   renderChecks() {
     const { generator } = this;
     this.push(`// ---- ${this.name}: layout checks`);
@@ -231,8 +209,6 @@ class ComponentCpp {
     }
     this.push('');
   }
-
-  // ---- equality, for the change mask --------------------------------------
 
   /// How to compare two values of a shape for the change mask.
   equal(shape, a, b) {
@@ -298,8 +274,6 @@ class ComponentCpp {
     }
   }
 
-  // ---- the change mask -----------------------------------------------------
-
   renderChanged() {
     const { generator } = this;
     this.push(
@@ -328,8 +302,6 @@ class ComponentCpp {
     }
     this.push('}', '');
   }
-
-  // ---- accessors -----------------------------------------------------------
 
   /// The shims for one owner: the props handle, or a view's struct address.
   renderAccessors({ shimPrefix, owner, fields }) {
@@ -374,7 +346,6 @@ class ComponentCpp {
           break;
         case 'image':
         case 'view':
-          // The address of the field: Rust reads it in place.
           this.push(head('const void*'), owner, `  return &${value};`, '}');
           break;
         case 'mixed':
@@ -445,8 +416,6 @@ class ComponentCpp {
     }
   }
 
-  // ---- events --------------------------------------------------------------
-
   /// The shim parameters and the statements that fill the event struct, walking
   /// the payload leaf by leaf in the order the Rust half flattens it.
   flatten(declared, valueExpression, prefix, params, statements) {
@@ -461,8 +430,6 @@ class ComponentCpp {
           statements.push(`${target} = ${argument};`);
           break;
         case 'enum':
-          // Cast through the member's own type, so the enum's C++ name is not
-          // needed to fill it.
           params.push(`int32_t ${argument}`);
           statements.push(
             `${target} = static_cast<decltype(${target})>(${argument});`,
@@ -539,8 +506,6 @@ class ComponentCpp {
       );
     }
   }
-
-  // ---- commands ------------------------------------------------------------
 
   /// The check and the conversion of one command argument, as a
   /// `HostCommandValue` appended to `values`.
@@ -634,8 +599,6 @@ class ComponentCpp {
     this.push('  (void)tag;', '  (void)args;', '  return false;', '}', '');
   }
 
-  // ---- registration --------------------------------------------------------
-
   render() {
     const { generator, flags } = this;
     const nameVariable = `k${this.name}Name`;
@@ -666,7 +629,6 @@ class ComponentCpp {
     this.renderCommand();
     this.push(`} // namespace`, '');
 
-    // The shims Rust calls: C linkage, outside the anonymous namespace.
     this.push('extern "C" {', '');
     const propsOwner = `  const auto& p = rngpui::hostProps<${this.propsType}>(handle);`;
     this.renderAccessors({
@@ -732,7 +694,6 @@ const PROLOGUE = `#include "GpuiHostComponentsCpp.h"
 namespace rr = facebook::react;
 
 namespace {
-
 // Borrowed views of C++ values, as the ABI structs core declares carry them.
 inline RnGpuiStr rn_str(const std::string& text) {
   return RnGpuiStr{reinterpret_cast<const uint8_t*>(text.data()), text.size()};
@@ -838,18 +799,10 @@ inline rngpui::HostCommandValue rn_strings(const folly::dynamic& array) {
   }
   return out;
 }
-
 } // namespace
 `;
 
 /// The C++ source for every component spec in \`specPaths\`.
-///
-/// \`libraryName\` is the package's \`codegenConfig.name\`: where React Native's
-/// codegen put \`Props.h\` and \`EventEmitters.h\`. \`components\` maps each
-/// component's name to what \`hostComponents\` in \`react-native.config.js\`
-/// declared: its registry \`index\` and its \`measured\`, \`container\` and
-/// \`nativeSurface\` flags. Every spec component must be declared there, and must
-/// be \`interfaceOnly\`, because the shadow node and descriptor are core's.
 export function generateHostComponentCpp({
   specPaths,
   libraryName,
@@ -894,7 +847,7 @@ export function generateHostComponentCpp({
     '//',
     '// The C++ half of the host component API: it implements the shims the generated',
     "// Rust declares, reading React Native's own generated props in place, and",
-    "// registers each component with core's registry (design 2, section 5).",
+    "// registers each component with core's registry.",
     '',
     `#include <react/renderer/components/${libraryName}/EventEmitters.h>`,
     `#include <react/renderer/components/${libraryName}/Props.h>`,

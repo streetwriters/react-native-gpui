@@ -1,21 +1,4 @@
 //! A native view inside a React Native tree, on every platform.
-//!
-//! A native surface is a rectangle of the window composited by the OS rather
-//! than painted by GPUI: an `NSView` on macOS, a composition visual on Windows,
-//! an X11 child window or a Wayland subsurface on Linux. GPUI's composition
-//! tree puts it above its base content and below its overlays.
-//! `PlatformSurfaceAttachment` is the per-platform object that owns the
-//! attachment and sets its bounds; its `platform_handle()` returns a
-//! *different* object on each platform: an `NSView` pointer as `usize` on
-//! macOS, a `windows::core::IUnknown` on Windows, a
-//! `raw_window_handle::RawWindowHandle` on Linux.
-//!
-//! [`NativeSurface`] is therefore the one type a host component names, and it
-//! keeps the three things every platform needs — creation, `set_bounds`,
-//! `set_visible` — common, while each platform's own handle is reachable
-//! through a method that exists only there (`macos_view`, `windows_visual`,
-//! `raw_window_handle`). The attach step, the only genuinely
-//! platform-specific part, lives in [`imp`] beside it.
 
 use anyhow::Context as _;
 use gpui::{
@@ -42,12 +25,6 @@ pub trait NativeViewFactory: Send + Sync + 'static {
 }
 
 /// One native view, as a factory hands it back.
-///
-/// The handle is the platform's own: an owned `NSView` reference on macOS, an
-/// `HWND` on Windows, an X11 window id on Linux. The runtime owns an `NSView`
-/// (it releases it when the Fabric node unmounts) and only parents the other
-/// two (the factory still destroys them), which is what each `from_*`
-/// constructor documents.
 #[derive(Clone, Copy, Debug)]
 pub struct NativeViewHandle {
     #[cfg(target_os = "macos")]
@@ -152,10 +129,6 @@ pub enum NativeSurfaceContent {
 }
 
 /// A native view attached to a window's composition surface.
-///
-/// Creation, bounds and visibility are the same on every platform, so a host
-/// component only names this type. The platform's own handle is reachable
-/// through the accessor for that platform.
 pub struct NativeSurface {
     surface: WindowCompositionSurface,
     view: NativeViewHandle,
@@ -380,12 +353,6 @@ mod imp {
 }
 
 /// An element that places a [`NativeSurface`] at its bounds.
-///
-/// The bounds are set in `prepaint`, which is the only time GPUI tells an
-/// element where it is. A scroll container that composites its content skips
-/// the children's prepaint on scroll-only frames, which is why
-/// `crate::scroll_layers::scroll_strategy` keeps a container holding a native
-/// surface off that path.
 pub struct NativeSurfaceElement {
     pub surface: std::rc::Rc<NativeSurface>,
 }

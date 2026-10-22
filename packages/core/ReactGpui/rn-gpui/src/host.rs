@@ -2,10 +2,6 @@ use rn_gpui_sys::ffi;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The live host, for the paths that must reach C++ without an `App`.
-///
-/// A surface is stopped from `Drop`, and a `Drop` has no context to look a
-/// store up in; the host is process-wide anyway (one per app), so it is
-/// published once when it is made.
 static LIVE_HOST: OnceLock<Host> = OnceLock::new();
 
 /// Stops a surface by id, for code that has no `App`.
@@ -36,9 +32,6 @@ impl Host {
         }
         #[cfg(not(test))]
         {
-            // Every package registered its host components in `rn_gpui_register()`,
-            // before this. The registry is frozen here, ahead of the first surface,
-            // so every later lookup is lock-free (design 2, section 5.4).
             crate::host_component::freeze();
             let host = Self(Arc::new(Mutex::new(ffi::new_gpui_host(
                 app_id, dev_host, port, js_engine, dev_mode,
@@ -105,10 +98,6 @@ impl Host {
     }
 
     /// Starts a surface whose size is a range, not a point.
-    ///
-    /// Fabric lays the root out against the constraints, and every mount batch
-    /// then reports the size it used, which is how an embedded `FitContent`
-    /// surface learns how big its React tree wants to be.
     #[allow(clippy::too_many_arguments)]
     pub fn start_surface_with_constraints(
         &self,

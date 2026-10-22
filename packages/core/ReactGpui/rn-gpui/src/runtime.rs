@@ -1,4 +1,4 @@
-//! The runtime handle a GPUI-first app is given (design 2, direction A).
+//! The runtime handle a GPUI-first app is given.
 //!
 //! A GPUI-first app is one whose windows are its own GPUI trees, with React
 //! content where it places a [`ReactSurface`](crate::ReactSurface):
@@ -34,10 +34,6 @@
 use gpui::{App, Bounds, Render, Size, Window, WindowBounds, WindowOptions};
 
 /// What a GPUI-first app needs from the runtime once JS is running.
-///
-/// It is a handle rather than an owner: the runtime is process-wide (one JS
-/// instance, one mount channel), so a `ReactRuntime` is cheap to copy and can be
-/// kept by the app for as long as it runs.
 #[derive(Clone, Copy, Debug)]
 pub struct ReactRuntime {
     scale: f32,
@@ -56,12 +52,6 @@ impl ReactRuntime {
     }
 
     /// Opens another GPUI window whose root `build` makes, and returns it.
-    ///
-    /// The root may hold any number of [`ReactSurface`](crate::ReactSurface)s.
-    /// Each starts on its first frame, when GPUI first gives it a box, so nothing
-    /// has to be measured before the window exists. `build` makes the window's
-    /// root entity, which is how GPUI opens a window:
-    /// `|window, cx| cx.new(|cx| MyRoot::new(window, cx))`.
     pub fn open_window<V: Render + 'static>(
         &self,
         cx: &mut App,

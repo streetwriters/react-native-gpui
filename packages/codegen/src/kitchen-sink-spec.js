@@ -1,8 +1,3 @@
-// A spec with one prop of each kind the table in design 2, section 5.2 lists,
-// two events (one with a nested payload, one with none) and three commands.
-// Shared by the tests of both halves of the generator, so the Rust and the C++
-// are checked against the same model.
-
 export const KITCHEN_SINK_SPEC = `import {
   codegenNativeCommands,
   codegenNativeComponent,

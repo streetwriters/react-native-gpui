@@ -37,7 +37,6 @@
 #include "ReactCxxTurboModuleProvider.h"
 
 namespace facebook::react {
-
 struct ReactInstanceData {
   std::shared_ptr<IMountingManager> mountingManager;
   std::shared_ptr<MessageQueueThread> messageQueueThread;
@@ -555,5 +554,4 @@ void ReactHost::emitDeviceEvent(folly::dynamic&& args) {
         "RCTDeviceEventEmitter", "emit", std::move(args));
   }
 }
-
 } // namespace facebook::react

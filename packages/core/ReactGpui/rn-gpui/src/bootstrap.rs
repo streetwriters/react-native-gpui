@@ -510,7 +510,7 @@ pub(crate) enum MainEvent {
     TextInputClear(i32),
     /// A command Fabric sent to a host component: its index in the spec's
     /// `COMMANDS` and its arguments, already validated by the generated C++
-    /// dispatcher (design 2, section 5.6).
+    /// dispatcher.
     HostCommand {
         tag: i32,
         command: u32,
@@ -620,7 +620,7 @@ pub struct DesktopAppConfig {
     pub on_app_ready: Option<AppReadyHook>,
 
     pub on_window_opened: Option<WindowOpenedHook>,
-    /// A GPUI-first app's main window content (design 2, section 4.1). When set,
+    /// A GPUI-first app's main window content. When set,
     /// the main window shows this view instead of starting `module` on surface 1;
     /// React content lives in the `ReactSurface`s the view places.
     pub gpui_root: Option<GpuiRootHook>,
@@ -737,7 +737,7 @@ impl DesktopAppConfig {
 
     /// Makes this a GPUI-first app: the main window shows the view `build`
     /// returns, and React content appears where that view places a
-    /// [`ReactSurface`](crate::ReactSurface) (design 2, section 4.1).
+    /// [`ReactSurface`](crate::ReactSurface).
     ///
     /// The runtime still boots the way `run_with` always does — the JS engine, the
     /// bundle, the modules, the store — but no React tree is started on the main
@@ -1133,9 +1133,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // channel until the store and its window exist, which is the same path a
         // background surface already uses.
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
-        // A GPUI-first app owns its main window: no React tree starts on surface
-        // 1, and its `ReactSurface`s start their own surfaces when GPUI first
-        // gives them a box.
         let gpui_first = config.gpui_root.is_some();
         if let Some(build) = config.gpui_root.take() {
             let view = build(cx, crate::runtime::ReactRuntime::new(estimated_scale));
@@ -2098,9 +2095,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             target
                         };
                         if let Some((window_handle, node)) = target {
-                            // The component runs with the store leased for a
-                            // command, so anything it emits is applied after the
-                            // call through the context it was given.
                             let _ = cx.update_window(window_handle, move |_root, _window, cx| {
                                 node.update(cx, |node, cx| {
                                     node.dispatch_host_command(command, &args, cx);

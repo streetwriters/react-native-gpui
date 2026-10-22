@@ -30,7 +30,6 @@
 #include <unordered_set>
 
 namespace facebook::react {
-
 class AnimatedMountingOverrideDelegate;
 class DevServerHelper;
 class IMountingManager;
@@ -101,10 +100,6 @@ class ReactHost {
 
   void runOnScheduler(std::function<void(Scheduler &scheduler)> &&task) const;
 
-  // react-native-gpui: the size a surface's root was laid out at, for an
-  // embedded surface started with constraints rather than an exact size (design
-  // 2, `FitContent`). Nothing when the surface is not running or has not been
-  // laid out yet. Called on the scheduler thread from `executeMount`.
   std::optional<Size> surfaceContentSize(SurfaceId surfaceId) const;
 
   void runOnRuntimeScheduler(
@@ -152,5 +147,4 @@ class ReactHost {
 
   std::shared_ptr<AnimatedMountingOverrideDelegate> animatedMountingOverrideDelegate_;
 };
-
 } // namespace facebook::react

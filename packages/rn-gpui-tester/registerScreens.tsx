@@ -61,8 +61,6 @@ export function registerScreens(testMode = false) {
         props,
       ),
   );
-  // The React content of the tester's GPUI-first example (design 2, direction A).
-  // Not in the screen catalog: only the example and its e2e place them.
   AppRegistry.registerComponent(
     'EmbeddedPanel',
     () => (props: { name?: string }) =>

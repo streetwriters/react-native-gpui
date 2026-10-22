@@ -25,22 +25,9 @@ impl Global for StoreGlobal {}
 
 /// The queue every host component report goes into, and the store's one
 /// delivery point for them.
-///
-/// A report is recorded by the [`HostContext`](crate::host_component::HostContext)
-/// a method was given, so it is queued the moment it is made: `create` and
-/// `update` no longer carry a report to the node's next render, and a frame in
-/// which nothing reported costs nothing to deliver. The queue is ordered and
-/// every entry is applied, so two reports of the same kind both land.
-///
-/// Delivery happens in three places, and [`ViewStore::flush_host_reports`] is
-/// all three: after a mount batch is applied ([`ViewStore::apply_batch`]), after
-/// a command
-/// ([`dispatch_host_component_command`](crate::node_view::RNNodeView::dispatch_host_component_command)),
-/// and once after a frame's renders, which is where a report made while
-/// rendering is applied.
 pub(crate) type HostReportQueue = crate::host_component::HostReportQueue;
 
-/// How a surface's root is shown (design 2, section 4.3).
+/// How a surface's root is shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SurfaceKind {
     /// The root of a window: the menu bar, the overlay slot, the performance
@@ -102,10 +89,6 @@ pub struct ViewStore {
     pub window_appearance_subscription: Option<Subscription>,
     pub navigation_keyboard_subscription: Option<Subscription>,
     /// Every host component report waiting to be applied, in order.
-    ///
-    /// One queue for the store, not one per node: a report is queued by the
-    /// method that made it and applied from here, so delivery never waits for
-    /// the reporting node to render again (design 2, section 5.7).
     pub(crate) host_reports: HostReportQueue,
 }
 
@@ -188,10 +171,6 @@ impl ViewStore {
     }
 
     /// The root entity for `surface_id`, making one if needed.
-    ///
-    /// A surface that GPUI placed (an embedded `ReactSurface`) asks for its root
-    /// before any mount batch arrives, so its tree has somewhere to mount from
-    /// the first frame.
     pub fn ensure_root(
         &mut self,
         surface_id: i32,
@@ -337,19 +316,6 @@ impl ViewStore {
     }
 
     /// Carries `delta` from `parent_tag` up to the surface root.
-    ///
-    /// The whole of the counter's maintenance: an insert and a remove differ
-    /// only in the sign, and a `NativeViewHost` that gains or loses its factory
-    /// name passes the difference its own count changed by. O(depth) per
-    /// structural change, never O(subtree) per render (design 2, section 7 rule
-    /// 6). A `delta` of zero — every node when no native surface exists — is a
-    /// single comparison and no walk at all (rule 1).
-    ///
-    /// The walk runs to the top rather than stopping early: an ancestor's count
-    /// is the number of native surfaces under it, so a second surface beneath it
-    /// still has to move it from one to two. Reaching the top means the surface
-    /// root holds the delta too, which is why the root needs no separate update
-    /// on insert and remove.
     fn carry_native_surface_delta(
         &mut self,
         surface_id: i32,
@@ -369,10 +335,6 @@ impl ViewStore {
             let mut next = None;
             node.update(cx, |node, cx| {
                 next = node.parent_tag_cached();
-                // Re-rendered only when the count crosses zero: a ScrollView and
-                // the surface root read the count as a yes/no, so an increment
-                // from 3 to 4 asks nothing of them and notifying would repaint a
-                // subtree for no observable change.
                 let crossed = if delta > 0 {
                     node.add_native_surface_descendants(delta as u32)
                 } else {
@@ -384,8 +346,6 @@ impl ViewStore {
             });
             parent = next;
         }
-        // The root mirrors its top-level children, so the same delta lands
-        // there once the chain runs out of nodes.
         if let Some(root) = self.roots.get(&surface_id).cloned() {
             root.update(cx, |root, cx| {
                 let crossed = if delta > 0 {
@@ -401,18 +361,10 @@ impl ViewStore {
     }
 
     /// Claims what `tag`'s subtree owes, so it is counted exactly once.
-    ///
-    /// A node's contribution reaches either its ancestors or the surface root,
-    /// and both take it through here: the flag the claim sets is what stops a
-    /// second `Remove` — or a `Delete` after a `Remove`, which Fabric does send
-    /// for a node it removed first — from subtracting a contribution that is
-    /// already off.
     fn claim_native_surface_contribution(&mut self, tag: i32, cx: &mut Context<Self>) -> u32 {
         let Some(node) = self.nodes.get(&tag).cloned() else {
             return 0;
         };
-        // Read before updating: a tree with no native surface claims nothing,
-        // and this is the common case on every remove (rule 1).
         let (counted, descendants) = {
             let node = node.read(cx);
             (node.native_surface_counted, node.native_surface_descendants)
@@ -427,8 +379,6 @@ impl ViewStore {
     }
 
     /// Adds what `tag`'s subtree contributes to its ancestors.
-    ///
-    /// Run after the node is spliced in, so its own count is final.
     fn add_native_surface_to_ancestors(
         &mut self,
         surface_id: i32,
@@ -439,8 +389,6 @@ impl ViewStore {
         let Some(node) = self.nodes.get(&tag).cloned() else {
             return;
         };
-        // One read, and no walk, for a node that brings no native surface: in
-        // a tree without one this is the whole cost of an insert (rule 1).
         let (counted, descendants) = {
             let node = node.read(cx);
             (node.native_surface_counted, node.native_surface_descendants)
@@ -448,15 +396,11 @@ impl ViewStore {
         if counted {
             return;
         }
-        // Marked even when it brings nothing, so a later update that gives it a
-        // native surface has a count to compare against.
         node.update(cx, |node, _cx| node.mark_native_surface_counted());
         self.carry_native_surface_delta(surface_id, parent_tag, i64::from(descendants), cx);
     }
 
     /// Takes what `tag`'s subtree contributes back off its ancestors.
-    ///
-    /// Run before the node is cut out, while its own count is still readable.
     fn remove_native_surface_from_ancestors(
         &mut self,
         surface_id: i32,
@@ -472,9 +416,6 @@ impl ViewStore {
     /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
-        // The root's laid-out size, which a `FitContent` surface sizes itself
-        // from. Recorded before the ops are applied so a surface that mounts in
-        // this batch already sees it.
         if batch.has_content_size {
             let size = (batch.content_width, batch.content_height);
             log::debug!(
@@ -484,8 +425,6 @@ impl ViewStore {
             );
             self.surface_content_sizes.insert(surface_id, size);
             if let Some((observer, surface)) = self.surface_size_observers.get(&surface_id) {
-                // A changed size means the box GPUI lays out around the surface
-                // changed, so the surface is notified and the tree lays out again.
                 if observer.set(size) {
                     let _ = surface.update(cx, |_, cx| cx.notify());
                 }
@@ -593,10 +532,6 @@ impl ViewStore {
                             cx.notify();
                         });
                     }
-                    // Fabric usually sends `Remove` before `Delete`, and the
-                    // remove has taken this node's contribution off already; a
-                    // `Delete` with no `Remove` has not, and would otherwise
-                    // leave every ancestor over-counting.
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let parent_tag = node.read(cx).parent_tag_cached();
                         let contribution = self.claim_native_surface_contribution(op.tag, cx);
@@ -606,9 +541,6 @@ impl ViewStore {
                             -i64::from(contribution),
                             cx,
                         );
-                        // Fabric does not remove the node from its parent for
-                        // every delete (a surface torn down in one go does not),
-                        // so the parent may still be holding it.
                         if contribution > 0 {
                             if let Some(parent) =
                                 parent_tag.and_then(|tag| self.nodes.get(&tag).cloned())
@@ -658,9 +590,6 @@ impl ViewStore {
                     }
                     let index = op.index.max(0) as usize;
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
-                        // Carried up before the observers run, so every observer
-                        // sees the tree's counters already agreeing with its
-                        // shape.
                         self.add_native_surface_to_ancestors(
                             surface_id,
                             op.tag,
@@ -712,8 +641,6 @@ impl ViewStore {
                             cx.notify();
                         });
                         child.update(cx, |child, _cx| child.set_parent(None, None));
-                        // A top-level child has no ancestor node to walk, but the
-                        // root is still owed its contribution.
                         self.add_native_surface_to_ancestors(surface_id, op.tag, None, cx);
                     }
                 }
@@ -743,8 +670,6 @@ impl ViewStore {
                         self.apply_commands(&commands, cx);
                     }
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
-                        // Before the child leaves the parent: the contribution
-                        // it takes with it is what its ancestors stop counting.
                         self.remove_native_surface_from_ancestors(
                             surface_id,
                             op.tag,
@@ -757,8 +682,6 @@ impl ViewStore {
                         });
                         self.record_subtree_nodes(&[op.parent_tag], cx);
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
-                        // Taken before the child is cut out: its own count is
-                        // what the root stops holding.
                         self.remove_native_surface_from_ancestors(surface_id, op.tag, None, cx);
                         root.update(cx, |root, cx| {
                             root.remove_child(op.tag);
@@ -774,11 +697,6 @@ impl ViewStore {
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let previous_node = node.read(cx).component_node(cx);
-                        // An update can give a `NativeViewHost` its factory name
-                        // or take it away, which flips whether it renders a
-                        // native surface. `update_from_op` keeps the node's own
-                        // count right; the difference it left is what the
-                        // ancestors are owed (design 2, section 7 rule 6).
                         let (counted, before) = {
                             let node = node.read(cx);
                             (node.native_surface_counted, node.native_surface_descendants)
@@ -787,9 +705,6 @@ impl ViewStore {
                             node.update_from_op(op);
                             cx.notify();
                         });
-                        // Only a node whose contribution is already in its
-                        // ancestors' counts owes them the difference; one that
-                        // was never inserted under them owes nothing yet.
                         let after = node.read(cx).native_surface_descendants;
                         if counted && after != before {
                             let parent_tag = node.read(cx).parent_tag_cached();
@@ -849,9 +764,6 @@ impl ViewStore {
             self.apply_commands(&commands, cx);
         }
         self.refresh_inherited(surface_id, cx);
-        // One delivery point: after the batch is applied, everything its
-        // `create` and `update` calls reported is applied here — not on any
-        // node's next render.
         self.flush_host_reports(cx);
         self.host.on_render();
         let hook = self.frame_hook.clone();
@@ -863,19 +775,7 @@ impl ViewStore {
     }
 
     /// Applies every host component report queued so far, in order.
-    ///
-    /// The store's single delivery point (design 2, section 5.7). It is called
-    /// after a mount batch is applied, after a command, and once after a frame's
-    /// renders; a report therefore never waits for its own node to render.
-    ///
-    /// Each report goes where its kind belongs: a size or a set of insets into
-    /// the shadow node's state (through Fabric, which compares it against what
-    /// the state already holds), an event to the node's JS emitter. Nothing is
-    /// deduplicated here — the queue is ordered and every entry is delivered.
     pub(crate) fn flush_host_reports(&mut self, cx: &mut Context<Self>) {
-        // Rule 1: the flag is the first check, so an app with no host
-        // components pays one relaxed load per batch, command and frame and
-        // never touches the queue.
         if !crate::host_component::any_host_components() {
             return;
         }
@@ -889,9 +789,6 @@ impl ViewStore {
             match report {
                 crate::host_component::HostReport::Size { tag, width, height } => {
                     crate::host_component::apply_size(tag, width, height);
-                    // The node keeps a copy for the test driver and for
-                    // diagnostics. Yoga's copy is the authoritative one, in the
-                    // shadow node's state.
                     if let Some(node) = self.nodes.get(&tag).cloned() {
                         node.update(cx, |node, _| node.set_intrinsic_size(width, height));
                     }
@@ -903,9 +800,6 @@ impl ViewStore {
                     bottom,
                     left,
                 } => crate::host_component::apply_insets(tag, top, right, bottom, left),
-                // The closure owns the payload and calls the generated shim, which
-                // fills the event struct React Native generated and hands it to
-                // the generated emitter. No JSON is built on the way.
                 crate::host_component::HostReport::Event { send, .. } => send(),
             }
         }
@@ -1393,8 +1287,6 @@ mod test_app_context_tests {
         let mut create = op(MountKind::Create);
         create.tag = tag;
         create.component = component.into();
-        // A test component declared with `register_native_component` carries its
-        // registry index, as a real op does.
         if let Some(index) = native_indices().lock().unwrap().get(component) {
             create.host_index = *index;
         }
@@ -1447,8 +1339,6 @@ mod test_app_context_tests {
             SurfaceKind::Embedded
         );
 
-        // A surface a mount batch creates on its own is the LogBox case: an
-        // overlay of the main window.
         let (logbox, overlay_count) = store.update(cx, |store, cx| {
             let root = store.ensure_root(2, cx);
             (root, store.overlay_host.read(cx).overlay_count())
@@ -1470,7 +1360,6 @@ mod test_app_context_tests {
         register_native_component("CounterNative");
         let (store, root) = store_with_root(cx);
 
-        // root -> a -> b -> native, plus a GPUI-only sibling under a.
         apply(
             cx,
             &store,
@@ -1532,8 +1421,6 @@ mod test_app_context_tests {
 
     #[gpui::test]
     fn the_counter_reports_a_crossing_only_at_zero(cx: &mut TestAppContext) {
-        // The return value is what decides whether an ancestor re-renders, so a
-        // second surface below the same parent must not count as a crossing.
         register_native_component("CrossingNative");
         let (store, root) = store_with_root(cx);
         apply(
@@ -1592,7 +1479,6 @@ mod test_app_context_tests {
         assert_eq!(count_of(cx, &store, 1), Some(0), "so does the grandparent");
         assert_eq!(root_count(cx, &root), 0, "and the root");
 
-        // The `Delete` that follows must not subtract it a second time.
         apply(cx, &store, vec![delete(3)]);
         assert_eq!(
             count_of(cx, &store, 1),
@@ -1618,7 +1504,6 @@ mod test_app_context_tests {
         );
         assert_eq!(root_count(cx, &root), 1);
 
-        // Fabric deletes a node without removing it when the surface goes away.
         apply(cx, &store, vec![delete(2)]);
 
         assert_eq!(
@@ -1652,7 +1537,6 @@ mod test_app_context_tests {
         assert_eq!(count_of(cx, &store, 3), Some(0));
         assert_eq!(root_count(cx, &root), 1);
 
-        // Move it from 2 to 3, the way Fabric does: remove, then insert.
         apply(cx, &store, vec![remove(4, 2), insert(4, 3)]);
 
         assert_eq!(count_of(cx, &store, 2), Some(0), "the old parent lets go");
@@ -1683,8 +1567,6 @@ mod test_app_context_tests {
         );
         assert_eq!(root_count(cx, &root), 0);
 
-        // An update gives it a factory: it now renders a native surface, and
-        // the root has to learn that without a subtree walk.
         let mut update = op(MountKind::Update);
         update.tag = 1;
         update.component = "NativeViewHost".into();
@@ -1693,7 +1575,6 @@ mod test_app_context_tests {
         assert_eq!(count_of(cx, &store, 1), Some(1));
         assert_eq!(root_count(cx, &root), 1, "the update reached the root");
 
-        // And taking the factory away gives the count back.
         let mut update = op(MountKind::Update);
         update.tag = 1;
         update.component = "NativeViewHost".into();
@@ -2379,10 +2260,6 @@ pub struct SurfaceRootView {
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     /// How many of the nodes mounted under this surface render a native
     /// surface.
-    ///
-    /// Kept by the store alongside the per-node counters, so the root answers
-    /// "is a native surface on screen" from a field rather than by walking the
-    /// tree on every render (design 2, section 7 rule 6).
     native_surfaces: u32,
     /// A GPUI-first app's content, painted where a React tree would be.
     app_content: Option<gpui::AnyView>,
@@ -2453,11 +2330,6 @@ impl SurfaceRootView {
     }
 
     /// Adds to the number of native surfaces mounted under this surface.
-    ///
-    /// Maintained by [`ViewStore::carry_native_surface_delta`] as it walks a
-    /// parent chain to the top, so nothing else has to remember the root.
-    /// Adds `delta` to the surface's count; returns whether it crossed zero, so
-    /// the root re-renders only when `has_native_surface()` can have changed.
     pub(crate) fn add_native_surfaces(&mut self, delta: u32) -> bool {
         let before = self.native_surfaces;
         self.native_surfaces = before.saturating_add(delta);
@@ -2471,8 +2343,6 @@ impl SurfaceRootView {
     }
 
     /// Whether a native surface is mounted anywhere under this surface.
-    ///
-    /// A field read: the root asks it on every render.
     pub(crate) fn has_native_surface(&self) -> bool {
         self.native_surfaces > 0
     }
@@ -2529,9 +2399,6 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // An embedded surface is content inside somebody else's tree: the window
-        // that holds it owns the key context, the pointer-leave handling, the
-        // overlay slot, the menu bar and the navigation buttons.
         if self.kind == SurfaceKind::Embedded {
             return div()
                 .size_full()
@@ -2539,8 +2406,6 @@ impl Render for SurfaceRootView {
                 .children(self.children.iter().map(|(_, child)| child.clone()))
                 .into_any_element();
         }
-        // The root's own counter, not a walk of its children: this runs on every
-        // frame the surface paints (design 2, section 7 rule 6).
         let has_fabric_native_view = self.has_native_surface();
         let mut root = div()
             .size_full()
@@ -2568,8 +2433,6 @@ impl Render for SurfaceRootView {
                 }
             };
             if has_native_composition {
-                // GPUI's deferred pass targets the window composition overlay
-                // surface, above native views.
                 root = root.child(deferred(overlay_host.clone()).priority(100));
             } else {
                 root = root.child(overlay_host.clone());
@@ -2613,10 +2476,6 @@ impl Render for SurfaceRootView {
                 .child(menu_bar)
                 .child(content)
         } else {
-            // A flex column, as with a menu bar, so `content` (which is `flex_1`)
-            // gets the window's height. Without it the content is as tall as its
-            // children, and a GPUI view that sizes itself as a percentage of it
-            // — a GPUI-first app's layout — collapses to nothing.
             div()
                 .size_full()
                 .flex()

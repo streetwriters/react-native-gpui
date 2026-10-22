@@ -165,14 +165,11 @@ pub mod ffi {
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
         /// The registry index of the host component this op is for, or `-1`.
-        ///
-        /// Both halves index their arrays with it (design 2, section 5.4), so
-        /// nothing looks a component up by name once a node exists.
         pub host_index: i32,
         /// An owned handle to the node's Fabric props (a `shared_ptr<const
         /// Props>`), or zero. Set on `Create`, and on an `Update` only when the
         /// props changed in a way the component can see: Rust takes ownership and
-        /// the generated accessors read the C++ fields in place (5.2).
+        /// the generated accessors read the C++ fields in place.
         pub host_props_handle: usize,
         /// An owned handle to the node's event emitter, on `Create` only.
         pub host_emitter_handle: usize,
@@ -187,21 +184,11 @@ pub mod ffi {
         pub layout_changed: bool,
     }
 
-    // `Default` so a caller with nothing to say about content size — every test,
-    // and every caller that only mounts — states `surface_id` and `ops` and lets
-    // the rest be zero. Without it, adding a field to this struct breaks every
-    // initialiser in the tree.
     #[derive(Clone, Debug, Default)]
     pub struct MountBatch {
         pub surface_id: i32,
         pub ops: Vec<MountOp>,
         /// The size Fabric laid this surface's root out at, in DIPs.
-        ///
-        /// An embedded `FitContent` surface is started with constraints rather
-        /// than an exact size, so this is the only way the GPUI side learns how
-        /// big the React tree wants to be. It is reported with every batch,
-        /// because the root can be resized by a commit that changes nothing
-        /// else.
         pub content_width: f32,
         pub content_height: f32,
         /// Whether the surface's root was laid out at all in this commit. A
@@ -337,7 +324,7 @@ pub mod ffi {
         /// Releases an event emitter handle a `Create` op gave Rust.
         fn releaseHostEmitterHandle(handle: usize);
         /// How many times the C++ registry was asked for a component since the
-        /// last reset. Only the test driver reads it (design 2, section 9.2).
+        /// last reset. Only the test driver reads it.
         fn hostEntryLookups() -> u64;
         fn resetHostEntryLookups();
         /// Pushes a size a host component measured into its shadow node's state,

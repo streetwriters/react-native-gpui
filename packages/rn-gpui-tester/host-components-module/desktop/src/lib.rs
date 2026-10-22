@@ -1,21 +1,4 @@
 //! The tester's host component fixtures.
-//!
-//! One component of each kind the design describes, each written against the
-//! trait `@react-native-gpui/codegen` generates from its spec:
-//!
-//! * `FixtureChart` is a GPUI-element component: a small line chart drawn with
-//!   GPUI paths, sized by its React style, with props, one event and two
-//!   commands. It proves a package can render its own content inside a React
-//!   Native tree with no C++ and no serialisation code at all.
-//! * `FixtureMeasuredLabel` measures itself and reports the size through Fabric
-//!   state, so its parent lays out around it one commit later.
-//! * `FixtureCard` is a container: it draws chrome and reports the room that
-//!   chrome takes, so the React children land inside it. Core paints the
-//!   children; the component paints only its chrome.
-//!
-//! All three are registered from `rn_gpui_register()`, the same hook a module
-//! uses, and declared in `react-native.config.js`, where autolink gives each its
-//! registry index and layout flags.
 
 rn_gpui_module::include_specs!();
 
@@ -25,10 +8,6 @@ use gpui::{div, point, prelude::*, px, rgb, AnyElement, PathBuilder, Window};
 use react_native_gpui::host_component::register_component;
 
 /// The chart's points, normalised to the box they are drawn in.
-///
-/// Derived in `update`, when `points` changes, rather than in `render`: the
-/// props are borrowed from C++ and `render` runs every frame, so it only clones
-/// an `Rc`.
 type Series = Rc<[(f32, f32)]>;
 
 fn series_of(points: &[FixtureChartPoints]) -> Series {
@@ -77,8 +56,6 @@ impl FixtureChartSpec for Chart {
         if changed.points() {
             self.series = series_of(props.points());
         }
-        // A prop change is what reports the series: the fixture's way of proving
-        // an event reaches JS from a Rust component's `update`.
         if changed.report_token() && props.report_token() != self.reported_token {
             self.reported_token = props.report_token();
             cx.events().point_selected(point_event(&self.series, 0));
@@ -91,11 +68,8 @@ impl FixtureChartSpec for Chart {
         _window: &mut Window,
         _cx: &mut FixtureChartContext,
     ) -> AnyElement {
-        // The node's frame is the chart's box; the chart fills it.
         let series = self.series.clone();
         let selected = self.selected;
-        // ARGB, reinterpreted: React delivers an `Int32` colour as a signed
-        // number when its top bit is set.
         let color = props.line_color() as u32 & 0x00ff_ffff;
         let title = props.title().to_string();
         div()
@@ -111,9 +85,6 @@ impl FixtureChartSpec for Chart {
                         if series.is_empty() || width <= 0.0 || height <= 0.0 {
                             return;
                         }
-                        // X is the point's own coordinate, Y is normalised
-                        // against the series' range, so the fixture draws
-                        // whatever a test passes without a scale prop.
                         let fold =
                             |pick: fn(&(f32, f32)) -> f32| {
                                 series.iter().map(pick).fold(
@@ -174,8 +145,6 @@ impl FixtureChartSpec for Chart {
             return;
         }
         self.selected = Some(index as usize);
-        // The event is what tells the app something happened: a host component
-        // has no entity to notify.
         cx.events()
             .point_selected(point_event(&self.series, index as usize));
     }
@@ -208,8 +177,6 @@ impl MeasuredLabel {
 
 impl FixtureMeasuredLabelSpec for MeasuredLabel {
     fn create(props: &FixtureMeasuredLabelProps, cx: &mut FixtureMeasuredLabelContext) -> Self {
-        // The design's one-frame rule: report now so Yoga has a size on the next
-        // commit.
         let size = Self::measure(props);
         cx.set_intrinsic_size(size.0, size.1);
         Self { size }
@@ -221,8 +188,6 @@ impl FixtureMeasuredLabelSpec for MeasuredLabel {
         _changed: FixtureMeasuredLabelChanged,
         cx: &mut FixtureMeasuredLabelContext,
     ) {
-        // `update` runs only when a prop changed, so the size is recomputed
-        // exactly when it can have.
         let size = Self::measure(props);
         if size != self.size {
             self.size = size;
@@ -277,7 +242,6 @@ impl FixtureCardSpec for Card {
         changed: FixtureCardChanged,
         cx: &mut FixtureCardContext,
     ) {
-        // A title change does not move the chrome.
         if changed.chrome_height() || changed.chrome_width() {
             Self::report_insets(props, cx);
         }
@@ -289,8 +253,6 @@ impl FixtureCardSpec for Card {
         _window: &mut Window,
         _cx: &mut FixtureCardContext,
     ) -> AnyElement {
-        // Only the chrome: core paints the React children above it, positioned by
-        // Yoga inside the room the insets left.
         let title = props.title().to_string();
         let height = props.chrome_height() as f32;
         let side = props.chrome_width() as f32;
@@ -348,7 +310,6 @@ mod tests {
     #[test]
     fn a_measured_label_needs_its_text_at_the_character_width() {
         assert_eq!(measured_size("abcd", 10.0, 20.0), (40.0, 20.0));
-        // Counted in characters, not bytes.
         assert_eq!(measured_size("é", 8.0, 20.0), (8.0, 20.0));
         assert_eq!(measured_size("", 8.0, 20.0), (0.0, 20.0));
     }

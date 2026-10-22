@@ -1,25 +1,4 @@
 //! Whether a native surface inside a scrolling node keeps up with the scroll.
-//!
-//! A native (NSView / composition visual / subsurface) surface is placed by
-//! `Element::prepaint`: that is where `NativeSurface::set_bounds` is called, and
-//! GPUI clips, hit-tests and paints the element from the same bounds. A
-//! `ScrollView` in this runtime scrolls with GPUI's own scrolling
-//! (`overflow_*_scroll` + `track_scroll`), which is what lets gpui-fast cache a
-//! scroll container's content as *scroll layers* and composite it on frames
-//! where only the offset moved.
-//!
-//! On such a frame the container's children are neither prepainted nor painted
-//! (`fast::layers::paint::prepaint_children` skips the children when the
-//! decision is `Composite`), so a native surface's `prepaint` does not run and
-//! its bounds do not follow the scroll. The surface would stay where it was
-//! last painted while the GPUI content scrolls out from under it.
-//!
-//! The tests here pin both halves of that: with GPUI scrolling the surface
-//! stops tracking (the design's §5.4 question), and with the offset applied by
-//! the node itself — no `overflow_scroll`, so the container is never a layer
-//! candidate — it tracks every frame. [`ScrollStrategy`] is the decision the
-//! node renderer makes, and `node_view` uses it to opt a `ScrollView` out of the
-//! composite path while it contains a native surface.
 
 /// How a scrolling node moves its content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,11 +16,6 @@ pub(crate) enum ScrollStrategy {
 }
 
 /// Which strategy a scrolling node must use.
-///
-/// A native surface is composited by the OS, not painted by GPUI, and its
-/// bounds are set in `prepaint`; a scroll-only composite frame skips that.
-/// Everything else keeps the layer path, which is what keeps scrolling cheap
-/// for trees with no host or native content.
 pub(crate) fn scroll_strategy(contains_native_surface: bool) -> ScrollStrategy {
     if contains_native_surface {
         ScrollStrategy::ManualOffset
@@ -178,11 +152,6 @@ mod tests {
                         .child(content)
                 }
             };
-            // A real app's surface root has an opaque background (RN apps set
-            // one on the root `View`), and gpui-fast only composites a layer
-            // whose tiles can be cleared with the colour under them
-            // (`paint::bake_background`). Without it the layer path is never
-            // taken and this fixture would answer a different question.
             div()
                 .relative()
                 .w(px(VIEWPORT.0))
@@ -202,8 +171,6 @@ mod tests {
         cx.update_window(window.into(), |_, window, cx| {
             window.set_scroll_layers(true);
             window.resize(size(px(VIEWPORT.0), px(VIEWPORT.1)));
-            // Hit testing only sees the scroller once the pointer has been
-            // placed over it: `should_handle_scroll` consults the hit test.
             window.dispatch_event(mouse_move(), cx);
             window.draw(cx).clear(cx);
         })
@@ -266,9 +233,6 @@ mod tests {
             "the first frame prepaints the content"
         );
 
-        // Two scrolled frames in a row promote the container to a layer
-        // (`PROMOTE_AFTER_SCROLLED_FRAMES`), and the frame after that is
-        // composited without prepainting the content.
         let mut saw_a_frame_without_prepaint = false;
         let mut offset_moved_while_prepaint_stale = false;
         let mut previous_y = last_probe_y(window, cx).expect("the probe was prepainted");
@@ -281,8 +245,6 @@ mod tests {
             trace.push((before, after, y));
             if after == before {
                 saw_a_frame_without_prepaint = true;
-                // The content did move (the window scrolled); only the bounds
-                // the native surface would have been given did not.
                 if y == previous_y && step > 1 {
                     offset_moved_while_prepaint_stale = true;
                 }

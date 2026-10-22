@@ -317,9 +317,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.extension_props_json = registered->second(componentName, shadowView);
     }
   }
-  // A host component's own props reach Rust as a handle to Fabric's props,
-  // never as text (design 2, section 5.2). With none registered, this is one
-  // relaxed load per op (rule 1).
   op.host_index = -1;
   op.host_props_handle = 0;
   op.host_emitter_handle = 0;
@@ -331,16 +328,10 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
             rngpui::hostComponentEntry(shadowView.componentHandle)) {
       op.host_index = static_cast<int32_t>(entry->index);
       if (mutation.type == ShadowViewMutation::Create) {
-        // The component gets its full props, and the emitter its events go
-        // through. The mask is not consulted on create.
         op.host_props_handle = rngpui::makeHostPropsHandle(shadowView.props);
         op.host_emitter_handle =
             rngpui::makeHostEmitterHandle(shadowView.eventEmitter);
       } else {
-        // Compared against `oldChildShadowView`, which is what Rust last
-        // received, so the mask is relative to what the component has seen even
-        // when several clones happened in between. The same pointer means a
-        // layout-only, state-only or reparenting update: nothing crosses.
         const auto& before = mutation.oldChildShadowView.props;
         const auto& after = mutation.newChildShadowView.props;
         if (before && after && before.get() != after.get()) {
@@ -356,8 +347,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
           for (uint32_t word = 0; word < entry->changeWords; ++word) {
             any = any || words[word] != 0;
           }
-          // A zero mask is React resending a value equal to the old one: Rust
-          // keeps the props it has, and the component is not called.
           if (any) {
             op.host_props_handle = rngpui::makeHostPropsHandle(after);
             op.host_changed = words[0];
@@ -443,12 +432,10 @@ GpuiTextSize measureParagraphThroughRust(
   const auto result = rn_gpui_measure_text(paragraph, maxWidth, maxHeight);
   return GpuiTextSize{.width = result.width, .height = result.height};
 }
-
 } // namespace
 
 void installGpuiTextMeasureTable() {
   setGpuiTextMeasureTable(
       GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});
 }
-
 } // namespace rngpui

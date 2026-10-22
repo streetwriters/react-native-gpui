@@ -380,7 +380,6 @@ void install_feature_flags() {
     ReactNativeFeatureFlags::override(std::move(overrides));
   });
 }
-
 } // namespace
 
 std::unique_ptr<GpuiHost> new_gpui_host(
@@ -436,17 +435,10 @@ GpuiHost::GpuiHost(
           scheduler.reportMount(surfaceId);
         });
       },
-      // The root's laid-out size, for a `FitContent` surface. Read straight off
-      // the surface's committed root, which `ReactHost` exposes because the
-      // shadow tree is the only place the laid-out size exists.
       [this](SurfaceId surfaceId) {
         return reactHost_->surfaceContentSize(surfaceId);
       });
 
-  // A host component reports its size and insets from a method or a render,
-  // but the shadow node's state is what Yoga reads, and applying either needs a
-  // commit. The manager owns one state per mounted host node, so it is where a
-  // report goes; there is no observer indirection and no side table.
   rngpui::setHostComponentStateManager(mountingManager_);
 
   // ReactHost's constructor throws unless both factories are in the
@@ -1086,5 +1078,4 @@ void GpuiHost::dispatch_pointer_event(
 void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {
   mountingManager_->setScrollOffset(tag, x, y);
 }
-
 } // namespace rngpui

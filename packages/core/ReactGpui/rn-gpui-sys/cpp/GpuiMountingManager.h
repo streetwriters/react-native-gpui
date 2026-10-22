@@ -119,14 +119,9 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
-  // Every mounted host component's state, by tag: inserted on Create and erased
-  // on Delete. A report is pushed through the state the node already has, so
-  // there is no second copy of a size or an inset to keep in step — and nothing
-  // to leak when a node goes away.
   std::unordered_map<
       Tag,
       std::shared_ptr<const ConcreteState<GpuiHostStateData>>>
       hostStates_;
 };
-
 } // namespace rngpui

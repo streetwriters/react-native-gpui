@@ -142,7 +142,6 @@ std::string describeOp(const MountOp& op) {
   }
   return out;
 }
-
 } // namespace
 
 void GpuiMountingManager::executeMount(
@@ -150,10 +149,6 @@ void GpuiMountingManager::executeMount(
     MountingTransaction&& transaction) {
   MountBatch batch;
   batch.surface_id = surfaceId;
-  // The root's size is what a `FitContent` surface reports back to GPUI, and
-  // the root shadow node is the only place it is known. A surface started with
-  // an exact size reports that size, so a caller that does not care never sees
-  // anything but its own request.
   if (contentSize_) {
     if (auto size = contentSize_(surfaceId)) {
       if (size->width > 0.f || size->height > 0.f) {
@@ -234,10 +229,6 @@ void GpuiMountingManager::executeMount(
             rngpui::anyHostComponents() &&
             rngpui::hostComponentEntry(
                 mutation.newChildShadowView.componentHandle) != nullptr) {
-          // A host component's state is where a reported size or inset is
-          // applied (`measureContent` and `adopt` read it), so the manager
-          // holds it for as long as the node exists. Create inserts it, Delete
-          // erases it: nothing here outlives the node.
           auto state =
               std::dynamic_pointer_cast<const ConcreteState<GpuiHostStateData>>(
                   mutation.newChildShadowView.state);
@@ -419,17 +410,12 @@ void GpuiMountingManager::setHostComponentSize(
   }
   const auto& data = state->getData();
   if (data.measured && data.width == width && data.height == height) {
-    // Equal to the state the node already has: nothing to commit, and the
-    // comparison is against that state rather than a cache of the last report.
     return;
   }
   GpuiHostStateData next = data;
   next.width = width;
   next.height = height;
   next.measured = true;
-  // `updateState` schedules the commit that makes Yoga call `measureContent`
-  // again; writing the size anywhere else leaves the layout at its old value
-  // until something unrelated commits.
   state->updateState(std::move(next));
 }
 
@@ -546,10 +532,6 @@ void GpuiMountingManager::dispatchCommand(
     }
     return;
   }
-  // A host component: its generated dispatcher validates the arguments against
-  // the spec once and sends the command on as a typed value (design 2, section
-  // 5.6). Everything else has no command handler, and Fabric already warned for
-  // an unknown name.
   if (!rngpui::anyHostComponents()) {
     return;
   }
@@ -617,10 +599,6 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                    << " is not implemented on gpui";
       });
       rn_gpui_register_app_components(*result);
-      // A host component is registered by name at run time, so its descriptor
-      // has to be added after the app's own components and before the registry
-      // is built. This is what lets a package ship a Fabric component without
-      // generating any C++ for it.
       registerHostComponentDescriptors(*result);
       return result;
     }();
@@ -628,5 +606,4 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
         {eventDispatcher, contextContainer, nullptr});
   };
 }
-
 } // namespace rngpui

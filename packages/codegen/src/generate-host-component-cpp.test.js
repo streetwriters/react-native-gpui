@@ -1,12 +1,3 @@
-// The C++ half of the host component generator (design 2, sections 5.2 to 5.6).
-//
-// Two kinds of test. The string-level ones check the contract between the two
-// halves — every shim the generated Rust declares has a C++ definition of the
-// same name — and the declaration rules. The compile test is the real check:
-// it hands the generated file to the C++ compiler beside the headers React
-// Native's codegen generated for the same spec, so every `static_assert` on a
-// layout, an offset and an enum value runs against the real types.
-
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -57,7 +48,6 @@ describe('the C++ half implements the shims the Rust half declares', () => {
     const missing = shims.filter(
       shim => !new RegExp(`\\b${shim}\\(`, 'u').test(cpp),
     );
-    // The ImageSource accessors live in core, once, not in each package.
     expect(
       missing.filter(shim => !shim.startsWith('rn_gpui_image_source_')),
     ).toEqual([]);
@@ -68,7 +58,6 @@ describe('the C++ half implements the shims the Rust half declares', () => {
     const defined = [...cpp.matchAll(/^\S.*\b(rn_gpui_\w+)\(/gmu)].map(
       match => match[1],
     );
-    // The registration function is core's to call, not Rust's.
     expect(
       defined.filter(
         shim =>
@@ -202,7 +191,6 @@ describe('commands and events', () => {
     expect(cpp).toContain('.isNumber()');
     expect(cpp).toContain('rn_numbers(args[0])');
     expect(cpp).toContain('.isString()');
-    // A bad argument is reported by name and never reaches the component.
     expect(cpp).toContain(
       "FixtureChart.selectPoint: argument 'index' must be a number",
     );
@@ -214,10 +202,8 @@ describe('commands and events', () => {
     );
     expect(cpp).toContain('value.index = index;');
     expect(cpp).toContain('.onPointSelected(std::move(value));');
-    // A nested payload is flattened into the same shim, leaf by leaf.
     expect(cpp).toContain('value.nested.flag = nested_flag;');
     expect(cpp).toContain('value.nested.names.emplace_back(');
-    // An event with no payload takes the emitter alone.
     expect(cpp).toContain(
       'void rn_gpui_fixture_chart_event_done(const void* emitter) {',
     );

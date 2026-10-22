@@ -1,10 +1,4 @@
-//! Counters for the performance rules of design 2, section 7.
-//!
-//! Timing tests are noisy, so a rule is asserted with a count instead: how many
-//! nodes a native-surface update visited, how many bytes of props were copied,
-//! how many times a component's `update` ran. The counters exist only in a build
-//! with the `test-driver` feature; elsewhere every call below is an empty inline
-//! function, so a release build pays for none of this.
+//! Counters for the performance rules of host components and native surfaces.
 
 /// What is counted.
 #[derive(Clone, Copy, Debug)]
@@ -13,14 +7,14 @@ pub(crate) enum Counter {
     /// Lookups in the host component registry, on either side of the bridge.
     HostRegistryLookups,
     /// Ancestors visited to keep the native-surface counts current. A tree with
-    /// no native surface visits none (rule 6).
+    /// no native surface visits none.
     NativeSurfaceWalkNodes,
-    /// Bytes of a host component's props copied, serialised or parsed (rule 4).
+    /// Bytes of a host component's props copied, serialised or parsed.
     /// Only an `UnsafeMixed` prop read can add to it.
     HostPropsBytesCopied,
     /// Calls to a host component's `update`.
     HostUpdateCalls,
-    /// Reports the store's delivery point applied (rule 7).
+    /// Reports the store's delivery point applied.
     HostReportsDelivered,
 }
 

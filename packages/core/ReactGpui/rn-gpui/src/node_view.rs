@@ -59,22 +59,12 @@ pub struct RNNodeView {
     /// Whether this node's own content is composited by the OS rather than
     /// painted by GPUI. Decided once, when the node is created, from its
     /// registry entry; only a `NativeViewHost` can change it later, when an
-    /// update gives it a factory name (design 2, section 7 rule 6).
+    /// update gives it a factory name.
     pub(crate) renders_native_surface: bool,
     /// How many nodes in this subtree render a native surface, this node
     /// included.
-    ///
-    /// The store maintains it by walking the parent chain on insert and remove,
-    /// which is O(depth) per structural change; a `ScrollView` and the surface
-    /// root read their own counter instead of walking their subtree on every
-    /// render.
     pub(crate) native_surface_descendants: u32,
     /// Whether this node's contribution has been added to its ancestors.
-    ///
-    /// Fabric sends `Remove` before `Delete` but both arrive, and a `Delete`
-    /// with no `Remove` also happens; without this flag the second one would
-    /// subtract a contribution that had already been taken off, and every
-    /// ancestor would under-count.
     pub(crate) native_surface_counted: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
@@ -83,7 +73,7 @@ pub struct RNNodeView {
     /// The host component rendering this node, when its op carried a registry
     /// index. Created on the main thread when the node is mounted, and the only
     /// thing about the component this node ever looks up: from here on it is a
-    /// vtable call, never a name lookup (design 2, section 5.4).
+    /// vtable call, never a name lookup.
     host_component: Option<Box<dyn crate::host_component::HostObject>>,
     /// The registry index the host component was created from, for the
     /// declaration (container, native surface) the node needs while rendering.
@@ -418,24 +408,13 @@ fn dispatch_context_menu(
 }
 
 /// Whether a newly created node's own content is composited by the OS.
-///
-/// Asked once per node, when it is created, and stored on the node: the
-/// registries below are process-wide maps keyed by component name, so asking
-/// them again on a render or an update would put two string hashes and a lock
-/// on a hot path (design 2, section 7 rule 2). `NativeViewHost` is decided from
-/// the op rather than from a registry, because it switches on having a factory
-/// name and that can change on a later update.
 fn renders_native_surface_for_op(op: &MountOp) -> bool {
     if op.component == "NativeViewHost" {
         return !op.native_view_name.is_empty();
     }
-    // A host component declared it in `react-native.config.js`; the index is on
-    // the op, so no name is looked up.
     if op.host_index >= 0 && crate::host_component::renders_native_surface(op.host_index as u32) {
         return true;
     }
-    // Rule 1: an extension renderer can still declare a native surface without a
-    // host component, but an app with none registered never takes that lock.
     crate::extensions::any_component_renderers()
         && crate::extensions::component_renders_native_surface(&op.component)
 }
@@ -825,8 +804,6 @@ impl RNNodeView {
         surface_id: i32,
         host_reports: crate::store::HostReportQueue,
     ) -> Self {
-        // Asked of the registries once, here, so no render or update pays a
-        // string lookup on a hot path (design 2, section 7 rule 2).
         let renders_native_surface = renders_native_surface_for_op(op);
         // `core-private:` TextInput reads its own props out of the module JSON.
         let text_input =
@@ -838,8 +815,6 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
-        // `create` reports into the store's queue, so what it says is applied
-        // when the batch is done rather than on this node's first render.
         let (host_component, host_container) = Self::create_host_component(op, &host_reports);
         let mut view = Self {
             tag: op.tag,
@@ -855,8 +830,6 @@ impl RNNodeView {
             )),
             native_view_host: None,
             renders_native_surface,
-            // Its own count only; the store adds it to each ancestor when the
-            // node is inserted.
             native_surface_descendants: u32::from(renders_native_surface),
             native_surface_counted: false,
             host_component,
@@ -953,10 +926,6 @@ impl RNNodeView {
             self.native_view_props = op.native_view_props.clone();
             self.native_view_host = None;
         }
-        // A `NativeViewHost` is composited only while it has a factory name,
-        // which an update can give it or take away. The counter is adjusted
-        // here, before the store walks the parent chain: it reads the delta
-        // from this node and carries it up (design 2, section 7 rule 6).
         if self.component == "NativeViewHost" {
             let renders = !self.native_view_name.is_empty();
             if renders != self.renders_native_surface {
@@ -1017,8 +986,6 @@ impl RNNodeView {
             }
             self.scroll_handle_stale = true;
         }
-        // Independent of `props_changed`: C++ decides whether the component's own
-        // props changed (the mask) and sends a handle only when they did.
         self.update_host_component(op);
         if op.props_changed {
             self.extension_props_json = op.extension_props_json.clone();
@@ -1030,16 +997,11 @@ impl RNNodeView {
 
     /// Creates the host component an op names by registry index, if it names
     /// one. Returns it with whether it is a container.
-    ///
-    /// Created here rather than in the store so every path that makes a node — a
-    /// batch, a test, a reload — gets one. The op's handles are claimed first, so
-    /// they are released even when nothing is registered for the index.
     fn create_host_component(
         op: &MountOp,
         host_reports: &crate::store::HostReportQueue,
     ) -> (Option<Box<dyn crate::host_component::HostObject>>, bool) {
         // SAFETY: C++ made these handles for this op and gave them to Rust; this
-        // is the only place a `Create` op's are claimed.
         let (props, emitter) = unsafe { Self::claim_host_handles(op) };
         let Some(entry) = (op.host_index >= 0)
             .then(|| crate::host_component::entry(op.host_index as u32))
@@ -1048,9 +1010,6 @@ impl RNNodeView {
             return (None, false);
         };
         let (Some(props), Some(emitter)) = (props, emitter) else {
-            // A declaration nobody registered code for has nothing to create (the
-            // registry already said so at startup); a registered component that
-            // arrives without its handles is a bug in the mount builder.
             if entry.is_registered() {
                 log::error!(
                     "[host-component] {} (tag {}) was created without its props or emitter",
@@ -1091,19 +1050,13 @@ impl RNNodeView {
     }
 
     /// Hands the component its new props, when C++ found its own props changed.
-    ///
-    /// C++ compared this commit's props with the ones it last sent (the old shadow
-    /// view), so an op with no handle is a layout-only, state-only or reparenting
-    /// update and the component is not called at all (design 2, section 5.2).
     fn update_host_component(&mut self, op: &MountOp) {
         if op.host_props_handle == 0 {
             return;
         }
         // SAFETY: as in `create_host_component`; an `Update` op's props handle is
-        // claimed only here.
         let props = unsafe { crate::host_component::PropsHandle::from_raw(op.host_props_handle) };
         let Some(component) = self.host_component.as_mut() else {
-            // Dropping `props` released it.
             return;
         };
         let mut changed = Vec::with_capacity(1 + op.host_changed_more.len());
@@ -1130,10 +1083,6 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
-    ///
-    /// Reads the counter the store maintains, so it is O(1): a `ScrollView`
-    /// asks it on every render and must not walk its subtree (design 2,
-    /// section 7 rule 6).
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
         self.native_surface_descendants > 0
     }
@@ -1156,12 +1105,6 @@ impl RNNodeView {
 
     /// Adds `delta` to this subtree's count.
     /// Adds `delta` to this subtree's count.
-    ///
-    /// Returns whether the count crossed from zero to non-zero. Only that
-    /// crossing changes what a `ScrollView` or the surface root must do — it
-    /// reads the count as "is there a native surface below me" — so callers use
-    /// the return value to re-render on the crossing alone rather than on every
-    /// insert anywhere in the tree.
     pub(crate) fn add_native_surface_descendants(&mut self, delta: u32) -> bool {
         let before = self.native_surface_descendants;
         self.native_surface_descendants = before.saturating_add(delta);
@@ -1169,9 +1112,6 @@ impl RNNodeView {
     }
 
     /// Removes `delta` from this subtree's count.
-    ///
-    /// Returns whether the count crossed back to zero; see
-    /// [`Self::add_native_surface_descendants`].
     pub(crate) fn sub_native_surface_descendants(&mut self, delta: u32) -> bool {
         let before = self.native_surface_descendants;
         self.native_surface_descendants = before.saturating_sub(delta);
@@ -1296,8 +1236,6 @@ impl RNNodeView {
             x -= link.scale.0 * offset.x;
             y -= link.scale.1 * offset.y;
         }
-        // Plus where the surface's box is in its window: zero for a window's
-        // own surface, the box GPUI placed for an embedded one.
         let (surface_x, surface_y) = self.surface_origin.get();
         point(px(x + surface_x), px(y + surface_y))
     }
@@ -2256,12 +2194,6 @@ pub(crate) static RENDER_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 /// Queues one delivery of the host reports made during this frame's renders.
-///
-/// The third of the three delivery points in design 2, section 5.7: a report
-/// made from `render` has no store to write through while the node is being
-/// rendered, so the store applies it at the end of the effect cycle instead.
-/// The queue itself claims the flush, so a frame in which a hundred nodes
-/// reported still delivers once.
 fn schedule_frame_host_report_flush(
     reports: &crate::store::HostReportQueue,
     window: &mut Window,
@@ -2277,7 +2209,6 @@ fn schedule_frame_host_report_flush(
             Some(store) => {
                 store.update(cx, |store, cx| store.flush_host_reports(cx));
             }
-            // No store to deliver into: drop them rather than let the queue grow.
             None => {
                 let _ = reports.take();
             }
@@ -3624,24 +3555,9 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
-            // A native surface has its bounds set in `prepaint`, and a
-            // scroll-only composite frame skips the content's prepaint; the
-            // surface would stay where it was last painted while GPUI's content
-            // scrolled out from under it (see `crate::scroll_layers`, whose
-            // tests pin both halves). Such a container offsets its own content
-            // instead, which never reports `Overflow::Scroll` and so is never
-            // composited as a layer.
-            //
-            // The answer is this node's own counter rather than a walk of its
-            // subtree: a scrolling list re-renders on every frame and must not
-            // pay a subtree walk per render (design 2, section 7 rule 6).
             let strategy =
                 crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface());
             if scroll.enabled {
-                // This listener runs before GPUI's, so it defers and reports
-                // where the offset ended up. It runs for both strategies: it is
-                // what tells JS the view scrolled and what syncs Fabric's copy
-                // of the offset.
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
                     position: self.scroll_position.clone(),
@@ -3676,10 +3592,6 @@ impl Render for RNNodeView {
                         .child(scroller.track_scroll(&self.scroll_handle).child(content));
                 }
                 crate::scroll_layers::ScrollStrategy::ManualOffset => {
-                    // Move the content inside a clipped box. `manual_offset`
-                    // is read while the node renders, so every frame either
-                    // path takes prepaints the content and re-sets a native
-                    // surface's bounds.
                     let (offset_x, offset_y) = (self.scroll_offset().x, self.scroll_offset().y);
                     let moved = div()
                         .relative()
@@ -3689,10 +3601,6 @@ impl Render for RNNodeView {
                         .w(px(scroll.content_size.0.max(frame.w)))
                         .h(px(scroll.content_size.1.max(frame.h)))
                         .children(ordered_children.iter().map(|(_, child)| child.clone()));
-                    // No element scrolls here, so the node handles the wheel
-                    // itself: it moves its own offset by the same deltas GPUI
-                    // would have applied, and then lets `Scroller::sync` report
-                    // it, so JS sees exactly the events the layer path sends.
                     if scroll.enabled {
                         let horizontal = scroll.horizontal;
                         let max = (
@@ -3751,19 +3659,6 @@ impl Render for RNNodeView {
                 self.scroll_indicator = None;
             }
         } else if self.host_component.is_some() {
-            // A registered host component owns this node's content. It paints
-            // inside the node's own box — which already carries the style, the
-            // radius, the hit testing and the accessibility node — so a
-            // component only draws its content, never positions the node.
-            //
-            // Core paints the React children, positioned by Yoga: the component's
-            // chrome goes beneath them and its optional overlay above (design 2,
-            // section 6.1). A component never receives or places the children.
-            //
-            // Each call gets its own context, which writes what the component
-            // reports straight into the store's queue; the store applies it after
-            // this frame's renders, so nothing about delivery depends on this
-            // render having happened (section 5.7).
             let chrome_cx = self.host_context();
             let overlay_cx = self.host_context();
             let container = self.host_container;
@@ -3778,8 +3673,6 @@ impl Render for RNNodeView {
                 ),
                 None => (None, None),
             };
-            // A report made while rendering is applied once, after this frame's
-            // renders, however many nodes reported.
             schedule_frame_host_report_flush(&self.host_reports, window, cx);
             element = element
                 .children(chrome)
@@ -4067,7 +3960,7 @@ fn rule_segment_spans(length: f32, thickness: f32, style: u8) -> Vec<(f32, f32)>
     spans
 }
 
-/// The node's side of a host component (design 2, section 5): it is created from
+/// The node's side of a host component: it is created from
 /// the registry index on its op, handed new props only when C++ sent a handle,
 /// and never looks the component up by name.
 #[cfg(test)]
@@ -4192,7 +4085,6 @@ mod host_component_node_tests {
             "the declaration says it is a container"
         );
         assert_eq!(log(), vec!["create".to_string()]);
-        // What `create` reported joined the store's queue, not the node.
         assert_eq!(reports.take().len(), 1);
     }
 
@@ -4223,11 +4115,9 @@ mod host_component_node_tests {
         create.host_emitter_handle = TEST_HANDLE;
         let mut node = RNNodeView::from_op(&create, 1, queue());
 
-        // A layout-only update carries no handle: the component is not called.
         node.update_from_op(&op(MountKind::Update, REGISTERED as i32));
         assert_eq!(log(), vec!["create".to_string()]);
 
-        // A props update carries the handle and the mask, both words of it.
         let mut update = op(MountKind::Update, REGISTERED as i32);
         update.host_props_handle = TEST_HANDLE;
         update.host_changed = 0b101;
@@ -4284,12 +4174,6 @@ impl RNNodeView {
     }
 
     /// A context whose reports go to the store's queue.
-    ///
-    /// Every method core drives — `create`, `update`, `render`, a command — gets
-    /// one of these, so a report is queued the moment it is made and applied
-    /// from the store's single delivery point. Nothing about delivery depends on
-    /// this node rendering again.
-    /// The store's report queue, for a caller that has just run a method.
     pub(crate) fn host_reports(&self) -> crate::store::HostReportQueue {
         self.host_reports.clone()
     }
@@ -4315,12 +4199,6 @@ impl RNNodeView {
     }
 
     /// Runs a Fabric command on this node's host component.
-    ///
-    /// `command` is the index in the spec's `COMMANDS`, and `args` were validated
-    /// against the spec by the generated C++ dispatcher. Whatever the command
-    /// reports goes into the store's queue, which the callback applies as soon as
-    /// the command returns — the second of the three delivery points in design 2,
-    /// section 5.7.
     pub(crate) fn dispatch_host_command(
         &mut self,
         command: u32,
@@ -4344,11 +4222,6 @@ impl RNNodeView {
             component.command(command, args, host);
         }
         if !self.host_reports.is_empty() {
-            // The command's delivery point. Deferred rather than run here
-            // because this node is leased for the command: delivering a size
-            // updates the node's own diagnostic copy, which would need a second
-            // lease on it. The deferred callback runs at the end of this update,
-            // so the report is still applied before anything else observes it.
             if let Some(store) = crate::store::store_from(cx) {
                 cx.defer(move |cx| {
                     store.update(cx, |store, cx| store.flush_host_reports(cx));
@@ -4358,11 +4231,6 @@ impl RNNodeView {
     }
 
     /// How this node scrolls its content, by name, if it scrolls.
-    ///
-    /// The strategy is a decision made from the counts of design 2, section 7,
-    /// rule 6 (a native surface below forces the manual offset), and it changes
-    /// what a scroll costs, so the test driver reports it for a test to assert
-    /// rather than inferring it from timings.
     pub(crate) fn scroll_strategy_name(&self) -> Option<&'static str> {
         self.scroll.as_ref()?;
         Some(

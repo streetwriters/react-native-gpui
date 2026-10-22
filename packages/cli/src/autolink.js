@@ -584,14 +584,6 @@ function componentConfigFor(dependencyName, gpui) {
 /**
  * The host components a package registers, from
  * `platforms.desktop.hostComponents`.
- *
- * A host component is a codegen spec (with `interfaceOnly: true`) plus a Rust
- * type that implements the trait generated from it. The package writes no C++.
- * What cannot live in the spec is how the node lays out, so it is declared here:
- * whether the component measures itself, holds React children, or renders a
- * native surface (design 2, sections 5.1 and 5.3). Autolink gives each entry a
- * registry index, generates the C++ that registers it, and the bootstrap that
- * declares it to the Rust registry.
  */
 function hostComponentsFor(dependencyName, gpui) {
   const hostComponents = gpui.hostComponents ?? [];
@@ -630,9 +622,6 @@ function hostComponentsFor(dependencyName, gpui) {
       );
     }
     if (entry.measured === true && entry.container === true) {
-      // Fabric's `MeasurableYogaNode` asserts `LeafYogaNode`, and a leaf cannot
-      // hold children, so the React children of a measured container would be
-      // dropped before they reach the mount batch.
       throw new Error(
         `${dependencyName}: hostComponents "${entry.name}" cannot be both "measured" and a "container"; a measured component is a leaf, and a leaf cannot hold children`,
       );
@@ -766,10 +755,6 @@ function generateComponentCodegen({
   } finally {
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
   }
-  // A package that declares host components also gets the C++ half generated:
-  // the shims its generated Rust declares, the change mask, the command
-  // dispatcher, and the registration that hands the component to core. It lives
-  // beside React Native's own output so it is compiled with it.
   let hostComponentLibrary;
   if (hostComponents.length > 0) {
     const specPaths = specs.filter(file =>
@@ -1018,9 +1003,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         );
       }
       hostComponentNames.set(hostComponent.name, dependencyName);
-      // The registry index: the position in this global order. The generated C++
-      // and the generated Rust bootstrap both bake it in, so both halves index
-      // their arrays with it and no name is looked up on a hot path (5.4).
       hostComponents.push({
         ...hostComponent,
         index: hostComponents.length,
@@ -1038,12 +1020,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         component => component.dependencyName === dependencyName,
       ),
     });
-    // A host component declares no descriptor of its own: core owns the props
-    // class, the shadow node and the descriptor, and the package supplies only
-    // the name. Such a package still has `*NativeComponent.ts` specs, because JS
-    // needs the view config, so codegen produces sources with no descriptor list.
-    // The check therefore only applies to packages that render through their own
-    // Fabric components.
     const declaresHostComponents =
       Array.isArray(gpui.hostComponents) && gpui.hostComponents.length > 0;
     if (
@@ -1055,11 +1031,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `${dependencyName}: GPUI component Codegen is enabled, but platforms.desktop.componentDescriptors is empty`,
       );
     }
-    // A host component's spec is `interfaceOnly`, so React Native generates the
-    // props class and the event emitter but no shadow node or descriptor: core
-    // supplies those as templates the generated C++ instantiates. Compiling React
-    // Native's output therefore cannot register a second descriptor under the same
-    // name, which Fabric would reject at startup.
     if (generatedCodegen.hostComponentLibrary) {
       hostComponentLibraries.add(generatedCodegen.hostComponentLibrary);
     }
@@ -1264,19 +1235,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     '    unsafe {',
     '        rn_gpui_initialize_app_turbo_modules();',
     '    }',
-    // The registry has its shape from `react-native.config.js` before any
-    // package registers, so a registration only has to supply the code.
     '    declare_host_components();',
     ...ensureLinked,
     '    ensure_host_components();',
     '}',
   ].join('\n');
-  // A package declares its host components in `platforms.desktop.hostComponents`
-  // and registers the code from its own `rn_gpui_register()`. Autolink declares
-  // each one to the Rust registry first, with the index and the layout flags the
-  // generated C++ baked in, and then checks that every declaration got code: a
-  // declaration with no registration is a component that would silently render
-  // as an empty view (design 2, sections 5.1 and 5.4).
   const hostComponentDeclarations = hostComponents
     .map(
       ({ index, name, measured, nativeSurface, container }) =>
@@ -1441,10 +1404,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `  if (name == ${JSON.stringify(moduleName)}) return ::${provider}(name, jsInvoker);`,
     )
     .join('\n');
-  // Each host component library registers its components with core's registry
-  // from the generated C++, before any surface starts. Explicit calls, not static
-  // initialisers: a static library member that nothing references is dropped by
-  // the linker, and with it the registration.
   const hostComponentRegistrationDeclarations = [...hostComponentLibraries]
     .map(
       library =>

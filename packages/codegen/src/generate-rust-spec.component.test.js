@@ -1,7 +1,3 @@
-// The component half of `generate-rust-spec.js`: the props view, the change
-// mask, the events, the context, the trait and the registration value, one
-// group per row of design 2's table in section 5.2.
-
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -84,7 +80,6 @@ describe('a component spec becomes the generated API', () => {
   test('generates the context the trait methods take', () => {
     expect(header).toContain('pub struct FixtureChartContext {');
     expect(header).toContain('host: HostContext,');
-    // `cx.events().point_selected(..)`, as 5.1 writes it.
     expect(header).toContain(
       "pub fn events(&mut self) -> FixtureChartEvents<'_> {",
     );
@@ -103,20 +98,15 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'pub fn point_selected(&mut self, value: OnPointSelected) {',
     );
-    // An event with no payload is a method with no argument.
     expect(header).toContain('pub fn done(&mut self) {');
-    // A nested payload gets its own struct.
     expect(header).toContain('pub struct OnRichNested {');
     expect(header).toContain('pub fn rich(&mut self, value: OnRich) {');
   });
 
   test('queues an event with an owned payload instead of sending it mid-call', () => {
-    // 5.7: every report joins the store's one ordered queue, so an event is a
-    // closure that owns its payload and runs when the store delivers it.
     expect(header).toContain('self.context.host.queue_event(move || {');
     expect(header).toContain('let emitter = self.context.emitter.clone();');
     expect(header).toContain('rn_gpui_fixture_chart_event_point_selected(');
-    // The raw emitter pointer is gone from the context: an owning handle is.
     expect(header).toContain(
       'pub struct FixtureChartContext {\n    host: HostContext,\n    emitter: EmitterHandle,\n}',
     );
@@ -129,7 +119,6 @@ describe('a component spec becomes the generated API', () => {
   });
 
   test('wires the spec into core through a generated instance', () => {
-    // The props view is built once per props version and kept on the instance.
     expect(header).toContain(
       'struct FixtureChartInstance<T: FixtureChartSpec> {',
     );
@@ -142,7 +131,6 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'let changed = FixtureChartChanged::from_slice(changed);',
     );
-    // A command is dispatched by index, with typed arguments read by position.
     expect(header).toContain(
       '0 => self.component.select_point(args[0].to_i32(), &mut cx),',
     );
@@ -159,7 +147,6 @@ describe('a component spec becomes the generated API', () => {
 
   test('carries the declared shape on the registration value', () => {
     expect(header).toContain('pub const NAME: &\'static str = "FixtureChart";');
-    // One entry per line: the list is too long for one.
     expect(header).toContain(
       'pub const PROPS: &\'static [&\'static str] = &[\n        "lineWidth",\n        "opacity",\n        "ratio",\n        "flag",',
     );
@@ -185,8 +172,6 @@ describe('the props view reads each type of the 5.2 table', () => {
 
   test('a WithDefault prop is the value, with the default already applied by React Native', () => {
     expect(header).toContain('pub fn tick_count(&self) -> i32 {');
-    // No `Option`: React Native's generated props constructor applies the
-    // default, so the C++ field is never absent.
     expect(header).not.toContain('pub fn tick_count(&self) -> Option<i32>');
     expect(header).toContain('pub fn mode(&self) -> FixtureChartMode {');
   });
@@ -205,7 +190,6 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain(
       'unsafe { rn_gpui_str(rn_gpui_fixture_chart_props_title(self.handle)) }',
     );
-    // A `std::string` crosses as bytes and a length, not as a C string.
     expect(header).toContain(
       'fn rn_gpui_fixture_chart_props_title(props: *const core::ffi::c_void) -> RnGpuiStr;',
     );
@@ -240,7 +224,6 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain(
       'fn rn_gpui_fixture_chart_props_points(props: *const core::ffi::c_void) -> RnGpuiSlice;',
     );
-    // The mirror is plain data, so it is `Clone, Copy` and lends itself out.
     expect(header).toContain(
       'pub struct FixtureChartPoints {\n    /// `x`\n    pub x: f64,\n    /// `y`\n    pub y: f64,\n}',
     );
@@ -255,8 +238,6 @@ describe('the props view reads each type of the 5.2 table', () => {
 
   test('an array of strings is read one string at a time, without allocating', () => {
     expect(header).toContain("pub fn labels(&self) -> RnGpuiStrArray<'_> {");
-    // Each string is read through an `_at` shim, so nothing is collected into a
-    // temporary array and no shim allocates.
     expect(header).toContain(
       'let len = unsafe { rn_gpui_fixture_chart_props_labels_len(self.handle) };',
     );
@@ -273,11 +254,9 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain(
       "pub fn nested(&self) -> FixtureChartCardNested<'_> {",
     );
-    // Not a layout mirror: a `std::string` has no plain layout.
     expect(header).not.toContain(
       '#[repr(C)]\n#[derive(Clone, Copy, Debug, PartialEq)]\npub struct FixtureChartCard {',
     );
-    // The nested object inside it is a view too.
     expect(header).toContain("pub struct FixtureChartCardNested<'a> {");
     expect(header).toContain('pub fn flag(&self) -> bool {');
     expect(header).toContain("pub fn names(&self) -> RnGpuiStrArray<'_> {");
@@ -300,8 +279,6 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain(
       'fn rn_gpui_fixture_chart_props_cards_len(props: *const core::ffi::c_void) -> usize;',
     );
-    // Long shims wrap one parameter per line; the names are still the ones the
-    // C++ half implements.
     expect(header).toContain('fn rn_gpui_fixture_chart_props_cards_at(');
     expect(header).toContain('index: usize,');
     expect(header).toContain(') -> *const core::ffi::c_void;');
@@ -311,8 +288,6 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain('pub fn extra(&self) -> &Value {');
     expect(header).toContain('mixed_extra: std::cell::OnceCell<Value>,');
     expect(header).toContain('self.mixed_extra.get_or_init(|| {');
-    // The C++ shim serialises once and hands the bytes to a callback that copies
-    // them into a String; nothing is returned by pointer to a temporary.
     expect(header).toContain('rn_gpui_collect_text,');
     expect(header).toContain(
       'react_native_gpui::host_component::parse_value(&text)',
@@ -334,7 +309,6 @@ describe('the props view reads each type of the 5.2 table', () => {
     expect(header).toContain('pub fn title(&self) -> &str {');
     expect(header).toContain('pub fn points(&self) -> &[FixtureChartPoints] {');
     expect(header).toContain("pub fn card(&self) -> FixtureChartCard<'_> {");
-    // Nothing takes `&'a self` or returns anything without the borrow.
     expect(header).not.toContain('pub fn title(&self) -> String {');
   });
 });
@@ -344,20 +318,15 @@ describe('the change mask', () => {
     expect(header).toContain('words: [u64; 1],');
     expect(header).toContain('pub const fn line_width(&self) -> bool {');
     expect(header).toContain('self.words[0] & (1u64 << 0) != 0');
-    // Fifteen props, so the last one is bit 14. Events are not props.
     expect(header).toContain('pub const fn extra(&self) -> bool {');
     expect(header).toContain('self.words[0] & (1u64 << 14) != 0');
     expect(header).not.toContain('pub const fn on_done(&self) -> bool {');
   });
 
   test('reports a token with changed.report_token(), as 5.1 writes it', () => {
-    // The design's example spec has a `reportToken` prop; this fixture does not,
-    // so the getter is checked on a spec that declares one.
     const reported = generateFrom(withProps('  reportToken?: Int32;'));
     expect(reported).toContain('pub const fn report_token(&self) -> bool {');
     expect(reported).toContain('self.words[0] & (1u64 << 0) != 0');
-    // Every prop has a getter, so the design's `changed.report_token()` and
-    // `changed.points()` both exist.
     expect(header).toContain('pub const fn points(&self) -> bool {');
   });
 
@@ -376,10 +345,7 @@ describe('the change mask', () => {
   test('uses one u64 up to 64 props and documents the threshold', () => {
     expect(header).toContain('**Up to 64 props fit one `u64`;**');
     expect(header).toContain('pub const CHANGE_WORDS: usize = 1;');
-    // C++ computes the mask against the previous shadow view and the mount op
-    // carries it, so Rust has no shim to call for it.
     expect(header).not.toContain('fn rn_gpui_fixture_chart_changed(');
-    // Core hands the instance a slice of the op's words.
     expect(header).toContain('pub fn from_slice(words: &[u64]) -> Self {');
   });
 
@@ -391,10 +357,8 @@ describe('the change mask', () => {
     const many = generateFrom(withProps(props));
     expect(many).toContain('words: [u64; 3],');
     expect(many).toContain('pub const CHANGE_WORDS: usize = 3;');
-    // The last prop is bit 1 of word 2.
     expect(many).toContain('pub const fn prop129(&self) -> bool {');
     expect(many).toContain('self.words[2] & (1u64 << 1) != 0');
-    // The words arrive on the mount op; any beyond the first ride a Vec.
     expect(many).not.toContain('fn rn_gpui_temp_changed(');
     expect(many).toContain('pub fn from_slice(words: &[u64]) -> Self {');
     expect(many).toContain('let mut out = [0u64; 3];');
@@ -402,9 +366,6 @@ describe('the change mask', () => {
 
   test('is transparent over its word array, so the C++ comparison writes it in place', () => {
     expect(header).toContain('#[repr(transparent)]');
-    // One field, an array: the struct's layout is the array's, so a C++
-    // `uint64_t[N]` and the out-parameter form agree word for word. (Checked
-    // against rustc: `size_of` and field order are the array's.)
     expect(header).toContain('words: [u64; 1],');
     expect(header).toMatch(
       /#\[repr\(transparent\)\][\s\S]{0,200}pub struct FixtureChartChanged \{\n {4}words:/u,
@@ -421,7 +382,6 @@ describe('the generated file', () => {
   test('emits the ABI types once, however many components it declares', () => {
     expect(countOf(header, 'pub struct RnGpuiStr {')).toBe(1);
     expect(countOf(header, 'pub struct RnGpuiSlice {')).toBe(1);
-    // Only the component that uses an ImageSource pays for the ImageSource view.
     expect(countOf(header, 'pub struct RnGpuiImageSource {')).toBe(1);
     const withoutImage = generateFrom(withProps('  title?: string;'));
     expect(withoutImage).not.toContain('pub struct RnGpuiImageSource {');
@@ -429,13 +389,9 @@ describe('the generated file', () => {
   });
 
   test('names shims after the component, the prop and the path, for the C++ half', () => {
-    // Props: rn_gpui_<component>_props_<prop>.
     expect(header).toContain('fn rn_gpui_fixture_chart_props_line_width(');
-    // Views: rn_gpui_<view type>_<field>.
     expect(header).toContain('fn rn_gpui_fixture_chart_card_nested(');
-    // Events: rn_gpui_<component>_event_<event>.
     expect(header).toContain('fn rn_gpui_fixture_chart_event_point_selected(');
-    // Arrays of non-plain structs, and of strings: _len and _at.
     expect(header).toContain('fn rn_gpui_fixture_chart_props_cards_len(');
     expect(header).toContain('fn rn_gpui_fixture_chart_props_cards_at(');
     expect(header).toContain('fn rn_gpui_fixture_chart_card_nested_names_len(');
@@ -443,9 +399,6 @@ describe('the generated file', () => {
   });
 
   test('converts a props string with a checked conversion, never unchecked', () => {
-    // `from_utf8_unchecked` with only a `debug_assert` is undefined behaviour in
-    // a release build. This repo supports more than one JS engine, so it cannot
-    // assume each replaces invalid sequences before they reach a props string.
     expect(countOf(header, 'from_utf8_unchecked(')).toBe(0);
     expect(header).toContain('match core::str::from_utf8(bytes)');
   });
@@ -455,8 +408,6 @@ describe('the generated file', () => {
     expect(header).toContain(
       'EmitterHandle, HostArg, HostComponentSpec, HostContext, HostObject, PropsHandle, Value,',
     );
-    // No module runtime: a component file that declares no NativeModule does
-    // not need the value tree.
     expect(header).not.toContain('use rn_gpui_module::');
   });
 

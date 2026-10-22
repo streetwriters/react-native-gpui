@@ -3,18 +3,7 @@ import { expect, test } from 'vitest';
 import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
 
 /**
- * React surfaces inside a GPUI layout (design 2, direction A), end to end.
- *
- * The app under test is the tester's GPUI-first example
- * (`desktop/src/gpui_first.rs`): a window that is a GPUI layout, with three
- * `ReactSurface`s in it — a `Fill` sidebar, a `FitContent` panel, and a `Fill`
- * panel below that one. Everything asserted here is a number a test can compute
- * from the layout: where each surface's content sits in the window, how big a
- * `FitContent` surface is, and where the surface below it starts.
- *
- *   x: 0 .. 240 | 240 ..            y: 0 .. 32   GPUI header
- *   side (Fill) | fit (FitContent)  y: 32 ..
- *               | below (Fill)      y: 32 + fit height ..
+ * React surfaces inside a GPUI layout, end to end.
  */
 
 const HEADER = 32;
@@ -70,18 +59,12 @@ afterAll(async () => {
 
 test('a Fill surface takes the box GPUI gave it, and its nodes report window coordinates', async () => {
   await launchExample(1024, 768);
-  // The sidebar is 240 wide and runs from under the header to the window's
-  // bottom. Its React root fills it, and the root's frame is in *window*
-  // coordinates: the surface is not at the window's origin, so its nodes' origin
-  // is the box GPUI placed it in.
   expect(await frameOf('side-root')).toEqual({
     x: 0,
     y: HEADER,
     width: SIDEBAR,
     height: 768 - HEADER,
   });
-  // A node inside the surface is offset by the same box: the first target sits
-  // after the padding (8), the title (17.x) and the label.
   const first = await frameOf('side-first');
   expect(first.x).toBe(8);
   expect(first.y).toBeGreaterThan(HEADER);
@@ -105,15 +88,12 @@ test('GPUI lays out around a FitContent surface when its content grows', async (
   expect(below.x).toBe(SIDEBAR);
   expect(below.height).toBe(768 - HEADER - fitHeight(2));
 
-  // One more row of React content: the surface asks for 22 more, GPUI re-lays
-  // out, and the surface below it moves down and gets shorter by the same.
   await app.click((await node('fit-grow')).tag);
   await app.waitForIdle();
   expect((await frameOf('fit-root')).height).toBe(fitHeight(3));
   const moved = await frameOf('below-root');
   expect(moved.y).toBe(HEADER + fitHeight(3));
   expect(moved.height).toBe(768 - HEADER - fitHeight(3));
-  // Nothing else moved.
   expect((await frameOf('side-root')).height).toBe(768 - HEADER);
 });
 
@@ -135,9 +115,6 @@ test('resizing the window resizes every Fill surface and leaves the fit one alon
 
 test('Tab leaves one surface for the next in tree order, instead of wrapping', async () => {
   await launchExample();
-  // A focus event does not reach JS from a test app, but a key reaches whatever
-  // holds focus. So each stop is read by pressing a key and seeing which target
-  // received it.
   const holder = async () => {
     await app.press('x');
     await app.waitForIdle();
@@ -151,13 +128,10 @@ test('Tab leaves one surface for the next in tree order, instead of wrapping', a
   await holder();
   expect(await textOf('side-focus')).toContain('focused=second');
 
-  // The sidebar's last focusable: the next stop is in the fit surface, not the
-  // sidebar's first target again.
   await app.press('tab');
   await holder();
   expect(await textOf('fit-focus')).toContain('focused=target');
 
-  // And on into the surface below.
   await app.press('tab');
   await holder();
   expect(await textOf('below-focus')).toContain('focused=first');

@@ -1,8 +1,7 @@
 //! Host components: a Rust type that renders one Fabric node's content.
 //!
-//! This is the API a package uses to ship its own React Native component
-//! (design 2, section 5). A package writes a codegen spec and implements the
-//! trait `@react-native-gpui/codegen` generates from it:
+//! A package writes a codegen spec and implements the trait
+//! `@react-native-gpui/codegen` generates from it:
 //!
 //! ```ignore
 //! rn_gpui_module::include_specs!();
@@ -20,20 +19,8 @@
 //! }
 //! ```
 //!
-//! This module is what the generated code stands on. It owns no component's
-//! shape, only the machinery every component shares:
-//!
-//! * **Handles.** A node's props and event emitter are Fabric's own
-//!   `shared_ptr`s. They cross the bridge as an opaque address owned by a
-//!   [`PropsHandle`] or [`EmitterHandle`], and the generated accessors read the
-//!   C++ fields in place (5.2). Nothing is serialised.
-//! * **The registry.** Each component has a dense index, declared by autolink
-//!   from `react-native.config.js` and registered by the package. It is
-//!   frozen before the first surface starts, so a lookup takes no lock (5.4).
-//! * **Reports.** What a method reports — a size, insets, an event — goes into
-//!   the store's one ordered queue, delivered from one place (5.7).
-//! * **Commands.** The generated C++ dispatcher validates and converts a
-//!   command's arguments once; this module hands them on as [`HostArg`]s (5.6).
+//! This module holds the machinery every component shares: the props and
+//! emitter handles, the registry, the report queue and command arguments.
 
 use crate::extensions::StoreHandle;
 use gpui::{AnyElement, Window};
@@ -64,11 +51,6 @@ impl EdgeInsets {
 }
 
 /// One thing a host component reported from a method, waiting to be applied.
-///
-/// A report is recorded by the [`HostContext`] the method was given, and applied
-/// by core from [`HostReports`] — the store's single delivery point — never from
-/// the reporting node's own render. That is what keeps delivery from depending
-/// on the node rendering again (design 2, section 5.7).
 pub(crate) enum HostReport {
     /// The size a measured component wants, in DIPs.
     Size { tag: i32, width: f32, height: f32 },
@@ -114,10 +96,6 @@ impl std::fmt::Debug for HostReport {
 }
 
 /// The reports every host component method produced since the last delivery.
-///
-/// One per store, and ordered: a report is appended when its method returns and
-/// applied in that order, so nothing overwrites anything else. `flush_scheduled`
-/// keeps a frame in which many nodes reported to a single deferred delivery.
 #[derive(Default)]
 pub(crate) struct HostReports {
     reports: RefCell<Vec<HostReport>>,
@@ -140,9 +118,6 @@ impl HostReports {
     }
 
     /// Claims the frame's delivery, returning whether one was already claimed.
-    ///
-    /// A frame in which many nodes report schedules one deferred delivery, not
-    /// one per node.
     pub(crate) fn claim_flush(&self) -> bool {
         self.flush_scheduled.replace(true)
     }
@@ -167,11 +142,6 @@ pub(crate) type HostReportQueue = Rc<HostReports>;
 
 /// An owned reference to a node's Fabric props: a C++ `shared_ptr<const Props>`
 /// behind an opaque address.
-///
-/// The mount op that carried it gave up ownership, so the props live exactly as
-/// long as this handle does and are released when it drops. A generated props
-/// view reads the C++ fields in place through [`as_ptr`](Self::as_ptr); it never
-/// copies them (design 2, section 5.2).
 pub struct PropsHandle {
     raw: usize,
     /// Props are read on the main thread only. A handle is not `Send`, so a
@@ -247,9 +217,6 @@ impl Drop for EmitterOwner {
 }
 
 /// A shared reference to a node's Fabric event emitter.
-///
-/// An event queued by a component holds a clone, so the emitter outlives the
-/// call that made the event and is released with the last of them.
 #[derive(Clone)]
 pub struct EmitterHandle(Rc<EmitterOwner>);
 
@@ -282,12 +249,7 @@ impl std::fmt::Debug for EmitterHandle {
 }
 
 /// One argument of a command, already validated against the spec by the
-/// generated C++ dispatcher (design 2, section 5.6).
-///
-/// The dispatcher checks the count and the type of every argument before this is
-/// built, so a generated method can read it by position without a fallible
-/// conversion. Integers and floats both arrive as numbers; the generated code
-/// narrows them to the type the spec declares.
+/// generated C++ dispatcher.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostArg {
     Number(f64),
@@ -388,12 +350,6 @@ impl HostArg {
 }
 
 /// What a host component is given besides its props.
-///
-/// A method gets one for the whole call and reports through it; each report goes
-/// straight into the store's queue, so the store's single delivery point applies
-/// it after the batch, the command or the frame that produced it (5.7). The
-/// store is leased while a batch is applied, so a component never dispatches
-/// itself.
 pub struct HostContext {
     /// The Fabric tag of the node. A command, an event or a measurement is
     /// always about this node.
@@ -403,7 +359,7 @@ pub struct HostContext {
     /// The size this call reported, if any, for a caller that reads it back.
     pending_size: Option<(f32, f32)>,
     /// The insets this call reported, if any: the padding a container's chrome
-    /// needs around React's children (design 2, section 6.1).
+    /// needs around React's children.
     pending_insets: Option<EdgeInsets>,
     queue: HostReportQueue,
 }
@@ -434,10 +390,6 @@ impl HostContext {
     }
 
     /// Reports the size this component wants, in DIPs.
-    ///
-    /// Fabric stores it in the node's shadow-node state, and Yoga uses it on the
-    /// next commit, which is one frame later than the call. A component should
-    /// therefore also report from `create`.
     pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {
         let (width, height) = (width.max(0.0), height.max(0.0));
         self.queue.push(HostReport::Size {
@@ -454,14 +406,7 @@ impl HostContext {
     }
 
     /// Reports the padding this container's chrome needs around React's
-    /// children, in DIPs (design 2, section 6.1).
-    ///
-    /// A container host component — a GPUI `Box` drawing a title bar and a
-    /// border around React content — uses this to tell Fabric how much room its
-    /// own chrome takes, so the React children are laid out inside what is left
-    /// rather than under the chrome. Fabric stores the insets in the node's
-    /// shadow-node state and applies them as Yoga padding on the next commit,
-    /// the same one-frame exchange the measured size uses.
+    /// children, in DIPs.
     pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {
         let insets = EdgeInsets {
             top: top.max(0.0),
@@ -487,8 +432,6 @@ impl HostContext {
     /// Queues a typed event. `send` owns the payload and calls the generated
     /// shim; it runs when the store delivers the queue, in order with every
     /// other report, never mid-call.
-    ///
-    /// Generated code calls this; a component calls its typed `events()`.
     pub fn queue_event(&mut self, send: impl FnOnce() + 'static) {
         self.queue.push(HostReport::Event {
             tag: self.tag,
@@ -508,10 +451,6 @@ impl HostContext {
     }
 
     /// A context for a component's own unit tests, with a private queue.
-    ///
-    /// A package's tests drive its component directly — call `create`, `update`
-    /// and a command, then look at what it queued — and there is no GPUI app or
-    /// Fabric node in that situation.
     pub fn for_test(tag: i32) -> Self {
         Self::queued(tag, Rc::new(HostReports::default()))
     }
@@ -652,7 +591,7 @@ impl std::fmt::Debug for HostEntry {
 
 /// Whether any host component was ever declared, as a relaxed load. Every
 /// per-op and per-node check goes through this first, so an app with no host
-/// components pays one predictable branch (design 2, section 7, rule 1).
+/// components pays one predictable branch.
 fn any_declared_flag() -> &'static AtomicBool {
     static FLAG: AtomicBool = AtomicBool::new(false);
     &FLAG
@@ -677,10 +616,6 @@ fn frozen() -> &'static OnceLock<Box<[Option<HostEntry>]>> {
 /// `hostComponents` entry before any package registers, so the registry has its
 /// shape from `react-native.config.js` and a package's registration only has to
 /// supply the code.
-///
-/// The index is the position in autolink's global order, which the generated C++
-/// bakes in as well: both halves index their arrays with it, and no name is
-/// looked up on a hot path (5.4).
 pub fn declare_host_component(index: u32, name: &str, options: HostComponentOptions) {
     if frozen().get().is_some() {
         log::error!("[host-component] {name} declared after the registry froze; ignored");
@@ -705,11 +640,6 @@ pub fn declare_host_component(index: u32, name: &str, options: HostComponentOpti
 
 /// Registers the code for a declared component. `spec` is the value the
 /// generated `<name>_component::<T>()` returns.
-///
-/// Called from a package's `rn_gpui_register()`, after autolink declared every
-/// component and before the first surface starts. A component that was not
-/// declared in `react-native.config.js` is an error: C++ would have no
-/// descriptor for it, so Fabric could never mount it.
 pub fn register_component<C: HostComponentSpec>(spec: C) {
     let _ = spec;
     if frozen().get().is_some() {
@@ -743,10 +673,6 @@ pub fn register_component<C: HostComponentSpec>(spec: C) {
 
 /// Freezes the registry. Called once, before the first surface starts; every
 /// later read is lock-free.
-///
-/// Logs each declared component its package never registered: autolink's
-/// generated bootstrap checks the same thing, and this is the net for a build
-/// that skipped it.
 pub fn freeze() {
     frozen().get_or_init(|| {
         let slots = std::mem::take(&mut *pending().lock().expect("host component registry poisoned"));
@@ -763,10 +689,6 @@ pub fn freeze() {
 }
 
 /// The entry at `index`, if there is one.
-///
-/// Lock-free once the registry froze. A unit test never freezes it (the global
-/// is shared by every test in the process), so there it reads the pending list
-/// under its lock instead.
 pub fn entry(index: u32) -> Option<HostEntry> {
     crate::counters::bump(crate::counters::Counter::HostRegistryLookups);
     if let Some(slots) = frozen().get() {
@@ -784,9 +706,6 @@ pub fn entry(index: u32) -> Option<HostEntry> {
 }
 
 /// Whether a package registered code for the component declared at `index`.
-///
-/// Autolink's bootstrap asks this once per declaration at startup. It is not a
-/// lookup on a hot path, so it is not counted as one.
 pub fn is_registered(index: u32) -> bool {
     let check = |slots: &[Option<HostEntry>]| {
         slots
@@ -837,10 +756,6 @@ pub fn parse_value(text: &str) -> Value {
 
 /// Pushes a reported size into the node's shadow-node state, so Yoga uses it on
 /// the next commit.
-///
-/// Called by the store's delivery point, once per queued report. The mounting
-/// manager owns the state and drops a size it already holds, so a component
-/// that reports the same size every render costs nothing after the first.
 pub(crate) fn apply_size(tag: i32, width: f32, height: f32) {
     rn_gpui_sys::ffi::reportHostComponentSize(tag, width, height);
 }
@@ -1029,8 +944,6 @@ mod tests {
             HostArg::Strings(vec!["x".into()]).to_string_vec(),
             vec!["x".to_string()]
         );
-        // A mismatch cannot happen after C++ validated it; if it ever did it is
-        // a neutral value, not a panic in the middle of a frame.
         assert_eq!(HostArg::String("a".into()).to_i32(), 0);
     }
 

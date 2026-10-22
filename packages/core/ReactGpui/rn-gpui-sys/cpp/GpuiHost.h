@@ -62,8 +62,8 @@ class GpuiHost {
       float h,
       float scale);
   void set_surface_size(int32_t surfaceId, float w, float h, float scale);
-  /// Starts a surface whose size is a range rather than a point: `FitContent`
-  /// in design 2. Fabric lays the root out against these constraints and the
+  /// Starts a surface whose size is a range rather than a point: `FitContent`.
+  /// Fabric lays the root out against these constraints and the
   /// resulting size comes back in every mount batch as `content_width` /
   /// `content_height`.
   void start_surface_with_constraints(
@@ -161,5 +161,4 @@ void register_gpui_event_listener(
 /// Runs the task a module posted with `rngpui::dispatchMain`. Called on the
 /// GPUI main thread.
 void rn_gpui_run_main_task(uint64_t id);
-
 } // namespace rngpui

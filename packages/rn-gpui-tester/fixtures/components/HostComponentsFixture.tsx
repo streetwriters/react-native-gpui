@@ -7,25 +7,10 @@ import {
   FixtureMeasuredLabel,
   type FixtureChartPoint,
 } from '@react-native-gpui/host-components-fixture';
-// From the spec, not the package index: `Commands` is reserved by the codegen
-// plugin and cannot be re-exported.
 import { Commands as FixtureChartCommands } from '@react-native-gpui/host-components-fixture/src/FixtureChartNativeComponent';
 
 /**
- * Host components (design 2, section 5.1 and 6.1).
- *
- * One screen exercising everything the host component API promises:
- *
- * * `FixtureChart` receives props (points, title, colour), runs commands
- *   (`selectPoint`, `reportSeries`) and emits an event JS receives
- *   (`onPointSelected`).
- * * `FixtureMeasuredLabel` measures itself and reports a size through Fabric
- *   state, so its parent lays out around it one commit later.
- * * `FixtureCard` is a container: it draws chrome and reports the room that
- *   chrome takes, so React children land inside it.
- *
- * The `scenario` prop always measures the same numbers so the e2e test can
- * assert exact geometry rather than "something happened".
+ * Host components.
  */
 const POINTS: FixtureChartPoint[] = [
   { x: 0, y: 1 },
@@ -33,8 +18,6 @@ const POINTS: FixtureChartPoint[] = [
   { x: 2, y: 2 },
 ];
 
-// The `large-series` scenario: a chart big enough that copying its props on every
-// commit would show up in the counters (design 2, section 9.2).
 const LARGE_POINTS: FixtureChartPoint[] = Array.from(
   { length: 10_000 },
   (_, index) => ({ x: index, y: Math.sin(index / 50) * 100 }),
@@ -46,17 +29,11 @@ export default function HostComponentsFixture({
   scenario?: string;
 }) {
   const chart = useRef<React.ComponentRef<typeof FixtureChart> | null>(null);
-  // `codegenNativeCommands` takes the resolved handle; guard so a press before
-  // the native view exists is a no-op rather than a throw.
   const chartHandle = () => chart.current ?? undefined;
   const [selected, setSelected] = useState<string>('none');
   const [seriesReports, setSeriesReports] = useState(0);
-  // `reportSeries` answers through the same `pointSelected` event, so a press of
-  // the report button sets this before the command runs and the handler reads it
-  // to tell a report from a selection.
   const expectingReport = useRef(false);
   const [reportToken, setReportToken] = useState(0);
-  // A prop that is not `points`, so changing it must not resend the series.
   const [titleCount, setTitleCount] = useState(0);
 
   const onPointSelected = useCallback(
@@ -66,8 +43,6 @@ export default function HostComponentsFixture({
         expectingReport.current = false;
         setSeriesReports(count => count + 1);
       }
-      // `reportSeries` answers through this same event, so the selection text
-      // records the last reported point either way.
       setSelected(`index=${index} x=${x} y=${y}`);
     },
     [],
@@ -136,8 +111,6 @@ export default function HostComponentsFixture({
           <Pressable
             testID="host-chart-token"
             onPress={() => {
-              // The chart emits from `update` when the token changes, and it
-              // answers through the same event, so this counts it the same way.
               expectingReport.current = true;
               setReportToken(token => token + 1);
             }}
@@ -156,9 +129,6 @@ export default function HostComponentsFixture({
             text="abcd"
             characterWidth={10}
             lineHeight={20}
-            // A column stretches its children across the axis by default, which
-            // would hide the reported width behind the container's. `flex-start`
-            // keeps the measured width visible.
             style={{ alignSelf: 'flex-start' }}
           />
           <Text
@@ -196,8 +166,6 @@ export default function HostComponentsFixture({
           text="scroll"
           characterWidth={9}
           lineHeight={18}
-          // Same as the column above: a stretched cross axis would hide the
-          // reported width behind the scroll view's.
           style={{ alignSelf: 'flex-start' }}
         />
         <Text testID="scroll-sibling" style={{ color: '#94a3b8' }}>

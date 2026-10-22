@@ -1,23 +1,6 @@
 //! Puts the C++ runtime's shared libraries on this crate's test binary rpath.
-//!
-//! This fixture's tests build gpui trees, which link `libjsi.dylib` and the
-//! rest of the Node-API runtime. Core's `build.rs` emits
-//! `cargo:rustc-link-arg=-Wl,-rpath,<dir>` for its own binary — the app — and that
-//! flag is not inherited by a dependency's test binary, so the test process
-//! aborted in dyld with `Library not loaded: @rpath/libjsi.dylib` before running a
-//! single test.
-//!
-//! `react-native-gpui` re-exports the directories as
-//! `DEP_RN_GPUI_RUNTIME_RPATHS` (see its `build.rs`), which is the variable a
-//! crate that depends on it by version reads. Re-emitting it here scopes the
-//! flag to this crate's test binary, since `cargo:rustc-link-arg` without a
-//! target suffix applies to the crate's own targets and not to the app that
-//! depends on it.
 
 fn main() {
-    // The typed trait, props view and events for each component spec. The
-    // specs are the same `codegenNativeComponent` files React Native's own
-    // codegen reads for the C++ props, so both halves come from one source.
     rn_gpui_module_build::generate(&[
         "../src/FixtureChartNativeComponent.ts",
         "../src/FixtureMeasuredLabelNativeComponent.ts",
@@ -37,8 +20,6 @@ fn main() {
     if dirs.is_empty() {
         return;
     }
-    // MSVC and MinGW have no rpath, and the flag is rejected outright; Windows
-    // finds the DLLs through PATH, which the test runner already arranges.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         return;
     }
