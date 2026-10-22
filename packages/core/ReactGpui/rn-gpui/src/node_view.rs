@@ -1080,13 +1080,27 @@ impl RNNodeView {
     }
 
     /// Adds `delta` to this subtree's count.
-    pub(crate) fn add_native_surface_descendants(&mut self, delta: u32) {
-        self.native_surface_descendants = self.native_surface_descendants.saturating_add(delta);
+    /// Adds `delta` to this subtree's count.
+    ///
+    /// Returns whether the count crossed from zero to non-zero. Only that
+    /// crossing changes what a `ScrollView` or the surface root must do — it
+    /// reads the count as "is there a native surface below me" — so callers use
+    /// the return value to re-render on the crossing alone rather than on every
+    /// insert anywhere in the tree.
+    pub(crate) fn add_native_surface_descendants(&mut self, delta: u32) -> bool {
+        let before = self.native_surface_descendants;
+        self.native_surface_descendants = before.saturating_add(delta);
+        before == 0 && self.native_surface_descendants != 0
     }
 
     /// Removes `delta` from this subtree's count.
-    pub(crate) fn sub_native_surface_descendants(&mut self, delta: u32) {
-        self.native_surface_descendants = self.native_surface_descendants.saturating_sub(delta);
+    ///
+    /// Returns whether the count crossed back to zero; see
+    /// [`Self::add_native_surface_descendants`].
+    pub(crate) fn sub_native_surface_descendants(&mut self, delta: u32) -> bool {
+        let before = self.native_surface_descendants;
+        self.native_surface_descendants = before.saturating_sub(delta);
+        before != 0 && self.native_surface_descendants == 0
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {

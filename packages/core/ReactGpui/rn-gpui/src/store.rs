@@ -313,12 +313,18 @@ impl ViewStore {
             let mut next = None;
             node.update(cx, |node, cx| {
                 next = node.parent_tag_cached();
-                if delta > 0 {
-                    node.add_native_surface_descendants(delta as u32);
+                // Re-rendered only when the count crosses zero: a ScrollView and
+                // the surface root read the count as a yes/no, so an increment
+                // from 3 to 4 asks nothing of them and notifying would repaint a
+                // subtree for no observable change.
+                let crossed = if delta > 0 {
+                    node.add_native_surface_descendants(delta as u32)
                 } else {
-                    node.sub_native_surface_descendants((-delta) as u32);
+                    node.sub_native_surface_descendants((-delta) as u32)
+                };
+                if crossed {
+                    cx.notify();
                 }
-                cx.notify();
             });
             parent = next;
         }
@@ -326,12 +332,14 @@ impl ViewStore {
         // there once the chain runs out of nodes.
         if let Some(root) = self.roots.get(&surface_id).cloned() {
             root.update(cx, |root, cx| {
-                if delta > 0 {
-                    root.add_native_surfaces(delta as u32);
+                let crossed = if delta > 0 {
+                    root.add_native_surfaces(delta as u32)
                 } else {
-                    root.sub_native_surfaces((-delta) as u32);
+                    root.sub_native_surfaces((-delta) as u32)
+                };
+                if crossed {
+                    cx.notify();
                 }
-                cx.notify();
             });
         }
     }
@@ -1419,6 +1427,42 @@ mod test_app_context_tests {
     }
 
     #[gpui::test]
+    fn the_counter_reports_a_crossing_only_at_zero(cx: &mut TestAppContext) {
+        // The return value is what decides whether an ancestor re-renders, so a
+        // second surface below the same parent must not count as a crossing.
+        register_native_component("CrossingNative");
+        let (store, root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                create(2, "View"),
+                insert(1, -1),
+                insert(2, 1),
+                create(3, "CrossingNative"),
+                insert(3, 2),
+            ],
+        );
+        let node = cx
+            .read_entity(&store, |store, _| store.nodes.get(&1).cloned())
+            .unwrap();
+
+        let second = node.update(cx, |node, _cx| node.add_native_surface_descendants(1));
+        assert!(!second, "1 -> 2 changes no reader's answer");
+
+        let back = node.update(cx, |node, _cx| node.sub_native_surface_descendants(1));
+        assert!(!back, "2 -> 1 changes no reader's answer either");
+
+        let empty = node.update(cx, |node, _cx| node.sub_native_surface_descendants(1));
+        assert!(empty, "1 -> 0 is the crossing a ScrollView must react to");
+
+        let first = node.update(cx, |node, _cx| node.add_native_surface_descendants(1));
+        assert!(first, "0 -> 1 is the other crossing");
+        let _ = (&store, &root);
+    }
+
+    #[gpui::test]
     fn removing_a_native_surface_takes_it_off_every_ancestor(cx: &mut TestAppContext) {
         register_native_component("CounterNativeRemove");
         let (store, root) = store_with_root(cx);
@@ -2287,12 +2331,18 @@ impl SurfaceRootView {
     ///
     /// Maintained by [`ViewStore::carry_native_surface_delta`] as it walks a
     /// parent chain to the top, so nothing else has to remember the root.
-    pub(crate) fn add_native_surfaces(&mut self, delta: u32) {
-        self.native_surfaces = self.native_surfaces.saturating_add(delta);
+    /// Adds `delta` to the surface's count; returns whether it crossed zero, so
+    /// the root re-renders only when `has_native_surface()` can have changed.
+    pub(crate) fn add_native_surfaces(&mut self, delta: u32) -> bool {
+        let before = self.native_surfaces;
+        self.native_surfaces = before.saturating_add(delta);
+        before == 0 && self.native_surfaces != 0
     }
 
-    pub(crate) fn sub_native_surfaces(&mut self, delta: u32) {
-        self.native_surfaces = self.native_surfaces.saturating_sub(delta);
+    pub(crate) fn sub_native_surfaces(&mut self, delta: u32) -> bool {
+        let before = self.native_surfaces;
+        self.native_surfaces = before.saturating_sub(delta);
+        before != 0 && self.native_surfaces == 0
     }
 
     /// Whether a native surface is mounted anywhere under this surface.
