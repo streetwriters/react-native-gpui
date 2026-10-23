@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `7bf381d` (`rn-gpui-linux`, 2026-10-23: `40700ec` plus the
-  closed-window cursor message fix below)
+- Commit: `8da7d89` (`rn-gpui-linux`, 2026-10-23: `7bf381d` plus the
+  rounded content masks below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -102,6 +102,24 @@ App` — a move performed from inside an `App` update (a JS `set_position`,
   fails with `ERROR_INVALID_WINDOW_HANDLE`, which was logged at ERROR and failed
   the e2e `a second window opens with its own surface and closes again` on
   Windows CI. That one code is now ignored; every other failure is still logged.
+
+### Carried patch: hidden overflow clipped to rounded corners
+
+- `8da7d89` `gpui: clip hidden overflow to rounded corners`
+
+  A content mask was a rectangle, so `overflow: hidden` with a border radius
+  clipped children square, where iOS and Android clip them to the rounded
+  corners. The mask now also carries one rounded rectangle, which every
+  renderer (Metal, Direct3D, wgpu) applies per fragment to quads, shadows,
+  underlines, glyphs, images and paths; scroll layers keep it when they are
+  composited. Elements opt in with `overflow_clips_corners()`, which `rn-gpui`
+  sets wherever React Native clips (`overflow: hidden` and scroll views); other
+  GPUI code keeps a rectangular clip.
+
+  The patch adds API: `ContentMask` has two more fields, so a struct literal
+  must become `ContentMask::new(bounds)`, and `overflow_clips_corners` is new.
+  Surfaces and external textures stay rectangular, and nested rounded clips
+  keep only the innermost one.
 
 > **Cargo does not notice edits to a git checkout**, which matters only if you
 > edit one by hand without bumping the pin. It fingerprints the checkout by

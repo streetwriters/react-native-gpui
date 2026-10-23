@@ -608,7 +608,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         |_, _, _| (),
         move |bounds, (), window, cx| {
             let mut y = bounds.origin.y;
-            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
                     if line
                         .paint(
