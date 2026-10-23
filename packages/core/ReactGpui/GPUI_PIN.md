@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
   top so each one can become an upstream pull request)
-- Commit: `40700ec` (`rn-gpui-linux`, 2026-10-22: `a72b326` plus the
-  removed-window fix below)
+- Commit: `7bf381d` (`rn-gpui-linux`, 2026-10-23: `40700ec` plus the
+  closed-window cursor message fix below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -92,6 +92,16 @@ App` — a move performed from inside an `App` update (a JS `set_position`,
   `handle.update(...).log_err()` in `Window::new` now goes through the same
   helper, so only the removed-window case is ignored and any other failure is
   still logged.
+
+### Carried patch: no error for a cursor message to a closed window
+
+- `7bf381d` `gpui_windows: do not log a cursor message posted to a window that just closed`
+
+  `set_cursor_style` posts a message to every tracked window, and a window that
+  has just been destroyed is still in the list for a moment. `PostMessageW` then
+  fails with `ERROR_INVALID_WINDOW_HANDLE`, which was logged at ERROR and failed
+  the e2e `a second window opens with its own surface and closes again` on
+  Windows CI. That one code is now ignored; every other failure is still logged.
 
 > **Cargo does not notice edits to a git checkout**, which matters only if you
 > edit one by hand without bumping the pin. It fingerprints the checkout by
