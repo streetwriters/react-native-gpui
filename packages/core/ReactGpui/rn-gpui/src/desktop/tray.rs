@@ -587,7 +587,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
 
     let Some(model) = &config.menu else {
         icon.set_menu(None);
-        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
+        *TRAY_MENU_IDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     };
@@ -595,7 +597,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     if let Err(error) = build_tray_menu(&menu, &model.items) {
         log::error!("[desktop][tray] could not build the menu: {error}");
         icon.set_menu(None);
-        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
+        *TRAY_MENU_IDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     }
@@ -617,7 +621,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     // first-caller-wins) and the tray would then never be called.
     let mut ids = HashSet::new();
     collect_menu_ids(&model.items, &mut ids);
-    *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = ids;
+    *TRAY_MENU_IDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = ids;
     crate::desktop::menu_events::register(Box::new(|id| {
         let owned = TRAY_MENU_IDS
             .lock()

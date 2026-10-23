@@ -461,7 +461,13 @@ impl TextService {
             f32::MAX
         };
         let key = ParagraphKey::new(paragraph, width);
-        if let Some(shaped) = self.cache.lock().unwrap().get(&key).cloned() {
+        if let Some(shaped) = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+            .cloned()
+        {
             return shaped;
         }
 
@@ -539,7 +545,10 @@ impl TextService {
             height: measured_height,
             text_align: text_align(paragraph.text_align),
         });
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.len() >= MAX_CACHED_PARAGRAPHS {
             cache.clear();
         }

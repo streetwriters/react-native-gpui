@@ -41,6 +41,15 @@ impl Host {
         }
     }
 
+    /// The C++ host. A panic in another thread while it held the lock leaves
+    /// only a raw handle behind, so a poisoned lock is still usable.
+    #[cfg(not(test))]
+    fn lock(&self) -> std::sync::MutexGuard<'_, cxx::UniquePtr<ffi::GpuiHost>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     #[cfg(test)]
     pub(crate) fn test_stub() -> Self {
         Self(Arc::new(Mutex::new(cxx::UniquePtr::null())))
@@ -53,18 +62,14 @@ impl Host {
             false
         }
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().load_script(bundle, url)
+        self.lock().pin_mut().load_script(bundle, url)
     }
 
     pub fn start_surface(&self, id: i32, module: &str, w: f32, h: f32, scale: f32) {
         #[cfg(test)]
         let _ = (self, id, module, w, h, scale);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .pin_mut()
-            .start_surface(id, module, w, h, scale)
+        self.lock().pin_mut().start_surface(id, module, w, h, scale)
     }
 
     pub fn start_surface_with_props(
@@ -79,9 +84,7 @@ impl Host {
         #[cfg(test)]
         let _ = (self, id, module, props_json, w, h, scale);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
+        self.lock()
             .pin_mut()
             .start_surface_with_props(id, module, props_json, w, h, scale)
     }
@@ -90,11 +93,7 @@ impl Host {
         #[cfg(test)]
         let _ = (self, id, w, h, scale);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .pin_mut()
-            .set_surface_size(id, w, h, scale)
+        self.lock().pin_mut().set_surface_size(id, w, h, scale)
     }
 
     /// Starts a surface whose size is a range, not a point.
@@ -115,13 +114,9 @@ impl Host {
             self, id, module, props_json, min_width, min_height, max_width, max_height, scale,
         );
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .pin_mut()
-            .start_surface_with_constraints(
-                id, module, props_json, min_width, min_height, max_width, max_height, scale,
-            )
+        self.lock().pin_mut().start_surface_with_constraints(
+            id, module, props_json, min_width, min_height, max_width, max_height, scale,
+        )
     }
 
     /// Changes a running surface's constraints, which resizes an embedded
@@ -141,9 +136,7 @@ impl Host {
             self, id, min_width, min_height, max_width, max_height, scale,
         );
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
+        self.lock()
             .pin_mut()
             .set_surface_constraints(id, min_width, min_height, max_width, max_height, scale)
     }
@@ -152,32 +145,28 @@ impl Host {
         #[cfg(test)]
         let _ = (self, id);
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().stop_surface(id)
+        self.lock().pin_mut().stop_surface(id)
     }
 
     pub fn set_window_top_inset(&self, top: f32) {
         #[cfg(test)]
         let _ = (self, top);
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().set_window_top_inset(top)
+        self.lock().pin_mut().set_window_top_inset(top)
     }
 
     pub fn set_window_metrics(&self, w: f32, h: f32, scale: f32) {
         #[cfg(test)]
         let _ = (self, w, h, scale);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .pin_mut()
-            .set_window_metrics(w, h, scale)
+        self.lock().pin_mut().set_window_metrics(w, h, scale)
     }
 
     pub fn request_reload(&self) {
         #[cfg(test)]
         let _ = self;
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().request_reload()
+        self.lock().pin_mut().request_reload()
     }
 
     pub fn set_dev_server(&self, host: &str, port: u32) -> bool {
@@ -187,7 +176,7 @@ impl Host {
             false
         }
         #[cfg(not(test))]
-        self.0.lock().unwrap().pin_mut().set_dev_server(host, port)
+        self.lock().pin_mut().set_dev_server(host, port)
     }
 
     pub fn dev_server_address(&self) -> String {
@@ -197,14 +186,14 @@ impl Host {
             String::new()
         }
         #[cfg(not(test))]
-        self.0.lock().unwrap().dev_server_address()
+        self.lock().dev_server_address()
     }
 
     pub fn open_debugger(&self) {
         #[cfg(test)]
         let _ = self;
         #[cfg(not(test))]
-        self.0.lock().unwrap().open_debugger()
+        self.lock().open_debugger()
     }
 
     pub fn js_frame_probe(&self) -> u64 {
@@ -214,7 +203,7 @@ impl Host {
             0
         }
         #[cfg(not(test))]
-        self.0.lock().unwrap().js_frame_probe()
+        self.lock().js_frame_probe()
     }
 
     pub fn js_heap_bytes(&self) -> u64 {
@@ -224,23 +213,19 @@ impl Host {
             0
         }
         #[cfg(not(test))]
-        self.0.lock().unwrap().js_heap_bytes()
+        self.lock().js_heap_bytes()
     }
 
     pub fn set_system_appearance(&self, appearance: &str) {
         #[cfg(test)]
         let _ = (self, appearance);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .pin_mut()
-            .set_system_appearance(appearance)
+        self.lock().pin_mut().set_system_appearance(appearance)
     }
 
     pub fn on_render(&self) {
         #[cfg(not(test))]
-        if let Err(error) = self.0.lock().unwrap().on_render() {
+        if let Err(error) = self.lock().on_render() {
             log::error!("[event-beat] {error}");
         }
     }
@@ -249,7 +234,7 @@ impl Host {
         #[cfg(test)]
         let _ = timestamp;
         #[cfg(not(test))]
-        if let Err(error) = self.0.lock().unwrap().on_frame(timestamp) {
+        if let Err(error) = self.lock().on_frame(timestamp) {
             log::error!("[animation-frame] {error}");
         }
     }
@@ -258,7 +243,7 @@ impl Host {
         #[cfg(test)]
         let _ = timestamp;
         #[cfg(not(test))]
-        if let Err(error) = self.0.lock().unwrap().on_pointer_frame(timestamp) {
+        if let Err(error) = self.lock().on_pointer_frame(timestamp) {
             log::error!("[gesture-frame] {error}");
         }
     }
@@ -267,27 +252,21 @@ impl Host {
         #[cfg(test)]
         let _ = (self, tag, ty, payload);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .dispatch_event(tag, ty, &payload.to_string())
+        self.lock().dispatch_event(tag, ty, &payload.to_string())
     }
 
     pub fn emit_device_event(&self, event_name: &str) {
         #[cfg(test)]
         let _ = (self, event_name);
         #[cfg(not(test))]
-        self.0.lock().unwrap().emit_device_event(event_name)
+        self.lock().emit_device_event(event_name)
     }
 
     pub fn emit_device_event_bool(&self, event_name: &str, value: bool) {
         #[cfg(test)]
         let _ = (self, event_name, value);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .emit_device_event_bool(event_name, value)
+        self.lock().emit_device_event_bool(event_name, value)
     }
 
     /// Device event with a JSON object payload. The string
@@ -297,10 +276,7 @@ impl Host {
         #[cfg(test)]
         let _ = (self, event_name, payload_json);
         #[cfg(not(test))]
-        self.0
-            .lock()
-            .unwrap()
-            .emit_device_event_json(event_name, payload_json)
+        self.lock().emit_device_event_json(event_name, payload_json)
     }
 
     pub fn dispatch_pointer_event(
@@ -316,9 +292,7 @@ impl Host {
         #[cfg(not(test))]
         {
             let target_chain = serde_json::to_string(target_chain).unwrap_or_default();
-            self.0
-                .lock()
-                .unwrap()
+            self.lock()
                 .dispatch_pointer_event(&target_chain, x, y, phase, timestamp);
         }
     }
@@ -327,6 +301,6 @@ impl Host {
         #[cfg(test)]
         let _ = (self, tag, x, y);
         #[cfg(not(test))]
-        self.0.lock().unwrap().set_scroll_offset(tag, x, y)
+        self.lock().set_scroll_offset(tag, x, y)
     }
 }
