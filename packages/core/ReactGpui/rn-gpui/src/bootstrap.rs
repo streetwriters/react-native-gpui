@@ -978,7 +978,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = menu_bar_tx.send_blocking(MainEvent::MenuBarPerform(id));
     }));
-    let tray_menu_tx = tx.clone();
+    let tray_menu_tx = tx;
     let _ = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = tray_menu_tx.send_blocking(MainEvent::TrayMenuPerform(id));
     }));

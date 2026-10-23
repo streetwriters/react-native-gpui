@@ -239,7 +239,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         ..Default::default()
     };
 
-    let store_for_root = store.clone();
+    let store_for_root = store;
     let handle = cx
         .open_window(window_options, move |window, cx| {
             let root = cx.new(|_| SurfaceRootView::new(surface_id));
@@ -485,7 +485,7 @@ pub(crate) fn with_window(
 
 pub fn set_title(cx: &mut App, key: u32, title: String) -> DesktopResult {
     if let Some(entry) = cx.global_mut::<DesktopWindowsGlobal>().0.get_mut(key) {
-        entry.title = title.clone();
+        entry.title.clone_from(&title);
     }
     with_window(cx, key, move |window| {
         window.set_window_title(&title);

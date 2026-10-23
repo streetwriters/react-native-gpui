@@ -778,7 +778,7 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     if should_apply_text_update(this.input_event_count, next.event_count)
         && next.text != this.input_text
     {
-        this.input_text = next.text.clone();
+        this.input_text.clone_from(&next.text);
         this.input_marked = None;
     }
     this.input_placeholder = next.placeholder;

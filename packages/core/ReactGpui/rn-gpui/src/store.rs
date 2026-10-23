@@ -434,7 +434,7 @@ impl ViewStore {
         let store = cx.entity().downgrade();
         let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
             Default::default();
-        let handle = crate::extensions::StoreHandle::queued(store.clone(), commands.clone());
+        let handle = crate::extensions::StoreHandle::queued(store, commands.clone());
         let batch_view = crate::extensions::BatchView {
             surface_id,
             ops: batch
