@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
@@ -7,6 +8,8 @@ import {
   createLibrary,
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
+  metroProjectRoot,
+  metroTerminal,
   scanNodeAddonCalls,
   scaffoldDesktop,
 } from './commands.js';
@@ -393,4 +396,57 @@ test('scaffoldDesktop keeps an app’s edited env file', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Metro opens in the requested terminal, then the platform default', () => {
+  const none = () => false;
+  expect(metroTerminal('Warp', { platform: 'darwin', env: {} })).toBe('Warp');
+  expect(
+    metroTerminal(undefined, {
+      platform: 'darwin',
+      env: { REACT_TERMINAL: 'Ghostty' },
+    }),
+  ).toBe('Ghostty');
+  expect(
+    metroTerminal(undefined, {
+      platform: 'darwin',
+      env: { TERM_PROGRAM: 'vscode' },
+    }),
+  ).toBe('Terminal');
+  expect(
+    metroTerminal(undefined, {
+      platform: 'darwin',
+      env: { TERM_PROGRAM: 'iTerm.app' },
+    }),
+  ).toBe('iTerm');
+  expect(metroTerminal(undefined, { platform: 'win32', env: {} })).toBe(
+    'cmd.exe',
+  );
+  expect(
+    metroTerminal(undefined, {
+      platform: 'linux',
+      env: {},
+      exists: command => command === 'konsole',
+    }),
+  ).toBe('konsole');
+  expect(
+    metroTerminal(undefined, { platform: 'linux', env: {}, exists: none }),
+  ).toBeUndefined();
+});
+
+test('a running Metro reports the project it serves', async () => {
+  const server = http.createServer((request, response) => {
+    response.setHeader('X-React-Native-Project-Root', '/some/project');
+    response.end(
+      request.url === '/status' ? 'packager-status:running' : 'not found',
+    );
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    expect(await metroProjectRoot('127.0.0.1', port)).toBe('/some/project');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+  expect(await metroProjectRoot('127.0.0.1', port)).toBeUndefined();
 });

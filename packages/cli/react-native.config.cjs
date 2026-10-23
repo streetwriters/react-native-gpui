@@ -16,6 +16,9 @@ module.exports = {
           host: options.host,
           features: options.features,
           noLaunch: options.noLaunch === true || options.launch === false,
+          packager: options.packager !== false && options.noPackager !== true,
+          packagerLog: options.packagerLog === true,
+          terminal: options.terminal,
         });
       },
       options: [
@@ -41,6 +44,20 @@ module.exports = {
         {
           name: '--no-launch',
           description: 'Build the desktop app without launching it',
+        },
+        {
+          name: '--no-packager',
+          description: 'Do not start Metro if it is not already running',
+        },
+        {
+          name: '--terminal <app>',
+          description:
+            'Terminal app Metro opens in (default: $REACT_TERMINAL, then the platform default)',
+        },
+        {
+          name: '--packager-log',
+          description:
+            'Run Metro in the background, logging to desktop/build/metro.log',
         },
       ],
       examples: [

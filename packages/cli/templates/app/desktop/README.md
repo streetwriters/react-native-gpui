@@ -8,8 +8,12 @@ Run the desktop app from the project root with:
 npx react-native run-desktop
 ```
 
-The default starts or reuses Metro on port 8081 and runs a debug Cargo build,
-so Fast Refresh and LogBox work. Change the Metro port with `--port 8082`.
+The default reuses this project's Metro on port 8081, or starts it in a new
+terminal window (`--terminal <app>` or `$REACT_TERMINAL` picks the terminal),
+and runs a debug Cargo build, so Fast Refresh and LogBox work. Change the Metro
+port with `--port 8082`; `--no-packager` never starts Metro, and
+`--packager-log` runs it in the background with its output in
+`desktop/build/metro.log`.
 Use `--release` to bundle JavaScript and run the optimized, Metro-free build.
 
 `npx react-native init-desktop` installs dependencies, autolinks native modules, and creates `build/index.bundle`; that bundle lets `cargo run` launch the latest initialized app without the CLI. For development with Fast Refresh, LogBox, and a live Metro server, use `npx react-native run-desktop`.
