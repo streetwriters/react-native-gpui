@@ -47,37 +47,44 @@ impl Default for TrayConfig {
 }
 
 impl TrayConfig {
+    #[must_use]
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = id.into();
         self
     }
 
+    #[must_use]
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 
+    #[must_use]
     pub fn component(mut self, component: impl Into<String>) -> Self {
         self.component = Some(component.into());
         self
     }
 
+    #[must_use]
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.width = width.max(120.0);
         self.height = height.max(120.0);
         self
     }
 
+    #[must_use]
     pub fn icon_rgba(mut self, rgba: Vec<u8>, width: u32, height: u32) -> Self {
         self.icon = Some((rgba, width, height));
         self
     }
 
+    #[must_use]
     pub fn menu(mut self, menu: MenuModel) -> Self {
         self.menu = Some(menu);
         self
     }
 
+    #[must_use]
     pub fn accessory(mut self, accessory: bool) -> Self {
         self.accessory = accessory;
         self

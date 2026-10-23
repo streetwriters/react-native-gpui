@@ -32,6 +32,7 @@ impl ButtonSet {
         ButtonSet(0b1_1111)
     }
 
+    #[must_use]
     pub const fn with(self, other: ButtonSet) -> Self {
         ButtonSet(self.0 | other.0)
     }

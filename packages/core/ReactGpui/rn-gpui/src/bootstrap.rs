@@ -654,52 +654,62 @@ impl DesktopAppConfig {
         }
     }
 
+    #[must_use]
     pub fn js_engine(mut self, name: impl Into<String>) -> Self {
         self.js_engine = name.into();
         self
     }
 
+    #[must_use]
     pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
         self.tray = Some(config);
         self
     }
 
+    #[must_use]
     pub fn dev_menu(mut self, enabled: bool) -> Self {
         self.dev_menu = Some(enabled);
         self
     }
 
+    #[must_use]
     pub fn window_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
     }
 
+    #[must_use]
     pub fn window_size(mut self, width: f32, height: f32) -> Self {
         self.width = width.max(320.0);
         self.height = height.max(240.0);
         self
     }
 
+    #[must_use]
     pub fn window_position(mut self, x: f32, y: f32) -> Self {
         self.position = Some((x, y));
         self
     }
 
+    #[must_use]
     pub fn restore_window_state(mut self, restore: bool) -> Self {
         self.restore_window_state = restore;
         self
     }
 
+    #[must_use]
     pub fn quit_on_last_window_closed(mut self, quit: bool) -> Self {
         self.quit_on_last_window_closed = quit;
         self
     }
 
+    #[must_use]
     pub fn title_bar(mut self, title_bar: WindowTitleBar) -> Self {
         self.title_bar = title_bar;
         self
     }
 
+    #[must_use]
     pub fn traffic_light_position(mut self, x: f32, y: f32) -> Self {
         self.traffic_light_position = Some((x, y));
         self
@@ -709,11 +719,13 @@ impl DesktopAppConfig {
     ///
     /// Only Windows and Linux draw one inside the window; on macOS the bar is the
     /// system's, so this is ignored there.
+    #[must_use]
     pub fn menu_bar(mut self, visible: bool) -> Self {
         self.menu_bar = visible;
         self
     }
 
+    #[must_use]
     pub fn configure_window(
         mut self,
         configure: impl FnOnce(&mut WindowOptions) + 'static,
@@ -722,11 +734,13 @@ impl DesktopAppConfig {
         self
     }
 
+    #[must_use]
     pub fn on_app_ready(mut self, callback: impl FnOnce(&mut App) + 'static) -> Self {
         self.on_app_ready = Some(Box::new(callback));
         self
     }
 
+    #[must_use]
     pub fn on_window_opened(
         mut self,
         callback: impl FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static,
@@ -753,6 +767,7 @@ impl DesktopAppConfig {
     ///     .into()
     /// }));
     /// ```
+    #[must_use]
     pub fn gpui_first(
         mut self,
         build: impl FnOnce(&mut App, crate::runtime::ReactRuntime) -> gpui::AnyView + 'static,

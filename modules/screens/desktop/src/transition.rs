@@ -16,6 +16,7 @@ pub enum TransitionMode {
 
 impl TransitionMode {
     /// The mode the reverse of this one uses, so a pop plays the entry mirrored.
+    #[must_use]
     pub fn reverse(self) -> Self {
         match self {
             Self::SlideFromRight => Self::SlideFromLeft,
