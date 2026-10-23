@@ -3510,7 +3510,7 @@ impl Render for RNNodeView {
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
             for fragment in &mut scaled_paragraph.fragments {
-                fragment.font_size *= scale_y;
+                fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
                 if let Some(color) = self.animated_text_color {
@@ -4424,4 +4424,34 @@ pub(crate) fn decode_data_image(data: &str) -> Option<gpui::Image> {
         _ => return None,
     };
     Some(gpui::Image::from_bytes(format, bytes))
+}
+
+/// A transform scales text by shaping it at a scaled font size. GPUI keeps the
+/// glyphs of every size it has drawn, so a scale animation that produced a new
+/// size each frame would grow the glyph atlas without bound; snapping the size
+/// to quarter points keeps the set of sizes small.
+fn scaled_font_size(font_size: f32, scale: f32) -> f32 {
+    if scale == 1.0 {
+        return font_size;
+    }
+    (font_size * scale * 4.0).round() / 4.0
+}
+
+#[cfg(test)]
+mod scaled_font_size_tests {
+    use super::scaled_font_size;
+
+    #[test]
+    fn unscaled_text_keeps_its_size() {
+        assert_eq!(scaled_font_size(13.3, 1.0), 13.3);
+    }
+
+    #[test]
+    fn a_scale_animation_draws_a_bounded_set_of_sizes() {
+        let sizes: std::collections::BTreeSet<u32> = (0..10_000)
+            .map(|step| 0.7 + 0.7 * step as f32 / 10_000.0)
+            .map(|scale| (scaled_font_size(14.0, scale) * 4.0) as u32)
+            .collect();
+        assert!(sizes.len() <= 40, "{} sizes", sizes.len());
+    }
 }
