@@ -1036,6 +1036,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Installed before the host starts a surface: Fabric measures paragraphs
         // from the JS thread and would otherwise fall back to a zero-size stub.
         crate::text::install_measure_handler(cx);
+        if let Some(icon) = std::env::var_os("RN_GPUI_APP_ICON") {
+            crate::desktop::platform_window::set_dock_icon(std::path::Path::new(&icon));
+        }
         // Has to happen before the first window opens.
         if let Some(tray) = &config.tray {
             if tray.accessory {

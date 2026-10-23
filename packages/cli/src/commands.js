@@ -578,6 +578,9 @@ export async function runDesktop({
     RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, 'autolink/autolink.json'),
     RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, 'autolink/autolink.cmake'),
   };
+  // An unbundled run has no Info.plist to name its icon, so the app is told
+  // where it is and sets its Dock icon itself.
+  if (!packaging) cargoEnv.RN_GPUI_APP_ICON = appIconPath(projectRoot);
   // `package-desktop` sets this: the binary is about to be installed elsewhere,
   // so `build.rs` emits only relative rpaths. A plain release build keeps the
   // absolute ones, because it is run from this tree.
@@ -1723,6 +1726,16 @@ function generateIcons(config, { crateDir }) {
     fs.copyFileSync(source, target);
   }
   return [path.relative(crateDir, target).split(path.sep).join('/')];
+}
+
+/** The icon `desktop.json` names, or the CLI's placeholder. */
+function appIconPath(projectRoot) {
+  const { icon } = loadDesktopConfig(projectRoot, process.platform);
+  const source =
+    icon === undefined
+      ? defaultIconPath()
+      : path.resolve(projectRoot, 'desktop', icon);
+  return fs.existsSync(source) ? source : defaultIconPath();
 }
 
 /// The square PNG bundled with the CLI, used when an app sets no icon.

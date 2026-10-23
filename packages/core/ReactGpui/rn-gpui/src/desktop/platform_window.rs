@@ -730,6 +730,44 @@ pub fn set_accessory_app(accessory: bool) {
 #[cfg(not(target_os = "macos"))]
 pub fn set_accessory_app(_accessory: bool) {}
 
+/// Gives an unbundled run (`cargo run`) a Dock icon. A `.app` takes its icon
+/// from its bundle, so a bundled run is left alone.
+#[cfg(target_os = "macos")]
+pub fn set_dock_icon(path: &std::path::Path) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    let Some(path) = path.to_str() else {
+        return;
+    };
+    // SAFETY: the shared `NSApplication` and `NSBundle` are messaged from the
+    // main thread; the image is retained by the application once set.
+    unsafe {
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        let bundle_path: id = msg_send![bundle, bundlePath];
+        let suffix = NSString::alloc(nil).init_str(".app");
+        let bundled: bool = msg_send![bundle_path, hasSuffix: suffix];
+        let _: () = msg_send![suffix, release];
+        if bundled {
+            return;
+        }
+        let file = NSString::alloc(nil).init_str(path);
+        let image: id = msg_send![class!(NSImage), alloc];
+        let image: id = msg_send![image, initWithContentsOfFile: file];
+        let _: () = msg_send![file, release];
+        if image.is_null() {
+            log::warn!("[desktop] could not load the Dock icon {path}");
+            return;
+        }
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, setApplicationIconImage: image];
+        let _: () = msg_send![image, release];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_dock_icon(_path: &std::path::Path) {}
+
 #[cfg(target_os = "macos")]
 pub fn disable_window_animation(window: &mut gpui::Window) {
     use cocoa::base::id;
