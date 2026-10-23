@@ -266,6 +266,8 @@ export const renderScreen: Record<
     ),
   errors: props =>
     React.createElement(require('./components/ErrorFixture').default, props),
+  logbox: props =>
+    React.createElement(require('./components/LogBoxFixture').default, props),
   'benchmark-idle': props =>
     React.createElement(require('./components/BenchmarkFixture').default, {
       ...props,

@@ -3529,6 +3529,7 @@ impl Render for RNNodeView {
                 );
             } else {
                 element = crate::builtins::textinput::render::plain_paragraph(
+                    self,
                     element,
                     &scaled_paragraph,
                     (scale_x, scale_y),
