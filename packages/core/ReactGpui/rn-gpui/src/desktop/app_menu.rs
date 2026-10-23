@@ -35,6 +35,9 @@ pub enum AcceleratorAction {
     Press(String),
     Edit(String),
     Host(String),
+    /// A Developer menu command, performed by the host like the dev menu's own
+    /// buttons.
+    Dev(String),
 }
 
 pub struct AppMenuState {
@@ -93,7 +96,7 @@ pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
     let model = default_menu(app_name);
     let _ = apply(cx, model, false);
     cx.on_action(|action: &MenuAccelerator, cx: &mut App| {
-        emit_menu_press(cx, &action.id);
+        trigger_item(cx, &action.id);
     });
     cx.on_action(|action: &MenuEditAction, cx: &mut App| {
         perform_edit(cx, &action.kind, None);
@@ -127,6 +130,7 @@ pub fn trigger_item(cx: &mut App, id: &str) {
         AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
         AcceleratorAction::Edit(kind) => perform_edit(cx, &kind, None),
         AcceleratorAction::Host(kind) => perform_host_action(cx, &kind, None),
+        AcceleratorAction::Dev(id) => perform_dev_action(cx, id),
     }
 }
 
@@ -169,6 +173,7 @@ pub fn handle_accelerator(
         AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
         AcceleratorAction::Edit(kind) => perform_edit(cx, &kind, Some(handle)),
         AcceleratorAction::Host(kind) => perform_host_action(cx, &kind, Some(handle)),
+        AcceleratorAction::Dev(id) => perform_dev_action(cx, id),
     }
     // The JS listener needs a frame to run in.
     if let Some(store) = store_from(cx) {
@@ -874,6 +879,9 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
     if id == crate::desktop::dev_menu::ACCELERATOR_ID {
         return AcceleratorAction::Host("devMenu".to_string());
     }
+    if crate::desktop::dev_menu::is_command(id) {
+        return AcceleratorAction::Dev(id.to_string());
+    }
     if let Some(kind) = id.strip_prefix("role:") {
         if matches!(
             kind,
@@ -910,7 +918,7 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
 fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
     let context = crate::desktop::keymap::APP_CONTEXT;
     match action {
-        AcceleratorAction::Press(id) => {
+        AcceleratorAction::Press(id) | AcceleratorAction::Dev(id) => {
             KeyBinding::new(keystroke, MenuAccelerator { id: id.clone() }, Some(context))
         }
         AcceleratorAction::Edit(kind) => KeyBinding::new(
@@ -1241,6 +1249,12 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
     });
 }
 
+/// Deferred: a menu action runs inside the platform's menu callback, and a
+/// reload or a perf-monitor window must not start from there.
+fn perform_dev_action(cx: &mut App, id: String) {
+    cx.defer(move |cx| crate::desktop::dev_menu::perform(cx, &id));
+}
+
 fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>) {
     match kind {
         "quit" => cx.quit(),
@@ -1316,5 +1330,27 @@ mod tests {
         let model = default_menu("Tester");
         let menus = build_menus(&model, "Tester", false);
         assert!(!menus.is_empty());
+    }
+
+    #[test]
+    fn developer_items_run_on_the_host() {
+        use crate::desktop::dev_menu as dev;
+        for id in [
+            dev::RELOAD,
+            dev::OPEN_DEVTOOLS,
+            dev::ELEMENT_INSPECTOR,
+            dev::PERF_MONITOR,
+            dev::FAST_REFRESH,
+        ] {
+            assert_eq!(accelerator_action(id), AcceleratorAction::Dev(id.into()));
+        }
+        assert_eq!(
+            accelerator_action(dev::ACCELERATOR_ID),
+            AcceleratorAction::Host("devMenu".into())
+        );
+        assert_eq!(
+            accelerator_action("dev:custom"),
+            AcceleratorAction::Press("dev:custom".into())
+        );
     }
 }

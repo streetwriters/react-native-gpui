@@ -458,6 +458,13 @@ impl gpui::Render for DevMenuPanel {
     }
 }
 
+pub fn is_command(id: &str) -> bool {
+    matches!(
+        id,
+        RELOAD | OPEN_DEVTOOLS | ELEMENT_INSPECTOR | PERF_MONITOR | FAST_REFRESH
+    )
+}
+
 pub fn perform(cx: &mut App, id: &str) {
     match id {
         RELOAD => {

@@ -414,6 +414,19 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   expect((await app.devMenuState()).open).toBe(true);
 });
 
+test('Developer items in the app menu run on the host', async () => {
+  await launch('DesktopShellFixture');
+  await app.waitForIdle();
+
+  const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
+  await app.triggerMenuItem('dev:perfMonitor');
+  await app.waitForIdle(idle).catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(true);
+  await app.triggerMenuItem('dev:perfMonitor');
+  await app.waitForIdle(idle).catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(false);
+});
+
 test('DevSettings toggles reach the perf monitor', async () => {
   await launch('PerfMonitorFixture');
   await app.waitForIdle();
