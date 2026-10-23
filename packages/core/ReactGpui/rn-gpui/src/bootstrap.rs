@@ -370,13 +370,15 @@ fn save_window_bounds(
         "height": f32::from(viewport.height),
     });
     let result = (|| -> std::io::Result<()> {
-        let parent = path.parent().expect("window state path has a parent");
+        let parent = path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "window state path has no parent",
+            )
+        })?;
         std::fs::create_dir_all(parent)?;
         let temporary = path.with_extension("json.tmp");
-        std::fs::write(
-            &temporary,
-            serde_json::to_vec(&value).expect("serializable window bounds"),
-        )?;
+        std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
         std::fs::rename(temporary, path)
     })();
     if let Err(error) = result {
