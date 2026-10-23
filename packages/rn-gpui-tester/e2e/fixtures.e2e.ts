@@ -491,6 +491,10 @@ test('one Escape dismisses one screen exactly once', async () => {
   await app.setAnimationsEnabled(true);
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
+  // The push logs its own transition start after the screen is visible.
+  await expect
+    .poll(() => app.readLogs())
+    .toContain('[nav-native] transition end route=Details closing=false');
   const before = app.readLogs().length;
   await app.press('escape');
   await app.waitForIdle();
