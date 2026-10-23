@@ -1026,6 +1026,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     // Before any request can arrive: the C++ bridge reports completions through
     // this handler, and it is registered once.
     crate::http_client::install();
+    application.on_reopen(crate::desktop::windows::reopen);
     application
         .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
         .run(move |cx: &mut App| {
@@ -1166,6 +1167,20 @@ pub fn run_with(mut config: DesktopAppConfig) {
             );
         }
         startup_trace("surface started");
+        if !gpui_first {
+            cx.set_global(crate::desktop::windows::ReopenWindow(
+                crate::desktop::windows::OpenWindowOptions {
+                    component: module.clone(),
+                    title: Some(config.title.clone().unwrap_or_else(|| module.clone())),
+                    width: Some(width),
+                    height: Some(height),
+                    resizable: true,
+                    title_bar: config.title_bar,
+                    traffic_light_position: config.traffic_light_position,
+                    ..Default::default()
+                },
+            ));
+        }
 
         startup_trace("opening GPUI window");
         let mut window_options = WindowOptions {

@@ -479,6 +479,41 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   expect(await app.trayState()).toMatchObject({ installed: false });
 });
 
+test('with a tray the app outlives its windows and reopens them', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+  await app.getByTestId('tray-install-menu').click();
+  await app.waitForIdle();
+
+  await app.osCloseWindow(1);
+  expect((await app.listWindows()).windows).toEqual([]);
+
+  const reopened = await app.reopen();
+  expect(reopened.windows).toHaveLength(1);
+  expect(reopened.windows[0].component).toBe('TrayFixture');
+  // A window is open again, so a second reopen brings it forward instead of
+  // opening another.
+  expect((await app.reopen()).windows).toHaveLength(1);
+
+  // Without the tray the app quits with its last window again.
+  await app.trayDestroy();
+  const pid = app.pid;
+  await app.osCloseWindow(reopened.windows[0].windowId).catch(() => undefined);
+  await expect
+    .poll(
+      () => {
+        try {
+          process.kill(pid!, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 5000 },
+    )
+    .toBe(false);
+});
+
 test('a tray menu can be replaced and cleared', async () => {
   await launch('TrayFixture');
   await app.waitForIdle();

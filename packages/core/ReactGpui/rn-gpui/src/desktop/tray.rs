@@ -98,6 +98,8 @@ pub struct TrayState {
     visible: bool,
     clicks: u32,
     pub popover_dismissed_at: Option<std::time::Instant>,
+    /// The app's own quit-on-last-window policy, put back when the tray goes.
+    app_quits_on_last_window: Option<bool>,
 }
 
 /// A click on the icon while the popover is open first dismisses it (it loses
@@ -117,6 +119,9 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
     if is_installed(cx) {
         return Err(DesktopError::failed("a tray icon is already installed"));
     }
+    let app_quits_on_last_window = cx
+        .try_global::<crate::desktop::windows::QuitOnLastWindowClosed>()
+        .map(|flag| flag.0);
     cx.set_global(TrayGlobal(RefCell::new(TrayState {
         icon: None,
         config: config.clone(),
@@ -124,10 +129,11 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
         visible: true,
         clicks: 0,
         popover_dismissed_at: None,
+        app_quits_on_last_window,
     })));
-    if !config.quit_on_last_window_closed {
-        cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(false));
-    }
+    cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(
+        config.quit_on_last_window_closed && app_quits_on_last_window.unwrap_or(true),
+    ));
     match build_icon(&config) {
         Ok(icon) => {
             attach_native_menu(&icon, &config);
@@ -145,7 +151,7 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
 }
 
 pub fn destroy(cx: &mut App) -> DesktopResult {
-    let (config, popover) = {
+    let (config, popover, app_quits_on_last_window) = {
         let Some(tray) = cx.try_global::<TrayGlobal>() else {
             return Err(DesktopError::not_found("no tray icon is installed"));
         };
@@ -154,12 +160,19 @@ pub fn destroy(cx: &mut App) -> DesktopResult {
         tray.icon = None;
         NATIVE_MENU.store(0, std::sync::atomic::Ordering::Relaxed);
         tray.visible = false;
-        (tray.config.id.clone(), popover)
+        (
+            tray.config.id.clone(),
+            popover,
+            tray.app_quits_on_last_window,
+        )
     };
     if let Some(key) = popover {
         let _ = windows::close_window(cx, key, true);
     }
     cx.remove_global::<TrayGlobal>();
+    if let Some(quit) = app_quits_on_last_window {
+        cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(quit));
+    }
     Ok(json!({"id": config, "destroyed": true}))
 }
 

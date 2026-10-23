@@ -453,6 +453,39 @@ fn quit_on_last_window_closed(cx: &App) -> bool {
 pub struct QuitOnLastWindowClosed(pub bool);
 impl Global for QuitOnLastWindowClosed {}
 
+/// The window reopening the app opens once its last window is gone: the main
+/// component, as the main window was configured.
+pub struct ReopenWindow(pub OpenWindowOptions);
+impl Global for ReopenWindow {}
+
+/// The Dock icon was clicked (or the app launched again) with no visible
+/// window. A window that is only hidden or minimized is brought back; with none
+/// left, the main component opens in a new one.
+pub fn reopen(cx: &mut App) {
+    let existing = cx.try_global::<DesktopWindowsGlobal>().and_then(|windows| {
+        windows
+            .0
+            .by_key
+            .values()
+            .find(|entry| entry.role != WindowRole::TrayPopover)
+            .map(|entry| entry.key)
+    });
+    if let Some(key) = existing {
+        let _ = show(cx, key);
+        let _ = focus(cx, key);
+        return;
+    }
+    let Some(options) = cx.try_global::<ReopenWindow>().map(|spec| spec.0.clone()) else {
+        return;
+    };
+    match open_window(cx, options) {
+        Ok(key) => {
+            let _ = focus(cx, key);
+        }
+        Err(error) => log::error!("[desktop] reopen: {}", error.message),
+    }
+}
+
 pub fn close(cx: &mut App, key: u32, force: bool) -> DesktopResult {
     close_window(cx, key, force)
 }

@@ -703,6 +703,20 @@ export class DesktopApp {
     return result.closed;
   }
 
+  /**
+   * What clicking the Dock icon does on macOS: bring back a hidden window, or
+   * open the main component again when every window was closed.
+   */
+  async reopen(): Promise<{
+    windows: { windowId: number; component: string; role: string }[];
+  }> {
+    const result = await this.request<{
+      windows: { windowId: number; component: string; role: string }[];
+    }>('appReopen');
+    await this.waitForIdle();
+    return result;
+  }
+
   async listWindows(): Promise<{
     windows: { windowId: number; component: string; role: string }[];
   }> {
