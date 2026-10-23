@@ -151,8 +151,8 @@ pub fn install(cx: &App) {
                 match result {
                     Ok((width, height)) => ffi::rn_gpui_on_image_load_result(
                         request_id,
-                        width as f64,
-                        height as f64,
+                        f64::from(width),
+                        f64::from(height),
                         String::new(),
                     ),
                     Err(error) => ffi::rn_gpui_on_image_load_result(request_id, 0.0, 0.0, error),

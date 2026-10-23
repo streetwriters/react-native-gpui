@@ -480,7 +480,7 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
             return;
         }
         // `tray-icon` reports physical pixels; everything here is in points.
-        let scale = crate::desktop::platform_window::primary_screen_scale() as f64;
+        let scale = f64::from(crate::desktop::platform_window::primary_screen_scale());
         let rect = tray_click_rect(rect, position, scale);
         if let Some(handler) = rn_gpui_sys::TRAY_CLICK_HANDLER.get() {
             handler(rect.x, rect.y, rect.width, rect.height, button as u8);
@@ -506,8 +506,8 @@ fn tray_click_rect(
         return TrayRect {
             x: (rect.position.x / scale) as f32,
             y: (rect.position.y / scale) as f32,
-            width: (rect.size.width as f64 / scale) as f32,
-            height: (rect.size.height as f64 / scale) as f32,
+            width: (f64::from(rect.size.width) / scale) as f32,
+            height: (f64::from(rect.size.height) / scale) as f32,
         };
     }
     let (x, y) = if position.x != 0.0 || position.y != 0.0 {

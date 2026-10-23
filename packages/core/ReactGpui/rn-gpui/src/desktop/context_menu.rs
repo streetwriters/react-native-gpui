@@ -256,8 +256,8 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
     let menu = muda::Menu::new();
     build_muda_menu(&menu, &request.model.items)?;
     let position = muda::dpi::Position::Logical(muda::dpi::LogicalPosition::new(
-        request.x as f64,
-        request.y as f64,
+        f64::from(request.x),
+        f64::from(request.y),
     ));
     if request.native_view == 0 {
         return Err(DesktopError::failed(

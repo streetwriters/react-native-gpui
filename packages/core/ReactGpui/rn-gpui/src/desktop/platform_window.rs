@@ -41,12 +41,12 @@ mod imp {
             let screen: id = msg_send![native, screen];
             let frame_height = f32::from(window.bounds().size.height);
             if screen.is_null() {
-                return NSPoint::new(x as f64, y as f64);
+                return NSPoint::new(f64::from(x), f64::from(y));
             }
             let screen_frame: cocoa::foundation::NSRect = msg_send![screen, frame];
             let appkit_x = x + screen_frame.origin.x as f32;
             let appkit_y = screen_frame.size.height as f32 - (y - screen_frame.origin.y as f32);
-            NSPoint::new(appkit_x as f64, (appkit_y + frame_height) as f64)
+            NSPoint::new(f64::from(appkit_x), f64::from(appkit_y + frame_height))
         }
     }
 
@@ -76,7 +76,7 @@ mod imp {
 
     pub fn set_min_size(window: &mut gpui::Window, width: f32, height: f32) -> Result<(), String> {
         let native = ns_window(window)?;
-        let size = NSSize::new(width as f64, height as f64);
+        let size = NSSize::new(f64::from(width), f64::from(height));
         // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setContentMinSize: size];
@@ -86,7 +86,7 @@ mod imp {
 
     pub fn set_max_size(window: &mut gpui::Window, width: f32, height: f32) -> Result<(), String> {
         let native = ns_window(window)?;
-        let size = NSSize::new(width as f64, height as f64);
+        let size = NSSize::new(f64::from(width), f64::from(height));
         // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setContentMaxSize: size];

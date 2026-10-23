@@ -348,7 +348,7 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
         family.as_str()
     };
     let mut font = font(family);
-    font.weight = FontWeight(fragment.font_weight as f32);
+    font.weight = FontWeight(f32::from(fragment.font_weight));
     if fragment.italic {
         font.style = FontStyle::Italic;
     }
