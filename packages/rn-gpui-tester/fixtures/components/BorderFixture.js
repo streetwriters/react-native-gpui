@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 function BorderFixture() {
   return (
     <View
@@ -57,6 +57,25 @@ function BorderFixture() {
           outlineColor: '#f97316',
         }}
       />
+      <View style={{ flexDirection: 'row', gap: 24 }}>
+        <View
+          testID="rounded-clip"
+          style={{
+            width: 120,
+            height: 80,
+            borderRadius: 24,
+            overflow: 'hidden',
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: '#ef4444' }} />
+        </View>
+        <ScrollView
+          testID="rounded-scroll"
+          style={{ width: 120, height: 80, flexGrow: 0, borderRadius: 24 }}
+        >
+          <View style={{ height: 400, backgroundColor: '#2563eb' }} />
+        </ScrollView>
+      </View>
     </View>
   );
 }

@@ -2459,7 +2459,7 @@ impl Render for RNNodeView {
         }
         let decoration = self.decoration(cx);
         if decoration.clip {
-            element = element.overflow_hidden();
+            element = element.overflow_hidden().overflow_clips_corners();
         }
         if let Some(background) = decoration.background {
             element = element.bg(gpui::rgb(background));
@@ -3596,6 +3596,7 @@ impl Render for RNNodeView {
                     };
                     element = element
                         .overflow_hidden()
+                        .overflow_clips_corners()
                         .child(scroller.track_scroll(&self.scroll_handle).child(content));
                 }
                 crate::scroll_layers::ScrollStrategy::ManualOffset => {
@@ -3646,7 +3647,10 @@ impl Render for RNNodeView {
                         );
                     }
                     scroller = scroller.overflow_hidden().child(moved);
-                    element = element.overflow_hidden().child(scroller);
+                    element = element
+                        .overflow_hidden()
+                        .overflow_clips_corners()
+                        .child(scroller);
                 }
             }
             if scroll.indicator && scroll.enabled {

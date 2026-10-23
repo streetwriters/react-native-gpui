@@ -610,6 +610,58 @@ test('per-edge borders and outlines retain their layout frames', async () => {
   await expectCaptureSmoke();
 });
 
+test('overflow: hidden clips children to the rounded corners', async () => {
+  await launch('BorderFixture');
+  if (!app.captureSupported) return;
+  const probes = [
+    ['rounded-clip', [0xef, 0x44, 0x44]],
+    ['rounded-scroll', [0x25, 0x63, 0xeb]],
+  ] as const;
+  await expectRoundedCorners(probes);
+  // A scrolled container is drawn through a composited layer, which has to
+  // keep the rounded clip it is composited under.
+  const [scroll] = await app.query('testID', 'rounded-scroll', true);
+  await app.hover(scroll.tag);
+  for (let step = 0; step < 4; step++) await app.scroll(scroll.tag, 0, -60);
+  await app.waitForIdle({ ignore: ['timers', 'frames'] }).catch(() => {});
+  await expectRoundedCorners(probes.slice(1));
+});
+
+async function expectRoundedCorners(
+  probes: ReadonlyArray<readonly [string, readonly number[]]>,
+) {
+  const image = PNG.sync.read(await app.screenshot());
+  const pixel = (x: number, y: number) => {
+    const offset = (image.width * Math.round(y) + Math.round(x)) * 4;
+    return [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
+  };
+  const near = (actual: number[], expected: readonly number[]) =>
+    actual.every((value, index) => Math.abs(value - expected[index]) <= 12);
+  for (const [id, fill] of probes) {
+    const { frame } = (await app.query('testID', id, true))[0];
+    const scale = app.scale;
+    const left = frame.x * scale;
+    const top = frame.y * scale;
+    const right = (frame.x + frame.width) * scale - 1;
+    const bottom = (frame.y + frame.height) * scale - 1;
+    // Two points in from a corner is inside the box but outside a 24pt
+    // radius, so the page shows through there.
+    const inset = 2 * scale;
+    for (const [x, y] of [
+      [left + inset, top + inset],
+      [right - inset, top + inset],
+      [left + inset, bottom - inset],
+      [right - inset, bottom - inset],
+    ]) {
+      expect(near(pixel(x, y), [0xff, 0xff, 0xff])).toBe(true);
+    }
+    const centre = pixel((left + right) / 2, (top + bottom) / 2);
+    expect(near(centre, fill)).toBe(true);
+    // The straight edges are not cut.
+    expect(near(pixel((left + right) / 2, top + scale), fill)).toBe(true);
+  }
+}
+
 test('Appearance.setColorScheme updates the rendered React Native state', async () => {
   await launch('AppearanceFixture');
   const status = app.getByTestId('appearance-status');
