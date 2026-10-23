@@ -6,7 +6,9 @@
 #include <react/renderer/components/modal/ModalHostViewState.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
+#include <react/renderer/graphics/Size.h>
 #include <react/renderer/uimanager/IMountingManager.h>
+#include "GpuiHostComponentsCpp.h"
 #include "GpuiImageLoader.h"
 #include "GpuiModules.h"
 
@@ -15,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace rngpui {
@@ -44,8 +47,15 @@ class GpuiImageLoader final : public IImageLoader {
 
 class GpuiMountingManager : public IMountingManager {
  public:
-  explicit GpuiMountingManager(std::function<void(SurfaceId)>&& onAfterMount)
-      : onAfterMount_(std::move(onAfterMount)) {}
+  /// `contentSize` returns the size a surface's root was laid out at, or
+  /// nothing when the surface is not running. It is asked once per mount batch,
+  /// which is what a `FitContent` surface reports back to GPUI.
+  explicit GpuiMountingManager(
+      std::function<void(SurfaceId)>&& onAfterMount,
+      std::function<std::optional<facebook::react::Size>(SurfaceId)>&&
+          contentSize = nullptr)
+      : onAfterMount_(std::move(onAfterMount)),
+        contentSize_(std::move(contentSize)) {}
 
   void executeMount(SurfaceId surfaceId, MountingTransaction&& tx) override;
   void synchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props)
@@ -73,6 +83,22 @@ class GpuiMountingManager : public IMountingManager {
   void
   dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
+
+  /// Pushes a size a host component reported into its shadow node's state,
+  /// which is what `measureContent` reads, and asks for a commit so Yoga
+  /// re-measures. A size equal to the state's current one is dropped here, by
+  /// comparing against the state data rather than a second copy of it.
+  void setHostComponentSize(Tag tag, float width, float height);
+
+  /// Pushes a container's reported insets into its shadow node's state, where
+  /// `adopt` applies them as Yoga padding. Insets equal to the state's current
+  /// ones are dropped here, for the same reason.
+  void setHostComponentInsets(
+      Tag tag,
+      float top,
+      float right,
+      float bottom,
+      float left);
   void setWindowSize(float width, float height);
   void setWindowTopInset(float top);
   void setAccessibilityFocusedView(Tag viewTag) override;
@@ -80,6 +106,7 @@ class GpuiMountingManager : public IMountingManager {
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
+  std::function<std::optional<facebook::react::Size>(SurfaceId)> contentSize_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();
   std::mutex emittersMutex_;
@@ -92,6 +119,9 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<ModalHostViewState>>>
       modalStates_;
+  std::unordered_map<
+      Tag,
+      std::shared_ptr<const ConcreteState<GpuiHostStateData>>>
+      hostStates_;
 };
-
 } // namespace rngpui

@@ -139,6 +139,18 @@ pub mod ffi {
         Update = 16,
     }
 
+    /// One validated command argument. `kind` says which field holds it: 0 a
+    /// number (`number`), 1 a bool (`number` as 0 or 1), 2 a string (`text`),
+    /// 3 an array of numbers, 4 of bools (`numbers`, each 0 or 1), 5 of strings.
+    #[derive(Clone, Debug, Default)]
+    pub struct HostCommandArg {
+        pub kind: u8,
+        pub number: f64,
+        pub text: String,
+        pub numbers: Vec<f64>,
+        pub texts: Vec<String>,
+    }
+
     #[derive(Clone, Debug)]
     pub struct MountOp {
         pub kind: MountKind,
@@ -152,15 +164,37 @@ pub mod ffi {
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
+        /// The registry index of the host component this op is for, or `-1`.
+        pub host_index: i32,
+        /// An owned handle to the node's Fabric props (a `shared_ptr<const
+        /// Props>`), or zero. Set on `Create`, and on an `Update` only when the
+        /// props changed in a way the component can see: Rust takes ownership and
+        /// the generated accessors read the C++ fields in place.
+        pub host_props_handle: usize,
+        /// An owned handle to the node's event emitter, on `Create` only.
+        pub host_emitter_handle: usize,
+        /// The props that changed since the props Rust last received, one bit per
+        /// prop: the first 64 here, any more in `host_changed_more`. Computed in
+        /// C++ against `oldChildShadowView`, so it is relative to what the
+        /// component has seen even when several clones happened in between.
+        pub host_changed: u64,
+        pub host_changed_more: Vec<u64>,
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub layout_changed: bool,
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Default)]
     pub struct MountBatch {
         pub surface_id: i32,
         pub ops: Vec<MountOp>,
+        /// The size Fabric laid this surface's root out at, in DIPs.
+        pub content_width: f32,
+        pub content_height: f32,
+        /// Whether the surface's root was laid out at all in this commit. A
+        /// batch from a surface whose root has not been measured yet reports
+        /// zeros, which must not be mistaken for an empty tree.
+        pub has_content_size: bool,
     }
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -219,6 +253,10 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
+        /// A command Fabric dispatched to a host component. The generated C++
+        /// dispatcher already validated the arguments against the spec and
+        /// resolved the command to its index in the spec's `COMMANDS`.
+        fn rn_gpui_on_host_command(tag: i32, command: u32, args: Vec<HostCommandArg>);
         fn rn_gpui_set_animated_active(active: bool);
         fn rn_gpui_dev_menu_show();
         fn rn_gpui_dev_setting(name: &str, enabled: bool);
@@ -276,6 +314,25 @@ pub mod ffi {
         );
         /// Drops the module instance, which stops its thread.
         fn rn_gpui_rust_module_drop(handle: u64);
+    }
+
+    unsafe extern "C++" {
+        include!("GpuiHostComponent.h");
+
+        /// Releases a props handle a mount op gave Rust.
+        fn releaseHostPropsHandle(handle: usize);
+        /// Releases an event emitter handle a `Create` op gave Rust.
+        fn releaseHostEmitterHandle(handle: usize);
+        /// How many times the C++ registry was asked for a component since the
+        /// last reset. Only the test driver reads it.
+        fn hostEntryLookups() -> u64;
+        fn resetHostEntryLookups();
+        /// Pushes a size a host component measured into its shadow node's state,
+        /// which is what Yoga reads, and asks for the commit that re-measures.
+        fn reportHostComponentSize(tag: i32, width: f32, height: f32);
+        /// Pushes the insets a container reported for its chrome into its shadow
+        /// node's state, where they become Yoga padding around the children.
+        fn reportHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
     }
 
     unsafe extern "C++" {
@@ -400,6 +457,30 @@ pub mod ffi {
             height: f32,
             scale: f32,
         );
+        /// Starts a surface whose size is a range rather than a point. Fabric
+        /// lays the root out against the constraints and reports the size it
+        /// used in every mount batch.
+        fn start_surface_with_constraints(
+            self: Pin<&mut GpuiHost>,
+            surface_id: i32,
+            module_name: &str,
+            props_json: &str,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+            scale: f32,
+        );
+        /// Changes a running surface's constraints.
+        fn set_surface_constraints(
+            self: Pin<&mut GpuiHost>,
+            surface_id: i32,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+            scale: f32,
+        );
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
@@ -456,6 +537,9 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+/// One command for one tag: the command's index and its validated arguments.
+/// Called on the JS/Fabric thread.
+pub type HostCommandHandler = Box<dyn Fn(i32, u32, Vec<ffi::HostCommandArg>) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
@@ -464,6 +548,7 @@ pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::ne
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
 pub static MAIN_TASK_HANDLER: OnceLock<MainTaskHandler> = OnceLock::new();
@@ -595,6 +680,12 @@ fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
 fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
+    }
+}
+
+fn rn_gpui_on_host_command(tag: i32, command: u32, args: Vec<ffi::HostCommandArg>) {
+    if let Some(handler) = HOST_COMMAND_HANDLER.get() {
+        handler(tag, command, args);
     }
 }
 

@@ -18,6 +18,7 @@
     "modules/screens",
     "modules/fs",
     "packages/rn-gpui-tester",
+    "packages/rn-gpui-tester/host-components-module",
     "packages/rn-gpui-tester/gpui-native-module",
     "packages/rn-gpui-tester/gpui-cpp-native-module",
     "packages/rn-gpui-tester/node-addon-fixture"

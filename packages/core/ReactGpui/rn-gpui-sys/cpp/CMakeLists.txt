@@ -603,6 +603,10 @@ add_library(rn_gpui_core STATIC
   GpuiJsEngine.cpp
   GpuiLogBoxSurfaceDelegate.cpp
   GpuiMountingManager.cpp
+  # The C++ half of the host component API: one generic props class, one
+  # shadow node with a state-driven measure function, and a descriptor per
+  # registered component name.
+  GpuiHostComponent.cpp
   # Stock Node-API addon loading: the `_requireNodeLibrary` JSI global, path
   # resolution, the cache and the error messages. Compiled on every platform —
   # it is one small source file with no extra library — and it talks to the VM

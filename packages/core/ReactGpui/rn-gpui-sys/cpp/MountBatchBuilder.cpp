@@ -1,4 +1,5 @@
 #include "MountBatchBuilder.h"
+#include "GpuiHostComponentsCpp.h"
 #include "GpuiModules.h"
 #include "GpuiTextMeasure.h"
 
@@ -316,6 +317,47 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       op.extension_props_json = registered->second(componentName, shadowView);
     }
   }
+  op.host_index = -1;
+  op.host_props_handle = 0;
+  op.host_emitter_handle = 0;
+  op.host_changed = 0;
+  if (rngpui::anyHostComponents() &&
+      (mutation.type == ShadowViewMutation::Create ||
+       mutation.type == ShadowViewMutation::Update)) {
+    if (const auto* entry =
+            rngpui::hostComponentEntry(shadowView.componentHandle)) {
+      op.host_index = static_cast<int32_t>(entry->index);
+      if (mutation.type == ShadowViewMutation::Create) {
+        op.host_props_handle = rngpui::makeHostPropsHandle(shadowView.props);
+        op.host_emitter_handle =
+            rngpui::makeHostEmitterHandle(shadowView.eventEmitter);
+      } else {
+        const auto& before = mutation.oldChildShadowView.props;
+        const auto& after = mutation.newChildShadowView.props;
+        if (before && after && before.get() != after.get()) {
+          uint64_t inlineWords[2] = {0, 0};
+          std::vector<uint64_t> heapWords;
+          uint64_t* words = inlineWords;
+          if (entry->changeWords > 2) {
+            heapWords.assign(entry->changeWords, 0);
+            words = heapWords.data();
+          }
+          entry->changed(*before, *after, words);
+          bool any = false;
+          for (uint32_t word = 0; word < entry->changeWords; ++word) {
+            any = any || words[word] != 0;
+          }
+          if (any) {
+            op.host_props_handle = rngpui::makeHostPropsHandle(after);
+            op.host_changed = words[0];
+            for (uint32_t word = 1; word < entry->changeWords; ++word) {
+              op.host_changed_more.push_back(words[word]);
+            }
+          }
+        }
+      }
+    }
+  }
   if (op.component == "NativeViewHost") {
     if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
             shadowView.props)) {
@@ -390,12 +432,10 @@ GpuiTextSize measureParagraphThroughRust(
   const auto result = rn_gpui_measure_text(paragraph, maxWidth, maxHeight);
   return GpuiTextSize{.width = result.width, .height = result.height};
 }
-
 } // namespace
 
 void installGpuiTextMeasureTable() {
   setGpuiTextMeasureTable(
       GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});
 }
-
 } // namespace rngpui

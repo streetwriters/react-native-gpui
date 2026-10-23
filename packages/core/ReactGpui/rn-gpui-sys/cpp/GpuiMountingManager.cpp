@@ -6,6 +6,7 @@
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
 #include "GpuiHost.h" // KAllSurfacesStopped
+#include "GpuiHostComponentsCpp.h"
 #include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
@@ -141,7 +142,6 @@ std::string describeOp(const MountOp& op) {
   }
   return out;
 }
-
 } // namespace
 
 void GpuiMountingManager::executeMount(
@@ -149,6 +149,15 @@ void GpuiMountingManager::executeMount(
     MountingTransaction&& transaction) {
   MountBatch batch;
   batch.surface_id = surfaceId;
+  if (contentSize_) {
+    if (auto size = contentSize_(surfaceId)) {
+      if (size->width > 0.f || size->height > 0.f) {
+        batch.content_width = size->width;
+        batch.content_height = size->height;
+        batch.has_content_size = true;
+      }
+    }
+  }
   {
     std::lock_guard<std::mutex> lock(emittersMutex_);
     for (const auto& mutation : transaction.getMutations()) {
@@ -216,6 +225,16 @@ void GpuiMountingManager::executeMount(
                   mutation.newChildShadowView.state);
           if (state)
             scrollStates_[mutation.newChildShadowView.tag] = std::move(state);
+        } else if (
+            rngpui::anyHostComponents() &&
+            rngpui::hostComponentEntry(
+                mutation.newChildShadowView.componentHandle) != nullptr) {
+          auto state =
+              std::dynamic_pointer_cast<const ConcreteState<GpuiHostStateData>>(
+                  mutation.newChildShadowView.state);
+          if (state) {
+            hostStates_[mutation.newChildShadowView.tag] = std::move(state);
+          }
         } else if (componentName == "ModalHostView") {
           auto state = std::dynamic_pointer_cast<
               const ConcreteState<ModalHostViewState>>(
@@ -233,6 +252,7 @@ void GpuiMountingManager::executeMount(
         emitters_.erase(tag);
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
+        hostStates_.erase(mutation.oldChildShadowView.tag);
       }
     }
   }
@@ -345,6 +365,88 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
   }
 }
 
+namespace {
+/// The manager host component reports go to. Set once, when the host makes its
+/// manager; the two report functions below read it on the main thread.
+std::weak_ptr<GpuiMountingManager>& hostComponentStateManager() {
+  static std::weak_ptr<GpuiMountingManager> manager;
+  return manager;
+}
+} // namespace
+
+void setHostComponentStateManager(std::weak_ptr<GpuiMountingManager> manager) {
+  hostComponentStateManager() = std::move(manager);
+}
+
+void reportHostComponentSize(int32_t tag, float width, float height) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    manager->setHostComponentSize(tag, width, height);
+  }
+}
+
+void reportHostComponentInsets(
+    int32_t tag,
+    float top,
+    float right,
+    float bottom,
+    float left) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    manager->setHostComponentInsets(tag, top, right, bottom, left);
+  }
+}
+
+void GpuiMountingManager::setHostComponentSize(
+    Tag tag,
+    float width,
+    float height) {
+  std::shared_ptr<const ConcreteState<GpuiHostStateData>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = hostStates_.find(tag);
+    if (it == hostStates_.end()) {
+      return;
+    }
+    state = it->second;
+  }
+  const auto& data = state->getData();
+  if (data.measured && data.width == width && data.height == height) {
+    return;
+  }
+  GpuiHostStateData next = data;
+  next.width = width;
+  next.height = height;
+  next.measured = true;
+  state->updateState(std::move(next));
+}
+
+void GpuiMountingManager::setHostComponentInsets(
+    Tag tag,
+    float top,
+    float right,
+    float bottom,
+    float left) {
+  std::shared_ptr<const ConcreteState<GpuiHostStateData>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = hostStates_.find(tag);
+    if (it == hostStates_.end()) {
+      return;
+    }
+    state = it->second;
+  }
+  const auto& data = state->getData();
+  if (data.insetTop == top && data.insetRight == right &&
+      data.insetBottom == bottom && data.insetLeft == left) {
+    return;
+  }
+  GpuiHostStateData next = data;
+  next.insetTop = top;
+  next.insetRight = right;
+  next.insetBottom = bottom;
+  next.insetLeft = left;
+  state->updateState(std::move(next));
+}
+
 void GpuiMountingManager::setScrollOffset(Tag tag, float x, float y) {
   std::shared_ptr<const ConcreteState<ScrollViewState>> state;
   {
@@ -428,8 +530,21 @@ void GpuiMountingManager::dispatchCommand(
     } else if (name == "clear") {
       rn_gpui_on_text_input_clear(view.tag);
     }
+    return;
   }
-  (void)args;
+  if (!rngpui::anyHostComponents()) {
+    return;
+  }
+  const auto* entry = rngpui::hostComponentEntry(view.componentHandle);
+  if (entry == nullptr || entry->command == nullptr) {
+    return;
+  }
+  const folly::dynamic normalized =
+      args.isArray() ? args : folly::dynamic::array(args);
+  if (!entry->command(view.tag, name, normalized)) {
+    LOG(ERROR) << "[host-component] " << entry->name << " has no command '"
+               << name << "'";
+  }
 }
 
 void GpuiMountingManager::setSchedulerTaskExecutor(
@@ -484,11 +599,11 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                    << " is not implemented on gpui";
       });
       rn_gpui_register_app_components(*result);
+      registerHostComponentDescriptors(*result);
       return result;
     }();
     return registry->createComponentDescriptorRegistry(
         {eventDispatcher, contextContainer, nullptr});
   };
 }
-
 } // namespace rngpui

@@ -210,6 +210,12 @@ export const screens = [
     fixture: 'GpuiComponentRegistryFixture',
   },
   {
+    id: 'host-components',
+    title: 'Host components',
+    group: 'Native modules',
+    fixture: 'HostComponentsFixture',
+  },
+  {
     id: 'fixture-module',
     title: 'Module-only component',
     group: 'Native modules',

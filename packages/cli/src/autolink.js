@@ -571,7 +571,68 @@ function componentConfigFor(dependencyName, gpui) {
       `${dependencyName}: platforms.desktop.componentSourcePackage must be a package name`,
     );
   }
-  return { descriptors, headers, sources, includeDirs, sourcePackage };
+  return {
+    descriptors,
+    headers,
+    sources,
+    includeDirs,
+    sourcePackage,
+    hostComponents: hostComponentsFor(dependencyName, gpui),
+  };
+}
+
+/**
+ * The host components a package registers, from
+ * `platforms.desktop.hostComponents`.
+ */
+function hostComponentsFor(dependencyName, gpui) {
+  const hostComponents = gpui.hostComponents ?? [];
+  if (!Array.isArray(hostComponents)) {
+    throw new Error(
+      `${dependencyName}: platforms.desktop.hostComponents must be an array`,
+    );
+  }
+  return hostComponents.map(entry => {
+    if (
+      entry === null ||
+      typeof entry !== 'object' ||
+      typeof entry.name !== 'string' ||
+      !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(entry.name)
+    ) {
+      throw new Error(
+        `${dependencyName}: each platforms.desktop.hostComponents entry needs a "name" that is a component identifier`,
+      );
+    }
+    if (entry.measured !== undefined && typeof entry.measured !== 'boolean') {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "measured"`,
+      );
+    }
+    if (
+      entry.nativeSurface !== undefined &&
+      typeof entry.nativeSurface !== 'boolean'
+    ) {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "nativeSurface"`,
+      );
+    }
+    if (entry.container !== undefined && typeof entry.container !== 'boolean') {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "container"`,
+      );
+    }
+    if (entry.measured === true && entry.container === true) {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" cannot be both "measured" and a "container"; a measured component is a leaf, and a leaf cannot hold children`,
+      );
+    }
+    return {
+      name: entry.name,
+      measured: entry.measured === true,
+      nativeSurface: entry.nativeSurface === true,
+      container: entry.container === true,
+    };
+  });
 }
 
 function generateComponentCodegen({
@@ -581,6 +642,7 @@ function generateComponentCodegen({
   dependencyName,
   gpui,
   generatedRoot,
+  hostComponents = [],
 }) {
   const componentCodegenPackage = gpui.componentCodegenPackage;
   let codegenPackageRoot = packageRoot;
@@ -693,8 +755,32 @@ function generateComponentCodegen({
   } finally {
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
   }
+  let hostComponentLibrary;
+  if (hostComponents.length > 0) {
+    const specPaths = specs.filter(file =>
+      /export\s+default\s+\(?codegenNativeComponent</u.test(
+        fs.readFileSync(file, 'utf8'),
+      ),
+    );
+    const components = Object.fromEntries(
+      hostComponents.map(component => [component.name, component]),
+    );
+    const { generateHostComponentCpp } = appRequire(
+      '@react-native-gpui/codegen/generate-host-component-cpp',
+    );
+    const generatedCpp = generateHostComponentCpp({
+      specPaths,
+      libraryName,
+      components,
+    });
+    writeIfChanged(
+      path.join(outputDirectory, 'GpuiHostComponents.generated.cpp'),
+      generatedCpp,
+    );
+    hostComponentLibrary = libraryName;
+  }
   const sources = findCppSources(outputDirectory);
-  return { sources, libraryName };
+  return { sources, libraryName, hostComponentLibrary };
 }
 
 const findGeneratedFiles = directory => {
@@ -869,6 +955,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const appComponentSources = [];
   const appComponentIncludeDirs = [];
   const componentNames = new Map();
+  const hostComponentNames = new Map();
+  const hostComponents = [];
+  const hostComponentLibraries = new Set();
   const jsEngines = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
   const generatedLibraries = new Map();
@@ -906,6 +995,20 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     }
     appComponentDescriptors.push(...componentConfig.descriptors);
     appComponentHeaders.push(...componentConfig.headers);
+    for (const hostComponent of componentConfig.hostComponents) {
+      const previousDependency = hostComponentNames.get(hostComponent.name);
+      if (previousDependency) {
+        throw new Error(
+          `${dependencyName}: host component ${hostComponent.name} is already declared by ${previousDependency}`,
+        );
+      }
+      hostComponentNames.set(hostComponent.name, dependencyName);
+      hostComponents.push({
+        ...hostComponent,
+        index: hostComponents.length,
+        dependencyName,
+      });
+    }
     const generatedCodegen = generateComponentCodegen({
       appRequire,
       packageJson,
@@ -913,14 +1016,23 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       dependencyName,
       gpui,
       generatedRoot: codegenRoot,
+      hostComponents: hostComponents.filter(
+        component => component.dependencyName === dependencyName,
+      ),
     });
+    const declaresHostComponents =
+      Array.isArray(gpui.hostComponents) && gpui.hostComponents.length > 0;
     if (
       generatedCodegen.sources.length > 0 &&
-      componentConfig.descriptors.length === 0
+      componentConfig.descriptors.length === 0 &&
+      !declaresHostComponents
     ) {
       throw new Error(
         `${dependencyName}: GPUI component Codegen is enabled, but platforms.desktop.componentDescriptors is empty`,
       );
+    }
+    if (generatedCodegen.hostComponentLibrary) {
+      hostComponentLibraries.add(generatedCodegen.hostComponentLibrary);
     }
     appComponentSources.push(
       ...generatedCodegen.sources,
@@ -1087,6 +1199,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     cppTurboModules,
     cmakeProjects,
     appComponentDescriptors,
+    hostComponents,
     appComponentHeaders: [...new Set(appComponentHeaders)],
     appComponentSources: [...new Set(appComponentSources)],
     appComponentIncludeDirs: [...new Set(appComponentIncludeDirs)],
@@ -1110,7 +1223,9 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     .join('\n');
   writeIfChanged(
     path.join(autolinkCrate, 'Cargo.toml'),
-    `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n${generatedDeps ? `\n[dependencies]\n${generatedDeps}\n` : ''}`,
+    `[package]\nname = "rn-gpui-autolink"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nreact-native-gpui = { path = ${escapeToml(
+      path.relative(autolinkCrate, runtimeCrate).split(path.sep).join('/'),
+    )} }\n${generatedDeps}`,
   );
   const ensureLinked = rustCrates.map(
     ({ alias }) => `    ${alias}::rn_gpui_register();`,
@@ -1120,12 +1235,42 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     '    unsafe {',
     '        rn_gpui_initialize_app_turbo_modules();',
     '    }',
+    '    declare_host_components();',
     ...ensureLinked,
+    '    ensure_host_components();',
+    '}',
+  ].join('\n');
+  const hostComponentDeclarations = hostComponents
+    .map(
+      ({ index, name, measured, nativeSurface, container }) =>
+        `    react_native_gpui::host_component::declare_host_component(${index}, ${JSON.stringify(name)}, react_native_gpui::host_component::HostComponentOptions { measured: ${measured}, native_surface: ${nativeSurface}, container: ${container} });`,
+    )
+    .join('\n');
+  const hostComponentChecks = hostComponents
+    .map(
+      ({ index, name }) =>
+        `    expect_host_component(${index}, ${JSON.stringify(name)});`,
+    )
+    .join('\n');
+  const generatedEnsureHostComponents = [
+    'fn declare_host_components() {',
+    hostComponentDeclarations || '    // No package declares a host component.',
+    '}',
+    '',
+    'fn expect_host_component(index: u32, name: &str) {',
+    '    assert!(',
+    '        react_native_gpui::host_component::is_registered(index),',
+    '        "{name}: declared under platforms.desktop.hostComponents but no rn_gpui_register() registered it; call react_native_gpui::host_component::register_component from the crate that owns the component.",',
+    '    );',
+    '}',
+    '',
+    'pub fn ensure_host_components() {',
+    hostComponentChecks || '    // No package declares a host component.',
     '}',
   ].join('\n');
   writeIfChanged(
     path.join(autolinkCrate, 'src/lib.rs'),
-    `// Generated by @react-native-gpui/cli autolink; do not edit.\nextern "C" {\n    fn rn_gpui_initialize_app_turbo_modules();\n}\n${generatedEnsureLinked}\n`,
+    `// Generated by @react-native-gpui/cli autolink; do not edit.\nextern "C" {\n    fn rn_gpui_initialize_app_turbo_modules();\n}\n${generatedEnsureLinked}\n\n${generatedEnsureHostComponents}\n`,
   );
 
   const appCargoManifest = path.join(desktopRoot, 'Cargo.toml');
@@ -1259,6 +1404,15 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
         `  if (name == ${JSON.stringify(moduleName)}) return ::${provider}(name, jsInvoker);`,
     )
     .join('\n');
+  const hostComponentRegistrationDeclarations = [...hostComponentLibraries]
+    .map(
+      library =>
+        `extern "C" void rn_gpui_register_host_components_${library}();`,
+    )
+    .join('\n');
+  const hostComponentRegistrationCalls = [...hostComponentLibraries]
+    .map(library => `  rn_gpui_register_host_components_${library}();`)
+    .join('\n');
   const componentHeaders = [...new Set(appComponentHeaders)]
     .map(header => `#include <${header}>`)
     .join('\n');
@@ -1270,7 +1424,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     .join('\n');
   writeIfChanged(
     cppProviderPath,
-    `// Generated by @react-native-gpui/cli autolink; do not edit.\n#include <ReactCommon/TurboModule.h>\n#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>\n#include <iostream>\n#include <memory>\n#include <string>\n#include <unordered_set>\n${componentHeaders}\n${[...new Set(cppTurboModules.map(({ provider }) => `extern std::shared_ptr<facebook::react::TurboModule> ${provider}(const std::string&, std::shared_ptr<facebook::react::CallInvoker>);`))].join('\n')}\nextern "C" void rn_gpui_set_app_cpp_turbo_module_provider(std::shared_ptr<facebook::react::TurboModule> (*)(const std::string&, std::shared_ptr<facebook::react::CallInvoker>));\nextern "C" void rn_gpui_initialize_app_turbo_modules() {\n  rn_gpui_set_app_cpp_turbo_module_provider(+[](const std::string& name, std::shared_ptr<facebook::react::CallInvoker> jsInvoker) -> std::shared_ptr<facebook::react::TurboModule> {\n${cppProviderCases}\n    return nullptr;\n  });\n}\nnamespace rngpui {\nvoid rn_gpui_register_app_components(facebook::react::ComponentDescriptorProviderRegistry& registry) {\n  static const std::unordered_set<std::string> builtins = {"View", "Paragraph", "Text", "RawText", "Image", "ScrollView", "TextInput", "ModalHostView", "NativeViewHost"};\n  std::unordered_set<std::string> registered;\n  auto addComponent = [&registry, &registered](const facebook::react::ComponentDescriptorProvider& provider) {\n    const std::string name(provider.name);\n    if (builtins.contains(name) || !registered.insert(name).second) {\n      std::cerr << "[rn-gpui] duplicate app Fabric component descriptor ignored: " << name << std::endl;\n      return;\n    }\n    registry.add(provider);\n  };\n${componentRegistration}\n}\n} // namespace rngpui\n`,
+    `// Generated by @react-native-gpui/cli autolink; do not edit.\n#include <ReactCommon/TurboModule.h>\n#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>\n#include <iostream>\n#include <memory>\n#include <string>\n#include <unordered_set>\n${componentHeaders}\n${hostComponentRegistrationDeclarations}\n${[...new Set(cppTurboModules.map(({ provider }) => `extern std::shared_ptr<facebook::react::TurboModule> ${provider}(const std::string&, std::shared_ptr<facebook::react::CallInvoker>);`))].join('\n')}\nextern "C" void rn_gpui_set_app_cpp_turbo_module_provider(std::shared_ptr<facebook::react::TurboModule> (*)(const std::string&, std::shared_ptr<facebook::react::CallInvoker>));\nextern "C" void rn_gpui_initialize_app_turbo_modules() {\n${hostComponentRegistrationCalls}\n  rn_gpui_set_app_cpp_turbo_module_provider(+[](const std::string& name, std::shared_ptr<facebook::react::CallInvoker> jsInvoker) -> std::shared_ptr<facebook::react::TurboModule> {\n${cppProviderCases}\n    return nullptr;\n  });\n}\nnamespace rngpui {\nvoid rn_gpui_register_app_components(facebook::react::ComponentDescriptorProviderRegistry& registry) {\n  static const std::unordered_set<std::string> builtins = {"View", "Paragraph", "Text", "RawText", "Image", "ScrollView", "TextInput", "ModalHostView", "NativeViewHost"};\n  std::unordered_set<std::string> registered;\n  auto addComponent = [&registry, &registered](const facebook::react::ComponentDescriptorProvider& provider) {\n    const std::string name(provider.name);\n    if (builtins.contains(name) || !registered.insert(name).second) {\n      std::cerr << "[rn-gpui] duplicate app Fabric component descriptor ignored: " << name << std::endl;\n      return;\n    }\n    registry.add(provider);\n  };\n${componentRegistration}\n}\n} // namespace rngpui\n`,
   );
   const cppSources = [
     ...new Set([

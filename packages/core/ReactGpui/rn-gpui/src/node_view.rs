@@ -56,10 +56,40 @@ pub struct RNNodeView {
     pub component: String,
     pub native_view_name: String,
     pub native_view_props: String,
+    /// Whether this node's own content is composited by the OS rather than
+    /// painted by GPUI. Decided once, when the node is created, from its
+    /// registry entry; only a `NativeViewHost` can change it later, when an
+    /// update gives it a factory name.
+    pub(crate) renders_native_surface: bool,
+    /// How many nodes in this subtree render a native surface, this node
+    /// included.
+    pub(crate) native_surface_descendants: u32,
+    /// Whether this node's contribution has been added to its ancestors.
+    pub(crate) native_surface_counted: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
-    #[cfg(target_os = "macos")]
-    native_view_host: Option<std::rc::Rc<crate::native_view::NativeViewSurface>>,
+    native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
+    /// The host component rendering this node, when its op carried a registry
+    /// index. Created on the main thread when the node is mounted, and the only
+    /// thing about the component this node ever looks up: from here on it is a
+    /// vtable call, never a name lookup.
+    host_component: Option<Box<dyn crate::host_component::HostObject>>,
+    /// The registry index the host component was created from, for the
+    /// declaration (container, native surface) the node needs while rendering.
+    host_index: i32,
+    /// Whether the host component is a container: core paints its React children
+    /// between its chrome and its overlay.
+    host_container: bool,
+    /// The intrinsic size this node's host component last reported. Exposed to
+    /// the test driver and to diagnostics; Yoga has the authoritative copy, in
+    /// the shadow node's state.
+    intrinsic_size: Option<(f32, f32)>,
+    /// The store's report queue, shared by every node. A method's context writes
+    /// here; the store is the one place that applies what is written.
+    host_reports: crate::store::HostReportQueue,
+    /// Where this node's surface is in its window. Zero for a window's own root
+    /// surface; a `ReactSurface` placed by GPUI writes its box here.
+    surface_origin: crate::surface::SurfaceOrigin,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
     pub view: ViewPropsFlat,
@@ -374,6 +404,18 @@ fn dispatch_context_menu(
         );
         store.frame_hook.arm(window);
     }
+}
+
+/// Whether a newly created node's own content is composited by the OS.
+fn renders_native_surface_for_op(op: &MountOp) -> bool {
+    if op.component == "NativeViewHost" {
+        return !op.native_view_name.is_empty();
+    }
+    if op.host_index >= 0 && crate::host_component::renders_native_surface(op.host_index as u32) {
+        return true;
+    }
+    crate::extensions::any_component_renderers()
+        && crate::extensions::component_renders_native_surface(&op.component)
 }
 
 impl RNNodeView {
@@ -756,7 +798,12 @@ impl RNNodeView {
         None
     }
 
-    pub fn from_op(op: &MountOp, surface_id: i32) -> Self {
+    pub(crate) fn from_op(
+        op: &MountOp,
+        surface_id: i32,
+        host_reports: crate::store::HostReportQueue,
+    ) -> Self {
+        let renders_native_surface = renders_native_surface_for_op(op);
         // `core-private:` TextInput reads its own props out of the module JSON.
         let text_input =
             crate::builtins::textinput::input::TextInputProps::from_json(&op.extension_props_json);
@@ -767,6 +814,7 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
+        let (host_component, host_container) = Self::create_host_component(op, &host_reports);
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
@@ -779,8 +827,16 @@ impl RNNodeView {
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
-            #[cfg(target_os = "macos")]
             native_view_host: None,
+            renders_native_surface,
+            native_surface_descendants: u32::from(renders_native_surface),
+            native_surface_counted: false,
+            host_component,
+            host_index: op.host_index,
+            host_container,
+            intrinsic_size: None,
+            host_reports,
+            surface_origin: crate::surface::SurfaceOrigin::default(),
             frame: if crate::extensions::component_portal(
                 &op.component,
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -867,9 +923,15 @@ impl RNNodeView {
         {
             self.native_view_name = op.native_view_name.clone();
             self.native_view_props = op.native_view_props.clone();
-            #[cfg(target_os = "macos")]
-            {
-                self.native_view_host = None;
+            self.native_view_host = None;
+        }
+        if self.component == "NativeViewHost" {
+            let renders = !self.native_view_name.is_empty();
+            if renders != self.renders_native_surface {
+                self.renders_native_surface = renders;
+                self.native_surface_descendants = self
+                    .native_surface_descendants
+                    .saturating_add_signed(if renders { 1 } else { -1 });
             }
         }
         self.frame = if crate::extensions::component_portal(
@@ -923,12 +985,85 @@ impl RNNodeView {
             }
             self.scroll_handle_stale = true;
         }
+        self.update_host_component(op);
         if op.props_changed {
             self.extension_props_json = op.extension_props_json.clone();
             self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &self.extension_props_json,
             ));
         }
+    }
+
+    /// Creates the host component an op names by registry index, if it names
+    /// one. Returns it with whether it is a container.
+    fn create_host_component(
+        op: &MountOp,
+        host_reports: &crate::store::HostReportQueue,
+    ) -> (Option<Box<dyn crate::host_component::HostObject>>, bool) {
+        // SAFETY: C++ made these handles for this op and gave them to Rust; this
+        let (props, emitter) = unsafe { Self::claim_host_handles(op) };
+        let Some(entry) = (op.host_index >= 0)
+            .then(|| crate::host_component::entry(op.host_index as u32))
+            .flatten()
+        else {
+            return (None, false);
+        };
+        let (Some(props), Some(emitter)) = (props, emitter) else {
+            if entry.is_registered() {
+                log::error!(
+                    "[host-component] {} (tag {}) was created without its props or emitter",
+                    entry.name,
+                    op.tag
+                );
+            }
+            return (None, entry.options.container);
+        };
+        let cx = crate::host_component::HostContext::queued(op.tag, host_reports.clone());
+        let object = entry.create(props, emitter, cx);
+        if object.is_none() {
+            log::error!(
+                "[host-component] {} is declared but no package registered it; the node renders nothing",
+                entry.name
+            );
+        }
+        (object, entry.options.container)
+    }
+
+    /// Takes ownership of the handles an op carried, so they are released when
+    /// the result drops.
+    ///
+    /// # Safety
+    ///
+    /// The handles must have been made by C++ for this op and not claimed before.
+    unsafe fn claim_host_handles(
+        op: &MountOp,
+    ) -> (
+        Option<crate::host_component::PropsHandle>,
+        Option<crate::host_component::EmitterHandle>,
+    ) {
+        let props = (op.host_props_handle != 0)
+            .then(|| crate::host_component::PropsHandle::from_raw(op.host_props_handle));
+        let emitter = (op.host_emitter_handle != 0)
+            .then(|| crate::host_component::EmitterHandle::from_raw(op.host_emitter_handle));
+        (props, emitter)
+    }
+
+    /// Hands the component its new props, when C++ found its own props changed.
+    fn update_host_component(&mut self, op: &MountOp) {
+        if op.host_props_handle == 0 {
+            return;
+        }
+        // SAFETY: as in `create_host_component`; an `Update` op's props handle is
+        let props = unsafe { crate::host_component::PropsHandle::from_raw(op.host_props_handle) };
+        let Some(component) = self.host_component.as_mut() else {
+            return;
+        };
+        let mut changed = Vec::with_capacity(1 + op.host_changed_more.len());
+        changed.push(op.host_changed);
+        changed.extend_from_slice(&op.host_changed_more);
+        let cx = crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+        crate::counters::bump(crate::counters::Counter::HostUpdateCalls);
+        component.update(props, &changed, cx);
     }
 
     pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
@@ -943,6 +1078,43 @@ impl RNNodeView {
 
     pub fn remove_child(&mut self, tag: i32) {
         self.children.retain(|(child_tag, _)| *child_tag != tag);
+    }
+
+    /// Whether any node in this subtree, this one included, renders a native
+    /// surface.
+    pub(crate) fn subtree_renders_native_surface(&self) -> bool {
+        self.native_surface_descendants > 0
+    }
+
+    /// Claims this node's contribution, so a second `Remove` or a `Delete`
+    /// after a `Remove` subtracts nothing.
+    pub(crate) fn take_native_surface_contribution(&mut self) -> u32 {
+        if !self.native_surface_counted {
+            return 0;
+        }
+        self.native_surface_counted = false;
+        self.native_surface_descendants
+    }
+
+    /// Records that this node's contribution is now part of its ancestors'
+    /// counts.
+    pub(crate) fn mark_native_surface_counted(&mut self) {
+        self.native_surface_counted = true;
+    }
+
+    /// Adds `delta` to this subtree's count.
+    /// Adds `delta` to this subtree's count.
+    pub(crate) fn add_native_surface_descendants(&mut self, delta: u32) -> bool {
+        let before = self.native_surface_descendants;
+        self.native_surface_descendants = before.saturating_add(delta);
+        before == 0 && self.native_surface_descendants != 0
+    }
+
+    /// Removes `delta` from this subtree's count.
+    pub(crate) fn sub_native_surface_descendants(&mut self, delta: u32) -> bool {
+        let before = self.native_surface_descendants;
+        self.native_surface_descendants = before.saturating_sub(delta);
+        before != 0 && self.native_surface_descendants == 0
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {
@@ -1063,7 +1235,20 @@ impl RNNodeView {
             x -= link.scale.0 * offset.x;
             y -= link.scale.1 * offset.y;
         }
-        point(px(x), px(y))
+        let (surface_x, surface_y) = self.surface_origin.get();
+        point(px(x + surface_x), px(y + surface_y))
+    }
+
+    /// Whether GPUI placed this node's surface, so its frames are window
+    /// coordinates.
+    pub(crate) fn surface_is_placed(&self) -> bool {
+        self.surface_origin.is_placed()
+    }
+
+    /// Shares `origin` with the other nodes of this node's surface.
+    pub(crate) fn with_surface_origin(mut self, origin: crate::surface::SurfaceOrigin) -> Self {
+        self.surface_origin = origin;
+        self
     }
 
     #[cfg(any(test, debug_assertions))]
@@ -1088,7 +1273,8 @@ impl RNNodeView {
         }
         chain.reverse();
         let (x, y) = accumulate_origin(&chain);
-        point(px(x), px(y))
+        let (surface_x, surface_y) = self.surface_origin.get();
+        point(px(x + surface_x), px(y + surface_y))
     }
 
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {
@@ -2012,6 +2198,29 @@ fn dispatch_key(tag: i32, event_type: &str, key: &gpui::Keystroke, repeat: bool,
 pub(crate) static RENDER_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// Queues one delivery of the host reports made during this frame's renders.
+fn schedule_frame_host_report_flush(
+    reports: &crate::store::HostReportQueue,
+    window: &mut Window,
+    cx: &mut Context<RNNodeView>,
+) {
+    if reports.is_empty() || reports.claim_flush() {
+        return;
+    }
+    let reports = reports.clone();
+    window.defer(cx, move |_window, cx| {
+        reports.release_flush();
+        match crate::store::store_from(cx) {
+            Some(store) => {
+                store.update(cx, |store, cx| store.flush_host_reports(cx));
+            }
+            None => {
+                let _ = reports.take();
+            }
+        }
+    });
+}
+
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2081,12 +2290,13 @@ impl Render for RNNodeView {
         if self.view.display_none || hidden_portal {
             return div().id(self.tag).size_0().into_any_element();
         }
-        #[cfg(target_os = "macos")]
         if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
             if self.native_view_host.is_none() {
-                match crate::native_view::NativeViewSurface::create(
-                    &self.native_view_name,
-                    &self.native_view_props,
+                match crate::native_surface::NativeSurface::create(
+                    crate::native_surface::NativeSurfaceContent::Factory {
+                        name: self.native_view_name.clone(),
+                        props: self.native_view_props.clone(),
+                    },
                     window,
                     cx,
                 ) {
@@ -3291,9 +3501,8 @@ impl Render for RNNodeView {
                 element = element.child(focus_child);
             }
         }
-        #[cfg(target_os = "macos")]
         if let Some(native_view_host) = &self.native_view_host {
-            element = element.child(crate::native_view::NativeViewSurfaceElement {
+            element = element.child(crate::native_surface::NativeSurfaceElement {
                 surface: native_view_host.clone(),
             });
         }
@@ -3351,10 +3560,9 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
+            let strategy =
+                crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface());
             if scroll.enabled {
-                // GPUI scrolls this container itself, which lets gpui-fast composite the
-                // content as a scroll layer. This listener runs before GPUI's, so it defers
-                // and reports where the offset ended up.
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
                     position: self.scroll_position.clone(),
@@ -3375,16 +3583,70 @@ impl Render for RNNodeView {
             // node's own element: whatever sits inside a scrolling container
             // moves with its content, and the indicator must not.
             let mut scroller = div().id("scroller").absolute().top_0().left_0().size_full();
-            scroller = if !scroll.enabled {
-                scroller.overflow_hidden()
-            } else if scroll.horizontal {
-                scroller.overflow_x_scroll().overflow_y_hidden()
-            } else {
-                scroller.overflow_y_scroll().overflow_x_hidden()
-            };
-            element = element
-                .overflow_hidden()
-                .child(scroller.track_scroll(&self.scroll_handle).child(content));
+            match strategy {
+                crate::scroll_layers::ScrollStrategy::GpuiLayer => {
+                    scroller = if !scroll.enabled {
+                        scroller.overflow_hidden()
+                    } else if scroll.horizontal {
+                        scroller.overflow_x_scroll().overflow_y_hidden()
+                    } else {
+                        scroller.overflow_y_scroll().overflow_x_hidden()
+                    };
+                    element = element
+                        .overflow_hidden()
+                        .child(scroller.track_scroll(&self.scroll_handle).child(content));
+                }
+                crate::scroll_layers::ScrollStrategy::ManualOffset => {
+                    let (offset_x, offset_y) = (self.scroll_offset().x, self.scroll_offset().y);
+                    let moved = div()
+                        .relative()
+                        .flex_none()
+                        .left(px(-offset_x * scale_x))
+                        .top(px(-offset_y * scale_y))
+                        .w(px(scroll.content_size.0.max(frame.w)))
+                        .h(px(scroll.content_size.1.max(frame.h)))
+                        .children(ordered_children.iter().map(|(_, child)| child.clone()));
+                    if scroll.enabled {
+                        let horizontal = scroll.horizontal;
+                        let max = (
+                            (scroll.content_size.0 - frame.w).max(0.0),
+                            (scroll.content_size.1 - frame.h).max(0.0),
+                        );
+                        let position = self.scroll_position.clone();
+                        let handle = self.scroll_handle.clone();
+                        let scale = (scale_x, scale_y);
+                        let view = cx.entity();
+                        scroller = scroller.on_scroll_wheel(
+                            move |event: &gpui::ScrollWheelEvent, _window, _cx| {
+                                let mut delta = event.delta.pixel_delta(px(20.));
+                                let (dx, dy) = if horizontal {
+                                    (f32::from(delta.x) + f32::from(delta.y), 0.0)
+                                } else {
+                                    (0.0, f32::from(delta.y) + f32::from(delta.x))
+                                };
+                                let current = position.get();
+                                let next = point(
+                                    (current.x - dx / scale.0.max(f32::EPSILON)).clamp(0.0, max.0),
+                                    (current.y - dy / scale.1.max(f32::EPSILON)).clamp(0.0, max.1),
+                                );
+                                if (next.x - current.x).abs() < 0.01
+                                    && (next.y - current.y).abs() < 0.01
+                                {
+                                    return;
+                                }
+                                position.set(next);
+                                handle.set_offset(point(
+                                    px(-next.x * scale.0),
+                                    px(-next.y * scale.1),
+                                ));
+                                let _ = view.update(_cx, |_, cx| cx.notify());
+                            },
+                        );
+                    }
+                    scroller = scroller.overflow_hidden().child(moved);
+                    element = element.overflow_hidden().child(scroller);
+                }
+            }
             if scroll.indicator && scroll.enabled {
                 let horizontal = scroll.horizontal;
                 if self
@@ -3401,6 +3663,30 @@ impl Render for RNNodeView {
             } else {
                 self.scroll_indicator = None;
             }
+        } else if self.host_component.is_some() {
+            let chrome_cx = self.host_context();
+            let overlay_cx = self.host_context();
+            let container = self.host_container;
+            let (chrome, overlay) = match self.host_component.as_mut() {
+                Some(component) => (
+                    Some(component.render(window, chrome_cx)),
+                    if container {
+                        component.render_overlay(window, overlay_cx)
+                    } else {
+                        None
+                    },
+                ),
+                None => (None, None),
+            };
+            schedule_frame_host_report_flush(&self.host_reports, window, cx);
+            element = element
+                .children(chrome)
+                .children(
+                    ordered_children
+                        .iter()
+                        .map(|(_, child)| child.clone().into_any_element()),
+                )
+                .children(overlay);
         } else {
             let content =
                 crate::extensions::component_renderer(&self.component).and_then(|renderer| {
@@ -3679,6 +3965,176 @@ fn rule_segment_spans(length: f32, thickness: f32, style: u8) -> Vec<(f32, f32)>
     spans
 }
 
+/// The node's side of a host component: it is created from
+/// the registry index on its op, handed new props only when C++ sent a handle,
+/// and never looks the component up by name.
+#[cfg(test)]
+mod host_component_node_tests {
+    use super::*;
+    use crate::host_component::{
+        declare_host_component, register_component, EmitterHandle, HostArg, HostComponentOptions,
+        HostComponentSpec, HostContext, HostObject, PropsHandle, TEST_HANDLE,
+    };
+    use rn_gpui_sys::ffi::{MountKind, ParagraphFlat};
+    use std::cell::RefCell;
+
+    thread_local! {
+        static LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn log() -> Vec<String> {
+        LOG.with(|log| log.borrow().clone())
+    }
+
+    struct Fake;
+
+    impl HostObject for Fake {
+        fn update(&mut self, _props: PropsHandle, changed: &[u64], _cx: HostContext) {
+            LOG.with(|log| log.borrow_mut().push(format!("update {changed:?}")));
+        }
+
+        fn render(&mut self, _window: &mut Window, _cx: HostContext) -> AnyElement {
+            gpui::IntoElement::into_any_element(gpui::div())
+        }
+
+        fn render_overlay(&mut self, _window: &mut Window, _cx: HostContext) -> Option<AnyElement> {
+            None
+        }
+
+        fn command(&mut self, index: u32, args: &[HostArg], _cx: HostContext) {
+            LOG.with(|log| log.borrow_mut().push(format!("command {index} {args:?}")));
+        }
+    }
+
+    struct FakeSpec;
+
+    impl HostComponentSpec for FakeSpec {
+        const NAME: &'static str = "NodeTestFake";
+
+        fn create(
+            _props: PropsHandle,
+            _emitter: EmitterHandle,
+            mut cx: HostContext,
+        ) -> Box<dyn HostObject> {
+            LOG.with(|log| log.borrow_mut().push("create".to_string()));
+            cx.set_intrinsic_size(7.0, 9.0);
+            Box::new(Fake)
+        }
+    }
+
+    const REGISTERED: u32 = 960;
+    const UNREGISTERED: u32 = 961;
+
+    fn declare() {
+        declare_host_component(
+            REGISTERED,
+            FakeSpec::NAME,
+            HostComponentOptions {
+                container: true,
+                ..Default::default()
+            },
+        );
+        register_component(FakeSpec);
+        declare_host_component(
+            UNREGISTERED,
+            "NodeTestUnregistered",
+            HostComponentOptions::default(),
+        );
+    }
+
+    fn op(kind: MountKind, index: i32) -> MountOp {
+        MountOp {
+            kind,
+            tag: 42,
+            parent_tag: -1,
+            index: 0,
+            component: "NodeTestFake".into(),
+            native_view_name: String::new(),
+            native_view_props: "{}".into(),
+            frame: RectF {
+                x: 0.0,
+                y: 0.0,
+                w: 10.0,
+                h: 10.0,
+            },
+            props_changed: true,
+            view: ViewPropsFlat::default(),
+            extension_props_json: String::new(),
+            host_index: index,
+            host_props_handle: 0,
+            host_emitter_handle: 0,
+            host_changed: 0,
+            host_changed_more: Vec::new(),
+            has_paragraph: false,
+            paragraph: ParagraphFlat::default(),
+            layout_changed: false,
+        }
+    }
+
+    fn queue() -> crate::store::HostReportQueue {
+        std::rc::Rc::new(crate::host_component::HostReports::default())
+    }
+
+    #[test]
+    fn a_node_creates_its_component_from_the_index_on_its_op() {
+        declare();
+        LOG.with(|log| log.borrow_mut().clear());
+        let mut create = op(MountKind::Create, REGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let reports = queue();
+        let node = RNNodeView::from_op(&create, 1, reports.clone());
+        assert!(node.host_component.is_some());
+        assert!(
+            node.host_container,
+            "the declaration says it is a container"
+        );
+        assert_eq!(log(), vec!["create".to_string()]);
+        assert_eq!(reports.take().len(), 1);
+    }
+
+    #[test]
+    fn an_op_without_a_host_index_never_touches_the_registry() {
+        declare();
+        let node = RNNodeView::from_op(&op(MountKind::Create, -1), 1, queue());
+        assert!(node.host_component.is_none());
+        assert!(!node.host_container);
+    }
+
+    #[test]
+    fn a_declaration_nobody_registered_leaves_the_node_empty() {
+        declare();
+        let mut create = op(MountKind::Create, UNREGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let node = RNNodeView::from_op(&create, 1, queue());
+        assert!(node.host_component.is_none());
+    }
+
+    #[test]
+    fn an_update_reaches_the_component_only_when_c_plus_plus_sent_props() {
+        declare();
+        LOG.with(|log| log.borrow_mut().clear());
+        let mut create = op(MountKind::Create, REGISTERED as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let mut node = RNNodeView::from_op(&create, 1, queue());
+
+        node.update_from_op(&op(MountKind::Update, REGISTERED as i32));
+        assert_eq!(log(), vec!["create".to_string()]);
+
+        let mut update = op(MountKind::Update, REGISTERED as i32);
+        update.host_props_handle = TEST_HANDLE;
+        update.host_changed = 0b101;
+        update.host_changed_more = vec![0b1];
+        node.update_from_op(&update);
+        assert_eq!(
+            log(),
+            vec!["create".to_string(), "update [5, 1]".to_string()]
+        );
+    }
+}
+
 #[cfg(test)]
 mod border_segment_tests {
     use super::rule_segment_spans;
@@ -3711,8 +4167,83 @@ mod border_segment_tests {
 const SCROLL_STATE_SYNC_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 impl RNNodeView {
+    /// The intrinsic size Fabric last reported, if the component measures.
+    pub fn intrinsic_size(&self) -> Option<(f32, f32)> {
+        self.intrinsic_size
+    }
+
+    /// Records the size the store just delivered, for the test driver and for
+    /// diagnostics. Yoga reads the shadow node's state, not this.
+    pub(crate) fn set_intrinsic_size(&mut self, width: f32, height: f32) {
+        self.intrinsic_size = Some((width, height));
+    }
+
+    /// A context whose reports go to the store's queue.
+    pub(crate) fn host_reports(&self) -> crate::store::HostReportQueue {
+        self.host_reports.clone()
+    }
+
+    fn host_context(&self) -> crate::host_component::HostContext {
+        crate::host_component::HostContext::queued(self.tag, self.host_reports.clone())
+    }
+
+    /// The same, with the store handle a command can act through.
+    fn host_context_with_handle(
+        &self,
+        handle: crate::extensions::StoreHandle,
+    ) -> crate::host_component::HostContext {
+        crate::host_component::HostContext::queued_with_handle(
+            self.tag,
+            self.host_reports.clone(),
+            handle,
+        )
+    }
+
     pub fn scroll_offset(&self) -> Point<f32> {
         self.scroll_position.get()
+    }
+
+    /// Runs a Fabric command on this node's host component.
+    pub(crate) fn dispatch_host_command(
+        &mut self,
+        command: u32,
+        args: &[crate::host_component::HostArg],
+        cx: &mut gpui::App,
+    ) {
+        if self.host_component.is_none() {
+            log::debug!(
+                "[host-component] command {command} for tag {} with no component",
+                self.tag
+            );
+            return;
+        }
+        let handle = crate::store::store_from(cx)
+            .map(|store| crate::extensions::StoreHandle::new(store.downgrade()));
+        let host = match handle {
+            Some(handle) => self.host_context_with_handle(handle),
+            None => self.host_context(),
+        };
+        if let Some(component) = self.host_component.as_mut() {
+            component.command(command, args, host);
+        }
+        if !self.host_reports.is_empty() {
+            if let Some(store) = crate::store::store_from(cx) {
+                cx.defer(move |cx| {
+                    store.update(cx, |store, cx| store.flush_host_reports(cx));
+                });
+            }
+        }
+    }
+
+    /// How this node scrolls its content, by name, if it scrolls.
+    pub(crate) fn scroll_strategy_name(&self) -> Option<&'static str> {
+        self.scroll.as_ref()?;
+        Some(
+            match crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface()) {
+                crate::scroll_layers::ScrollStrategy::GpuiLayer => "GpuiLayer",
+                crate::scroll_layers::ScrollStrategy::ManualOffset => "ManualOffset",
+            },
+        )
     }
 
     pub(crate) fn extension_props_json(&self) -> &str {

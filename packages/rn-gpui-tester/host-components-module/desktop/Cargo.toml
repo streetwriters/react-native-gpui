@@ -1,0 +1,30 @@
+[package]
+name = "rn-gpui-host-components-fixture"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+rn-gpui-module-build = "0.1"
+
+[dependencies]
+react-native-gpui = "0.1"
+rn-gpui-module = "0.1"
+gpui = "0.2"
+serde_json = "1"
+log = "0.4"
+
+# Its own workspace root, like every module crate: a module resolves core by
+# version and must not be a member of the checkout's workspace, but Cargo only
+# applies `[patch.crates-io]` at a workspace root, so it has to be one. That also
+# lets `cargo test` run the fixture's own unit tests here.
+[workspace]
+
+[patch.crates-io]
+# Managed by @react-native-gpui/cli autolink; do not edit between these markers.
+react-native-gpui = { path = "../../../core/ReactGpui/rn-gpui" }
+rn-gpui-sys = { path = "../../../core/ReactGpui/rn-gpui-sys" }
+rn-gpui-module = { path = "../../../core/ReactGpui/rn-gpui-module" }
+rn-gpui-module-build = { path = "../../../core/ReactGpui/rn-gpui-module-build" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "a72b326" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "a72b326" }
+# End managed by autolink.

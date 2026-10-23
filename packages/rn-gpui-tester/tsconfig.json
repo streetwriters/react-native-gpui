@@ -3,8 +3,21 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "types": ["react", "vitest/globals", "node"],
-    "moduleSuffixes": [".desktop", ".native", ""]
+    "moduleSuffixes": [".desktop", ".native", ""],
+    // A workspace package resolved by path, so type-checking does not depend on
+    // `npm install` having linked it: the tester's own fixture packages are
+    // referenced the same way autolink references their Rust crates.
+    "paths": {
+      "@react-native-gpui/host-components-fixture": [
+        "./host-components-module/src/index.ts"
+      ]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
-  "exclude": ["node_modules", "desktop/build", "desktop/autolink"]
+  "exclude": [
+    "node_modules",
+    "desktop/build",
+    "desktop/autolink",
+    "*/desktop/target"
+  ]
 }

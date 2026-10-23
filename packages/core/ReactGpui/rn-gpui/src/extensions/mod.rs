@@ -750,6 +750,12 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         Decoration::default()
     }
 
+    /// Whether this component's content is composited by the OS rather than
+    /// painted by GPUI (a native view, a GPU surface).
+    fn renders_native_surface(&self) -> bool {
+        false
+    }
+
     fn children(
         &self,
         _node: &ComponentNode,
@@ -850,6 +856,17 @@ pub trait StoreObserver: Send + Sync + 'static {
     }
 }
 
+/// Whether any component renderer was ever registered, as a relaxed load.
+fn any_renderers_flag() -> &'static std::sync::atomic::AtomicBool {
+    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLAG
+}
+
+/// Whether any component renderer was ever registered.
+pub fn any_component_renderers() -> bool {
+    any_renderers_flag().load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn component_renderers() -> &'static Mutex<HashMap<String, Arc<dyn ComponentRenderer>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn ComponentRenderer>>>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -874,6 +891,7 @@ pub fn register_component_renderer(
         .lock()
         .expect("component renderer registry poisoned")
         .insert(component_name.into(), renderer);
+    any_renderers_flag().store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Registers `observer`; observers are notified in registration order.
@@ -906,7 +924,16 @@ pub(crate) fn exclusive_observers() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// The renderer registered for `component_name`, if any.
+/// Whether a component's content is composited by the OS rather than painted
+/// by GPUI.
+pub fn component_renders_native_surface(component_name: &str) -> bool {
+    component_renderer(component_name).is_some_and(|renderer| renderer.renders_native_surface())
+}
+
 pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRenderer>> {
+    if !any_component_renderers() {
+        return None;
+    }
     component_renderers()
         .lock()
         .expect("component renderer registry poisoned")

@@ -37,7 +37,6 @@
 #include "ReactCxxTurboModuleProvider.h"
 
 namespace facebook::react {
-
 struct ReactInstanceData {
   std::shared_ptr<IMountingManager> mountingManager;
   std::shared_ptr<MessageQueueThread> messageQueueThread;
@@ -515,6 +514,24 @@ std::unordered_set<SurfaceId> ReactHost::getRunningSurfaces() const noexcept {
   return surfaceManager_->getRunningSurfaces();
 }
 
+std::optional<Size> ReactHost::surfaceContentSize(
+    SurfaceId surfaceId) const {
+  if (isReloadingReactInstance_ || scheduler_ == nullptr) {
+    return std::nullopt;
+  }
+  const auto uiManager = scheduler_->getUIManager();
+  if (uiManager == nullptr) {
+    return std::nullopt;
+  }
+  const auto root =
+      uiManager->getShadowTreeRevisionProvider()->getCurrentRevision(surfaceId);
+  if (root == nullptr) {
+    return std::nullopt;
+  }
+  const auto& frame = root->getLayoutMetrics().frame;
+  return Size{frame.size.width, frame.size.height};
+}
+
 void ReactHost::runOnScheduler(
     std::function<void(Scheduler& scheduler)>&& task) const {
   if (!isReloadingReactInstance_) {
@@ -537,5 +554,4 @@ void ReactHost::emitDeviceEvent(folly::dynamic&& args) {
         "RCTDeviceEventEmitter", "emit", std::move(args));
   }
 }
-
 } // namespace facebook::react

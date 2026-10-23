@@ -1,0 +1,16 @@
+{
+  "name": "@react-native-gpui/host-components-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "desktop",
+    "react-native.config.js"
+  ],
+  "codegenConfig": {
+    "name": "HostComponentsFixtureSpec",
+    "type": "all",
+    "jsSrcsDir": "src"
+  }
+}

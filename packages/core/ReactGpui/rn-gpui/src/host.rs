@@ -1,5 +1,20 @@
 use rn_gpui_sys::ffi;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// The live host, for the paths that must reach C++ without an `App`.
+static LIVE_HOST: OnceLock<Host> = OnceLock::new();
+
+/// Stops a surface by id, for code that has no `App`.
+pub(crate) fn stop_surface_without_app(id: i32) {
+    if let Some(host) = LIVE_HOST.get() {
+        host.stop_surface(id);
+    }
+}
+
+/// The app's host, if one has been made.
+pub(crate) fn live_host() -> Option<&'static Host> {
+    LIVE_HOST.get()
+}
 
 // Unit tests build a Rust-only GPUI TestAppContext without the consuming app's
 // generated C++ component registry. Keep the host seam inert in that target;
@@ -16,9 +31,14 @@ impl Host {
             return Self::test_stub();
         }
         #[cfg(not(test))]
-        Self(Arc::new(Mutex::new(ffi::new_gpui_host(
-            app_id, dev_host, port, js_engine, dev_mode,
-        ))))
+        {
+            crate::host_component::freeze();
+            let host = Self(Arc::new(Mutex::new(ffi::new_gpui_host(
+                app_id, dev_host, port, js_engine, dev_mode,
+            ))));
+            let _ = LIVE_HOST.set(host.clone());
+            host
+        }
     }
 
     #[cfg(test)]
@@ -75,6 +95,57 @@ impl Host {
             .unwrap()
             .pin_mut()
             .set_surface_size(id, w, h, scale)
+    }
+
+    /// Starts a surface whose size is a range, not a point.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_surface_with_constraints(
+        &self,
+        id: i32,
+        module: &str,
+        props_json: &str,
+        min_width: f32,
+        min_height: f32,
+        max_width: f32,
+        max_height: f32,
+        scale: f32,
+    ) {
+        #[cfg(test)]
+        let _ = (
+            self, id, module, props_json, min_width, min_height, max_width, max_height, scale,
+        );
+        #[cfg(not(test))]
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .start_surface_with_constraints(
+                id, module, props_json, min_width, min_height, max_width, max_height, scale,
+            )
+    }
+
+    /// Changes a running surface's constraints, which resizes an embedded
+    /// surface when the taffy box around it changes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_surface_constraints(
+        &self,
+        id: i32,
+        min_width: f32,
+        min_height: f32,
+        max_width: f32,
+        max_height: f32,
+        scale: f32,
+    ) {
+        #[cfg(test)]
+        let _ = (
+            self, id, min_width, min_height, max_width, max_height, scale,
+        );
+        #[cfg(not(test))]
+        self.0
+            .lock()
+            .unwrap()
+            .pin_mut()
+            .set_surface_constraints(id, min_width, min_height, max_width, max_height, scale)
     }
 
     pub fn stop_surface(&self, id: i32) {

@@ -477,3 +477,221 @@ test('a CRLF lockfile still yields the managed block', () => {
     fs.writeFileSync(coreLock, original);
   }
 });
+
+/**
+ * Adds a package that declares host components: a codegen spec for each, a Rust
+ * crate, and `hostComponents` entries in the platform config.
+ */
+function addHostComponentPackage(
+  { projectRoot, configPath },
+  {
+    name = 'fake-host',
+    library = 'FakeHostSpec',
+    components,
+    interfaceOnly = true,
+  },
+) {
+  const root = path.join(projectRoot, 'node_modules', name);
+  const write = (relative, contents) => {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  };
+  write(
+    'package.json',
+    `${JSON.stringify(
+      {
+        name,
+        version: '0.0.1',
+        codegenConfig: { name: library, type: 'components', jsSrcsDir: 'src' },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  write(
+    'desktop/Cargo.toml',
+    `[package]\nname = "${name}"\nversion = "0.0.1"\nedition = "2021"\n\n[dependencies]\n`,
+  );
+  for (const component of components) {
+    write(
+      `src/${component.name}NativeComponent.ts`,
+      `import { codegenNativeComponent, type ViewProps } from 'react-native';
+
+export interface NativeProps extends ViewProps {
+  title?: string;
+  count?: Int32;
+}
+
+export default codegenNativeComponent<NativeProps>('${component.name}'${
+        interfaceOnly ? ', { interfaceOnly: true }' : ''
+      });
+`,
+    );
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.dependencies[name] = {
+    root,
+    platforms: {
+      desktop: {
+        crate: name,
+        hostComponents: components,
+      },
+    },
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  return root;
+}
+
+const generatedLib = projectRoot =>
+  fs.readFileSync(
+    path.join(projectRoot, 'desktop/autolink/src/lib.rs'),
+    'utf8',
+  );
+
+const generatedProvider = projectRoot =>
+  fs.readFileSync(
+    path.join(projectRoot, 'desktop/autolink/CppTurboModules.generated.cpp'),
+    'utf8',
+  );
+
+test('declares each host component with its index and layout flags', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    components: [
+      { name: 'FakeChart' },
+      { name: 'FakeLabel', measured: true },
+      { name: 'FakeCard', container: true, nativeSurface: true },
+    ],
+  });
+  autolink({
+    projectRoot: project.projectRoot,
+    configFile: project.configPath,
+  });
+  const lib = generatedLib(project.projectRoot);
+  expect(lib).toContain(
+    'declare_host_component(0, "FakeChart", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: false, container: false });',
+  );
+  expect(lib).toContain(
+    'declare_host_component(1, "FakeLabel", react_native_gpui::host_component::HostComponentOptions { measured: true, native_surface: false, container: false });',
+  );
+  expect(lib).toContain(
+    'declare_host_component(2, "FakeCard", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: true, container: true });',
+  );
+  // Declared before any package registers, then checked for code afterwards.
+  expect(lib.indexOf('declare_host_components();')).toBeLessThan(
+    lib.indexOf('fake_host::rn_gpui_register();'),
+  );
+  expect(lib.indexOf('fake_host::rn_gpui_register();')).toBeLessThan(
+    lib.indexOf('ensure_host_components();'),
+  );
+  expect(lib).toContain('expect_host_component(2, "FakeCard");');
+});
+
+test('generates the C++ that registers a host component library and calls it at startup', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    components: [{ name: 'FakeChart' }, { name: 'FakeCard', container: true }],
+  });
+  autolink({
+    projectRoot: project.projectRoot,
+    configFile: project.configPath,
+  });
+  const generated = path.join(
+    project.projectRoot,
+    'desktop/autolink/codegen/FakeHostSpec/react/renderer/components/FakeHostSpec/GpuiHostComponents.generated.cpp',
+  );
+  const cpp = fs.readFileSync(generated, 'utf8');
+  expect(cpp).toContain('entry.index = 0;');
+  expect(cpp).toContain('entry.index = 1;');
+  expect(cpp).toContain('entry.container = true;');
+  expect(cpp).toContain(
+    'extern "C" void rn_gpui_register_host_components_FakeHostSpec() {',
+  );
+  // The app calls it explicitly: a static library member nothing references is
+  // dropped by the linker, and its static initialiser with it.
+  const provider = generatedProvider(project.projectRoot);
+  expect(provider).toContain(
+    'extern "C" void rn_gpui_register_host_components_FakeHostSpec();',
+  );
+  expect(provider).toContain(
+    '  rn_gpui_register_host_components_FakeHostSpec();',
+  );
+  // The generated file is compiled with React Native's own output for the spec.
+  const cmake = fs.readFileSync(
+    path.join(project.projectRoot, 'desktop/autolink/autolink.cmake'),
+    'utf8',
+  );
+  expect(cmake).toContain('GpuiHostComponents.generated.cpp');
+  expect(cmake).toContain('Props.cpp');
+});
+
+test('numbers host components across packages in one global order', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    name: 'fake-host',
+    library: 'FakeHostSpec',
+    components: [{ name: 'FakeChart' }],
+  });
+  addHostComponentPackage(project, {
+    name: 'fake-host-two',
+    library: 'FakeHostTwoSpec',
+    components: [{ name: 'FakeOther' }],
+  });
+  autolink({
+    projectRoot: project.projectRoot,
+    configFile: project.configPath,
+  });
+  const lib = generatedLib(project.projectRoot);
+  expect(lib).toContain('declare_host_component(0, "FakeChart"');
+  expect(lib).toContain('declare_host_component(1, "FakeOther"');
+});
+
+test('refuses a host component that is both measured and a container', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    components: [{ name: 'FakeBoth', measured: true, container: true }],
+  });
+  expect(() =>
+    autolink({
+      projectRoot: project.projectRoot,
+      configFile: project.configPath,
+    }),
+  ).toThrow(/cannot be both "measured" and a "container"/u);
+});
+
+test('refuses a host component whose spec is not interfaceOnly', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    interfaceOnly: false,
+    components: [{ name: 'FakeChart' }],
+  });
+  expect(() =>
+    autolink({
+      projectRoot: project.projectRoot,
+      configFile: project.configPath,
+    }),
+  ).toThrow(
+    /must be created with codegenNativeComponent\(\.\.\., \{ interfaceOnly: true \}\)/u,
+  );
+});
+
+test('refuses a duplicate host component name across packages', () => {
+  const project = createProject();
+  addHostComponentPackage(project, {
+    name: 'fake-host',
+    library: 'FakeHostSpec',
+    components: [{ name: 'FakeChart' }],
+  });
+  addHostComponentPackage(project, {
+    name: 'fake-host-two',
+    library: 'FakeHostTwoSpec',
+    components: [{ name: 'FakeChart' }],
+  });
+  expect(() =>
+    autolink({
+      projectRoot: project.projectRoot,
+      configFile: project.configPath,
+    }),
+  ).toThrow(/host component FakeChart is already declared by fake-host/u);
+});

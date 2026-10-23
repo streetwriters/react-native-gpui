@@ -26,10 +26,10 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <optional>
 #include <unordered_set>
 
 namespace facebook::react {
-
 class AnimatedMountingOverrideDelegate;
 class DevServerHelper;
 class IMountingManager;
@@ -100,6 +100,8 @@ class ReactHost {
 
   void runOnScheduler(std::function<void(Scheduler &scheduler)> &&task) const;
 
+  std::optional<Size> surfaceContentSize(SurfaceId surfaceId) const;
+
   void runOnRuntimeScheduler(
       std::function<void(jsi::Runtime &runtime)> &&task,
       SchedulerPriority priority = SchedulerPriority::NormalPriority) const noexcept;
@@ -145,5 +147,4 @@ class ReactHost {
 
   std::shared_ptr<AnimatedMountingOverrideDelegate> animatedMountingOverrideDelegate_;
 };
-
 } // namespace facebook::react

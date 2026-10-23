@@ -5266,8 +5266,10 @@ dependencies = [
 name = "rn-gpui-autolink"
 version = "0.1.0"
 dependencies = [
+ "react-native-gpui",
  "rn-gpui-fixture-badge",
  "rn-gpui-fs",
+ "rn-gpui-host-components-fixture",
  "rn-gpui-native-fixture",
  "rn-gpui-screens",
  "rn-gpui-svg",
@@ -5298,6 +5300,18 @@ dependencies = [
  "rn-gpui-module",
  "rn-gpui-module-build",
  "tempfile",
+]
+
+[[package]]
+name = "rn-gpui-host-components-fixture"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "log",
+ "react-native-gpui",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
+ "serde_json",
 ]
 
 [[package]]
@@ -5356,6 +5370,7 @@ dependencies = [
 name = "rn-gpui-tester"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "react-native-gpui",
  "rn-gpui-autolink",
  "rn-gpui-module",

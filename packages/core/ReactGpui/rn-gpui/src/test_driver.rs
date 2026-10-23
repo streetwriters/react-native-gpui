@@ -123,6 +123,22 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            "hostCounters" => {
+                use crate::counters::{read, reset, Counter};
+                let counters = json!({
+                    "hostRegistryLookups": read(Counter::HostRegistryLookups),
+                    "hostEntryLookups": rn_gpui_sys::ffi::hostEntryLookups(),
+                    "nativeSurfaceWalkNodes": read(Counter::NativeSurfaceWalkNodes),
+                    "hostPropsBytesCopied": read(Counter::HostPropsBytesCopied),
+                    "hostUpdateCalls": read(Counter::HostUpdateCalls),
+                    "hostReportsDelivered": read(Counter::HostReportsDelivered),
+                });
+                if params.get("reset").and_then(Value::as_bool).unwrap_or(false) {
+                    reset();
+                    rn_gpui_sys::ffi::resetHostEntryLookups();
+                }
+                counters
+            }
             "getWindowSize" => cx
                 .update_window(window, |_, window, _| {
                     let size = window.viewport_size();
@@ -359,7 +375,7 @@ async fn serve_commands(
                         let frame = node_visible_frame(store, tag, viewport, cx);
                         Some(frame.map_or(Err("click target is not visible"), |frame| {
                             Ok((
-                                frame_center(frame),
+                                frame_center(frame, window_offset(store, tag, cx)),
                                 tag,
                             ))
                         }))
@@ -493,7 +509,7 @@ async fn serve_commands(
                             |frame| {
                                 Ok((
                                     tag,
-                                    frame_center(frame),
+                                    frame_center(frame, window_offset(store, tag, cx)),
                                 ))
                             },
                         ))
@@ -665,7 +681,7 @@ async fn serve_commands(
                     store.nodes.get(&tag)?.read(cx).nearest_focus_handle(cx)
                 });
                 if let Some(handle) = handle {
-                    cx.update_window(window, move |_,window,app| { window.focus(&handle,app); json!({"focused":true}) })
+                    cx.update_window(window, move |_,window,app| { window.focus(&handle,app); draw_frame(window, app); json!({"focused":true}) })
                         .unwrap_or_else(|error|json!({"error":error.to_string()}))
                 } else {json!({"error":"Target has no focusable ancestor"})}
             },
@@ -706,7 +722,7 @@ async fn serve_commands(
                         return None;
                     }
                     node_frame(store, tag, cx).map(|frame| {
-                        frame_center(frame)
+                        frame_center(frame, window_offset(store, tag, cx))
                     })
                 });
                 let text = params
@@ -761,11 +777,14 @@ async fn serve_commands(
             }
             "drag" => {
                 let points = cx.update_entity(&store, |store, cx| {
-                    let from = params.get("fromTag").and_then(Value::as_i64)? as i32;
-                    let to = params.get("toTag").and_then(Value::as_i64)? as i32;
-                    let from = node_frame(store, from, cx)?;
-                    let to = node_frame(store, to, cx)?;
-                    Some((frame_center(from), frame_center(to)))
+                    let from_tag = params.get("fromTag").and_then(Value::as_i64)? as i32;
+                    let to_tag = params.get("toTag").and_then(Value::as_i64)? as i32;
+                    let from = node_frame(store, from_tag, cx)?;
+                    let to = node_frame(store, to_tag, cx)?;
+                    Some((
+                        frame_center(from, window_offset(store, from_tag, cx)),
+                        frame_center(to, window_offset(store, to_tag, cx)),
+                    ))
                 });
                 match points {
                     None => json!({"error": "drag requires mounted source and destination tags"}),
@@ -988,6 +1007,7 @@ async fn serve_commands(
                 let frame = tag.and_then(|tag| {
                     cx.update_entity(&store, |store, cx| {
                         node_visible_frame(store, tag, viewport, cx)
+                            .map(|frame| (frame, window_offset(store, tag, cx)))
                     })
                 });
                 let captured = cx.update_window(window, |_root, window, app| {
@@ -999,13 +1019,13 @@ async fn serve_commands(
                         if tag.is_some() && frame.is_none() {
                             json!({"error": "screenshot target is not mounted or visible"})
                         } else {
-                            let image = if let Some(frame) = frame {
+                            let image = if let Some((frame, offset)) = frame {
                                 let (image_width, image_height) = image.dimensions();
                                 let x = (frame.x * scale).floor().max(0.0) as u32;
                                 let y =
-                                    ((frame.y + menu_bar_offset()) * scale).floor().max(0.0) as u32;
+                                    ((frame.y + offset) * scale).floor().max(0.0) as u32;
                                 let right = ((frame.x + frame.w) * scale).ceil().max(0.0) as u32;
-                                let bottom = ((frame.y + menu_bar_offset() + frame.h) * scale)
+                                let bottom = ((frame.y + offset + frame.h) * scale)
                                     .ceil()
                                     .max(0.0) as u32;
                                 let right = right.min(image_width);
@@ -1562,11 +1582,20 @@ fn activate_accessibility_probe(window: &gpui::Window) {
 
 /// The window-space center of a surface-space frame. Pointer events dispatched
 /// with it land on the node the frame names, not `menu_bar_offset()` above it.
-fn frame_center(frame: RectF) -> gpui::Point<gpui::Pixels> {
+fn frame_center(frame: RectF, offset: f32) -> gpui::Point<gpui::Pixels> {
     point(
         px(frame.x + frame.w / 2.0),
-        px(frame.y + menu_bar_offset() + frame.h / 2.0),
+        px(frame.y + offset + frame.h / 2.0),
     )
+}
+
+/// The inset to add to `tag`'s frame to get window coordinates: none for a
+/// surface GPUI placed, whose frames are window coordinates already.
+fn window_offset(store: &ViewStore, tag: i32, cx: &gpui::App) -> f32 {
+    match store.nodes.get(&tag) {
+        Some(node) if node.read(cx).surface_is_placed() => 0.0,
+        _ => menu_bar_offset(),
+    }
 }
 
 pub(crate) fn node_visible_frame(
@@ -1732,6 +1761,7 @@ fn tree_node(
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
+        "intrinsicSize": node.intrinsic_size().map(|(width, height)| json!([width, height])).unwrap_or(Value::Null),
         "children": children})
 }
 
@@ -1777,6 +1807,7 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
         "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
         "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
+        "scrollStrategy": node.scroll_strategy_name(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),
             "end": node.input_text[..node.input_selection.end].encode_utf16().count()

@@ -1,7 +1,6 @@
 use crate::frame::FrameHook;
 use crate::host::Host;
 use crate::node_view::{inherit, InheritInput, Inherited, RNNodeView};
-#[cfg(target_os = "macos")]
 use gpui::deferred;
 use gpui::{
     div, point, prelude::*, px, AnyWindowHandle, App, Context, Entity, Global, IntoElement,
@@ -24,6 +23,23 @@ pub const APP_SURFACE_ID: i32 = 1;
 pub struct StoreGlobal(pub Entity<ViewStore>);
 impl Global for StoreGlobal {}
 
+/// The queue every host component report goes into, and the store's one
+/// delivery point for them.
+pub(crate) type HostReportQueue = crate::host_component::HostReportQueue;
+
+/// How a surface's root is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceKind {
+    /// The root of a window: the menu bar, the overlay slot, the performance
+    /// monitor and the app key context belong to it.
+    Window,
+    /// Shown above a window's content through its overlay slot (LogBox).
+    Overlay,
+    /// Owned by a `ReactSurface`: GPUI places it inside any tree, and it carries
+    /// none of the window's chrome.
+    Embedded,
+}
+
 pub struct ViewStore {
     pub host: Host,
     pub frame_hook: FrameHook,
@@ -34,6 +50,19 @@ pub struct ViewStore {
     pub(crate) accessibility_modal_tags: BTreeSet<i32>,
     pub roots: HashMap<i32, Entity<SurfaceRootView>>,
     pub primary_surface_id: i32,
+    /// The size each surface's root was laid out at, as the last mount batch
+    /// reported it. A `FitContent` surface reads this to size its leaf.
+    pub surface_content_sizes: HashMap<i32, (f32, f32)>,
+    /// Embedded surfaces that report their content size, by surface id.
+    surface_size_observers: HashMap<
+        i32,
+        (
+            crate::surface::SurfaceContentSize,
+            gpui::WeakEntity<crate::surface::ReactSurface>,
+        ),
+    >,
+    /// Where each embedded surface's box is in its window, shared with its nodes.
+    surface_origins: HashMap<i32, crate::surface::SurfaceOrigin>,
     pub overlay_host: Entity<OverlayHost>,
     /// Interior mutability on purpose: pointer movement must not update the store
     /// entity, which nearly every node reads while rendering.
@@ -59,6 +88,8 @@ pub struct ViewStore {
     pub window_bounds_subscription: Option<Subscription>,
     pub window_appearance_subscription: Option<Subscription>,
     pub navigation_keyboard_subscription: Option<Subscription>,
+    /// Every host component report waiting to be applied, in order.
+    pub(crate) host_reports: HostReportQueue,
 }
 
 impl ViewStore {
@@ -78,6 +109,9 @@ impl ViewStore {
             accessibility_modal_tags: BTreeSet::new(),
             roots: HashMap::new(),
             primary_surface_id: APP_SURFACE_ID,
+            surface_content_sizes: HashMap::new(),
+            surface_size_observers: HashMap::new(),
+            surface_origins: HashMap::new(),
             overlay_host,
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
@@ -89,6 +123,7 @@ impl ViewStore {
             window_bounds_subscription: None,
             window_appearance_subscription: None,
             navigation_keyboard_subscription: None,
+            host_reports: std::rc::Rc::new(crate::host_component::HostReports::default()),
         }
     }
 
@@ -121,17 +156,74 @@ impl ViewStore {
 
     /// Fabric references the `RootView` as a parent that is never itself mounted,
     /// so the root view is created the first time a node is spliced into it.
+    /// Lets `observer` be told when `surface_id`'s root changes size.
+    pub fn observe_surface_content_size(
+        &mut self,
+        surface_id: i32,
+        observer: crate::surface::SurfaceContentSize,
+        surface: gpui::WeakEntity<crate::surface::ReactSurface>,
+    ) {
+        if let Some(size) = self.surface_content_sizes.get(&surface_id) {
+            observer.set(*size);
+        }
+        self.surface_size_observers
+            .insert(surface_id, (observer, surface));
+    }
+
+    /// The root entity for `surface_id`, making one if needed.
+    pub fn ensure_root(
+        &mut self,
+        surface_id: i32,
+        cx: &mut Context<Self>,
+    ) -> Entity<SurfaceRootView> {
+        self.root_for(surface_id, cx)
+    }
+
+    /// The root of an embedded surface: a surface GPUI places inside its own
+    /// tree. Unlike the root a mount batch creates for an unknown surface, it is
+    /// not shown through the overlay slot, and it carries no window chrome.
+    pub fn ensure_embedded_root(
+        &mut self,
+        surface_id: i32,
+        cx: &mut Context<Self>,
+    ) -> Entity<SurfaceRootView> {
+        if let Some(root) = self.roots.get(&surface_id) {
+            return root.clone();
+        }
+        let root = cx.new(|_| SurfaceRootView::with_kind(surface_id, SurfaceKind::Embedded));
+        self.roots.insert(surface_id, root.clone());
+        root
+    }
+
+    /// Uses `origin` as the box of `surface_id` in its window. Called before the
+    /// surface's first node mounts, so each node shares the cell.
+    pub fn use_surface_origin(&mut self, surface_id: i32, origin: crate::surface::SurfaceOrigin) {
+        self.surface_origins.insert(surface_id, origin);
+    }
+
+    /// The origin cell nodes of `surface_id` share. A surface that was never
+    /// placed by GPUI (a window root) keeps the zero origin it starts with.
+    fn origin_for(&mut self, surface_id: i32) -> crate::surface::SurfaceOrigin {
+        self.surface_origins.entry(surface_id).or_default().clone()
+    }
+
     fn root_for(&mut self, surface_id: i32, cx: &mut Context<Self>) -> Entity<SurfaceRootView> {
         if let Some(root) = self.roots.get(&surface_id) {
             return root.clone();
         }
-        let root = cx.new(|_| SurfaceRootView::new(surface_id));
-        self.roots.insert(surface_id, root.clone());
         // A surface with no registered window belongs to the main window. That
         // covers LogBox (surface 2), which C++ starts directly, and any surface
         // that mounted before the window registry adopted it.
         let window = self.window_for(surface_id).unwrap_or(self.window);
-        if surface_id != self.primary_surface_id && window == self.window {
+        let overlay = surface_id != self.primary_surface_id && window == self.window;
+        let kind = if overlay {
+            SurfaceKind::Overlay
+        } else {
+            SurfaceKind::Window
+        };
+        let root = cx.new(|_| SurfaceRootView::with_kind(surface_id, kind));
+        self.roots.insert(surface_id, root.clone());
+        if overlay {
             log::info!("[store] surface {surface_id} registered as an overlay");
             self.overlay_host.update(cx, |host, cx| {
                 host.insert(surface_id, root.clone());
@@ -157,7 +249,7 @@ impl ViewStore {
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
             for root in roots {
                 root.update(cx, |root, cx| {
-                    root.children.clear();
+                    root.clear_children();
                     cx.notify();
                 });
             }
@@ -200,7 +292,7 @@ impl ViewStore {
                 cx.notify();
             });
             root.update(cx, |root, cx| {
-                root.children.clear();
+                root.clear_children();
                 cx.notify();
             });
         }
@@ -223,10 +315,121 @@ impl ViewStore {
         }
     }
 
+    /// Carries `delta` from `parent_tag` up to the surface root.
+    fn carry_native_surface_delta(
+        &mut self,
+        surface_id: i32,
+        parent_tag: Option<i32>,
+        delta: i64,
+        cx: &mut Context<Self>,
+    ) {
+        if delta == 0 {
+            return;
+        }
+        let mut parent = parent_tag;
+        while let Some(tag) = parent {
+            let Some(node) = self.nodes.get(&tag).cloned() else {
+                break;
+            };
+            crate::counters::bump(crate::counters::Counter::NativeSurfaceWalkNodes);
+            let mut next = None;
+            node.update(cx, |node, cx| {
+                next = node.parent_tag_cached();
+                let crossed = if delta > 0 {
+                    node.add_native_surface_descendants(delta as u32)
+                } else {
+                    node.sub_native_surface_descendants((-delta) as u32)
+                };
+                if crossed {
+                    cx.notify();
+                }
+            });
+            parent = next;
+        }
+        if let Some(root) = self.roots.get(&surface_id).cloned() {
+            root.update(cx, |root, cx| {
+                let crossed = if delta > 0 {
+                    root.add_native_surfaces(delta as u32)
+                } else {
+                    root.sub_native_surfaces((-delta) as u32)
+                };
+                if crossed {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    /// Claims what `tag`'s subtree owes, so it is counted exactly once.
+    fn claim_native_surface_contribution(&mut self, tag: i32, cx: &mut Context<Self>) -> u32 {
+        let Some(node) = self.nodes.get(&tag).cloned() else {
+            return 0;
+        };
+        let (counted, descendants) = {
+            let node = node.read(cx);
+            (node.native_surface_counted, node.native_surface_descendants)
+        };
+        if !counted {
+            return 0;
+        }
+        node.update(cx, |node, _cx| {
+            node.take_native_surface_contribution();
+        });
+        descendants
+    }
+
+    /// Adds what `tag`'s subtree contributes to its ancestors.
+    fn add_native_surface_to_ancestors(
+        &mut self,
+        surface_id: i32,
+        tag: i32,
+        parent_tag: Option<i32>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(node) = self.nodes.get(&tag).cloned() else {
+            return;
+        };
+        let (counted, descendants) = {
+            let node = node.read(cx);
+            (node.native_surface_counted, node.native_surface_descendants)
+        };
+        if counted {
+            return;
+        }
+        node.update(cx, |node, _cx| node.mark_native_surface_counted());
+        self.carry_native_surface_delta(surface_id, parent_tag, i64::from(descendants), cx);
+    }
+
+    /// Takes what `tag`'s subtree contributes back off its ancestors.
+    fn remove_native_surface_from_ancestors(
+        &mut self,
+        surface_id: i32,
+        tag: i32,
+        parent_tag: Option<i32>,
+        cx: &mut Context<Self>,
+    ) {
+        let contribution = self.claim_native_surface_contribution(tag, cx);
+        self.carry_native_surface_delta(surface_id, parent_tag, -i64::from(contribution), cx);
+    }
+
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
     /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         let surface_id = batch.surface_id;
+        if batch.has_content_size {
+            let size = (batch.content_width, batch.content_height);
+            log::debug!(
+                "[store] surface {surface_id} content size {}x{}",
+                size.0,
+                size.1
+            );
+            self.surface_content_sizes.insert(surface_id, size);
+            if let Some((observer, surface)) = self.surface_size_observers.get(&surface_id) {
+                if observer.set(size) {
+                    let _ = surface.update(cx, |_, cx| cx.notify());
+                }
+            }
+        }
         log::debug!("[store] surface {}: {} ops", surface_id, batch.ops.len());
         let store = cx.entity().downgrade();
         let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
@@ -257,6 +460,7 @@ impl ViewStore {
                 })
                 .collect(),
         };
+        let host_reports = self.host_reports.clone();
         let observers = crate::extensions::store_observers();
         if !observers.is_empty() {
             for observer in &observers {
@@ -302,7 +506,12 @@ impl ViewStore {
                             op.native_view_props
                         );
                     }
-                    let node = cx.new(|_| RNNodeView::from_op(op, surface_id));
+                    let host_reports = host_reports.clone();
+                    let origin = self.origin_for(surface_id);
+                    let node = cx.new(|_| {
+                        RNNodeView::from_op(op, surface_id, host_reports)
+                            .with_surface_origin(origin)
+                    });
                     self.nodes.insert(op.tag, node.clone());
                     self.record_subtree_nodes(&[op.tag], cx);
                     let component_node = node.read(cx).component_node(cx);
@@ -322,6 +531,26 @@ impl ViewStore {
                             host.remove_portal(op.tag);
                             cx.notify();
                         });
+                    }
+                    if let Some(node) = self.nodes.get(&op.tag).cloned() {
+                        let parent_tag = node.read(cx).parent_tag_cached();
+                        let contribution = self.claim_native_surface_contribution(op.tag, cx);
+                        self.carry_native_surface_delta(
+                            surface_id,
+                            parent_tag,
+                            -i64::from(contribution),
+                            cx,
+                        );
+                        if contribution > 0 {
+                            if let Some(parent) =
+                                parent_tag.and_then(|tag| self.nodes.get(&tag).cloned())
+                            {
+                                parent.update(cx, |parent, cx| {
+                                    parent.remove_child(op.tag);
+                                    cx.notify();
+                                });
+                            }
+                        }
                     }
                     self.nodes.remove(&op.tag);
                     self.drop_snapshot(op.tag);
@@ -361,6 +590,12 @@ impl ViewStore {
                     }
                     let index = op.index.max(0) as usize;
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
+                        self.add_native_surface_to_ancestors(
+                            surface_id,
+                            op.tag,
+                            Some(op.parent_tag),
+                            cx,
+                        );
                         let parent_ref = parent.downgrade();
                         let previous_children = parent.read(cx).child_tags();
                         parent.update(cx, |parent, cx| {
@@ -406,6 +641,7 @@ impl ViewStore {
                             cx.notify();
                         });
                         child.update(cx, |child, _cx| child.set_parent(None, None));
+                        self.add_native_surface_to_ancestors(surface_id, op.tag, None, cx);
                     }
                 }
                 MountKind::Remove => {
@@ -434,12 +670,19 @@ impl ViewStore {
                         self.apply_commands(&commands, cx);
                     }
                     if let Some(parent) = self.nodes.get(&op.parent_tag).cloned() {
+                        self.remove_native_surface_from_ancestors(
+                            surface_id,
+                            op.tag,
+                            Some(op.parent_tag),
+                            cx,
+                        );
                         parent.update(cx, |parent, cx| {
                             parent.remove_child(op.tag);
                             cx.notify();
                         });
                         self.record_subtree_nodes(&[op.parent_tag], cx);
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
+                        self.remove_native_surface_from_ancestors(surface_id, op.tag, None, cx);
                         root.update(cx, |root, cx| {
                             root.remove_child(op.tag);
                             cx.notify();
@@ -454,10 +697,24 @@ impl ViewStore {
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let previous_node = node.read(cx).component_node(cx);
+                        let (counted, before) = {
+                            let node = node.read(cx);
+                            (node.native_surface_counted, node.native_surface_descendants)
+                        };
                         node.update(cx, |node, cx| {
                             node.update_from_op(op);
                             cx.notify();
                         });
+                        let after = node.read(cx).native_surface_descendants;
+                        if counted && after != before {
+                            let parent_tag = node.read(cx).parent_tag_cached();
+                            self.carry_native_surface_delta(
+                                surface_id,
+                                parent_tag,
+                                i64::from(after) - i64::from(before),
+                                cx,
+                            );
+                        }
                         let updated_node = node.read(cx).component_node(cx);
                         self.record_subtree_nodes(&[op.tag], cx);
                         for observer in &observers {
@@ -507,6 +764,7 @@ impl ViewStore {
             self.apply_commands(&commands, cx);
         }
         self.refresh_inherited(surface_id, cx);
+        self.flush_host_reports(cx);
         self.host.on_render();
         let hook = self.frame_hook.clone();
         let target = self.window_for(surface_id).unwrap_or(self.window);
@@ -514,6 +772,37 @@ impl ViewStore {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+    }
+
+    /// Applies every host component report queued so far, in order.
+    pub(crate) fn flush_host_reports(&mut self, cx: &mut Context<Self>) {
+        if !crate::host_component::any_host_components() {
+            return;
+        }
+        self.host_reports.release_flush();
+        let reports = self.host_reports.take();
+        crate::counters::add(
+            crate::counters::Counter::HostReportsDelivered,
+            reports.len() as u64,
+        );
+        for report in reports {
+            match report {
+                crate::host_component::HostReport::Size { tag, width, height } => {
+                    crate::host_component::apply_size(tag, width, height);
+                    if let Some(node) = self.nodes.get(&tag).cloned() {
+                        node.update(cx, |node, _| node.set_intrinsic_size(width, height));
+                    }
+                }
+                crate::host_component::HostReport::Insets {
+                    tag,
+                    top,
+                    right,
+                    bottom,
+                    left,
+                } => crate::host_component::apply_insets(tag, top, right, bottom, left),
+                crate::host_component::HostReport::Event { send, .. } => send(),
+            }
+        }
     }
 
     fn apply_commands(
@@ -828,6 +1117,16 @@ fn release_retained_subtree_here(store: &mut ViewStore, tag: i32, cx: &mut Conte
         return;
     };
     let _ = descendants;
+    let parent_tag = store
+        .nodes
+        .get(&tag)
+        .and_then(|node| node.read(cx).parent_tag_cached());
+    let surface_id = store
+        .nodes
+        .get(&tag)
+        .map(|node| node.read(cx).surface_id)
+        .unwrap_or(rn_gpui_sys::ALL_SURFACES);
+    store.remove_native_surface_from_ancestors(surface_id, tag, parent_tag, cx);
     if let Some(parent) = store
         .nodes
         .get(&tag)
@@ -885,7 +1184,7 @@ pub(crate) fn test_store_handle(cx: &mut gpui::TestAppContext) -> crate::extensi
 
 #[cfg(test)]
 mod test_app_context_tests {
-    use super::{OverlayHost, StoreGlobal, SurfaceRootView, ViewStore};
+    use super::{OverlayHost, StoreGlobal, SurfaceKind, SurfaceRootView, ViewStore};
     use crate::{frame::FrameHook, host::Host};
     use gpui::{px, AppContext, TestAppContext};
     use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp, ParagraphFlat, RectF, ViewPropsFlat};
@@ -911,12 +1210,416 @@ mod test_app_context_tests {
                 ..Default::default()
             },
             extension_props_json: String::new(),
+            host_index: -1,
+            host_props_handle: 0,
+            host_emitter_handle: 0,
+            host_changed: 0,
+            host_changed_more: Vec::new(),
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             layout_changed: false,
         }
     }
 
+    /// The registry index each native test component was declared at.
+    fn native_indices() -> &'static std::sync::Mutex<std::collections::HashMap<String, i32>> {
+        static INDICES: std::sync::OnceLock<
+            std::sync::Mutex<std::collections::HashMap<String, i32>>,
+        > = std::sync::OnceLock::new();
+        INDICES.get_or_init(Default::default)
+    }
+
+    /// Declares a host component whose content the OS composites, for the
+    /// counter tests below. Declared once per name at a fresh index; an op for it
+    /// carries that index, as a real one does.
+    fn register_native_component(name: &str) {
+        let mut indices = native_indices().lock().unwrap();
+        if indices.contains_key(name) {
+            return;
+        }
+        let index = 1000 + indices.len() as u32;
+        crate::host_component::declare_host_component(
+            index,
+            name,
+            crate::host_component::HostComponentOptions {
+                native_surface: true,
+                ..Default::default()
+            },
+        );
+        indices.insert(name.to_string(), index as i32);
+    }
+
+    /// Builds a store whose surface root is a real window root, and returns
+    /// both the store and that root.
+    fn store_with_root(
+        cx: &mut TestAppContext,
+    ) -> (gpui::Entity<ViewStore>, gpui::Entity<SurfaceRootView>) {
+        let overlay_host = cx.new(|_| OverlayHost::new());
+        let window = cx.open_window(gpui::size(px(120.0), px(100.0)), {
+            let overlay_host = overlay_host.clone();
+            move |_, _| SurfaceRootView::new(1).with_overlay_host(overlay_host)
+        });
+        let root = window.root(cx).expect("surface root exists");
+        let any_window: gpui::AnyWindowHandle = window.into();
+        let host = Host::test_stub();
+        let frame_hook = FrameHook::new(host.clone());
+        let store = cx.new(|_| ViewStore::new(host, any_window, frame_hook, overlay_host));
+        cx.update(|cx| cx.set_global(StoreGlobal(store.clone())));
+        store.update(cx, |store, _| store.register_root(1, root.clone()));
+        (store, root)
+    }
+
+    /// Applies a batch of `(kind, tag, parent)` triples.
+    fn apply(cx: &mut TestAppContext, store: &gpui::Entity<ViewStore>, ops: Vec<MountOp>) {
+        store.update(cx, |store, cx| {
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops,
+                    ..Default::default()
+                },
+                cx,
+            );
+        });
+    }
+
+    fn create(tag: i32, component: &str) -> MountOp {
+        let mut create = op(MountKind::Create);
+        create.tag = tag;
+        create.component = component.into();
+        if let Some(index) = native_indices().lock().unwrap().get(component) {
+            create.host_index = *index;
+        }
+        create
+    }
+
+    fn insert(tag: i32, parent: i32) -> MountOp {
+        let mut insert = op(MountKind::Insert);
+        insert.tag = tag;
+        insert.parent_tag = parent;
+        insert
+    }
+
+    fn remove(tag: i32, parent: i32) -> MountOp {
+        let mut remove = op(MountKind::Remove);
+        remove.tag = tag;
+        remove.parent_tag = parent;
+        remove
+    }
+
+    fn delete(tag: i32) -> MountOp {
+        let mut delete = op(MountKind::Delete);
+        delete.tag = tag;
+        delete
+    }
+
+    /// A counter read off one node, or `None` if it is not mounted.
+    fn count_of(cx: &mut TestAppContext, store: &gpui::Entity<ViewStore>, tag: i32) -> Option<u32> {
+        cx.read_entity(store, |store, app| {
+            store
+                .nodes
+                .get(&tag)
+                .map(|node| node.read(app).native_surface_descendants)
+        })
+    }
+
+    /// An embedded surface's root belongs to the `ReactSurface` that placed it:
+    /// it must not also be shown through the window's overlay slot, where it
+    /// would cover the window it was meant to sit inside.
+    #[gpui::test]
+    fn an_embedded_root_is_not_an_overlay(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        let (embedded, overlay_count) = store.update(cx, |store, cx| {
+            let root = store.ensure_embedded_root(5, cx);
+            (root, store.overlay_host.read(cx).overlay_count())
+        });
+        assert_eq!(overlay_count, 0, "an embedded surface is not an overlay");
+        assert_eq!(
+            embedded.read_with(cx, |root, _| root.kind),
+            SurfaceKind::Embedded
+        );
+
+        let (logbox, overlay_count) = store.update(cx, |store, cx| {
+            let root = store.ensure_root(2, cx);
+            (root, store.overlay_host.read(cx).overlay_count())
+        });
+        assert_eq!(overlay_count, 1);
+        assert_eq!(
+            logbox.read_with(cx, |root, _| root.kind),
+            SurfaceKind::Overlay
+        );
+    }
+
+    /// The surface root's own count.
+    fn root_count(cx: &mut TestAppContext, root: &gpui::Entity<SurfaceRootView>) -> u32 {
+        root.read_with(cx, |root, _| root.native_surfaces)
+    }
+
+    #[gpui::test]
+    fn a_native_surface_is_counted_up_the_parent_chain(cx: &mut TestAppContext) {
+        register_native_component("CounterNative");
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                create(3, "View"),
+                insert(3, 2),
+                create(4, "Text"),
+                insert(4, 2),
+                create(5, "CounterNative"),
+                insert(5, 3),
+            ],
+        );
+
+        assert_eq!(
+            count_of(cx, &store, 5),
+            Some(1),
+            "the surface itself counts"
+        );
+        assert_eq!(
+            count_of(cx, &store, 4),
+            Some(0),
+            "a GPUI-only node holds none"
+        );
+        assert_eq!(count_of(cx, &store, 3), Some(1));
+        assert_eq!(count_of(cx, &store, 2), Some(1));
+        assert_eq!(count_of(cx, &store, 1), Some(1));
+        assert_eq!(root_count(cx, &root), 1, "the root counts it too");
+    }
+
+    #[gpui::test]
+    fn two_native_surfaces_under_one_ancestor_both_count(cx: &mut TestAppContext) {
+        register_native_component("CounterNativeTwo");
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "CounterNativeTwo"),
+                insert(2, 1),
+                create(3, "CounterNativeTwo"),
+                insert(3, 1),
+            ],
+        );
+
+        assert_eq!(
+            count_of(cx, &store, 1),
+            Some(2),
+            "the count is how many surfaces are below, not whether there is one"
+        );
+        assert_eq!(root_count(cx, &root), 2);
+    }
+
+    #[gpui::test]
+    fn the_counter_reports_a_crossing_only_at_zero(cx: &mut TestAppContext) {
+        register_native_component("CrossingNative");
+        let (store, root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                create(2, "View"),
+                insert(1, -1),
+                insert(2, 1),
+                create(3, "CrossingNative"),
+                insert(3, 2),
+            ],
+        );
+        let node = cx
+            .read_entity(&store, |store, _| store.nodes.get(&1).cloned())
+            .unwrap();
+
+        let second = node.update(cx, |node, _cx| node.add_native_surface_descendants(1));
+        assert!(!second, "1 -> 2 changes no reader's answer");
+
+        let back = node.update(cx, |node, _cx| node.sub_native_surface_descendants(1));
+        assert!(!back, "2 -> 1 changes no reader's answer either");
+
+        let empty = node.update(cx, |node, _cx| node.sub_native_surface_descendants(1));
+        assert!(empty, "1 -> 0 is the crossing a ScrollView must react to");
+
+        let first = node.update(cx, |node, _cx| node.add_native_surface_descendants(1));
+        assert!(first, "0 -> 1 is the other crossing");
+        let _ = (&store, &root);
+    }
+
+    #[gpui::test]
+    fn removing_a_native_surface_takes_it_off_every_ancestor(cx: &mut TestAppContext) {
+        register_native_component("CounterNativeRemove");
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                create(3, "CounterNativeRemove"),
+                insert(3, 2),
+            ],
+        );
+        assert_eq!(count_of(cx, &store, 1), Some(1));
+        assert_eq!(root_count(cx, &root), 1);
+
+        apply(cx, &store, vec![remove(3, 2)]);
+
+        assert_eq!(count_of(cx, &store, 2), Some(0), "the parent drops it");
+        assert_eq!(count_of(cx, &store, 1), Some(0), "so does the grandparent");
+        assert_eq!(root_count(cx, &root), 0, "and the root");
+
+        apply(cx, &store, vec![delete(3)]);
+        assert_eq!(
+            count_of(cx, &store, 1),
+            Some(0),
+            "a delete after a remove takes nothing more off"
+        );
+    }
+
+    #[gpui::test]
+    fn deleting_without_a_remove_still_takes_the_surface_off(cx: &mut TestAppContext) {
+        register_native_component("CounterNativeDelete");
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "CounterNativeDelete"),
+                insert(2, 1),
+            ],
+        );
+        assert_eq!(root_count(cx, &root), 1);
+
+        apply(cx, &store, vec![delete(2)]);
+
+        assert_eq!(
+            count_of(cx, &store, 1),
+            Some(0),
+            "a delete with no remove still gives the count back"
+        );
+        assert_eq!(root_count(cx, &root), 0);
+    }
+
+    #[gpui::test]
+    fn reparenting_a_native_surface_does_not_double_count(cx: &mut TestAppContext) {
+        register_native_component("CounterNativeMove");
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                create(3, "View"),
+                insert(3, 1),
+                create(4, "CounterNativeMove"),
+                insert(4, 2),
+            ],
+        );
+        assert_eq!(count_of(cx, &store, 2), Some(1));
+        assert_eq!(count_of(cx, &store, 3), Some(0));
+        assert_eq!(root_count(cx, &root), 1);
+
+        apply(cx, &store, vec![remove(4, 2), insert(4, 3)]);
+
+        assert_eq!(count_of(cx, &store, 2), Some(0), "the old parent lets go");
+        assert_eq!(
+            count_of(cx, &store, 3),
+            Some(1),
+            "the new parent picks it up"
+        );
+        assert_eq!(
+            count_of(cx, &store, 1),
+            Some(1),
+            "the shared ancestor is unchanged, not doubled"
+        );
+        assert_eq!(root_count(cx, &root), 1);
+    }
+
+    #[gpui::test]
+    fn a_native_view_host_counts_only_once_it_has_a_factory(cx: &mut TestAppContext) {
+        let (store, root) = store_with_root(cx);
+
+        let mut create_host = create(1, "NativeViewHost");
+        create_host.native_view_name = String::new();
+        apply(cx, &store, vec![create_host, insert(1, -1)]);
+        assert_eq!(
+            count_of(cx, &store, 1),
+            Some(0),
+            "a host with no factory composites nothing"
+        );
+        assert_eq!(root_count(cx, &root), 0);
+
+        let mut update = op(MountKind::Update);
+        update.tag = 1;
+        update.component = "NativeViewHost".into();
+        update.native_view_name = "MapView".into();
+        apply(cx, &store, vec![update]);
+        assert_eq!(count_of(cx, &store, 1), Some(1));
+        assert_eq!(root_count(cx, &root), 1, "the update reached the root");
+
+        let mut update = op(MountKind::Update);
+        update.tag = 1;
+        update.component = "NativeViewHost".into();
+        apply(cx, &store, vec![update]);
+        assert_eq!(count_of(cx, &store, 1), Some(0));
+        assert_eq!(root_count(cx, &root), 0);
+    }
+
+    #[gpui::test]
+    fn a_tree_with_no_native_surface_counts_nothing(cx: &mut TestAppContext) {
+        let (store, root) = store_with_root(cx);
+
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                create(3, "Text"),
+                insert(3, 2),
+            ],
+        );
+
+        for tag in [1, 2, 3] {
+            assert_eq!(
+                count_of(cx, &store, tag),
+                Some(0),
+                "tag {tag} must not report a surface it does not hold"
+            );
+        }
+        assert_eq!(root_count(cx, &root), 0);
+        assert!(
+            !store.read_with(cx, |store, app| store
+                .nodes
+                .get(&1)
+                .expect("mounted")
+                .read(app)
+                .subtree_renders_native_surface()),
+            "a ScrollView over this tree stays on the scroll-layer path"
+        );
+    }
+
+    #[gpui::test]
     #[gpui::test]
     fn test_app_context_mounts_a_view_and_resolves_its_pointer_target(cx: &mut TestAppContext) {
         let overlay_host = cx.new(|_| OverlayHost::new());
@@ -937,6 +1640,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![op(MountKind::Create), op(MountKind::Insert)],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1016,6 +1720,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create, op(MountKind::Insert)],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1071,6 +1776,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create, insert],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1121,6 +1827,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![hidden],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1187,7 +1894,14 @@ mod test_app_context_tests {
             ops.push(insert);
         }
         cx.update_entity(&store, |store, cx| {
-            store.apply_batch(MountBatch { surface_id: 1, ops }, cx);
+            store.apply_batch(
+                MountBatch {
+                    surface_id: 1,
+                    ops,
+                    ..Default::default()
+                },
+                cx,
+            );
         });
 
         // Two hundred children, all in one view.
@@ -1357,6 +2071,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![create_parent, insert_parent, create_child, insert_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1384,6 +2099,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![move_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1403,6 +2119,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![remove_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1425,6 +2142,7 @@ mod test_app_context_tests {
                 MountBatch {
                     surface_id: 1,
                     ops: vec![delete_child],
+                    ..Default::default()
                 },
                 cx,
             );
@@ -1489,6 +2207,12 @@ impl OverlayHost {
         }
     }
 
+    /// How many surfaces are shown through the slot, for tests.
+    #[cfg(test)]
+    pub(crate) fn overlay_count(&self) -> usize {
+        self.overlays.len()
+    }
+
     pub fn insert(&mut self, surface_id: i32, overlay: Entity<SurfaceRootView>) {
         if !self.overlays.iter().any(|(id, _)| *id == surface_id) {
             self.overlays.push((surface_id, overlay));
@@ -1532,7 +2256,13 @@ impl Render for OverlayHost {
 
 pub struct SurfaceRootView {
     surface_id: i32,
+    pub(crate) kind: SurfaceKind,
     pub children: Vec<(i32, Entity<RNNodeView>)>,
+    /// How many of the nodes mounted under this surface render a native
+    /// surface.
+    native_surfaces: u32,
+    /// A GPUI-first app's content, painted where a React tree would be.
+    app_content: Option<gpui::AnyView>,
     pub overlay_host: Option<Entity<OverlayHost>>,
     pub perf_monitor: Option<Entity<crate::desktop::perf_monitor::PerfMonitor>>,
     pub menu_bar: Option<Entity<crate::desktop::gpui_menu::MenuBar>>,
@@ -1545,9 +2275,16 @@ pub struct SurfaceRootView {
 
 impl SurfaceRootView {
     pub fn new(surface_id: i32) -> Self {
+        Self::with_kind(surface_id, SurfaceKind::Window)
+    }
+
+    pub fn with_kind(surface_id: i32, kind: SurfaceKind) -> Self {
         Self {
             surface_id,
+            kind,
             children: Vec::new(),
+            native_surfaces: 0,
+            app_content: None,
             overlay_host: None,
             perf_monitor: None,
             menu_bar: None,
@@ -1555,6 +2292,12 @@ impl SurfaceRootView {
             #[cfg(all(target_os = "macos", feature = "visual-capture"))]
             native_view_probe: None,
         }
+    }
+
+    /// Makes the root show a GPUI view instead of a React tree. The window chrome
+    /// — the menu bar, the overlay slot, the key context — stays the root's.
+    pub fn set_app_content(&mut self, view: gpui::AnyView) {
+        self.app_content = Some(view);
     }
 
     pub fn with_overlay_host(mut self, overlay_host: Entity<OverlayHost>) -> Self {
@@ -1578,6 +2321,30 @@ impl SurfaceRootView {
 
     pub fn remove_child(&mut self, tag: i32) {
         self.children.retain(|(child_tag, _)| *child_tag != tag);
+    }
+
+    /// Drops every child and the count that went with them.
+    pub fn clear_children(&mut self) {
+        self.children.clear();
+        self.native_surfaces = 0;
+    }
+
+    /// Adds to the number of native surfaces mounted under this surface.
+    pub(crate) fn add_native_surfaces(&mut self, delta: u32) -> bool {
+        let before = self.native_surfaces;
+        self.native_surfaces = before.saturating_add(delta);
+        before == 0 && self.native_surfaces != 0
+    }
+
+    pub(crate) fn sub_native_surfaces(&mut self, delta: u32) -> bool {
+        let before = self.native_surfaces;
+        self.native_surfaces = before.saturating_sub(delta);
+        before != 0 && self.native_surfaces == 0
+    }
+
+    /// Whether a native surface is mounted anywhere under this surface.
+    pub(crate) fn has_native_surface(&self) -> bool {
+        self.native_surfaces > 0
     }
 }
 
@@ -1632,11 +2399,14 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
 
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(target_os = "macos")]
-        let has_fabric_native_view = self
-            .children
-            .iter()
-            .any(|(_, child)| node_tree_contains_native_view(child, cx));
+        if self.kind == SurfaceKind::Embedded {
+            return div()
+                .size_full()
+                .relative()
+                .children(self.children.iter().map(|(_, child)| child.clone()))
+                .into_any_element();
+        }
+        let has_fabric_native_view = self.has_native_surface();
         let mut root = div()
             .size_full()
             .relative()
@@ -1645,34 +2415,26 @@ impl Render for SurfaceRootView {
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         if let Some(native_view_probe) = &self.native_view_probe {
             root = root.child(native_view_probe.clone());
         }
         if let Some(overlay_host) = &self.overlay_host {
-            #[cfg(target_os = "macos")]
-            {
-                let has_native_composition = has_fabric_native_view || {
-                    #[cfg(feature = "visual-capture")]
-                    {
-                        self.native_view_probe.is_some()
-                    }
-                    #[cfg(not(feature = "visual-capture"))]
-                    {
-                        false
-                    }
-                };
-                if has_native_composition {
-                    // GPUI's deferred pass targets the window composition overlay
-                    // surface, above native views.
-                    root = root.child(deferred(overlay_host.clone()).priority(100));
-                } else {
-                    root = root.child(overlay_host.clone());
+            let has_native_composition = has_fabric_native_view || {
+                #[cfg(all(target_os = "macos", feature = "visual-capture"))]
+                {
+                    self.native_view_probe.is_some()
                 }
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
+                #[cfg(not(all(target_os = "macos", feature = "visual-capture")))]
+                {
+                    false
+                }
+            };
+            if has_native_composition {
+                root = root.child(deferred(overlay_host.clone()).priority(100));
+            } else {
                 root = root.child(overlay_host.clone());
             }
         }
@@ -1714,7 +2476,12 @@ impl Render for SurfaceRootView {
                 .child(menu_bar)
                 .child(content)
         } else {
-            div().size_full().key_context(app_context).child(content)
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .key_context(app_context)
+                .child(content)
         };
         if self.surface_id == APP_SURFACE_ID {
             for (button, event_name) in [
@@ -1749,16 +2516,6 @@ impl Render for SurfaceRootView {
         }
         window_root.into_any_element()
     }
-}
-
-#[cfg(target_os = "macos")]
-fn node_tree_contains_native_view(node: &Entity<RNNodeView>, cx: &App) -> bool {
-    let node = node.read(cx);
-    node.component == "NativeViewHost"
-        || node
-            .children
-            .iter()
-            .any(|(_, child)| node_tree_contains_native_view(child, cx))
 }
 
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {

@@ -62,6 +62,22 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'EmbeddedPanel',
+    () => (props: { name?: string }) =>
+      React.createElement(
+        require('./fixtures/components/EmbeddedSurfaceFixtures').EmbeddedPanel,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
+    'EmbeddedFit',
+    () => (props: { name?: string }) =>
+      React.createElement(
+        require('./fixtures/components/EmbeddedSurfaceFixtures').EmbeddedFit,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
     'DesktopShellChild',
     () => (props: { windowId?: number; label?: string }) =>
       React.createElement(

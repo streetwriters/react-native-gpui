@@ -380,7 +380,6 @@ void install_feature_flags() {
     ReactNativeFeatureFlags::override(std::move(overrides));
   });
 }
-
 } // namespace
 
 std::unique_ptr<GpuiHost> new_gpui_host(
@@ -430,12 +429,17 @@ GpuiHost::GpuiHost(
   };
   config.jsRuntimeFactory = rngpui::activeJsEngine().makeRuntimeFactory();
 
-  mountingManager_ =
-      std::make_shared<GpuiMountingManager>([this](SurfaceId surfaceId) {
+  mountingManager_ = std::make_shared<GpuiMountingManager>(
+      [this](SurfaceId surfaceId) {
         reactHost_->runOnScheduler([surfaceId](Scheduler& scheduler) {
           scheduler.reportMount(surfaceId);
         });
+      },
+      [this](SurfaceId surfaceId) {
+        return reactHost_->surfaceContentSize(surfaceId);
       });
+
+  rngpui::setHostComponentStateManager(mountingManager_);
 
   // ReactHost's constructor throws unless both factories are in the
   // ContextContainer.
@@ -602,6 +606,28 @@ bool GpuiHost::load_script(rust::Str bundlePath, rust::Str sourceUrl) {
   return scriptLoaded_;
 }
 
+namespace {
+/// Fabric asserts on an undefined constraint, so every bound is a real number
+/// and the pair is ordered: a caller that asks for a range wider than its
+/// content still gets a valid constraint.
+facebook::react::LayoutConstraints constraintsFrom(
+    float minWidth,
+    float minHeight,
+    float maxWidth,
+    float maxHeight,
+    float /*scale*/) {
+  facebook::react::LayoutConstraints constraints;
+  const float minW = std::max(0.f, minWidth);
+  const float minH = std::max(0.f, minHeight);
+  const float maxW = std::max(minW, maxWidth);
+  const float maxH = std::max(minH, maxHeight);
+  constraints.minimumSize = {minW, minH};
+  constraints.maximumSize = {maxW, maxH};
+  constraints.layoutDirection = facebook::react::LayoutDirection::LeftToRight;
+  return constraints;
+}
+} // namespace
+
 void GpuiHost::start_surface(
     int32_t id,
     rust::Str module,
@@ -649,6 +675,57 @@ void GpuiHost::start_surface_with_props(
   }
   reactHost_->startSurface(
       id, std::string(module), initialProps, constraints, context);
+}
+
+void GpuiHost::start_surface_with_constraints(
+    int32_t id,
+    rust::Str module,
+    rust::Str propsJson,
+    float minWidth,
+    float minHeight,
+    float maxWidth,
+    float maxHeight,
+    float scale) {
+  LayoutConstraints constraints =
+      constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
+  LayoutContext context;
+  context.pointScaleFactor = scale;
+  if (id == kAppSurfaceId) {
+    surfaceWidth_ = maxWidth;
+    surfaceHeight_ = maxHeight;
+    surfaceScale_ = scale;
+    mountingManager_->setWindowSize(maxWidth, maxHeight);
+  }
+  folly::dynamic initialProps = folly::dynamic::object();
+  const auto props = std::string(propsJson);
+  if (!props.empty()) {
+    auto parsed = folly::parseJson(props);
+    if (!parsed.isObject())
+      throw std::invalid_argument("Surface initialProps must be an object");
+    initialProps = std::move(parsed);
+  }
+  reactHost_->startSurface(
+      id, std::string(module), initialProps, constraints, context);
+}
+
+void GpuiHost::set_surface_constraints(
+    int32_t id,
+    float minWidth,
+    float minHeight,
+    float maxWidth,
+    float maxHeight,
+    float scale) {
+  LayoutConstraints constraints =
+      constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
+  LayoutContext context;
+  context.pointScaleFactor = scale;
+  if (id == kAppSurfaceId) {
+    surfaceWidth_ = maxWidth;
+    surfaceHeight_ = maxHeight;
+    surfaceScale_ = scale;
+    mountingManager_->setWindowSize(maxWidth, maxHeight);
+  }
+  reactHost_->setSurfaceConstraints(id, constraints, context);
 }
 
 void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
@@ -1001,5 +1078,4 @@ void GpuiHost::dispatch_pointer_event(
 void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {
   mountingManager_->setScrollOffset(tag, x, y);
 }
-
 } // namespace rngpui
