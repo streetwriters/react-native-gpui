@@ -370,7 +370,7 @@ fn main() {
         dst
     } else {
         run_cmake_build(&build_dir, cmake_build_type);
-        cmake_out_dir.clone()
+        cmake_out_dir
     };
     drop(cmake_lock);
 

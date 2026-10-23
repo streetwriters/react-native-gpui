@@ -182,6 +182,7 @@ impl ReactSurface {
     }
 
     /// The `initialProps` the surface's module receives.
+    #[must_use]
     pub fn props(mut self, props: Value) -> Self {
         self.props = if props.is_object() {
             props
@@ -192,6 +193,7 @@ impl ReactSurface {
     }
 
     /// How the surface sizes itself.
+    #[must_use]
     pub fn sizing(mut self, sizing: SurfaceSizing) -> Self {
         self.sizing = sizing;
         self

@@ -47,37 +47,44 @@ impl Default for TrayConfig {
 }
 
 impl TrayConfig {
+    #[must_use]
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = id.into();
         self
     }
 
+    #[must_use]
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 
+    #[must_use]
     pub fn component(mut self, component: impl Into<String>) -> Self {
         self.component = Some(component.into());
         self
     }
 
+    #[must_use]
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.width = width.max(120.0);
         self.height = height.max(120.0);
         self
     }
 
+    #[must_use]
     pub fn icon_rgba(mut self, rgba: Vec<u8>, width: u32, height: u32) -> Self {
         self.icon = Some((rgba, width, height));
         self
     }
 
+    #[must_use]
     pub fn menu(mut self, menu: MenuModel) -> Self {
         self.menu = Some(menu);
         self
     }
 
+    #[must_use]
     pub fn accessory(mut self, accessory: bool) -> Self {
         self.accessory = accessory;
         self
@@ -473,7 +480,7 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
             return;
         }
         // `tray-icon` reports physical pixels; everything here is in points.
-        let scale = crate::desktop::platform_window::primary_screen_scale() as f64;
+        let scale = f64::from(crate::desktop::platform_window::primary_screen_scale());
         let rect = tray_click_rect(rect, position, scale);
         if let Some(handler) = rn_gpui_sys::TRAY_CLICK_HANDLER.get() {
             handler(rect.x, rect.y, rect.width, rect.height, button as u8);
@@ -499,8 +506,8 @@ fn tray_click_rect(
         return TrayRect {
             x: (rect.position.x / scale) as f32,
             y: (rect.position.y / scale) as f32,
-            width: (rect.size.width as f64 / scale) as f32,
-            height: (rect.size.height as f64 / scale) as f32,
+            width: (f64::from(rect.size.width) / scale) as f32,
+            height: (f64::from(rect.size.height) / scale) as f32,
         };
     }
     let (x, y) = if position.x != 0.0 || position.y != 0.0 {
@@ -522,6 +529,7 @@ fn tray_click_rect(
 #[cfg(target_os = "linux")]
 fn pointer_position() -> Option<(f64, f64)> {
     let xlib = x11_dl::xlib::Xlib::open().ok()?;
+    // SAFETY: the display from `XOpenDisplay` is null-checked before use and closed before returning.
     unsafe {
         let display = (xlib.XOpenDisplay)(std::ptr::null());
         if display.is_null() {
@@ -579,7 +587,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
 
     let Some(model) = &config.menu else {
         icon.set_menu(None);
-        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
+        *TRAY_MENU_IDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     };
@@ -587,7 +597,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     if let Err(error) = build_tray_menu(&menu, &model.items) {
         log::error!("[desktop][tray] could not build the menu: {error}");
         icon.set_menu(None);
-        *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = HashSet::new();
+        *TRAY_MENU_IDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = HashSet::new();
         NATIVE_MENU.store(0, Ordering::Relaxed);
         return;
     }
@@ -609,7 +621,9 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     // first-caller-wins) and the tray would then never be called.
     let mut ids = HashSet::new();
     collect_menu_ids(&model.items, &mut ids);
-    *TRAY_MENU_IDS.lock().expect("tray id set is not poisoned") = ids;
+    *TRAY_MENU_IDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = ids;
     crate::desktop::menu_events::register(Box::new(|id| {
         let owned = TRAY_MENU_IDS
             .lock()

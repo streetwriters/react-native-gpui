@@ -80,7 +80,7 @@ pub(crate) fn sync_modal_focus(window: &mut Window, cx: &mut App) {
         let mut fallback = None;
         if let Some((_, modal)) = &active {
             collect_modal(modal, cx, &mut descendants, &mut targets);
-            visible = descendants.clone();
+            visible.clone_from(&descendants);
             let modal = modal.read(cx);
             fallback = modal.accessibility_focus_handle();
             let mut parent = modal.parent.clone();

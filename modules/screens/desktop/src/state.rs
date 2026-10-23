@@ -116,7 +116,9 @@ fn state() -> &'static Mutex<State> {
 
 /// Runs `f` with the module state.
 pub fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
-    let mut state = state().lock().expect("screens state poisoned");
+    let mut state = state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     f(&mut state)
 }
 

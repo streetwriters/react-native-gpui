@@ -6,6 +6,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
+// SAFETY: `rn_gpui_mount_batch_applied` is defined in `GpuiMountingManager.cpp` with this signature.
 unsafe extern "C" {
     fn rn_gpui_mount_batch_applied();
 }
@@ -36,6 +37,7 @@ fn smoke_exit(code: i32, message: String) -> ! {
     extern "C" {
         fn _exit(code: i32) -> !;
     }
+    // SAFETY: `_exit` ends the process without unwinding, and nothing is borrowed across it.
     unsafe { _exit(code) }
 }
 
@@ -368,13 +370,15 @@ fn save_window_bounds(
         "height": f32::from(viewport.height),
     });
     let result = (|| -> std::io::Result<()> {
-        let parent = path.parent().expect("window state path has a parent");
+        let parent = path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "window state path has no parent",
+            )
+        })?;
         std::fs::create_dir_all(parent)?;
         let temporary = path.with_extension("json.tmp");
-        std::fs::write(
-            &temporary,
-            serde_json::to_vec(&value).expect("serializable window bounds"),
-        )?;
+        std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
         std::fs::rename(temporary, path)
     })();
     if let Err(error) = result {
@@ -654,52 +658,62 @@ impl DesktopAppConfig {
         }
     }
 
+    #[must_use]
     pub fn js_engine(mut self, name: impl Into<String>) -> Self {
         self.js_engine = name.into();
         self
     }
 
+    #[must_use]
     pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
         self.tray = Some(config);
         self
     }
 
+    #[must_use]
     pub fn dev_menu(mut self, enabled: bool) -> Self {
         self.dev_menu = Some(enabled);
         self
     }
 
+    #[must_use]
     pub fn window_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
     }
 
+    #[must_use]
     pub fn window_size(mut self, width: f32, height: f32) -> Self {
         self.width = width.max(320.0);
         self.height = height.max(240.0);
         self
     }
 
+    #[must_use]
     pub fn window_position(mut self, x: f32, y: f32) -> Self {
         self.position = Some((x, y));
         self
     }
 
+    #[must_use]
     pub fn restore_window_state(mut self, restore: bool) -> Self {
         self.restore_window_state = restore;
         self
     }
 
+    #[must_use]
     pub fn quit_on_last_window_closed(mut self, quit: bool) -> Self {
         self.quit_on_last_window_closed = quit;
         self
     }
 
+    #[must_use]
     pub fn title_bar(mut self, title_bar: WindowTitleBar) -> Self {
         self.title_bar = title_bar;
         self
     }
 
+    #[must_use]
     pub fn traffic_light_position(mut self, x: f32, y: f32) -> Self {
         self.traffic_light_position = Some((x, y));
         self
@@ -709,11 +723,13 @@ impl DesktopAppConfig {
     ///
     /// Only Windows and Linux draw one inside the window; on macOS the bar is the
     /// system's, so this is ignored there.
+    #[must_use]
     pub fn menu_bar(mut self, visible: bool) -> Self {
         self.menu_bar = visible;
         self
     }
 
+    #[must_use]
     pub fn configure_window(
         mut self,
         configure: impl FnOnce(&mut WindowOptions) + 'static,
@@ -722,11 +738,13 @@ impl DesktopAppConfig {
         self
     }
 
+    #[must_use]
     pub fn on_app_ready(mut self, callback: impl FnOnce(&mut App) + 'static) -> Self {
         self.on_app_ready = Some(Box::new(callback));
         self
     }
 
+    #[must_use]
     pub fn on_window_opened(
         mut self,
         callback: impl FnOnce(gpui::WindowId, &mut gpui::Window, &mut App) + 'static,
@@ -753,6 +771,7 @@ impl DesktopAppConfig {
     ///     .into()
     /// }));
     /// ```
+    #[must_use]
     pub fn gpui_first(
         mut self,
         build: impl FnOnce(&mut App, crate::runtime::ReactRuntime) -> gpui::AnyView + 'static,
@@ -961,7 +980,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = menu_bar_tx.send_blocking(MainEvent::MenuBarPerform(id));
     }));
-    let tray_menu_tx = tx.clone();
+    let tray_menu_tx = tx;
     let _ = rn_gpui_sys::TRAY_MENU_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = tray_menu_tx.send_blocking(MainEvent::TrayMenuPerform(id));
     }));
@@ -1920,6 +1939,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
                         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
                         cx.update(|cx| crate::desktop::perf_monitor::record_mount(cx, elapsed));
+                        // SAFETY: the C++ function decrements an atomic counter and takes no arguments.
                         unsafe { rn_gpui_mount_batch_applied() };
                         // Smoke mode: an app-surface batch is React content, so
                         // the frame GPUI draws after it is the one a human sees.
@@ -2184,6 +2204,7 @@ async fn capture_and_quit(
 fn run_as_accessory_app() {
     use objc::{class, msg_send, sel, sel_impl};
     const ACCESSORY: isize = 1;
+    // SAFETY: `NSApplication` is messaged from the main thread.
     unsafe {
         let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
         let _: bool = msg_send![app, setActivationPolicy: ACCESSORY];

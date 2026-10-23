@@ -908,7 +908,7 @@ impl RNNodeView {
             view.input_selection = crate::builtins::textinput::input::reconcile_selection(
                 &view.input_text,
                 0..0,
-                text_input.selection.clone(),
+                text_input.selection,
                 true,
             );
             view.sync_input_paragraph();
@@ -921,8 +921,8 @@ impl RNNodeView {
         if self.native_view_name != op.native_view_name
             || self.native_view_props != op.native_view_props
         {
-            self.native_view_name = op.native_view_name.clone();
-            self.native_view_props = op.native_view_props.clone();
+            self.native_view_name.clone_from(&op.native_view_name);
+            self.native_view_props.clone_from(&op.native_view_props);
             self.native_view_host = None;
         }
         if self.component == "NativeViewHost" {
@@ -987,7 +987,8 @@ impl RNNodeView {
         }
         self.update_host_component(op);
         if op.props_changed {
-            self.extension_props_json = op.extension_props_json.clone();
+            self.extension_props_json
+                .clone_from(&op.extension_props_json);
             self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &self.extension_props_json,
             ));
@@ -2143,7 +2144,7 @@ impl RNNodeView {
                     strikethrough: false,
                 });
         } else {
-            paragraph.fragments[0].text = visible.clone();
+            paragraph.fragments[0].text.clone_from(visible);
             if show_placeholder && !self.input_placeholder_mode {
                 self.input_text_color = paragraph.fragments[0].color;
             }
@@ -2517,13 +2518,13 @@ impl Render for RNNodeView {
             element = element.aria_value(self.view.accessibility_value_text.clone());
         }
         if self.view.accessibility_has_value_min {
-            element = element.aria_min_numeric_value(self.view.accessibility_value_min as f64);
+            element = element.aria_min_numeric_value(f64::from(self.view.accessibility_value_min));
         }
         if self.view.accessibility_has_value_max {
-            element = element.aria_max_numeric_value(self.view.accessibility_value_max as f64);
+            element = element.aria_max_numeric_value(f64::from(self.view.accessibility_value_max));
         }
         if self.view.accessibility_has_value_now {
-            element = element.aria_numeric_value(self.view.accessibility_value_now as f64);
+            element = element.aria_numeric_value(f64::from(self.view.accessibility_value_now));
         }
         if self.component == "TextInput" {
             if !self.input_placeholder.is_empty() {
@@ -2626,13 +2627,13 @@ impl Render for RNNodeView {
                 _ => {}
             }
             if accessibility.accessibility_has_value_min {
-                node.set_min_numeric_value(accessibility.accessibility_value_min as f64);
+                node.set_min_numeric_value(f64::from(accessibility.accessibility_value_min));
             }
             if accessibility.accessibility_has_value_max {
-                node.set_max_numeric_value(accessibility.accessibility_value_max as f64);
+                node.set_max_numeric_value(f64::from(accessibility.accessibility_value_max));
             }
             if accessibility.accessibility_has_value_now {
-                node.set_numeric_value(accessibility.accessibility_value_now as f64);
+                node.set_numeric_value(f64::from(accessibility.accessibility_value_now));
             }
             let value = if is_text_input {
                 if input_secure_text || input_text.is_empty() {
@@ -3120,7 +3121,7 @@ impl Render for RNNodeView {
             let spec = renderer.input(&node);
             (spec, node)
         });
-        if let Some((spec, node)) = input_spec.clone() {
+        if let Some((spec, node)) = input_spec {
             for button in [
                 crate::events::Button::Left,
                 crate::events::Button::Middle,
@@ -3182,7 +3183,7 @@ impl Render for RNNodeView {
                 // The edge is decided here, on the entity, because the listener
                 // that reports the sample is rebuilt on every paint.
                 let hover_node = cx.entity().downgrade();
-                let hover_component = node.clone();
+                let hover_component = node;
                 handlers
                     .hover
                     .push(Rc::new(move |hovered: bool, window, cx| {
@@ -3618,7 +3619,7 @@ impl Render for RNNodeView {
                         let view = cx.entity();
                         scroller = scroller.on_scroll_wheel(
                             move |event: &gpui::ScrollWheelEvent, _window, _cx| {
-                                let mut delta = event.delta.pixel_delta(px(20.));
+                                let delta = event.delta.pixel_delta(px(20.));
                                 let (dx, dy) = if horizontal {
                                     (f32::from(delta.x) + f32::from(delta.y), 0.0)
                                 } else {

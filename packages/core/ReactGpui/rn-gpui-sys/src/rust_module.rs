@@ -36,7 +36,11 @@ fn handles() -> &'static Mutex<HashMap<u64, Arc<Handle>>> {
 }
 
 fn handle_for(id: u64) -> Option<Arc<Handle>> {
-    handles().lock().expect("handle lock").get(&id).cloned()
+    handles()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&id)
+        .cloned()
 }
 
 impl Handle {
@@ -198,14 +202,17 @@ pub fn rn_gpui_rust_module_create(name: &str) -> u64 {
     install_hooks();
     let id = NEXT_HANDLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let instance = (descriptor.create)(EventEmitter::new(id));
-    handles().lock().expect("handle lock").insert(
-        id,
-        Arc::new(Handle {
-            instance,
-            descriptor,
-            queue: OnceLock::new(),
-        }),
-    );
+    handles()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(
+            id,
+            Arc::new(Handle {
+                instance,
+                descriptor,
+                queue: OnceLock::new(),
+            }),
+        );
     id
 }
 
@@ -381,7 +388,10 @@ pub fn rn_gpui_rust_module_drop(handle_id: u64) {
     // Removing the last reference stops the queue, which ends its thread and
     // drops unfinished futures; results still in flight are discarded by C++
     // because their request ids are gone.
-    handles().lock().expect("handle lock").remove(&handle_id);
+    handles()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&handle_id);
 }
 
 fn post(handle: &Handle, job: rn_gpui_module::Job) {

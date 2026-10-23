@@ -13,6 +13,7 @@ use objc::{class, msg_send, sel, sel_impl};
 use std::{cell::Cell, rc::Rc};
 
 #[link(name = "WebKit", kind = "framework")]
+// SAFETY: an empty block whose only job is to link the WebKit framework.
 unsafe extern "C" {}
 
 #[derive(Clone, Copy)]
@@ -43,6 +44,7 @@ impl NativeViewCompositionProbe {
             .map(|handle| *handle as id)
             .map_err(|_| anyhow::anyhow!("native composition surface is not an AppKit view"))?;
 
+        // SAFETY: the views are created and configured on the main thread and owned by the returned probe.
         unsafe {
             let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
             let view: id = match kind {
@@ -120,6 +122,7 @@ impl NativeViewCompositionProbe {
 
 impl Drop for NativeViewCompositionProbe {
     fn drop(&mut self) {
+        // SAFETY: `self.view` is the owned view created in `new`; it is detached and released once, on drop.
         unsafe {
             NSView::removeFromSuperview(self.view);
             let _: () = msg_send![self.view, release];

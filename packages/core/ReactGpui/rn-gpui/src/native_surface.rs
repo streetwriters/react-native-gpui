@@ -40,6 +40,10 @@ impl NativeViewHandle {
     /// been created with AppKit's `alloc`/`init` convention and remain valid
     /// until the runtime releases it when the Fabric node unmounts.
     #[cfg(target_os = "macos")]
+    ///
+    /// # Safety
+    ///
+    /// `view` must be an owned `NSView` reference, created with `alloc`/`init`, that stays valid until the runtime releases it.
     pub unsafe fn from_owned_nsview(view: *mut std::ffi::c_void) -> Self {
         Self {
             view: view as usize,
@@ -270,6 +274,7 @@ mod imp {
             .map(|handle| *handle as id)
             .map_err(|_| anyhow::anyhow!("native composition surface is not an AppKit view"))?;
         let view = view.view as id;
+        // SAFETY: `view` is the owned `NSView` the factory returned, and `container` is the live composition surface view; both are used on the main thread.
         unsafe {
             let _: () =
                 msg_send![view, setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
@@ -287,6 +292,7 @@ mod imp {
         use cocoa::{appkit::NSView, base::id};
         use objc::{msg_send, sel, sel_impl};
         let view = view.view as id;
+        // SAFETY: `view` is the owned `NSView` attached by `attach`; it is detached and released once, on drop.
         unsafe {
             NSView::removeFromSuperview(view);
             let _: () = msg_send![view, release];

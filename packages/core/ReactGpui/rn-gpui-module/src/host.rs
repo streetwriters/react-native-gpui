@@ -122,44 +122,55 @@ fn sink() -> &'static Mutex<Vec<SinkCall>> {
 }
 
 pub fn sink_calls() -> Vec<SinkCall> {
-    let mut calls = sink().lock().expect("sink lock");
+    let mut calls = sink()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     std::mem::take(&mut *calls)
 }
 
 fn sink_invoke_callback(id: u64, args: Vec<Value>) {
     sink()
         .lock()
-        .expect("sink lock")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(SinkCall::InvokeCallback { id, args });
 }
 
 fn sink_drop_callback(id: u64) {
     sink()
         .lock()
-        .expect("sink lock")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(SinkCall::DropCallback { id });
 }
 
 fn sink_emit_event(module: u64, event: &str, value: Option<Value>) {
-    sink().lock().expect("sink lock").push(SinkCall::EmitEvent {
-        module,
-        event: event.to_string(),
-        value,
-    });
+    sink()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(SinkCall::EmitEvent {
+            module,
+            event: event.to_string(),
+            value,
+        });
 }
 
 fn sink_send_event(module: u64, name: &str, body: Value) {
-    sink().lock().expect("sink lock").push(SinkCall::SendEvent {
-        module,
-        name: name.to_string(),
-        body,
-    });
+    sink()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(SinkCall::SendEvent {
+            module,
+            name: name.to_string(),
+            body,
+        });
 }
 
 fn sink_log(message: &str) {
-    sink().lock().expect("sink lock").push(SinkCall::Log {
-        message: message.to_string(),
-    });
+    sink()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(SinkCall::Log {
+            message: message.to_string(),
+        });
 }
 
 pub fn log_error(location: &str, error: &ModuleError) {

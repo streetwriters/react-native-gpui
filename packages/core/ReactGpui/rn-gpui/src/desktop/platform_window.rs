@@ -16,6 +16,7 @@ mod imp {
         let handle = HasWindowHandle::window_handle(window)
             .map_err(|error| format!("no platform window handle: {error}"))?;
         match handle.as_raw() {
+            // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
             RawWindowHandle::AppKit(appkit) => unsafe {
                 let ns_view = appkit.ns_view.as_ptr() as id;
                 let native: id = msg_send![ns_view, window];
@@ -35,22 +36,24 @@ mod imp {
     /// `screen.height - appkit_y - frame_height + screen.origin.y`; this is the
     /// inverse, so `set_position` round-trips through `window.bounds()`.
     fn appkit_top_left(window: &gpui::Window, native: id, x: f32, y: f32) -> NSPoint {
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let screen: id = msg_send![native, screen];
             let frame_height = f32::from(window.bounds().size.height);
             if screen.is_null() {
-                return NSPoint::new(x as f64, y as f64);
+                return NSPoint::new(f64::from(x), f64::from(y));
             }
             let screen_frame: cocoa::foundation::NSRect = msg_send![screen, frame];
             let appkit_x = x + screen_frame.origin.x as f32;
             let appkit_y = screen_frame.size.height as f32 - (y - screen_frame.origin.y as f32);
-            NSPoint::new(appkit_x as f64, (appkit_y + frame_height) as f64)
+            NSPoint::new(f64::from(appkit_x), f64::from(appkit_y + frame_height))
         }
     }
 
     pub fn set_position(window: &mut gpui::Window, x: f32, y: f32) -> Result<(), String> {
         let native = ns_window(window)?;
         let point = appkit_top_left(window, native, x, y);
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setFrameTopLeftPoint: point];
         }
@@ -64,6 +67,7 @@ mod imp {
         } else {
             NORMAL_WINDOW_LEVEL
         };
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setLevel: level];
         }
@@ -72,7 +76,8 @@ mod imp {
 
     pub fn set_min_size(window: &mut gpui::Window, width: f32, height: f32) -> Result<(), String> {
         let native = ns_window(window)?;
-        let size = NSSize::new(width as f64, height as f64);
+        let size = NSSize::new(f64::from(width), f64::from(height));
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setContentMinSize: size];
         }
@@ -81,7 +86,8 @@ mod imp {
 
     pub fn set_max_size(window: &mut gpui::Window, width: f32, height: f32) -> Result<(), String> {
         let native = ns_window(window)?;
-        let size = NSSize::new(width as f64, height as f64);
+        let size = NSSize::new(f64::from(width), f64::from(height));
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, setContentMaxSize: size];
         }
@@ -92,6 +98,7 @@ mod imp {
 
     pub fn set_resizable(window: &mut gpui::Window, resizable: bool) -> Result<(), String> {
         let native = ns_window(window)?;
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let mask: u64 = msg_send![native, styleMask];
             let next = if resizable {
@@ -108,6 +115,7 @@ mod imp {
 
     pub fn show(window: &mut gpui::Window) -> Result<(), String> {
         let native = ns_window(window)?;
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, orderFront: std::ptr::null::<id>()];
         }
@@ -116,6 +124,7 @@ mod imp {
 
     pub fn hide(window: &mut gpui::Window) -> Result<(), String> {
         let native = ns_window(window)?;
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let _: () = msg_send![native, orderOut: std::ptr::null::<id>()];
         }
@@ -126,6 +135,7 @@ mod imp {
         let Ok(native) = ns_window(window) else {
             return false;
         };
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let minimized: bool = msg_send![native, isMiniaturized];
             minimized
@@ -141,6 +151,7 @@ mod imp {
         let Ok(native) = ns_window(window) else {
             return false;
         };
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
             let screen: id = msg_send![native, screen];
             if screen.is_null() {
@@ -201,6 +212,7 @@ mod imp {
     pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
         let hwnd = hwnd(window)?;
         // GPUI's bounds are physical pixels, which is what SetWindowPos takes.
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
         let result = unsafe {
             SetWindowPos(
                 hwnd,
@@ -222,6 +234,7 @@ mod imp {
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
         let hwnd = hwnd(window)?;
         let insert_after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST };
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
         let result = unsafe {
             SetWindowPos(
                 hwnd,
@@ -255,6 +268,7 @@ mod imp {
             GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_MAXIMIZEBOX, WS_THICKFRAME,
         };
         let hwnd = hwnd(window)?;
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
             let style = if resizable {
@@ -284,18 +298,21 @@ mod imp {
     /// `minimize` and `zoom` use.
     pub fn show(window: &mut Window) -> Result<(), String> {
         let hwnd = hwnd(window)?;
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
         unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
         Ok(())
     }
 
     pub fn hide(window: &mut Window) -> Result<(), String> {
         let hwnd = hwnd(window)?;
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
         unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
         Ok(())
     }
 
     pub fn is_minimized(window: &Window) -> bool {
         match hwnd(window) {
+            // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
             Ok(hwnd) => unsafe { IsIconic(hwnd) != 0 },
             Err(_) => false,
         }
@@ -307,6 +324,7 @@ mod imp {
     /// covered, which is what the test driver wants to distinguish.
     pub fn is_hidden(window: &Window) -> bool {
         match hwnd(window) {
+            // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
             Ok(hwnd) => unsafe { IsWindowVisible(hwnd) == 0 },
             Err(_) => false,
         }
@@ -314,6 +332,7 @@ mod imp {
 
     pub fn is_maximized(window: &Window) -> bool {
         match hwnd(window) {
+            // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
             Ok(hwnd) => unsafe { IsZoomed(hwnd) != 0 },
             Err(_) => false,
         }
@@ -372,6 +391,7 @@ mod imp {
             return Err(UNSUPPORTED_WAYLAND.to_string());
         }
         let xlib = xlib::Xlib::open().map_err(|error| format!("no X11 library: {error}"))?;
+        // SAFETY: the display from `XOpenDisplay` is null-checked before use and closed once, after `f` returns.
         unsafe {
             let display = (xlib.XOpenDisplay)(std::ptr::null());
             if display.is_null() {
@@ -394,6 +414,7 @@ mod imp {
     }
 
     pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             (xlib.XMoveWindow)(display, id, x.round() as i32, y.round() as i32);
             (xlib.XFlush)(display);
@@ -405,6 +426,7 @@ mod imp {
     ///
     /// TODO: set the `_NET_WM_STATE_ABOVE` hint so the window stays above.
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             if on {
                 (xlib.XRaiseWindow)(display, id);
@@ -414,6 +436,7 @@ mod imp {
     }
 
     pub fn set_min_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             let mut hints: xlib::XSizeHints = std::mem::zeroed();
             hints.flags = xlib::PMinSize;
@@ -425,6 +448,7 @@ mod imp {
     }
 
     pub fn set_max_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             let mut hints: xlib::XSizeHints = std::mem::zeroed();
             hints.flags = xlib::PMaxSize;
@@ -443,6 +467,7 @@ mod imp {
     }
 
     pub fn show(window: &mut Window) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             (xlib.XMapWindow)(display, id);
             (xlib.XFlush)(display);
@@ -450,6 +475,7 @@ mod imp {
     }
 
     pub fn hide(window: &mut Window) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             (xlib.XUnmapWindow)(display, id);
             (xlib.XFlush)(display);
@@ -459,6 +485,7 @@ mod imp {
     pub fn is_minimized(window: &Window) -> bool {
         // `XGetWindowAttributes` reports `IsUnmapped` for a hidden window, but
         // X11 has no "minimized" state of its own (the WM owns it).
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             let mut attributes: xlib::XWindowAttributes = std::mem::zeroed();
             if (xlib.XGetWindowAttributes)(display, id, &mut attributes) == 0 {
@@ -495,6 +522,7 @@ mod imp {
         width: f32,
         height: f32,
     ) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             // A hidden window is placed by the user, not the window manager:
             // USPosition with the exact origin, so a WM that honours hints maps
@@ -558,6 +586,10 @@ mod imp {
     ///
     /// Replaces the property (`PropModeReplace`), which is what the window
     /// manager reads once, when the window is mapped.
+    ///
+    /// # Safety
+    ///
+    /// `display` must be an open X connection and `window` a valid window id on it.
     unsafe fn set_atoms(
         xlib: &xlib::Xlib,
         display: *mut xlib::Display,
@@ -602,6 +634,7 @@ mod imp {
     /// is trusted to set focus, and a fresh server timestamp avoids the
     /// "timestamp in the past" rejection.
     pub fn activate_popover(window: &Window) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
             let root = (xlib.XDefaultRootWindow)(display);
             let atom = (xlib.XInternAtom)(display, b"_NET_ACTIVE_WINDOW\0".as_ptr() as *const _, 0);
@@ -686,6 +719,7 @@ pub fn set_accessory_app(accessory: bool) {
     use objc::{class, msg_send, sel, sel_impl};
     const REGULAR: isize = 0;
     const ACCESSORY: isize = 1;
+    // SAFETY: the shared `NSApplication` is messaged from the main thread.
     unsafe {
         let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
         let policy = if accessory { ACCESSORY } else { REGULAR };
@@ -707,6 +741,7 @@ pub fn disable_window_animation(window: &mut gpui::Window) {
         return;
     };
     if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+        // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
         unsafe {
             let ns_view = appkit.ns_view.as_ptr() as id;
             let native: id = msg_send![ns_view, window];
@@ -730,6 +765,7 @@ pub fn style_as_popover(window: &mut gpui::Window) {
         return;
     };
     if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+        // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
         unsafe {
             let ns_view = appkit.ns_view.as_ptr() as id;
             let native: id = msg_send![ns_view, window];
@@ -759,6 +795,7 @@ pub fn primary_screen_scale() -> f32 {
     use cocoa::base::id;
     use objc::{class, msg_send, sel, sel_impl};
 
+    // SAFETY: `NSScreen` class messages return objects that are null-checked before use.
     unsafe {
         let screens: id = msg_send![class!(NSScreen), screens];
         let screen: id = msg_send![screens, firstObject];

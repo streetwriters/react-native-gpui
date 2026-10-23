@@ -1,5 +1,6 @@
 #[cxx::bridge(namespace = "rngpui")]
 pub mod ffi {
+    // SAFETY: the signature matches the declaration in `GpuiImageLoader.h`.
     unsafe extern "C++" {
         include!("GpuiImageLoader.h");
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
@@ -316,6 +317,7 @@ pub mod ffi {
         fn rn_gpui_rust_module_drop(handle: u64);
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiHostComponent.h`.
     unsafe extern "C++" {
         include!("GpuiHostComponent.h");
 
@@ -335,6 +337,7 @@ pub mod ffi {
         fn reportHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiDynamic.h`.
     unsafe extern "C++" {
         include!("GpuiDynamic.h");
 
@@ -359,6 +362,7 @@ pub mod ffi {
         fn dynamic_node_key(scope: u32, node: u32, index: usize) -> String;
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiRustTurboModules.h`.
     unsafe extern "C++" {
         include!("GpuiRustTurboModules.h");
 
@@ -385,6 +389,7 @@ pub mod ffi {
         fn rn_gpui_rust_module_clear_pending();
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiHttpBridge.h`.
     unsafe extern "C++" {
         include!("GpuiHttpBridge.h");
 
@@ -414,6 +419,7 @@ pub mod ffi {
         );
     }
 
+    // SAFETY: the signature matches the declaration in `GpuiStartupSignpost.h`.
     unsafe extern "C++" {
         include!("GpuiStartupSignpost.h");
 
@@ -421,6 +427,7 @@ pub mod ffi {
         fn rn_gpui_startup_signpost(stage: &str, elapsed_ms: u64);
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiHost.h`.
     unsafe extern "C++" {
         include!("GpuiHost.h");
         type GpuiHost;
@@ -747,7 +754,8 @@ fn rn_gpui_log(level: i32, message: &str) {
     }
 }
 
-// The C++ GpuiHost is created, driven and dropped from the GPUI main thread;
-// the wrapper is moved to Rust, so cxx needs these to be declared explicitly.
+// SAFETY: the C++ GpuiHost is created, driven and dropped from the GPUI main
+// thread; the wrapper is moved to Rust, so cxx needs this declared explicitly.
 unsafe impl Send for ffi::GpuiHost {}
+// SAFETY: as for `Send`, every call goes through the GPUI main thread.
 unsafe impl Sync for ffi::GpuiHost {}

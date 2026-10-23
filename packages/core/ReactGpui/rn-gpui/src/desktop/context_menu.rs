@@ -256,8 +256,8 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
     let menu = muda::Menu::new();
     build_muda_menu(&menu, &request.model.items)?;
     let position = muda::dpi::Position::Logical(muda::dpi::LogicalPosition::new(
-        request.x as f64,
-        request.y as f64,
+        f64::from(request.x),
+        f64::from(request.y),
     ));
     if request.native_view == 0 {
         return Err(DesktopError::failed(
@@ -271,6 +271,7 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
     // closes, so the id is already in hand when it returns.
     let selection = crate::desktop::menu_events::with_context_menu(|| {
         #[cfg(target_os = "macos")]
+        // SAFETY: `request.native_view` is the live `NSView` the request was made for, and this runs on the main thread.
         unsafe {
             menu.show_context_menu_for_nsview(
                 request.native_view as *const std::ffi::c_void,
@@ -278,6 +279,7 @@ fn native_show(request: &ContextMenuRequest, responder: &Responder) -> Result<()
             )
         };
         #[cfg(target_os = "windows")]
+        // SAFETY: `request.native_view` is the live `HWND` the request was made for, and this runs on the window's thread.
         unsafe {
             menu.show_context_menu_for_hwnd(request.native_view, Some(position))
         };
