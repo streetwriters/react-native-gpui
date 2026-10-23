@@ -130,6 +130,15 @@
           "description": "The tooltip text.",
           "type": "string"
         },
+        "icon": {
+          "description": "The tray icon, a PNG or JPEG path relative to desktop/. Without one the tray shows a built-in glyph.",
+          "type": "string",
+          "minLength": 1
+        },
+        "iconTemplate": {
+          "description": "macOS: draw the icon as a template the menu bar tints for light and dark mode. Use it for a monochrome glyph. Defaults to false.",
+          "type": "boolean"
+        },
         "accessory": {
           "description": "Whether the app runs as an accessory, with no Dock icon. Defaults to true.",
           "type": "boolean"

@@ -166,6 +166,20 @@ async fn load_dimensions(
     uri: &str,
     client: std::sync::Arc<dyn HttpClient>,
 ) -> Result<(u32, u32), String> {
+    let bytes = load_bytes(uri, client).await?;
+    image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?
+        .into_dimensions()
+        .map_err(|error| error.to_string())
+}
+
+/// The encoded bytes of an image source: a `data:` URI, a file, a Metro asset
+/// URL, any http(s) URL, or a plain path.
+pub(crate) async fn load_bytes(
+    uri: &str,
+    client: std::sync::Arc<dyn HttpClient>,
+) -> Result<Vec<u8>, String> {
     let bytes = if let Some(bytes) = cached_bytes(uri) {
         bytes
     } else if let Some(data) = uri.strip_prefix("data:") {
@@ -204,11 +218,7 @@ async fn load_dimensions(
     };
 
     cache_bytes(uri.to_owned(), bytes.clone());
-    image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|error| error.to_string())?
-        .into_dimensions()
-        .map_err(|error| error.to_string())
+    Ok(bytes)
 }
 
 #[cfg(test)]

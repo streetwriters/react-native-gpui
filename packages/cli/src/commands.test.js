@@ -450,3 +450,20 @@ test('a running Metro reports the project it serves', async () => {
   }
   expect(await metroProjectRoot('127.0.0.1', port)).toBeUndefined();
 });
+
+test('a tray icon in desktop.json is embedded in the launch chain', () => {
+  const chain = desktopLaunchConfig(
+    {
+      tray: { tooltip: 'Tray', icon: 'assets/tray.png', iconTemplate: true },
+      devMenu: true,
+    },
+    'desktop/desktop.json',
+  );
+  expect(chain).toContain(
+    '.icon_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/tray.png")))',
+  );
+  expect(chain).toContain('.icon_template(true)');
+  expect(
+    desktopLaunchConfig({ tray: { tooltip: 'Tray' }, devMenu: true }, 'x'),
+  ).not.toContain('.icon_bytes(');
+});

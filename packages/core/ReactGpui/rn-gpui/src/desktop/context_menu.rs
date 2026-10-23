@@ -319,7 +319,7 @@ impl MudaAppend for muda::Submenu {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), DesktopError> {
-    use muda::{CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
+    use muda::{CheckMenuItem, IconMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 
     let mut children: Vec<Box<dyn muda::IsMenuItem>> = Vec::new();
     for node in items {
@@ -335,6 +335,14 @@ fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), Des
                         item.label.clone(),
                         item.enabled,
                         true,
+                        None,
+                    )));
+                } else if let Some(icon) = item.icon.as_deref().and_then(muda_icon) {
+                    children.push(Box::new(IconMenuItem::with_id(
+                        item.id.clone(),
+                        item.label.clone(),
+                        item.enabled,
+                        Some(icon),
                         None,
                     )));
                 } else {
@@ -356,6 +364,13 @@ fn build_muda_menu(menu: &impl MudaAppend, items: &[MenuNode]) -> Result<(), Des
     let refs: Vec<&dyn muda::IsMenuItem> = children.iter().map(|item| item.as_ref()).collect();
     menu.append_all(&refs)
         .map_err(|error| DesktopError::failed(format!("could not build the context menu: {error}")))
+}
+
+/// A menu item's icon, if `desktop::icon` has loaded it.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) fn muda_icon(uri: &str) -> Option<muda::Icon> {
+    let icon = crate::desktop::icon::cached(uri)?;
+    muda::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height).ok()
 }
 
 pub struct FakeContextMenu {
@@ -411,6 +426,7 @@ pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
                 "label": submenu.label,
                 "enabled": submenu.enabled,
                 "items": nodes_json(&submenu.items),
+                "icon": submenu.icon,
             }),
             MenuNode::Item(item) => json!({
                 "type": "item",
@@ -418,6 +434,11 @@ pub fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
                 "label": item.label,
                 "enabled": item.enabled,
                 "checked": item.checked,
+                "icon": item.icon,
+                "iconLoaded": item
+                    .icon
+                    .as_deref()
+                    .is_some_and(|uri| crate::desktop::icon::cached(uri).is_some()),
             }),
         })
         .collect()

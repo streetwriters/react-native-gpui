@@ -568,6 +568,12 @@ export class DesktopApp {
     return this.request('menuBarState');
   }
 
+  /** macOS: the titles of the system menu bar's items that show an image. */
+  async menuBarIcons(): Promise<string[]> {
+    const result = await this.request<{ titles: string[] }>('menuBarIcons');
+    return result.titles;
+  }
+
   async openMenuBarMenu(title: string): Promise<boolean> {
     const result = await this.request<{ opened: boolean }>('openMenuBarMenu', {
       title,
@@ -612,6 +618,8 @@ export class DesktopApp {
     clicks?: number;
     hasMenu?: boolean;
     menuItems?: unknown[];
+    title?: string | null;
+    icon?: { width: number; height: number; template: boolean } | null;
   }> {
     return this.request('trayState');
   }

@@ -55,6 +55,7 @@ pub fn menu_model(cx: &App) -> MenuModel {
             enabled: true,
             checked,
             role: None,
+            icon: None,
         })
     };
     MenuModel {

@@ -38,6 +38,20 @@ const MENU: MenuItemSpec[] = [
   { id: 'tray-quit', label: 'Quit' },
 ];
 
+const ICON = require('../../assets/tray-icon.png');
+
+const ICON_MENU: MenuItemSpec[] = [
+  { id: 'tray-open', label: 'Open', icon: ICON },
+  {
+    type: 'submenu',
+    label: 'More',
+    icon: ICON,
+    items: [{ id: 'tray-more', label: 'Another', icon: ICON }],
+  },
+  { type: 'separator' },
+  { id: 'tray-quit', label: 'Quit' },
+];
+
 export function TrayPopover() {
   return (
     <View style={styles.page}>
@@ -133,6 +147,34 @@ function TrayFixture() {
         onPress={() => install({ id: 'tester-tray-menu', menu: MENU })}
       >
         <Text style={styles.button}>Install a menu tray</Text>
+      </Pressable>
+      <Pressable
+        testID="tray-install-icon"
+        onPress={() =>
+          install({
+            id: 'tester-tray-icon',
+            title: 'RN',
+            icon: ICON,
+            iconTemplate: true,
+            menu: ICON_MENU,
+          })
+        }
+      >
+        <Text style={styles.button}>Install a tray with an icon</Text>
+      </Pressable>
+      <Pressable
+        testID="tray-set-icon"
+        onPress={async () => {
+          try {
+            await Tray.setIcon(ICON);
+            await Tray.setTitle('GPUI');
+            await refresh();
+          } catch (cause) {
+            setError(String(cause));
+          }
+        }}
+      >
+        <Text style={styles.button}>Set a full-colour icon and a title</Text>
       </Pressable>
       <Pressable testID="tray-set-menu" onPress={() => setMenu(MENU)}>
         <Text style={styles.button}>Set a menu</Text>

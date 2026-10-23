@@ -34,7 +34,7 @@ async function request<T>(
     throw toDesktopError(error);
   }
 }
-import type { MenuItemSpec } from './menu';
+import { nativeMenuItems, type MenuItemSpec } from './menu';
 import { contextMenuHostFor } from './contextMenu/registry';
 import type { MenuRenderers } from './contextMenu/config';
 import {
@@ -90,7 +90,7 @@ export const ContextMenu = {
         // No host means no window rendered the shell's wrapper: falling back to
         // the native menu is better than silently doing nothing.
         const result = await request(native =>
-          native.contextMenuShow(items as unknown as Object[], options),
+          native.contextMenuShow(nativeMenuItems(items), options),
         );
         return result.id ?? null;
       }
@@ -101,7 +101,7 @@ export const ContextMenu = {
       return host.open({ items, position, presentation: 'custom' });
     }
     const result = await request(native =>
-      native.contextMenuShow(items as unknown as Object[], options),
+      native.contextMenuShow(nativeMenuItems(items), options),
     );
     return result.id ?? null;
   },
@@ -207,6 +207,7 @@ export function ContextMenuView({
   ...viewProps
 }: ContextMenuViewProps) {
   const resolved = resolvePresentation(presentation);
+  const nativeItems = React.useMemo(() => nativeMenuItems(items), [items]);
 
   const report = React.useCallback(
     (id: string) => {
@@ -253,7 +254,7 @@ export function ContextMenuView({
   return (
     <NativeContextMenuView
       {...viewProps}
-      items={items}
+      items={nativeItems}
       presentation={resolved}
       disabled={disabled}
       onMenuSelect={event => report(event.nativeEvent.id)}

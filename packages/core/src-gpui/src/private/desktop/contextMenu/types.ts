@@ -1,10 +1,9 @@
 /**
  * The menu entry the React renderer works with.
  *
- * `MenuItemSpec` describes what the native presenters show; a custom menu can
- * also draw an icon, which no platform's native menu accepts on every item, so
- * it is layered on here instead of widening the public type. The helper type
- * distributes over the spec's union, so narrowing on `type` still works.
+ * `MenuItemSpec` gives items and submenus an icon; the custom menu can also
+ * draw one on a role row, so it is layered onto every kind here. The helper
+ * type distributes over the spec's union, so narrowing on `type` still works.
  *
  * @format
  */

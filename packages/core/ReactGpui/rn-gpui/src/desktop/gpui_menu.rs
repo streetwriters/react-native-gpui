@@ -4,6 +4,7 @@
 
 use crate::desktop::context_menu::{ContextMenuRequest, Responder};
 use crate::desktop::menu_model::{MenuModel, MenuNode};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     point, px, size, App, AppContext, Bounds, Context, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowKind, WindowOptions,
@@ -639,6 +640,13 @@ impl MenuPopup {
 impl Render for MenuPopup {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        // One icon gives every row the same leading column, so the labels stay
+        // aligned.
+        let icon_column = self.items.iter().any(|node| match node {
+            MenuNode::Item(item) => item.icon.is_some(),
+            MenuNode::Submenu(submenu) => submenu.icon.is_some(),
+            _ => false,
+        });
         for (index, node) in self.items.clone().into_iter().enumerate() {
             match node {
                 MenuNode::Separator => {
@@ -672,8 +680,9 @@ impl Render for MenuPopup {
                             gpui::div()
                                 .flex()
                                 .flex_row()
+                                .items_center()
                                 .gap_1()
-                                .child(if item.checked { "✓" } else { " " })
+                                .child(leading(item.checked, item.icon.as_deref(), icon_column))
                                 .child(item.label.clone()),
                         )
                         .child(
@@ -714,7 +723,17 @@ impl Render for MenuPopup {
                         .px_2()
                         .h(px(ROW_HEIGHT))
                         .text_size(px(13.0))
-                        .child(submenu.label.clone())
+                        .child(
+                            gpui::div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .when(icon_column, |label| {
+                                    label.child(leading(false, submenu.icon.as_deref(), true))
+                                })
+                                .child(submenu.label.clone()),
+                        )
                         .child("›");
                     if enabled {
                         row = row
@@ -771,6 +790,35 @@ impl Render for MenuPopup {
                 }
             })
             .children(rows)
+    }
+}
+
+const ICON_SIZE: f32 = 16.0;
+
+/// The slot before a row's label: its check mark, else its icon. With
+/// `icon_column` the slot is icon-wide on every row.
+fn leading(checked: bool, icon: Option<&str>, icon_column: bool) -> gpui::AnyElement {
+    let image = (!checked)
+        .then(|| icon.and_then(crate::desktop::icon::cached))
+        .flatten()
+        .and_then(|icon| icon.image.clone());
+    if !icon_column {
+        return gpui::div()
+            .child(if checked { "✓" } else { " " })
+            .into_any_element();
+    }
+    let slot = gpui::div()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(ICON_SIZE));
+    match image {
+        Some(image) => slot
+            .child(gpui::img(image).size(px(ICON_SIZE)))
+            .into_any_element(),
+        None => slot
+            .child(if checked { "✓" } else { "" })
+            .into_any_element(),
     }
 }
 

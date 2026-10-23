@@ -49,6 +49,7 @@ function DesktopMenuFixture() {
             id: 'tester-increment',
             label: 'Increment',
             accelerator: 'CmdOrCtrl+Shift+K',
+            icon: require('../../assets/tray-icon.png'),
           },
           {
             id: 'tester-check',

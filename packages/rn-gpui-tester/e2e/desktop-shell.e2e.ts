@@ -176,6 +176,11 @@ test('an app menu sets, reads back and fires by accelerator', async () => {
   await app.press('mod-shift-k');
   await app.waitForIdle();
   expect(await textOf('desktop-menu-count')).toBe('increments: 2');
+
+  // AppKit draws the bar, so its item images are set on the NSMenu itself.
+  if (process.platform === 'darwin') {
+    expect(await app.menuBarIcons()).toContain('Increment');
+  }
 });
 
 test('a menu item patch round-trips and the default menu can be restored', async () => {
@@ -227,6 +232,11 @@ test('a context menu shows, reports its model and selects an item', async () => 
   expect(model).toContain('Nested item');
   expect(model).toContain('"checked":true');
   expect(model).toContain('"enabled":false');
+  // The icon is loaded before the menu is built, so the native item has it.
+  const open = (menu?.items as { id?: string; iconLoaded?: boolean }[]).find(
+    item => item.id === 'cm-open',
+  );
+  expect(open?.iconLoaded).toBe(true);
 
   expect(await app.selectContextMenuItem('cm-nested')).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
@@ -477,6 +487,36 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   await app.getByTestId('tray-destroy').click();
   await app.waitForIdle();
   expect(await app.trayState()).toMatchObject({ installed: false });
+});
+
+test('a tray takes an icon, a title and menu icons', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-icon').click();
+  await app.waitForIdle();
+  const installed = await app.trayState();
+  expect(await textOf('tray-state')).not.toContain('error');
+  expect(installed).toMatchObject({
+    installed: true,
+    title: 'RN',
+    icon: { width: 36, height: 36, template: true },
+  });
+  const items = installed.menuItems as {
+    id?: string;
+    iconLoaded?: boolean;
+  }[];
+  expect(items.find(item => item.id === 'tray-open')?.iconLoaded).toBe(true);
+
+  await app.getByTestId('tray-set-icon').click();
+  await app.waitForIdle();
+  expect(await app.trayState()).toMatchObject({
+    title: 'GPUI',
+    icon: { width: 36, height: 36, template: false },
+  });
+
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
 });
 
 test('with a tray the app outlives its windows and reopens them', async () => {

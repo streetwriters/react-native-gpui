@@ -129,6 +129,7 @@ impl ComponentRenderer for ContextMenuViewRenderer {
         if !claims_press(&node.props) || !has_items(&node.props) {
             return InputSpec::default();
         }
+        crate::desktop::icon::prefetch_menu(&node.props["items"]);
         InputSpec {
             // No buttons: the right press is already reported by the node's own
             // listener. This flag is what makes the press find this component as

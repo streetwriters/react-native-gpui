@@ -78,6 +78,25 @@ impl TrayConfig {
         self
     }
 
+    /// An encoded image (PNG, JPEG, …), typically from `include_bytes!`. One
+    /// that does not decode is logged and the built-in glyph is used instead.
+    #[must_use]
+    pub fn icon_bytes(mut self, bytes: &[u8]) -> Self {
+        match crate::desktop::icon::decode(bytes.to_vec()) {
+            Ok(icon) => self.icon = Some((icon.rgba, icon.width, icon.height)),
+            Err(error) => log::error!("[desktop][tray] icon: {error}"),
+        }
+        self
+    }
+
+    /// macOS: draw the icon as a template the menu bar tints for light and
+    /// dark mode.
+    #[must_use]
+    pub fn icon_template(mut self, template: bool) -> Self {
+        self.icon_is_template = template;
+        self
+    }
+
     #[must_use]
     pub fn menu(mut self, menu: MenuModel) -> Self {
         self.menu = Some(menu);
@@ -316,16 +335,42 @@ pub fn set_visible(cx: &mut App, visible: bool) -> DesktopResult {
     Ok(json!({"visible": visible}))
 }
 
-pub fn set_icon(cx: &mut App, path: &str) -> DesktopResult {
+pub fn set_icon(
+    cx: &mut App,
+    icon: &crate::desktop::icon::DecodedIcon,
+    template: bool,
+) -> DesktopResult {
     let tray = installed(cx)?;
-    let icon = load_icon(path)?;
+    let native = tray_icon::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+        .map_err(|error| DesktopError::invalid_argument(format!("{error}")))?;
     let handle = tray.0.borrow().icon.clone();
     if let Some(handle) = handle {
-        handle
-            .set_icon(Some(icon))
-            .map_err(|error| DesktopError::failed(format!("{error}")))?;
+        #[cfg(target_os = "macos")]
+        let applied = if template {
+            handle.set_icon_templated(Some(native))
+        } else {
+            handle.set_icon(Some(native))
+        };
+        #[cfg(not(target_os = "macos"))]
+        let applied = handle.set_icon(Some(native));
+        applied.map_err(|error| DesktopError::failed(format!("{error}")))?;
     }
-    Ok(json!({"path": path}))
+    // Kept, so a tray rebuilt from its config shows the same icon.
+    let mut state = tray.0.borrow_mut();
+    state.config.icon = Some((icon.rgba.clone(), icon.width, icon.height));
+    state.config.icon_is_template = template;
+    Ok(json!({"width": icon.width, "height": icon.height, "template": template}))
+}
+
+/// Text beside the icon; Windows trays have none.
+pub fn set_title(cx: &mut App, title: Option<&str>) -> DesktopResult {
+    let tray = installed(cx)?;
+    let icon = tray.0.borrow().icon.clone();
+    if let Some(icon) = icon {
+        icon.set_title(title);
+    }
+    tray.0.borrow_mut().config.title = title.map(str::to_string);
+    Ok(json!({"title": title}))
 }
 
 /// `None` clears the menu.
@@ -365,6 +410,12 @@ pub fn state(cx: &App) -> Value {
         "popover": tray.popover,
         "clicks": tray.clicks,
         "hasMenu": tray.config.menu.is_some(),
+        "title": tray.config.title,
+        "icon": tray.config.icon.as_ref().map(|(_, width, height)| json!({
+            "width": width,
+            "height": height,
+            "template": tray.config.icon_is_template,
+        })),
         // Whether a StatusNotifier host is watching the session bus, so a caller
         // can tell "the icon is there and the panel is showing it" from "the app
         // is publishing an icon that this desktop has nowhere to draw". Only
@@ -445,10 +496,14 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
         .with_id(config.id.clone())
         .with_menu_on_left_click(false);
     // Template mode is a macOS menu-bar concept; every other platform draws
-    // the icon as-is.
+    // the icon as-is. The built-in glyph is always a template.
     #[cfg(target_os = "macos")]
     {
-        builder = builder.with_icon_templated(icon);
+        builder = if config.icon.is_none() || config.icon_is_template {
+            builder.with_icon_templated(icon)
+        } else {
+            builder.with_icon(icon)
+        };
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -702,7 +757,13 @@ fn build_tray_menu(
     items: &[menu_model::MenuNode],
 ) -> Result<(), String> {
     use menu_model::MenuNode;
-    use tray_icon::menu::{CheckMenuItem, IsMenuItem, MenuItem, PredefinedMenuItem, Submenu};
+    use tray_icon::menu::{
+        CheckMenuItem, IconMenuItem, IsMenuItem, MenuItem, PredefinedMenuItem, Submenu,
+    };
+    let icon = |uri: &Option<String>| {
+        let icon = crate::desktop::icon::cached(uri.as_deref()?)?;
+        tray_icon::menu::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height).ok()
+    };
 
     let mut children: Vec<Box<dyn IsMenuItem>> = Vec::new();
     for node in items {
@@ -718,14 +779,26 @@ fn build_tray_menu(
                     None,
                 )))
             }
-            MenuNode::Item(item) => children.push(Box::new(MenuItem::with_id(
-                item.id.clone(),
-                item.label.clone(),
-                item.enabled,
-                None,
-            ))),
+            MenuNode::Item(item) => match icon(&item.icon) {
+                Some(icon) => children.push(Box::new(IconMenuItem::with_id(
+                    item.id.clone(),
+                    item.label.clone(),
+                    item.enabled,
+                    Some(icon),
+                    None,
+                ))),
+                None => children.push(Box::new(MenuItem::with_id(
+                    item.id.clone(),
+                    item.label.clone(),
+                    item.enabled,
+                    None,
+                ))),
+            },
             MenuNode::Submenu(submenu) => {
                 let child = Submenu::new(submenu.label.clone(), submenu.enabled);
+                if let Some(icon) = icon(&submenu.icon) {
+                    child.set_icon(Some(icon));
+                }
                 build_tray_menu(&child, &submenu.items)?;
                 children.push(Box::new(child));
             }
@@ -752,15 +825,6 @@ fn default_icon() -> Result<tray_icon::Icon, String> {
         }
     }
     tray_icon::Icon::from_rgba(rgba, SIZE, SIZE).map_err(|error| error.to_string())
-}
-
-fn load_icon(path: &str) -> Result<tray_icon::Icon, DesktopError> {
-    let image = image::open(path)
-        .map_err(|error| DesktopError::invalid_argument(format!("could not read {path}: {error}")))?
-        .to_rgba8();
-    let (width, height) = image.dimensions();
-    tray_icon::Icon::from_rgba(image.into_raw(), width, height)
-        .map_err(|error| DesktopError::failed(format!("{error}")))
 }
 
 fn wants_menu(has_menu: bool, menu_on_left_click: bool, button: TrayButton) -> bool {

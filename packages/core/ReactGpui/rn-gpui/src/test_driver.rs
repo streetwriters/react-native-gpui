@@ -1237,6 +1237,9 @@ async fn serve_commands(
                 let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
                 cx.update(|cx| json!({"closed": crate::desktop::windows::os_close(cx, key)}))
             }
+            "menuBarIcons" => json!({
+                "titles": crate::desktop::app_menu::menu_bar_image_titles(),
+            }),
             "appReopen" => cx.update(|cx| {
                 crate::desktop::windows::reopen(cx);
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)

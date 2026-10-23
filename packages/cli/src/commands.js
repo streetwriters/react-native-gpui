@@ -714,6 +714,12 @@ export function desktopLaunchConfig(config, configPath) {
     if (tray.tooltip !== undefined) {
       trayChain += `.tooltip(${JSON.stringify(tray.tooltip)})`;
     }
+    if (tray.icon !== undefined) {
+      // Embedded, so a packaged app needs no file beside it.
+      const iconPath = JSON.stringify(`/${tray.icon.replaceAll('\\', '/')}`);
+      trayChain += `.icon_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), ${iconPath})))`;
+      trayChain += `.icon_template(${tray.iconTemplate === true})`;
+    }
     if (tray.accessory === false) {
       trayChain += '.accessory(false)';
     }

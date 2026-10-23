@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter, Image } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
 import NativeGpuiAppMenu from '../specs/NativeGpuiAppMenu';
 import { nativeRequest } from './index';
 import type { Subscription } from './windows';
@@ -58,6 +59,12 @@ export type MenuRole =
   | 'windowMenu'
   | 'helpMenu';
 
+/**
+ * An image a menu item or the tray shows: anything `<Image source>` takes
+ * (`require('./icon.png')`, `{ uri }`), or a path or URI as a string.
+ */
+export type DesktopIcon = ImageSourcePropType | string;
+
 export type MenuItemSpec =
   | {
       type?: 'item';
@@ -65,8 +72,10 @@ export type MenuItemSpec =
       label: string;
       accelerator?: string;
       enabled?: boolean;
+      /** A checked item shows its check mark instead of the icon. */
       checked?: boolean;
       role?: MenuRole;
+      icon?: DesktopIcon;
     }
   | {
       type: 'submenu';
@@ -74,6 +83,8 @@ export type MenuItemSpec =
       label: string;
       enabled?: boolean;
       items: MenuItemSpec[];
+      /** Drawn by the custom and GPUI-drawn menus; native submenus have none. */
+      icon?: DesktopIcon;
     }
   | { type: 'separator' }
   | { type: 'role'; role: MenuRole; label?: string; enabled?: boolean };
@@ -99,6 +110,36 @@ export interface MenuDescription {
 
 const MENU_PRESS = 'gpuiDesktop:menuPress';
 
+/** The URI the native side loads an icon from. */
+export function iconUri(icon: DesktopIcon | undefined): string | undefined {
+  if (icon == null) {
+    return undefined;
+  }
+  if (typeof icon === 'string') {
+    return icon;
+  }
+  const source = Array.isArray(icon) ? icon[0] : icon;
+  return source == null ? undefined : Image.resolveAssetSource(source)?.uri;
+}
+
+/** A menu as the native presenters read it: each icon as a URI. */
+export function nativeMenuItems(items: MenuItemSpec[]): Object[] {
+  return items.map(item => {
+    if (item.type === 'separator' || item.type === 'role') {
+      return item;
+    }
+    const { icon, ...rest } = item;
+    const uri = iconUri(icon);
+    const native: { [key: string]: unknown } = uri
+      ? { ...rest, icon: uri }
+      : rest;
+    if (item.type === 'submenu') {
+      native.items = nativeMenuItems(item.items);
+    }
+    return native;
+  });
+}
+
 export const Menu = {
   /**
    * Replace the application menu. `null` restores the default menu (app menu,
@@ -106,7 +147,7 @@ export const Menu = {
    */
   setApplicationMenu(items: MenuItemSpec[] | null): Promise<void> {
     return request(native =>
-      native.menuSetApplicationMenu(items as unknown as Object[] | null),
+      native.menuSetApplicationMenu(items ? nativeMenuItems(items) : null),
     );
   },
 

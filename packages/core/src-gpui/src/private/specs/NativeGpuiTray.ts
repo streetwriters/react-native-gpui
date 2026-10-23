@@ -10,6 +10,8 @@ export type TrayOptions = {
   id?: string;
   tooltip?: string;
   title?: string;
+  icon?: string;
+  iconTemplate?: boolean;
   component?: string;
   size?: TraySize;
   menu?: Array<Object>;
@@ -31,6 +33,14 @@ export type TrayState = {
   clicks?: number;
   hasMenu?: boolean;
   menuItems?: Array<Object>;
+  title?: string | null;
+  icon?: TrayIconState | null;
+};
+
+export type TrayIconState = {
+  width: number;
+  height: number;
+  template: boolean;
 };
 
 export interface Spec extends TurboModule {
@@ -39,7 +49,8 @@ export interface Spec extends TurboModule {
   trayGetState(): Promise<TrayState>;
   traySetTooltip(tooltip: string | null): Promise<void>;
   traySetVisible(visible: boolean): Promise<void>;
-  traySetIcon(path: string): Promise<void>;
+  traySetIcon(icon: string, template: boolean): Promise<void>;
+  traySetTitle(title: string | null): Promise<void>;
   traySetMenu(items: Array<Object> | null): Promise<void>;
 
   addListener(eventName: string): void;
