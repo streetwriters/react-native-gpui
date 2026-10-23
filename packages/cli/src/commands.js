@@ -297,10 +297,15 @@ function startMetroInTerminal({ projectRoot, desktopRoot, args, terminal }) {
   const require = createRequire(path.join(projectRoot, 'package.json'));
   let cli;
   try {
-    cli = require.resolve('react-native/cli.js');
+    // `cli.js` is not in react-native's `exports`; `package.json` is.
+    cli = path.join(
+      path.dirname(require.resolve('react-native/package.json')),
+      'cli.js',
+    );
   } catch {
     return false;
   }
+  if (!fs.existsSync(cli)) return false;
   const scriptDir = path.join(desktopRoot, 'build');
   fs.mkdirSync(scriptDir, { recursive: true });
   try {
