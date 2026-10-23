@@ -120,6 +120,7 @@ fn platform_access(path: &str, requested: i32) -> Result<(), ModuleError> {
     })?;
     // `access` reports failure by return value and sets `errno`, so the error is
     // built from `last_os_error` and then mapped like any other.
+    // SAFETY: `name` is a NUL-terminated string that outlives the call.
     let result = unsafe { libc::access(name.as_ptr(), mask) };
     if result == 0 {
         Ok(())

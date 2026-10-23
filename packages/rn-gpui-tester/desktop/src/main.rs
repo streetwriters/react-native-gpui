@@ -17,6 +17,7 @@ impl react_native_gpui::native_view::NativeViewFactory for BlueNativeProbe {
         };
 
         let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
+        // SAFETY: the view is created and configured on the main thread, and its ownership passes to the native view handle.
         unsafe {
             let allocated: id = msg_send![class!(NSView), alloc];
             let view: id = msg_send![allocated, initWithFrame: frame];
@@ -60,6 +61,7 @@ impl react_native_gpui::native_view::NativeViewFactory for TesterWebView {
             },
             objective_c::{class, msg_send, sel, sel_impl},
         };
+        // SAFETY: the web view is created and configured on the main thread, and its ownership passes to the native view handle.
         unsafe {
             let allocated: id = msg_send![class!(WKWebView), alloc];
             let view: id = msg_send![allocated, initWithFrame: NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.))];

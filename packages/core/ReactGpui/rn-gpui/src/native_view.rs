@@ -25,6 +25,7 @@ pub(crate) fn window_top_inset(window: &Window) -> f32 {
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return 0.0;
     };
+    // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
     unsafe {
         let view = handle.ns_view.as_ptr() as id;
         let native_window: id = msg_send![view, window];
@@ -47,6 +48,7 @@ pub(crate) fn activate_accessibility_probe(window: &Window) {
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return;
     };
+    // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
     unsafe {
         let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
         let content: id = msg_send![native_window, contentView];
@@ -63,6 +65,7 @@ pub(crate) fn set_probe_titlebar_transparent(window: &Window, transparent: bool)
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return;
     };
+    // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
     unsafe {
         let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
         let mask: u64 = msg_send![native_window, styleMask];
@@ -83,6 +86,9 @@ pub(crate) fn test_accessibility_node(
     identifier: &str,
 ) -> Option<serde_json::Value> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    /// # Safety
+    ///
+    /// `value` must be a valid `NSString` or nil.
     unsafe fn string(value: id) -> String {
         if value.is_null() {
             return String::new();
@@ -96,6 +102,9 @@ pub(crate) fn test_accessibility_node(
                 .into_owned()
         }
     }
+    /// # Safety
+    ///
+    /// `element` must be a valid accessibility element or nil.
     unsafe fn find(element: id, identifier: &str, budget: &mut usize) -> Option<serde_json::Value> {
         if element.is_null() || *budget == 0 {
             return None;
@@ -135,6 +144,7 @@ pub(crate) fn test_accessibility_node(
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return None;
     };
+    // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
     unsafe {
         let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
         let content: id = msg_send![native_window, contentView];
@@ -151,6 +161,7 @@ pub(crate) fn test_window_visible(window: &Window) -> bool {
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return false;
     };
+    // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
     unsafe {
         let native_window: id = msg_send![handle.ns_view.as_ptr() as id, window];
         msg_send![native_window, isVisible]

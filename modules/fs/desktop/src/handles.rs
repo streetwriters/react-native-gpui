@@ -190,6 +190,7 @@ fn offset(position: f64) -> Result<Option<u64>, ModuleError> {
 #[cfg(unix)]
 fn appends(file: &File) -> bool {
     use std::os::unix::io::AsRawFd as _;
+    // SAFETY: `file` owns a valid descriptor for the duration of the call; `F_GETFL` takes no argument.
     let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
     flags >= 0 && flags & libc::O_APPEND != 0
 }

@@ -6,6 +6,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
+// SAFETY: `rn_gpui_mount_batch_applied` is defined in `GpuiMountingManager.cpp` with this signature.
 unsafe extern "C" {
     fn rn_gpui_mount_batch_applied();
 }
@@ -36,6 +37,7 @@ fn smoke_exit(code: i32, message: String) -> ! {
     extern "C" {
         fn _exit(code: i32) -> !;
     }
+    // SAFETY: `_exit` ends the process without unwinding, and nothing is borrowed across it.
     unsafe { _exit(code) }
 }
 
@@ -1935,6 +1937,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
                         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
                         cx.update(|cx| crate::desktop::perf_monitor::record_mount(cx, elapsed));
+                        // SAFETY: the C++ function decrements an atomic counter and takes no arguments.
                         unsafe { rn_gpui_mount_batch_applied() };
                         // Smoke mode: an app-surface batch is React content, so
                         // the frame GPUI draws after it is the one a human sees.
@@ -2199,6 +2202,7 @@ async fn capture_and_quit(
 fn run_as_accessory_app() {
     use objc::{class, msg_send, sel, sel_impl};
     const ACCESSORY: isize = 1;
+    // SAFETY: `NSApplication` is messaged from the main thread.
     unsafe {
         let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
         let _: bool = msg_send![app, setActivationPolicy: ACCESSORY];

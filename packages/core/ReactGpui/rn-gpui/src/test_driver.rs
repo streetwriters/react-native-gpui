@@ -15,6 +15,7 @@ use tungstenite::{accept, Message};
 
 const PROTOCOL_VERSION: u32 = 1;
 
+// SAFETY: the signatures match the definitions in the C++ host.
 unsafe extern "C" {
     fn rn_gpui_http_requests_not_ignored(patterns: *const std::ffi::c_char) -> u64;
     fn rn_gpui_mount_batches_in_flight() -> u64;
@@ -41,6 +42,7 @@ struct Request {
 /// has created one. Reported by `hello`, `tree` and `reload` so a client can
 /// wait for a *particular* instance after a reload.
 fn instance_generation() -> u64 {
+    // SAFETY: the C++ function takes no arguments and reads an atomic.
     unsafe { rn_gpui_instance_generation() }
 }
 
@@ -260,6 +262,7 @@ async fn serve_commands(
                 // another thread, so the reply carries the value the caller has
                 // to wait past, not the one it will end up at.
                 let generation = instance_generation();
+                // SAFETY: the C++ function takes no arguments and queues a reload.
                 unsafe {
                     rn_gpui_request_reload();
                 }
@@ -1369,6 +1372,7 @@ fn idle_status(
     stable_frames: Option<u8>,
 ) -> Value {
     let mut busy = Vec::new();
+    // SAFETY: these C++ probes take no pointers and only read counters.
     let js_tasks = unsafe { rn_gpui_pending_js_tasks() };
     if (js_tasks > 0 || unsafe { rn_gpui_reload_in_progress() })
         && !ignore.iter().any(|item| item == "js")
@@ -1377,6 +1381,7 @@ fn idle_status(
             json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
         );
     }
+    // SAFETY: these C++ probes take no pointers and only read counters.
     let native_animations = unsafe { rn_gpui_native_animations_active() };
     let pending_work = unsafe { rn_gpui_pending_work() };
     let frame_demand = unsafe { rn_gpui_frame_demand() };
@@ -1391,6 +1396,7 @@ fn idle_status(
         busy.push(json!({"source": "gestures", "detail": "native pointer gesture is active"}));
     }
     let patterns = std::ffi::CString::new(ignore_urls.join("\n")).unwrap_or_default();
+    // SAFETY: `patterns` is a NUL-terminated string that outlives the call; the other probe reads a counter.
     let http_requests = unsafe { rn_gpui_http_requests_not_ignored(patterns.as_ptr()) };
     let websocket_messages = unsafe { rn_gpui_websocket_messages_in_flight() };
     if (http_requests > 0 || websocket_messages > 0) && !ignore.iter().any(|item| item == "network")
@@ -1403,10 +1409,12 @@ fn idle_status(
             json!({"source": "images", "detail": format!("{image_loads} image load(s) in flight")}),
         );
     }
+    // SAFETY: these C++ probes take no pointers and only read counters.
     let mount_batches = unsafe { rn_gpui_mount_batches_in_flight() };
     if mount_batches > 0 && !ignore.iter().any(|item| item == "mount") {
         busy.push(json!({"source": "mount", "detail": format!("{mount_batches} Fabric mount batch(es) queued for GPUI")}));
     }
+    // SAFETY: these C++ probes take no pointers and only read counters.
     let pending_timers = unsafe { rn_gpui_pending_timers_due_within(1_500) };
     if pending_timers > 0 && !ignore.iter().any(|item| item == "timers") {
         busy.push(json!({"source": "timers", "detail": format!("{pending_timers} one-shot timer(s) due within 1500 ms")}));
@@ -1575,6 +1583,7 @@ fn activate_accessibility_probe(window: &gpui::Window) {
         return;
     };
     let hwnd = win32.hwnd.get() as *mut core::ffi::c_void;
+    // SAFETY: `hwnd` is the live window handle taken from the window's raw handle.
     unsafe {
         SendMessageW(hwnd, WM_GETOBJECT, 0, OBJID_CLIENT);
     }

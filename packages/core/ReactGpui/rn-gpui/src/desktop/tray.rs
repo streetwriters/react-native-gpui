@@ -529,6 +529,7 @@ fn tray_click_rect(
 #[cfg(target_os = "linux")]
 fn pointer_position() -> Option<(f64, f64)> {
     let xlib = x11_dl::xlib::Xlib::open().ok()?;
+    // SAFETY: the display from `XOpenDisplay` is null-checked before use and closed before returning.
     unsafe {
         let display = (xlib.XOpenDisplay)(std::ptr::null());
         if display.is_null() {

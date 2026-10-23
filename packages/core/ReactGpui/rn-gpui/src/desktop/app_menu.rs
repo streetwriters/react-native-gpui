@@ -682,6 +682,7 @@ fn set_windows_menu_attached(cx: &mut gpui::App, window_id: u32, visible: bool) 
         let RawWindowHandle::Win32(win32) = handle.as_raw() else {
             return Err(DesktopError::failed("window handle is not Win32"));
         };
+        // SAFETY: the `HWND` comes from the window's raw handle and `menu` is the live popup menu this module owns.
         unsafe {
             SetMenu(win32.hwnd.get() as _, menu as _);
             // The client size changed, so the frame has to be redrawn; GPUI picks
@@ -796,6 +797,7 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda
     }
     let refs: Vec<&dyn muda::IsMenuItem> = bar_items.iter().map(|item| item.as_ref()).collect();
     let _ = bar.append_all(&refs);
+    // SAFETY: `hwnd` is the live window handle this menu bar is built for.
     if unsafe { bar.init_for_hwnd(hwnd) }.is_err() {
         return None;
     }
@@ -828,6 +830,7 @@ fn set_platform_menus(window: &mut gpui::Window, menus: &[Menu]) -> Option<(muda
 #[cfg(target_os = "windows")]
 fn remove_platform_menu(mut menu: muda::Menu, hwnd: isize) {
     use muda::ContextMenu as _;
+    // SAFETY: `hwnd` is the window the menu was attached to, and it is detached once.
     unsafe {
         menu.detach_menu_subclass_from_hwnd(hwnd);
         let _ = menu.remove_for_hwnd(hwnd);
@@ -1269,6 +1272,7 @@ fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowH
 #[cfg(target_os = "macos")]
 fn show_about_panel(_cx: &mut App) {
     use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: `NSApplication` is messaged from the main thread.
     unsafe {
         let app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
         let _: () =

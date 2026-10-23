@@ -269,6 +269,7 @@ pub fn resident_memory_bytes() -> u64 {
     }
     let mut info = TaskBasicInfo::default();
     let mut count = (std::mem::size_of::<TaskBasicInfo>() / std::mem::size_of::<u32>()) as u32;
+    // SAFETY: `info` and `count` are valid for `task_info` to write, and `count` is the buffer size in `u32`s.
     let result = unsafe { task_info(mach_task_self(), TASK_BASIC_INFO, &mut info, &mut count) };
     if result == 0 {
         info.resident_size
