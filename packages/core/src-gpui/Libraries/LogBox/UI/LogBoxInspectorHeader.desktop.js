@@ -27,13 +27,13 @@ type Props = Readonly<{
   level: LogLevel,
 }>;
 
-const LogBoxInspectorHeaderSafeArea: React.ComponentType<ViewProps> =
+const LogBoxInspectorHeaderContainer: React.ComponentType<ViewProps> =
   Platform.OS === 'android' ? View : SafeAreaView;
 
 export default function LogBoxInspectorHeader(props: Props): React.Node {
   if (props.level === 'syntax') {
     return (
-      <LogBoxInspectorHeaderSafeArea style={styles[props.level]}>
+      <LogBoxInspectorHeaderContainer style={styles[props.level]}>
         <View style={styles.header}>
           <View style={styles.title}>
             <Text
@@ -45,7 +45,7 @@ export default function LogBoxInspectorHeader(props: Props): React.Node {
             </Text>
           </View>
         </View>
-      </LogBoxInspectorHeaderSafeArea>
+      </LogBoxInspectorHeaderContainer>
     );
   }
 
@@ -57,7 +57,7 @@ export default function LogBoxInspectorHeader(props: Props): React.Node {
   const titleText = `Log ${props.selectedIndex + 1} of ${props.total}`;
 
   return (
-    <LogBoxInspectorHeaderSafeArea style={styles[props.level]}>
+    <LogBoxInspectorHeaderContainer style={styles[props.level]}>
       <View style={styles.header}>
         <LogBoxInspectorHeaderButton
           id="logbox_header_button_prev"
@@ -83,7 +83,7 @@ export default function LogBoxInspectorHeader(props: Props): React.Node {
           onPress={() => props.onSelectIndex(nextIndex)}
         />
       </View>
-    </LogBoxInspectorHeaderSafeArea>
+    </LogBoxInspectorHeaderContainer>
   );
 }
 
