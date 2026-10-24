@@ -3296,22 +3296,6 @@ impl Render for RNNodeView {
                     }));
             }
         }
-        // Anywhere in a drag area — the region itself, or a node inside it that
-        // does not take the press — moves the window, and a double click zooms.
-        // macOS and Linux do not consult the hit-test, so the move starts here.
-        // Windows moves the window itself from the `HTCAPTION` press.
-        if control_area == Some(gpui::WindowControlArea::Drag) && !os_owns_press {
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    if event.click_count >= 2 {
-                        window.titlebar_double_click();
-                    } else {
-                        window.start_window_move();
-                    }
-                    cx.stop_propagation();
-                }));
-        }
         if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
             let node = cx.entity().downgrade();
             let down_node = node.clone();
@@ -3533,6 +3517,25 @@ impl Render for RNNodeView {
                     if active_target.is_some() || is_touch_target {
                         cx.stop_propagation();
                     }
+                }));
+        }
+        // Registered after every other press handler, which GPUI runs in reverse
+        // order: this one has to see the press before a touch or a context menu
+        // consumes it.
+        // Anywhere in a drag area — the region itself, or a node inside it that
+        // does not take the press — moves the window, and a double click zooms.
+        // macOS and Linux do not consult the hit-test, so the move starts here.
+        // Windows moves the window itself from the `HTCAPTION` press.
+        if control_area == Some(gpui::WindowControlArea::Drag) && !os_owns_press {
+            handlers
+                .left_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    if event.click_count >= 2 {
+                        window.titlebar_double_click();
+                    } else {
+                        window.start_window_move();
+                    }
+                    cx.stop_propagation();
                 }));
         }
         // A child of a scrolling container moves with its content, so a pointer area
