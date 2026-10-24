@@ -13,6 +13,8 @@ import React from 'react';
 import { View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import NativeWindowControl from '../specs/DesktopWindowControlNativeComponent';
+import { useDesktopWindowId } from './windowContext';
+import { DesktopWindow } from './windows';
 
 export type WindowControlAction = 'minimize' | 'maximize' | 'close';
 
@@ -51,6 +53,35 @@ export function WindowControl({
   testID,
 }: WindowControlProps) {
   const [state, setState] = React.useState<WindowControlState>(INITIAL);
+  const windowId = useDesktopWindowId();
+
+  // `maximized` follows the window, not just this button: the press and hover
+  // events carry it, but a window maximized any other way — a double click on
+  // the title bar, Win+Up, a snap — sends neither, and the maximize glyph has to
+  // turn into the restore glyph all the same.
+  React.useEffect(() => {
+    const desktopWindow = new DesktopWindow(windowId);
+    let alive = true;
+    const follow = (maximized: boolean) =>
+      setState(previous =>
+        previous.maximized === maximized
+          ? previous
+          : { ...previous, maximized },
+      );
+    desktopWindow.getState().then(
+      current => {
+        if (alive) follow(current.isMaximized);
+      },
+      () => {},
+    );
+    const subscription = desktopWindow.addListener('stateChange', event => {
+      if (typeof event.isMaximized === 'boolean') follow(event.isMaximized);
+    });
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, [windowId]);
 
   // On a platform without the desktop shell the component is not registered, so
   // fall back to a plain View: the app still renders and the button does nothing,

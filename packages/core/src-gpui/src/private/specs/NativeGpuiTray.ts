@@ -17,6 +17,7 @@ export type TrayOptions = {
   menu?: Array<Object>;
   menuOnLeftClick?: boolean;
   quitOnLastWindowClosed?: boolean;
+  hideWindowOnClose?: boolean;
 };
 
 export type TrayHandle = {

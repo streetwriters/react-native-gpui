@@ -120,6 +120,9 @@ impl NativeGpuiTraySpec for TrayModule {
                 if let Some(quit) = options.quit_on_last_window_closed {
                     config.quit_on_last_window_closed = quit;
                 }
+                if let Some(hide) = options.hide_window_on_close {
+                    config.hide_window_on_close = hide;
+                }
                 tray::install(cx, config)
             },
         )

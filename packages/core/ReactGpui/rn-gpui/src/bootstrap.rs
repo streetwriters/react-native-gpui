@@ -1237,6 +1237,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
             )
             .expect("failed to open the GPUI window");
         startup_trace("window open");
+        // Set per window, not once: a dev run's executable carries no icon, and
+        // on Windows the icon belongs to the window, not the application. Windows
+        // opened later get it in `windows::open_window`.
+        let _ = window.update(cx, |_root, window, _cx| {
+            crate::desktop::platform_window::apply_app_icon(window);
+        });
         let window_id = window.window_id();
         // What the compositor actually gave, which is the only authority on
         // whether the request for client-side decorations was granted. A window
@@ -1345,7 +1351,24 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 "surface corrected {surface_width}x{surface_height}@{estimated_scale}x -> \
                  {width}x{height}@{window_scale}x after the window opened"
             );
-            host.set_window_metrics(width, height, scale);
+            if gpui_first {
+                // No React surface: only `Dimensions` has to learn the values.
+                host.set_window_metrics(width, height, scale);
+            } else {
+                // The surface itself, not only `Dimensions`. It was started at the
+                // estimated scale, and Yoga rounds the layout to that scale's pixel
+                // grid: told only about `Dimensions`, a surface started at 1x kept
+                // its 1x layout, so a 1230.4-point window laid out 1230 points —
+                // 1537.5 pixels at 1.25x — and the window's last pixel column was
+                // never painted until something resized it. `set_surface_size` is
+                // what a resize calls, and it updates `Dimensions` as well.
+                host.set_surface_size(
+                    APP_SURFACE_ID,
+                    width,
+                    (height - menu_bar_inset).max(1.0),
+                    scale,
+                );
+            }
         }
         if gpui_first {
             log::info!(
@@ -1857,8 +1880,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 })
             })
             .expect("failed to observe the window's bounds");
+        let state_subscription = window
+            .update(cx, |_root, window, cx| {
+                crate::desktop::windows::install_state_observer(window, cx)
+            })
+            .expect("failed to observe the window's state");
         store.update(cx, |store, _cx| {
             store.window_bounds_subscription = Some(bounds_subscription);
+            store.window_state_subscription = Some(state_subscription);
         });
 
         #[cfg(feature = "visual-capture")]
@@ -2005,9 +2034,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         cx.update(|cx| crate::desktop::app_menu::trigger_item(cx, &id));
                     }
                     MainEvent::TrayMenuPerform(id) => {
-                        cx.update(|cx| {
-                            crate::desktop::tray::emit_menu_press(cx, &id)
-                        });
+                        cx.update(|cx| crate::desktop::tray::perform_menu(cx, &id));
                     }
                     MainEvent::DevMenuPerform(id) => {
                         cx.update(|cx| crate::desktop::dev_menu::perform(cx, &id));

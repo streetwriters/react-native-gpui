@@ -266,6 +266,16 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             )
         })
         .unwrap_or((width, height, 2.0));
+    // A popover is created hidden, and a window that has not been shown has not
+    // had its first `WM_SIZE`, so what `viewport_size` reports for it is not
+    // something to start a surface from. The popover's own size is known, so the
+    // surface starts at that, and `prepare_popover` gives the window the same one.
+    #[cfg(target_os = "windows")]
+    let (w, h) = if options.popup {
+        (width, height)
+    } else {
+        (w, h)
+    };
 
     let mut props = options.props.clone().unwrap_or_else(|| json!({}));
     if !props.is_object() {
@@ -304,9 +314,16 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 ) {
                     log::debug!("[desktop] popover window hints: {error}");
                 }
+            } else {
+                // Every window of the app carries its icon, not only the first:
+                // on Windows it belongs to the window, so one opened later — a
+                // reopen from the tray, a secondary window — would show the
+                // default on its taskbar button. A popover has no button.
+                platform_window::apply_app_icon(window);
             }
             frame_hook.arm(window);
             subscriptions.push(install_bounds_observer(window, cx));
+            subscriptions.push(install_state_observer(window, cx));
             subscriptions.push(install_activation_observer(window, cx, key));
             install_close_hook(window, cx, key);
             subscriptions
@@ -408,7 +425,7 @@ fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool)
     maybe_quit(cx);
 }
 
-fn maybe_quit(cx: &mut App) {
+pub(crate) fn maybe_quit(cx: &mut App) {
     if !quit_on_last_window_closed(cx) {
         return;
     }
@@ -662,6 +679,39 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))
 }
 
+/// The OS's own frame for a window, in physical pixels, for the test driver:
+/// `{left, top, right, bottom, visible}`, or `null` where the platform cannot say.
+#[cfg(feature = "test-driver")]
+pub fn native_frame_json(cx: &mut App, key: u32) -> Value {
+    #[cfg(target_os = "windows")]
+    {
+        let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+            return Value::Null;
+        };
+        let handle = entry.handle;
+        return handle
+            .update(cx, |_root, window, _cx| {
+                platform_window::native_frame(window).map(|(left, top, right, bottom, visible)| {
+                    json!({
+                        "left": left,
+                        "top": top,
+                        "right": right,
+                        "bottom": bottom,
+                        "visible": visible,
+                    })
+                })
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(Value::Null);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (cx, key);
+        Value::Null
+    }
+}
+
 pub fn list_windows(cx: &App) -> DesktopResult {
     let windows = &cx.global::<DesktopWindowsGlobal>().0;
     let list: Vec<Value> = windows
@@ -731,6 +781,53 @@ pub(crate) fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> 
         .find(|key| windows.0.get(*key).map(|entry| entry.handle) == Some(handle))
 }
 
+/// Sends `gpuiDesktop:windowStateChange` when the window is maximized, restored,
+/// minimized or made fullscreen.
+///
+/// `DesktopWindow`'s `stateChange` listeners wait on it, and so does a caption
+/// button's maximize glyph, which has to turn into the restore glyph however the
+/// window got maximized — a double click on the title bar, Win+Up, a snap — not
+/// only when the button itself was pressed. Every one of those resizes the
+/// window, so the bounds observer is where the change is seen.
+pub(crate) fn install_state_observer<T: 'static>(
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<T>,
+) -> Subscription {
+    let state_of = |window: &gpui::Window| {
+        (
+            platform_window::is_maximized(window),
+            platform_window::is_minimized(window),
+            window.is_fullscreen(),
+        )
+    };
+    let mut last = state_of(window);
+    cx.observe_window_bounds(window, move |_root, window, cx| {
+        let state = state_of(window);
+        if state == last {
+            return;
+        }
+        last = state;
+        let handle: AnyWindowHandle = window.window_handle().into();
+        let Some(key) = window_key_for_handle(cx, handle) else {
+            return;
+        };
+        let Some(store) = cx.try_global::<StoreGlobal>() else {
+            return;
+        };
+        let host = store.0.read(cx).host.clone();
+        host.emit_device_event_json(
+            "gpuiDesktop:windowStateChange",
+            &json!({
+                "windowId": key,
+                "isMaximized": state.0,
+                "isMinimized": state.1,
+                "isFullscreen": state.2,
+            })
+            .to_string(),
+        );
+    })
+}
+
 fn install_activation_observer(
     window: &mut gpui::Window,
     cx: &mut gpui::Context<SurfaceRootView>,
@@ -797,6 +894,17 @@ fn install_close_hook(
                 std::time::Instant::now().duration_since(previous)
                     < std::time::Duration::from_secs(3)
             });
+        // A tray that asked for it keeps the last window: hidden, not destroyed, so
+        // that opening the app again shows it with its state. JavaScript's own
+        // veto (`closeRequested`) comes first, below, and decides for itself.
+        if !intercept && hides_on_close(cx, key) {
+            if let Err(error) = platform_window::hide(window) {
+                log::warn!("[desktop] could not hide window {key}: {error}");
+            } else {
+                log::info!("[desktop] hid window {key} instead of closing it");
+                return false;
+            }
+        }
         if !intercept || unanswered {
             if unanswered {
                 log::warn!("[desktop] window {key} close was not answered by JS; closing");
@@ -817,6 +925,45 @@ fn install_close_hook(
         emit_close_requested(cx, window, key);
         false
     });
+}
+
+/// Whether closing window `key` should hide it instead.
+fn hides_on_close(cx: &App, key: u32) -> bool {
+    let Some(windows) = cx.try_global::<DesktopWindowsGlobal>() else {
+        return false;
+    };
+    let Some(entry) = windows.0.get(key) else {
+        return false;
+    };
+    let other_windows_open = windows
+        .0
+        .by_key
+        .values()
+        .any(|other| other.key != key && other.role != WindowRole::TrayPopover);
+    should_hide_on_close(
+        crate::desktop::tray::hides_window_on_close(cx),
+        quit_on_last_window_closed(cx),
+        entry.role,
+        other_windows_open,
+    )
+}
+
+/// The decision, apart from where its inputs come from.
+///
+/// Only the last window the user can close is hidden: closing one of several
+/// closes it, as it always did. A popover is never hidden — it is closed so each
+/// show opens a fresh one. And an app that quits when its last window closes is
+/// not asking for a window to be kept, whatever else it set.
+fn should_hide_on_close(
+    hide_requested: bool,
+    quits_on_last_window: bool,
+    role: WindowRole,
+    other_windows_open: bool,
+) -> bool {
+    hide_requested
+        && !quits_on_last_window
+        && role != WindowRole::TrayPopover
+        && !other_windows_open
 }
 
 fn emit_close_requested(cx: &mut App, window: &mut gpui::Window, key: u32) {
@@ -855,5 +1002,41 @@ mod tests {
         assert!(windows.keys().is_empty());
         assert!(windows.get(1).is_none());
         assert!(windows.entry_for_surface(1).is_none());
+    }
+
+    #[test]
+    fn the_last_window_is_hidden_when_the_tray_asked_for_it() {
+        assert!(should_hide_on_close(true, false, WindowRole::Main, false));
+        assert!(should_hide_on_close(
+            true,
+            false,
+            WindowRole::Secondary,
+            false
+        ));
+    }
+
+    #[test]
+    fn nothing_is_hidden_unless_it_was_asked_for() {
+        assert!(!should_hide_on_close(false, false, WindowRole::Main, false));
+    }
+
+    #[test]
+    fn closing_one_of_several_windows_still_closes_it() {
+        assert!(!should_hide_on_close(true, false, WindowRole::Main, true));
+    }
+
+    #[test]
+    fn a_popover_is_closed_never_hidden() {
+        assert!(!should_hide_on_close(
+            true,
+            false,
+            WindowRole::TrayPopover,
+            false
+        ));
+    }
+
+    #[test]
+    fn an_app_that_quits_with_its_last_window_keeps_none() {
+        assert!(!should_hide_on_close(true, true, WindowRole::Main, false));
     }
 }

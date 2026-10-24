@@ -81,6 +81,62 @@ pub async fn load(uri: &str) -> Result<Arc<DecodedIcon>, String> {
     Ok(icon)
 }
 
+/// The app's own icon, `desktop.json`'s `icon`, as a dev run is told it through
+/// `RN_GPUI_APP_ICON`, scaled to the largest size a tray or a title bar shows.
+///
+/// Read once. `None` when the variable is unset — a packaged app, which has its
+/// icon in its executable and bundle instead — or the file cannot be read.
+pub fn app_icon() -> Option<Arc<DecodedIcon>> {
+    static APP_ICON: OnceLock<Option<Arc<DecodedIcon>>> = OnceLock::new();
+    APP_ICON
+        .get_or_init(|| {
+            let path = std::env::var_os("RN_GPUI_APP_ICON")?;
+            let bytes = match std::fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    log::warn!("[desktop] app icon {}: {error}", path.to_string_lossy());
+                    return None;
+                }
+            };
+            match decode(bytes) {
+                Ok(icon) => Some(Arc::new(fit_within(icon, APP_ICON_EDGE))),
+                Err(error) => {
+                    log::warn!("[desktop] app icon {}: {error}", path.to_string_lossy());
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+/// A tray icon is drawn at 16 to 32 points: the system scales anything larger
+/// down with a plain filter, which leaves a 512-pixel logo ragged. Scaling it
+/// here, once, with a good one keeps it crisp.
+const APP_ICON_EDGE: u32 = 64;
+
+/// `icon` scaled so that neither side is longer than `edge`, or unchanged when
+/// it already is smaller. The compressed source (`image`) is dropped: menus that
+/// draw an icon themselves read the file, and this copy is only ever pixels.
+fn fit_within(icon: DecodedIcon, edge: u32) -> DecodedIcon {
+    if icon.width <= edge && icon.height <= edge {
+        return icon;
+    }
+    let Some(source) = image::RgbaImage::from_raw(icon.width, icon.height, icon.rgba.clone())
+    else {
+        return icon;
+    };
+    let scale = f64::from(edge) / f64::from(icon.width.max(icon.height));
+    let width = ((f64::from(icon.width) * scale).round() as u32).max(1);
+    let height = ((f64::from(icon.height) * scale).round() as u32).max(1);
+    let resized = image::imageops::resize(&source, width, height, image::imageops::Lanczos3);
+    DecodedIcon {
+        rgba: resized.into_raw(),
+        width,
+        height,
+        image: None,
+    }
+}
+
 /// Loads every icon a menu payload names. A missing or broken icon is logged
 /// and the item is shown without one, as an `Image` with a bad source would be.
 pub async fn preload_menu(items: &Value) {
@@ -172,5 +228,30 @@ mod tests {
         let icon = decode(png).unwrap();
         assert_eq!((icon.width, icon.height), (3, 2));
         assert_eq!(&icon.rgba[..4], &[1, 2, 3, 4]);
+    }
+
+    fn solid(width: u32, height: u32) -> DecodedIcon {
+        DecodedIcon {
+            rgba: image::RgbaImage::from_pixel(width, height, image::Rgba([10, 20, 30, 255]))
+                .into_raw(),
+            width,
+            height,
+            image: None,
+        }
+    }
+
+    #[test]
+    fn a_large_app_icon_is_scaled_down_keeping_its_proportions() {
+        let icon = fit_within(solid(512, 256), 64);
+        assert_eq!((icon.width, icon.height), (64, 32));
+        assert_eq!(icon.rgba.len(), 64 * 32 * 4);
+        // A flat color stays that color through the filter.
+        assert_eq!(&icon.rgba[..4], &[10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn a_small_app_icon_is_left_alone() {
+        let icon = fit_within(solid(32, 32), 64);
+        assert_eq!((icon.width, icon.height), (32, 32));
     }
 }

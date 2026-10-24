@@ -86,6 +86,8 @@ pub struct ViewStore {
     log_mount_ops: bool,
     /// A dropped `Subscription` unsubscribes, so the store owns it.
     pub window_bounds_subscription: Option<Subscription>,
+    /// The main window's maximized / minimized / fullscreen observer.
+    pub window_state_subscription: Option<Subscription>,
     pub window_appearance_subscription: Option<Subscription>,
     pub navigation_keyboard_subscription: Option<Subscription>,
     /// Every host component report waiting to be applied, in order.
@@ -121,6 +123,7 @@ impl ViewStore {
             snapshots: HashMap::new(),
             log_mount_ops: benchmark_mode().is_none(),
             window_bounds_subscription: None,
+            window_state_subscription: None,
             window_appearance_subscription: None,
             navigation_keyboard_subscription: None,
             host_reports: std::rc::Rc::new(crate::host_component::HostReports::default()),
@@ -2403,6 +2406,8 @@ impl Render for SurfaceRootView {
             return div()
                 .size_full()
                 .relative()
+                .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+                .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
                 .children(self.children.iter().map(|(_, child)| child.clone()))
                 .into_any_element();
         }
@@ -2410,6 +2415,10 @@ impl Render for SurfaceRootView {
         let mut root = div()
             .size_full()
             .relative()
+            // Ahead of every node's listener, so a press that a title bar handed
+            // to the window does not leave the next press marked as well.
+            .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+            .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
             // The root stays hovered while any descendant is hit, so this only fires when
             // the pointer left the window.
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {

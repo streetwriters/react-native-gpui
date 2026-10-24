@@ -636,6 +636,33 @@ export class DesktopApp {
     return this.request('trayClick', rect);
   }
 
+  /**
+   * One window's state, by the id `listWindows` or `trayState` gives it. Bounds
+   * are in points, like the main window's.
+   */
+  async windowState(windowId: number): Promise<{
+    windowId: number;
+    bounds: { x: number; y: number; width: number; height: number };
+    isMaximized: boolean;
+    isFullscreen: boolean;
+    isFocused: boolean;
+    isMinimized: boolean;
+    scaleFactor: number;
+    /**
+     * The OS's own frame for the window, in physical pixels — what a user sees,
+     * where `bounds` is what GPUI believes. Windows only; `null` elsewhere.
+     */
+    nativeFrame: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+      visible: boolean;
+    } | null;
+  }> {
+    return this.request('windowState', { windowId });
+  }
+
   async trayHide(): Promise<unknown> {
     return this.request('trayHide');
   }
