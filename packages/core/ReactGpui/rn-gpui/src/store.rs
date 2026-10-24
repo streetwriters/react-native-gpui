@@ -686,6 +686,15 @@ impl ViewStore {
                         self.record_subtree_nodes(&[op.parent_tag], cx);
                     } else if let Some(root) = self.roots.get(&surface_id).cloned() {
                         self.remove_native_surface_from_ancestors(surface_id, op.tag, None, cx);
+                        // The app's whole tree leaving its surface is what a blank
+                        // window is: say so, with what is left, so a log answers
+                        // "when did it go" without a debugger.
+                        log::warn!(
+                            "[store] surface {surface_id} root child tag={} ({}) removed; {} child(ren) were mounted",
+                            op.tag,
+                            op.component,
+                            root.read(cx).children.len()
+                        );
                         root.update(cx, |root, cx| {
                             root.remove_child(op.tag);
                             cx.notify();
