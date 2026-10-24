@@ -5,6 +5,7 @@ pub mod context_menu;
 pub mod dev_menu;
 pub mod errors;
 pub mod gpui_menu;
+pub mod icon;
 pub mod keymap;
 pub mod menu_events;
 pub mod menu_model;

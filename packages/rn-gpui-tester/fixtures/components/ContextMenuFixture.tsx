@@ -31,7 +31,7 @@ const styles = {
 };
 
 const ITEMS: MenuItemSpec[] = [
-  { id: 'cm-open', label: 'Open' },
+  { id: 'cm-open', label: 'Open', icon: require('../../assets/tray-icon.png') },
   {
     type: 'submenu',
     label: 'More',

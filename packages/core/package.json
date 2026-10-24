@@ -14,6 +14,7 @@
     "NativeViewHost.tsx",
     "NativeViewHostNativeComponent.ts",
     "metro.config.js",
+    "metro-transform-worker.js",
     "setup-env.js",
     "src-gpui",
     "bin",

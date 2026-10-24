@@ -12,6 +12,13 @@ import {
   targetProfileDir,
   toPackagerConfig,
 } from './package-desktop.js';
+import {
+  cargoBuildRecording,
+  cargoTargetDirectory,
+  pruneTarget,
+  targetGcEnabled,
+  targetGcMaxAgeDays,
+} from './target-gc.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -217,62 +224,232 @@ function cargoConfigSetsTargetDir(projectRoot) {
   }
 }
 
-async function isMetroRunning(host, port) {
+/**
+ * The project the Metro on `host:port` serves: its root, `null` for a Metro
+ * that does not say (older versions), or `undefined` when none answers.
+ */
+export async function metroProjectRoot(host, port) {
   try {
     const response = await fetch(`http://${host}:${port}/status`, {
       signal: AbortSignal.timeout(1000),
     });
-    return (
-      response.ok && (await response.text()).includes('packager-status:running')
+    if (
+      !response.ok ||
+      !(await response.text()).includes('packager-status:running')
+    )
+      return undefined;
+    return response.headers.get('x-react-native-project-root');
+  } catch {
+    return undefined;
+  }
+}
+
+const samePath = (a, b) => {
+  const real = target => {
+    try {
+      return fs.realpathSync(target);
+    } catch {
+      return path.resolve(target);
+    }
+  };
+  return real(a) === real(b);
+};
+
+/**
+ * The terminal Metro opens in: `--terminal`, then `$REACT_TERMINAL` (the
+ * variable React Native's own `run-ios`/`run-android` read), then the
+ * platform's default.
+ */
+export function metroTerminal(
+  terminal,
+  {
+    platform = process.platform,
+    env = process.env,
+    exists = command => {
+      try {
+        execFileSync('which', [command], { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  } = {},
+) {
+  const requested = terminal ?? env.REACT_TERMINAL;
+  if (requested) return requested;
+  if (platform === 'darwin') {
+    if (env.TERM_PROGRAM === 'iTerm.app') return 'iTerm';
+    return 'Terminal';
+  }
+  if (platform === 'win32') return 'cmd.exe';
+  return [
+    'x-terminal-emulator',
+    'gnome-terminal',
+    'konsole',
+    'xfce4-terminal',
+    'kitty',
+    'alacritty',
+    'xterm',
+  ].find(exists);
+}
+
+const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
+
+/**
+ * Opens Metro in a terminal window of its own, where its keys (`r`, `d`, `j`)
+ * work, the way `run-ios` and `run-android` do. Returns false when no window
+ * could be opened.
+ */
+function startMetroInTerminal({ projectRoot, desktopRoot, args, terminal }) {
+  const require = createRequire(path.join(projectRoot, 'package.json'));
+  let cli;
+  try {
+    // `cli.js` is not in react-native's `exports`; `package.json` is.
+    cli = path.join(
+      path.dirname(require.resolve('react-native/package.json')),
+      'cli.js',
     );
+  } catch {
+    return false;
+  }
+  if (!fs.existsSync(cli)) return false;
+  const scriptDir = path.join(desktopRoot, 'build');
+  fs.mkdirSync(scriptDir, { recursive: true });
+  try {
+    if (process.platform === 'win32') {
+      const script = path.join(scriptDir, 'metro.bat');
+      const quoted = [process.execPath, cli, ...args].map(arg => `"${arg}"`);
+      fs.writeFileSync(
+        script,
+        `@echo off\r\ntitle Metro\r\ncd /d "${projectRoot}"\r\n${quoted.join(' ')}\r\npause\r\n`,
+      );
+      // A detached child on Windows gets a console window of its own.
+      spawn('cmd.exe', ['/c', script], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      }).unref();
+      return true;
+    }
+    const script = path.join(
+      scriptDir,
+      process.platform === 'darwin' ? 'metro.command' : 'metro.sh',
+    );
+    fs.writeFileSync(
+      script,
+      [
+        '#!/bin/sh',
+        `cd ${shellQuote(projectRoot)} || exit 1`,
+        `exec ${[process.execPath, cli, ...args].map(shellQuote).join(' ')}`,
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    fs.chmodSync(script, 0o755);
+    if (process.platform === 'darwin') {
+      execFileSync('open', ['-a', terminal, script], { stdio: 'ignore' });
+      return true;
+    }
+    // gnome-terminal takes the command after `--`; the others after `-e`.
+    const terminalArgs = /gnome-terminal$/u.test(terminal)
+      ? ['--', script]
+      : ['-e', script];
+    const child = spawn(terminal, terminalArgs, {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.on('error', () => {});
+    child.unref();
+    return true;
   } catch {
     return false;
   }
 }
 
-async function ensureMetro({ projectRoot, desktopRoot, host, port, config }) {
-  if (await isMetroRunning(host, port)) {
-    console.log(`Reusing Metro at http://${host}:${port}`);
-    return;
-  }
-
+/** The previous behaviour: Metro in the background, logging to a file. */
+function startMetroInBackground({ projectRoot, desktopRoot, args }) {
   const logPath = path.join(desktopRoot, 'build/metro.log');
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const logFd = fs.openSync(logPath, 'a');
-  const args = [
-    'react-native',
-    'start',
-    '--host',
-    host,
-    '--port',
-    String(port),
-    '--no-interactive',
-  ];
-  if (config) args.push('--config', config);
-  const server = spawn(npxCommand, npxArgs(args), {
-    cwd: projectRoot,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-    shell: npxShell,
-  });
+  const server = spawn(
+    npxCommand,
+    npxArgs(['react-native', ...args, '--no-interactive']),
+    {
+      cwd: projectRoot,
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      shell: npxShell,
+    },
+  );
   fs.closeSync(logFd);
   server.unref();
-  let launchError;
+  const state = { error: undefined, server, logPath };
   server.once('error', error => {
-    launchError = error;
+    state.error = error;
   });
+  return state;
+}
+
+async function ensureMetro({
+  projectRoot,
+  desktopRoot,
+  host,
+  port,
+  config,
+  packager = true,
+  packagerLog = false,
+  terminal,
+}) {
+  const runningFor = await metroProjectRoot(host, port);
+  if (runningFor !== undefined) {
+    if (runningFor !== null && !samePath(runningFor, projectRoot)) {
+      throw new Error(
+        `Metro at http://${host}:${port} is serving another project (${runningFor}). ` +
+          `Stop it, or run on another port with --port.`,
+      );
+    }
+    console.log(`Reusing Metro at http://${host}:${port}`);
+    return;
+  }
+  if (!packager) {
+    console.log(
+      `Metro is not running at http://${host}:${port}; start it with npx react-native start --port ${port}.`,
+    );
+    return;
+  }
+
+  const args = ['start', '--host', host, '--port', String(port)];
+  if (config) args.push('--config', config);
+  const interactive = process.stdin.isTTY && !process.env.CI;
+  const window =
+    !packagerLog && interactive ? metroTerminal(terminal) : undefined;
+  let background;
+  if (
+    window &&
+    startMetroInTerminal({ projectRoot, desktopRoot, args, terminal: window })
+  ) {
+    console.log(`Starting Metro in a new ${window} window`);
+  } else {
+    background = startMetroInBackground({ projectRoot, desktopRoot, args });
+  }
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (await isMetroRunning(host, port)) {
-      console.log(`Started Metro at http://${host}:${port} (log: ${logPath})`);
+    if ((await metroProjectRoot(host, port)) !== undefined) {
+      console.log(
+        background
+          ? `Started Metro at http://${host}:${port} (log: ${background.logPath})`
+          : `Started Metro at http://${host}:${port}`,
+      );
       return;
     }
-    if (launchError) throw launchError;
-    if (server.exitCode !== null) break;
+    if (background?.error) throw background.error;
+    if (background && background.server.exitCode !== null) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   throw new Error(
-    `Metro did not start at http://${host}:${port}. Check ${logPath} or run npx react-native start --port ${port}.`,
+    background
+      ? `Metro did not start at http://${host}:${port}. Check ${background.logPath} or run npx react-native start --port ${port}.`
+      : `Metro did not start at http://${host}:${port}. Check the Metro window or run npx react-native start --port ${port}.`,
   );
 }
 
@@ -282,8 +459,11 @@ export async function runDesktop({
   bundle,
   config,
   release = false,
-  port = 8082,
+  port = 8081,
   host = 'localhost',
+  packager = true,
+  packagerLog = false,
+  terminal,
   features,
   noLaunch = false,
   packaging = false,
@@ -375,6 +555,9 @@ export async function runDesktop({
       host,
       port: numericPort,
       config: fs.existsSync(metroConfig) ? metroConfig : undefined,
+      packager,
+      packagerLog,
+      terminal,
     });
   }
   copyFontAssets(projectRoot, bundlePath, rnConfig);
@@ -407,6 +590,9 @@ export async function runDesktop({
     RN_GPUI_AUTOLINK_MANIFEST: path.join(desktopRoot, 'autolink/autolink.json'),
     RN_GPUI_AUTOLINK_CMAKE: path.join(desktopRoot, 'autolink/autolink.cmake'),
   };
+  // An unbundled run has no Info.plist to name its icon, so the app is told
+  // where it is and sets its Dock icon itself.
+  if (!packaging) cargoEnv.RN_GPUI_APP_ICON = appIconPath(projectRoot);
   // `package-desktop` sets this: the binary is about to be installed elsewhere,
   // so `build.rs` emits only relative rpaths. A plain release build keeps the
   // absolute ones, because it is run from this tree.
@@ -417,10 +603,30 @@ export async function runDesktop({
   ) {
     cargoEnv.CARGO_TARGET_DIR = path.join(desktopRoot, 'build/target');
   }
-  run('cargo', cargoArgs, {
-    cwd: projectRoot,
-    env: cargoEnv,
-  });
+  if (targetGcEnabled()) {
+    // Cargo never cleans a target directory, so every build first drops the
+    // units no build has used for a week, then builds while recording what it
+    // used. The build is separate from the launch so its JSON messages are not
+    // mixed with the app's own output; `cargo run` then finds it all fresh.
+    const targetDir = cargoTargetDirectory(appCargoManifest, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+    if (targetDir) pruneTarget(targetDir, { maxAgeDays: targetGcMaxAgeDays() });
+    await cargoBuildRecording(['build', ...cargoArgs.slice(1)], {
+      cwd: projectRoot,
+      env: cargoEnv,
+      targetDir,
+    });
+    if (!noLaunch) {
+      run('cargo', cargoArgs, { cwd: projectRoot, env: cargoEnv });
+    }
+  } else {
+    run('cargo', cargoArgs, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+  }
 
   // The file the runtime was told to load: the engine's compiled output in a
   // release build, the Metro bundle otherwise. `package-desktop` stages it.
@@ -539,6 +745,12 @@ export function desktopLaunchConfig(config, configPath) {
     }
     if (tray.tooltip !== undefined) {
       trayChain += `.tooltip(${JSON.stringify(tray.tooltip)})`;
+    }
+    if (tray.icon !== undefined) {
+      // Embedded, so a packaged app needs no file beside it.
+      const iconPath = JSON.stringify(`/${tray.icon.replaceAll('\\', '/')}`);
+      trayChain += `.icon_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), ${iconPath})))`;
+      trayChain += `.icon_template(${tray.iconTemplate === true})`;
     }
     if (tray.accessory === false) {
       trayChain += '.accessory(false)';
@@ -1552,6 +1764,16 @@ function generateIcons(config, { crateDir }) {
     fs.copyFileSync(source, target);
   }
   return [path.relative(crateDir, target).split(path.sep).join('/')];
+}
+
+/** The icon `desktop.json` names, or the CLI's placeholder. */
+function appIconPath(projectRoot) {
+  const { icon } = loadDesktopConfig(projectRoot, process.platform);
+  const source =
+    icon === undefined
+      ? defaultIconPath()
+      : path.resolve(projectRoot, 'desktop', icon);
+  return fs.existsSync(source) ? source : defaultIconPath();
 }
 
 /// The square PNG bundled with the CLI, used when an app sets no icon.

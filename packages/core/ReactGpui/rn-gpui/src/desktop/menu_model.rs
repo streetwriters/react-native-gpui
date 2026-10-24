@@ -21,6 +21,8 @@ pub struct MenuItemDef {
     pub enabled: bool,
     pub checked: bool,
     pub role: Option<MenuRole>,
+    /// The URI of the item's icon, loaded by `desktop::icon`.
+    pub icon: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +31,7 @@ pub struct SubmenuDef {
     pub label: String,
     pub enabled: bool,
     pub items: Vec<MenuNode>,
+    pub icon: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,7 +257,7 @@ fn parse_node(value: &Value, depth: usize) -> Result<MenuNode, DesktopError> {
             Ok(MenuNode::Separator)
         }
         "submenu" => {
-            check_fields(object, &["type", "id", "label", "enabled", "items"])?;
+            check_fields(object, &["type", "id", "label", "enabled", "items", "icon"])?;
             let label = required_string(object, "label")?;
             let enabled = optional_bool(object, "enabled")?.unwrap_or(true);
             let items = object
@@ -268,6 +271,7 @@ fn parse_node(value: &Value, depth: usize) -> Result<MenuNode, DesktopError> {
                 label,
                 enabled,
                 items: parse_items(items, depth + 1)?,
+                icon: optional_string(object, "icon")?,
             }))
         }
         "role" => {
@@ -287,6 +291,7 @@ fn parse_node(value: &Value, depth: usize) -> Result<MenuNode, DesktopError> {
                 enabled: optional_bool(object, "enabled")?.unwrap_or(true),
                 checked: false,
                 role: Some(role),
+                icon: None,
             }))
         }
         "item" => {
@@ -300,6 +305,7 @@ fn parse_node(value: &Value, depth: usize) -> Result<MenuNode, DesktopError> {
                     "enabled",
                     "checked",
                     "role",
+                    "icon",
                 ],
             )?;
             let role = match optional_string(object, "role")? {
@@ -336,6 +342,7 @@ fn parse_node(value: &Value, depth: usize) -> Result<MenuNode, DesktopError> {
                 enabled: optional_bool(object, "enabled")?.unwrap_or(true),
                 checked: optional_bool(object, "checked")?.unwrap_or(false),
                 role,
+                icon: optional_string(object, "icon")?,
             }))
         }
         other => Err(DesktopError::invalid_argument(format!(

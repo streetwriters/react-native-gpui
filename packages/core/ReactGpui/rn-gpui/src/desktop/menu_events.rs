@@ -69,17 +69,21 @@ fn route(id: &str) -> Handled {
 /// calls do nothing, which is what stops a second menu system from taking the
 /// channel away from the first.
 ///
-/// The two platforms reach a menu event through different crates, and each
-/// has exactly one channel:
+/// Two crates deliver menu events, each with exactly one channel, and this app
+/// builds menus with both:
 ///
-/// - macOS and Windows build their native menus with `muda` (this crate's own
-///   dependency), so its `MenuEvent` is the channel.
-/// - Linux's tray goes through `tray_icon`, which bundles its own newer `muda`
-///   and re-exports it as `tray_icon::menu`. The `ksni` backend sends the
-///   selection on *that* crate's `MenuEvent` — a different channel from the one
-///   above, even though the type has the same name. Linux's GPUI-drawn menus
-///   (the menu bar and context menus) do not use an event channel at all; they
-///   report through their own responder.
+/// - `muda`, this crate's own dependency, builds the Win32 menu bar and the native
+///   context menus on macOS and Windows.
+/// - `tray_icon` bundles its own, newer `muda` and re-exports it as
+///   `tray_icon::menu`, and the tray's menu is built with that copy on every
+///   platform. The two are different versions — the lockfile holds both — so their
+///   `MenuEvent`s are different channels even though the type has the same name,
+///   and a selection from a tray menu arrives on `tray_icon`'s, never on `muda`'s.
+///   Listening only on `muda`'s is what left a tray menu's items doing nothing on
+///   macOS and Windows.
+///
+/// Linux's GPUI-drawn menus (the menu bar and context menus) do not use an event
+/// channel at all; they report through their own responder.
 fn ensure_installed() {
     INSTALLED.get_or_init(|| {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -88,14 +92,11 @@ fn ensure_installed() {
                 route(&event.id.0);
             }));
         }
-        #[cfg(target_os = "linux")]
-        {
-            let _ = tray_icon::menu::MenuEvent::set_event_handler(Some(
-                |event: tray_icon::menu::MenuEvent| {
-                    route(&event.id.0);
-                },
-            ));
-        }
+        let _ = tray_icon::menu::MenuEvent::set_event_handler(Some(
+            |event: tray_icon::menu::MenuEvent| {
+                route(&event.id.0);
+            },
+        ));
     });
 }
 

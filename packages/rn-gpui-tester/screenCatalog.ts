@@ -360,6 +360,12 @@ export const screens = [
     fixture: 'ErrorFixture',
   },
   {
+    id: 'logbox',
+    title: 'LogBox notifications',
+    group: 'Diagnostics',
+    fixture: 'LogBoxFixture',
+  },
+  {
     id: 'benchmark-idle',
     title: '10K views: idle',
     group: 'Benchmarks',

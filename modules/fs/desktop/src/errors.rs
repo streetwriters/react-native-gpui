@@ -36,8 +36,26 @@ pub fn code_for(error: &std::io::Error) -> &'static str {
         return code;
     }
     // Windows exposes `raw_os_error` too, but its values are Win32 codes rather
-    // than errnos, so the kind is the better signal there.
+    // than errnos, so the kind is the better signal there, with the few Win32
+    // codes whose kind is not enough named below.
+    #[cfg(not(unix))]
+    if let Some(code) = win32_code(error.raw_os_error()) {
+        return code;
+    }
     code_for_kind(error.kind())
+}
+
+/// The Node code for a Win32 error whose `ErrorKind` is too coarse.
+///
+/// `ERROR_PRIVILEGE_NOT_HELD` (1314) has no kind of its own, so it would be `EIO`.
+/// Creating a symbolic link without the privilege is the case that hits it, and
+/// libuv, which Node is built on, reports it as `EPERM`.
+#[cfg(not(unix))]
+fn win32_code(raw: Option<i32>) -> Option<&'static str> {
+    match raw {
+        Some(1314) => Some("EPERM"),
+        _ => None,
+    }
 }
 
 fn code_for_kind(kind: std::io::ErrorKind) -> &'static str {
@@ -112,6 +130,15 @@ mod tests {
     fn a_denied_file_is_eacces() {
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope");
         assert_eq!(from_io(error, "/x").code.as_deref(), Some("EACCES"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_missing_symlink_privilege_is_eperm_not_eio() {
+        // ERROR_PRIVILEGE_NOT_HELD: what `symlink_dir` returns without developer
+        // mode, and what Node reports as EPERM.
+        let error = std::io::Error::from_raw_os_error(1314);
+        assert_eq!(from_io(error, "C:\\link").code.as_deref(), Some("EPERM"));
     }
 
     #[test]

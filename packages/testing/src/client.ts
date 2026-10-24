@@ -568,6 +568,12 @@ export class DesktopApp {
     return this.request('menuBarState');
   }
 
+  /** macOS: the titles of the system menu bar's items that show an image. */
+  async menuBarIcons(): Promise<string[]> {
+    const result = await this.request<{ titles: string[] }>('menuBarIcons');
+    return result.titles;
+  }
+
   async openMenuBarMenu(title: string): Promise<boolean> {
     const result = await this.request<{ opened: boolean }>('openMenuBarMenu', {
       title,
@@ -612,6 +618,8 @@ export class DesktopApp {
     clicks?: number;
     hasMenu?: boolean;
     menuItems?: unknown[];
+    title?: string | null;
+    icon?: { width: number; height: number; template: boolean } | null;
   }> {
     return this.request('trayState');
   }
@@ -626,6 +634,33 @@ export class DesktopApp {
     } = {},
   ): Promise<unknown> {
     return this.request('trayClick', rect);
+  }
+
+  /**
+   * One window's state, by the id `listWindows` or `trayState` gives it. Bounds
+   * are in points, like the main window's.
+   */
+  async windowState(windowId: number): Promise<{
+    windowId: number;
+    bounds: { x: number; y: number; width: number; height: number };
+    isMaximized: boolean;
+    isFullscreen: boolean;
+    isFocused: boolean;
+    isMinimized: boolean;
+    scaleFactor: number;
+    /**
+     * The OS's own frame for the window, in physical pixels — what a user sees,
+     * where `bounds` is what GPUI believes. Windows only; `null` elsewhere.
+     */
+    nativeFrame: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+      visible: boolean;
+    } | null;
+  }> {
+    return this.request('windowState', { windowId });
   }
 
   async trayHide(): Promise<unknown> {
@@ -701,6 +736,20 @@ export class DesktopApp {
     });
     await this.waitForIdle();
     return result.closed;
+  }
+
+  /**
+   * What clicking the Dock icon does on macOS: bring back a hidden window, or
+   * open the main component again when every window was closed.
+   */
+  async reopen(): Promise<{
+    windows: { windowId: number; component: string; role: string }[];
+  }> {
+    const result = await this.request<{
+      windows: { windowId: number; component: string; role: string }[];
+    }>('appReopen');
+    await this.waitForIdle();
+    return result;
   }
 
   async listWindows(): Promise<{

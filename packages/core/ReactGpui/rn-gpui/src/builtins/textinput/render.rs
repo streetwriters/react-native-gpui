@@ -68,17 +68,30 @@ pub(crate) fn paragraph_content(
     element
 }
 
+/// Fabric measured the text inside the padding and border, so it is laid out
+/// and painted in that content box, not across the whole frame.
 pub(crate) fn plain_paragraph(
+    node: &RNNodeView,
     element: Stateful<Div>,
     paragraph: &ParagraphFlat,
     scale: (f32, f32),
     frame: RectF,
 ) -> Stateful<Div> {
-    element.child(crate::text::paragraph_element(
-        paragraph,
-        frame.w * scale.0,
-        frame.h * scale.1,
-    ))
+    let (scale_x, scale_y) = scale;
+    let insets = node.view.content_insets;
+    let left = insets.left * scale_x;
+    let top = insets.top * scale_y;
+    let width = (frame.w * scale_x - left - insets.right * scale_x).max(0.0);
+    let height = (frame.h * scale_y - top - insets.bottom * scale_y).max(0.0);
+    element.child(
+        div()
+            .absolute()
+            .left(px(left))
+            .top(px(top))
+            .w(px(width))
+            .h(px(height))
+            .child(crate::text::paragraph_element(paragraph, width, height)),
+    )
 }
 
 pub(crate) fn caret_canvas(

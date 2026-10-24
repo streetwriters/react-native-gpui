@@ -13,8 +13,16 @@ members = [
 debug = "line-tables-only"
 split-debuginfo = "packed"
 
+# The same dev profile as every other workspace root in the checkout (the tester's
+# and each module's): they all build into the one root `target/`, and a profile
+# that differs gives the same dependency a different hash, so it is compiled and
+# stored once per variant.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
+
+[profile.dev.package.rn-gpui-sys]
+opt-level = 0
 
 [profile.release]
 # Line tables, not `false`: a release crash is worth symbolizing, and with
@@ -34,8 +42,8 @@ lto = "fat"
 codegen-units = 1
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "7bf381d" }
-gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "7bf381d" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "8da7d89" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "8da7d89" }
 cxx = "=1.0.202"
 cxx-build = "=1.0.202"
 cmake = "0.1"
@@ -45,5 +53,5 @@ log = "0.4"
 env_logger = "0.11"
 serde_json = "1"
 futures = "0.3"
-http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "7bf381d" }
+http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "8da7d89" }
 fontdue = "0.9"

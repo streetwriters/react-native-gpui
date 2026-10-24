@@ -327,6 +327,15 @@ fn render_text_image(family: &str, text: &str, font_size: f64, color: u32) -> St
     )
 }
 
+/// What the generic `monospace` family (React Native Android's name for it)
+/// resolves to.
+#[cfg(target_os = "macos")]
+const MONOSPACE_FAMILY: &str = "Menlo";
+#[cfg(target_os = "windows")]
+const MONOSPACE_FAMILY: &str = "Consolas";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const MONOSPACE_FAMILY: &str = "DejaVu Sans Mono";
+
 fn font_size_of(size: f32) -> f32 {
     if size.is_finite() && size > 0.0 {
         size
@@ -342,10 +351,10 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
         .get(&fragment.font_family)
         .cloned()
         .unwrap_or_else(|| fragment.font_family.clone());
-    let family = if family.is_empty() {
-        ".SystemUIFont"
-    } else {
-        family.as_str()
+    let family = match family.as_str() {
+        "" => ".SystemUIFont",
+        "monospace" => MONOSPACE_FAMILY,
+        family => family,
     };
     let mut font = font(family);
     font.weight = FontWeight(f32::from(fragment.font_weight));
@@ -599,7 +608,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         |_, _, _| (),
         move |bounds, (), window, cx| {
             let mut y = bounds.origin.y;
-            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
                     if line
                         .paint(

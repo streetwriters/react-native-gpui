@@ -299,6 +299,7 @@ run(
     'e2e/entry.ts',
     '--port',
     '8082',
+    '--packager-log',
   ]),
   projectRoot,
   process.env,

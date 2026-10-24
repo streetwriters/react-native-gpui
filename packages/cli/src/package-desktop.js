@@ -565,7 +565,9 @@ export function targetProfileDir(crateDir, profile) {
   }
   const match = config.match(/^\s*target-dir\s*=\s*"([^"]+)"/mu);
   if (!match) return compiledIn;
-  return path.join(crateDir, path.resolve('/', match[1]).slice(1), profile);
+  // Cargo resolves a relative `target-dir` from the directory holding `.cargo/`,
+  // which is the crate, and it may climb out of the crate (`../../../target`).
+  return path.resolve(crateDir, match[1], profile);
 }
 
 /**

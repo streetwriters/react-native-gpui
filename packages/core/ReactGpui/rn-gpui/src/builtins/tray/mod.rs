@@ -83,6 +83,18 @@ impl NativeGpuiTraySpec for TrayModule {
     }
 
     async fn tray_install(&self, options: TrayOptions) -> Result<TrayHandle, ModuleError> {
+        let icon = match options.icon.as_deref() {
+            Some(uri) => Some(
+                crate::desktop::icon::load(uri)
+                    .await
+                    .map_err(ModuleError::new)?,
+            ),
+            None => None,
+        };
+        let menu = json_items(options.menu);
+        if let Some(menu) = &menu {
+            crate::desktop::icon::preload_menu(menu).await;
+        }
         let handle = on_main(
             move |cx| -> Result<serde_json::Value, crate::desktop::errors::DesktopError> {
                 let mut config = tray::TrayConfig::default();
@@ -91,11 +103,15 @@ impl NativeGpuiTraySpec for TrayModule {
                 }
                 config.tooltip = options.tooltip;
                 config.title = options.title;
+                if let Some(icon) = icon {
+                    config.icon = Some((icon.rgba.clone(), icon.width, icon.height));
+                    config.icon_is_template = options.icon_template.unwrap_or(false);
+                }
                 config.component = options.component;
                 if let Some(size) = options.size {
                     config = config.size(size.width as f32, size.height as f32);
                 }
-                if let Some(menu) = json_items(options.menu) {
+                if let Some(menu) = menu {
                     config.menu = Some(crate::desktop::menu_model::parse_menu(&menu)?);
                 }
                 if let Some(on_left_click) = options.menu_on_left_click {
@@ -103,6 +119,9 @@ impl NativeGpuiTraySpec for TrayModule {
                 }
                 if let Some(quit) = options.quit_on_last_window_closed {
                     config.quit_on_last_window_closed = quit;
+                }
+                if let Some(hide) = options.hide_window_on_close {
+                    config.hide_window_on_close = hide;
                 }
                 tray::install(cx, config)
             },
@@ -137,19 +156,29 @@ impl NativeGpuiTraySpec for TrayModule {
             .and_then(void)
     }
 
-    async fn tray_set_icon(&self, path: String) -> Result<(), ModuleError> {
-        on_main(move |cx| tray::set_icon(cx, &path))
+    async fn tray_set_icon(&self, icon: String, template: bool) -> Result<(), ModuleError> {
+        let icon = crate::desktop::icon::load(&icon)
+            .await
+            .map_err(ModuleError::new)?;
+        on_main(move |cx| tray::set_icon(cx, &icon, template))
+            .await
+            .and_then(void)
+    }
+
+    async fn tray_set_title(&self, title: Option<String>) -> Result<(), ModuleError> {
+        on_main(move |cx| tray::set_title(cx, title.as_deref()))
             .await
             .and_then(void)
     }
 
     async fn tray_set_menu(&self, items: Option<Vec<Value>>) -> Result<(), ModuleError> {
-        on_main(move |cx| {
-            let items = json_items(items);
-            tray::set_menu(cx, items.as_ref())
-        })
-        .await
-        .and_then(void)
+        let items = json_items(items);
+        if let Some(items) = &items {
+            crate::desktop::icon::preload_menu(items).await;
+        }
+        on_main(move |cx| tray::set_menu(cx, items.as_ref()))
+            .await
+            .and_then(void)
     }
 
     fn add_listener(&self, _event_name: String) {}

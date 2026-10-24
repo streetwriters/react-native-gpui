@@ -65,6 +65,27 @@
       "issue": 0
     },
     {
+      "type": "patch",
+      "file": "src-gpui/Libraries/LogBox/UI/LogBoxNotification.desktop.js",
+      "baseFile": "packages/react-native/Libraries/LogBox/UI/LogBoxNotification.js",
+      "baseHash": "70ae5dd0c89f708a88b7d359d04d3a368a76981b",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "src-gpui/Libraries/LogBox/UI/LogBoxInspectorCodeFrame.desktop.js",
+      "baseFile": "packages/react-native/Libraries/LogBox/UI/LogBoxInspectorCodeFrame.js",
+      "baseHash": "3f1f73cd47e82adc1953c6693ca202c7efbc02fd",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "src-gpui/Libraries/LogBox/UI/LogBoxInspectorHeader.desktop.js",
+      "baseFile": "packages/react-native/Libraries/LogBox/UI/LogBoxInspectorHeader.js",
+      "baseHash": "ffb9ae6a81577f35df0a7dda0546d00d7799c95e",
+      "issue": 0
+    },
+    {
       "type": "platform",
       "file": "src-gpui/Libraries/Alert/Alert.desktop.js"
     },

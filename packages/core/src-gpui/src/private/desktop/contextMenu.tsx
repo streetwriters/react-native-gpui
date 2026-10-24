@@ -34,7 +34,7 @@ async function request<T>(
     throw toDesktopError(error);
   }
 }
-import type { MenuItemSpec } from './menu';
+import { nativeMenuItems, type MenuItemSpec } from './menu';
 import { contextMenuHostFor } from './contextMenu/registry';
 import type { MenuRenderers } from './contextMenu/config';
 import {
@@ -90,7 +90,7 @@ export const ContextMenu = {
         // No host means no window rendered the shell's wrapper: falling back to
         // the native menu is better than silently doing nothing.
         const result = await request(native =>
-          native.contextMenuShow(items as unknown as Object[], options),
+          native.contextMenuShow(nativeMenuItems(items), options),
         );
         return result.id ?? null;
       }
@@ -101,7 +101,7 @@ export const ContextMenu = {
       return host.open({ items, position, presentation: 'custom' });
     }
     const result = await request(native =>
-      native.contextMenuShow(items as unknown as Object[], options),
+      native.contextMenuShow(nativeMenuItems(items), options),
     );
     return result.id ?? null;
   },
@@ -173,12 +173,10 @@ export interface ContextMenuViewProps extends ViewProps {
  * Whether this is the desktop shell, in which case the native component is
  * registered and can be used.
  *
- * Asked of the desktop module rather than inferred from `Platform.OS`: the
- * bundle's platform name is `desktop`, so comparing `Platform.OS` against
- * `macos`/`windows`/`linux` was never true and this component silently took the
- * JS path on every platform — the native menu was dead code. `platform()` is the
- * module's own answer (`null` without the shell), which is the thing actually
- * being asked about.
+ * Asked of the desktop module rather than inferred from `Platform.OS`, which
+ * names an operating system even where no shell is installed. `platform()` is
+ * the module's own answer (`null` without the shell), which is the thing
+ * actually being asked about.
  *
  * Read once at module scope because it cannot change while the bundle runs: the
  * module is either installed or it is not.
@@ -207,6 +205,7 @@ export function ContextMenuView({
   ...viewProps
 }: ContextMenuViewProps) {
   const resolved = resolvePresentation(presentation);
+  const nativeItems = React.useMemo(() => nativeMenuItems(items), [items]);
 
   const report = React.useCallback(
     (id: string) => {
@@ -253,7 +252,7 @@ export function ContextMenuView({
   return (
     <NativeContextMenuView
       {...viewProps}
-      items={items}
+      items={nativeItems}
       presentation={resolved}
       disabled={disabled}
       onMenuSelect={event => report(event.nativeEvent.id)}

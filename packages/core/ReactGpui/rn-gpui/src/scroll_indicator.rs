@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 
 const VISIBLE_FOR: Duration = Duration::from_millis(1200);
 const THICKNESS: f32 = 6.0;
+/// Space kept at either end of the track; across it the thumb sits flush with
+/// the container's edge.
 const MARGIN: f32 = 2.0;
 const MIN_LENGTH: f32 = 24.0;
 
@@ -88,14 +90,11 @@ impl Render for ScrollIndicator {
             .bg(rgba(0x808080b0));
         overlay.child(if self.horizontal {
             bar.left(px(start))
-                .bottom(px(MARGIN))
+                .bottom_0()
                 .w(px(length))
                 .h(px(THICKNESS))
         } else {
-            bar.top(px(start))
-                .right(px(MARGIN))
-                .w(px(THICKNESS))
-                .h(px(length))
+            bar.top(px(start)).right_0().w(px(THICKNESS)).h(px(length))
         })
     }
 }

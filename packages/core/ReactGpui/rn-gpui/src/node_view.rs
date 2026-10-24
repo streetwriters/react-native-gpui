@@ -1226,6 +1226,7 @@ impl RNNodeView {
             hides_subtree: self.hides_subtree(tree),
             other_modal_child: false,
             focusable_or_accessible: self.focusable || self.view.accessible,
+            window_control: self.window_control_role(),
         }
     }
 
@@ -1617,8 +1618,22 @@ pub(crate) struct ScrollLink {
     pub(crate) scale: (f32, f32),
 }
 
+/// What a node does with a press, as far as the window's own controls go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WindowControlRole {
+    /// A drag region or a caption button: the press is the window's.
+    Claims(gpui::WindowControlArea),
+    /// A button, a text input, a scroll view: the press is the node's.
+    TakesPress,
+    /// Neither: the press belongs to whatever area contains the node.
+    Passive,
+}
+
 #[derive(Clone)]
 pub(crate) struct Inherited {
+    /// The window-control area a passive node falls inside, from its nearest
+    /// ancestor that either claims one or takes the press itself.
+    pub(crate) window_control_area: Option<gpui::WindowControlArea>,
     pub(crate) window_top_inset: f32,
     pub(crate) hides_subtree_self: bool,
     pub(crate) parent_scale: (f32, f32),
@@ -1636,6 +1651,7 @@ pub(crate) struct Inherited {
 impl Default for Inherited {
     fn default() -> Self {
         Self {
+            window_control_area: None,
             window_top_inset: 0.0,
             parent_scale: (1.0, 1.0),
             scale: (1.0, 1.0),
@@ -1667,7 +1683,8 @@ impl Inherited {
     }
 
     pub(crate) fn same_render_affecting(&self, other: &Inherited) -> bool {
-        self.parent_scale == other.parent_scale
+        self.window_control_area == other.window_control_area
+            && self.parent_scale == other.parent_scale
             && self.scale == other.scale
             && self.parent_border == other.parent_border
             && self.accessible_ancestor == other.accessible_ancestor
@@ -1689,6 +1706,7 @@ pub(crate) struct InheritInput {
     pub(crate) hides_subtree: bool,
     pub(crate) other_modal_child: bool,
     pub(crate) focusable_or_accessible: bool,
+    pub(crate) window_control: WindowControlRole,
 }
 
 pub(crate) fn inherit(
@@ -1728,6 +1746,11 @@ pub(crate) fn inherit(
                 parent.hidden_by_modal_sibling || input.other_modal_child;
             inherited.hidden_by_hiding_ancestor =
                 parent.hidden_by_hiding_ancestor || input.hides_subtree;
+            inherited.window_control_area = match input.window_control {
+                WindowControlRole::Claims(area) => Some(area),
+                WindowControlRole::TakesPress => None,
+                WindowControlRole::Passive => parent.window_control_area,
+            };
         }
         None => {
             inherited.origin_unscrolled = (
@@ -1890,7 +1913,9 @@ mod transform_matrix_tests {
 
 #[cfg(test)]
 mod inherited_tests {
-    use super::{accumulate_origin, inherit, InheritInput, Inherited, OriginStep};
+    use super::{
+        accumulate_origin, inherit, InheritInput, Inherited, OriginStep, WindowControlRole,
+    };
     use gpui::point;
     use std::cell::Cell;
     use std::rc::Rc;
@@ -1910,7 +1935,55 @@ mod inherited_tests {
             hides_subtree: false,
             other_modal_child: false,
             focusable_or_accessible: false,
+            window_control: WindowControlRole::Passive,
         }
+    }
+
+    fn with_role(role: WindowControlRole) -> InheritInput {
+        InheritInput {
+            window_control: role,
+            ..plain()
+        }
+    }
+
+    #[test]
+    fn a_passive_node_falls_inside_the_drag_region_around_it() {
+        // A title bar's spacer and its title text sit in front of the bar, so
+        // unless they answer for it the window cannot be dragged by them.
+        let inherited = inherited(&[
+            with_role(WindowControlRole::Claims(gpui::WindowControlArea::Drag)),
+            plain(),
+            plain(),
+        ]);
+        assert_eq!(
+            inherited.window_control_area,
+            Some(gpui::WindowControlArea::Drag)
+        );
+    }
+
+    #[test]
+    fn a_node_inside_a_button_belongs_to_the_button() {
+        // The label inside a Pressable in the title bar must press the button,
+        // not drag the window.
+        let inherited = inherited(&[
+            with_role(WindowControlRole::Claims(gpui::WindowControlArea::Drag)),
+            with_role(WindowControlRole::TakesPress),
+            plain(),
+        ]);
+        assert_eq!(inherited.window_control_area, None);
+    }
+
+    #[test]
+    fn a_caption_buttons_glyph_falls_inside_the_caption_button() {
+        let inherited = inherited(&[
+            with_role(WindowControlRole::Claims(gpui::WindowControlArea::Drag)),
+            with_role(WindowControlRole::Claims(gpui::WindowControlArea::Close)),
+            plain(),
+        ]);
+        assert_eq!(
+            inherited.window_control_area,
+            Some(gpui::WindowControlArea::Close)
+        );
     }
 
     fn plain() -> InheritInput {
@@ -2459,7 +2532,7 @@ impl Render for RNNodeView {
         }
         let decoration = self.decoration(cx);
         if decoration.clip {
-            element = element.overflow_hidden();
+            element = element.overflow_hidden().overflow_clips_corners();
         }
         if let Some(background) = decoration.background {
             element = element.bg(gpui::rgb(background));
@@ -3113,6 +3186,14 @@ impl Render for RNNodeView {
         // under a still pointer rebuild every row. It is the first child so its
         // hitbox and handlers keep the order the node's own div would give them.
         let mut handlers = PointerHandlers::default();
+        // The window-control area a press here lands in: the bar of a title bar,
+        // or one of its caption buttons. On Windows a left press there belongs to
+        // the OS: the hit-test answered `HTCAPTION` (or a caption button), and
+        // the window backend only lets `DefWindowProc` act on that — move the
+        // window, maximize it on a double click, snap it, press the button — when
+        // the app leaves the press unhandled. So nothing here may consume it.
+        let control_area = self.window_control_area(cx);
+        let os_owns_press = cfg!(target_os = "windows") && control_area.is_some();
         // A component renderer that asked for input gets it through the same
         // handlers the View props use, so ordering with RN's touch handling and
         // the scroll-container case stays as it was.
@@ -3215,32 +3296,22 @@ impl Render for RNNodeView {
                     }));
             }
         }
-        if self.view.desktop_drag_region {
-            // A caption button inside the bar claims its own area and handles its
-            // own press through the extension hook, so the drag must not also run
-            // there. The area is read once here because this closure outlives the
-            // borrow of `self`.
-            let claims_area = self.window_control_area(cx).is_some();
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    if claims_area {
-                        return;
-                    }
-                    if event.click_count >= 2 {
-                        window.titlebar_double_click();
-                    } else {
-                        window.start_window_move();
-                    }
-                    cx.stop_propagation();
-                }));
-        }
         if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
             let node = cx.entity().downgrade();
             let down_node = node.clone();
             handlers
                 .left_down
                 .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    // No touch either: the release never comes back once the OS
+                    // has taken the press into its move loop. The ancestors this
+                    // press bubbles to are told, so none of them starts one.
+                    if os_owns_press {
+                        crate::events::hand_press_to_window();
+                        return;
+                    }
+                    if crate::events::press_belongs_to_window() {
+                        return;
+                    }
                     let Some(node) = down_node.upgrade() else {
                         return;
                     };
@@ -3320,6 +3391,9 @@ impl Render for RNNodeView {
             handlers
                 .left_down
                 .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    if os_owns_press || crate::events::press_belongs_to_window() {
+                        return;
+                    }
                     let modifiers = modifier_state(event.modifiers);
                     if crate::events::mouse_context_menu_trigger(
                         crate::events::Button::Left,
@@ -3413,6 +3487,14 @@ impl Render for RNNodeView {
             handlers
                 .left_up
                 .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    // The release of a caption button is what the OS acts on.
+                    if os_owns_press {
+                        crate::events::hand_press_to_window();
+                        return;
+                    }
+                    if crate::events::press_belongs_to_window() {
+                        return;
+                    }
                     let Some(node) = node.upgrade() else {
                         return;
                     };
@@ -3437,13 +3519,61 @@ impl Render for RNNodeView {
                     }
                 }));
         }
+        // Registered after every other press handler, which GPUI runs in reverse
+        // order: this one has to see the press before a touch or a context menu
+        // consumes it.
+        // Anywhere in a drag area — the region itself, or a node inside it that
+        // does not take the press — moves the window, and a double click zooms.
+        // macOS and Linux do not consult the hit-test, so the move starts here.
+        // Windows moves the window itself from the `HTCAPTION` press.
+        if control_area == Some(gpui::WindowControlArea::Drag) && !os_owns_press {
+            handlers
+                .left_down
+                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    if event.click_count >= 2 {
+                        window.titlebar_double_click();
+                    } else {
+                        window.start_window_move();
+                    }
+                    cx.stop_propagation();
+                }));
+        }
         // A child of a scrolling container moves with its content, so a pointer area
         // here would drift off the viewport. A node that claims a window-control
         // area has the same problem for a different reason: the platform asks
         // which element is under the pointer, and an overlay child sits in front
         // of its own parent, so the area would never be consulted and the window
         // could not be dragged by the node that asked to be draggable.
-        let claims_area = self.window_control_area(cx).is_some();
+        if os_owns_press {
+            // What is left is a component's own hook — a caption button reporting
+            // its pressed state — which may stop propagation; the press still has
+            // to reach the OS, which performs the button's action.
+            handlers.left_down = handlers
+                .left_down
+                .into_iter()
+                .map(
+                    |handler| -> crate::pointer_area::PointerHandler<MouseDownEvent> {
+                        Rc::new(move |event: &MouseDownEvent, window, cx| {
+                            handler(event, window, cx);
+                            cx.propagate();
+                        })
+                    },
+                )
+                .collect();
+            handlers.left_up = handlers
+                .left_up
+                .into_iter()
+                .map(
+                    |handler| -> crate::pointer_area::PointerHandler<MouseUpEvent> {
+                        Rc::new(move |event: &MouseUpEvent, window, cx| {
+                            handler(event, window, cx);
+                            cx.propagate();
+                        })
+                    },
+                )
+                .collect();
+        }
+        let claims_area = control_area.is_some();
         if is_scroll || claims_area {
             // The direct-listener path needs one registration per button, and
             // the middle and side buttons go through it too, so a scroll
@@ -3510,7 +3640,7 @@ impl Render for RNNodeView {
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
             for fragment in &mut scaled_paragraph.fragments {
-                fragment.font_size *= scale_y;
+                fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
                 if let Some(color) = self.animated_text_color {
@@ -3529,6 +3659,7 @@ impl Render for RNNodeView {
                 );
             } else {
                 element = crate::builtins::textinput::render::plain_paragraph(
+                    self,
                     element,
                     &scaled_paragraph,
                     (scale_x, scale_y),
@@ -3595,6 +3726,7 @@ impl Render for RNNodeView {
                     };
                     element = element
                         .overflow_hidden()
+                        .overflow_clips_corners()
                         .child(scroller.track_scroll(&self.scroll_handle).child(content));
                 }
                 crate::scroll_layers::ScrollStrategy::ManualOffset => {
@@ -3645,7 +3777,10 @@ impl Render for RNNodeView {
                         );
                     }
                     scroller = scroller.overflow_hidden().child(moved);
-                    element = element.overflow_hidden().child(scroller);
+                    element = element
+                        .overflow_hidden()
+                        .overflow_clips_corners()
+                        .child(scroller);
                 }
             }
             if scroll.indicator && scroll.enabled {
@@ -4251,17 +4386,78 @@ impl RNNodeView {
         &self.extension_props_json
     }
 
-    /// The window-control area this node claims, if any.
+    /// The window-control area a press on this node lands in, if any.
+    ///
+    /// The node's own area when it claims one. Otherwise, a node that does not
+    /// take the press itself answers for the area around it: the platform asks
+    /// for the frontmost element under the pointer, and every node paints in
+    /// front of its parent, so a title bar's spacer, its title text, or the glyph
+    /// inside a caption button would otherwise answer "client" over the very
+    /// area that contains it — no drag, no double-click to maximize, and on
+    /// Windows no caption button either, since the OS performs those actions
+    /// from the hit-test. A node that does take the press (a `Pressable`, a text
+    /// input, a scroll view) stays client, so a button inside a title bar is
+    /// still a button, and so is everything inside it.
+    fn window_control_area(&self, _cx: &gpui::App) -> Option<gpui::WindowControlArea> {
+        match self.window_control_role() {
+            WindowControlRole::Claims(area) => Some(area),
+            WindowControlRole::TakesPress => None,
+            // Inherited by the store's pass rather than walked here: this runs
+            // while rendering, when an ancestor may be the entity being updated,
+            // and reading it then panics.
+            WindowControlRole::Passive => self.inherited.window_control_area,
+        }
+    }
+
+    /// What this node does with a press, as far as window controls are concerned.
+    pub(crate) fn window_control_role(&self) -> WindowControlRole {
+        if let Some(area) = self.own_window_control_area() {
+            WindowControlRole::Claims(area)
+        } else if self.takes_own_press() {
+            WindowControlRole::TakesPress
+        } else {
+            WindowControlRole::Passive
+        }
+    }
+
+    /// Whether a press on this node belongs to it rather than to a window-control
+    /// area around it.
+    ///
+    /// `box-none` never takes a press for itself. Otherwise a node owns it when
+    /// it can act on it: focusable (what `Pressable` sets), a tap or context-menu
+    /// listener, a scroll view, or a component that asked for mouse input.
+    /// `accessibilityRespondsToUserInteraction` is not a signal: Fabric defaults
+    /// it to true on every view, so it would make all of them take the press.
+    fn takes_own_press(&self) -> bool {
+        if matches!(
+            self.view.pointer_events,
+            crate::events::POINTER_EVENTS_BOX_NONE | crate::events::POINTER_EVENTS_NONE
+        ) {
+            return false;
+        }
+        if self.focusable
+            || self.view.accessibility_has_tap_listener
+            || self.view.on_context_menu
+            || self.scroll.is_some()
+        {
+            return true;
+        }
+        crate::extensions::component_renderer(&self.component).is_some_and(|renderer| {
+            let spec = renderer.input(&self.component_node_shallow());
+            spec.hover || spec.mouse_buttons != crate::extensions::input::ButtonSet::NONE
+        })
+    }
+
+    /// The area this node claims for itself: a caption button's, or a drag
+    /// region's.
     ///
     /// A component's `window_control()` hook is the only way to claim a caption
     /// button now that `desktopWindowControl` is gone. `desktopDragRegion` still
     /// marks a drag area, and a component that claimed a button overrides it so a
     /// button inside a title bar acts as a button and does not drag the window.
-    fn window_control_area(&self, cx: &gpui::App) -> Option<gpui::WindowControlArea> {
-        let claimed = crate::extensions::component_renderer(&self.component).and_then(|renderer| {
-            let node = self.component_node(cx);
-            renderer.window_control(&node)
-        });
+    fn own_window_control_area(&self) -> Option<gpui::WindowControlArea> {
+        let claimed = crate::extensions::component_renderer(&self.component)
+            .and_then(|renderer| renderer.window_control(&self.component_node_shallow()));
         match claimed {
             Some(crate::extensions::input::WindowControl::Minimize) => {
                 Some(gpui::WindowControlArea::Min)
@@ -4423,4 +4619,34 @@ pub(crate) fn decode_data_image(data: &str) -> Option<gpui::Image> {
         _ => return None,
     };
     Some(gpui::Image::from_bytes(format, bytes))
+}
+
+/// A transform scales text by shaping it at a scaled font size. GPUI keeps the
+/// glyphs of every size it has drawn, so a scale animation that produced a new
+/// size each frame would grow the glyph atlas without bound; snapping the size
+/// to quarter points keeps the set of sizes small.
+fn scaled_font_size(font_size: f32, scale: f32) -> f32 {
+    if scale == 1.0 {
+        return font_size;
+    }
+    (font_size * scale * 4.0).round() / 4.0
+}
+
+#[cfg(test)]
+mod scaled_font_size_tests {
+    use super::scaled_font_size;
+
+    #[test]
+    fn unscaled_text_keeps_its_size() {
+        assert_eq!(scaled_font_size(13.3, 1.0), 13.3);
+    }
+
+    #[test]
+    fn a_scale_animation_draws_a_bounded_set_of_sizes() {
+        let sizes: std::collections::BTreeSet<u32> = (0..10_000)
+            .map(|step| 0.7 + 0.7 * step as f32 / 10_000.0)
+            .map(|scale| (scaled_font_size(14.0, scale) * 4.0) as u32)
+            .collect();
+        assert!(sizes.len() <= 40, "{} sizes", sizes.len());
+    }
 }
