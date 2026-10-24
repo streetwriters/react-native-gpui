@@ -1880,14 +1880,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 })
             })
             .expect("failed to observe the window's bounds");
-        let state_subscription = window
-            .update(cx, |_root, window, cx| {
-                crate::desktop::windows::install_state_observer(window, cx)
-            })
-            .expect("failed to observe the window's state");
+        // Windows only: its caption buttons and the title bar's double click maximize
+        // the window without the app being told, which this is how it learns.
+        let state_subscription = if cfg!(windows) {
+            Some(
+                window
+                    .update(cx, |_root, window, cx| {
+                        crate::desktop::windows::install_state_observer(window, cx)
+                    })
+                    .expect("failed to observe the window's state"),
+            )
+        } else {
+            None
+        };
         store.update(cx, |store, _cx| {
             store.window_bounds_subscription = Some(bounds_subscription);
-            store.window_state_subscription = Some(state_subscription);
+            store.window_state_subscription = state_subscription;
         });
 
         #[cfg(feature = "visual-capture")]
