@@ -19,6 +19,21 @@ log = "0.4"
 # lets `cargo test` run the fixture's own unit tests here.
 [workspace]
 
+# The checkout's shared dev profile (see core's `ReactGpui/Cargo.toml`): line tables
+# only, no debug info for dependencies, which are optimized. Every workspace root
+# builds into the one root `target/`, so a matching profile is also what lets them
+# reuse each other's dependency builds instead of storing one copy each.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 3
+
+[profile.dev.package.rn-gpui-sys]
+opt-level = 0
+
 [patch.crates-io]
 # Managed by @react-native-gpui/cli autolink; do not edit between these markers.
 react-native-gpui = { path = "../../../core/ReactGpui/rn-gpui" }

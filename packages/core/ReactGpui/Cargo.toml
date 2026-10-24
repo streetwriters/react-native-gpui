@@ -13,8 +13,16 @@ members = [
 debug = "line-tables-only"
 split-debuginfo = "packed"
 
+# The same dev profile as every other workspace root in the checkout (the tester's
+# and each module's): they all build into the one root `target/`, and a profile
+# that differs gives the same dependency a different hash, so it is compiled and
+# stored once per variant.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
+
+[profile.dev.package.rn-gpui-sys]
+opt-level = 0
 
 [profile.release]
 # Line tables, not `false`: a release crash is worth symbolizing, and with

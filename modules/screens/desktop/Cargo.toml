@@ -24,6 +24,21 @@ react-native-gpui = { version = "0.1", features = ["test-driver"] }
 # without making the module part of anything else.
 [workspace]
 
+# The checkout's shared dev profile (see core's `ReactGpui/Cargo.toml`): line tables
+# only, no debug info for dependencies, which are optimized. Every workspace root
+# builds into the one root `target/`, so a matching profile is also what lets them
+# reuse each other's dependency builds instead of storing one copy each.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 3
+
+[profile.dev.package.rn-gpui-sys]
+opt-level = 0
+
 # This block has to live here because Cargo honours `[patch.crates-io]` only at a
 # workspace root, and this crate is one. `npm run test:rust` regenerates it from
 # core's manifest before running these tests and fails if it changed, so the gpui
