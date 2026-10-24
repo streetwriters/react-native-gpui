@@ -346,9 +346,10 @@ test("the module's back button pops the stack", async () => {
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
   // There is no React node for a painted button, so the click goes by position:
-  // the module puts it at the header's left edge, 56x56.
-  await app.mouseDown({ x: 28, y: 28 });
-  await app.mouseUp({ x: 28, y: 28 });
+  // the module puts it at the header's left edge, 56x56, below the window's top
+  // inset. y = 40 is inside it with no inset and with a transparent title bar's.
+  await app.mouseDown({ x: 28, y: 40 });
+  await app.mouseUp({ x: 28, y: 40 });
   await app.waitForIdle();
   // The navigator answers `onHeaderBackButtonClicked` by dispatching a pop, and
   // React Native declares that event on `RNSScreen`. A dispatch to the header
