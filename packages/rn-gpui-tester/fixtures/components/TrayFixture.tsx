@@ -142,6 +142,40 @@ function TrayFixture() {
       >
         <Text style={styles.button}>Install a popover tray</Text>
       </Pressable>
+      {/* What a background app does: a popover and no menu of its own, and the
+          default for quitting — the app keeps running in the tray when its last
+          window closes, and the tray's built-in menu opens and quits it. */}
+      <Pressable
+        testID="tray-install-background"
+        onPress={() =>
+          install({
+            id: 'tester-tray-background',
+            tooltip: 'RN GPUI tester',
+            component: 'TrayPopover',
+            size: { width: 320, height: 200 },
+          })
+        }
+      >
+        <Text style={styles.button}>Install a background tray</Text>
+      </Pressable>
+      {/* The same, but closing the window hides it: opening the app from the tray
+          shows this window again, on this screen, with its state. */}
+      <Pressable
+        testID="tray-install-hide"
+        onPress={() =>
+          install({
+            id: 'tester-tray-hide',
+            tooltip: 'RN GPUI tester',
+            component: 'TrayPopover',
+            size: { width: 320, height: 200 },
+            hideWindowOnClose: true,
+          })
+        }
+      >
+        <Text style={styles.button}>
+          Install a background tray that keeps the window
+        </Text>
+      </Pressable>
       <Pressable
         testID="tray-install-menu"
         onPress={() => install({ id: 'tester-tray-menu', menu: MENU })}

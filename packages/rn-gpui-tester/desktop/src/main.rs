@@ -96,6 +96,9 @@ fn main() {
     )
     .window_title(env!("RN_GPUI_APP_NAME"))
     .window_size(1280.0, 900.0)
+    // No system title bar: the app draws its own (`TitleBar` in App.tsx), so
+    // its menu sits where the window chrome would be.
+    .title_bar(react_native_gpui::WindowTitleBar::Transparent)
     // The tester installs Hermes; with a second engine package present it would
     // otherwise be ambiguous. `RN_GPUI_JS_ENGINE` overrides this.
     .js_engine("hermes")

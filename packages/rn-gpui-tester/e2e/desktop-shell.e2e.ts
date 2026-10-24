@@ -489,6 +489,46 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   expect(await app.trayState()).toMatchObject({ installed: false });
 });
 
+test('a tray popover opens at the size it was configured with', async () => {
+  // The popover is created hidden and shown afterwards, which is where a window's
+  // size can go wrong: this checks GPUI's bounds and the OS's own frame, because
+  // a user sees the second.
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-popover').click();
+  await app.waitForIdle();
+  await app.trayClick({ x: 800, y: 400, width: 24, height: 24 });
+  await app.waitForIdle();
+
+  const { popover } = await app.trayState();
+  expect(popover).toBeGreaterThan(0);
+  const state = await app.windowState(popover as number);
+  expect(state.bounds.width).toBeCloseTo(320, 0);
+  expect(state.bounds.height).toBeCloseTo(200, 0);
+  expect(state.isMaximized).toBe(false);
+
+  // What GPUI believes is not what the user sees: the OS's own frame is.
+  if (state.nativeFrame != null) {
+    const { left, top, right, bottom, visible } = state.nativeFrame;
+    expect(visible).toBe(true);
+    // The popover's size in physical pixels, plus room for the window's border.
+    const slack = 24;
+    expect(right - left).toBeLessThanOrEqual(320 * state.scaleFactor + slack);
+    expect(bottom - top).toBeLessThanOrEqual(200 * state.scaleFactor + slack);
+    expect(right - left).toBeGreaterThanOrEqual(
+      320 * state.scaleFactor - slack,
+    );
+    expect(bottom - top).toBeGreaterThanOrEqual(
+      200 * state.scaleFactor - slack,
+    );
+  }
+
+  await app.trayHide();
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+});
+
 test('a tray takes an icon, a title and menu icons', async () => {
   await launch('TrayFixture');
   await app.waitForIdle();
