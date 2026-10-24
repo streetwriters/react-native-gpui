@@ -2415,6 +2415,8 @@ impl Render for SurfaceRootView {
             return div()
                 .size_full()
                 .relative()
+                .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+                .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
                 .children(self.children.iter().map(|(_, child)| child.clone()))
                 .into_any_element();
         }
@@ -2424,6 +2426,8 @@ impl Render for SurfaceRootView {
             .relative()
             // Ahead of every node's listener, so a press that a title bar handed
             // to the window does not leave the next press marked as well.
+            .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+            .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
             // The root stays hovered while any descendant is hit, so this only fires when
             // the pointer left the window.
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
