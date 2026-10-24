@@ -1351,8 +1351,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 "surface corrected {surface_width}x{surface_height}@{estimated_scale}x -> \
                  {width}x{height}@{window_scale}x after the window opened"
             );
-            if gpui_first {
-                // No React surface: only `Dimensions` has to learn the values.
+            if gpui_first || !cfg!(windows) {
+                // No React surface, or not Windows: only `Dimensions` has to learn the values.
                 host.set_window_metrics(width, height, scale);
             } else {
                 // The surface itself, not only `Dimensions`. It was started at the
