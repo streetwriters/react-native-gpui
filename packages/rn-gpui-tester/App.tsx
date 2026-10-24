@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   ContextMenu,
   TitleBar,
@@ -7,6 +14,9 @@ import {
 } from '@react-native-gpui/core/desktop';
 import { findScreen, screens } from './screenCatalog';
 import { renderScreen } from './fixtures/screens';
+
+/** macOS has its own menu bar, so only the other platforms get the button. */
+const showMenuButton = Platform.OS !== 'macos';
 
 /** The application menu, opened from the title bar's button. */
 const APP_MENU: MenuItemSpec[] = [
@@ -65,21 +75,23 @@ export default function TesterApp({
   return (
     <View testID="tester-app" style={styles.window}>
       <TitleBar style={styles.titleBar}>
-        <Pressable
-          testID="titlebar-menu"
-          accessibilityRole="button"
-          accessibilityLabel="Application menu"
-          onPress={openMenu}
-          onHoverIn={() => setMenuHovered(true)}
-          onHoverOut={() => setMenuHovered(false)}
-          style={({ pressed }) => [
-            styles.menuButton,
-            menuHovered && styles.menuButtonHovered,
-            pressed && styles.menuButtonPressed,
-          ]}
-        >
-          <Text style={styles.menuGlyph}>{'☰'}</Text>
-        </Pressable>
+        {showMenuButton ? (
+          <Pressable
+            testID="titlebar-menu"
+            accessibilityRole="button"
+            accessibilityLabel="Application menu"
+            onPress={openMenu}
+            onHoverIn={() => setMenuHovered(true)}
+            onHoverOut={() => setMenuHovered(false)}
+            style={({ pressed }) => [
+              styles.menuButton,
+              menuHovered && styles.menuButtonHovered,
+              pressed && styles.menuButtonPressed,
+            ]}
+          >
+            <Text style={styles.menuGlyph}>{'☰'}</Text>
+          </Pressable>
+        ) : null}
         <Text style={styles.barTitle}>RN GPUI Tester</Text>
         {menuChoice != null ? (
           <Text testID="titlebar-menu-choice" style={styles.barHint}>
@@ -143,12 +155,12 @@ const styles = StyleSheet.create({
   window: { flex: 1, backgroundColor: '#171923' },
   // The sidebar's color, so the bar reads as one piece with the app.
   titleBar: {
-    paddingLeft: 8,
     backgroundColor: '#10131d',
     borderBottomWidth: 1,
     borderColor: '#2b3143',
   },
   menuButton: {
+    marginLeft: 8,
     width: 30,
     height: 26,
     alignItems: 'center',

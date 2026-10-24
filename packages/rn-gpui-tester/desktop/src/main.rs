@@ -117,10 +117,10 @@ fn main() {
         );
     });
 
-    // No system title bar on Windows: the app draws its own (`TitleBar` in
-    // App.tsx), so its menu sits where the window chrome would be. On macOS the
-    // traffic lights would sit over the app's own top-left controls.
-    #[cfg(windows)]
+    // No system title bar: the app draws its own (`TitleBar` in App.tsx), so its
+    // menu sits where the window chrome would be. On macOS the traffic lights
+    // stay and the bar leaves room for them.
+    #[cfg(any(windows, target_os = "macos"))]
     let config = config.title_bar(react_native_gpui::WindowTitleBar::Transparent);
 
     let config = gpui_first::apply(config);
