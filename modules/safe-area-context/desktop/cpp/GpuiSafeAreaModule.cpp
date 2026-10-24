@@ -62,8 +62,18 @@ void applyInsets(float top, float right, float bottom, float left) {
       (void)tag;
       if (changed && entry.emitter)
         dispatchInsets(entry.emitter, entry.frame, top, right, bottom, left);
-      if (entry.state && entry.state->getData().insets.top != top)
-        states.push_back(entry.state);
+      if (!entry.state)
+        continue;
+      // The tracked state is the one the view had when its frame last changed.
+      // A state update does not move the frame, so it would stay at the old
+      // insets, and every batch would send the same update again: one commit
+      // per batch, for ever.
+      const auto latest =
+          std::dynamic_pointer_cast<const ConcreteState<RNCSafeAreaViewState>>(
+              entry.state->getMostRecentState());
+      const auto& current = latest ? latest : entry.state;
+      if (current->getData().insets.top != top)
+        states.push_back(current);
     }
   }
   for (const auto& state : states) {
