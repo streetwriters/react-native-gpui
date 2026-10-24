@@ -12,6 +12,13 @@ import {
   targetProfileDir,
   toPackagerConfig,
 } from './package-desktop.js';
+import {
+  cargoBuildRecording,
+  cargoTargetDirectory,
+  pruneTarget,
+  targetGcEnabled,
+  targetGcMaxAgeDays,
+} from './target-gc.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.resolve(cliDir, '../templates');
@@ -596,10 +603,30 @@ export async function runDesktop({
   ) {
     cargoEnv.CARGO_TARGET_DIR = path.join(desktopRoot, 'build/target');
   }
-  run('cargo', cargoArgs, {
-    cwd: projectRoot,
-    env: cargoEnv,
-  });
+  if (targetGcEnabled()) {
+    // Cargo never cleans a target directory, so every build first drops the
+    // units no build has used for a week, then builds while recording what it
+    // used. The build is separate from the launch so its JSON messages are not
+    // mixed with the app's own output; `cargo run` then finds it all fresh.
+    const targetDir = cargoTargetDirectory(appCargoManifest, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+    if (targetDir) pruneTarget(targetDir, { maxAgeDays: targetGcMaxAgeDays() });
+    await cargoBuildRecording(['build', ...cargoArgs.slice(1)], {
+      cwd: projectRoot,
+      env: cargoEnv,
+      targetDir,
+    });
+    if (!noLaunch) {
+      run('cargo', cargoArgs, { cwd: projectRoot, env: cargoEnv });
+    }
+  } else {
+    run('cargo', cargoArgs, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+  }
 
   // The file the runtime was told to load: the engine's compiled output in a
   // release build, the Metro bundle otherwise. `package-desktop` stages it.
