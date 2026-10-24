@@ -769,12 +769,14 @@ test('the file system module reads, writes and watches real files', async () => 
     'rangeCursor ok',
     'watch ok',
     'copy ok',
-    'symlinkDir ok',
     'paths ok',
     'dialog ok',
   ]) {
     expect(tree).toContain(expected);
   }
+  // A directory link needs the symlink privilege on Windows. Where the platform
+  // refuses it, the step is skipped with Node's EPERM, as the fixture documents.
+  expect(tree).toMatch(/symlinkDir (ok|skipped EPERM)/u);
   for (const failure of ['MISMATCH', 'BAD', 'TIMEOUT', 'FAILED']) {
     expect(tree).not.toContain(failure);
   }
