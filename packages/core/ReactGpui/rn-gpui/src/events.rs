@@ -17,34 +17,6 @@ pub const POINTER_EVENTS_NONE: u8 = 1;
 pub const POINTER_EVENTS_BOX_NONE: u8 = 2;
 pub const POINTER_EVENTS_BOX_ONLY: u8 = 3;
 
-thread_local! {
-    /// Whether the press (or release) being dispatched belongs to the window:
-    /// it landed in a title bar's drag area or on a caption button. On Windows
-    /// the OS only moves the window, maximizes it on a double click or presses
-    /// the button when no node consumes the press — and a press bubbles from
-    /// the node under the pointer to every ancestor, each of which would
-    /// otherwise start a touch of its own and consume it.
-    static WINDOW_OWNS_PRESS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Clears the mark before a press or release reaches any node: the surface's
-/// root calls it in the capture phase, which runs ahead of every node's own
-/// listener.
-pub(crate) fn begin_press_dispatch() {
-    WINDOW_OWNS_PRESS.with(|owned| owned.set(false));
-}
-
-/// Marks the press as the window's. The node under the pointer is the first to
-/// see a press in the bubble phase, so its ancestors read this afterwards.
-pub(crate) fn hand_press_to_window() {
-    WINDOW_OWNS_PRESS.with(|owned| owned.set(true));
-}
-
-/// Whether a node nearer the pointer already handed this press to the window.
-pub(crate) fn press_belongs_to_window() -> bool {
-    WINDOW_OWNS_PRESS.with(std::cell::Cell::get)
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum Phase {
     Start,
