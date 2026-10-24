@@ -488,6 +488,20 @@ describe('targetProfileDir', () => {
       path.join(root, 'desktop', 'build', 'target', 'release'),
     );
   });
+
+  test("the crate's target-dir may climb to a shared root target", () => {
+    // The tester desktop shares the repository's one `target/` by climbing out
+    // of its crate; resolving that from the crate is what finds the binary.
+    const root = createProject({
+      files: {
+        'desktop/.cargo/config.toml':
+          '[build]\ntarget-dir = "../../../target"\n',
+      },
+    });
+    expect(targetProfileDir(path.join(root, 'desktop'), 'release')).toBe(
+      path.resolve(root, 'desktop', '../../../target', 'release'),
+    );
+  });
 });
 
 // The Linux failure this covers was invisible from macOS for a whole round: an
