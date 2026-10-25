@@ -73,6 +73,13 @@ std::thread::id uiThreadId;
 } // namespace
 
 bool isOnMainThread() {
+  // The runtime records the main thread before its loop runs. `onFrame` only
+  // notes it once a frame arrives, and `UIScheduler::isOnUIThread` caches the
+  // first answer per thread: a query that comes first, such as a layout
+  // animation flush, would pin "not the UI thread" on the main thread for good.
+  if (rngpui::rn_gpui_is_main_thread()) {
+    return true;
+  }
   std::lock_guard<std::mutex> lock(uiThreadMutex);
   return uiThreadId != std::thread::id{} &&
       uiThreadId == std::this_thread::get_id();
