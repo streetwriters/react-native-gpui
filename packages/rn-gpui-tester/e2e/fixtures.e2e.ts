@@ -346,9 +346,10 @@ test("the module's back button pops the stack", async () => {
   await app.getByText('Open details').click();
   await desktopExpect(app.getByTestId('Details 1-title')).toBeVisible();
   // There is no React node for a painted button, so the click goes by position:
-  // the module puts it at the header's left edge, 56x56.
-  await app.mouseDown({ x: 28, y: 28 });
-  await app.mouseUp({ x: 28, y: 28 });
+  // the module puts it at the header's left edge, 56x56, below the window's top
+  // inset. y = 40 is inside it with no inset and with a transparent title bar's.
+  await app.mouseDown({ x: 28, y: 40 });
+  await app.mouseUp({ x: 28, y: 40 });
   await app.waitForIdle();
   // The navigator answers `onHeaderBackButtonClicked` by dispatching a pop, and
   // React Native declares that event on `RNSScreen`. A dispatch to the header
@@ -610,6 +611,63 @@ test('per-edge borders and outlines retain their layout frames', async () => {
   await expectCaptureSmoke();
 });
 
+test('overflow: hidden clips children to the rounded corners', async () => {
+  await launch('BorderFixture');
+  if (!app.captureSupported) return;
+  const probes = [
+    ['rounded-clip', [0xef, 0x44, 0x44]],
+    ['rounded-scroll', [0x25, 0x63, 0xeb]],
+  ] as const;
+  await expectRoundedCorners(probes);
+  // A scrolled container is drawn through a composited layer, which has to
+  // keep the rounded clip it is composited under.
+  const [scroll] = await app.query('testID', 'rounded-scroll', true);
+  await app.hover(scroll.tag);
+  for (let step = 0; step < 4; step++) await app.scroll(scroll.tag, 0, -60);
+  await app.waitForIdle({ ignore: ['timers', 'frames'] }).catch(() => {});
+  await expectRoundedCorners(probes.slice(1));
+});
+
+async function expectRoundedCorners(
+  probes: ReadonlyArray<readonly [string, readonly number[]]>,
+) {
+  for (const [id, fill] of probes) {
+    // The element's own capture: the window cropped to its frame, wherever
+    // the platform puts the surface in the window (a Linux menu bar sits
+    // above it).
+    const { tag } = (await app.query('testID', id, true))[0];
+    const image = PNG.sync.read(await app.screenshot(tag));
+    const pixel = (x: number, y: number) => {
+      const offset = (image.width * Math.round(y) + Math.round(x)) * 4;
+      return [
+        image.data[offset],
+        image.data[offset + 1],
+        image.data[offset + 2],
+      ];
+    };
+    const expectNear = (x: number, y: number, expected: readonly number[]) => {
+      const actual = pixel(x, y);
+      if (actual.some((value, index) => Math.abs(value - expected[index]) > 12))
+        throw new Error(
+          `${id} (${Math.round(x)}, ${Math.round(y)}) of ${image.width}x${image.height} is ${actual}, expected ${expected}`,
+        );
+    };
+    const scale = app.scale;
+    const right = image.width - 1;
+    const bottom = image.height - 1;
+    // Two points in from a corner is inside the box but outside a 24pt
+    // radius, so the page shows through there.
+    const inset = 2 * scale;
+    expectNear(inset, inset, [0xff, 0xff, 0xff]);
+    expectNear(right - inset, inset, [0xff, 0xff, 0xff]);
+    expectNear(inset, bottom - inset, [0xff, 0xff, 0xff]);
+    expectNear(right - inset, bottom - inset, [0xff, 0xff, 0xff]);
+    expectNear(right / 2, bottom / 2, fill);
+    // The straight edges are not cut.
+    expectNear(right / 2, scale, fill);
+  }
+}
+
 test('Appearance.setColorScheme updates the rendered React Native state', async () => {
   await launch('AppearanceFixture');
   const status = app.getByTestId('appearance-status');
@@ -712,12 +770,14 @@ test('the file system module reads, writes and watches real files', async () => 
     'rangeCursor ok',
     'watch ok',
     'copy ok',
-    'symlinkDir ok',
     'paths ok',
     'dialog ok',
   ]) {
     expect(tree).toContain(expected);
   }
+  // A directory link needs the symlink privilege on Windows. Where the platform
+  // refuses it, the step is skipped with Node's EPERM, as the fixture documents.
+  expect(tree).toMatch(/symlinkDir (ok|skipped EPERM)/u);
   for (const failure of ['MISMATCH', 'BAD', 'TIMEOUT', 'FAILED']) {
     expect(tree).not.toContain(failure);
   }

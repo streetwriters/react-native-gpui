@@ -176,6 +176,11 @@ test('an app menu sets, reads back and fires by accelerator', async () => {
   await app.press('mod-shift-k');
   await app.waitForIdle();
   expect(await textOf('desktop-menu-count')).toBe('increments: 2');
+
+  // AppKit draws the bar, so its item images are set on the NSMenu itself.
+  if (process.platform === 'darwin') {
+    expect(await app.menuBarIcons()).toContain('Increment');
+  }
 });
 
 test('a menu item patch round-trips and the default menu can be restored', async () => {
@@ -227,6 +232,11 @@ test('a context menu shows, reports its model and selects an item', async () => 
   expect(model).toContain('Nested item');
   expect(model).toContain('"checked":true');
   expect(model).toContain('"enabled":false');
+  // The icon is loaded before the menu is built, so the native item has it.
+  const open = (menu?.items as { id?: string; iconLoaded?: boolean }[]).find(
+    item => item.id === 'cm-open',
+  );
+  expect(open?.iconLoaded).toBe(true);
 
   expect(await app.selectContextMenuItem('cm-nested')).toBe(true);
   expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
@@ -414,6 +424,19 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   expect((await app.devMenuState()).open).toBe(true);
 });
 
+test('Developer items in the app menu run on the host', async () => {
+  await launch('DesktopShellFixture');
+  await app.waitForIdle();
+
+  const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
+  await app.triggerMenuItem('dev:perfMonitor');
+  await app.waitForIdle(idle).catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(true);
+  await app.triggerMenuItem('dev:perfMonitor');
+  await app.waitForIdle(idle).catch(() => {});
+  expect((await app.getPerfMonitor()).enabled).toBe(false);
+});
+
 test('DevSettings toggles reach the perf monitor', async () => {
   await launch('PerfMonitorFixture');
   await app.waitForIdle();
@@ -464,6 +487,113 @@ test('a tray icon opens its popover surface and closes it again', async () => {
   await app.getByTestId('tray-destroy').click();
   await app.waitForIdle();
   expect(await app.trayState()).toMatchObject({ installed: false });
+});
+
+test('a tray popover opens at the size it was configured with', async () => {
+  // The popover is created hidden and shown afterwards, which is where a window's
+  // size can go wrong: this checks GPUI's bounds and the OS's own frame, because
+  // a user sees the second.
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-popover').click();
+  await app.waitForIdle();
+  await app.trayClick({ x: 800, y: 400, width: 24, height: 24 });
+  await app.waitForIdle();
+
+  const { popover } = await app.trayState();
+  expect(popover).toBeGreaterThan(0);
+  const state = await app.windowState(popover as number);
+  expect(state.bounds.width).toBeCloseTo(320, 0);
+  expect(state.bounds.height).toBeCloseTo(200, 0);
+  // macOS reports a borderless popover as zoomed, so this is a Windows check,
+  // where the OS frame is also read.
+  if (state.nativeFrame != null) expect(state.isMaximized).toBe(false);
+
+  // What GPUI believes is not what the user sees: the OS's own frame is.
+  if (state.nativeFrame != null) {
+    const { left, top, right, bottom, visible } = state.nativeFrame;
+    expect(visible).toBe(true);
+    // The popover's size in physical pixels, plus room for the window's border.
+    const slack = 24;
+    expect(right - left).toBeLessThanOrEqual(320 * state.scaleFactor + slack);
+    expect(bottom - top).toBeLessThanOrEqual(200 * state.scaleFactor + slack);
+    expect(right - left).toBeGreaterThanOrEqual(
+      320 * state.scaleFactor - slack,
+    );
+    expect(bottom - top).toBeGreaterThanOrEqual(
+      200 * state.scaleFactor - slack,
+    );
+  }
+
+  await app.trayHide();
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+});
+
+test('a tray takes an icon, a title and menu icons', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('tray-install-icon').click();
+  await app.waitForIdle();
+  const installed = await app.trayState();
+  expect(await textOf('tray-state')).not.toContain('error');
+  expect(installed).toMatchObject({
+    installed: true,
+    title: 'RN',
+    icon: { width: 36, height: 36, template: true },
+  });
+  const items = installed.menuItems as {
+    id?: string;
+    iconLoaded?: boolean;
+  }[];
+  expect(items.find(item => item.id === 'tray-open')?.iconLoaded).toBe(true);
+
+  await app.getByTestId('tray-set-icon').click();
+  await app.waitForIdle();
+  expect(await app.trayState()).toMatchObject({
+    title: 'GPUI',
+    icon: { width: 36, height: 36, template: false },
+  });
+
+  await app.getByTestId('tray-destroy').click();
+  await app.waitForIdle();
+});
+
+test('with a tray the app outlives its windows and reopens them', async () => {
+  await launch('TrayFixture');
+  await app.waitForIdle();
+  await app.getByTestId('tray-install-menu').click();
+  await app.waitForIdle();
+
+  await app.osCloseWindow(1);
+  expect((await app.listWindows()).windows).toEqual([]);
+
+  const reopened = await app.reopen();
+  expect(reopened.windows).toHaveLength(1);
+  expect(reopened.windows[0].component).toBe('TrayFixture');
+  // A window is open again, so a second reopen brings it forward instead of
+  // opening another.
+  expect((await app.reopen()).windows).toHaveLength(1);
+
+  // Without the tray the app quits with its last window again.
+  await app.trayDestroy();
+  const pid = app.pid;
+  await app.osCloseWindow(reopened.windows[0].windowId).catch(() => undefined);
+  await expect
+    .poll(
+      () => {
+        try {
+          process.kill(pid!, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 5000 },
+    )
+    .toBe(false);
 });
 
 test('a tray menu can be replaced and cleared', async () => {

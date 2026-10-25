@@ -95,7 +95,12 @@ fn font_data() -> &'static RwLock<HashMap<String, Arc<Vec<u8>>>> {
     FONT_DATA.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// A font family as a lookup key. React Native for Windows names a font file's
+/// family `/Assets/File.ttf#Family`, and icon libraries ask for it that way once
+/// `Platform.OS` is `windows`: the family after the `#` is the name the font
+/// is registered under.
 fn normalized_font_name(name: &str) -> String {
+    let name = name.rsplit_once('#').map_or(name, |(_, family)| family);
     name.chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
@@ -327,6 +332,15 @@ fn render_text_image(family: &str, text: &str, font_size: f64, color: u32) -> St
     )
 }
 
+/// What the generic `monospace` family (React Native Android's name for it)
+/// resolves to.
+#[cfg(target_os = "macos")]
+const MONOSPACE_FAMILY: &str = "Menlo";
+#[cfg(target_os = "windows")]
+const MONOSPACE_FAMILY: &str = "Consolas";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const MONOSPACE_FAMILY: &str = "DejaVu Sans Mono";
+
 fn font_size_of(size: f32) -> f32 {
     if size.is_finite() && size > 0.0 {
         size
@@ -342,10 +356,10 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
         .get(&fragment.font_family)
         .cloned()
         .unwrap_or_else(|| fragment.font_family.clone());
-    let family = if family.is_empty() {
-        ".SystemUIFont"
-    } else {
-        family.as_str()
+    let family = match family.as_str() {
+        "" => ".SystemUIFont",
+        "monospace" => MONOSPACE_FAMILY,
+        family => family,
     };
     let mut font = font(family);
     font.weight = FontWeight(f32::from(fragment.font_weight));
@@ -599,7 +613,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         |_, _, _| (),
         move |bounds, (), window, cx| {
             let mut y = bounds.origin.y;
-            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
                     if line
                         .paint(
@@ -621,4 +635,22 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
     )
     .w(px(width.max(0.0)))
     .h(px(height.max(0.0)))
+}
+
+#[cfg(test)]
+mod font_name_tests {
+    use super::normalized_font_name;
+
+    #[test]
+    fn a_windows_font_reference_names_the_family_after_the_hash() {
+        assert_eq!(
+            normalized_font_name("/Assets/MaterialIcons-Regular.ttf#Material Icons"),
+            normalized_font_name("Material Icons")
+        );
+    }
+
+    #[test]
+    fn a_plain_family_is_unchanged() {
+        assert_eq!(normalized_font_name("Material Icons"), "materialicons");
+    }
 }

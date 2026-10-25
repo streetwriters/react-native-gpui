@@ -81,8 +81,12 @@ impl NativeGpuiAppMenuSpec for AppMenuModule {
         &self,
         items: Option<Vec<Value>>,
     ) -> Result<(), ModuleError> {
+        let items = json_items(items);
+        if let Some(items) = &items {
+            crate::desktop::icon::preload_menu(items).await;
+        }
         on_main(move |cx| {
-            app_menu::set_application_menu(cx, json_items(items).as_ref())?;
+            app_menu::set_application_menu(cx, items.as_ref())?;
             Ok(serde_json::Value::Null)
         })
         .await?

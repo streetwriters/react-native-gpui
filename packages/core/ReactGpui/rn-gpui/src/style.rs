@@ -69,6 +69,8 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
     if v.overflow_hidden {
         s.overflow.x = Some(Overflow::Hidden);
         s.overflow.y = Some(Overflow::Hidden);
+        // React Native clips children to the rounded corners, not only the box.
+        s.overflow_clips_corners = Some(true);
     }
     if let Some(cursor) = cursor_style(v.cursor) {
         log::info!("[style] cursor ordinal {} -> {cursor:?}", v.cursor);

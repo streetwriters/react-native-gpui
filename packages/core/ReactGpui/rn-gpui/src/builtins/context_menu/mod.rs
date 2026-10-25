@@ -76,6 +76,7 @@ impl NativeGpuiContextMenuSpec for ContextMenuModule {
         options: ContextMenuOptions,
     ) -> Result<ContextMenuSelection, ModuleError> {
         let items = serde_json::Value::Array(items.into_iter().map(to_json).collect());
+        crate::desktop::icon::preload_menu(&items).await;
         let (sender, receiver) = oneshot::channel();
         crate::desktop::post_to_main(Box::new(move |cx: &mut App| {
             let responder = context_menu::Responder::desktop(sender);

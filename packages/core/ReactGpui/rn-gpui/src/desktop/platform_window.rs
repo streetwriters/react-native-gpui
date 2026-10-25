@@ -338,19 +338,68 @@ mod imp {
         }
     }
 
-    /// Windows opens the tray popover as its own window kind (see
-    /// `windows::open_window`); there is nothing to set before it is mapped.
+    /// Sets the popover up while it is still hidden: out of the taskbar and the
+    /// Alt+Tab list, above the other topmost windows, placed under (or over) its
+    /// tray icon, and at its own size.
+    ///
+    /// `x`, `y`, `width` and `height` are in points; `SetWindowPos` takes physical
+    /// pixels, so they are scaled by the window's own scale factor.
     pub fn prepare_popover(
-        _window: &mut Window,
-        _x: f32,
-        _y: f32,
-        _width: f32,
-        _height: f32,
+        window: &mut Window,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
     ) -> Result<(), String> {
-        Ok(())
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        };
+        let hwnd = hwnd(window)?;
+        let scale = window.scale_factor();
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
+        let placed = unsafe {
+            // A tool window has no taskbar button, which is also what a popover
+            // that shows the app's icon there would otherwise leave behind.
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                ((style | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW) as isize,
+            );
+            // Topmost, because the windows a tray click leaves open are: the
+            // taskbar's hidden-icons flyout is a topmost window, and a normal
+            // window opened from an icon inside it would appear behind it. A
+            // topmost window shown later goes above the topmost ones already
+            // there.
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                (x * scale).round() as i32,
+                (y * scale).round() as i32,
+                (width * scale).round() as i32,
+                (height * scale).round() as i32,
+                SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            )
+        };
+        if placed == 0 {
+            Err("SetWindowPos failed".to_string())
+        } else {
+            Ok(())
+        }
     }
 
-    pub fn activate_popover(_window: &Window) -> Result<(), String> {
+    /// Shows the popover, which activates it, so it takes focus — and so loses it
+    /// when the user clicks elsewhere, which is what dismisses it. A window that
+    /// was created hidden stays hidden until this.
+    ///
+    /// `ShowWindowAsync`, like `show`: the synchronous calls (`ShowWindow`,
+    /// `SetForegroundWindow`) deliver the activation messages before they return,
+    /// into a window procedure that is already inside GPUI's window state, which
+    /// logs "RefCell already borrowed".
+    pub fn activate_popover(window: &Window) -> Result<(), String> {
+        let hwnd = hwnd(window)?;
+        // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
+        unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
         Ok(())
     }
 }
@@ -730,6 +779,116 @@ pub fn set_accessory_app(accessory: bool) {
 #[cfg(not(target_os = "macos"))]
 pub fn set_accessory_app(_accessory: bool) {}
 
+/// Gives an unbundled run (`cargo run`) a Dock icon. A `.app` takes its icon
+/// from its bundle, so a bundled run is left alone.
+#[cfg(target_os = "macos")]
+pub fn set_dock_icon(path: &std::path::Path) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    let Some(path) = path.to_str() else {
+        return;
+    };
+    // SAFETY: the shared `NSApplication` and `NSBundle` are messaged from the
+    // main thread; the image is retained by the application once set.
+    unsafe {
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        let bundle_path: id = msg_send![bundle, bundlePath];
+        let suffix = NSString::alloc(nil).init_str(".app");
+        let bundled: bool = msg_send![bundle_path, hasSuffix: suffix];
+        let _: () = msg_send![suffix, release];
+        if bundled {
+            return;
+        }
+        let file = NSString::alloc(nil).init_str(path);
+        let image: id = msg_send![class!(NSImage), alloc];
+        let image: id = msg_send![image, initWithContentsOfFile: file];
+        let _: () = msg_send![file, release];
+        if image.is_null() {
+            log::warn!("[desktop] could not load the Dock icon {path}");
+            return;
+        }
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, setApplicationIconImage: image];
+        let _: () = msg_send![image, release];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_dock_icon(_path: &std::path::Path) {}
+
+/// Gives a window its icon on Windows, which is what the title bar and the
+/// taskbar show. The executable carries no icon of its own in a dev build, so
+/// without this the window keeps the default one.
+///
+/// `WM_SETICON` takes an `HICON`, and Windows (Vista and later) builds one from
+/// PNG bytes directly, so the file is passed through unchanged. One icon is
+/// made per size: the large one for the taskbar, the small one for the title
+/// bar.
+#[cfg(target_os = "windows")]
+pub fn set_window_icon(window: &gpui::Window, path: &std::path::Path) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateIconFromResourceEx, GetSystemMetrics, SendMessageW, ICON_BIG, ICON_SMALL,
+        LR_DEFAULTCOLOR, SM_CXICON, SM_CXSMICON, WM_SETICON,
+    };
+
+    let Ok(bytes) = std::fs::read(path) else {
+        log::warn!(
+            "[desktop] could not read the window icon {}",
+            path.display()
+        );
+        return;
+    };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = win32.hwnd.get() as _;
+    // The icon resource version `CreateIconFromResourceEx` expects for an icon.
+    const ICON_VERSION: u32 = 0x0003_0000;
+    for (metric, which) in [(SM_CXICON, ICON_BIG), (SM_CXSMICON, ICON_SMALL)] {
+        // SAFETY: `bytes` is alive for the call and the length matches it; `hwnd`
+        // comes from the window's raw handle, which GPUI keeps valid while the
+        // window lives. The icon is handed to the window, which owns it after that.
+        unsafe {
+            let edge = GetSystemMetrics(metric);
+            let icon = CreateIconFromResourceEx(
+                bytes.as_ptr(),
+                bytes.len() as u32,
+                1,
+                ICON_VERSION,
+                edge,
+                edge,
+                LR_DEFAULTCOLOR,
+            );
+            if icon.is_null() {
+                log::warn!(
+                    "[desktop] could not build the window icon from {}",
+                    path.display()
+                );
+                continue;
+            }
+            SendMessageW(hwnd, WM_SETICON, which as usize, icon as isize);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_window_icon(_window: &gpui::Window, _path: &std::path::Path) {}
+
+/// Gives a window the app's icon, as a dev run is told it through
+/// `RN_GPUI_APP_ICON`. For every window the app opens: the icon is per window on
+/// Windows, so the one opened at startup is not enough. A packaged app has its
+/// icon in its executable, and the variable is unset.
+pub fn apply_app_icon(window: &gpui::Window) {
+    if let Some(icon) = std::env::var_os("RN_GPUI_APP_ICON") {
+        set_window_icon(window, std::path::Path::new(&icon));
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn disable_window_animation(window: &mut gpui::Window) {
     use cocoa::base::id;
@@ -811,7 +970,99 @@ pub fn primary_screen_scale() -> f32 {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows reports the tray icon's rectangle in physical pixels as well, and the
+/// popover is placed in points, so the rectangle has to be divided by the scale
+/// of the display the taskbar is on — the primary one.
+#[cfg(target_os = "windows")]
+pub fn primary_screen_scale() -> f32 {
+    use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
+    // SAFETY: `GetDpiForSystem` takes no arguments and only reads the process's DPI state.
+    let dpi = unsafe { GetDpiForSystem() };
+    if dpi == 0 {
+        1.0
+    } else {
+        dpi as f32 / 96.0
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn primary_screen_scale() -> f32 {
     1.0
+}
+
+/// The usable area of the display holding the point `(x, y)` — the screen minus
+/// the taskbar — as `(x, y, width, height)` in points. `None` where it cannot be
+/// asked, and the popover is then left where the icon puts it.
+#[cfg(target_os = "windows")]
+pub fn work_area_at(x: f32, y: f32) -> Option<(f32, f32, f32, f32)> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    let scale = primary_screen_scale();
+    let point = POINT {
+        x: (x * scale).round() as i32,
+        y: (y * scale).round() as i32,
+    };
+    // SAFETY: `monitor` comes from `MonitorFromPoint` and is checked for null; `info` is a
+    // properly sized, initialised `MONITORINFO` that `GetMonitorInfoW` fills in.
+    unsafe {
+        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_null() {
+            return None;
+        }
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        let work = info.rcWork;
+        Some((
+            work.left as f32 / scale,
+            work.top as f32 / scale,
+            (work.right - work.left) as f32 / scale,
+            (work.bottom - work.top) as f32 / scale,
+        ))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn work_area_at(_x: f32, _y: f32) -> Option<(f32, f32, f32, f32)> {
+    None
+}
+
+/// What the OS itself has for a window: `(left, top, right, bottom, visible)`, in
+/// physical pixels. GPUI's own bounds are what it believes, and for a window
+/// created hidden on Windows the two have differed, so a test that wants to know
+/// what a user sees asks the OS.
+#[cfg(all(target_os = "windows", feature = "test-driver"))]
+pub fn native_frame(window: &gpui::Window) -> Option<(i32, i32, i32, i32, bool)> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindowVisible};
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return None;
+    };
+    let hwnd = win32.hwnd.get() as _;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: `hwnd` comes from the window's raw handle, which GPUI keeps valid while the window
+    // lives, and `rect` is a properly initialised `RECT` the call fills in.
+    unsafe {
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return None;
+        }
+        Some((
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            IsWindowVisible(hwnd) != 0,
+        ))
+    }
 }

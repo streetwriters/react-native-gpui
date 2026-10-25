@@ -1139,6 +1139,9 @@ async fn serve_commands(
                 {
                     config.quit_on_last_window_closed = quit;
                 }
+                if let Some(hide) = params.get("hideWindowOnClose").and_then(Value::as_bool) {
+                    config.hide_window_on_close = hide;
+                }
                 crate::desktop::tray::install(cx, config)
                     .unwrap_or_else(|error| error.to_json_value())
             }),
@@ -1237,9 +1240,32 @@ async fn serve_commands(
                 let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
                 cx.update(|cx| json!({"closed": crate::desktop::windows::os_close(cx, key)}))
             }
+            "menuBarIcons" => json!({
+                "titles": crate::desktop::app_menu::menu_bar_image_titles(),
+            }),
+            "appReopen" => cx.update(|cx| {
+                crate::desktop::windows::reopen(cx);
+                crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
+            }),
             "listWindows" => cx.update(|cx| {
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),
+            // One window's state, by the id `listWindows` gives it. The popover is
+            // not the main window, so `getWindowBounds` cannot answer for it.
+            "windowState" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
+                cx.update(|cx| {
+                    let mut state = crate::desktop::windows::window_state(cx, key)
+                        .unwrap_or_else(|error| error.to_json_value());
+                    if let Some(object) = state.as_object_mut() {
+                        object.insert(
+                            "nativeFrame".to_string(),
+                            crate::desktop::windows::native_frame_json(cx, key),
+                        );
+                    }
+                    state
+                })
+            }
             _ => json!({"error": format!("unknown test-driver method: {method}")}),
         };
 

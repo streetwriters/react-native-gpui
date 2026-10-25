@@ -24,6 +24,10 @@ pub struct TrayConfig {
     pub menu: Option<MenuModel>,
     pub menu_on_left_click: bool,
     pub quit_on_last_window_closed: bool,
+    /// Hide the last window when it is closed instead of destroying it, so opening
+    /// the app again from the tray shows the same window with its state. Off by
+    /// default: a closed window is gone and a reopened one starts fresh.
+    pub hide_window_on_close: bool,
     pub accessory: bool,
 }
 
@@ -41,12 +45,19 @@ impl Default for TrayConfig {
             menu: None,
             menu_on_left_click: false,
             quit_on_last_window_closed: false,
+            hide_window_on_close: false,
             accessory: true,
         }
     }
 }
 
 impl TrayConfig {
+    #[must_use]
+    pub fn hide_window_on_close(mut self, hide: bool) -> Self {
+        self.hide_window_on_close = hide;
+        self
+    }
+
     #[must_use]
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = id.into();
@@ -78,6 +89,25 @@ impl TrayConfig {
         self
     }
 
+    /// An encoded image (PNG, JPEG, …), typically from `include_bytes!`. One
+    /// that does not decode is logged and the built-in glyph is used instead.
+    #[must_use]
+    pub fn icon_bytes(mut self, bytes: &[u8]) -> Self {
+        match crate::desktop::icon::decode(bytes.to_vec()) {
+            Ok(icon) => self.icon = Some((icon.rgba, icon.width, icon.height)),
+            Err(error) => log::error!("[desktop][tray] icon: {error}"),
+        }
+        self
+    }
+
+    /// macOS: draw the icon as a template the menu bar tints for light and
+    /// dark mode.
+    #[must_use]
+    pub fn icon_template(mut self, template: bool) -> Self {
+        self.icon_is_template = template;
+        self
+    }
+
     #[must_use]
     pub fn menu(mut self, menu: MenuModel) -> Self {
         self.menu = Some(menu);
@@ -98,6 +128,8 @@ pub struct TrayState {
     visible: bool,
     clicks: u32,
     pub popover_dismissed_at: Option<std::time::Instant>,
+    /// The app's own quit-on-last-window policy, put back when the tray goes.
+    app_quits_on_last_window: Option<bool>,
 }
 
 /// A click on the icon while the popover is open first dismisses it (it loses
@@ -117,6 +149,9 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
     if is_installed(cx) {
         return Err(DesktopError::failed("a tray icon is already installed"));
     }
+    let app_quits_on_last_window = cx
+        .try_global::<crate::desktop::windows::QuitOnLastWindowClosed>()
+        .map(|flag| flag.0);
     cx.set_global(TrayGlobal(RefCell::new(TrayState {
         icon: None,
         config: config.clone(),
@@ -124,10 +159,23 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
         visible: true,
         clicks: 0,
         popover_dismissed_at: None,
+        app_quits_on_last_window,
     })));
-    if !config.quit_on_last_window_closed {
-        cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(false));
-    }
+    let quits_on_last_window =
+        config.quit_on_last_window_closed && app_quits_on_last_window.unwrap_or(true);
+    cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(
+        quits_on_last_window,
+    ));
+    // GPUI quits by itself when its last window closes on every platform but macOS,
+    // and our flag is only consulted after that: with the flag off, closing the
+    // main window still ended the app, tray and all. While a tray keeps the app
+    // alive, quitting is explicit — the tray's Exit, or the app asking — and
+    // `windows::maybe_quit` stays the one place that applies the flag.
+    cx.set_quit_mode(if quits_on_last_window {
+        gpui::QuitMode::Default
+    } else {
+        gpui::QuitMode::Explicit
+    });
     match build_icon(&config) {
         Ok(icon) => {
             attach_native_menu(&icon, &config);
@@ -145,7 +193,7 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
 }
 
 pub fn destroy(cx: &mut App) -> DesktopResult {
-    let (config, popover) = {
+    let (config, popover, app_quits_on_last_window) = {
         let Some(tray) = cx.try_global::<TrayGlobal>() else {
             return Err(DesktopError::not_found("no tray icon is installed"));
         };
@@ -154,12 +202,23 @@ pub fn destroy(cx: &mut App) -> DesktopResult {
         tray.icon = None;
         NATIVE_MENU.store(0, std::sync::atomic::Ordering::Relaxed);
         tray.visible = false;
-        (tray.config.id.clone(), popover)
+        (
+            tray.config.id.clone(),
+            popover,
+            tray.app_quits_on_last_window,
+        )
     };
     if let Some(key) = popover {
         let _ = windows::close_window(cx, key, true);
     }
     cx.remove_global::<TrayGlobal>();
+    if let Some(quit) = app_quits_on_last_window {
+        cx.set_global(crate::desktop::windows::QuitOnLastWindowClosed(quit));
+    }
+    // Without a tray there is nothing left to keep the app alive: if no window is
+    // open either, the app ends, as it would have when its last window closed.
+    cx.set_quit_mode(gpui::QuitMode::Default);
+    windows::maybe_quit(cx);
     Ok(json!({"id": config, "destroyed": true}))
 }
 
@@ -213,8 +272,11 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     let Some(component) = config.component.clone() else {
         return;
     };
-    let x = rect.x + rect.width / 2.0 - config.width / 2.0;
-    let y = rect.y + rect.height;
+    let work_area = crate::desktop::platform_window::work_area_at(
+        rect.x + rect.width / 2.0,
+        rect.y + rect.height / 2.0,
+    );
+    let (x, y) = popover_origin(rect, config.width, config.height, work_area);
     let options = OpenWindowOptions {
         component,
         props: None,
@@ -237,6 +299,37 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         }
         Err(error) => log::error!("[desktop][tray] could not open the popover: {error}"),
     }
+}
+
+/// Where a popover of `width` x `height` goes, in points: centred on the icon,
+/// below it when there is room — a menu bar at the top of the screen — and above
+/// it when there is not, which is where a taskbar at the bottom puts it.
+///
+/// `work_area` is `(x, y, width, height)` of the usable part of the display, when
+/// the platform can say. Without it the popover goes where the icon puts it, below
+/// and centred, as it always did. With it, the popover is also kept inside the
+/// area on every side, so an icon near a corner does not push it off the screen.
+fn popover_origin(
+    rect: TrayRect,
+    width: f32,
+    height: f32,
+    work_area: Option<(f32, f32, f32, f32)>,
+) -> (f32, f32) {
+    let x = rect.x + rect.width / 2.0 - width / 2.0;
+    let below = rect.y + rect.height;
+    let Some((area_x, area_y, area_width, area_height)) = work_area else {
+        return (x, below);
+    };
+    let above = rect.y - height;
+    let fits_below = below + height <= area_y + area_height;
+    let y = if fits_below || above < area_y {
+        below
+    } else {
+        above
+    };
+    let max_x = (area_x + area_width - width).max(area_x);
+    let max_y = (area_y + area_height - height).max(area_y);
+    (x.clamp(area_x, max_x), y.clamp(area_y, max_y))
 }
 
 pub fn hide_popover(cx: &mut App) {
@@ -303,16 +396,42 @@ pub fn set_visible(cx: &mut App, visible: bool) -> DesktopResult {
     Ok(json!({"visible": visible}))
 }
 
-pub fn set_icon(cx: &mut App, path: &str) -> DesktopResult {
+pub fn set_icon(
+    cx: &mut App,
+    icon: &crate::desktop::icon::DecodedIcon,
+    template: bool,
+) -> DesktopResult {
     let tray = installed(cx)?;
-    let icon = load_icon(path)?;
+    let native = tray_icon::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+        .map_err(|error| DesktopError::invalid_argument(format!("{error}")))?;
     let handle = tray.0.borrow().icon.clone();
     if let Some(handle) = handle {
-        handle
-            .set_icon(Some(icon))
-            .map_err(|error| DesktopError::failed(format!("{error}")))?;
+        #[cfg(target_os = "macos")]
+        let applied = if template {
+            handle.set_icon_templated(Some(native))
+        } else {
+            handle.set_icon(Some(native))
+        };
+        #[cfg(not(target_os = "macos"))]
+        let applied = handle.set_icon(Some(native));
+        applied.map_err(|error| DesktopError::failed(format!("{error}")))?;
     }
-    Ok(json!({"path": path}))
+    // Kept, so a tray rebuilt from its config shows the same icon.
+    let mut state = tray.0.borrow_mut();
+    state.config.icon = Some((icon.rgba.clone(), icon.width, icon.height));
+    state.config.icon_is_template = template;
+    Ok(json!({"width": icon.width, "height": icon.height, "template": template}))
+}
+
+/// Text beside the icon; Windows trays have none.
+pub fn set_title(cx: &mut App, title: Option<&str>) -> DesktopResult {
+    let tray = installed(cx)?;
+    let icon = tray.0.borrow().icon.clone();
+    if let Some(icon) = icon {
+        icon.set_title(title);
+    }
+    tray.0.borrow_mut().config.title = title.map(str::to_string);
+    Ok(json!({"title": title}))
 }
 
 /// `None` clears the menu.
@@ -352,6 +471,13 @@ pub fn state(cx: &App) -> Value {
         "popover": tray.popover,
         "clicks": tray.clicks,
         "hasMenu": tray.config.menu.is_some(),
+        "hideWindowOnClose": tray.config.hide_window_on_close,
+        "title": tray.config.title,
+        "icon": tray.config.icon.as_ref().map(|(_, width, height)| json!({
+            "width": width,
+            "height": height,
+            "template": tray.config.icon_is_template,
+        })),
         // Whether a StatusNotifier host is watching the session bus, so a caller
         // can tell "the icon is there and the panel is showing it" from "the app
         // is publishing an icon that this desktop has nowhere to draw". Only
@@ -426,16 +552,20 @@ fn build_icon(config: &TrayConfig) -> Result<tray_icon::TrayIcon, String> {
     let icon = match &config.icon {
         Some((rgba, width, height)) => tray_icon::Icon::from_rgba(rgba.clone(), *width, *height)
             .map_err(|error| error.to_string())?,
-        None => default_icon()?,
+        None => fallback_icon()?,
     };
     let mut builder = TrayIconBuilder::new()
         .with_id(config.id.clone())
         .with_menu_on_left_click(false);
     // Template mode is a macOS menu-bar concept; every other platform draws
-    // the icon as-is.
+    // the icon as-is. The built-in glyph is always a template.
     #[cfg(target_os = "macos")]
     {
-        builder = builder.with_icon_templated(icon);
+        builder = if config.icon.is_none() || config.icon_is_template {
+            builder.with_icon_templated(icon)
+        } else {
+            builder.with_icon(icon)
+        };
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -585,7 +715,13 @@ fn attach_native_menu(icon: &tray_icon::TrayIcon, config: &TrayConfig) {
     use std::sync::atomic::Ordering;
     use tray_icon::menu::Menu;
 
-    let Some(model) = &config.menu else {
+    let fallback = default_menu();
+    let model = match &config.menu {
+        Some(model) => Some(model),
+        None if default_menu_applies() => Some(&fallback),
+        None => None,
+    };
+    let Some(model) = model else {
         icon.set_menu(None);
         *TRAY_MENU_IDS
             .lock()
@@ -689,7 +825,13 @@ fn build_tray_menu(
     items: &[menu_model::MenuNode],
 ) -> Result<(), String> {
     use menu_model::MenuNode;
-    use tray_icon::menu::{CheckMenuItem, IsMenuItem, MenuItem, PredefinedMenuItem, Submenu};
+    use tray_icon::menu::{
+        CheckMenuItem, IconMenuItem, IsMenuItem, MenuItem, PredefinedMenuItem, Submenu,
+    };
+    let icon = |uri: &Option<String>| {
+        let icon = crate::desktop::icon::cached(uri.as_deref()?)?;
+        tray_icon::menu::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height).ok()
+    };
 
     let mut children: Vec<Box<dyn IsMenuItem>> = Vec::new();
     for node in items {
@@ -705,14 +847,26 @@ fn build_tray_menu(
                     None,
                 )))
             }
-            MenuNode::Item(item) => children.push(Box::new(MenuItem::with_id(
-                item.id.clone(),
-                item.label.clone(),
-                item.enabled,
-                None,
-            ))),
+            MenuNode::Item(item) => match icon(&item.icon) {
+                Some(icon) => children.push(Box::new(IconMenuItem::with_id(
+                    item.id.clone(),
+                    item.label.clone(),
+                    item.enabled,
+                    Some(icon),
+                    None,
+                ))),
+                None => children.push(Box::new(MenuItem::with_id(
+                    item.id.clone(),
+                    item.label.clone(),
+                    item.enabled,
+                    None,
+                ))),
+            },
             MenuNode::Submenu(submenu) => {
                 let child = Submenu::new(submenu.label.clone(), submenu.enabled);
+                if let Some(icon) = icon(&submenu.icon) {
+                    child.set_icon(Some(icon));
+                }
                 build_tray_menu(&child, &submenu.items)?;
                 children.push(Box::new(child));
             }
@@ -720,6 +874,22 @@ fn build_tray_menu(
     }
     let refs: Vec<&dyn IsMenuItem> = children.iter().map(|item| item.as_ref()).collect();
     menu.append_all(&refs).map_err(|error| error.to_string())
+}
+
+/// The icon for a tray that was not given one: the app's own where the platform
+/// draws a tray icon as-is, and the built-in glyph where it does not.
+///
+/// The glyph is a macOS template — a black outline the menu bar tints for light
+/// and dark — so anywhere else it is an empty black rectangle, which on a dark
+/// taskbar is hardly there at all. The app's icon is what a user expects to see
+/// for the app.
+fn fallback_icon() -> Result<tray_icon::Icon, String> {
+    #[cfg(not(target_os = "macos"))]
+    if let Some(icon) = crate::desktop::icon::app_icon() {
+        return tray_icon::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+            .map_err(|error| error.to_string());
+    }
+    default_icon()
 }
 
 fn default_icon() -> Result<tray_icon::Icon, String> {
@@ -741,17 +911,62 @@ fn default_icon() -> Result<tray_icon::Icon, String> {
     tray_icon::Icon::from_rgba(rgba, SIZE, SIZE).map_err(|error| error.to_string())
 }
 
-fn load_icon(path: &str) -> Result<tray_icon::Icon, DesktopError> {
-    let image = image::open(path)
-        .map_err(|error| DesktopError::invalid_argument(format!("could not read {path}: {error}")))?
-        .to_rgba8();
-    let (width, height) = image.dimensions();
-    tray_icon::Icon::from_rgba(image.into_raw(), width, height)
-        .map_err(|error| DesktopError::failed(format!("{error}")))
-}
-
 fn wants_menu(has_menu: bool, menu_on_left_click: bool, button: TrayButton) -> bool {
     has_menu && (button == TrayButton::Right || menu_on_left_click)
+}
+
+/// Whether the installed tray asked for the last window to be hidden, not
+/// destroyed, when it is closed.
+pub fn hides_window_on_close(cx: &App) -> bool {
+    cx.try_global::<TrayGlobal>()
+        .is_some_and(|tray| tray.0.borrow().config.hide_window_on_close)
+}
+
+/// The id of the built-in menu's "Open" item.
+const DEFAULT_OPEN_ID: &str = "rn-gpui:tray:open";
+/// The id of the built-in menu's "Exit" item.
+const DEFAULT_EXIT_ID: &str = "rn-gpui:tray:exit";
+
+/// What a right-click on a tray icon shows when the app gave it no menu: Open and
+/// Exit, which is what users expect of a tray icon on Windows and Linux. Without
+/// it there is no way to bring a closed window back, or to end an app that keeps
+/// running in the background, short of the task manager.
+fn default_menu() -> MenuModel {
+    use menu_model::{MenuItemDef, MenuNode};
+    let item = |id: &str, label: &str| {
+        MenuNode::Item(MenuItemDef {
+            id: id.to_string(),
+            label: label.to_string(),
+            accelerator: None,
+            enabled: true,
+            checked: false,
+            role: None,
+            icon: None,
+        })
+    };
+    MenuModel {
+        items: vec![
+            item(DEFAULT_OPEN_ID, "Open"),
+            MenuNode::Separator,
+            item(DEFAULT_EXIT_ID, "Exit"),
+        ],
+    }
+}
+
+/// macOS status items do not carry an Open/Exit menu by convention — the Dock and
+/// the app menu do that — so only the other platforms get the built-in one.
+fn default_menu_applies() -> bool {
+    cfg!(not(target_os = "macos"))
+}
+
+/// A selection from the tray's menu. The built-in items act here; everything else
+/// is the app's, and reaches JavaScript.
+pub fn perform_menu(cx: &mut App, id: &str) {
+    match id {
+        DEFAULT_OPEN_ID => windows::reopen(cx),
+        DEFAULT_EXIT_ID => cx.quit(),
+        _ => emit_menu_press(cx, id),
+    }
 }
 
 pub fn emit_menu_press(cx: &App, id: &str) {
@@ -796,6 +1011,90 @@ mod tests {
         assert!(wants_menu(true, true, TrayButton::Left));
         assert!(wants_menu(true, true, TrayButton::Right));
         assert!(!wants_menu(false, true, TrayButton::Left));
+    }
+
+    #[test]
+    fn the_built_in_menu_offers_open_and_exit() {
+        let menu = default_menu();
+        assert_eq!(menu.ids(), [DEFAULT_OPEN_ID, DEFAULT_EXIT_ID]);
+        assert_eq!(
+            menu.find(DEFAULT_OPEN_ID).map(|i| i.label.as_str()),
+            Some("Open")
+        );
+        assert_eq!(
+            menu.find(DEFAULT_EXIT_ID).map(|i| i.label.as_str()),
+            Some("Exit")
+        );
+        assert!(menu.find(DEFAULT_OPEN_ID).is_some_and(|item| item.enabled));
+    }
+
+    #[test]
+    fn the_built_in_ids_cannot_be_an_apps_own() {
+        // They would be swallowed by `perform_menu` instead of reaching the app.
+        assert!(DEFAULT_OPEN_ID.starts_with("rn-gpui:"));
+        assert!(DEFAULT_EXIT_ID.starts_with("rn-gpui:"));
+        assert_ne!(DEFAULT_OPEN_ID, DEFAULT_EXIT_ID);
+    }
+
+    const ICON: TrayRect = TrayRect {
+        x: 1200.0,
+        y: 740.0,
+        width: 24.0,
+        height: 28.0,
+    };
+    // A 1280x768 display whose bottom 40 points are the taskbar.
+    const WORK_AREA: Option<(f32, f32, f32, f32)> = Some((0.0, 0.0, 1280.0, 728.0));
+
+    #[test]
+    fn without_a_work_area_a_popover_goes_below_and_centred_as_before() {
+        assert_eq!(
+            popover_origin(ICON, 320.0, 200.0, None),
+            (1200.0 + 12.0 - 160.0, 768.0)
+        );
+    }
+
+    #[test]
+    fn a_taskbar_at_the_bottom_puts_the_popover_above_it() {
+        // Below the icon is the bottom of the screen; above has room. The icon
+        // is inside the taskbar, so the popover rests on the work area's edge
+        // (728), not on the icon (740) — that would overlap the taskbar.
+        let (_, y) = popover_origin(ICON, 320.0, 200.0, WORK_AREA);
+        assert_eq!(y, 728.0 - 200.0);
+    }
+
+    #[test]
+    fn a_menu_bar_at_the_top_puts_the_popover_below_its_icon() {
+        let icon = TrayRect {
+            x: 600.0,
+            y: 0.0,
+            width: 24.0,
+            height: 24.0,
+        };
+        let (x, y) = popover_origin(icon, 320.0, 200.0, Some((0.0, 24.0, 1280.0, 744.0)));
+        assert_eq!((x, y), (600.0 + 12.0 - 160.0, 24.0));
+    }
+
+    #[test]
+    fn the_popover_stays_inside_the_work_area_at_a_corner() {
+        let (x, _) = popover_origin(ICON, 320.0, 200.0, WORK_AREA);
+        // Centring on an icon 76 points from the right edge would overhang it.
+        assert_eq!(x, 1280.0 - 320.0);
+        let corner = TrayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 20.0,
+        };
+        assert_eq!(
+            popover_origin(corner, 320.0, 200.0, Some((0.0, 0.0, 1280.0, 768.0))),
+            (0.0, 20.0)
+        );
+    }
+
+    #[test]
+    fn a_popover_taller_than_the_room_is_kept_at_the_top_of_the_area() {
+        let (_, y) = popover_origin(ICON, 320.0, 900.0, WORK_AREA);
+        assert_eq!(y, 0.0);
     }
 
     #[test]

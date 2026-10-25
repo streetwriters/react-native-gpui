@@ -113,6 +113,7 @@ export type {
 
 export type {
   ApplicationMenuProps,
+  DesktopIcon,
   MenuDescription,
   MenuItemPatch,
   MenuItemSpec,

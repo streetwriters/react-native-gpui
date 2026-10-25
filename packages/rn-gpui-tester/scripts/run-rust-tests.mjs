@@ -6,6 +6,13 @@ import {
   applyPatchBlock,
   managedPatchEntries,
 } from '../../../packages/cli/src/autolink.js';
+import {
+  cargoBuildRecording,
+  cargoTargetDirectory,
+  pruneTarget,
+  targetGcEnabled,
+  targetGcMaxAgeDays,
+} from '../../../packages/cli/src/target-gc.js';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -298,18 +305,35 @@ function prependToPathVariable(target, name, directories) {
   return key;
 }
 
-const result = spawnSync(
-  'cargo',
-  [
-    'test',
-    '--manifest-path',
-    cargoManifest,
-    '--workspace',
-    '--features',
-    'react-native-gpui/test-driver',
-  ],
-  { cwd: repoRoot, env, stdio: 'inherit' },
-);
+const coreTestArgs = [
+  'test',
+  '--manifest-path',
+  cargoManifest,
+  '--workspace',
+  '--features',
+  'react-native-gpui/test-driver',
+  // A test name or filter, as `cargo test` takes it: `npm run test:rust -- tray`.
+  // It narrows the core run only; the module crates' tests below always run whole.
+  ...process.argv.slice(2),
+];
+// The same collection an app build gets from the CLI: drop what no build has
+// used for a week, then build the tests while recording what they use, so the
+// collector knows the test units are live and leaves them alone. The test run
+// after it finds everything fresh.
+if (targetGcEnabled()) {
+  const targetDir = cargoTargetDirectory(cargoManifest, { cwd: repoRoot, env });
+  if (targetDir) pruneTarget(targetDir, { maxAgeDays: targetGcMaxAgeDays() });
+  await cargoBuildRecording([...coreTestArgs, '--no-run'], {
+    cwd: repoRoot,
+    env,
+    targetDir,
+  });
+}
+const result = spawnSync('cargo', coreTestArgs, {
+  cwd: repoRoot,
+  env,
+  stdio: 'inherit',
+});
 if (result.error) throw result.error;
 
 // The module crates' own tests. They cannot run from their own directories: a

@@ -1,5 +1,5 @@
 [build]
-target-dir = "build/target"
+target-dir = "../../../target"
 
 [env]
 RN_GPUI_AUTOLINK_MANIFEST = { value = "autolink/autolink.json", relative = true }

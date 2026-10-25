@@ -35,6 +35,9 @@ pub enum AcceleratorAction {
     Press(String),
     Edit(String),
     Host(String),
+    /// A Developer menu command, performed by the host like the dev menu's own
+    /// buttons.
+    Dev(String),
 }
 
 pub struct AppMenuState {
@@ -93,7 +96,7 @@ pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
     let model = default_menu(app_name);
     let _ = apply(cx, model, false);
     cx.on_action(|action: &MenuAccelerator, cx: &mut App| {
-        emit_menu_press(cx, &action.id);
+        trigger_item(cx, &action.id);
     });
     cx.on_action(|action: &MenuEditAction, cx: &mut App| {
         perform_edit(cx, &action.kind, None);
@@ -127,6 +130,7 @@ pub fn trigger_item(cx: &mut App, id: &str) {
         AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
         AcceleratorAction::Edit(kind) => perform_edit(cx, &kind, None),
         AcceleratorAction::Host(kind) => perform_host_action(cx, &kind, None),
+        AcceleratorAction::Dev(id) => perform_dev_action(cx, id),
     }
 }
 
@@ -169,6 +173,7 @@ pub fn handle_accelerator(
         AcceleratorAction::Press(id) => emit_menu_press(cx, &id),
         AcceleratorAction::Edit(kind) => perform_edit(cx, &kind, Some(handle)),
         AcceleratorAction::Host(kind) => perform_host_action(cx, &kind, Some(handle)),
+        AcceleratorAction::Dev(id) => perform_dev_action(cx, id),
     }
     // The JS listener needs a frame to run in.
     if let Some(store) = store_from(cx) {
@@ -270,6 +275,7 @@ fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
                 "label": submenu.label,
                 "enabled": submenu.enabled,
                 "items": nodes_json(&submenu.items),
+                "icon": submenu.icon,
             }),
             MenuNode::Item(item) => json!({
                 "type": "item",
@@ -279,6 +285,7 @@ fn nodes_json(items: &[MenuNode]) -> Vec<Value> {
                 "enabled": item.enabled,
                 "checked": item.checked,
                 "role": item.role.map(role_name),
+                "icon": item.icon,
             }),
         })
         .collect()
@@ -342,6 +349,7 @@ pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Ve
             enabled: true,
             checked: false,
             role: Some(role),
+            icon: None,
         })
     };
     let items = |roles: &[MenuRole]| roles.iter().map(|role| item(*role)).collect();
@@ -354,6 +362,7 @@ pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Ve
                 enabled: true,
                 checked: false,
                 role: Some(MenuRole::About),
+                icon: None,
             }),
             MenuNode::Separator,
             item(MenuRole::Hide),
@@ -386,6 +395,7 @@ pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Ve
                     id: Some("dev".to_string()),
                     label: "Developer".to_string(),
                     enabled: true,
+                    icon: None,
                     items: [
                         (crate::desktop::dev_menu::RELOAD, "Reload"),
                         (crate::desktop::dev_menu::OPEN_DEVTOOLS, "Open DevTools"),
@@ -408,6 +418,7 @@ pub fn standard_menu_nodes(role: MenuRole, app_name: &str, dev_menu: bool) -> Ve
                             enabled: true,
                             checked: false,
                             role: None,
+                            icon: None,
                         })
                     })
                     .collect(),
@@ -450,6 +461,7 @@ pub fn default_menu(app_name: &str) -> MenuModel {
                 label: app_name.to_string(),
                 enabled: true,
                 items: app_items,
+                icon: None,
             }),
             MenuNode::StandardMenu(MenuRole::EditMenu),
             MenuNode::StandardMenu(MenuRole::WindowMenu),
@@ -466,6 +478,7 @@ fn role_item(role: MenuRole, label: &str) -> MenuItemDef {
         enabled: role.is_supported(),
         checked: false,
         role: Some(role),
+        icon: None,
     }
 }
 
@@ -521,6 +534,8 @@ fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopEr
         }
     }
     cx.set_menus(menus);
+    #[cfg(target_os = "macos")]
+    set_menu_bar_icons(&model);
     let state = &mut cx.global_mut::<AppMenuGlobal>().0;
     state.model = model;
     state.user_set = user_set;
@@ -528,6 +543,140 @@ fn apply(cx: &mut App, model: MenuModel, user_set: bool) -> Result<(), DesktopEr
     state.accelerators = accelerators;
     state.rebuild_scheduled = false;
     Ok(())
+}
+
+/// GPUI's menu items have no image, so the icons are set on the `NSMenu` it
+/// just installed, matching items by title the way the model nests them.
+#[cfg(target_os = "macos")]
+fn set_menu_bar_icons(model: &MenuModel) {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    const SIZE: f64 = 16.0;
+
+    unsafe fn item_titled(menu: id, title: &str, from: &mut isize) -> id {
+        let count: isize = msg_send![menu, numberOfItems];
+        while *from < count {
+            let item: id = msg_send![menu, itemAtIndex: *from];
+            *from += 1;
+            let ns_title: id = msg_send![item, title];
+            let utf8: *const std::os::raw::c_char = msg_send![ns_title, UTF8String];
+            if !utf8.is_null() && std::ffi::CStr::from_ptr(utf8).to_str() == Ok(title) {
+                return item;
+            }
+        }
+        nil
+    }
+
+    unsafe fn set_image(item: id, uri: &str) {
+        let Some(icon) = crate::desktop::icon::cached(uri) else {
+            return;
+        };
+        let Some(image) = image::RgbaImage::from_raw(icon.width, icon.height, icon.rgba.clone())
+        else {
+            return;
+        };
+        let mut png = Vec::new();
+        if image
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .is_err()
+        {
+            return;
+        }
+        let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() length: png.len()];
+        let ns_image: id = msg_send![class!(NSImage), alloc];
+        let ns_image: id = msg_send![ns_image, initWithData: data];
+        if ns_image.is_null() {
+            return;
+        }
+        let _: () = msg_send![ns_image, setSize: cocoa::foundation::NSSize::new(SIZE, SIZE)];
+        let _: () = msg_send![item, setImage: ns_image];
+        let _: () = msg_send![ns_image, release];
+    }
+
+    unsafe fn walk(menu: id, nodes: &[MenuNode]) {
+        if menu.is_null() {
+            return;
+        }
+        let mut from = 0;
+        for node in nodes {
+            match node {
+                MenuNode::Item(item) => {
+                    let ns_item = item_titled(menu, &item.label, &mut from);
+                    if let (false, Some(uri)) = (ns_item.is_null(), item.icon.as_deref()) {
+                        if !item.checked {
+                            set_image(ns_item, uri);
+                        }
+                    }
+                }
+                MenuNode::Submenu(submenu) => {
+                    let ns_item = item_titled(menu, &submenu.label, &mut from);
+                    if ns_item.is_null() {
+                        continue;
+                    }
+                    if let Some(uri) = submenu.icon.as_deref() {
+                        set_image(ns_item, uri);
+                    }
+                    let child: id = msg_send![ns_item, submenu];
+                    walk(child, &submenu.items);
+                }
+                MenuNode::Separator | MenuNode::StandardMenu(_) => {}
+            }
+        }
+    }
+
+    // SAFETY: called on the main thread right after GPUI installed the menu,
+    // which it keeps alive as the application's main menu.
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let main_menu: id = msg_send![app, mainMenu];
+        walk(main_menu, &model.items);
+    }
+}
+
+/// The titles of the menu bar's items that show an image. macOS only; the
+/// test driver reads it, because the bar's images live in AppKit.
+pub fn menu_bar_image_titles() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use cocoa::base::id;
+        use objc::{class, msg_send, sel, sel_impl};
+
+        unsafe fn walk(menu: id, out: &mut Vec<String>) {
+            if menu.is_null() {
+                return;
+            }
+            let count: isize = msg_send![menu, numberOfItems];
+            for index in 0..count {
+                let item: id = msg_send![menu, itemAtIndex: index];
+                let image: id = msg_send![item, image];
+                if !image.is_null() {
+                    let title: id = msg_send![item, title];
+                    let utf8: *const std::os::raw::c_char = msg_send![title, UTF8String];
+                    if !utf8.is_null() {
+                        out.push(
+                            std::ffi::CStr::from_ptr(utf8)
+                                .to_string_lossy()
+                                .into_owned(),
+                        );
+                    }
+                }
+                let submenu: id = msg_send![item, submenu];
+                walk(submenu, out);
+            }
+        }
+
+        let mut out = Vec::new();
+        // SAFETY: read on the main thread from the application's main menu.
+        unsafe {
+            let app: id = msg_send![class!(NSApplication), sharedApplication];
+            let main_menu: id = msg_send![app, mainMenu];
+            walk(main_menu, &mut out);
+        }
+        out
+    }
+    #[cfg(not(target_os = "macos"))]
+    Vec::new()
 }
 
 fn schedule_rebuild(cx: &mut App) {
@@ -874,6 +1023,9 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
     if id == crate::desktop::dev_menu::ACCELERATOR_ID {
         return AcceleratorAction::Host("devMenu".to_string());
     }
+    if crate::desktop::dev_menu::is_command(id) {
+        return AcceleratorAction::Dev(id.to_string());
+    }
     if let Some(kind) = id.strip_prefix("role:") {
         if matches!(
             kind,
@@ -910,7 +1062,7 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
 fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
     let context = crate::desktop::keymap::APP_CONTEXT;
     match action {
-        AcceleratorAction::Press(id) => {
+        AcceleratorAction::Press(id) | AcceleratorAction::Dev(id) => {
             KeyBinding::new(keystroke, MenuAccelerator { id: id.clone() }, Some(context))
         }
         AcceleratorAction::Edit(kind) => KeyBinding::new(
@@ -1241,6 +1393,12 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
     });
 }
 
+/// Deferred: a menu action runs inside the platform's menu callback, and a
+/// reload or a perf-monitor window must not start from there.
+fn perform_dev_action(cx: &mut App, id: String) {
+    cx.defer(move |cx| crate::desktop::dev_menu::perform(cx, &id));
+}
+
 fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>) {
     match kind {
         "quit" => cx.quit(),
@@ -1316,5 +1474,27 @@ mod tests {
         let model = default_menu("Tester");
         let menus = build_menus(&model, "Tester", false);
         assert!(!menus.is_empty());
+    }
+
+    #[test]
+    fn developer_items_run_on_the_host() {
+        use crate::desktop::dev_menu as dev;
+        for id in [
+            dev::RELOAD,
+            dev::OPEN_DEVTOOLS,
+            dev::ELEMENT_INSPECTOR,
+            dev::PERF_MONITOR,
+            dev::FAST_REFRESH,
+        ] {
+            assert_eq!(accelerator_action(id), AcceleratorAction::Dev(id.into()));
+        }
+        assert_eq!(
+            accelerator_action(dev::ACCELERATOR_ID),
+            AcceleratorAction::Host("devMenu".into())
+        );
+        assert_eq!(
+            accelerator_action("dev:custom"),
+            AcceleratorAction::Press("dev:custom".into())
+        );
     }
 }
