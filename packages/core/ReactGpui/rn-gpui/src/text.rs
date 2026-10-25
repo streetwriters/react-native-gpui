@@ -95,7 +95,12 @@ fn font_data() -> &'static RwLock<HashMap<String, Arc<Vec<u8>>>> {
     FONT_DATA.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// A font family as a lookup key. React Native for Windows names a font file's
+/// family `/Assets/File.ttf#Family`, and icon libraries ask for it that way once
+/// `Platform.OS` is `windows`: the family after the `#` is the name the font
+/// is registered under.
 fn normalized_font_name(name: &str) -> String {
+    let name = name.rsplit_once('#').map_or(name, |(_, family)| family);
     name.chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
@@ -630,4 +635,22 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
     )
     .w(px(width.max(0.0)))
     .h(px(height.max(0.0)))
+}
+
+#[cfg(test)]
+mod font_name_tests {
+    use super::normalized_font_name;
+
+    #[test]
+    fn a_windows_font_reference_names_the_family_after_the_hash() {
+        assert_eq!(
+            normalized_font_name("/Assets/MaterialIcons-Regular.ttf#Material Icons"),
+            normalized_font_name("Material Icons")
+        );
+    }
+
+    #[test]
+    fn a_plain_family_is_unchanged() {
+        assert_eq!(normalized_font_name("Material Icons"), "materialicons");
+    }
 }
