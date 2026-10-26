@@ -159,6 +159,23 @@ function loadEngineBundle(projectRoot) {
   return activeJsEngineBundle(projectRoot);
 }
 
+function activeEngineName(projectRoot) {
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  try {
+    const { activeJsEngine } = appRequire(
+      path.join(
+        path.dirname(
+          appRequire.resolve('@react-native-gpui/core/package.json'),
+        ),
+        'js-engine.js',
+      ),
+    );
+    return activeJsEngine(projectRoot)?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function copyFontAssets(projectRoot, bundlePath, config) {
   const destination = path.join(
     path.dirname(bundlePath),
@@ -1402,13 +1419,6 @@ export function collectNodeAddons({
   return { copied, out: outDirectory };
 }
 
-/// The first four bytes of a Hermes bytecode file.
-///
-/// Hermes identifies its output by content, and React Native's loader does too:
-/// the file extension is not consulted, which is why a `.bundle` holding
-/// bytecode works. The magic is `c6 1f bc 03`, followed by the version.
-const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03]);
-
 /**
  * Strip the symbol table from the release binary, once its debug info is safe.
  *
@@ -1437,11 +1447,16 @@ function stripReleaseBinary({ crateDir, binaryName }) {
  * Copy the bundle a release should ship to `desktop/build/package/index.bundle`.
  *
  * One name, one file, and the content is whatever the engine produced. A
- * Hermes build ships bytecode; a JavaScript-only engine ships JavaScript under
- * the same name, with one line saying so. The name never varies, so the runtime
+ * compiling engine ships its bytecode; a JavaScript-only engine ships JavaScript
+ * under the same name, with one line saying so. The name never varies, so the runtime
  * has nothing to guess and `Resources/` holds exactly one bundle.
  */
-function stageBundle({ projectRoot, build }) {
+export function stageBundle({
+  projectRoot,
+  build,
+  engine = loadEngineBundle(projectRoot),
+  engineName = activeEngineName(projectRoot),
+}) {
   const packageDir = path.join(projectRoot, 'desktop', 'build', 'package');
   fs.mkdirSync(packageDir, { recursive: true });
   const staged = path.join(packageDir, 'index.bundle');
@@ -1453,28 +1468,31 @@ function stageBundle({ projectRoot, build }) {
   }
   fs.copyFileSync(source, staged);
 
-  const head = Buffer.alloc(HERMES_MAGIC.length);
+  if (!engine || typeof engine.compile !== 'function') {
+    console.log(
+      'packaging a JavaScript bundle: the active engine has no compiler',
+    );
+    return staged;
+  }
+
+  // The engine declares how its output is recognised; without a declaration the
+  // output of `compile()` is trusted.
+  const magic = engine.bytecodeMagic;
+  if (!Buffer.isBuffer(magic) || magic.length === 0) return staged;
+
+  const head = Buffer.alloc(magic.length);
   const fd = fs.openSync(staged, 'r');
   try {
-    fs.readSync(fd, head, 0, HERMES_MAGIC.length, 0);
+    fs.readSync(fd, head, 0, magic.length, 0);
   } finally {
     fs.closeSync(fd);
   }
-  if (head.equals(HERMES_MAGIC)) return staged;
-
-  // Not bytecode. That is correct for a JavaScript-only engine and a packaging
-  // mistake with Hermes, so the two are told apart by whether the engine claims
-  // to compile at all.
-  const engine = loadEngineBundle(projectRoot);
-  if (engine && typeof engine.compile === 'function') {
+  if (!head.equals(magic)) {
     throw new Error(
-      `the Hermes engine did not produce bytecode: ${source} starts with ` +
-        `${JSON.stringify(head.toString('latin1'))}, not the Hermes magic`,
+      `the ${engineName ?? 'JS'} engine did not produce bytecode: ${source} starts with ` +
+        `${JSON.stringify(head.toString('latin1'))}, not the engine's bytecode magic`,
     );
   }
-  console.log(
-    'packaging a JavaScript bundle: the active engine compiles to bytecode only with Hermes',
-  );
   return staged;
 }
 
@@ -1528,8 +1546,7 @@ export async function packageDesktop({
     packaging: true,
   });
   // What the release ships: one bundle, always named `index.bundle`, holding
-  // whatever the engine compiled the JavaScript into. React Native's own release
-  // builds do the same — an iOS `main.jsbundle` is bytecode when Hermes is on.
+  // whatever the engine compiled the JavaScript into.
   const shippedBundle = stageBundle({ projectRoot, build });
 
   const crateDir = path.join(projectRoot, 'desktop');

@@ -1,5 +1,7 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
@@ -12,6 +14,7 @@ import {
   metroTerminal,
   scanNodeAddonCalls,
   scaffoldDesktop,
+  stageBundle,
 } from './commands.js';
 
 // The repository root by lookup, not by counting parents: this file sits at a
@@ -466,4 +469,52 @@ test('a tray icon in desktop.json is embedded in the launch chain', () => {
   expect(
     desktopLaunchConfig({ tray: { tooltip: 'Tray' }, devMenu: true }, 'x'),
   ).not.toContain('.icon_bytes(');
+});
+
+function stageFixture(content) {
+  const projectRoot = fs.mkdtempSync(
+    nodePath.join(os.tmpdir(), 'stage-bundle-'),
+  );
+  temporaryRoots.push(projectRoot);
+  const runtimeBundlePath = nodePath.join(projectRoot, 'compiled.bundle');
+  fs.writeFileSync(runtimeBundlePath, content);
+  return { projectRoot, build: { runtimeBundlePath } };
+}
+
+test('stageBundle accepts the bytecode magic the engine declares', () => {
+  const magic = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+  const staged = stageBundle({
+    ...stageFixture(Buffer.concat([magic, Buffer.from('rest')])),
+    engine: { compile() {}, bytecodeMagic: magic },
+    engineName: 'other',
+  });
+  expect(fs.existsSync(staged)).toBe(true);
+});
+
+test('stageBundle names the engine when its output lacks the declared magic', () => {
+  expect(() =>
+    stageBundle({
+      ...stageFixture('console.log(1)'),
+      engine: { compile() {}, bytecodeMagic: Buffer.from([1, 2, 3, 4]) },
+      engineName: 'other',
+    }),
+  ).toThrow(/the other engine did not produce bytecode/u);
+});
+
+test('stageBundle trusts an engine that compiles but declares no magic', () => {
+  const staged = stageBundle({
+    ...stageFixture('opaque'),
+    engine: { compile() {} },
+    engineName: 'other',
+  });
+  expect(fs.readFileSync(staged, 'utf8')).toBe('opaque');
+});
+
+test('stageBundle ships JavaScript for an engine without a compiler', () => {
+  const staged = stageBundle({
+    ...stageFixture('console.log(1)'),
+    engine: {},
+    engineName: 'plain',
+  });
+  expect(fs.readFileSync(staged, 'utf8')).toBe('console.log(1)');
 });
