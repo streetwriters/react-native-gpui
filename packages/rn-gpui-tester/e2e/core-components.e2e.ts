@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { afterAll, test } from 'vitest';
+import { PNG } from 'pngjs';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   launchApp,
   expect as desktopExpect,
@@ -9,7 +10,7 @@ import {
 let app: DesktopApp;
 afterAll(() => app?.disconnect());
 
-test('the core-components screen opens', async () => {
+beforeAll(async () => {
   app = await launchApp({
     bundle: path.resolve(
       'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
@@ -25,6 +26,109 @@ test('the core-components screen opens', async () => {
   await desktopExpect(
     app.getByTestId('tester-screen-core-components'),
   ).toBeVisible();
-  await desktopExpect(app.getByTestId('core-components-fixture')).toBeVisible();
-  await app.close();
+});
+
+async function poll(check: () => Promise<boolean>, timeout = 5000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error(`timed out waiting for the condition: ${check}`);
+}
+
+async function text(testID: string) {
+  return (await app.getByTestId(testID).textContent()) ?? '';
+}
+
+/** The RGBA of the pixel at a fraction of an element's box in its screenshot. */
+async function pixel(testID: string, x: number, y: number) {
+  const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+  const px = Math.min(image.width - 1, Math.round(image.width * x));
+  const py = Math.min(image.height - 1, Math.round(image.height * y));
+  const offset = (py * image.width + px) * 4;
+  return Array.from(image.data.subarray(offset, offset + 4));
+}
+
+describe('Switch', () => {
+  test('is measured natively and clicking a controlled switch flips it', async () => {
+    const [node] = await app.query('testID', 'switch-controlled', true);
+    expect(node.frame.width).toBeGreaterThan(30);
+    expect(node.frame.height).toBeGreaterThan(15);
+    expect(await text('switch-value')).toBe('false');
+    await app.getByTestId('switch-controlled').click();
+    await poll(async () => (await text('switch-value')) === 'true');
+    expect(await text('switch-changes')).toBe('1');
+    await app.getByTestId('switch-controlled').click();
+    await poll(async () => (await text('switch-value')) === 'false');
+  });
+
+  test('Space toggles a focused switch', async () => {
+    await app.getByTestId('switch-controlled').press('space');
+    await poll(async () => (await text('switch-value')) === 'true');
+    await app.getByTestId('switch-controlled').press('space');
+    await poll(async () => (await text('switch-value')) === 'false');
+  });
+
+  test('a switch whose value JS never updates springs back', async () => {
+    const before = await pixel('switch-refusing', 0.25, 0.5);
+    await app.getByTestId('switch-refusing').click();
+    await poll(async () => Number(await text('switch-changes')) >= 100);
+    await app.waitForIdle();
+    // The thumb is back on the left, so the left quarter is thumb-white as before.
+    expect(await pixel('switch-refusing', 0.25, 0.5)).toEqual(before);
+    expect(await pixel('switch-refusing', 0.75, 0.5)).not.toEqual([
+      255, 255, 255, 255,
+    ]);
+  });
+
+  test('a disabled switch ignores clicks', async () => {
+    const changes = await text('switch-changes');
+    const [node] = await app.query('testID', 'switch-disabled', true);
+    await app.click(node.tag);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(await text('switch-changes')).toBe(changes);
+  });
+
+  test('draws the track in the colours it was given, on and off', async () => {
+    // Near the left edge and the right edge of the track, away from the thumb.
+    const on = await pixel('switch-colored', 0.1, 0.5);
+    expect(on.slice(0, 3)).toEqual([0xe9, 0x1e, 0x63]);
+    const thumb = await pixel('switch-colored', 0.78, 0.5);
+    expect(thumb.slice(0, 3)).toEqual([0xff, 0xeb, 0x3b]);
+    const off = await pixel('switch-colored-off', 0.75, 0.5);
+    expect(off.slice(0, 3)).toEqual([0xff, 0x98, 0x00]);
+  });
+});
+
+describe('ActivityIndicator', () => {
+  async function drawn(testID: string) {
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    for (let index = 3; index < image.data.length; index += 4) {
+      if (image.data[index] !== 0 && image.data[index - 3] < 250) return true;
+    }
+    return false;
+  }
+
+  test('draws while animating and the size follows the prop', async () => {
+    expect(await drawn('indicator-small')).toBe(true);
+    const [small] = await app.query('testID', 'indicator-small', true);
+    const [large] = await app.query('testID', 'indicator-large', true);
+    expect(large.frame.width).toBeGreaterThan(small.frame.width);
+  });
+
+  test('a stopped indicator hides, unless hidesWhenStopped is false', async () => {
+    expect(await drawn('indicator-visible')).toBe(true);
+    await app.getByTestId('indicator-toggle').click();
+    await poll(async () => (await text('indicator-toggle')) === 'start');
+    await app.waitForIdle();
+    expect(await drawn('indicator-small')).toBe(false);
+  });
+
+  test('a stopped indicator leaves the app idle: it requests no frames', async () => {
+    await app.waitForIdle({ timeout: 3000 });
+    const status = await app.idleStatus();
+    expect(status.idle).toBe(true);
+    expect(status.busySources).toEqual([]);
+  });
 });

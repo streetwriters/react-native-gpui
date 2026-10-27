@@ -950,7 +950,10 @@ impl RNNodeView {
         };
         if op.props_changed {
             self.view = op.view.clone();
-            self.focusable = op.view.focusable || self.component == "TextInput";
+            self.focusable = op.view.focusable
+                || self.component == "TextInput"
+                || crate::extensions::component_renderer(&self.component)
+                    .is_some_and(|renderer| renderer.focusable_by_default());
             if !self.focusable {
                 self.focus_handle = None;
                 self.focus_subscriptions.clear();
@@ -2873,13 +2876,29 @@ impl Render for RNNodeView {
                             )
                         )
                     {
-                        dispatch_accessibility_event(
-                            this.tag,
-                            "click",
-                            &serde_json::json!({}),
-                            window,
-                            cx,
-                        );
+                        let activated = crate::extensions::component_renderer(&this.component)
+                            .zip(
+                                cx.try_global::<crate::store::StoreGlobal>()
+                                    .map(|s| s.0.clone()),
+                            )
+                            .is_some_and(|(renderer, store)| {
+                                let handle = crate::extensions::StoreHandle::new(store.downgrade());
+                                renderer.activate(
+                                    &this.component_node_shallow(),
+                                    &handle,
+                                    window,
+                                    cx,
+                                )
+                            });
+                        if !activated {
+                            dispatch_accessibility_event(
+                                this.tag,
+                                "click",
+                                &serde_json::json!({}),
+                                window,
+                                cx,
+                            );
+                        }
                         cx.stop_propagation();
                     }
                     if event.keystroke.key == "escape" {
@@ -3202,6 +3221,15 @@ impl Render for RNNodeView {
             let spec = renderer.input(&node);
             (spec, node)
         });
+        // A component that owns the press has its left-button hooks run before the
+        // ones that start a React Native touch, which would otherwise stop the
+        // press first: GPUI runs listeners in reverse order of registration.
+        let claims_press = input_spec.is_some()
+            && crate::extensions::component_renderer(&self.component)
+                .is_some_and(|renderer| renderer.claims_press(&self.component_node_shallow()));
+        let mut late_left_down: Vec<crate::pointer_area::PointerHandler<MouseDownEvent>> =
+            Vec::new();
+        let mut late_left_up: Vec<crate::pointer_area::PointerHandler<MouseUpEvent>> = Vec::new();
         if let Some((spec, node)) = input_spec {
             for button in [
                 crate::events::Button::Left,
@@ -3230,6 +3258,7 @@ impl Render for RNNodeView {
                         );
                     });
                 match button {
+                    crate::events::Button::Left if claims_press => late_left_down.push(handler),
                     crate::events::Button::Left => handlers.left_down.push(handler),
                     crate::events::Button::Middle => handlers.middle_down.push(handler),
                     crate::events::Button::Right => handlers.right_down.push(handler),
@@ -3253,6 +3282,7 @@ impl Render for RNNodeView {
                         );
                     });
                 match button {
+                    crate::events::Button::Left if claims_press => late_left_up.push(handler),
                     crate::events::Button::Left => handlers.left_up.push(handler),
                     crate::events::Button::Middle => handlers.middle_up.push(handler),
                     crate::events::Button::Right => handlers.right_up.push(handler),
@@ -3538,6 +3568,8 @@ impl Render for RNNodeView {
                     cx.stop_propagation();
                 }));
         }
+        handlers.left_down.extend(late_left_down);
+        handlers.left_up.extend(late_left_up);
         // A child of a scrolling container moves with its content, so a pointer area
         // here would drift off the viewport. A node that claims a window-control
         // area has the same problem for a different reason: the platform asks

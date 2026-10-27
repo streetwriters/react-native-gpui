@@ -618,6 +618,32 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         input::InputSpec::default()
     }
 
+    /// Space or Enter on the focused component, which has the role of a button,
+    /// checkbox, radio button, switch or link. Returning true means the component
+    /// acted, and the activation is not reported to JS as a `click`.
+    fn activate(
+        &self,
+        _node: &ComponentNode,
+        _handle: &StoreHandle,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> bool {
+        false
+    }
+
+    /// Whether the component takes keyboard focus without a `focusable` prop, as
+    /// a native control does.
+    fn focusable_by_default(&self) -> bool {
+        false
+    }
+
+    /// Whether this component owns a left press: its hooks run before the ones
+    /// that start a React Native touch, and a hook that returns `Stop` keeps the
+    /// press from becoming one.
+    fn claims_press(&self, _node: &ComponentNode) -> bool {
+        false
+    }
+
     /// A button went down inside this component.
     fn on_mouse_down(
         &self,
@@ -967,7 +993,10 @@ pub(crate) fn run_builtin_command(
         return;
     };
     let snapshot = node.read(cx).component_node_shallow();
-    if !renderer.command(&snapshot, name, args, handle, cx) {
+    if renderer.command(&snapshot, name, args, handle, cx) {
+        // The command changed what the component shows without a prop commit.
+        node.update(cx, |_, cx| cx.notify());
+    } else {
         log::error!("[builtin-component] {component} has no command '{name}'");
     }
 }

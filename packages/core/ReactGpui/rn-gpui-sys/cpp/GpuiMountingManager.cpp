@@ -2,6 +2,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.h>
+#include <react/renderer/components/desktopswitch/DesktopSwitch.h>
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
@@ -12,6 +13,7 @@
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/FBReactNativeSpec/ComponentDescriptors.h>
 #include <react/renderer/components/FBReactNativeSpec/EventEmitters.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
@@ -594,6 +596,10 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                   NativeViewHostComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   WindowControlComponentDescriptor>());
+      result->add(concreteComponentDescriptorProvider<
+                  DesktopSwitchComponentDescriptor>());
+      result->add(concreteComponentDescriptorProvider<
+                  ActivityIndicatorViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   DesktopContextMenuViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<

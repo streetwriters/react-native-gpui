@@ -1,5 +1,6 @@
 rn_gpui_module::include_specs!();
 
+pub mod activity_indicator;
 pub mod alert;
 pub mod app_menu;
 pub mod clipboard;
@@ -15,12 +16,14 @@ pub mod perf_monitor;
 pub mod scrollview;
 pub mod shortcut_scope;
 pub mod shortcuts;
+pub mod switch;
 pub mod textinput;
 pub mod tray;
 pub mod window_control;
 pub mod windows;
 
 pub fn register() {
+    activity_indicator::register();
     alert::register();
     app_menu::register();
     clipboard::register();
@@ -35,6 +38,7 @@ pub fn register() {
     scrollview::register();
     shortcut_scope::register();
     shortcuts::register();
+    switch::register();
     tray::register();
     window_control::register();
     windows::register();
