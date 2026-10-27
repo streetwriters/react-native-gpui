@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  AppState,
   Dimensions,
   I18nManager,
   Platform,
@@ -12,11 +13,22 @@ import {
 } from 'react-native';
 import {
   DesktopWindow,
+  useDesktopWindow,
   useWindowFocus,
   useWindowState,
 } from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const [appStates, setAppStates] = useState<string[]>([
+    String(AppState.currentState),
+  ]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', next =>
+      setAppStates(previous => [...previous, next]),
+    );
+    return () => subscription.remove();
+  }, []);
+  const currentWindow = useDesktopWindow();
   const dimensions = useWindowDimensions();
   const screen = Dimensions.get('screen');
   const focused = useWindowFocus();
@@ -40,6 +52,20 @@ export default function ApisFixture() {
         <Text testID="dimensions-font-scale">
           {String(dimensions.fontScale)}
         </Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>AppState</Text>
+        <Text testID="appstate-current">{String(AppState.currentState)}</Text>
+        <Text testID="appstate-log">{appStates.join(',')}</Text>
+        <Pressable
+          testID="appstate-hide"
+          onPress={() => {
+            currentWindow.hide();
+            setTimeout(() => currentWindow.show(), 600);
+          }}
+        >
+          <Text>Hide briefly</Text>
+        </Pressable>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Window hooks</Text>

@@ -77,6 +77,8 @@ tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
 # session bus whether a StatusNotifier host is running (see
 # `tray_host_available`). "blocking-api" supplies the synchronous `Connection`.
 zbus = { version = "5", default-features = false, features = ["blocking-api"] }
+# `poll` on `/proc/pressure/memory` for the memory warning.
+libc = "0.2"
 
 # X11 window calls GPUI does not expose. Wayland has no
 # equivalent, so those sessions stay `unsupported`. The X11 path reads the
@@ -93,6 +95,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_Graphics_Gdi",
     # `RegGetValueW`: the text scale the user chose in Accessibility settings.
     "Win32_System_Registry",
+    # `CreateMemoryResourceNotification`: the low-memory signal.
+    "Win32_System_Memory",
+    "Win32_System_Threading",
     # `GetDpiForSystem`: the scale a tray icon's physical rectangle is divided by.
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",

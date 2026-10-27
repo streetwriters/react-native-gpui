@@ -1175,6 +1175,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             screen.1,
             crate::desktop::display::system_font_scale(),
         );
+        crate::desktop::memory_pressure::start(host.clone());
         startup_trace("bundle load start");
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");

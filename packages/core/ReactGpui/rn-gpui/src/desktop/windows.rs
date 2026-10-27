@@ -363,6 +363,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
     }
+    super::app_state::schedule(cx);
     log::info!(
         "[desktop] opened window {key} (surface {surface_id}, {})",
         options.component
@@ -404,6 +405,7 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
 /// GPUI must not be asked to remove it again from inside that callback.
 fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
     super::window_mirror::remove(key);
+    super::app_state::schedule(cx);
     let surface_id = entry.surface_id;
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
@@ -477,6 +479,7 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
     }
+    super::app_state::schedule(cx);
     let _ = handle.update(cx, |_root, window, cx| {
         let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
         cx.observe_window_bounds(window, move |_root, window, cx| {
@@ -691,15 +694,25 @@ pub fn set_fullscreen(cx: &mut App, key: u32, fullscreen: bool) -> DesktopResult
 }
 
 pub fn show(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         platform_window::show(window).map_err(DesktopError::unsupported)
-    })
+    });
+    if result.is_ok() {
+        super::window_mirror::patch(key, &[("isVisible", json!(true))]);
+        super::app_state::schedule(cx);
+    }
+    result
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         platform_window::hide(window).map_err(DesktopError::unsupported)
-    })
+    });
+    if result.is_ok() {
+        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
+        super::app_state::schedule(cx);
+    }
+    result
 }
 
 pub fn start_dragging(cx: &mut App, key: u32) -> DesktopResult {
@@ -898,6 +911,7 @@ pub(crate) fn install_state_observer<T: 'static>(
                 ("isFullscreen", json!(state.2)),
             ],
         );
+        super::app_state::schedule(cx);
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
@@ -928,6 +942,7 @@ fn install_activation_observer(
         }
         last = active;
         super::window_mirror::patch(key, &[("isFocused", json!(active))]);
+        super::app_state::schedule(cx);
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };

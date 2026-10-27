@@ -116,3 +116,21 @@ test('Dimensions reports the screen, the font scale and each window', async () =
   );
   expect(await text('dimensions-window-width')).toBe('1024');
 });
+
+test('AppState ignores focus moving between app windows', async () => {
+  await launch({ offscreen: false });
+  await app.focusWindow();
+  await poll(async () => (await text('appstate-current')) === 'active');
+  await app.getByTestId('window-open-child').click();
+  await poll(async () => (await text('window-focus')) === 'false');
+  await new Promise(resolve => setTimeout(resolve, 200));
+  expect(await text('appstate-log')).toBe('active');
+});
+
+test('AppState is background while no window is visible', async () => {
+  await launch({ offscreen: false });
+  await app.focusWindow();
+  await poll(async () => (await text('appstate-current')) === 'active');
+  await app.getByTestId('appstate-hide').click();
+  await poll(async () => (await text('appstate-log')).includes('background'));
+});

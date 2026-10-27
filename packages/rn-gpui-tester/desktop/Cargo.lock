@@ -5076,6 +5076,7 @@ dependencies = [
  "gpui_platform",
  "http_client",
  "image",
+ "libc",
  "log",
  "muda 0.15.3",
  "objc",

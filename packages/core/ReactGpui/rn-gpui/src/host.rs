@@ -171,6 +171,20 @@ impl Host {
             .set_display_metrics(screen_width, screen_height, font_scale)
     }
 
+    pub fn set_app_state(&self, state: &str) {
+        #[cfg(test)]
+        let _ = (self, state);
+        #[cfg(not(test))]
+        self.lock().pin_mut().set_app_state(state)
+    }
+
+    pub fn emit_memory_warning(&self) {
+        #[cfg(test)]
+        let _ = self;
+        #[cfg(not(test))]
+        self.lock().emit_memory_warning()
+    }
+
     pub fn request_reload(&self) {
         #[cfg(test)]
         let _ = self;

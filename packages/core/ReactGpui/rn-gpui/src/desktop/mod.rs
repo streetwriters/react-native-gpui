@@ -1,4 +1,5 @@
 pub mod app_menu;
+pub mod app_state;
 pub mod capabilities;
 pub mod client_frame;
 pub mod context_menu;
@@ -8,6 +9,7 @@ pub mod errors;
 pub mod gpui_menu;
 pub mod icon;
 pub mod keymap;
+pub mod memory_pressure;
 pub mod menu_events;
 pub mod menu_model;
 pub mod module;

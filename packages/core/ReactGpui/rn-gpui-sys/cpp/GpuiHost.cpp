@@ -2,6 +2,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <jsi/instrumentation.h>
+#include <react/coremodules/AppStateModule.h>
 #include <react/coremodules/DeviceInfoModule.h>
 #include "GpuiHttpClient.h"
 #include "GpuiJsEngine.h"
@@ -838,6 +839,30 @@ void GpuiHost::emit_device_event_json(
   }
   reactHost_->emitDeviceEvent(
       folly::dynamic::array(std::string(eventName), std::move(payload)));
+}
+
+void GpuiHost::set_app_state(rust::Str state) {
+  const std::string next(state);
+  const std::string previous = AppStateModule::state();
+  if (next == previous) {
+    return;
+  }
+  AppStateModule::setState(next);
+  if (!scriptLoaded_) {
+    return;
+  }
+  reactHost_->emitDeviceEvent(folly::dynamic::array(
+      "appStateDidChange", folly::dynamic::object("app_state", next)));
+  if ((next == "active") != (previous == "active")) {
+    reactHost_->emitDeviceEvent(
+        folly::dynamic::array("appStateFocusChange", next == "active"));
+  }
+}
+
+void GpuiHost::emit_memory_warning() const {
+  if (scriptLoaded_) {
+    reactHost_->emitDeviceEvent(folly::dynamic::array("memoryWarning"));
+  }
 }
 
 void GpuiHost::emit_accessibility_setting_event(

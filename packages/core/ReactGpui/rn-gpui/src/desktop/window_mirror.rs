@@ -32,6 +32,23 @@ pub fn patch(key: u32, fields: &[(&str, Value)]) {
     }
 }
 
+/// What the app's state is derived from, for every known window.
+pub fn facts() -> Vec<super::app_state::WindowFacts> {
+    let flag = |state: &serde_json::Map<String, Value>, name: &str, default: bool| {
+        state.get(name).and_then(Value::as_bool).unwrap_or(default)
+    };
+    mirror()
+        .lock()
+        .expect("window mirror poisoned")
+        .values()
+        .map(|state| super::app_state::WindowFacts {
+            focused: flag(state, "isFocused", false),
+            minimized: flag(state, "isMinimized", false),
+            visible: flag(state, "isVisible", true),
+        })
+        .collect()
+}
+
 pub fn remove(key: u32) {
     mirror()
         .lock()

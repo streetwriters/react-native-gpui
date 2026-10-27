@@ -496,6 +496,8 @@ pub mod ffi {
             scale: f32,
         );
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
+        fn set_app_state(self: Pin<&mut GpuiHost>, state: &str);
+        fn emit_memory_warning(self: &GpuiHost);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
         fn set_display_metrics(
             self: Pin<&mut GpuiHost>,
