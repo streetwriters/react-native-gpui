@@ -218,6 +218,13 @@ export const renderScreen: Record<
       require('./components/DimensionsFixture').default,
       props,
     ),
+  apis: props =>
+    React.createElement(require('./components/ApisFixture').default, props),
+  'core-components': props =>
+    React.createElement(
+      require('./components/CoreComponentsFixture').default,
+      props,
+    ),
   'core-modules': props =>
     React.createElement(
       require('./components/CoreModulesFixture').default,

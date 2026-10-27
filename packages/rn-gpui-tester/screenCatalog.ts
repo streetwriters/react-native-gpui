@@ -288,6 +288,18 @@ export const screens = [
     fixture: 'DimensionsFixture',
   },
   {
+    id: 'apis',
+    title: 'Core APIs',
+    group: 'Platform',
+    fixture: 'ApisFixture',
+  },
+  {
+    id: 'core-components',
+    title: 'Core components',
+    group: 'Views',
+    fixture: 'CoreComponentsFixture',
+  },
+  {
     id: 'core-modules',
     title: 'Core native modules',
     group: 'Platform',
