@@ -8,8 +8,15 @@ import {
   Text,
   View,
 } from 'react-native';
+import {
+  DesktopWindow,
+  useWindowFocus,
+  useWindowState,
+} from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const focused = useWindowFocus();
+  const windowState = useWindowState();
   return (
     <ScrollView testID="apis-fixture" contentContainerStyle={styles.content}>
       <Text style={styles.title}>Core APIs</Text>
@@ -17,6 +24,25 @@ export default function ApisFixture() {
         <Text style={styles.heading}>Platform</Text>
         <Text testID="platform-version">{String(Platform.Version)}</Text>
         <Text testID="platform-is-testing">{String(Platform.isTesting)}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Window hooks</Text>
+        <Text testID="window-focus">{String(focused)}</Text>
+        <Text testID="window-width">
+          {String(Math.round(windowState?.bounds.width ?? -1))}
+        </Text>
+        <Pressable
+          testID="window-open-child"
+          onPress={() =>
+            DesktopWindow.open({
+              component: 'DesktopShellChild',
+              width: 420,
+              height: 300,
+            })
+          }
+        >
+          <Text>Open child window</Text>
+        </Pressable>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>I18nManager</Text>

@@ -8,7 +8,11 @@
 
 import React from 'react';
 import { Text, View } from 'react-native';
-import { useDesktopWindow } from '@react-native-gpui/core/desktop';
+import {
+  useDesktopWindow,
+  useWindowFocus,
+  useWindowState,
+} from '@react-native-gpui/core/desktop';
 
 export interface DesktopShellChildProps {
   windowId?: number;
@@ -17,6 +21,8 @@ export interface DesktopShellChildProps {
 
 function DesktopShellChild(props: DesktopShellChildProps) {
   const win = useDesktopWindow();
+  const focused = useWindowFocus();
+  const windowState = useWindowState();
   return (
     <View
       style={{
@@ -31,6 +37,10 @@ function DesktopShellChild(props: DesktopShellChildProps) {
       </Text>
       <Text testID="desktop-child-prop-window-id">
         initialProps.windowId: {String(props.windowId)}
+      </Text>
+      <Text testID="desktop-child-focus">{String(focused)}</Text>
+      <Text testID="desktop-child-width">
+        {String(Math.round(windowState?.bounds.width ?? -1))}
       </Text>
       <Text testID="desktop-child-label">label: {props.label ?? '(none)'}</Text>
     </View>

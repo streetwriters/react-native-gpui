@@ -9,7 +9,7 @@ import {
 let app: DesktopApp;
 afterAll(() => app?.disconnect());
 
-async function launch() {
+async function launch({ offscreen = true } = {}) {
   if (app) await app.close();
   app = await launchApp({
     bundle: path.resolve(
@@ -21,7 +21,7 @@ async function launch() {
       RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-apis-state.json'),
     },
     disableAnimations: true,
-    offscreen: true,
+    offscreen,
   });
   await app.setWindowSize(1024, 768);
   await desktopExpect(app.getByTestId('tester-screen-apis')).toBeVisible();
@@ -67,4 +67,29 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
     await launch();
   }
   expect(await text('i18n-is-rtl')).toBe('false');
+});
+
+async function poll(check: () => Promise<boolean>, timeout = 5000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error(`timed out waiting for the condition: ${check}`);
+}
+
+test('window hooks report focus per window and the window size', async () => {
+  // An offscreen window is never active, so focus needs a real one.
+  await launch({ offscreen: false });
+  await app.setWindowSize(900, 700);
+  const { width } = await app.getWindowBounds();
+  await poll(async () => (await text('window-width')) === String(width));
+  await app.getByTestId('window-open-child').click();
+  await desktopExpect(app.getByTestId('desktop-child-focus')).toBeVisible();
+  await poll(async () => (await text('desktop-child-focus')) === 'true');
+  await poll(async () => (await text('window-focus')) === 'false');
+  expect(await text('desktop-child-width')).toBe('420');
+  await app.focusWindow();
+  await poll(async () => (await text('window-focus')) === 'true');
+  await poll(async () => (await text('desktop-child-focus')) === 'false');
 });

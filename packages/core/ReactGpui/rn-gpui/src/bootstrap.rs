@@ -1483,6 +1483,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 crate::desktop::windows::WindowRole::Main,
             );
 
+        crate::desktop::windows::install_main_window_events(
+            cx,
+            (*window).into(),
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+        );
+
         // Without the close hook `closeRequested` never fires for the main window.
         crate::desktop::windows::install_close_hook_for(
             cx,

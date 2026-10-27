@@ -360,6 +360,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         subscriptions,
     };
     cx.global_mut::<DesktopWindowsGlobal>().0.insert(entry);
+    if let Ok(state) = window_state(cx, key) {
+        super::window_mirror::set(key, &state);
+    }
     log::info!(
         "[desktop] opened window {key} (surface {surface_id}, {})",
         options.component
@@ -400,6 +403,7 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
 /// `remove_window` is false when the platform is already closing the window:
 /// GPUI must not be asked to remove it again from inside that callback.
 fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
+    super::window_mirror::remove(key);
     let surface_id = entry.surface_id;
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
@@ -459,6 +463,63 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     };
     let _ = handle.update(cx, |_root, window, cx| {
         install_close_hook(window, cx, key);
+    });
+}
+
+/// Reports the main window's bounds, state and focus to JS and to the state
+/// mirror, as `open_window` does for the windows it creates. The main window
+/// resizes the store through its own observer in `bootstrap`, so this only
+/// reports.
+pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
+    let Some(handle) = handle.downcast::<SurfaceRootView>() else {
+        return;
+    };
+    if let Ok(state) = window_state(cx, key) {
+        super::window_mirror::set(key, &state);
+    }
+    let _ = handle.update(cx, |_root, window, cx| {
+        let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
+        cx.observe_window_bounds(window, move |_root, window, cx| {
+            let bounds = window.bounds();
+            let now = (
+                f32::from(bounds.origin.x),
+                f32::from(bounds.origin.y),
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height),
+            );
+            if last.get() == Some(now) {
+                return;
+            }
+            last.set(Some(now));
+            super::window_mirror::patch(
+                key,
+                &[
+                    (
+                        "bounds",
+                        json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
+                    ),
+                    ("scaleFactor", json!(window.scale_factor())),
+                ],
+            );
+            let Some(store) = cx.try_global::<StoreGlobal>() else {
+                return;
+            };
+            let host = store.0.read(cx).host.clone();
+            host.emit_device_event_json(
+                "gpuiDesktop:windowResize",
+                &json!({"windowId": key, "width": now.2, "height": now.3}).to_string(),
+            );
+            host.emit_device_event_json(
+                "gpuiDesktop:windowMove",
+                &json!({"windowId": key, "x": now.0, "y": now.1}).to_string(),
+            );
+        })
+        .detach();
+        install_activation_observer(window, cx, key).detach();
+        // Windows installs its own state observer for the main window.
+        if !cfg!(windows) {
+            install_state_observer(window, cx).detach();
+        }
     });
 }
 
@@ -759,6 +820,21 @@ fn install_bounds_observer(
         let frame_hook = store.read(cx).frame_hook.clone();
         frame_hook.arm(window);
         if let Some(key) = window_key_for_handle(cx, handle) {
+            super::window_mirror::patch(
+                key,
+                &[
+                    (
+                        "bounds",
+                        json!({
+                            "x": x,
+                            "y": y,
+                            "width": f32::from(bounds.size.width),
+                            "height": f32::from(bounds.size.height),
+                        }),
+                    ),
+                    ("scaleFactor", json!(scale)),
+                ],
+            );
             let host = store.read(cx).host.clone();
             host.emit_device_event_json(
                 "gpuiDesktop:windowResize",
@@ -811,6 +887,14 @@ pub(crate) fn install_state_observer<T: 'static>(
         let Some(key) = window_key_for_handle(cx, handle) else {
             return;
         };
+        super::window_mirror::patch(
+            key,
+            &[
+                ("isMaximized", json!(state.0)),
+                ("isMinimized", json!(state.1)),
+                ("isFullscreen", json!(state.2)),
+            ],
+        );
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
@@ -840,6 +924,7 @@ fn install_activation_observer(
             return;
         }
         last = active;
+        super::window_mirror::patch(key, &[("isFocused", json!(active))]);
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
