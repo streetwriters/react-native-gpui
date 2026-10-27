@@ -5067,6 +5067,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "base64",
+ "block",
  "cocoa 0.25.0",
  "cxx",
  "env_logger",

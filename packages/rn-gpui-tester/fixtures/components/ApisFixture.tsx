@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   AppState,
   Dimensions,
   I18nManager,
@@ -28,6 +29,7 @@ export default function ApisFixture() {
     );
     return () => subscription.remove();
   }, []);
+  const [alertResult, setAlertResult] = useState('none');
   const currentWindow = useDesktopWindow();
   const dimensions = useWindowDimensions();
   const screen = Dimensions.get('screen');
@@ -54,20 +56,6 @@ export default function ApisFixture() {
         </Text>
       </View>
       <View style={styles.section}>
-        <Text style={styles.heading}>AppState</Text>
-        <Text testID="appstate-current">{String(AppState.currentState)}</Text>
-        <Text testID="appstate-log">{appStates.join(',')}</Text>
-        <Pressable
-          testID="appstate-hide"
-          onPress={() => {
-            currentWindow.hide();
-            setTimeout(() => currentWindow.show(), 600);
-          }}
-        >
-          <Text>Hide briefly</Text>
-        </Pressable>
-      </View>
-      <View style={styles.section}>
         <Text style={styles.heading}>Window hooks</Text>
         <Text testID="window-focus">{String(focused)}</Text>
         <Text testID="window-width">
@@ -84,6 +72,107 @@ export default function ApisFixture() {
           }
         >
           <Text>Open child window</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Alert</Text>
+        <Text testID="alert-result">{alertResult}</Text>
+        <Pressable
+          testID="alert-buttons"
+          onPress={() =>
+            Alert.alert('Title', 'Body', [
+              { text: 'First', onPress: () => setAlertResult('first') },
+              { text: 'Second', onPress: () => setAlertResult('second') },
+              {
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => setAlertResult('cancel'),
+              },
+            ])
+          }
+        >
+          <Text>Alert with buttons</Text>
+        </Pressable>
+        <Pressable
+          testID="alert-plain"
+          onPress={() =>
+            Alert.alert('Plain', undefined, [
+              { text: 'OK', onPress: () => setAlertResult('ok') },
+            ])
+          }
+        >
+          <Text>Alert, not cancelable</Text>
+        </Pressable>
+        <Pressable
+          testID="alert-cancelable"
+          onPress={() =>
+            Alert.alert(
+              'Cancelable',
+              undefined,
+              [{ text: 'OK', onPress: () => setAlertResult('ok') }],
+              {
+                cancelable: true,
+                onDismiss: () => setAlertResult('dismissed'),
+              },
+            )
+          }
+        >
+          <Text>Alert, cancelable</Text>
+        </Pressable>
+        <Pressable
+          testID="prompt-plain"
+          onPress={() =>
+            Alert.prompt(
+              'Name',
+              undefined,
+              text => setAlertResult(`text:${text}`),
+              'plain-text',
+              'Ada',
+            )
+          }
+        >
+          <Text>Prompt</Text>
+        </Pressable>
+        <Pressable
+          testID="prompt-secure"
+          onPress={() =>
+            Alert.prompt(
+              'Secret',
+              undefined,
+              text => setAlertResult(`secret:${text}`),
+              'secure-text',
+            )
+          }
+        >
+          <Text>Secure prompt</Text>
+        </Pressable>
+        <Pressable
+          testID="prompt-login"
+          onPress={() =>
+            Alert.prompt(
+              'Sign in',
+              undefined,
+              (credentials: unknown) =>
+                setAlertResult(`login:${JSON.stringify(credentials)}`),
+              'login-password',
+            )
+          }
+        >
+          <Text>Login prompt</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>AppState</Text>
+        <Text testID="appstate-current">{String(AppState.currentState)}</Text>
+        <Text testID="appstate-log">{appStates.join(',')}</Text>
+        <Pressable
+          testID="appstate-hide"
+          onPress={() => {
+            currentWindow.hide();
+            setTimeout(() => currentWindow.show(), 600);
+          }}
+        >
+          <Text>Hide briefly</Text>
         </Pressable>
       </View>
       <View style={styles.section}>
@@ -112,9 +201,16 @@ export default function ApisFixture() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 32, gap: 16, backgroundColor: '#fff' },
-  title: { fontSize: 20, color: '#111' },
-  section: { gap: 8 },
+  content: {
+    padding: 24,
+    gap: 12,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+  },
+  title: { fontSize: 20, color: '#111', width: '100%' },
+  section: { gap: 6, width: 300 },
   heading: { fontSize: 16, color: '#333' },
   row: { flexDirection: 'row' },
   box: { width: 30, height: 30, backgroundColor: '#36c' },

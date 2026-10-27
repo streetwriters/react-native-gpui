@@ -508,6 +508,29 @@ export class DesktopApp {
     await this.waitForIdle({ timeout: 30000 });
   }
 
+  /** The native alert on screen (macOS), or `null`. */
+  async alertState(): Promise<{
+    title: string;
+    buttons: string[];
+    fields: string[];
+  } | null> {
+    return this.request('alertState');
+  }
+
+  /** Types `texts` into the alert's fields and presses button `button`. */
+  async alertRespond(button: number, texts: string[] = []): Promise<boolean> {
+    const result = (await this.request('alertRespond', { button, texts })) as {
+      responded: boolean;
+    };
+    return result.responded;
+  }
+
+  /** Sends Escape to the native alert. */
+  async alertEscape(): Promise<boolean> {
+    const result = (await this.request('alertEscape')) as { sent: boolean };
+    return result.sent;
+  }
+
   async focusWindow(): Promise<void> {
     await this.request('focusWindow');
   }

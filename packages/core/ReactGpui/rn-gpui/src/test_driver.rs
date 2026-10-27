@@ -1247,6 +1247,25 @@ async fn serve_commands(
                 crate::desktop::windows::reopen(cx);
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),
+            #[cfg(target_os = "macos")]
+            "alertState" => crate::builtins::alert::mac::describe().unwrap_or(Value::Null),
+            #[cfg(target_os = "macos")]
+            "alertRespond" => {
+                let button = params.get("button").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let texts: Vec<String> = params
+                    .get("texts")
+                    .and_then(Value::as_array)
+                    .map(|texts| {
+                        texts
+                            .iter()
+                            .filter_map(|text| text.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                json!({"responded": crate::builtins::alert::mac::respond(button, &texts)})
+            }
+            #[cfg(target_os = "macos")]
+            "alertEscape" => json!({"sent": crate::builtins::alert::mac::press_escape()}),
             "listWindows" => cx.update(|cx| {
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),

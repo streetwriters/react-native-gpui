@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { afterAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   launchApp,
   expect as desktopExpect,
@@ -133,4 +133,74 @@ test('AppState is background while no window is visible', async () => {
   await poll(async () => (await text('appstate-current')) === 'active');
   await app.getByTestId('appstate-hide').click();
   await poll(async () => (await text('appstate-log')).includes('background'));
+});
+
+const onMac = process.platform === 'darwin';
+
+async function alertShown() {
+  await poll(async () => (await app.alertState()) !== null);
+  return (await app.alertState())!;
+}
+
+describe.runIf(onMac)('Alert', () => {
+  beforeAll(async () => {
+    await launch({ offscreen: false });
+    await app.focusWindow();
+  });
+
+  test('each button reports its own index', async () => {
+    for (const [button, expected] of [
+      [0, 'first'],
+      [1, 'second'],
+      [2, 'cancel'],
+    ] as const) {
+      await app.getByTestId('alert-buttons').click();
+      const shown = await alertShown();
+      expect(shown.title).toBe('Title');
+      expect(shown.buttons).toEqual(['First', 'Second', 'Cancel']);
+      await app.alertRespond(button);
+      await poll(async () => (await text('alert-result')) === expected);
+    }
+  });
+
+  test('Escape presses the cancel button', async () => {
+    await app.getByTestId('alert-buttons').click();
+    await alertShown();
+    await app.alertEscape();
+    await poll(async () => (await text('alert-result')) === 'cancel');
+  });
+
+  test('Escape does nothing unless the alert is cancelable', async () => {
+    await app.getByTestId('alert-plain').click();
+    await alertShown();
+    await app.alertEscape();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(await app.alertState()).not.toBeNull();
+    await app.alertRespond(0);
+    await poll(async () => (await text('alert-result')) === 'ok');
+    await app.getByTestId('alert-cancelable').click();
+    await alertShown();
+    await app.alertEscape();
+    await poll(async () => (await text('alert-result')) === 'dismissed');
+    expect(await app.alertState()).toBeNull();
+  });
+
+  test('prompts return the typed text, starting from the default value', async () => {
+    await app.getByTestId('prompt-plain').click();
+    expect((await alertShown()).fields).toEqual(['Ada']);
+    await app.alertRespond(0, ['Grace']);
+    await poll(async () => (await text('alert-result')) === 'text:Grace');
+    await app.getByTestId('prompt-secure').click();
+    await alertShown();
+    await app.alertRespond(0, ['hunter2']);
+    await poll(async () => (await text('alert-result')) === 'secret:hunter2');
+    await app.getByTestId('prompt-login').click();
+    expect((await alertShown()).fields).toHaveLength(2);
+    await app.alertRespond(0, ['ada', 'pw']);
+    await poll(
+      async () =>
+        (await text('alert-result')) ===
+        'login:{"login":"ada","password":"pw"}',
+    );
+  });
 });

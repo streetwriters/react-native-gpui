@@ -58,6 +58,7 @@ muda = "0.15"
 # every glyph paints as nothing.
 gpui_platform = { workspace = true, features = ["font-kit"] }
 cocoa = "0.25"
+block = "0.1"
 objc = "0.2"
 raw-window-handle = "0.6"
 
