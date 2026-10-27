@@ -1258,6 +1258,13 @@ async fn serve_commands(
                 json!({"delivered": true})
             }
             #[cfg(target_os = "macos")]
+            "shareOpen" => json!({"open": crate::builtins::share::mac::is_open()}),
+            #[cfg(target_os = "macos")]
+            "shareChoose" => {
+                let name = params.get("service").and_then(Value::as_str);
+                json!({"sent": crate::builtins::share::mac::simulate_choice(name)})
+            }
+            #[cfg(target_os = "macos")]
             "alertState" => crate::builtins::alert::mac::describe().unwrap_or(Value::Null),
             #[cfg(target_os = "macos")]
             "alertRespond" => {

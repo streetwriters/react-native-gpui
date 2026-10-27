@@ -27,6 +27,10 @@
       "file": "src-gpui/Libraries/Utilities/useWindowDimensions.desktop.js"
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Share/Share.desktop.js"
+    },
+    {
       "type": "patch",
       "file": "ReactCommonOverrides/react/devsupport/DevServerHelper.cpp",
       "baseFile": "packages/react-native/ReactCxxPlatform/react/devsupport/DevServerHelper.cpp",

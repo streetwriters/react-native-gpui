@@ -513,6 +513,23 @@ export class DesktopApp {
     await this.request('openUrl', { url });
   }
 
+  /** Whether the macOS share picker is on screen. */
+  async shareOpen(): Promise<boolean> {
+    const result = (await this.request('shareOpen')) as { open: boolean };
+    return result.open;
+  }
+
+  /**
+   * Makes the share picker report what the OS reports: the service chosen, by
+   * its `NSSharingServiceName`, or a dismissal when `service` is omitted.
+   */
+  async shareChoose(service?: string): Promise<boolean> {
+    const result = (await this.request('shareChoose', { service })) as {
+      sent: boolean;
+    };
+    return result.sent;
+  }
+
   /** The native alert on screen (macOS), or `null`. */
   async alertState(): Promise<{
     title: string;

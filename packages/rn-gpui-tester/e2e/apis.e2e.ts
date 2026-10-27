@@ -312,3 +312,30 @@ describe('deep links', () => {
     );
   });
 });
+
+describe.runIf(onMac)('Share', () => {
+  beforeAll(async () => {
+    await launch({ offscreen: false });
+    await app.focusWindow();
+  });
+
+  test('the share sheet opens, and its dismissal resolves dismissedAction', async () => {
+    await app.getByTestId('share-open').click();
+    await poll(() => app.shareOpen());
+    await app.shareChoose();
+    await poll(
+      async () => (await text('share-result')) === 'dismissedAction:null',
+    );
+    expect(await app.shareOpen()).toBe(false);
+  });
+
+  test('a chosen service resolves sharedAction with its name', async () => {
+    await app.getByTestId('share-open').click();
+    await poll(() => app.shareOpen());
+    await app.shareChoose('com.apple.share.Mail.compose');
+    await poll(async () =>
+      (await text('share-result')).startsWith('sharedAction:'),
+    );
+    expect(await text('share-result')).not.toBe('sharedAction:null');
+  });
+});

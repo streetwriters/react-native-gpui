@@ -8,6 +8,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -32,6 +33,7 @@ export default function ApisFixture() {
   }, []);
   const [alertResult, setAlertResult] = useState('none');
   const [linkResult, setLinkResult] = useState('none');
+  const [shareResult, setShareResult] = useState('none');
   const [initialUrl, setInitialUrl] = useState('pending');
   const [urlEvents, setUrlEvents] = useState<string[]>([]);
   useEffect(() => {
@@ -83,6 +85,27 @@ export default function ApisFixture() {
           }
         >
           <Text>Open child window</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Share</Text>
+        <Text testID="share-result">{shareResult}</Text>
+        <Pressable
+          testID="share-open"
+          onPress={() =>
+            Share.share({
+              message: 'Hello from the tester',
+              url: 'https://example.com',
+            }).then(
+              result =>
+                setShareResult(
+                  `${result.action}:${String(result.activityType)}`,
+                ),
+              error => setShareResult(`error:${error.message}`),
+            )
+          }
+        >
+          <Text>Share</Text>
         </Pressable>
       </View>
       <View style={styles.section}>
