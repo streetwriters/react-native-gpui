@@ -3,6 +3,7 @@ pub mod capabilities;
 pub mod client_frame;
 pub mod context_menu;
 pub mod dev_menu;
+pub mod display;
 pub mod errors;
 pub mod gpui_menu;
 pub mod icon;

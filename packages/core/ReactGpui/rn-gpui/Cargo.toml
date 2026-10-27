@@ -91,6 +91,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     # `MonitorFromPoint` and `GetMonitorInfoW`: the work area a popover is placed in.
     "Win32_Graphics_Gdi",
+    # `RegGetValueW`: the text scale the user chose in Accessibility settings.
+    "Win32_System_Registry",
     # `GetDpiForSystem`: the scale a tray icon's physical rectangle is divided by.
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",

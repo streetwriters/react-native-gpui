@@ -23,6 +23,10 @@
       "file": "src-gpui/Libraries/Modal/Modal.desktop.js"
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Utilities/useWindowDimensions.desktop.js"
+    },
+    {
       "type": "patch",
       "file": "ReactCommonOverrides/react/devsupport/DevServerHelper.cpp",
       "baseFile": "packages/react-native/ReactCxxPlatform/react/devsupport/DevServerHelper.cpp",

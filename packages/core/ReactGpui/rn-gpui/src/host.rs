@@ -162,6 +162,15 @@ impl Host {
         self.lock().pin_mut().set_window_metrics(w, h, scale)
     }
 
+    pub fn set_display_metrics(&self, screen_width: f32, screen_height: f32, font_scale: f32) {
+        #[cfg(test)]
+        let _ = (self, screen_width, screen_height, font_scale);
+        #[cfg(not(test))]
+        self.lock()
+            .pin_mut()
+            .set_display_metrics(screen_width, screen_height, font_scale)
+    }
+
     pub fn request_reload(&self) {
         #[cfg(test)]
         let _ = self;

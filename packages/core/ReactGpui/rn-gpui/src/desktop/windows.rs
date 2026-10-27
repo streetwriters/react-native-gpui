@@ -505,6 +505,9 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
                 return;
             };
             let host = store.0.read(cx).host.clone();
+            if key == MAIN_WINDOW_KEY {
+                super::display::report(window, cx, &host);
+            }
             host.emit_device_event_json(
                 "gpuiDesktop:windowResize",
                 &json!({"windowId": key, "width": now.2, "height": now.3}).to_string(),
@@ -929,6 +932,10 @@ fn install_activation_observer(
             return;
         };
         let host = store.0.read(cx).host.clone();
+        if active && key == MAIN_WINDOW_KEY {
+            // The text scale is changed in system settings, outside the app.
+            super::display::report(window, cx, &host);
+        }
         let name = if active {
             "gpuiDesktop:windowFocus"
         } else {

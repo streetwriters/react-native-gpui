@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Dimensions,
   I18nManager,
   Platform,
   Pressable,
@@ -7,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import {
   DesktopWindow,
@@ -15,6 +17,8 @@ import {
 } from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const dimensions = useWindowDimensions();
+  const screen = Dimensions.get('screen');
   const focused = useWindowFocus();
   const windowState = useWindowState();
   return (
@@ -24,6 +28,18 @@ export default function ApisFixture() {
         <Text style={styles.heading}>Platform</Text>
         <Text testID="platform-version">{String(Platform.Version)}</Text>
         <Text testID="platform-is-testing">{String(Platform.isTesting)}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Dimensions</Text>
+        <Text testID="dimensions-window-width">
+          {String(Math.round(dimensions.width))}
+        </Text>
+        <Text testID="dimensions-screen">
+          {Math.round(screen.width)}x{Math.round(screen.height)}
+        </Text>
+        <Text testID="dimensions-font-scale">
+          {String(dimensions.fontScale)}
+        </Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Window hooks</Text>

@@ -93,3 +93,26 @@ test('window hooks report focus per window and the window size', async () => {
   await poll(async () => (await text('window-focus')) === 'true');
   await poll(async () => (await text('desktop-child-focus')) === 'false');
 });
+
+test('Dimensions reports the screen, the font scale and each window', async () => {
+  await launch();
+  const [screenWidth, screenHeight] = (await text('dimensions-screen'))
+    .split('x')
+    .map(Number);
+  expect(screenWidth).toBeGreaterThan(0);
+  expect(screenHeight).toBeGreaterThan(0);
+  expect(Number(await text('dimensions-font-scale'))).toBeGreaterThan(0);
+  if (process.platform === 'darwin') {
+    expect(await text('dimensions-font-scale')).toBe('1');
+  }
+  expect(await text('dimensions-window-width')).toBe('1024');
+  expect(screenWidth).not.toBe(1024);
+  await app.getByTestId('window-open-child').click();
+  await desktopExpect(
+    app.getByTestId('desktop-child-dimensions-width'),
+  ).toBeVisible();
+  await poll(
+    async () => (await text('desktop-child-dimensions-width')) === '420',
+  );
+  expect(await text('dimensions-window-width')).toBe('1024');
+});

@@ -497,6 +497,12 @@ pub mod ffi {
         );
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
+        fn set_display_metrics(
+            self: Pin<&mut GpuiHost>,
+            screen_width: f32,
+            screen_height: f32,
+            font_scale: f32,
+        );
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_run_main_task(id: u64);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);

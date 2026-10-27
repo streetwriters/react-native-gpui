@@ -1165,6 +1165,16 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
         startup_trace("host created");
         host.set_window_metrics(surface_width, surface_height, estimated_scale);
+        let screen = cx
+            .primary_display()
+            .map(|display| display.bounds().size)
+            .map(|size| (f32::from(size.width), f32::from(size.height)))
+            .unwrap_or((surface_width, surface_height));
+        host.set_display_metrics(
+            screen.0,
+            screen.1,
+            crate::desktop::display::system_font_scale(),
+        );
         startup_trace("bundle load start");
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");

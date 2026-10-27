@@ -44,6 +44,9 @@ class DeviceInfoModule : public NativeDeviceInfoCxxSpec<DeviceInfoModule> {
 
   static bool setWindowMetrics(double width, double height, double scale);
   static Size windowSize();
+  static bool setDisplayMetrics(double screenWidth, double screenHeight, double fontScale);
+  static double fontScale();
+  static Size screenSize();
 
   DeviceInfoConstants getConstants(jsi::Runtime &rt);
 };

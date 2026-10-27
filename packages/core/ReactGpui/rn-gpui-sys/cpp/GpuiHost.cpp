@@ -657,6 +657,7 @@ void GpuiHost::start_surface_with_props(
   constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
@@ -696,6 +697,7 @@ void GpuiHost::start_surface_with_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
@@ -726,6 +728,7 @@ void GpuiHost::set_surface_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
@@ -743,6 +746,7 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
@@ -762,12 +766,41 @@ void GpuiHost::set_window_metrics(float w, float h, float scale) {
   if (!DeviceInfoModule::setWindowMetrics(w, h, scale) || !scriptLoaded_) {
     return;
   }
-  const folly::dynamic metrics = folly::dynamic::object("width", w)(
-      "height", h)("scale", scale)("fontScale", 1.0);
+  emitDimensions();
+}
+
+void GpuiHost::emitDimensions() const {
+  const auto windowSize = DeviceInfoModule::windowSize();
+  const auto screenSize = DeviceInfoModule::screenSize();
+  const double scale = surfaceScale_;
+  const double fontScale = DeviceInfoModule::fontScale();
+  const folly::dynamic window =
+      folly::dynamic::object("width", windowSize.width)(
+          "height", windowSize.height)("scale", scale)("fontScale", fontScale);
+  const folly::dynamic screen =
+      folly::dynamic::object("width", screenSize.width)(
+          "height", screenSize.height)("scale", scale)("fontScale", fontScale);
   folly::dynamic payload =
-      folly::dynamic::object("window", metrics)("screen", metrics);
+      folly::dynamic::object("window", window)("screen", screen);
   reactHost_->emitDeviceEvent(
       folly::dynamic::array("didUpdateDimensions", std::move(payload)));
+}
+
+void GpuiHost::set_display_metrics(
+    float screenWidth,
+    float screenHeight,
+    float fontScale) {
+  const bool fontScaleChanged = DeviceInfoModule::fontScale() != fontScale;
+  if (!DeviceInfoModule::setDisplayMetrics(
+          screenWidth, screenHeight, fontScale) ||
+      !scriptLoaded_) {
+    return;
+  }
+  if (fontScaleChanged && surfaceWidth_ > 0.f) {
+    set_surface_size(
+        kAppSurfaceId, surfaceWidth_, surfaceHeight_, surfaceScale_);
+  }
+  emitDimensions();
 }
 
 void GpuiHost::emit_device_event(rust::Str eventName) const {
@@ -945,6 +978,7 @@ void GpuiHost::start_log_box_surface() {
   constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = surfaceScale_;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   reactHost_->startSurface(
       kLogBoxSurfaceId,
