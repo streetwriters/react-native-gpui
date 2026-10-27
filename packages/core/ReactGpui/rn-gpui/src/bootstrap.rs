@@ -512,6 +512,12 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
+    BuiltinCommand {
+        tag: i32,
+        component: String,
+        name: String,
+        args: serde_json::Value,
+    },
     /// A command Fabric sent to a host component: its index in the spec's
     /// `COMMANDS` and its arguments, already validated by the generated C++
     /// dispatcher.
@@ -941,6 +947,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
+    let builtin_command_tx = tx.clone();
+    let _ =
+        rn_gpui_sys::BUILTIN_COMMAND_HANDLER.set(Box::new(move |tag, component, name, args| {
+            if crate::extensions::component_renderer(component).is_none() {
+                return;
+            }
+            let _ = builtin_command_tx.send_blocking(MainEvent::BuiltinCommand {
+                tag,
+                component: component.to_owned(),
+                name: name.to_owned(),
+                args: serde_json::from_str(args).unwrap_or(serde_json::Value::Null),
+            });
+        }));
     let desktop_tx = tx.clone();
     crate::desktop::set_command_sender(desktop_tx);
     let main_task_tx = tx.clone();
@@ -2173,6 +2192,23 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 node.update(cx, |node, cx| {
                                     node.dispatch_host_command(command, &args, cx);
                                 });
+                            });
+                        }
+                    }
+                    MainEvent::BuiltinCommand { tag, component, name, args } => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        let handle = crate::extensions::StoreHandle::new(store.downgrade());
+                        if let Some((window_handle, node)) = target {
+                            let _ = cx.update_window(window_handle, move |_root, _window, cx| {
+                                crate::extensions::run_builtin_command(
+                                    &node, &component, &name, &args, &handle, cx,
+                                );
                             });
                         }
                     }

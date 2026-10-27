@@ -638,6 +638,19 @@ pub trait ComponentRenderer: Send + Sync + 'static {
         input::Propagation::Continue
     }
 
+    /// A Fabric command dispatched to this component. Returns whether it was
+    /// handled; `false` is logged.
+    fn command(
+        &self,
+        _node: &ComponentNode,
+        _name: &str,
+        _args: &Value,
+        _handle: &StoreHandle,
+        _cx: &mut App,
+    ) -> bool {
+        false
+    }
+
     /// The pointer moved while over this component.
     fn on_mouse_move(
         &self,
@@ -941,6 +954,24 @@ pub fn component_renderer(component_name: &str) -> Option<Arc<dyn ComponentRende
         .cloned()
 }
 
+/// Routes a Fabric command to the renderer registered for `component`.
+pub(crate) fn run_builtin_command(
+    node: &gpui::Entity<crate::node_view::RNNodeView>,
+    component: &str,
+    name: &str,
+    args: &Value,
+    handle: &StoreHandle,
+    cx: &mut App,
+) {
+    let Some(renderer) = component_renderer(component) else {
+        return;
+    };
+    let snapshot = node.read(cx).component_node_shallow();
+    if !renderer.command(&snapshot, name, args, handle, cx) {
+        log::error!("[builtin-component] {component} has no command '{name}'");
+    }
+}
+
 /// The portal a component's renderer declares for these props.
 ///
 /// The store calls it to decide whether a component is spliced out of its
@@ -1077,6 +1108,62 @@ mod tests {
             })
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), vec!["FixtureWidget".to_string()]);
+    }
+
+    struct CommandRenderer {
+        seen: Arc<Mutex<Vec<(String, Value)>>>,
+    }
+
+    impl ComponentRenderer for CommandRenderer {
+        fn render(&self, _: &ComponentNode, _: &mut Window, _: &mut App) -> Option<AnyElement> {
+            None
+        }
+
+        fn command(
+            &self,
+            _node: &ComponentNode,
+            name: &str,
+            args: &Value,
+            _handle: &StoreHandle,
+            _cx: &mut App,
+        ) -> bool {
+            self.seen
+                .lock()
+                .unwrap()
+                .push((name.to_string(), args.clone()));
+            name == "setValue"
+        }
+    }
+
+    #[gpui::test]
+    fn a_renderer_receives_commands_and_reports_whether_it_handled_them(cx: &mut TestAppContext) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        register_component_renderer(
+            "CommandWidget",
+            Arc::new(CommandRenderer { seen: seen.clone() }),
+        );
+        let renderer = component_renderer("CommandWidget").unwrap();
+        let handle = crate::store::test_store_handle(cx);
+        let (handled, unhandled) = cx.update(|cx| {
+            (
+                renderer.command(
+                    &node("CommandWidget", 3),
+                    "setValue",
+                    &json!([true]),
+                    &handle,
+                    cx,
+                ),
+                renderer.command(&node("CommandWidget", 3), "nope", &json!([]), &handle, cx),
+            )
+        });
+        assert!(handled && !unhandled);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                ("setValue".to_string(), json!([true])),
+                ("nope".to_string(), json!([]))
+            ]
+        );
     }
 
     #[gpui::test]

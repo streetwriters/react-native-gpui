@@ -532,6 +532,10 @@ void GpuiMountingManager::dispatchCommand(
     }
     return;
   }
+  const folly::dynamic argsArray =
+      args.isArray() ? args : folly::dynamic::array(args);
+  rn_gpui_on_builtin_command(
+      view.tag, view.componentName, name, folly::toJson(argsArray).c_str());
   if (!rngpui::anyHostComponents()) {
     return;
   }
