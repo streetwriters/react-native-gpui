@@ -187,4 +187,34 @@ describe('TextInput props', () => {
     // The same input with a caret blinks, so the frames differ.
     expect(await frames('input-placeholder')).toBeGreaterThan(1);
   });
+
+  test('onKeyPress reports each key before it is applied', async () => {
+    await app.getByTestId('input-keys').click();
+    await app.getByTestId('input-keys').press('a');
+    await app.getByTestId('input-keys').press('backspace');
+    await app.getByTestId('input-keys').press('tab');
+    await poll(async () => (await text('input-key-log')).includes('[Tab]'));
+    const log = await text('input-key-log');
+    expect(log.indexOf('[a]')).toBeGreaterThanOrEqual(0);
+    expect(log.indexOf('[a]')).toBeLessThan(log.indexOf('[Backspace]'));
+    expect(log.indexOf('[Backspace]')).toBeLessThan(log.indexOf('[Tab]'));
+  });
+
+  test('Enter submits and blurs by default, and onEndEditing follows the blur', async () => {
+    await app.getByTestId('input-keys').click();
+    await app.getByTestId('input-keys').press('enter');
+    await poll(async () => (await text('input-event-log')).includes('submit,'));
+    await poll(async () => (await text('input-event-log')).includes('end,'));
+  });
+
+  test('submitBehavior submit keeps focus after Enter', async () => {
+    const count = (log: string) => log.split('keep-end,').length - 1;
+    await app.getByTestId('input-submit-keeps-focus').click();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const before = count(await text('input-event-log'));
+    await app.getByTestId('input-submit-keeps-focus').press('enter');
+    await poll(async () => (await text('input-event-log')).includes('keep,'));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(count(await text('input-event-log'))).toBe(before);
+  });
 });

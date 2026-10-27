@@ -107,6 +107,7 @@ pub struct RNNodeView {
     pub(crate) input_placeholder_color: u32,
     pub(crate) input_caret_hidden: bool,
     pub(crate) input_select_on_focus: bool,
+    pub(crate) input_submit_behavior: crate::builtins::textinput::input::SubmitBehavior,
     /// Until when a click selects all, because it is the one that focused the input.
     pub(crate) input_select_all_until: Option<std::time::Instant>,
     pub(crate) input_secure_text: bool,
@@ -881,6 +882,7 @@ impl RNNodeView {
             ),
             input_caret_hidden: text_input.caret_hidden,
             input_select_on_focus: text_input.select_on_focus,
+            input_submit_behavior: text_input.submit_behavior,
             input_select_all_until: None,
             input_secure_text: text_input.secure,
             input_selection: 0..0,
@@ -2844,6 +2846,16 @@ impl Render for RNNodeView {
                                 this.stop_caret_blink();
                                 cx.notify();
                             }
+                            if is_text_input {
+                                host.dispatch_event(
+                                    tag,
+                                    "topEndEditing",
+                                    &serde_json::json!({
+                                        "text": this.input_text,
+                                        "eventCount": this.input_event_count,
+                                    }),
+                                );
+                            }
                             host.dispatch_event(
                                 tag,
                                 if is_text_input { "topBlur" } else { "blur" },
@@ -2878,6 +2890,9 @@ impl Render for RNNodeView {
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                    if this.component == "TextInput" {
+                        dispatch_key(this.tag, "topKeyPress", &event.keystroke, event.is_held, cx);
+                    }
                     if !event.is_held
                         && focus_adjacent_semantic_sibling(this, &event.keystroke.key, window, cx)
                     {

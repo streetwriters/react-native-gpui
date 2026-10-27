@@ -38,6 +38,20 @@ std::string textInputPropsJson(
     object["multiline"] = props->multiline;
     object["placeholderTextColor"] =
         static_cast<double>(argb(props->placeholderTextColor));
+    switch (props->submitBehavior) {
+      case facebook::react::SubmitBehavior::Submit:
+        object["submitBehavior"] = "submit";
+        break;
+      case facebook::react::SubmitBehavior::BlurAndSubmit:
+        object["submitBehavior"] = "blurAndSubmit";
+        break;
+      case facebook::react::SubmitBehavior::Newline:
+        object["submitBehavior"] = "newline";
+        break;
+      default:
+        object["submitBehavior"] = "default";
+        break;
+    }
     object["caretHidden"] = props->traits.caretHidden;
     object["selectTextOnFocus"] = props->traits.selectTextOnFocus;
     object["editable"] = props->editable && !props->readOnly;

@@ -45,7 +45,10 @@ pub(crate) fn handle_key(
             true
         }
         "enter" => {
-            if this.input_multiline {
+            if this
+                .input_submit_behavior
+                .inserts_newline(this.input_multiline)
+            {
                 replace_plain_text(
                     &mut this.input_text,
                     &mut this.input_selection,
@@ -63,6 +66,9 @@ pub(crate) fn handle_key(
                         "text": this.input_text, "eventCount": this.input_event_count,
                     }),
                 );
+                if this.input_submit_behavior.blurs() {
+                    window.blur(cx);
+                }
             }
             true
         }
@@ -782,6 +788,41 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
 }
 
 /// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
+/// What Enter does, from `submitBehavior`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum SubmitBehavior {
+    /// Not set by JS: a single-line input submits, a multiline one adds a line.
+    #[default]
+    Default,
+    Submit,
+    BlurAndSubmit,
+    Newline,
+}
+
+impl SubmitBehavior {
+    pub(crate) fn parse(name: &str) -> Self {
+        match name {
+            "submit" => Self::Submit,
+            "blurAndSubmit" => Self::BlurAndSubmit,
+            "newline" => Self::Newline,
+            _ => Self::Default,
+        }
+    }
+
+    /// Whether Enter inserts a newline for an input that is `multiline`.
+    pub(crate) fn inserts_newline(self, multiline: bool) -> bool {
+        match self {
+            Self::Newline => multiline,
+            Self::Submit | Self::BlurAndSubmit => false,
+            Self::Default => multiline,
+        }
+    }
+
+    pub(crate) fn blurs(self) -> bool {
+        self == Self::BlurAndSubmit
+    }
+}
+
 /// The placeholder's colour: the one the app asked for, or the platform grey.
 pub(crate) fn placeholder_color(requested: u32) -> u32 {
     if requested == 0 {
@@ -806,6 +847,7 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     this.input_placeholder_color = placeholder_color(next.placeholder_color);
     this.input_caret_hidden = next.caret_hidden;
     this.input_select_on_focus = next.select_on_focus;
+    this.input_submit_behavior = next.submit_behavior;
     this.input_selection = reconcile_selection(
         &this.input_text,
         this.input_selection.clone(),
@@ -825,6 +867,7 @@ pub(crate) struct TextInputProps {
     pub placeholder_color: u32,
     pub caret_hidden: bool,
     pub select_on_focus: bool,
+    pub submit_behavior: SubmitBehavior,
     pub event_count: i32,
     pub selection: Option<Range<usize>>,
 }
@@ -865,8 +908,42 @@ impl TextInputProps {
             placeholder_color: number("placeholderTextColor") as u32,
             caret_hidden: flag("caretHidden", false),
             select_on_focus: flag("selectTextOnFocus", false),
+            submit_behavior: SubmitBehavior::parse(
+                value
+                    .get("submitBehavior")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+            ),
             event_count: number("eventCount") as i32,
             selection,
         }
+    }
+}
+
+#[cfg(test)]
+mod submit_behavior_tests {
+    use super::SubmitBehavior;
+
+    #[test]
+    fn enter_follows_the_submit_behavior_and_the_input_kind() {
+        assert!(SubmitBehavior::Default.inserts_newline(true));
+        assert!(!SubmitBehavior::Default.inserts_newline(false));
+        assert!(!SubmitBehavior::Submit.inserts_newline(true));
+        assert!(!SubmitBehavior::BlurAndSubmit.inserts_newline(true));
+        assert!(SubmitBehavior::Newline.inserts_newline(true));
+        assert!(!SubmitBehavior::Newline.inserts_newline(false));
+        assert!(SubmitBehavior::BlurAndSubmit.blurs());
+        assert!(!SubmitBehavior::Submit.blurs());
+    }
+
+    #[test]
+    fn names_from_the_props_parse() {
+        assert_eq!(SubmitBehavior::parse("submit"), SubmitBehavior::Submit);
+        assert_eq!(
+            SubmitBehavior::parse("blurAndSubmit"),
+            SubmitBehavior::BlurAndSubmit
+        );
+        assert_eq!(SubmitBehavior::parse("newline"), SubmitBehavior::Newline);
+        assert_eq!(SubmitBehavior::parse("default"), SubmitBehavior::Default);
     }
 }

@@ -14,6 +14,8 @@ export default function CoreComponentsFixture() {
   const [changes, setChanges] = useState(0);
   const [animating, setAnimating] = useState(true);
   const [selection, setSelection] = useState('none');
+  const [keys, setKeys] = useState('');
+  const [events, setEvents] = useState('');
   return (
     <ScrollView
       testID="core-components-fixture"
@@ -88,6 +90,25 @@ export default function CoreComponentsFixture() {
           style={styles.input}
         />
         <Text testID="input-selection">{selection}</Text>
+        <TextInput
+          testID="input-keys"
+          onKeyPress={event => {
+            const key = event.nativeEvent.key;
+            setKeys(previous => previous + `[${key}]`);
+          }}
+          onSubmitEditing={() => setEvents(previous => previous + 'submit,')}
+          onEndEditing={() => setEvents(previous => previous + 'end,')}
+          style={styles.input}
+        />
+        <Text testID="input-key-log">{keys}</Text>
+        <Text testID="input-event-log">{events}</Text>
+        <TextInput
+          testID="input-submit-keeps-focus"
+          submitBehavior="submit"
+          onSubmitEditing={() => setEvents(previous => previous + 'keep,')}
+          onEndEditing={() => setEvents(previous => previous + 'keep-end,')}
+          style={styles.input}
+        />
         <TextInput
           testID="input-caret-hidden"
           defaultValue="no caret"
