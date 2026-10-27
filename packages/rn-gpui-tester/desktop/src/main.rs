@@ -99,6 +99,10 @@ fn main() {
     // The tester installs Hermes; with a second engine package present it would
     // otherwise be ambiguous. `RN_GPUI_JS_ENGINE` overrides this.
     .js_engine("hermes")
+    .url_schemes(&["rngpuitester"])
+    // The e2e suite starts many copies of the tester under one app id, so a
+    // second copy must not hand itself to the first unless a test asks.
+    .single_instance(std::env::var_os("RN_GPUI_SINGLE_INSTANCE").is_some())
     .configure_window(|options| {
         options.is_resizable = true;
     })

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
@@ -245,4 +245,70 @@ describe('Linking', () => {
       }
     },
   );
+});
+
+describe('deep links', () => {
+  async function launchWith(options: {
+    args?: string[];
+    env?: NodeJS.ProcessEnv;
+  }) {
+    if (app) await app.close();
+    app = await launchApp({
+      bundle: path.resolve(
+        'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+      ),
+      env: {
+        RN_GPUI_MODULE: 'RNGPUITester--apis',
+        RN_GPUI_DEV_PORT: '1',
+        RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-apis-state.json'),
+        ...options.env,
+      },
+      args: options.args,
+      disableAnimations: true,
+      offscreen: true,
+    });
+    await desktopExpect(app.getByTestId('apis-fixture')).toBeVisible();
+  }
+
+  test('a URL on the command line is the initial URL', async () => {
+    await launchWith({ args: ['rngpuitester://hello?x=1'] });
+    await poll(async () => (await text('link-initial')) !== 'pending');
+    expect(await text('link-initial')).toBe('rngpuitester://hello?x=1');
+  });
+
+  test('without one the initial URL is null, and later URLs are url events', async () => {
+    await launchWith({});
+    await poll(async () => (await text('link-initial')) !== 'pending');
+    expect(await text('link-initial')).toBe('null');
+    await app.openUrl('rngpuitester://one');
+    await app.openUrl('rngpuitester://two');
+    await poll(
+      async () =>
+        (await text('link-events')) === 'rngpuitester://one,rngpuitester://two',
+    );
+    expect(await text('link-initial')).toBe('null');
+  });
+
+  test('a second launch hands its URL to the running copy and exits', async () => {
+    const appId = `org.reactnativegpui.single${process.pid}`;
+    await launchWith({
+      env: { RN_GPUI_SINGLE_INSTANCE: '1', RN_GPUI_APP_ID: appId },
+    });
+    const executable = path.resolve(
+      'target/debug',
+      process.platform === 'win32' ? 'rn-gpui-tester.exe' : 'rn-gpui-tester',
+    );
+    const second = spawnSync(executable, ['rngpuitester://from-second'], {
+      env: {
+        ...process.env,
+        RN_GPUI_SINGLE_INSTANCE: '1',
+        RN_GPUI_APP_ID: appId,
+      },
+      timeout: 15000,
+    });
+    expect(second.status).toBe(0);
+    await poll(
+      async () => (await text('link-events')) === 'rngpuitester://from-second',
+    );
+  });
 });

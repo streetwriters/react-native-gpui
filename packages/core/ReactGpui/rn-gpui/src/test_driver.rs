@@ -1247,6 +1247,16 @@ async fn serve_commands(
                 crate::desktop::windows::reopen(cx);
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),
+            // Stands in for the OS opening one of the app's URL schemes.
+            "openUrl" => {
+                let url = params
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                crate::desktop::deep_link::handle_url(url);
+                json!({"delivered": true})
+            }
             #[cfg(target_os = "macos")]
             "alertState" => crate::builtins::alert::mac::describe().unwrap_or(Value::Null),
             #[cfg(target_os = "macos")]

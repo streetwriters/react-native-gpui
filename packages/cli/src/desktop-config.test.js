@@ -69,6 +69,8 @@ describe('defaults', () => {
       restoreState: true,
     });
     expect(config.devMenu).toBe(true);
+    expect(config.urlSchemes).toEqual([]);
+    expect(config.singleInstance).toBe(false);
     expect(config.tray).toBeUndefined();
     expect(config.bundle.targets).toBe('all');
     expect(config.bundle.resources).toEqual([]);

@@ -754,6 +754,11 @@ export function desktopLaunchConfig(config, configPath) {
     chain.push(`    .traffic_light_position(${asFloat(x)}, ${asFloat(y)})`);
   }
   chain.push(`    .dev_menu(${config.devMenu})`);
+  if ((config.urlSchemes ?? []).length > 0) {
+    const schemes = config.urlSchemes.map(scheme => JSON.stringify(scheme));
+    chain.push(`    .url_schemes(&[${schemes.join(', ')}])`);
+    chain.push(`    .single_instance(${config.singleInstance !== false})`);
+  }
   if (config.tray !== undefined) {
     const tray = config.tray;
     let trayChain = 'TrayConfig::default()';

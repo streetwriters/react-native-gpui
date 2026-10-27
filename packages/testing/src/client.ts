@@ -508,6 +508,11 @@ export class DesktopApp {
     await this.waitForIdle({ timeout: 30000 });
   }
 
+  /** Delivers `url` as if the OS had opened one of the app's URL schemes. */
+  async openUrl(url: string): Promise<void> {
+    await this.request('openUrl', { url });
+  }
+
   /** The native alert on screen (macOS), or `null`. */
   async alertState(): Promise<{
     title: string;

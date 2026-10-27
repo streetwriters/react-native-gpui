@@ -1,8 +1,10 @@
+pub mod app_dir;
 pub mod app_menu;
 pub mod app_state;
 pub mod capabilities;
 pub mod client_frame;
 pub mod context_menu;
+pub mod deep_link;
 pub mod dev_menu;
 pub mod display;
 pub mod errors;

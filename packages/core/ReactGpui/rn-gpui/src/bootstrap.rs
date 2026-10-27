@@ -624,6 +624,10 @@ pub struct DesktopAppConfig {
     pub dev_menu: Option<bool>,
     pub tray: Option<crate::desktop::tray::TrayConfig>,
     pub traffic_light_position: Option<(f32, f32)>,
+    /// URL schemes that open this app.
+    pub url_schemes: Vec<String>,
+    /// Whether a second launch hands its arguments to the running copy.
+    pub single_instance: bool,
     /// Whether the main window shows a menu bar. Windows and Linux only.
     pub menu_bar: bool,
     pub configure_window: Option<WindowOptionsHook>,
@@ -656,6 +660,8 @@ impl DesktopAppConfig {
             dev_menu: None,
             tray: None,
             traffic_light_position: None,
+            url_schemes: Vec::new(),
+            single_instance: false,
             menu_bar: true,
             configure_window: None,
             on_app_ready: None,
@@ -673,6 +679,18 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
         self.tray = Some(config);
+        self
+    }
+
+    #[must_use]
+    pub fn url_schemes(mut self, schemes: &[&str]) -> Self {
+        self.url_schemes = schemes.iter().map(|scheme| (*scheme).to_string()).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn single_instance(mut self, enabled: bool) -> Self {
+        self.single_instance = enabled;
         self
     }
 
@@ -825,6 +843,33 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
+    let launch_args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(url) = crate::desktop::deep_link::url_in_args(&launch_args, &config.url_schemes) {
+        crate::desktop::deep_link::handle_url(url);
+    }
+    if config.single_instance {
+        let schemes = config.url_schemes.clone();
+        let instance = crate::desktop::deep_link::acquire(
+            &crate::desktop::app_dir::app_dir(),
+            &app_id,
+            &launch_args,
+            move |args| {
+                let url = crate::desktop::deep_link::url_in_args(&args, &schemes);
+                crate::desktop::post_to_main(Box::new(move |cx| {
+                    let _ = crate::desktop::windows::focus(
+                        cx,
+                        crate::desktop::windows::MAIN_WINDOW_KEY,
+                    );
+                    if let Some(url) = url {
+                        crate::desktop::deep_link::handle_url(url);
+                    }
+                }));
+            },
+        );
+        if matches!(instance, crate::desktop::deep_link::Instance::Forwarded) {
+            std::process::exit(0);
+        }
+    }
     let module = config.module.clone();
     let width = config.width;
     let height = config.height;
@@ -1046,6 +1091,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
     // this handler, and it is registered once.
     crate::http_client::install();
     application.on_reopen(crate::desktop::windows::reopen);
+    application.on_open_urls(|urls| {
+        for url in urls {
+            crate::desktop::deep_link::handle_url(url);
+        }
+    });
     application
         .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
         .run(move |cx: &mut App| {
@@ -1181,6 +1231,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             log::error!("load_script failed for {bundle}");
             std::process::exit(1);
         }
+        crate::desktop::deep_link::mark_ready(host.clone());
         startup_trace("bundle load end");
         log::info!("loaded {bundle}");
         // The surface starts now as well: mount batches queue on the main-thread

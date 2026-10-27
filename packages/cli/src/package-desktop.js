@@ -676,6 +676,10 @@ export function toPackagerConfig(config, build) {
   }
   config_.macos = macos;
 
+  if ((config.urlSchemes ?? []).length > 0) {
+    config_.deepLinkProtocols = [{ schemes: config.urlSchemes }];
+  }
+
   if (config.bundle.windows.nsis !== undefined) {
     config_.nsis = { installMode: config.bundle.windows.nsis.installMode };
   }

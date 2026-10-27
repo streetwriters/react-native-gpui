@@ -17,7 +17,7 @@ impl NativeGpuiLinkingManagerSpec for LinkingManagerModule {
     }
 
     async fn get_initial_url(&self) -> Result<Option<String>, ModuleError> {
-        Ok(None)
+        Ok(crate::desktop::deep_link::initial_url())
     }
 
     async fn can_open_url(&self, url: String) -> Result<bool, ModuleError> {

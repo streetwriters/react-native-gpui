@@ -203,6 +203,20 @@ test('collect-node-addons requires both arguments', () => {
 // The launch chain used to be built from `app.json`'s `desktop` key. It reads
 // `desktop/desktop.json` now, and these check that the generated `main.rs` is
 // the same for the same options.
+test('urlSchemes reach the launch chain and turn single instance on', () => {
+  const chain = desktopLaunchConfig(
+    { devMenu: true, urlSchemes: ['myapp', 'my-app'], singleInstance: true },
+    'desktop/desktop.json',
+  );
+  expect(chain).toContain('.url_schemes(&["myapp", "my-app"])');
+  expect(chain).toContain('.single_instance(true)');
+  const none = desktopLaunchConfig(
+    { devMenu: true, urlSchemes: [], singleInstance: false },
+    'desktop/desktop.json',
+  );
+  expect(none).not.toContain('.url_schemes(');
+});
+
 test('menuBar: false asks the host for no menu bar, and its absence does not', () => {
   const hidden = desktopLaunchConfig(
     { window: { menuBar: false }, devMenu: true },

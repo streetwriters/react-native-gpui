@@ -252,6 +252,17 @@ describe('toPackagerConfig', () => {
     ...overrides,
   });
 
+  test('url schemes become deep link protocols, which register them per OS', () => {
+    const config = toPackagerConfig(
+      desktopConfig({ urlSchemes: ['myapp'] }),
+      build(),
+    );
+    expect(config.deepLinkProtocols).toEqual([{ schemes: ['myapp'] }]);
+    expect(
+      toPackagerConfig(desktopConfig(), build()).deepLinkProtocols,
+    ).toBeUndefined();
+  });
+
   test('a minimal app gives the fields cargo-packager needs', () => {
     const config = toPackagerConfig(desktopConfig(), build());
     expect(config.productName).toBe('My App');

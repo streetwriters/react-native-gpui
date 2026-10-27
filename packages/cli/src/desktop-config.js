@@ -222,6 +222,9 @@ function withDefaults(config, { appConfig, packageJson }) {
     ...(config.icon === undefined ? {} : { icon: config.icon }),
     window,
     devMenu: config.devMenu ?? true,
+    urlSchemes: config.urlSchemes ?? [],
+    singleInstance:
+      config.singleInstance ?? (config.urlSchemes ?? []).length > 0,
     ...(tray === undefined ? {} : { tray }),
     bundle,
   };

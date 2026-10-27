@@ -32,6 +32,15 @@ export default function ApisFixture() {
   }, []);
   const [alertResult, setAlertResult] = useState('none');
   const [linkResult, setLinkResult] = useState('none');
+  const [initialUrl, setInitialUrl] = useState('pending');
+  const [urlEvents, setUrlEvents] = useState<string[]>([]);
+  useEffect(() => {
+    Linking.getInitialURL().then(url => setInitialUrl(String(url)));
+    const subscription = Linking.addEventListener('url', event =>
+      setUrlEvents(previous => [...previous, event.url]),
+    );
+    return () => subscription.remove();
+  }, []);
   const currentWindow = useDesktopWindow();
   const dimensions = useWindowDimensions();
   const screen = Dimensions.get('screen');
@@ -79,6 +88,8 @@ export default function ApisFixture() {
       <View style={styles.section}>
         <Text style={styles.heading}>Linking</Text>
         <Text testID="link-result">{linkResult}</Text>
+        <Text testID="link-initial">{initialUrl}</Text>
+        <Text testID="link-events">{urlEvents.join(',')}</Text>
         <Pressable
           testID="link-can-open"
           onPress={async () => {
