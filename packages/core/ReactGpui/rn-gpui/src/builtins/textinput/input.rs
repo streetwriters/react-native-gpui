@@ -165,6 +165,15 @@ pub(crate) fn select_at_point(
     };
     this.input_selection_anchor = Some(anchor);
     this.input_selection = anchor.min(index)..anchor.max(index);
+    // The press that focused the input selects everything, not a caret.
+    if !extend
+        && this
+            .input_select_all_until
+            .is_some_and(|until| std::time::Instant::now() < until)
+    {
+        this.input_selection = 0..this.input_text.len();
+        this.input_selection_anchor = None;
+    }
     emit_selection(this, window, cx);
 }
 
@@ -773,6 +782,15 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
 }
 
 /// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
+/// The placeholder's colour: the one the app asked for, or the platform grey.
+pub(crate) fn placeholder_color(requested: u32) -> u32 {
+    if requested == 0 {
+        0xff8e8e93
+    } else {
+        requested
+    }
+}
+
 pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp) {
     let next = TextInputProps::from_json(&op.extension_props_json);
     if should_apply_text_update(this.input_event_count, next.event_count)
@@ -785,6 +803,9 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     this.input_selection_color = next.selection_color;
     this.input_multiline = next.multiline;
     this.input_editable = next.editable;
+    this.input_placeholder_color = placeholder_color(next.placeholder_color);
+    this.input_caret_hidden = next.caret_hidden;
+    this.input_select_on_focus = next.select_on_focus;
     this.input_selection = reconcile_selection(
         &this.input_text,
         this.input_selection.clone(),
@@ -801,6 +822,9 @@ pub(crate) struct TextInputProps {
     pub multiline: bool,
     pub editable: bool,
     pub secure: bool,
+    pub placeholder_color: u32,
+    pub caret_hidden: bool,
+    pub select_on_focus: bool,
     pub event_count: i32,
     pub selection: Option<Range<usize>>,
 }
@@ -838,6 +862,9 @@ impl TextInputProps {
             multiline: flag("multiline", false),
             editable: flag("editable", true),
             secure: flag("secure", false),
+            placeholder_color: number("placeholderTextColor") as u32,
+            caret_hidden: flag("caretHidden", false),
+            select_on_focus: flag("selectTextOnFocus", false),
             event_count: number("eventCount") as i32,
             selection,
         }

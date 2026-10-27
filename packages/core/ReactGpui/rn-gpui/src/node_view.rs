@@ -104,6 +104,11 @@ pub struct RNNodeView {
     pub(crate) input_selection_color: u32,
     pub input_multiline: bool,
     pub input_editable: bool,
+    pub(crate) input_placeholder_color: u32,
+    pub(crate) input_caret_hidden: bool,
+    pub(crate) input_select_on_focus: bool,
+    /// Until when a click selects all, because it is the one that focused the input.
+    pub(crate) input_select_all_until: Option<std::time::Instant>,
     pub(crate) input_secure_text: bool,
     pub input_selection: std::ops::Range<usize>,
     pub(crate) input_scroll_x: f32,
@@ -871,6 +876,12 @@ impl RNNodeView {
                 .unwrap_or(0xff000000),
             input_multiline: text_input.multiline,
             input_editable: text_input.editable,
+            input_placeholder_color: crate::builtins::textinput::input::placeholder_color(
+                text_input.placeholder_color,
+            ),
+            input_caret_hidden: text_input.caret_hidden,
+            input_select_on_focus: text_input.select_on_focus,
+            input_select_all_until: None,
             input_secure_text: text_input.secure,
             input_selection: 0..0,
             input_scroll_x: 0.0,
@@ -2210,7 +2221,7 @@ impl RNNodeView {
                     font_weight: 400,
                     italic: false,
                     color: if show_placeholder {
-                        0xff8e8e93
+                        self.input_placeholder_color
                     } else {
                         self.input_text_color
                     },
@@ -2225,7 +2236,7 @@ impl RNNodeView {
                 self.input_text_color = paragraph.fragments[0].color;
             }
             paragraph.fragments[0].color = if show_placeholder {
-                0xff8e8e93
+                self.input_placeholder_color
             } else if self.input_placeholder_mode {
                 self.input_text_color
             } else {
@@ -2801,6 +2812,17 @@ impl Render for RNNodeView {
                         move |this, window, cx| {
                             if is_text_input {
                                 this.start_caret_blink(cx);
+                                if this.input_select_on_focus {
+                                    this.input_select_all_until = Some(
+                                        std::time::Instant::now()
+                                            + std::time::Duration::from_millis(300),
+                                    );
+                                    cx.defer_in(window, |this, window, cx| {
+                                        crate::builtins::textinput::input::select_all(
+                                            this, window, cx,
+                                        );
+                                    });
+                                }
                             }
                             focused_host.dispatch_event(
                                 tag,

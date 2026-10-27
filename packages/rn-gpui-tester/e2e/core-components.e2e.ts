@@ -132,3 +132,59 @@ describe('ActivityIndicator', () => {
     expect(status.busySources).toEqual([]);
   });
 });
+
+describe('TextInput props', () => {
+  test('placeholderTextColor colours the placeholder', async () => {
+    const image = PNG.sync.read(
+      await app.getByTestId('input-placeholder').screenshot(),
+    );
+    let red = 0;
+    for (let index = 0; index < image.data.length; index += 4) {
+      if (
+        image.data[index] > 200 &&
+        image.data[index + 1] < 90 &&
+        image.data[index + 2] < 90
+      ) {
+        red += 1;
+      }
+    }
+    expect(red).toBeGreaterThan(20);
+  });
+
+  test('selectTextOnFocus selects all the text on focus', async () => {
+    // Focus events only fire in a window that can be active.
+    await app.close();
+    app = await launchApp({
+      bundle: path.resolve(
+        'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+      ),
+      env: {
+        RN_GPUI_MODULE: 'RNGPUITester--core-components',
+        RN_GPUI_DEV_PORT: '1',
+      },
+      disableAnimations: true,
+      offscreen: false,
+    });
+    await app.focusWindow();
+    expect(await text('input-selection')).toBe('none');
+    await app.getByTestId('input-select-on-focus').click();
+    await poll(async () => (await text('input-selection')) === '0-9');
+  });
+
+  test('caretHidden draws no caret while the input is focused', async () => {
+    async function frames(testID: string) {
+      await app.getByTestId(testID).click();
+      const seen = new Set<string>();
+      for (let sample = 0; sample < 8; sample += 1) {
+        seen.add(
+          (await app.getByTestId(testID).screenshot()).toString('base64'),
+        );
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      return seen.size;
+    }
+    expect(await frames('input-caret-hidden')).toBe(1);
+    // The same input with a caret blinks, so the frames differ.
+    expect(await frames('input-placeholder')).toBeGreaterThan(1);
+  });
+});

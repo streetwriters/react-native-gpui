@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -12,6 +13,7 @@ export default function CoreComponentsFixture() {
   const [controlled, setControlled] = useState(false);
   const [changes, setChanges] = useState(0);
   const [animating, setAnimating] = useState(true);
+  const [selection, setSelection] = useState('none');
   return (
     <ScrollView
       testID="core-components-fixture"
@@ -66,6 +68,33 @@ export default function CoreComponentsFixture() {
           {animating ? 'stop' : 'start'}
         </Text>
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>TextInput</Text>
+        <TextInput
+          testID="input-placeholder"
+          placeholder="WWWWWWWWWW"
+          placeholderTextColor="#ff0000"
+          style={styles.input}
+        />
+        <TextInput
+          testID="input-select-on-focus"
+          defaultValue="select me"
+          selectTextOnFocus
+          onSelectionChange={event =>
+            setSelection(
+              `${event.nativeEvent.selection.start}-${event.nativeEvent.selection.end}`,
+            )
+          }
+          style={styles.input}
+        />
+        <Text testID="input-selection">{selection}</Text>
+        <TextInput
+          testID="input-caret-hidden"
+          defaultValue="no caret"
+          caretHidden
+          style={styles.input}
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -82,4 +111,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, color: '#111', width: '100%' },
   section: { gap: 10, width: 300 },
   heading: { fontSize: 16, color: '#333' },
+  input: {
+    height: 32,
+    borderWidth: 1,
+    borderColor: '#999',
+    paddingHorizontal: 6,
+    fontSize: 16,
+  },
 });

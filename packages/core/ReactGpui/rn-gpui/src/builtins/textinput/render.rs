@@ -100,6 +100,9 @@ pub(crate) fn caret_canvas(
     input: Entity<RNNodeView>,
     scale: (f32, f32),
 ) -> Stateful<Div> {
+    if node.input_caret_hidden {
+        return element;
+    }
     let (scale_x, scale_y) = scale;
     let focus = node.focus_handle.clone();
     let caret_text = node.input_text.clone();

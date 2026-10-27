@@ -36,6 +36,10 @@ std::string textInputPropsJson(
     object["placeholder"] = props->placeholder;
     object["selectionColor"] = static_cast<double>(argb(props->selectionColor));
     object["multiline"] = props->multiline;
+    object["placeholderTextColor"] =
+        static_cast<double>(argb(props->placeholderTextColor));
+    object["caretHidden"] = props->traits.caretHidden;
+    object["selectTextOnFocus"] = props->traits.selectTextOnFocus;
     object["editable"] = props->editable && !props->readOnly;
     object["secure"] = props->traits.secureTextEntry;
     object["eventCount"] = props->mostRecentEventCount;
