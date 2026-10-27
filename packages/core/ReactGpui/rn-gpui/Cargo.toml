@@ -96,6 +96,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_Graphics_Gdi",
     # `RegGetValueW`: the text scale the user chose in Accessibility settings.
     "Win32_System_Registry",
+    # `AssocQueryStringW`: whether a URL scheme has a registered handler.
+    "Win32_UI_Shell",
     # `CreateMemoryResourceNotification`: the low-memory signal.
     "Win32_System_Memory",
     "Win32_System_Threading",

@@ -4,6 +4,7 @@ import {
   AppState,
   Dimensions,
   I18nManager,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -30,6 +31,7 @@ export default function ApisFixture() {
     return () => subscription.remove();
   }, []);
   const [alertResult, setAlertResult] = useState('none');
+  const [linkResult, setLinkResult] = useState('none');
   const currentWindow = useDesktopWindow();
   const dimensions = useWindowDimensions();
   const screen = Dimensions.get('screen');
@@ -72,6 +74,33 @@ export default function ApisFixture() {
           }
         >
           <Text>Open child window</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Linking</Text>
+        <Text testID="link-result">{linkResult}</Text>
+        <Pressable
+          testID="link-can-open"
+          onPress={async () => {
+            const known = await Linking.canOpenURL('https://example.com');
+            const unknown = await Linking.canOpenURL(
+              'rngpui-no-such-scheme-zzz://x',
+            );
+            setLinkResult(`known:${known},unknown:${unknown}`);
+          }}
+        >
+          <Text>canOpenURL</Text>
+        </Pressable>
+        <Pressable
+          testID="link-open-settings"
+          onPress={() =>
+            Linking.openSettings().then(
+              () => setLinkResult('settings:opened'),
+              error => setLinkResult(`settings:${error.message}`),
+            )
+          }
+        >
+          <Text>openSettings</Text>
         </Pressable>
       </View>
       <View style={styles.section}>

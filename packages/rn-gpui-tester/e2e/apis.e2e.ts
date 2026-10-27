@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
@@ -203,4 +204,45 @@ describe.runIf(onMac)('Alert', () => {
         'login:{"login":"ada","password":"pw"}',
     );
   });
+});
+
+describe('Linking', () => {
+  beforeAll(async () => {
+    await launch();
+  });
+
+  test('canOpenURL asks the OS which schemes have a handler', async () => {
+    await app.getByTestId('link-can-open').click();
+    await poll(async () => (await text('link-result')) !== 'none');
+    expect(await text('link-result')).toBe('known:true,unknown:false');
+  });
+
+  test.runIf(onMac)(
+    'openSettings resolves and opens the settings app',
+    async () => {
+      const running = () =>
+        execFileSync('pgrep', ['-x', 'System Settings'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).length > 0;
+      const wasRunning = (() => {
+        try {
+          return running();
+        } catch {
+          return false;
+        }
+      })();
+      await app.getByTestId('link-open-settings').click();
+      await poll(async () => (await text('link-result')) === 'settings:opened');
+      if (!wasRunning) {
+        await poll(async () => {
+          try {
+            return running();
+          } catch {
+            return false;
+          }
+        }, 10000);
+        execFileSync('pkill', ['-x', 'System Settings']);
+      }
+    },
+  );
 });
