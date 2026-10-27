@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod context_menu;
 pub mod context_menu_view;
 pub mod dev_menu;
+pub mod i18n;
 pub mod image;
 pub mod linking;
 pub mod main_thread;
@@ -26,6 +27,7 @@ pub fn register() {
     context_menu::register();
     context_menu_view::register();
     dev_menu::register();
+    i18n::register();
     image::register();
     linking::register();
     modal::register();

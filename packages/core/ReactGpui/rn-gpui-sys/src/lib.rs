@@ -254,6 +254,10 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
+        /// Whether surfaces start right to left, and whether left and right
+        /// swap in that direction.
+        fn rn_gpui_layout_direction_rtl() -> bool;
+        fn rn_gpui_swap_left_and_right_in_rtl() -> bool;
         /// A command Fabric dispatched to a built-in component other than
         /// `TextInput`; `args_json` is the JSON array of its arguments.
         fn rn_gpui_on_builtin_command(tag: i32, component: &str, name: &str, args_json: &str);
@@ -547,6 +551,8 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type LayoutDirectionHandler = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
+pub static LAYOUT_DIRECTION_HANDLER: OnceLock<LayoutDirectionHandler> = OnceLock::new();
 pub type BuiltinCommandHandler = Box<dyn Fn(i32, &str, &str, &str) + Send + Sync>;
 /// One command for one tag: the command's index and its validated arguments.
 /// Called on the JS/Fabric thread.
@@ -693,6 +699,18 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
     }
+}
+
+fn rn_gpui_layout_direction_rtl() -> bool {
+    LAYOUT_DIRECTION_HANDLER
+        .get()
+        .is_some_and(|handler| handler().0)
+}
+
+fn rn_gpui_swap_left_and_right_in_rtl() -> bool {
+    LAYOUT_DIRECTION_HANDLER
+        .get()
+        .map_or(true, |handler| handler().1)
 }
 
 fn rn_gpui_on_builtin_command(tag: i32, component: &str, name: &str, args_json: &str) {

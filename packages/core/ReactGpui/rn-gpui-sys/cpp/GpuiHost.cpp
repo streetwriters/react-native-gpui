@@ -43,6 +43,12 @@
 #include <utility>
 
 namespace {
+facebook::react::LayoutDirection surfaceLayoutDirection() {
+  return rngpui::rn_gpui_layout_direction_rtl()
+      ? facebook::react::LayoutDirection::RightToLeft
+      : facebook::react::LayoutDirection::LeftToRight;
+}
+
 std::atomic<bool> nativeAnimationActive{false};
 } // namespace
 
@@ -623,7 +629,7 @@ facebook::react::LayoutConstraints constraintsFrom(
   const float maxH = std::max(minH, maxHeight);
   constraints.minimumSize = {minW, minH};
   constraints.maximumSize = {maxW, maxH};
-  constraints.layoutDirection = facebook::react::LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   return constraints;
 }
 } // namespace
@@ -647,11 +653,11 @@ void GpuiHost::start_surface_with_props(
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
-  // SurfaceHandler asserts on Undefined; GPUI surfaces are LTR for now (an RTL
-  // flag would come from the GPUI window's text direction).
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  // SurfaceHandler asserts on Undefined.
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
     surfaceHeight_ = h;
@@ -690,6 +696,7 @@ void GpuiHost::start_surface_with_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
     surfaceHeight_ = maxHeight;
@@ -719,6 +726,7 @@ void GpuiHost::set_surface_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
     surfaceHeight_ = maxHeight;
@@ -732,9 +740,10 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
     surfaceHeight_ = h;
@@ -933,9 +942,10 @@ void GpuiHost::start_log_box_surface() {
   LayoutConstraints constraints;
   constraints.minimumSize = {surfaceWidth_, surfaceHeight_};
   constraints.maximumSize = {surfaceWidth_, surfaceHeight_};
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = surfaceScale_;
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   reactHost_->startSurface(
       kLogBoxSurfaceId,
       "LogBox",

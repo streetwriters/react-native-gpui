@@ -63,7 +63,7 @@ impl ParagraphKey {
             fragments: paragraph.fragments.iter().map(FragmentKey::from).collect(),
             width: width.to_bits(),
             max_lines: paragraph.max_lines,
-            text_align: paragraph.text_align,
+            text_align: resolve_alignment(paragraph.text_align),
             ellipsize: paragraph.ellipsize,
         }
     }
@@ -459,6 +459,19 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
     (text, runs)
 }
 
+/// `natural` and `start` follow the trailing edge's mirror in a right-to-left
+/// layout, `end` the leading one; `left` and `right` stay literal.
+fn resolve_alignment(value: u8) -> u8 {
+    if !crate::builtins::i18n::rtl_active() {
+        return value;
+    }
+    match value {
+        0 | 5 => 3,
+        6 => 1,
+        other => other,
+    }
+}
+
 fn text_align(value: u8) -> TextAlign {
     match value {
         2 => TextAlign::Center,
@@ -557,7 +570,7 @@ impl TextService {
             line_heights,
             width: measured_width.min(width),
             height: measured_height,
-            text_align: text_align(paragraph.text_align),
+            text_align: text_align(resolve_alignment(paragraph.text_align)),
         });
         let mut cache = self
             .cache
@@ -596,7 +609,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
                 line_heights: Vec::new(),
                 width,
                 height,
-                text_align: text_align(paragraph.text_align),
+                text_align: text_align(resolve_alignment(paragraph.text_align)),
             })
         });
     let align = shaped.text_align;

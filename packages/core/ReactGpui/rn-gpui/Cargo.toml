@@ -35,6 +35,7 @@ http_client = { workspace = true }
 fontdue = { workspace = true }
 image = { version = "0.25.1" }
 base64 = "0.22"
+sys-locale = "0.3"
 # Menu-bar (tray) apps: NSStatusItem on macOS, the notification area
 # on Windows, StatusNotifierItem on Linux. `default-features = false` because
 # the crate default is its GTK Linux backend; the Linux block below selects the

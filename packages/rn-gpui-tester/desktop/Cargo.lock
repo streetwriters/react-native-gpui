@@ -5084,6 +5084,7 @@ dependencies = [
  "rn-gpui-module-build",
  "rn-gpui-sys",
  "serde_json",
+ "sys-locale",
  "tray-icon",
  "tungstenite",
  "windows-sys 0.59.0",
