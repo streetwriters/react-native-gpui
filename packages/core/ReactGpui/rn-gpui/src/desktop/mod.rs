@@ -10,6 +10,7 @@ pub mod keymap;
 pub mod menu_events;
 pub mod menu_model;
 pub mod module;
+pub mod os_version;
 pub mod perf_monitor;
 pub mod platform_window;
 pub mod tray;

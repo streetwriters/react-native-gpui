@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 export default function ApisFixture() {
   return (
@@ -7,6 +7,8 @@ export default function ApisFixture() {
       <Text style={styles.title}>Core APIs</Text>
       <View style={styles.section}>
         <Text style={styles.heading}>Platform</Text>
+        <Text testID="platform-version">{String(Platform.Version)}</Text>
+        <Text testID="platform-is-testing">{String(Platform.isTesting)}</Text>
       </View>
     </ScrollView>
   );

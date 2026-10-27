@@ -110,6 +110,32 @@ describe('Platform.constants.systemName', () => {
   });
 });
 
+describe('Platform.constants host values', () => {
+  test('osVersion and isTesting come from the desktop module', () => {
+    registry.set('GpuiDesktop', {
+      platform: () => 'linux',
+      platformConstants: () => ({ osVersion: '24.04', isTesting: true }),
+    });
+    platformConstantsReporting({ name: 'hermes', version: '1' });
+
+    expect(platform.Version).toBe('24.04');
+    expect(platform.constants.osVersion).toBe('24.04');
+    expect(platform.isTesting).toBe(true);
+  });
+
+  test('falls back to unknown without caching until the module answers', () => {
+    platformConstantsReporting({ name: 'hermes', version: '1' });
+    expect(platform.Version).toBe('unknown');
+    expect(platform.isTesting).toBe(false);
+
+    registry.set('GpuiDesktop', {
+      platform: () => 'macos',
+      platformConstants: () => ({ osVersion: '15.1', isTesting: false }),
+    });
+    expect(platform.Version).toBe('15.1');
+  });
+});
+
 describe('Platform.select', () => {
   test('picks the running OS, then native, then default', () => {
     desktopReporting('linux');

@@ -32,11 +32,7 @@ const HOST_SYSTEM_NAMES = {
 const staticConstants = {
   forceTouchAvailable: false,
   interfaceIdiom: 'desktop',
-  isTesting: false,
   isDisableAnimations: false,
-  // The runtime reports no osVersion yet, so these are placeholders that keep
-  // `Platform.Version` string-typed for version-gated callers.
-  osVersion: 'unknown',
   reactNativeVersion: {
     major: 0,
     minor: 87,
@@ -61,6 +57,21 @@ function readOS() {
   return null;
 }
 
+// `osVersion` and `isTesting` come from the host, so a read before TurboModules
+// exist is retried like the rest of the constants.
+function readHostConstants() {
+  try {
+    const reported =
+      TurboModuleRegistry.get('GpuiDesktop')?.platformConstants?.();
+    if (reported && typeof reported.osVersion === 'string') {
+      return reported;
+    }
+  } catch {
+    // TurboModules are not installed yet; the caller retries on the next read.
+  }
+  return null;
+}
+
 const Platform = {
   __constants: null,
   __OS: null,
@@ -77,16 +88,27 @@ const Platform = {
   get constants() {
     if (this.__constants == null) {
       const jsEngine = readJsEngine();
+      const host = readHostConstants();
       const systemName = HOST_SYSTEM_NAMES[this.OS];
-      if (jsEngine == null) {
+      const hostConstants = {
+        osVersion: host?.osVersion ?? 'unknown',
+        isTesting: host?.isTesting ?? false,
+      };
+      if (jsEngine == null || host == null) {
         // Do not cache: a later read succeeds once TurboModules are installed.
         return {
           ...staticConstants,
-          jsEngine: { name: 'unknown', version: '' },
+          ...hostConstants,
+          jsEngine: jsEngine ?? { name: 'unknown', version: '' },
           systemName,
         };
       }
-      this.__constants = { ...staticConstants, jsEngine, systemName };
+      this.__constants = {
+        ...staticConstants,
+        ...hostConstants,
+        jsEngine,
+        systemName,
+      };
     }
     return this.__constants;
   },

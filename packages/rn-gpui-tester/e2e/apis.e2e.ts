@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { afterAll, test } from 'vitest';
+import { afterAll, expect, test } from 'vitest';
 import {
   launchApp,
   expect as desktopExpect,
@@ -24,5 +24,11 @@ test('the apis screen opens', async () => {
   await app.setWindowSize(1024, 768);
   await desktopExpect(app.getByTestId('tester-screen-apis')).toBeVisible();
   await desktopExpect(app.getByTestId('apis-fixture')).toBeVisible();
+  const version = await app.getByTestId('platform-version').textContent();
+  expect(version).not.toBe('');
+  expect(version).not.toBe('unknown');
+  expect(await app.getByTestId('platform-is-testing').textContent()).toBe(
+    'true',
+  );
   await app.close();
 });
