@@ -5,6 +5,27 @@ use rn_gpui_sys::ffi::{ParagraphFlat, RectF};
 
 use crate::node_view::RNNodeView;
 
+/// How far a single-line input's text sits below the top of its content box:
+/// it is centred vertically, as on iOS and Android. A multiline input starts at
+/// the top.
+pub(crate) fn single_line_offset(
+    node: &RNNodeView,
+    paragraph: &ParagraphFlat,
+    viewport_height: f32,
+    fallback_height: f32,
+) -> f32 {
+    if node.input_multiline {
+        return 0.0;
+    }
+    let measured = crate::text::single_line_height(paragraph);
+    let height = if measured > 0.0 {
+        measured
+    } else {
+        fallback_height
+    };
+    ((viewport_height - height) / 2.0).max(0.0)
+}
+
 pub(crate) fn paragraph_content(
     node: &RNNodeView,
     mut element: Stateful<Div>,
@@ -28,6 +49,8 @@ pub(crate) fn paragraph_content(
         let natural_width =
             crate::text::input_caret_x(window.text_system(), &paragraph, line, line.len());
         let text_width = viewport_width.max(natural_width + 2.0);
+        let fallback = crate::builtins::textinput::input::input_line_height(node) * scale_y;
+        let offset = single_line_offset(node, &paragraph, viewport_height, fallback);
         element = element.child(
             div()
                 .absolute()
@@ -40,7 +63,7 @@ pub(crate) fn paragraph_content(
                     div()
                         .absolute()
                         .left(px(-node.input_scroll_x * scale_x))
-                        .top_0()
+                        .top(px(offset))
                         .w(px(text_width))
                         .h(px(viewport_height))
                         .child(crate::text::paragraph_element(
@@ -159,6 +182,9 @@ pub(crate) fn caret_canvas(
     let input_scroll_x = node.input_scroll_x * scale_x;
     let input_scroll_y = node.input_scroll_y * scale_y;
     let caret_visible = node.caret_visible;
+    let single_line_paragraph = caret_paragraph.clone();
+    let multiline_input = node.input_multiline;
+    let fallback_line = crate::builtins::textinput::input::input_line_height(node) * scale_y;
     let caret_height = node
         .paragraph
         .as_ref()
@@ -190,6 +216,17 @@ pub(crate) fn caret_canvas(
                                 - px((content_insets.top + content_insets.bottom) * scale_y))
                             .max(px(0.0)),
                         ),
+                    };
+                    let vertical = if multiline_input {
+                        0.0
+                    } else {
+                        let measured = crate::text::single_line_height(&single_line_paragraph);
+                        let height = if measured > 0.0 {
+                            measured
+                        } else {
+                            fallback_line
+                        };
+                        ((f32::from(content_box.size.height) - height) / 2.0).max(0.0)
                     };
                     window.with_content_mask(Some(gpui::ContentMask::new(content_box)), |window| {
                         if focus.as_ref().is_some_and(|f| f.is_focused(window)) {
@@ -242,6 +279,7 @@ pub(crate) fn caret_canvas(
                                                     + px(content_insets.left * scale_x + x0),
                                                 bounds.origin.y
                                                     + px(content_insets.top * scale_y
+                                                        + vertical
                                                         + line_number as f32 * caret_height
                                                         - input_scroll_y),
                                             ),
@@ -281,6 +319,7 @@ pub(crate) fn caret_canvas(
                                 let x = bounds.origin.x + px(content_insets.left * scale_x + x);
                                 let y = bounds.origin.y
                                     + px(content_insets.top * scale_y
+                                        + vertical
                                         + line_number as f32 * caret_height
                                         - input_scroll_y);
                                 let caret = gpui::Bounds {

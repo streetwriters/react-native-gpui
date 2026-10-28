@@ -230,6 +230,32 @@ describe('TextInput props', () => {
     expect(await frames('input-placeholder')).toBeGreaterThan(1);
   });
 
+  test('single-line text is centred vertically in a taller input', async () => {
+    await reveal('input-select-on-focus');
+    const image = PNG.sync.read(
+      await app.getByTestId('input-select-on-focus').screenshot(),
+    );
+    let top = image.height;
+    let bottom = -1;
+    // Inside the 1 px border, where the text is the only dark ink.
+    const border = Math.round(image.height / 32);
+    for (let y = border; y < image.height - border; y += 1) {
+      for (let x = border; x < image.width - border; x += 1) {
+        if (image.data[(y * image.width + x) * 4] < 100) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+    expect(bottom).toBeGreaterThan(top);
+    const above = top - border;
+    const below = image.height - border - 1 - bottom;
+    expect(Math.abs(above - below)).toBeLessThanOrEqual(
+      Math.ceil(image.height / 8),
+    );
+    expect(above).toBeGreaterThan(image.height / 8);
+  });
+
   test('maxLength limits typed and replaced text', async () => {
     await app.getByTestId('input-max-length').click();
     await app.getByTestId('input-max-length').type('abcdefgh');

@@ -712,6 +712,13 @@ pub fn install_measure_handler(cx: &mut App) {
     }));
 }
 
+/// The height of the paragraph laid out on one line, or 0 when it is empty.
+pub(crate) fn single_line_height(paragraph: &ParagraphFlat) -> f32 {
+    TEXT_SERVICE
+        .get()
+        .map_or(0.0, |service| service.shape(paragraph, f32::MAX).height)
+}
+
 /// Every laid-out row of the paragraph, as `onTextLayout` reports them.
 fn measure_lines(service: &TextService, paragraph: &ParagraphFlat, width: f32) -> Vec<LineFlat> {
     let shaped = service.shape(paragraph, width);
