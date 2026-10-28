@@ -56,6 +56,7 @@ std::string textInputPropsJson(
     if (props->maxLength != std::numeric_limits<int>::max()) {
       object["maxLength"] = props->maxLength;
     }
+    object["contextMenuHidden"] = props->traits.contextMenuHidden;
     object["caretHidden"] = props->traits.caretHidden;
     object["selectTextOnFocus"] = props->traits.selectTextOnFocus;
     object["editable"] = props->editable && !props->readOnly;

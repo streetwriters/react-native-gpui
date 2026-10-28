@@ -109,11 +109,14 @@ pub struct RNNodeView {
     pub(crate) input_select_on_focus: bool,
     pub(crate) input_submit_behavior: crate::builtins::textinput::input::SubmitBehavior,
     pub(crate) input_max_length: usize,
+    pub(crate) input_context_menu_hidden: bool,
     /// Until when a click selects all, because it is the one that focused the input.
     pub(crate) input_select_all_until: Option<std::time::Instant>,
     pub(crate) input_secure_text: bool,
     pub input_selection: std::ops::Range<usize>,
     pub(crate) input_scroll_x: f32,
+    pub(crate) input_scroll_y: f32,
+    pub(crate) input_content_size: (f32, f32),
     pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
     pub input_event_count: i32,
@@ -256,6 +259,12 @@ fn dispatch_right_press(
     )
     .is_some()
     {
+        let shown =
+            crate::builtins::textinput::input::show_text_menu(&entity, event.position, window, cx);
+        if shown {
+            cx.stop_propagation();
+            return;
+        }
         if let Some(owner) = owner {
             // A component that asked for context menus owns the press and renders
             // its own; a `View` with the prop dispatches to JS. The hook has to be
@@ -465,9 +474,6 @@ impl RNNodeView {
         cx: &mut Context<Self>,
     ) {
         if self.component != "TextInput" {
-            return;
-        }
-        if focus && !self.input_editable {
             return;
         }
         let Some(handle) = self.focus_handle.as_ref().cloned() else {
@@ -885,10 +891,13 @@ impl RNNodeView {
             input_select_on_focus: text_input.select_on_focus,
             input_submit_behavior: text_input.submit_behavior,
             input_max_length: text_input.max_length,
+            input_context_menu_hidden: text_input.context_menu_hidden,
             input_select_all_until: None,
             input_secure_text: text_input.secure,
             input_selection: 0..0,
             input_scroll_x: 0.0,
+            input_scroll_y: 0.0,
+            input_content_size: (0.0, 0.0),
             input_selection_anchor: None,
             input_marked: None,
             input_event_count: 0,
@@ -3913,6 +3922,25 @@ impl Render for RNNodeView {
                 None => painted,
             };
             element = element.children(painted);
+            if self.component == "TextInput" && self.input_multiline {
+                element = element.on_scroll_wheel(cx.listener(
+                    |this, event: &gpui::ScrollWheelEvent, _window, cx| {
+                        let delta = match &event.delta {
+                            gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y),
+                            gpui::ScrollDelta::Lines(lines) => lines.y * 40.0,
+                        };
+                        let before = this.input_scroll_y;
+                        crate::builtins::textinput::input::scroll_input_to(
+                            this,
+                            before - delta,
+                            cx,
+                        );
+                        if this.input_scroll_y != before {
+                            cx.stop_propagation();
+                        }
+                    },
+                ));
+            }
             if self.component == "TextInput" && !self.input_multiline {
                 element = element.on_scroll_wheel(cx.listener(
                     |this, event: &gpui::ScrollWheelEvent, window, cx| {

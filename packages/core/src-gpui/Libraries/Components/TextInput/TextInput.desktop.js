@@ -28,7 +28,9 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
     onBlur,
     selection,
     multiline = false,
+    numberOfLines,
     editable = true,
+    readOnly,
     autoFocus = false,
     style,
     ...nativeProps
@@ -50,10 +52,20 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
   const minimumLineHeight = Math.ceil(
     lineHeight + verticalPadding + verticalBorder,
   );
+  const lines = multiline && numberOfLines > 0 ? numberOfLines : 0;
   const inputStyle =
-    flatStyle.height == null
-      ? [{ minHeight: minimumLineHeight }, style]
-      : style;
+    flatStyle.height != null
+      ? style
+      : lines > 0
+        ? [
+            {
+              height: Math.ceil(
+                lines * lineHeight + verticalPadding + verticalBorder,
+              ),
+            },
+            style,
+          ]
+        : [{ minHeight: minimumLineHeight }, style];
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue == null ? '' : String(defaultValue),
   );
@@ -120,7 +132,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
       text={text}
       selection={selection}
       multiline={multiline}
-      editable={editable}
+      editable={readOnly !== undefined ? !readOnly : editable}
       style={inputStyle}
       onChange={handleChange}
       onSelectionChange={onSelectionChange}

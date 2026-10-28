@@ -18,6 +18,7 @@ beforeAll(async () => {
     env: {
       RN_GPUI_MODULE: 'RNGPUITester--core-components',
       RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
     disableAnimations: true,
     offscreen: true,
@@ -161,6 +162,7 @@ describe('TextInput props', () => {
       env: {
         RN_GPUI_MODULE: 'RNGPUITester--core-components',
         RN_GPUI_DEV_PORT: '1',
+        RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
       },
       disableAnimations: true,
       offscreen: false,
@@ -200,6 +202,60 @@ describe('TextInput props', () => {
     await poll(
       async () => (await text('input-max-length-value')) === '[abcdy]',
     );
+  });
+
+  test('readOnly selects text but rejects edits and draws no caret', async () => {
+    const before = await text('input-event-log');
+    await app.getByTestId('input-read-only').click();
+    await app.getByTestId('input-read-only').press('mod-a');
+    await poll(async () => (await text('input-read-only-selection')) === '0-9');
+    await app.getByTestId('input-read-only').press('x');
+    await app.getByTestId('input-read-only').press('backspace');
+    await app.waitForIdle();
+    expect(await text('input-event-log')).toBe(before);
+    const seen = new Set<string>();
+    await app.getByTestId('input-read-only').press('right');
+    for (let sample = 0; sample < 8; sample += 1) {
+      seen.add(
+        (await app.getByTestId('input-read-only').screenshot()).toString(
+          'base64',
+        ),
+      );
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    expect(seen.size).toBe(1);
+  });
+
+  test('right click opens a text menu, which contextMenuHidden suppresses', async () => {
+    await app.getByTestId('input-menu').rightClick();
+    const menu = await app.getContextMenu();
+    const ids = ((menu?.items ?? []) as { id?: string }[]).map(item => item.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(['cut', 'copy', 'paste', 'selectAll']),
+    );
+    expect(await app.selectContextMenuItem('selectAll')).toBe(true);
+    await poll(async () => (await text('input-menu-selection')) === '0-11');
+    const shownBefore = (await app.getContextMenu())?.shown;
+    await app.getByTestId('input-menu-hidden').rightClick();
+    expect((await app.getContextMenu())?.shown).toBe(shownBefore);
+  });
+
+  test('numberOfLines sizes a multiline input, which scrolls and reports it', async () => {
+    const shot = PNG.sync.read(
+      await app.getByTestId('input-multi').screenshot(),
+    );
+    expect(shot.height / shot.width).toBeCloseTo(60 / 260, 2);
+    await app.getByTestId('input-multi').click();
+    await app.getByTestId('input-multi').type('!');
+    await poll(async () => (await text('input-multi-sizes')).includes('x200,'));
+    await app.getByTestId('input-multi').type('\n');
+    await poll(async () => (await text('input-multi-sizes')).includes('x220,'));
+    // The wheel scrolls the content, and onScroll reports the offset.
+    await app.getByTestId('input-multi').scroll(0, -100);
+    await poll(async () => Number(await text('input-multi-scroll')) > 0);
+    const down = Number(await text('input-multi-scroll'));
+    await app.getByTestId('input-multi').scroll(0, 40);
+    await poll(async () => Number(await text('input-multi-scroll')) < down);
   });
 
   test('onKeyPress reports each key before it is applied', async () => {

@@ -16,6 +16,10 @@ export default function CoreComponentsFixture() {
   const [selection, setSelection] = useState('none');
   const [keys, setKeys] = useState('');
   const [events, setEvents] = useState('');
+  const [readOnlySelection, setReadOnlySelection] = useState('none');
+  const [menuSelection, setMenuSelection] = useState('none');
+  const [multiSizes, setMultiSizes] = useState('');
+  const [multiScroll, setMultiScroll] = useState(0);
   const [limited, setLimited] = useState('');
   return (
     <ScrollView
@@ -70,6 +74,25 @@ export default function CoreComponentsFixture() {
         <Text testID="indicator-toggle" onPress={() => setAnimating(a => !a)}>
           {animating ? 'stop' : 'start'}
         </Text>
+        <TextInput
+          testID="input-multi"
+          multiline
+          numberOfLines={3}
+          defaultValue={'1\n2\n3\n4\n5\n6\n7\n8\n9\n10'}
+          onContentSizeChange={event => {
+            const { width, height } = event.nativeEvent.contentSize;
+            setMultiSizes(
+              previous =>
+                previous + `${Math.round(width)}x${Math.round(height)},`,
+            );
+          }}
+          onScroll={event =>
+            setMultiScroll(Math.round(event.nativeEvent.contentOffset.y))
+          }
+          style={styles.multi}
+        />
+        <Text testID="input-multi-sizes">{multiSizes}</Text>
+        <Text testID="input-multi-scroll">{String(multiScroll)}</Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>TextInput</Text>
@@ -124,6 +147,39 @@ export default function CoreComponentsFixture() {
           style={styles.input}
         />
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>TextInput 2</Text>
+        <TextInput
+          testID="input-read-only"
+          readOnly
+          defaultValue="read only"
+          onChangeText={() => setEvents(previous => previous + 'ro-change,')}
+          onSelectionChange={event =>
+            setReadOnlySelection(
+              `${event.nativeEvent.selection.start}-${event.nativeEvent.selection.end}`,
+            )
+          }
+          style={styles.input}
+        />
+        <Text testID="input-read-only-selection">{readOnlySelection}</Text>
+        <TextInput
+          testID="input-menu"
+          defaultValue="hello world"
+          onSelectionChange={event =>
+            setMenuSelection(
+              `${event.nativeEvent.selection.start}-${event.nativeEvent.selection.end}`,
+            )
+          }
+          style={styles.input}
+        />
+        <Text testID="input-menu-selection">{menuSelection}</Text>
+        <TextInput
+          testID="input-menu-hidden"
+          defaultValue="no menu"
+          contextMenuHidden
+          style={styles.input}
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -140,6 +196,14 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, color: '#111', width: '100%' },
   section: { gap: 10, width: 300 },
   heading: { fontSize: 16, color: '#333' },
+  multi: {
+    width: 260,
+    padding: 0,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#111',
+    backgroundColor: '#eef',
+  },
   input: {
     height: 32,
     borderWidth: 1,

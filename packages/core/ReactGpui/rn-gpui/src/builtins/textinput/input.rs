@@ -13,7 +13,7 @@ pub(crate) fn handle_key(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) -> bool {
-    if !this.input_editable {
+    if !this.input_editable && !matches!(key, "left" | "right" | "home" | "end") {
         return false;
     }
     match key {
@@ -150,6 +150,102 @@ pub(crate) fn handle_key(
     }
 }
 
+const MENU_CUT: &str = "cut";
+const MENU_COPY: &str = "copy";
+const MENU_PASTE: &str = "paste";
+const MENU_SELECT_ALL: &str = "selectAll";
+
+fn text_menu_model(this: &RNNodeView, can_paste: bool) -> crate::desktop::menu_model::MenuModel {
+    use crate::desktop::menu_model::{MenuItemDef, MenuModel, MenuNode};
+    let has_selection = !selected_range(this).is_empty();
+    let editable = this.input_editable;
+    let item = |id: &str, label: &str, enabled: bool| {
+        MenuNode::Item(MenuItemDef {
+            id: id.to_string(),
+            label: label.to_string(),
+            accelerator: None,
+            enabled,
+            checked: false,
+            role: None,
+            icon: None,
+        })
+    };
+    let mut items = Vec::new();
+    if editable {
+        items.push(item(MENU_CUT, "Cut", has_selection));
+    }
+    items.push(item(MENU_COPY, "Copy", has_selection));
+    if editable {
+        items.push(item(MENU_PASTE, "Paste", can_paste));
+    }
+    items.push(MenuNode::Separator);
+    items.push(item(
+        MENU_SELECT_ALL,
+        "Select All",
+        !this.input_text.is_empty(),
+    ));
+    MenuModel { items }
+}
+
+/// Opens the Cut, Copy, Paste and Select All menu over a text input, unless the
+/// input hides it. Returns whether a menu was shown.
+pub(crate) fn show_text_menu(
+    entity: &gpui::Entity<RNNodeView>,
+    position: Point<Pixels>,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> bool {
+    let can_paste = cx
+        .read_from_clipboard()
+        .is_some_and(|item| item.text().is_some_and(|text| !text.is_empty()));
+    let this = entity.read(cx);
+    if this.component != "TextInput" || this.input_context_menu_hidden {
+        return false;
+    }
+    let model = text_menu_model(this, can_paste);
+    let tag = this.tag;
+    let handle = window.window_handle();
+    let responder = crate::desktop::context_menu::Responder::callback(Box::new(move |choice| {
+        let Some(choice) = choice else {
+            return;
+        };
+        crate::desktop::post_to_main(Box::new(move |cx: &mut gpui::App| {
+            let Some(store) = store_from(cx) else {
+                return;
+            };
+            let Some(entity) = store.read(cx).nodes.get(&tag).cloned() else {
+                return;
+            };
+            let _ = handle.update(cx, |_root, window, cx| {
+                entity.update(cx, |this, cx| {
+                    match choice.as_str() {
+                        MENU_CUT => {
+                            cut_selection(this, window, cx);
+                        }
+                        MENU_COPY => {
+                            copy_selection(this, cx);
+                        }
+                        MENU_PASTE => {
+                            paste_clipboard(this, window, cx);
+                        }
+                        MENU_SELECT_ALL => select_all(this, window, cx),
+                        _ => {}
+                    }
+                    cx.notify();
+                });
+            });
+        }));
+    }));
+    crate::desktop::context_menu::present(
+        cx,
+        model,
+        handle,
+        (f32::from(position.x), f32::from(position.y)),
+        responder,
+    );
+    true
+}
+
 pub(crate) fn select_at_point(
     this: &mut RNNodeView,
     point: Point<Pixels>,
@@ -157,7 +253,7 @@ pub(crate) fn select_at_point(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) {
-    if this.component != "TextInput" || !this.input_editable {
+    if this.component != "TextInput" {
         return;
     }
     let index = this
@@ -185,7 +281,7 @@ pub(crate) fn select_at_point(
 }
 
 pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
-    if this.component != "TextInput" || !this.input_editable {
+    if this.component != "TextInput" {
         return;
     }
     this.input_selection = 0..this.input_text.len();
@@ -398,6 +494,7 @@ fn clear_text_state(
 fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     this.input_event_count += 1;
     this.input_selection_anchor = None;
+    let scrolled_from = this.input_scroll_y;
     keep_caret_visible(this, window);
     let text = this.input_text.clone();
     let selection = utf16_range(&text, selected_range(this));
@@ -416,13 +513,18 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
+        if this.input_scroll_y != scrolled_from {
+            host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+        }
         store.read(cx).frame_hook.arm(window);
     }
+    emit_content_size(this, window, cx);
     this.reset_text_input_caret(cx);
     cx.notify();
 }
 
 fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    let scrolled_from = this.input_scroll_y;
     keep_caret_visible(this, window);
     let selection = utf16_range(&this.input_text, selected_range(this));
     if let Some(store) = store_from(cx) {
@@ -432,15 +534,112 @@ fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<R
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
+        if this.input_scroll_y != scrolled_from {
+            host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+        }
         store.read(cx).frame_hook.arm(window);
     }
     this.reset_text_input_caret(cx);
     cx.notify();
 }
 
+/// The height of one line in the input's own units, as the caret and the
+/// selection use it.
+pub(crate) fn input_line_height(this: &RNNodeView) -> f32 {
+    let fragment = this
+        .paragraph
+        .as_ref()
+        .and_then(|paragraph| paragraph.fragments.first());
+    match fragment {
+        Some(fragment) if fragment.line_height > 0.0 => fragment.line_height,
+        Some(fragment) => fragment.font_size.max(14.0) * 1.2,
+        None => 14.0 * 1.2,
+    }
+}
+
+fn viewport_height(this: &RNNodeView) -> f32 {
+    (this.frame.h - this.view.content_insets.top - this.view.content_insets.bottom).max(0.0)
+}
+
+fn multiline_content_height(this: &RNNodeView) -> f32 {
+    this.input_text.split('\n').count().max(1) as f32 * input_line_height(this)
+}
+
+pub(crate) fn max_scroll_y(this: &RNNodeView) -> f32 {
+    (multiline_content_height(this) - viewport_height(this)).max(0.0)
+}
+
+fn scroll_payload(this: &RNNodeView) -> serde_json::Value {
+    let width =
+        (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0);
+    serde_json::json!({
+        "contentOffset": {"x": this.input_scroll_x, "y": this.input_scroll_y},
+        "contentSize": {"width": width, "height": multiline_content_height(this)},
+        "layoutMeasurement": {"width": width, "height": viewport_height(this)},
+    })
+}
+
+/// Sets the vertical offset of a multiline input and reports it to `onScroll`
+/// when it moved.
+pub(crate) fn scroll_input_to(this: &mut RNNodeView, y: f32, cx: &mut Context<RNNodeView>) {
+    let next = y.clamp(0.0, max_scroll_y(this));
+    if (next - this.input_scroll_y).abs() <= f32::EPSILON {
+        return;
+    }
+    this.input_scroll_y = next;
+    if let Some(store) = store_from(cx) {
+        store
+            .read(cx)
+            .host
+            .dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+    }
+    cx.notify();
+}
+
+/// Reports the content size to `onContentSizeChange` when it differs from the
+/// last report.
+fn emit_content_size(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    let width = if this.input_multiline {
+        (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0)
+    } else {
+        this.paragraph.as_ref().map_or(0.0, |paragraph| {
+            let line = this.input_text.split('\n').next().unwrap_or_default();
+            crate::text::input_caret_x(window.text_system(), paragraph, line, line.len())
+        })
+    };
+    let height = if this.input_multiline {
+        multiline_content_height(this)
+    } else {
+        input_line_height(this)
+    };
+    if this.input_content_size == (width, height) {
+        return;
+    }
+    this.input_content_size = (width, height);
+    if let Some(store) = store_from(cx) {
+        store.read(cx).host.dispatch_event(
+            this.tag,
+            "topContentSizeChange",
+            &serde_json::json!({"contentSize": {"width": width, "height": height}}),
+        );
+    }
+}
+
 pub(crate) fn keep_caret_visible(this: &mut RNNodeView, window: &mut Window) {
     if this.input_multiline {
         this.input_scroll_x = 0.0;
+        let line_height = input_line_height(this);
+        let end = this.input_selection.end.min(this.input_text.len());
+        let line = this.input_text[..end].matches('\n').count() as f32;
+        let (top, bottom) = (line * line_height, (line + 1.0) * line_height);
+        let height = viewport_height(this);
+        let mut offset = this.input_scroll_y;
+        if top < offset {
+            offset = top;
+        } else if bottom > offset + height {
+            offset = bottom - height;
+        }
+        this.input_scroll_y = offset.clamp(0.0, max_scroll_y(this));
         return;
     }
     let Some(paragraph) = this.paragraph.as_ref() else {
@@ -636,6 +835,11 @@ impl EntityInputHandler for RNNodeView {
         let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)
             - self.view.content_insets.top)
             .max(0.0);
+        let local_y = if self.input_multiline {
+            local_y + self.input_scroll_y
+        } else {
+            local_y
+        };
         let target_line = if self.input_multiline {
             (local_y / line_height.max(1.0)).floor() as usize
         } else {
@@ -914,6 +1118,7 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     this.input_select_on_focus = next.select_on_focus;
     this.input_submit_behavior = next.submit_behavior;
     this.input_max_length = next.max_length;
+    this.input_context_menu_hidden = next.context_menu_hidden;
     this.input_selection = reconcile_selection(
         &this.input_text,
         this.input_selection.clone(),
@@ -935,6 +1140,7 @@ pub(crate) struct TextInputProps {
     pub select_on_focus: bool,
     pub submit_behavior: SubmitBehavior,
     pub max_length: usize,
+    pub context_menu_hidden: bool,
     pub event_count: i32,
     pub selection: Option<Range<usize>>,
 }
@@ -985,6 +1191,7 @@ impl TextInputProps {
                 .get("maxLength")
                 .and_then(serde_json::Value::as_u64)
                 .map_or(usize::MAX, |length| length as usize),
+            context_menu_hidden: flag("contextMenuHidden", false),
             event_count: number("eventCount") as i32,
             selection,
         }
