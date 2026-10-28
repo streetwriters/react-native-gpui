@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  type ScrollViewInstance,
 } from 'react-native';
 
 const RED_2X3 =
@@ -18,6 +19,8 @@ const IMAGE_BASE = 'http://127.0.0.1:18765';
 const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
+  const commandScroll = useRef<ScrollViewInstance>(null);
+  const [commandOffset, setCommandOffset] = useState('0');
   const [controlled, setControlled] = useState(false);
   const [changes, setChanges] = useState(0);
   const [animating, setAnimating] = useState(true);
@@ -551,6 +554,41 @@ export default function CoreComponentsFixture() {
             />
           </>
         ) : null}
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>ScrollView commands</Text>
+        <ScrollView
+          ref={commandScroll}
+          testID="scroll-command"
+          style={styles.pager}
+          onScroll={event =>
+            setCommandOffset(
+              Math.round(event.nativeEvent.contentOffset.y).toString(),
+            )
+          }
+          scrollEventThrottle={16}
+        >
+          {[0, 1, 2, 3, 4].map(index => (
+            <View key={index} style={styles.interval}>
+              <Text>{`item ${index}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-command-offset">{commandOffset}</Text>
+        <Text
+          testID="scroll-command-to"
+          onPress={() =>
+            commandScroll.current?.scrollTo({ y: 150, animated: false })
+          }
+        >
+          to 150
+        </Text>
+        <Text
+          testID="scroll-command-end"
+          onPress={() => commandScroll.current?.scrollToEnd({ animated: true })}
+        >
+          to end
+        </Text>
       </View>
     </ScrollView>
   );

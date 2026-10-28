@@ -4552,6 +4552,137 @@ impl RNNodeView {
         self.scroll_position.get()
     }
 
+    /// The largest offset the scroll content allows.
+    fn max_scroll(&self) -> (f32, f32) {
+        let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
+        (
+            (content.0 - self.frame.w).max(0.0),
+            (content.1 - self.frame.h).max(0.0),
+        )
+    }
+
+    /// Runs `scrollTo`, `scrollToEnd` and `flashScrollIndicators`.
+    pub(crate) fn scroll_command(
+        &mut self,
+        name: &str,
+        args: &serde_json::Value,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(scroll) = self.scroll.as_ref() else {
+            return false;
+        };
+        let number = |index: usize| args.get(index).and_then(serde_json::Value::as_f64);
+        let flag = |index: usize| {
+            args.get(index)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        };
+        let current = self.scroll_position.get();
+        let max = self.max_scroll();
+        let (target, animated) = match name {
+            "scrollTo" => (
+                point(
+                    number(0).map_or(current.x, |x| x as f32),
+                    number(1).map_or(current.y, |y| y as f32),
+                ),
+                flag(2),
+            ),
+            "scrollToEnd" => (
+                if scroll.horizontal {
+                    point(max.0, current.y)
+                } else {
+                    point(current.x, max.1)
+                },
+                flag(0),
+            ),
+            "flashScrollIndicators" => return true,
+            _ => return false,
+        };
+        let target = point(target.x.clamp(0.0, max.0), target.y.clamp(0.0, max.1));
+        self.scroll_to(target, animated, cx);
+        true
+    }
+
+    /// Moves the scroll offset the way `scrollTo` does: reported through
+    /// `onScroll`, and handed to Fabric once it settles.
+    pub(crate) fn scroll_to(&mut self, target: Point<f32>, animated: bool, cx: &mut Context<Self>) {
+        const STEPS: u32 = 10;
+        let generation = {
+            let mut gesture = self.scroll_gesture.borrow_mut();
+            gesture.generation += 1;
+            gesture.generation
+        };
+        let from = self.scroll_position.get();
+        if !animated || (from.x - target.x).abs() + (from.y - target.y).abs() < 0.5 {
+            self.set_scroll_offset(target, cx);
+            return;
+        }
+        let gesture = self.scroll_gesture.clone();
+        cx.spawn(async move |this, cx| {
+            for step in 1..=STEPS {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(15))
+                    .await;
+                if gesture.borrow().generation != generation {
+                    return;
+                }
+                let t = step as f32 / STEPS as f32;
+                let eased = 1.0 - (1.0 - t) * (1.0 - t);
+                let next = point(
+                    from.x + (target.x - from.x) * eased,
+                    from.y + (target.y - from.y) * eased,
+                );
+                if this
+                    .update(cx, |node, cx| node.set_scroll_offset(next, cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn set_scroll_offset(&mut self, offset: Point<f32>, cx: &mut Context<Self>) {
+        self.scroll_position.set(offset);
+        self.scroll_handle_stale = true;
+        cx.notify();
+        let Some(store) = crate::store::store_from(cx) else {
+            return;
+        };
+        let host = store.read(cx).host.clone();
+        let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
+        if let Some(event) = self.scroll.as_ref().and_then(|s| s.event.as_ref()) {
+            host.dispatch_event(
+                self.tag,
+                event,
+                &serde_json::json!({
+                    "contentOffset": {"x": offset.x, "y": offset.y},
+                    "contentSize": {"width": content.0, "height": content.1},
+                    "layoutMeasurement": {"width": self.frame.w, "height": self.frame.h},
+                    "zoomScale": 1
+                }),
+            );
+        }
+        let generation = self.scroll_sync_generation.get() + 1;
+        self.scroll_sync_generation.set(generation);
+        let (tag, position, sync_generation) = (
+            self.tag,
+            self.scroll_position.clone(),
+            self.scroll_sync_generation.clone(),
+        );
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(SCROLL_STATE_SYNC_DELAY)
+                .await;
+            if sync_generation.get() == generation {
+                let offset = position.get();
+                host.set_scroll_offset(tag, offset.x, offset.y);
+            }
+        })
+        .detach();
+    }
+
     /// Runs a Fabric command on this node's host component.
     pub(crate) fn dispatch_host_command(
         &mut self,

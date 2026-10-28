@@ -618,6 +618,15 @@ describe('ScrollView', () => {
     await desktopExpect(pager).toBeVisible();
   });
 
+  test('scrollTo and scrollToEnd move the offset and report it', async () => {
+    await reveal('scroll-command-to');
+    await app.getByTestId('scroll-command-to').click();
+    await settled('scroll-command-offset', '150');
+    await app.getByTestId('scroll-command-end').click();
+    // Five 80 px items in a 100 px viewport.
+    await settled('scroll-command-offset', '300');
+  });
+
   test('snapToInterval rests on an interval', async () => {
     await reveal('scroll-interval');
     const tag = (await app.query('testID', 'scroll-interval', true))[0].tag;

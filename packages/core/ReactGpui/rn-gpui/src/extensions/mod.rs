@@ -990,6 +990,13 @@ pub(crate) fn run_builtin_command(
     handle: &StoreHandle,
     cx: &mut App,
 ) {
+    if component == "ScrollView" {
+        let handled = node.update(cx, |node, cx| node.scroll_command(name, args, cx));
+        if !handled {
+            log::error!("[builtin-component] ScrollView has no command '{name}'");
+        }
+        return;
+    }
     let Some(renderer) = component_renderer(component) else {
         return;
     };
