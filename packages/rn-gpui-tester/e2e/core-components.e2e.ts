@@ -327,6 +327,40 @@ describe('Text', () => {
     expect(shadow.count).toBeGreaterThan(50);
   });
 
+  async function box(testID: string) {
+    const [match] = await app.query('testID', testID, true);
+    return match.frame;
+  }
+
+  test('selectable text selects by drag, word and line, and copies', async () => {
+    const frame = await box('select-text');
+    const y = frame.y + frame.height / 2;
+    await app.setClipboardText('');
+    await app.mouseDown({ x: frame.x + 1, y });
+    await app.mouseMove(
+      { x: frame.x + frame.width - 1, y },
+      { button: 'left' },
+    );
+    await app.mouseUp({ x: frame.x + frame.width - 1, y });
+    await app.getByTestId('select-text').rightClick();
+    expect((await app.getContextMenu())?.items).toBeTruthy();
+    expect(await app.selectContextMenuItem('copy')).toBe(true);
+    await poll(async () => (await app.clipboardText()) === 'alpha beta gamma');
+    await app.setClipboardText('');
+    await app.getByTestId('select-text').doubleClick();
+    await app.getByTestId('select-text').rightClick();
+    expect(await app.selectContextMenuItem('copy')).toBe(true);
+    await poll(async () => (await app.clipboardText()) === 'beta');
+  });
+
+  test('text without selectable offers no selection', async () => {
+    await app.setClipboardText('');
+    await app.getByTestId('select-text-off').doubleClick();
+    await app.getByTestId('select-text-off').rightClick();
+    await app.waitForIdle();
+    expect((await app.clipboardText()) ?? '').toBe('');
+  });
+
   test('adjustsFontSizeToFit shrinks text that would not fit on its lines', async () => {
     const dark = (r: number, g: number, b: number) =>
       r < 90 && g < 90 && b < 90;

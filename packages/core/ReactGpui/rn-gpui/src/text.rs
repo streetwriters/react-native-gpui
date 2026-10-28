@@ -732,6 +732,90 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
     .h(px(height.max(0.0)))
 }
 
+/// The paragraph's text as the shaper sees it, fragments joined.
+pub(crate) fn paragraph_text(paragraph: &ParagraphFlat) -> String {
+    paragraph
+        .fragments
+        .iter()
+        .map(|fragment| fragment.text.as_str())
+        .collect()
+}
+
+/// The byte offset in the paragraph's text closest to a point in its box.
+pub(crate) fn text_index_at(
+    paragraph: &ParagraphFlat,
+    width: f32,
+    x: f32,
+    y: f32,
+) -> Option<usize> {
+    let shaped = TEXT_SERVICE.get()?.shape(paragraph, width);
+    let mut top = 0.0f32;
+    let mut offset = 0usize;
+    let last = shaped.lines.len().checked_sub(1)?;
+    for (index, (line, line_height)) in shaped.lines.iter().zip(&shaped.line_heights).enumerate() {
+        let height = line_height * (line.wrap_boundaries.len() + 1) as f32;
+        if y < top + height || index == last {
+            let local = point(px(x), px((y - top).max(0.0)));
+            let within = line
+                .closest_index_for_position(local, px(*line_height))
+                .unwrap_or_else(|nearest| nearest);
+            return Some(offset + within.min(line.len()));
+        }
+        top += height;
+        offset += line.len() + 1;
+    }
+    None
+}
+
+/// The rectangles `(x, y, width, height)` a byte range covers, row by row.
+pub(crate) fn text_range_rects(
+    paragraph: &ParagraphFlat,
+    width: f32,
+    range: std::ops::Range<usize>,
+) -> Vec<(f32, f32, f32, f32)> {
+    let mut rects = Vec::new();
+    let Some(shaped) = TEXT_SERVICE
+        .get()
+        .map(|service| service.shape(paragraph, width))
+    else {
+        return rects;
+    };
+    let mut top = 0.0f32;
+    let mut offset = 0usize;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let rows = line.wrap_boundaries.len() + 1;
+        let start = range.start.max(offset);
+        let end = range.end.min(offset + line.len());
+        if start < end || (range.start <= offset + line.len() && range.end > offset + line.len()) {
+            let from = start.saturating_sub(offset).min(line.len());
+            let to = end.saturating_sub(offset).min(line.len());
+            let lh = px(*line_height);
+            let a = line.position_for_index(from, lh).unwrap_or_default();
+            let b = line.position_for_index(to, lh).unwrap_or_default();
+            let row_a = (f32::from(a.y) / line_height).floor() as usize;
+            let row_b = (f32::from(b.y) / line_height).floor() as usize;
+            // A selection that runs on past this line's end covers its newline.
+            let newline = range.end > offset + line.len();
+            for row in row_a..=row_b.min(rows - 1) {
+                let x0 = if row == row_a { f32::from(a.x) } else { 0.0 };
+                let x1 = if row == row_b && !newline {
+                    f32::from(b.x)
+                } else if row == row_b {
+                    f32::from(b.x).max(shaped.width) + 4.0
+                } else {
+                    shaped.width.max(f32::from(a.x))
+                };
+                if x1 > x0 {
+                    rects.push((x0, top + row as f32 * line_height, x1 - x0, *line_height));
+                }
+            }
+        }
+        top += line_height * rows as f32;
+        offset += line.len() + 1;
+    }
+    rects
+}
+
 fn paint_lines(
     shaped: &ShapedParagraph,
     origin: gpui::Point<gpui::Pixels>,

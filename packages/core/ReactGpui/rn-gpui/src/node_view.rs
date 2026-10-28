@@ -116,6 +116,8 @@ pub struct RNNodeView {
     pub input_selection: std::ops::Range<usize>,
     pub(crate) input_scroll_x: f32,
     pub(crate) input_scroll_y: f32,
+    pub(crate) text_selection: std::ops::Range<usize>,
+    pub(crate) text_selection_anchor: Option<usize>,
     pub(crate) input_content_size: (f32, f32),
     pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
@@ -260,7 +262,8 @@ fn dispatch_right_press(
     .is_some()
     {
         let shown =
-            crate::builtins::textinput::input::show_text_menu(&entity, event.position, window, cx);
+            crate::builtins::textinput::input::show_text_menu(&entity, event.position, window, cx)
+                || crate::builtins::text_select::show_menu(&entity, event.position, window, cx);
         if shown {
             cx.stop_propagation();
             return;
@@ -897,6 +900,8 @@ impl RNNodeView {
             input_selection: 0..0,
             input_scroll_x: 0.0,
             input_scroll_y: 0.0,
+            text_selection: 0..0,
+            text_selection_anchor: None,
             input_content_size: (0.0, 0.0),
             input_selection_anchor: None,
             input_marked: None,
@@ -3394,14 +3399,27 @@ impl Render for RNNodeView {
                     let Some(node) = down_node.upgrade() else {
                         return;
                     };
-                    let (target, focus_handle, is_text_input) = {
+                    let (target, focus_handle, is_text_input, selectable_text) = {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
                             this.nearest_focus_handle(cx),
                             this.component == "TextInput",
+                            crate::builtins::text_select::is_selectable(this),
                         )
                     };
+                    if selectable_text {
+                        node.update(cx, |this, cx| {
+                            crate::builtins::text_select::begin(
+                                this,
+                                event.position,
+                                event.click_count,
+                                cx,
+                            );
+                        });
+                    } else {
+                        crate::builtins::text_select::clear_active(cx);
+                    }
                     let Some(target) = target else {
                         return;
                     };
@@ -3522,14 +3540,20 @@ impl Render for RNNodeView {
                     let Some(node) = move_node.upgrade() else {
                         return;
                     };
-                    let (hit_target, selecting) = {
+                    let (hit_target, selecting, selecting_text) = {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
                             this.component == "TextInput" && this.input_selection_anchor.is_some(),
+                            this.text_selection_anchor.is_some(),
                         )
                     };
                     if event.pressed_button.is_some() {
+                        if selecting_text {
+                            node.update(cx, |this, cx| {
+                                crate::builtins::text_select::extend(this, event.position, cx);
+                            });
+                        }
                         if selecting {
                             node.update(cx, |this, cx| {
                                 crate::builtins::textinput::input::select_at_point(
@@ -3720,6 +3744,9 @@ impl Render for RNNodeView {
         }
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
+            scaled_paragraph.shadow_dx *= scale_x;
+            scaled_paragraph.shadow_dy *= scale_y;
+            scaled_paragraph.shadow_radius *= scale_x;
             for fragment in &mut scaled_paragraph.fragments {
                 fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;

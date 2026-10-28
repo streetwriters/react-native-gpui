@@ -627,6 +627,15 @@ export class DesktopApp {
     return result.opened;
   }
 
+  async clipboardText(): Promise<string | null> {
+    const result = await this.request<{ text: string | null }>('clipboardText');
+    return result.text;
+  }
+
+  async setClipboardText(text: string): Promise<void> {
+    await this.request('setClipboardText', { text });
+  }
+
   async contextMenuPresenter(): Promise<{ presenter: string }> {
     return this.request('contextMenuPresenter');
   }

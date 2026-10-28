@@ -1191,6 +1191,20 @@ async fn serve_commands(
                     json!({"opened": crate::desktop::gpui_menu::open_menu_bar_menu(cx, &title)})
                 })
             }
+            "clipboardText" => cx.update(|cx| {
+                json!({"text": cx.read_from_clipboard().and_then(|item| item.text())})
+            }),
+            "setClipboardText" => {
+                let text = params
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                    json!({"set": true})
+                })
+            }
             "contextMenuPresenter" => {
                 cx.update(|cx| json!({"presenter": crate::desktop::context_menu::presenter_name(cx)}))
             }

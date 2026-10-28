@@ -271,6 +271,12 @@ export default function CoreComponentsFixture() {
         >
           Shadow
         </Text>
+        <Text testID="select-text" selectable style={styles.selectSample}>
+          alpha beta gamma
+        </Text>
+        <Text testID="select-text-off" style={styles.selectSample}>
+          alpha beta gamma
+        </Text>
         <Text testID="fit-off" numberOfLines={1} style={styles.fitSample}>
           Long text that cannot fit
         </Text>
@@ -328,6 +334,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     alignSelf: 'flex-start',
   },
+  selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
   fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },
   fontSample: { fontSize: 16, color: '#111' },
   input: {

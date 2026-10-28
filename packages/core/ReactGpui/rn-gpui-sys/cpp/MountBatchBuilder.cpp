@@ -11,6 +11,7 @@
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
+#include <react/renderer/components/text/BaseParagraphProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/textinput/TextInputState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -306,6 +307,11 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
 
   const auto& attributes = data.paragraphAttributes;
   applyParagraphExtras(out, fragments, attributes);
+  if (const auto paragraphProps =
+          std::dynamic_pointer_cast<const BaseParagraphProps>(
+              shadowView.props)) {
+    out.selectable = paragraphProps->isSelectable;
+  }
   out.max_lines = attributes.maximumNumberOfLines;
   // EllipsizeMode is {Clip=0, Head=1, Tail=2, Middle=3} but the GPUI slot
   // encodes {0 tail, 1 head, 2 middle, 3 clip}.

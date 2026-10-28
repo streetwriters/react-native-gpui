@@ -18,6 +18,7 @@ pub mod share;
 pub mod shortcut_scope;
 pub mod shortcuts;
 pub mod switch;
+pub(crate) mod text_select;
 pub mod textinput;
 pub mod tray;
 pub mod window_control;

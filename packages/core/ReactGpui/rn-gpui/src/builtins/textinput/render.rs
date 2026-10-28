@@ -99,15 +99,38 @@ pub(crate) fn plain_paragraph(
     let top = insets.top * scale_y;
     let width = (frame.w * scale_x - left - insets.right * scale_x).max(0.0);
     let height = (frame.h * scale_y - top - insets.bottom * scale_y).max(0.0);
-    element.child(
-        div()
-            .absolute()
-            .left(px(left))
-            .top(px(top))
-            .w(px(width))
-            .h(px(height))
-            .child(crate::text::paragraph_element(paragraph, width, height)),
-    )
+    let highlights: Vec<_> =
+        if crate::builtins::text_select::is_selectable(node) && !node.text_selection.is_empty() {
+            let unscaled_width = (frame.w - insets.left - insets.right).max(0.0);
+            let mut unscaled = paragraph.clone();
+            for fragment in &mut unscaled.fragments {
+                fragment.font_size /= scale_y.max(0.0001);
+                fragment.line_height /= scale_y.max(0.0001);
+                fragment.letter_spacing /= scale_x.max(0.0001);
+            }
+            crate::text::text_range_rects(&unscaled, unscaled_width, node.text_selection.clone())
+        } else {
+            Vec::new()
+        };
+    element
+        .children(highlights.into_iter().map(|(x, y, w, h)| {
+            div()
+                .absolute()
+                .left(px(left + x * scale_x))
+                .top(px(top + y * scale_y))
+                .w(px(w * scale_x))
+                .h(px(h * scale_y))
+                .bg(gpui::rgba(0x3875d788))
+        }))
+        .child(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .w(px(width))
+                .h(px(height))
+                .child(crate::text::paragraph_element(paragraph, width, height)),
+        )
 }
 
 pub(crate) fn caret_canvas(
