@@ -23,6 +23,22 @@ fn clipboard_text(message: Option<&str>, url: Option<&str>) -> String {
     }
 }
 
+/// The window rectangle `(x, y, width, height)` of the node with this tag.
+#[cfg(target_os = "macos")]
+fn anchor_rect(cx: &gpui::App, tag: i32) -> Option<(f32, f32, f32, f32)> {
+    let store = crate::store::store_from(cx)?;
+    let entity = store.read(cx).nodes.get(&tag)?.clone();
+    let node = entity.read(cx);
+    let origin = node.absolute_origin(cx);
+    let (scale_x, scale_y) = node.cumulative_scale(cx);
+    Some((
+        f32::from(origin.x),
+        f32::from(origin.y),
+        node.frame.w * scale_x,
+        node.frame.h * scale_y,
+    ))
+}
+
 impl NativeGpuiShareSpec for ShareModule {
     const THREAD: ModuleThread = ModuleThread::Main;
 
@@ -35,6 +51,7 @@ impl NativeGpuiShareSpec for ShareModule {
         let sender = std::sync::Mutex::new(Some(sender));
         let message = items.message.clone();
         let url = items.url.clone();
+        let anchor_tag = items.anchor.map(|tag| tag as i32);
         let _ = on_main(move |cx| {
             let finish = move |activity: Option<String>| {
                 if let Some(sender) = sender.lock().expect("share sender poisoned").take() {
@@ -49,12 +66,14 @@ impl NativeGpuiShareSpec for ShareModule {
                     .try_global::<crate::store::StoreGlobal>()
                     .map(|store| store.0.clone())
                     .map(|store| store.read(cx).window);
+                let anchor = anchor_tag.and_then(|tag| anchor_rect(cx, tag));
                 let shown = window.and_then(|window| {
                     cx.update_window(window, |_root, window, _cx| {
                         mac::present(
                             window,
                             message.clone(),
                             url.clone(),
+                            anchor,
                             Box::new(finish.take().expect("finish taken once")),
                         );
                     })

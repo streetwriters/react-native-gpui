@@ -1279,7 +1279,11 @@ async fn serve_commands(
                 json!({"delivered": true})
             }
             #[cfg(target_os = "macos")]
-            "shareOpen" => json!({"open": crate::builtins::share::mac::is_open()}),
+            "shareOpen" => json!({
+                "open": crate::builtins::share::mac::is_open(),
+                "anchor": crate::builtins::share::mac::last_anchor()
+                    .map(|(x, y, w, h, flipped)| json!({"x": x, "y": y, "width": w, "height": h, "flipped": flipped})),
+            }),
             #[cfg(target_os = "macos")]
             "shareChoose" => {
                 let name = params.get("service").and_then(Value::as_str);

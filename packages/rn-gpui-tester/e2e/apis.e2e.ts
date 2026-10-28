@@ -359,6 +359,20 @@ describe.runIf(onMac)('Share', () => {
     expect(await app.shareOpen()).toBe(false);
   });
 
+  test('the share sheet opens relative to the anchor view', async () => {
+    await app.getByTestId('share-open-anchored').click();
+    await poll(() => app.shareOpen());
+    const anchor = await app.shareAnchor();
+    const [view] = await app.query('testID', 'share-anchor-view', true);
+    expect(anchor).not.toBeNull();
+    expect(anchor!.width).toBeCloseTo(view.frame.width, 0);
+    expect(anchor!.height).toBeCloseTo(view.frame.height, 0);
+    expect(anchor!.x).toBeCloseTo(view.frame.x, 0);
+    const top = anchor!.flipped ? anchor!.y : -1;
+    if (anchor!.flipped) expect(top).toBeCloseTo(view.frame.y, 0);
+    await app.shareChoose();
+  });
+
   test('a chosen service resolves sharedAction with its name', async () => {
     await app.getByTestId('share-open').click();
     await poll(() => app.shareOpen());

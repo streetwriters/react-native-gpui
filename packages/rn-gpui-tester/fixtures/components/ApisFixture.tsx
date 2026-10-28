@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   View,
+  findNodeHandle,
   useWindowDimensions,
 } from 'react-native';
 import {
@@ -22,6 +23,7 @@ import {
 } from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const anchorRef = useRef<React.ComponentRef<typeof View>>(null);
   const [appStates, setAppStates] = useState<string[]>([
     String(AppState.currentState),
   ]);
@@ -114,6 +116,29 @@ export default function ApisFixture() {
         >
           <Text>Share</Text>
         </Pressable>
+        <View
+          ref={anchorRef}
+          testID="share-anchor-view"
+          style={styles.shareAnchor}
+        >
+          <Pressable
+            testID="share-open-anchored"
+            onPress={() =>
+              Share.share(
+                { message: 'Anchored', url: 'https://example.com' },
+                { anchor: findNodeHandle(anchorRef.current) ?? undefined },
+              ).then(
+                result =>
+                  setShareResult(
+                    `${result.action}:${String(result.activityType)}`,
+                  ),
+                error => setShareResult(`error:${error.message}`),
+              )
+            }
+          >
+            <Text>Share anchored</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Linking</Text>
@@ -278,6 +303,12 @@ export default function ApisFixture() {
 }
 
 const styles = StyleSheet.create({
+  shareAnchor: {
+    width: 120,
+    height: 36,
+    backgroundColor: '#def',
+    justifyContent: 'center',
+  },
   content: {
     padding: 24,
     gap: 12,

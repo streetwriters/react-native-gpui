@@ -519,6 +519,26 @@ export class DesktopApp {
     return result.open;
   }
 
+  /** The view rectangle the share sheet was last shown relative to. */
+  async shareAnchor(): Promise<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    flipped: boolean;
+  } | null> {
+    const result = (await this.request('shareOpen')) as {
+      anchor: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        flipped: boolean;
+      } | null;
+    };
+    return result.anchor;
+  }
+
   /**
    * Makes the share picker report what the OS reports: the service chosen, by
    * its `NSSharingServiceName`, or a dismissal when `service` is omitted.

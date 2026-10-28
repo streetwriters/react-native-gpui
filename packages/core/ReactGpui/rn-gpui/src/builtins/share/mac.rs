@@ -66,7 +66,13 @@ extern "C" fn did_choose(this: &Object, _selector: Sel, _picker: id, service: id
 
 /// Opens the picker; `done` gets the chosen service's name, or `None` when it
 /// was dismissed.
-pub fn present(window: &gpui::Window, message: Option<String>, url: Option<String>, done: Done) {
+pub fn present(
+    window: &gpui::Window,
+    message: Option<String>,
+    url: Option<String>,
+    anchor: Option<(f32, f32, f32, f32)>,
+    done: Done,
+) {
     let Ok(native) = crate::desktop::platform_window::ns_window(window) else {
         done(None);
         return;
@@ -96,15 +102,54 @@ pub fn present(window: &gpui::Window, message: Option<String>, url: Option<Strin
         DELEGATE.with(|slot| *slot.borrow_mut() = Some(delegate));
         let view: id = msg_send![native, contentView];
         let bounds: NSRect = msg_send![view, bounds];
-        let anchor = NSRect::new(
-            NSPoint::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
-            NSSize::new(1.0, 1.0),
-        );
+        let flipped: bool = msg_send![view, isFlipped];
+        let anchor = match anchor {
+            Some((x, y, width, height)) => {
+                // The window's coordinates run down from the top; a view that
+                // is not flipped runs up from the bottom.
+                let y = if flipped {
+                    f64::from(y)
+                } else {
+                    bounds.size.height - f64::from(y) - f64::from(height)
+                };
+                NSRect::new(
+                    NSPoint::new(f64::from(x), y),
+                    NSSize::new(f64::from(width).max(1.0), f64::from(height).max(1.0)),
+                )
+            }
+            None => NSRect::new(
+                NSPoint::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
+                NSSize::new(1.0, 1.0),
+            ),
+        };
+        #[cfg(feature = "test-driver")]
+        LAST_ANCHOR.with(|last| {
+            *last.borrow_mut() = Some((
+                anchor.origin.x as f32,
+                anchor.origin.y as f32,
+                anchor.size.width as f32,
+                anchor.size.height as f32,
+                flipped,
+            ));
+        });
         OPEN.with(|open| *open.borrow_mut() = true);
         // NSMinYEdge: the menu opens below the anchor.
         let _: () =
             msg_send![picker, showRelativeToRect: anchor ofView: view preferredEdge: 1usize];
     }
+}
+
+#[cfg(feature = "test-driver")]
+thread_local! {
+    static LAST_ANCHOR: std::cell::RefCell<Option<(f32, f32, f32, f32, bool)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The view rectangle the picker was last shown relative to, and whether the
+/// view is flipped.
+#[cfg(feature = "test-driver")]
+pub fn last_anchor() -> Option<(f32, f32, f32, f32, bool)> {
+    LAST_ANCHOR.with(|last| *last.borrow())
 }
 
 /// Whether the picker is on screen.

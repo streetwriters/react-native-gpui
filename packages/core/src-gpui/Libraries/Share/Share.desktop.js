@@ -29,6 +29,7 @@ class Share {
         typeof content.message === 'string' ? content.message : undefined,
       url: typeof content.url === 'string' ? content.url : undefined,
       subject: options.subject,
+      anchor: typeof options.anchor === 'number' ? options.anchor : undefined,
     };
     return native.share(items).then(result => ({
       activityType: null,

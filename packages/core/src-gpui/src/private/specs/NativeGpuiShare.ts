@@ -5,6 +5,7 @@ export type ShareItems = {
   message?: string;
   url?: string;
   subject?: string;
+  anchor?: number;
 };
 
 export type ShareResult = {
