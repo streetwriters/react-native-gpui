@@ -55,6 +55,7 @@ struct ParagraphKey {
     max_lines: i32,
     text_align: u8,
     ellipsize: u8,
+    fit: Option<u32>,
 }
 
 impl ParagraphKey {
@@ -65,6 +66,9 @@ impl ParagraphKey {
             max_lines: paragraph.max_lines,
             text_align: resolve_alignment(paragraph.text_align),
             ellipsize: paragraph.ellipsize,
+            fit: paragraph
+                .adjusts_to_fit
+                .then_some(paragraph.min_font_scale.to_bits()),
         }
     }
 }
@@ -74,6 +78,7 @@ struct ShapedParagraph {
     line_heights: Vec<f32>,
     width: f32,
     height: f32,
+    visual_lines: usize,
     text_align: TextAlign,
 }
 
@@ -480,7 +485,41 @@ fn text_align(value: u8) -> TextAlign {
     }
 }
 
+/// `paragraph` with every font size and line height multiplied by `scale`.
+fn scaled(paragraph: &ParagraphFlat, scale: f32) -> ParagraphFlat {
+    let mut next = paragraph.clone();
+    for fragment in &mut next.fragments {
+        fragment.font_size = font_size_of(fragment.font_size) * scale;
+        fragment.line_height *= scale;
+    }
+    next
+}
+
 impl TextService {
+    /// The largest scale, down to the paragraph's minimum, at which the text
+    /// fits in `max_lines`; the paragraph at that scale, without the fit flag.
+    fn fit_paragraph(&self, paragraph: &ParagraphFlat, width: f32) -> ParagraphFlat {
+        let floor = if paragraph.min_font_scale > 0.0 {
+            paragraph.min_font_scale.min(1.0)
+        } else {
+            0.1
+        };
+        let mut probe = paragraph.clone();
+        probe.adjusts_to_fit = false;
+        probe.max_lines = 0;
+        let mut scale = 1.0f32;
+        loop {
+            let shaped = self.shape(&scaled(&probe, scale), width);
+            if shaped.visual_lines <= paragraph.max_lines as usize || scale <= floor {
+                break;
+            }
+            scale = (scale * 0.95).max(floor);
+        }
+        let mut fitted = scaled(paragraph, scale);
+        fitted.adjusts_to_fit = false;
+        fitted
+    }
+
     fn shape(&self, paragraph: &ParagraphFlat, width: f32) -> Arc<ShapedParagraph> {
         let width = if width.is_finite() && width > 0.0 {
             width
@@ -495,6 +534,16 @@ impl TextService {
             .get(&key)
             .cloned()
         {
+            return shaped;
+        }
+
+        if paragraph.adjusts_to_fit && paragraph.max_lines > 0 && width < f32::MAX {
+            let fitted = self.fit_paragraph(paragraph, width);
+            let shaped = self.shape(&fitted, width);
+            self.cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(key, shaped.clone());
             return shaped;
         }
 
@@ -565,11 +614,16 @@ impl TextService {
             line_heights.push(line_height);
         }
 
+        let visual_lines = lines
+            .iter()
+            .map(|line| line.wrap_boundaries.len() + 1)
+            .sum();
         let shaped = Arc::new(ShapedParagraph {
             lines,
             line_heights,
             width: measured_width.min(width),
             height: measured_height,
+            visual_lines,
             text_align: text_align(resolve_alignment(paragraph.text_align)),
         });
         let mut cache = self
@@ -607,6 +661,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
             Arc::new(ShapedParagraph {
                 lines: Vec::new(),
                 line_heights: Vec::new(),
+                visual_lines: 0,
                 width,
                 height,
                 text_align: text_align(resolve_alignment(paragraph.text_align)),
@@ -622,32 +677,85 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         height,
         shaped.lines.len()
     );
+    let shadow = (paragraph.shadow_color >> 24 != 0).then(|| {
+        let mut flat = paragraph.clone();
+        let alpha = (paragraph.shadow_color >> 24) as f32 / 255.0;
+        let rgb = paragraph.shadow_color & 0x00FF_FFFF;
+        let samples: &[(f32, f32)] = if paragraph.shadow_radius > 0.0 {
+            &[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (-1.0, 0.0),
+                (0.0, 1.0),
+                (0.0, -1.0),
+                (0.7, 0.7),
+                (-0.7, 0.7),
+                (0.7, -0.7),
+                (-0.7, -0.7),
+            ]
+        } else {
+            &[(0.0, 0.0)]
+        };
+        let sample_alpha = (alpha * if samples.len() > 1 { 0.3 } else { 1.0 }).min(1.0);
+        let color = (((sample_alpha * 255.0) as u32) << 24) | rgb;
+        for fragment in &mut flat.fragments {
+            fragment.color = color;
+        }
+        let shaped = TEXT_SERVICE
+            .get()
+            .map(|service| service.shape(&flat, width));
+        (
+            shaped,
+            samples.to_vec(),
+            paragraph.shadow_radius * 0.5,
+            (paragraph.shadow_dx, paragraph.shadow_dy),
+        )
+    });
     canvas(
         |_, _, _| (),
         move |bounds, (), window, cx| {
-            let mut y = bounds.origin.y;
             window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
-                for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
-                    if line
-                        .paint(
-                            point(bounds.origin.x, y),
-                            px(*line_height),
-                            align,
-                            Some(bounds),
-                            window,
-                            cx,
-                        )
-                        .is_err()
-                    {
-                        log::error!("failed to paint a shaped React Native text line");
+                if let Some((Some(shadow_shaped), samples, spread, (dx, dy))) = shadow.as_ref() {
+                    for (sx, sy) in samples {
+                        let origin = point(
+                            bounds.origin.x + px(dx + sx * spread),
+                            bounds.origin.y + px(dy + sy * spread),
+                        );
+                        paint_lines(shadow_shaped, origin, bounds, window, cx);
                     }
-                    y += px(*line_height * (line.wrap_boundaries.len() + 1) as f32);
                 }
+                paint_lines(&shaped, bounds.origin, bounds, window, cx);
             });
         },
     )
     .w(px(width.max(0.0)))
     .h(px(height.max(0.0)))
+}
+
+fn paint_lines(
+    shaped: &ShapedParagraph,
+    origin: gpui::Point<gpui::Pixels>,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    window: &mut gpui::Window,
+    cx: &mut App,
+) {
+    let mut y = origin.y;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        if line
+            .paint(
+                point(origin.x, y),
+                px(*line_height),
+                shaped.text_align,
+                Some(bounds),
+                window,
+                cx,
+            )
+            .is_err()
+        {
+            log::error!("failed to paint a shaped React Native text line");
+        }
+        y += px(*line_height * (line.wrap_boundaries.len() + 1) as f32);
+    }
 }
 
 #[cfg(test)]

@@ -289,6 +289,59 @@ describe('TextInput props', () => {
   });
 });
 
+describe('Text', () => {
+  function pixels(
+    image: PNG,
+    match: (r: number, g: number, b: number) => boolean,
+  ) {
+    let count = 0;
+    let top = image.height;
+    let bottom = -1;
+    for (let y = 0; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const index = (y * image.width + x) * 4;
+        if (
+          match(image.data[index], image.data[index + 1], image.data[index + 2])
+        ) {
+          count += 1;
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+    return { count, extent: bottom - top };
+  }
+
+  test('textShadow* paints a shadow behind the text', async () => {
+    const red = (r: number, g: number, b: number) =>
+      r > 200 && g < 90 && b < 90;
+    const plain = pixels(
+      PNG.sync.read(await app.getByTestId('shadow-plain').screenshot()),
+      red,
+    );
+    const shadow = pixels(
+      PNG.sync.read(await app.getByTestId('shadow-hard').screenshot()),
+      red,
+    );
+    expect(plain.count).toBe(0);
+    expect(shadow.count).toBeGreaterThan(50);
+  });
+
+  test('adjustsFontSizeToFit shrinks text that would not fit on its lines', async () => {
+    const dark = (r: number, g: number, b: number) =>
+      r < 90 && g < 90 && b < 90;
+    const off = pixels(
+      PNG.sync.read(await app.getByTestId('fit-off').screenshot()),
+      dark,
+    );
+    const on = pixels(
+      PNG.sync.read(await app.getByTestId('fit-on').screenshot()),
+      dark,
+    );
+    expect(on.extent).toBeLessThan(off.extent * 0.9);
+  });
+});
+
 describe('Pressable', () => {
   test('hover calls onHoverIn and onHoverOut, after delayHoverIn when set', async () => {
     await app.getByTestId('hover-target').hover();

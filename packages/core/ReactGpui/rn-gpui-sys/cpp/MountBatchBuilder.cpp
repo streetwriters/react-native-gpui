@@ -37,6 +37,30 @@ uint32_t argb(const SharedColor& color) {
       (to8(components.green) << 8) | to8(components.blue);
 }
 
+// Shadow and fit settings: the shadow is the first fragment's, as alignment is.
+static void applyParagraphExtras(
+    ParagraphFlat& out,
+    const AttributedString::Fragments& fragments,
+    const ParagraphAttributes& attributes) {
+  out.adjusts_to_fit = attributes.adjustsFontSizeToFit;
+  out.min_font_scale = std::isnan(attributes.minimumFontScale)
+      ? 0.f
+      : attributes.minimumFontScale;
+  if (fragments.empty()) {
+    return;
+  }
+  const auto& first = fragments.front().textAttributes;
+  if (first.textShadowColor) {
+    out.shadow_color = argb(first.textShadowColor);
+    if (first.textShadowOffset) {
+      out.shadow_dx = first.textShadowOffset->width;
+      out.shadow_dy = first.textShadowOffset->height;
+    }
+    out.shadow_radius =
+        std::isnan(first.textShadowRadius) ? 0.f : first.textShadowRadius;
+  }
+}
+
 TextFragmentFlat flattenTextFragment(
     const TextAttributes& attributes,
     const std::string& text) {
@@ -281,6 +305,7 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   }
 
   const auto& attributes = data.paragraphAttributes;
+  applyParagraphExtras(out, fragments, attributes);
   out.max_lines = attributes.maximumNumberOfLines;
   // EllipsizeMode is {Clip=0, Head=1, Tail=2, Middle=3} but the GPUI slot
   // encodes {0 tail, 1 head, 2 middle, 3 clip}.
@@ -429,6 +454,7 @@ GpuiTextSize measureParagraphThroughRust(
     paragraph.text_align =
         static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
   }
+  applyParagraphExtras(paragraph, fragments, attributes);
   paragraph.max_lines = attributes.maximumNumberOfLines;
   switch (attributes.ellipsizeMode) {
     case EllipsizeMode::Clip:

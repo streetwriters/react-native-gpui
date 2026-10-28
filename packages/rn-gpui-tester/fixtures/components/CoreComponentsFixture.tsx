@@ -253,6 +253,37 @@ export default function CoreComponentsFixture() {
           style={styles.input}
         />
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Text</Text>
+        <Text testID="shadow-plain" style={styles.shadowSample}>
+          Shadow
+        </Text>
+        <Text
+          testID="shadow-hard"
+          style={[
+            styles.shadowSample,
+            {
+              textShadowColor: '#ff0000',
+              textShadowOffset: { width: 6, height: 6 },
+              textShadowRadius: 0,
+            },
+          ]}
+        >
+          Shadow
+        </Text>
+        <Text testID="fit-off" numberOfLines={1} style={styles.fitSample}>
+          Long text that cannot fit
+        </Text>
+        <Text
+          testID="fit-on"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.3}
+          style={styles.fitSample}
+        >
+          Long text that cannot fit
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -290,6 +321,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000066',
   },
   modalBody: { fontSize: 20, color: '#fff', padding: 8 },
+  shadowSample: {
+    fontSize: 28,
+    color: '#000',
+    paddingRight: 12,
+    paddingBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },
   fontSample: { fontSize: 16, color: '#111' },
   input: {
     height: 32,

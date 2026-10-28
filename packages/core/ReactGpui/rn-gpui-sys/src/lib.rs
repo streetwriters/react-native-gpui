@@ -128,6 +128,12 @@ pub mod ffi {
         pub max_lines: i32, // 0 = unlimited
         pub text_align: u8, // 0 natural, 1 left, 2 center, 3 right, 4 justify, 5 start, 6 end
         pub ellipsize: u8,  // 0 tail, 1 head, 2 middle, 3 clip
+        pub adjusts_to_fit: bool,
+        pub min_font_scale: f32, // 0 = no lower bound
+        pub shadow_color: u32,   // ARGB, 0 = none
+        pub shadow_dx: f32,
+        pub shadow_dy: f32,
+        pub shadow_radius: f32,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
