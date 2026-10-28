@@ -31,6 +31,13 @@ export default function ApisFixture() {
     );
     return () => subscription.remove();
   }, []);
+  const [memoryWarnings, setMemoryWarnings] = useState(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('memoryWarning', () =>
+      setMemoryWarnings(count => count + 1),
+    );
+    return () => subscription.remove();
+  }, []);
   const [alertResult, setAlertResult] = useState('none');
   const [linkResult, setLinkResult] = useState('none');
   const [shareResult, setShareResult] = useState('none');
@@ -228,6 +235,7 @@ export default function ApisFixture() {
         <Text style={styles.heading}>AppState</Text>
         <Text testID="appstate-current">{String(AppState.currentState)}</Text>
         <Text testID="appstate-log">{appStates.join(',')}</Text>
+        <Text testID="appstate-memory">{String(memoryWarnings)}</Text>
         <Pressable
           testID="appstate-hide"
           onPress={() => {

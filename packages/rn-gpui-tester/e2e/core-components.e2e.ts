@@ -92,8 +92,12 @@ describe('Switch', () => {
     expect(node.frame.width).toBeGreaterThan(30);
     expect(node.frame.height).toBeGreaterThan(15);
     expect(await text('switch-value')).toBe('false');
+    const checked = async () =>
+      (await app.query('testID', 'switch-controlled', true))[0].state.checked;
+    expect(await checked()).toBe(false);
     await app.getByTestId('switch-controlled').click();
     await poll(async () => (await text('switch-value')) === 'true');
+    await poll(async () => (await checked()) === true);
     expect(await text('switch-changes')).toBe('1');
     await app.getByTestId('switch-controlled').click();
     await poll(async () => (await text('switch-value')) === 'false');

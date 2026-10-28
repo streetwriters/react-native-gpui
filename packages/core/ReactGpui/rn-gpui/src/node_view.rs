@@ -944,8 +944,23 @@ impl RNNodeView {
             );
             view.sync_input_paragraph();
         }
+        view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
         view
+    }
+
+    /// A switch reports whether it is on, which RN's `Switch` does not put in
+    /// `accessibilityState` on iOS and so on desktop.
+    fn apply_switch_state(&mut self) {
+        if self.component != "Switch" {
+            return;
+        }
+        let on = self
+            .extension_props
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        self.view.accessibility_checked = if on { 2 } else { 1 };
     }
 
     pub fn update_from_op(&mut self, op: &MountOp) {
@@ -1028,6 +1043,7 @@ impl RNNodeView {
                 &self.extension_props_json,
             ));
         }
+        self.apply_switch_state();
     }
 
     /// Creates the host component an op names by registry index, if it names

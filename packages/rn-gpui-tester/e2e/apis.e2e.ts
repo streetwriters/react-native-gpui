@@ -128,6 +128,16 @@ test('AppState ignores focus moving between app windows', async () => {
   expect(await text('appstate-log')).toBe('active');
 });
 
+// `memory_pressure -S` needs root, so this runs where the suite does.
+test.skipIf(process.platform !== 'darwin' || process.getuid?.() !== 0)(
+  'AppState reports memoryWarning when the system is under pressure',
+  async () => {
+    await launch({ offscreen: false });
+    execFileSync('memory_pressure', ['-S', '-l', 'warn', '-s', '2']);
+    await poll(async () => Number(await text('appstate-memory')) > 0);
+  },
+);
+
 test('AppState is background while no window is visible', async () => {
   await launch({ offscreen: false });
   await app.focusWindow();
