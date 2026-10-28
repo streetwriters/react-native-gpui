@@ -429,6 +429,37 @@ describe('Text', () => {
     );
   });
 
+  test('backgroundImage draws linear and radial gradients', async () => {
+    const at = (image: PNG, x: number, y: number) => {
+      const index = (y * image.width + x) * 4;
+      return [image.data[index], image.data[index + 1], image.data[index + 2]];
+    };
+    const linear = PNG.sync.read(
+      await app.getByTestId('gradient-linear').screenshot(),
+    );
+    const y = linear.height >> 1;
+    const left = at(linear, 3, y);
+    const right = at(linear, linear.width - 4, y);
+    expect(left[0]).toBeGreaterThan(200);
+    expect(left[2]).toBeLessThan(60);
+    expect(right[2]).toBeGreaterThan(200);
+    expect(right[0]).toBeLessThan(60);
+
+    const multi = PNG.sync.read(
+      await app.getByTestId('gradient-multi').screenshot(),
+    );
+    const middle = at(multi, multi.width >> 1, multi.height >> 1);
+    expect(middle[1]).toBeGreaterThan(200);
+
+    const radial = PNG.sync.read(
+      await app.getByTestId('gradient-radial').screenshot(),
+    );
+    const centre = at(radial, radial.width >> 1, radial.height >> 1);
+    const edge = at(radial, radial.width - 3, radial.height >> 1);
+    expect(centre[0]).toBeGreaterThan(200);
+    expect(edge[2]).toBeGreaterThan(200);
+  });
+
   test('adjustsFontSizeToFit shrinks text that would not fit on its lines', async () => {
     const dark = (r: number, g: number, b: number) =>
       r < 90 && g < 90 && b < 90;

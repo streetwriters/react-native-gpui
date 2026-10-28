@@ -6,6 +6,7 @@ pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
 pub(crate) mod frame;
+pub(crate) mod gradient;
 pub(crate) mod host;
 pub mod host_component;
 pub(crate) mod image_loader;

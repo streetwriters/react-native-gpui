@@ -62,6 +62,142 @@ static void applyParagraphExtras(
   }
 }
 
+static folly::dynamic unitJson(const ValueUnit& unit) {
+  switch (unit.unit) {
+    case UnitType::Point:
+      return folly::dynamic::object("unit", "pt")("value", unit.value);
+    case UnitType::Percent:
+      return folly::dynamic::object("unit", "pct")("value", unit.value);
+    default:
+      return folly::dynamic::object("unit", "none")("value", 0);
+  }
+}
+
+static folly::dynamic stopsJson(const std::vector<ColorStop>& stops) {
+  folly::dynamic array = folly::dynamic::array;
+  for (const auto& stop : stops) {
+    array.push_back(folly::dynamic::object("color", argb(stop.color))(
+        "position", unitJson(stop.position)));
+  }
+  return array;
+}
+
+static folly::dynamic optionalUnitJson(const std::optional<ValueUnit>& unit) {
+  return unit ? unitJson(*unit) : folly::dynamic(nullptr);
+}
+
+// The gradients, their size, position and repeat, as JSON the renderer reads.
+static std::string backgroundJson(const BaseViewProps& props) {
+  if (props.backgroundImage.empty()) {
+    return {};
+  }
+  folly::dynamic layers = folly::dynamic::array;
+  for (const auto& image : props.backgroundImage) {
+    if (const auto* linear = std::get_if<LinearGradient>(&image)) {
+      folly::dynamic layer = folly::dynamic::object("kind", "linear");
+      if (const auto* angle = std::get_if<Float>(&linear->direction)) {
+        layer["angle"] = *angle;
+      } else if (
+          const auto* keyword =
+              std::get_if<GradientKeyword>(&linear->direction)) {
+        switch (*keyword) {
+          case GradientKeyword::ToTopRight:
+            layer["keyword"] = "top-right";
+            break;
+          case GradientKeyword::ToBottomRight:
+            layer["keyword"] = "bottom-right";
+            break;
+          case GradientKeyword::ToTopLeft:
+            layer["keyword"] = "top-left";
+            break;
+          case GradientKeyword::ToBottomLeft:
+            layer["keyword"] = "bottom-left";
+            break;
+        }
+      }
+      layer["stops"] = stopsJson(linear->colorStops);
+      layers.push_back(std::move(layer));
+    } else if (const auto* radial = std::get_if<RadialGradient>(&image)) {
+      folly::dynamic layer = folly::dynamic::object("kind", "radial");
+      layer["shape"] =
+          radial->shape == RadialGradientShape::Circle ? "circle" : "ellipse";
+      if (const auto* keyword = std::get_if<RadialGradientSize::SizeKeyword>(
+              &radial->size.value)) {
+        switch (*keyword) {
+          case RadialGradientSize::SizeKeyword::ClosestSide:
+            layer["size"] = "closest-side";
+            break;
+          case RadialGradientSize::SizeKeyword::FarthestSide:
+            layer["size"] = "farthest-side";
+            break;
+          case RadialGradientSize::SizeKeyword::ClosestCorner:
+            layer["size"] = "closest-corner";
+            break;
+          case RadialGradientSize::SizeKeyword::FarthestCorner:
+            layer["size"] = "farthest-corner";
+            break;
+        }
+      } else if (
+          const auto* dimensions = std::get_if<RadialGradientSize::Dimensions>(
+              &radial->size.value)) {
+        layer["size"] = folly::dynamic::object("x", unitJson(dimensions->x))(
+            "y", unitJson(dimensions->y));
+      }
+      layer["position"] =
+          folly::dynamic::object("top", optionalUnitJson(radial->position.top))(
+              "left", optionalUnitJson(radial->position.left))(
+              "right", optionalUnitJson(radial->position.right))(
+              "bottom", optionalUnitJson(radial->position.bottom));
+      layer["stops"] = stopsJson(radial->colorStops);
+      layers.push_back(std::move(layer));
+    }
+  }
+  folly::dynamic sizes = folly::dynamic::array;
+  for (const auto& size : props.backgroundSize) {
+    if (const auto* keyword = std::get_if<BackgroundSizeKeyword>(&size)) {
+      sizes.push_back(
+          *keyword == BackgroundSizeKeyword::Cover ? "cover" : "contain");
+    } else if (
+        const auto* lengths =
+            std::get_if<BackgroundSizeLengthPercentage>(&size)) {
+      sizes.push_back(folly::dynamic::object(
+          "x",
+          lengths->isXAuto() ? folly::dynamic(nullptr)
+                             : unitJson(std::get<ValueUnit>(lengths->x)))(
+          "y",
+          lengths->isYAuto() ? folly::dynamic(nullptr)
+                             : unitJson(std::get<ValueUnit>(lengths->y))));
+    }
+  }
+  folly::dynamic positions = folly::dynamic::array;
+  for (const auto& position : props.backgroundPosition) {
+    positions.push_back(
+        folly::dynamic::object("top", optionalUnitJson(position.top))(
+            "left", optionalUnitJson(position.left))(
+            "right", optionalUnitJson(position.right))(
+            "bottom", optionalUnitJson(position.bottom)));
+  }
+  auto repeatName = [](BackgroundRepeatStyle style) {
+    switch (style) {
+      case BackgroundRepeatStyle::Space:
+        return "space";
+      case BackgroundRepeatStyle::Round:
+        return "round";
+      case BackgroundRepeatStyle::NoRepeat:
+        return "no-repeat";
+      default:
+        return "repeat";
+    }
+  };
+  folly::dynamic repeats = folly::dynamic::array;
+  for (const auto& repeat : props.backgroundRepeat) {
+    repeats.push_back(folly::dynamic::object("x", repeatName(repeat.x))(
+        "y", repeatName(repeat.y)));
+  }
+  return folly::toJson(folly::dynamic::object("layers", layers)("sizes", sizes)(
+      "positions", positions)("repeats", repeats));
+}
+
 TextFragmentFlat flattenTextFragment(
     const TextAttributes& attributes,
     const std::string& text) {
@@ -142,6 +278,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
 
   out.opacity = props->opacity;
   out.background_color = argb(props->backgroundColor);
+  out.background_json = backgroundJson(*props);
 
   // layoutMetrics.borderWidth is already fully resolved per edge; the cascaded
   // props->getBorderWidths() would need the same resolve() dance as the colors.

@@ -66,7 +66,8 @@ pub mod ffi {
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
         pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto
         pub shadows: Vec<ShadowF>,
-        pub transform: [f32; 16], // column-major 4x4, resolved with layout
+        pub background_json: String, // gradients with their size, position and repeat; empty = none
+        pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
         pub test_id: String,
         pub accessibility_label: String,

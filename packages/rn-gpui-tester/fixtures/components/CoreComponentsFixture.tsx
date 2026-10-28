@@ -364,6 +364,34 @@ export default function CoreComponentsFixture() {
             }}
           />
         </View>
+        <View
+          testID="gradient-linear"
+          style={{
+            width: 100,
+            height: 30,
+            borderRadius: 8,
+            experimental_backgroundImage:
+              'linear-gradient(to right, #ff0000, #0000ff)',
+          }}
+        />
+        <View
+          testID="gradient-multi"
+          style={{
+            width: 100,
+            height: 30,
+            experimental_backgroundImage:
+              'linear-gradient(90deg, #ff0000 0%, #00ff00 50%, #0000ff 100%)',
+          }}
+        />
+        <View
+          testID="gradient-radial"
+          style={{
+            width: 60,
+            height: 60,
+            experimental_backgroundImage:
+              'radial-gradient(circle closest-side at center, #ff0000, #0000ff)',
+          }}
+        />
         <Text testID="fit-off" numberOfLines={1} style={styles.fitSample}>
           Long text that cannot fit
         </Text>

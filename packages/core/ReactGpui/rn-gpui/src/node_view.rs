@@ -95,6 +95,7 @@ pub struct RNNodeView {
     pub view: ViewPropsFlat,
     animated_transform: Option<[f32; 16]>,
     animated_background_color: Option<u32>,
+    gradient_cache: Option<GradientCache>,
     animated_text_color: Option<u32>,
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
@@ -872,6 +873,7 @@ impl RNNodeView {
             view: op.view.clone(),
             animated_transform: None,
             animated_background_color: None,
+            gradient_cache: None,
             animated_text_color: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
@@ -947,6 +949,62 @@ impl RNNodeView {
         view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
         view
+    }
+
+    /// The gradients of `backgroundImage`, painted in the node's box.
+    fn gradient_element(&mut self, frame: RectF, scale: (f32, f32)) -> Option<AnyElement> {
+        let json = &self.view.background_json;
+        if json.is_empty() {
+            self.gradient_cache = None;
+            return None;
+        }
+        let size = (
+            (frame.w * 10.0).round() as u32,
+            (frame.h * 10.0).round() as u32,
+        );
+        let stale = self
+            .gradient_cache
+            .as_ref()
+            .is_none_or(|cache| cache.json != *json || cache.size != size);
+        if stale {
+            let image = crate::gradient::Background::parse(json).map(|background| {
+                let (width, height, mut bytes) =
+                    background.render(frame.w, frame.h, GRADIENT_RASTER_LIMIT);
+                for pixel in bytes.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                let buffer = image::RgbaImage::from_raw(width, height, bytes);
+                buffer.map(|buffer| {
+                    std::sync::Arc::new(gpui::RenderImage::new(vec![image::Frame::new(buffer)]))
+                })
+            });
+            self.gradient_cache = Some(GradientCache {
+                json: json.clone(),
+                size,
+                image: image.flatten(),
+            });
+        }
+        let image = self.gradient_cache.as_ref()?.image.clone()?;
+        let radii = self.view.border_radii;
+        let corners = gpui::Corners {
+            top_left: px(radii.tl * scale.0),
+            top_right: px(radii.tr * scale.0),
+            bottom_right: px(radii.br * scale.0),
+            bottom_left: px(radii.bl * scale.0),
+        };
+        Some(
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, (), window, _cx| {
+                    let _ = window.paint_image(bounds, bounds, corners, image.clone(), 0, false);
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .into_any_element(),
+        )
     }
 
     /// A switch reports whether it is on, which RN's `Switch` does not put in
@@ -3763,6 +3821,9 @@ impl Render for RNNodeView {
                 surface: native_view_host.clone(),
             });
         }
+        if let Some(gradient) = self.gradient_element(frame, (scale_x, scale_y)) {
+            element = element.child(gradient);
+        }
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
             scaled_paragraph.shadow_dx *= scale_x;
@@ -4686,6 +4747,17 @@ impl RNNodeView {
         self.parent_tag_cache.get()
     }
 }
+
+/// The `backgroundImage` of a node, drawn for one box size.
+struct GradientCache {
+    json: String,
+    size: (u32, u32),
+    image: Option<std::sync::Arc<gpui::RenderImage>>,
+}
+
+/// The longest side, in pixels, a gradient is drawn at before the renderer
+/// scales it up to the box.
+const GRADIENT_RASTER_LIMIT: u32 = 512;
 
 /// What the pointer is doing to a scroll view, so drag and momentum can be
 /// reported. A trackpad sends `Started`, `Moved` and `Ended` while the fingers
