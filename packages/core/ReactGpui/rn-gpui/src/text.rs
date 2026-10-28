@@ -8,7 +8,7 @@ use gpui::{
     canvas, font, point, prelude::*, px, App, ContentMask, Font, FontStyle, FontWeight,
     IntoElement, SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, WrappedLine,
 };
-use rn_gpui_sys::ffi::{MeasureResult, ParagraphFlat, TextFragmentFlat};
+use rn_gpui_sys::ffi::{LineFlat, MeasureResult, ParagraphFlat, TextFragmentFlat};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -699,6 +699,10 @@ pub fn install_measure_handler(cx: &mut App) {
         cache: Mutex::new(HashMap::new()),
     });
     let _ = TEXT_SERVICE.set(service.clone());
+    let lines_service = service.clone();
+    let _ = rn_gpui_sys::LINES_HANDLER.set(Box::new(move |paragraph, width| {
+        measure_lines(&lines_service, paragraph, width)
+    }));
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
         MeasureResult {
@@ -706,6 +710,51 @@ pub fn install_measure_handler(cx: &mut App) {
             height: shaped.height.ceil(),
         }
     }));
+}
+
+/// Every laid-out row of the paragraph, as `onTextLayout` reports them.
+fn measure_lines(service: &TextService, paragraph: &ParagraphFlat, width: f32) -> Vec<LineFlat> {
+    let shaped = service.shape(paragraph, width);
+    let mut rows = Vec::with_capacity(shaped.visual_lines);
+    let mut top = 0.0f32;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let lh = px(*line_height);
+        let count = line.wrap_boundaries.len() + 1;
+        let starts: Vec<usize> = (0..count)
+            .map(|row| {
+                if row == 0 {
+                    return 0;
+                }
+                let probe = point(px(0.0), lh * row as f32 + lh * 0.5);
+                line.closest_index_for_position(probe, lh)
+                    .unwrap_or_else(|nearest| nearest)
+                    .min(line.len())
+            })
+            .collect();
+        for (row, start) in starts.iter().enumerate() {
+            let end = starts.get(row + 1).copied().unwrap_or_else(|| line.len());
+            let from = f32::from(line.position_for_index(*start, lh).unwrap_or_default().x);
+            let to = f32::from(line.position_for_index(end, lh).unwrap_or_default().x);
+            let ascent = f32::from(line.ascent());
+            rows.push(LineFlat {
+                text: line.text.get(*start..end).unwrap_or_default().to_string(),
+                x: from,
+                y: top + row as f32 * line_height,
+                width: if row + 1 == count {
+                    f32::from(line.width()) - from
+                } else {
+                    (to - from).max(0.0)
+                },
+                height: *line_height,
+                ascender: ascent,
+                descender: f32::from(line.descent()),
+                cap_height: ascent * 0.7,
+                x_height: ascent * 0.5,
+            });
+        }
+        top += line_height * count as f32;
+    }
+    rows
 }
 
 pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> impl IntoElement {

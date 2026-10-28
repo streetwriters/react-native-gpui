@@ -601,11 +601,9 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
 }
 
 namespace {
-GpuiTextSize measureParagraphThroughRust(
+ParagraphFlat paragraphForMeasure(
     const AttributedString& text,
-    const ParagraphAttributes& attributes,
-    float maxWidth,
-    float maxHeight) {
+    const ParagraphAttributes& attributes) {
   ParagraphFlat paragraph = flattenInputText(text);
 
   // Alignment lives on TextAttributes, not on ParagraphAttributes; the
@@ -632,13 +630,44 @@ GpuiTextSize measureParagraphThroughRust(
       break;
   }
 
-  const auto result = rn_gpui_measure_text(paragraph, maxWidth, maxHeight);
+  return paragraph;
+}
+
+GpuiTextSize measureParagraphThroughRust(
+    const AttributedString& text,
+    const ParagraphAttributes& attributes,
+    float maxWidth,
+    float maxHeight) {
+  const auto result = rn_gpui_measure_text(
+      paragraphForMeasure(text, attributes), maxWidth, maxHeight);
   return GpuiTextSize{.width = result.width, .height = result.height};
+}
+
+std::vector<GpuiTextLine> measureLinesThroughRust(
+    const AttributedString& text,
+    const ParagraphAttributes& attributes,
+    float maxWidth) {
+  std::vector<GpuiTextLine> lines;
+  for (const auto& line :
+       rn_gpui_measure_lines(paragraphForMeasure(text, attributes), maxWidth)) {
+    lines.push_back(GpuiTextLine{
+        .text = std::string(line.text),
+        .x = line.x,
+        .y = line.y,
+        .width = line.width,
+        .height = line.height,
+        .ascender = line.ascender,
+        .descender = line.descender,
+        .capHeight = line.cap_height,
+        .xHeight = line.x_height});
+  }
+  return lines;
 }
 } // namespace
 
 void installGpuiTextMeasureTable() {
-  setGpuiTextMeasureTable(
-      GpuiTextMeasureTable{.measureParagraph = &measureParagraphThroughRust});
+  setGpuiTextMeasureTable(GpuiTextMeasureTable{
+      .measureLines = &measureLinesThroughRust,
+      .measureParagraph = &measureParagraphThroughRust});
 }
 } // namespace rngpui

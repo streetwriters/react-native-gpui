@@ -32,6 +32,7 @@ export default function CoreComponentsFixture() {
   const [modalRequests, setModalRequests] = useState(0);
   const [hoverLog, setHoverLog] = useState('');
   const [keyPresses, setKeyPresses] = useState(0);
+  const [textLayout, setTextLayout] = useState('none');
   const [imageSize, setImageSize] = useState('none');
   const [imagePrefetch, setImagePrefetch] = useState('none');
   const [showImages, setShowImages] = useState(false);
@@ -436,6 +437,19 @@ export default function CoreComponentsFixture() {
         >
           alpha beta gamma
         </Text>
+        <Text
+          testID="text-layout"
+          style={styles.layoutSample}
+          onTextLayout={event => {
+            const { lines } = event.nativeEvent;
+            setTextLayout(
+              `${lines.length}:${lines.map(line => line.text.trim()).join('|')}`,
+            );
+          }}
+        >
+          one two three four five six seven eight
+        </Text>
+        <Text testID="text-layout-log">{textLayout}</Text>
         <Text testID="select-text-off" style={styles.selectSample}>
           alpha beta gamma
         </Text>
@@ -583,6 +597,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
+  layoutSample: { fontSize: 20, color: '#000', width: 140 },
   imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
   pager: {
     height: 100,

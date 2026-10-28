@@ -249,6 +249,20 @@ pub mod ffi {
         pub height: f32,
     }
 
+    /// One laid-out row of a paragraph, for `onTextLayout`.
+    #[derive(Default)]
+    pub struct LineFlat {
+        pub text: String,
+        pub x: f32,
+        pub y: f32,
+        pub width: f32,
+        pub height: f32,
+        pub ascender: f32,
+        pub descender: f32,
+        pub cap_height: f32,
+        pub x_height: f32,
+    }
+
     extern "Rust" {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
@@ -291,6 +305,8 @@ pub mod ffi {
             max_width: f32,
             max_height: f32,
         ) -> MeasureResult;
+        /// Called on the JS/Fabric thread when a paragraph asks for `onTextLayout`.
+        fn rn_gpui_measure_lines(p: &ParagraphFlat, max_width: f32) -> Vec<LineFlat>;
         fn rn_gpui_log(level: i32, message: &str);
         fn rn_gpui_on_surface_stopped(surface_id: i32);
     }
@@ -558,8 +574,8 @@ pub use rust_module::{
 use std::sync::OnceLock;
 
 pub use ffi::{
-    CornersF, EdgesF, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat, RectF, ShadowF,
-    TextFragmentFlat, ViewPropsFlat,
+    CornersF, EdgesF, LineFlat, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat,
+    RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
 };
 
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
@@ -578,6 +594,9 @@ pub type BuiltinCommandHandler = Box<dyn Fn(i32, &str, &str, &str) + Send + Sync
 pub type HostCommandHandler = Box<dyn Fn(i32, u32, Vec<ffi::HostCommandArg>) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
+pub type LinesHandler = Box<dyn Fn(&ffi::ParagraphFlat, f32) -> Vec<ffi::LineFlat> + Send + Sync>;
+
+pub static LINES_HANDLER: OnceLock<LinesHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
 pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::new();
@@ -790,6 +809,13 @@ fn rn_gpui_measure_text(
     match MEASURE_HANDLER.get() {
         Some(handler) => handler(p, max_width, max_height),
         None => ffi::MeasureResult::default(),
+    }
+}
+
+fn rn_gpui_measure_lines(p: &ffi::ParagraphFlat, max_width: f32) -> Vec<ffi::LineFlat> {
+    match LINES_HANDLER.get() {
+        Some(handler) => handler(p, max_width),
+        None => Vec::new(),
     }
 }
 

@@ -410,6 +410,16 @@ describe('Text', () => {
     await poll(async () => (await app.clipboardText()) === 'beta');
   });
 
+  test('onTextLayout reports each wrapped line with its text', async () => {
+    await reveal('text-layout');
+    await poll(async () => (await text('text-layout-log')) !== 'none');
+    const [count, joined] = (await text('text-layout-log')).split(':');
+    expect(Number(count)).toBeGreaterThan(2);
+    expect(joined.split('|').join(' ')).toBe(
+      'one two three four five six seven eight',
+    );
+  });
+
   test('userSelect text selects like selectable', async () => {
     await reveal('select-user');
     await app.setClipboardText('');

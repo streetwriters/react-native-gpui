@@ -46,6 +46,13 @@
     },
     {
       "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/TextLayoutManager.h",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.h",
+      "baseHash": "63f2c1afcbc99cde197f9b306bc56384fd6f2e6c",
+      "issue": 0
+    },
+    {
+      "type": "patch",
       "file": "ReactCommonOverrides/react/renderer/components/view/HostPlatformViewProps.h",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/HostPlatformViewProps.h",
       "baseHash": "9c378b43b42022f3769b9fa788a353bf387ab391",
