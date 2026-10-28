@@ -414,6 +414,7 @@ GpuiHost::GpuiHost(
   rngpui::selectJsEngine(std::string(jsEngine));
   install_feature_flags();
   rngpui::installGpuiTextMeasureTable();
+  rngpui::installGpuiImageLoadTable();
 
   ReactInstanceConfig config;
   config.appId = std::string(appId);

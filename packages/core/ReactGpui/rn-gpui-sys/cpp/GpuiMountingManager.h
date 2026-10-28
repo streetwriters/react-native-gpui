@@ -7,8 +7,10 @@
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Size.h>
+#include <react/renderer/imagemanager/ImageResponseObserverCoordinator.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 #include "GpuiHostComponentsCpp.h"
+#include "GpuiImageLoad.h"
 #include "GpuiImageLoader.h"
 #include "GpuiModules.h"
 
@@ -37,12 +39,19 @@ class GpuiImageLoader final : public IImageLoader {
   CacheStatus getCacheStatus(const std::string& uri) override;
   static void
   completeRequest(std::uint64_t, double, double, const std::string&);
+  static void loadWithProgress(
+      const std::string& uri,
+      GpuiImageProgress&& progress,
+      GpuiImageDone&& done);
+  static void reportProgress(std::uint64_t, std::int64_t, std::int64_t);
 
  private:
   inline static std::atomic<std::uint64_t> nextRequestId_{1};
   inline static std::mutex mutex_;
   inline static std::unordered_map<std::uint64_t, IImageLoaderOnLoadCallback>
       callbacks_;
+  inline static std::unordered_map<std::uint64_t, GpuiImageProgress>
+      progressCallbacks_;
 };
 
 class GpuiMountingManager : public IMountingManager {
@@ -123,5 +132,10 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<GpuiHostStateData>>>
       hostStates_;
+  struct ImageObservation {
+    std::shared_ptr<const ImageResponseObserverCoordinator> coordinator;
+    std::shared_ptr<const ImageResponseObserver> observer;
+  };
+  std::unordered_map<Tag, ImageObservation> imageObservations_;
 };
 } // namespace rngpui

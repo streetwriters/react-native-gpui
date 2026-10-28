@@ -4,6 +4,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("GpuiImageLoader.h");
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
+        fn rn_gpui_on_image_progress(request_id: u64, loaded: i64, total: i64);
     }
 
     #[derive(Clone, Copy, Debug, Default, PartialEq)]

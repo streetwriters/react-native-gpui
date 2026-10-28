@@ -465,6 +465,24 @@ else()
     "rn_gpui_core: TextLayoutManager override not found (${RN_GPUI_TEXT_LAYOUT_MANAGER_OVERRIDE}); "
     "paragraphs will measure to zero height")
 endif()
+# Upstream's cxx `ImageManager::requestImage` never completes, so Image sends
+# no load events. Compile our copy override
+# (ReactCommonOverrides/.../ImageManager.cpp) in place of the upstream source.
+set(RN_GPUI_IMAGE_MANAGER_OVERRIDE
+    "${RN_GPUI_OVERRIDES_DIR}/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp")
+if(TARGET react_renderer_imagemanager AND EXISTS "${RN_GPUI_IMAGE_MANAGER_OVERRIDE}")
+  get_target_property(_rn_gpui_im_sources react_renderer_imagemanager SOURCES)
+  list(FILTER _rn_gpui_im_sources EXCLUDE
+       REGEX "imagemanager/platform/cxx/.*ImageManager\\.cpp$")
+  list(APPEND _rn_gpui_im_sources "${RN_GPUI_IMAGE_MANAGER_OVERRIDE}")
+  set_property(TARGET react_renderer_imagemanager
+               PROPERTY SOURCES "${_rn_gpui_im_sources}")
+  message(STATUS "rn_gpui_core: ImageManager override: ${RN_GPUI_IMAGE_MANAGER_OVERRIDE}")
+else()
+  message(WARNING
+    "rn_gpui_core: ImageManager override not found (${RN_GPUI_IMAGE_MANAGER_OVERRIDE}); "
+    "Image will send no load events")
+endif()
 add_react_common_subdir(react/utils)
 add_react_common_subdir(react/bridging)
 add_react_common_subdir(react/renderer/mapbuffer)

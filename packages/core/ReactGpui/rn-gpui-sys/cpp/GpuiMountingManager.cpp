@@ -16,6 +16,8 @@
 #include <react/renderer/components/FBReactNativeSpec/ComponentDescriptors.h>
 #include <react/renderer/components/FBReactNativeSpec/EventEmitters.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/image/ImageEventEmitter.h>
+#include <react/renderer/components/image/ImageState.h>
 #include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
 #include <react/renderer/components/modal/ModalHostViewShadowNode.h>
 #include <react/renderer/components/modal/ModalHostViewState.h>
@@ -27,6 +29,7 @@
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/components/view/conversions.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
+#include <react/renderer/imagemanager/ImageResponse.h>
 
 #include <folly/json.h>
 #include <glog/logging.h>
@@ -75,6 +78,37 @@ void GpuiImageLoader::loadImage(
   rn_gpui_load_image(uri, requestId);
 }
 
+void GpuiImageLoader::loadWithProgress(
+    const std::string& uri,
+    GpuiImageProgress&& progress,
+    GpuiImageDone&& done) {
+  const auto requestId = nextRequestId_.fetch_add(1);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    callbacks_.emplace(requestId, std::move(done));
+    progressCallbacks_.emplace(requestId, std::move(progress));
+  }
+  rn_gpui_load_image(uri, requestId);
+}
+
+void GpuiImageLoader::reportProgress(
+    std::uint64_t requestId,
+    std::int64_t loaded,
+    std::int64_t total) {
+  GpuiImageProgress callback;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = progressCallbacks_.find(requestId);
+    if (found == progressCallbacks_.end())
+      return;
+    callback = found->second;
+  }
+  callback(
+      total > 0 ? static_cast<float>(loaded) / static_cast<float>(total) : 0.f,
+      loaded,
+      total);
+}
+
 IImageLoader::CacheStatus GpuiImageLoader::getCacheStatus(
     const std::string& uri) {
   return rn_gpui_image_is_cached(uri) ? CacheStatus::Memory : CacheStatus::None;
@@ -93,6 +127,7 @@ void GpuiImageLoader::completeRequest(
       return;
     callback = std::move(found->second);
     callbacks_.erase(found);
+    progressCallbacks_.erase(requestId);
   }
   callback(width, height, error.empty() ? nullptr : error.c_str());
 }
@@ -106,7 +141,62 @@ void rn_gpui_on_image_load_result(
       requestId, width, height, std::string(error.data(), error.size()));
 }
 
+void rn_gpui_on_image_progress(
+    std::uint64_t requestId,
+    std::int64_t loaded,
+    std::int64_t total) {
+  GpuiImageLoader::reportProgress(requestId, loaded, total);
+}
+
+void installGpuiImageLoadTable() {
+  setGpuiImageLoadTable(GpuiImageLoadTable{
+      .start = [](const std::string& uri,
+                  GpuiImageProgress progress,
+                  GpuiImageDone done) {
+        GpuiImageLoader::loadWithProgress(
+            uri, std::move(progress), std::move(done));
+      }});
+}
+
 namespace {
+// Turns what an image request reports into the Image component's events.
+class GpuiImageObserver final : public ImageResponseObserver {
+ public:
+  GpuiImageObserver(
+      std::shared_ptr<const ImageEventEmitter> emitter,
+      ImageSource source)
+      : emitter_(std::move(emitter)), source_(std::move(source)) {}
+
+  void didReceiveProgress(float progress, int64_t loaded, int64_t total)
+      const override {
+    emitter_->onProgress(progress, loaded, total);
+  }
+
+  void didReceiveImage(const ImageResponse& response) const override {
+    auto source = source_;
+    if (auto size = std::static_pointer_cast<Size>(response.getImage())) {
+      source.size = *size;
+      source.scale = 1;
+    }
+    emitter_->onLoad(source);
+    emitter_->onLoadEnd();
+  }
+
+  void didReceiveFailure(const ImageLoadError& error) const override {
+    ImageErrorInfo info;
+    if (auto message =
+            std::static_pointer_cast<std::string>(error.getError())) {
+      info.error = *message;
+    }
+    emitter_->onError(info);
+    emitter_->onLoadEnd();
+  }
+
+ private:
+  std::shared_ptr<const ImageEventEmitter> emitter_;
+  ImageSource source_;
+};
+
 std::atomic<uint64_t> mountBatchesInFlight{0};
 
 const char* kindName(MountKind kind) {
@@ -243,6 +333,28 @@ void GpuiMountingManager::executeMount(
               mutation.newChildShadowView.state);
           if (state)
             modalStates_[mutation.newChildShadowView.tag] = std::move(state);
+        } else if (componentName == "Image") {
+          auto state =
+              std::dynamic_pointer_cast<const ConcreteState<ImageState>>(
+                  mutation.newChildShadowView.state);
+          auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(
+              mutation.newChildShadowView.eventEmitter);
+          if (state && emitter) {
+            const auto& data = state->getData();
+            auto coordinator =
+                data.getImageRequest().getSharedObserverCoordinator();
+            auto& entry = imageObservations_[mutation.newChildShadowView.tag];
+            if (entry.coordinator != coordinator) {
+              if (entry.coordinator && entry.observer)
+                entry.coordinator->removeObserver(entry.observer);
+              entry.coordinator = coordinator;
+              entry.observer = std::make_shared<GpuiImageObserver>(
+                  emitter, data.getImageSource());
+              if (data.getImageSource().type != ImageSource::Type::Invalid)
+                emitter->onLoadStart();
+              coordinator->addObserver(entry.observer);
+            }
+          }
         }
       } else if (mutation.type == ShadowViewMutation::Delete) {
         for (const auto& observer : gpuiExtensionHooks().mountObservers) {
@@ -255,6 +367,12 @@ void GpuiMountingManager::executeMount(
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
         hostStates_.erase(mutation.oldChildShadowView.tag);
+        if (auto found = imageObservations_.find(tag);
+            found != imageObservations_.end()) {
+          if (found->second.coordinator && found->second.observer)
+            found->second.coordinator->removeObserver(found->second.observer);
+          imageObservations_.erase(found);
+        }
       }
     }
   }

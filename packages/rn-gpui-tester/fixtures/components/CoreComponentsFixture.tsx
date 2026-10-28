@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -10,6 +11,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+const RED_2X3 =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGP4z8DwH4QZMBgAoXkL9U3EmgcAAAAASUVORK5CYII=';
+const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
   const [controlled, setControlled] = useState(false);
@@ -26,6 +31,9 @@ export default function CoreComponentsFixture() {
   const [modalRequests, setModalRequests] = useState(0);
   const [hoverLog, setHoverLog] = useState('');
   const [keyPresses, setKeyPresses] = useState(0);
+  const [showImages, setShowImages] = useState(false);
+  const [imageLog, setImageLog] = useState('');
+  const [imageProgress, setImageProgress] = useState('');
   const [limited, setLimited] = useState('');
   return (
     <ScrollView
@@ -290,6 +298,44 @@ export default function CoreComponentsFixture() {
           Long text that cannot fit
         </Text>
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Image</Text>
+        <Text testID="image-show" onPress={() => setShowImages(true)}>
+          show images
+        </Text>
+        {showImages ? (
+          <>
+            <Image
+              testID="image-data"
+              source={{ uri: RED_2X3 }}
+              style={styles.imageSample}
+              onLoadStart={() => setImageLog(previous => previous + 'start,')}
+              onLoad={event => {
+                const { width, height } = event.nativeEvent.source;
+                setImageLog(previous => previous + `load:${width}x${height},`);
+              }}
+              onLoadEnd={() => setImageLog(previous => previous + 'end,')}
+            />
+            <Image
+              testID="image-missing"
+              source={{ uri: 'file:///no/such/image.png' }}
+              style={styles.imageSample}
+              onError={() => setImageLog(previous => previous + 'error,')}
+            />
+            <Text testID="image-log">{imageLog}</Text>
+            <Image
+              testID="image-progress"
+              source={{ uri: PROGRESS_URL }}
+              style={styles.imageSample}
+              onProgress={event => {
+                const { loaded, total } = event.nativeEvent;
+                setImageProgress(`${loaded}/${total}`);
+              }}
+            />
+            <Text testID="image-progress-log">{imageProgress}</Text>
+          </>
+        ) : null}
+      </View>
     </ScrollView>
   );
 }
@@ -335,6 +381,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
+  imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
   fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },
   fontSample: { fontSize: 16, color: '#111' },
   input: {

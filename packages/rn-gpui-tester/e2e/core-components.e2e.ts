@@ -1,3 +1,4 @@
+import http from 'node:http';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -390,6 +391,63 @@ describe('Pressable', () => {
     await poll(async () => (await text('key-presses')) === '1');
     await app.getByTestId('press-key').press('space');
     await poll(async () => (await text('key-presses')) === '2');
+  });
+});
+
+describe('Image events', () => {
+  let server: http.Server;
+  const body = (() => {
+    const png = new PNG({ width: 400, height: 400 });
+    for (let index = 0; index < png.data.length; index += 1) {
+      png.data[index] = index % 4 === 3 ? 255 : Math.floor(Math.random() * 256);
+    }
+    return PNG.sync.write(png);
+  })();
+
+  beforeAll(async () => {
+    server = http.createServer((_request, response) => {
+      response.writeHead(200, {
+        'content-type': 'image/png',
+        'content-length': body.length,
+      });
+      let offset = 0;
+      const send = () => {
+        if (offset >= body.length) {
+          response.end();
+          return;
+        }
+        response.write(body.subarray(offset, offset + 65536));
+        offset += 65536;
+        setTimeout(send, 40);
+      };
+      send();
+    });
+    await new Promise<void>(resolve =>
+      server.listen(18765, '127.0.0.1', resolve),
+    );
+    app.allowErrors(/gpui::asset_cache/);
+    await app.getByTestId('image-show').click();
+  });
+  afterAll(() => server?.close());
+
+  test('onLoadStart, onLoad with the size and onLoadEnd fire in order', async () => {
+    await poll(async () => (await text('image-log')).includes('end,'));
+    const log = await text('image-log');
+    expect(log.indexOf('start,')).toBeLessThan(log.indexOf('load:2x3,'));
+    expect(log.indexOf('load:2x3,')).toBeLessThan(log.indexOf('end,'));
+  });
+
+  test('onError fires for an image that cannot load', async () => {
+    await poll(async () => (await text('image-log')).includes('error,'));
+  });
+
+  test('onProgress reports the bytes loaded of the total', async () => {
+    await poll(async () => /^\d+\/\d+$/.test(await text('image-progress-log')));
+    const [loaded, total] = (await text('image-progress-log'))
+      .split('/')
+      .map(Number);
+    expect(total).toBe(body.length);
+    expect(loaded).toBeGreaterThan(0);
   });
 });
 

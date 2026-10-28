@@ -189,6 +189,13 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/tray.ts"
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp",
+      "baseHash": "604eb031600c654f84bd021091e764fa107ddd86",
+      "issue": 0
     }
   ]
 }
