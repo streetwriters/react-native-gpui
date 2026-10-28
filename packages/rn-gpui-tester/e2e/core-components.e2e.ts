@@ -274,8 +274,12 @@ describe('TextInput props', () => {
   test('Enter submits and blurs by default, and onEndEditing follows the blur', async () => {
     await app.getByTestId('input-keys').click();
     await app.getByTestId('input-keys').press('enter');
-    await poll(async () => (await text('input-event-log')).includes('submit,'));
-    await poll(async () => (await text('input-event-log')).includes('end,'));
+    // The blur is delivered on a frame, which the window draws when asked.
+    await poll(async () => {
+      await app.waitForIdle();
+      const log = await text('input-event-log');
+      return log.includes('submit,') && log.includes('end,');
+    });
   });
 
   test('submitBehavior submit keeps focus after Enter', async () => {
