@@ -244,7 +244,7 @@ describe('TextInput props', () => {
     const shot = PNG.sync.read(
       await app.getByTestId('input-multi').screenshot(),
     );
-    expect(shot.height / shot.width).toBeCloseTo(60 / 260, 2);
+    expect(shot.height / shot.width).toBeCloseTo(60 / 200, 2);
     await app.getByTestId('input-multi').click();
     await app.getByTestId('input-multi').type('!');
     await poll(async () => (await text('input-multi-sizes')).includes('x200,'));
@@ -286,6 +286,25 @@ describe('TextInput props', () => {
     await poll(async () => (await text('input-event-log')).includes('keep,'));
     await new Promise(resolve => setTimeout(resolve, 300));
     expect(count(await text('input-event-log'))).toBe(before);
+  });
+});
+
+describe('Modal', () => {
+  test('Escape asks to close and the modal stays until JS hides it', async () => {
+    await app.getByTestId('modal-open').click();
+    await desktopExpect(app.getByTestId('modal-body')).toBeVisible();
+    await app.getByTestId('modal-body').press('escape');
+    await poll(async () => (await text('modal-requests')) === '1');
+    await desktopExpect(app.getByTestId('modal-body')).toBeVisible();
+    await app.getByTestId('modal-close').click();
+    await poll(async () => {
+      try {
+        await app.getByTestId('modal-body').textContent();
+        return false;
+      } catch {
+        return true;
+      }
+    });
   });
 });
 

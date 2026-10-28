@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
@@ -20,6 +21,8 @@ export default function CoreComponentsFixture() {
   const [menuSelection, setMenuSelection] = useState('none');
   const [multiSizes, setMultiSizes] = useState('');
   const [multiScroll, setMultiScroll] = useState(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalRequests, setModalRequests] = useState(0);
   const [limited, setLimited] = useState('');
   return (
     <ScrollView
@@ -27,6 +30,30 @@ export default function CoreComponentsFixture() {
       contentContainerStyle={styles.content}
     >
       <Text style={styles.title}>Core components</Text>
+      <Modal
+        visible={modalOpen}
+        transparent
+        onRequestClose={() => setModalRequests(count => count + 1)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Text testID="modal-body" style={styles.modalBody}>
+            modal
+          </Text>
+          <Text
+            testID="modal-close"
+            style={styles.modalBody}
+            onPress={() => setModalOpen(false)}
+          >
+            close
+          </Text>
+        </View>
+      </Modal>
+      <View style={styles.fontRow}>
+        <Text testID="modal-open" onPress={() => setModalOpen(true)}>
+          open modal
+        </Text>
+        <Text testID="modal-requests">{String(modalRequests)}</Text>
+      </View>
       <View style={styles.fontRow}>
         <Text testID="font-default" style={styles.fontSample}>
           Scale
@@ -213,10 +240,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   title: { fontSize: 20, color: '#111', width: '100%' },
-  section: { gap: 10, width: 300 },
+  section: { gap: 10, width: 232 },
   heading: { fontSize: 16, color: '#333' },
   multi: {
-    width: 260,
+    width: 200,
     padding: 0,
     fontSize: 14,
     lineHeight: 20,
@@ -229,6 +256,13 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: 'flex-start',
   },
+  modalBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00000066',
+  },
+  modalBody: { fontSize: 20, color: '#fff', padding: 8 },
   fontSample: { fontSize: 16, color: '#111' },
   input: {
     height: 32,
