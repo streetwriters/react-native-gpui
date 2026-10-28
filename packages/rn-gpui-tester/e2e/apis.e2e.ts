@@ -155,10 +155,15 @@ test('Dimensions reports the screen, the font scale and each window', async () =
   await desktopExpect(
     app.getByTestId('desktop-child-dimensions-width'),
   ).toBeVisible();
-  await poll(
-    async () => (await text('desktop-child-dimensions-width')) === '420',
-    15000,
-  );
+  let childWidth = '';
+  try {
+    await poll(async () => {
+      childWidth = await text('desktop-child-dimensions-width');
+      return childWidth === '420';
+    }, 15000);
+  } catch {
+    throw new Error(`child window width was ${JSON.stringify(childWidth)}`);
+  }
   expect(await text('dimensions-window-width')).toBe('1024');
 });
 
