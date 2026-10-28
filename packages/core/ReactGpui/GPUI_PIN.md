@@ -9,10 +9,10 @@ so we pin by commit SHA and bump on purpose.
 ## Pinned
 
 - Repository: https://github.com/streetwriters/gpui-fast
-- Branch: `rn-gpui-linux` (tracks upstream `main`; Linux fixes are commits on
-  top so each one can become an upstream pull request)
-- Commit: `8da7d89` (`rn-gpui-linux`, 2026-10-23: `7bf381d` plus the
-  rounded content masks below)
+- Branch: `rn-gpui-transforms`, from `rn-gpui-linux` (tracks upstream `main`;
+  Linux fixes are commits on top so each one can become an upstream pull request)
+- Commit: `8dab27d` (`rn-gpui-transforms`, 2026-10-29: `8da7d89` plus the
+  per-frame transform table below; not yet pushed to the fork)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -200,3 +200,13 @@ process, so the activation cannot leak between them.
 
 Fixing this properly means replaying accessibility subtree updates for retained
 views; that is out of scope for now.
+
+## Transforms
+
+- `590f2bb`, `a678e91`, `8dab27d`: a per-frame table of 2D affine matrices and
+  an index on every primitive (`Quad`'s packs it above its border style).
+  `Window::with_transformation` and `with_transformation_about` draw and
+  hit-test a subtree under a matrix; hit boxes keep theirs. The Metal shaders
+  evaluate corners, borders, masks and shadows in the primitive's own space.
+  The wgpu and DirectX shaders do not read the table yet, so they draw
+  transformed content untransformed.
