@@ -142,10 +142,14 @@ test('AppState ignores focus moving between app windows', async () => {
   await launch({ offscreen: false });
   await app.focusWindow();
   await poll(async () => (await text('appstate-current')) === 'active');
+  // Other applications can take and give back focus while the app starts, so
+  // only what happens after it has settled counts.
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const before = await text('appstate-log');
   await app.getByTestId('window-open-child').click();
   await poll(async () => (await text('window-focus')) === 'false');
-  await new Promise(resolve => setTimeout(resolve, 200));
-  expect(await text('appstate-log')).toBe('active');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  expect(await text('appstate-log')).toBe(before);
 });
 
 // `memory_pressure -S` needs root, so this runs where the suite does.

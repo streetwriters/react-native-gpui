@@ -1,8 +1,9 @@
 //! `AppState`: whether the app is in front, behind other apps, or out of sight.
 //!
-//! Derived from the window state mirror. A change is reported one frame after
-//! the window that caused it, so moving focus from one app window to another,
-//! which blurs the first before it focuses the second, reports nothing.
+//! Derived from the window state mirror. A change is reported a short moment
+//! after the window that caused it, so moving focus from one app window to
+//! another, which blurs the first before it focuses the second, reports
+//! nothing.
 
 use gpui::App;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,12 +33,17 @@ pub fn state_from(windows: &[WindowFacts]) -> &'static str {
 static PENDING: AtomicBool = AtomicBool::new(false);
 static LAST: Mutex<&'static str> = Mutex::new("active");
 
-/// Re-evaluates the state after a frame, however many windows changed in it.
+/// How long window changes are gathered before the state is re-evaluated. The
+/// system delivers the blur of one window and the focus of the next separately,
+/// and under load they can be several frames apart.
+const SETTLE: Duration = Duration::from_millis(80);
+
+/// Re-evaluates the state once the windows have settled, however many changed.
 pub fn schedule(cx: &mut App) {
     if PENDING.swap(true, Ordering::AcqRel) {
         return;
     }
-    let timer = cx.background_executor().timer(Duration::from_millis(16));
+    let timer = cx.background_executor().timer(SETTLE);
     cx.spawn(async move |cx| {
         timer.await;
         PENDING.store(false, Ordering::Release);
