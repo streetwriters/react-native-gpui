@@ -333,6 +333,18 @@ describe('TextInput props', () => {
   });
 });
 
+describe('Keyboard', () => {
+  test('Keyboard.dismiss blurs the focused input', async () => {
+    await app.getByTestId('input-dismiss').click();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await app.getByTestId('input-dismiss').press('enter');
+    await poll(async () => {
+      await app.waitForIdle();
+      return (await text('input-event-log')).includes('dismiss-end,');
+    });
+  });
+});
+
 describe('Text', () => {
   function pixels(
     image: PNG,

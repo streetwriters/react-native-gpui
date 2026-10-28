@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -281,6 +282,13 @@ export default function CoreComponentsFixture() {
           submitBehavior="submit"
           onSubmitEditing={() => setEvents(previous => previous + 'keep,')}
           onEndEditing={() => setEvents(previous => previous + 'keep-end,')}
+          style={styles.input}
+        />
+        <TextInput
+          testID="input-dismiss"
+          submitBehavior="submit"
+          onSubmitEditing={() => Keyboard.dismiss()}
+          onEndEditing={() => setEvents(previous => previous + 'dismiss-end,')}
           style={styles.input}
         />
         <TextInput

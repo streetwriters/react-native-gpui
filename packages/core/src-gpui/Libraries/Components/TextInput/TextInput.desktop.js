@@ -8,6 +8,7 @@ import { StyleSheet } from 'react-native';
 import * as NativeComponentRegistry from '../../NativeComponent/NativeComponentRegistry';
 import codegenNativeCommands from '../../Utilities/codegenNativeCommands';
 import RCTTextInputViewConfig from './RCTTextInputViewConfig';
+import TextInputState from './TextInputState';
 
 const NativeTextInput = NativeComponentRegistry.get('TextInput', () => ({
   ...RCTTextInputViewConfig,
@@ -89,6 +90,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
   const handleFocus = React.useCallback(
     event => {
       focusedRef.current = true;
+      TextInputState.focusInput(nativeRef.current);
       onFocus?.(event);
     },
     [onFocus],
@@ -96,6 +98,7 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
   const handleBlur = React.useCallback(
     event => {
       focusedRef.current = false;
+      TextInputState.blurInput(nativeRef.current);
       onBlur?.(event);
     },
     [onBlur],

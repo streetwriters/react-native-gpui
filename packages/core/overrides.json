@@ -27,6 +27,13 @@
       "file": "src-gpui/Libraries/Settings/Settings.desktop.js"
     },
     {
+      "type": "derived",
+      "file": "src-gpui/Libraries/Components/TextInput/TextInputState.desktop.js",
+      "baseFile": "packages/react-native/Libraries/Components/TextInput/TextInputState.js",
+      "baseHash": "9ef598defeeaf109527f39b48f77564eba80129a",
+      "issue": 0
+    },
+    {
       "type": "platform",
       "file": "src-gpui/Libraries/Utilities/useWindowDimensions.desktop.js"
     },
