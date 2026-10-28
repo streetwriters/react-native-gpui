@@ -2,9 +2,22 @@
 
 use gpui::{App, Window};
 
+/// The system text scale. A test build can pin it with `RN_GPUI_TEST_FONT_SCALE`.
+pub fn system_font_scale() -> f32 {
+    #[cfg(feature = "test-driver")]
+    if let Some(scale) = std::env::var("RN_GPUI_TEST_FONT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|scale| *scale > 0.0)
+    {
+        return scale;
+    }
+    os_font_scale()
+}
+
 /// The user's text size preference as a multiplier; `1.0` where the OS has none.
 #[cfg(target_os = "windows")]
-pub fn system_font_scale() -> f32 {
+fn os_font_scale() -> f32 {
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
     let subkey: Vec<u16> = "Software\\Microsoft\\Accessibility\0"
         .encode_utf16()
@@ -33,7 +46,7 @@ pub fn system_font_scale() -> f32 {
 }
 
 #[cfg(target_os = "linux")]
-pub fn system_font_scale() -> f32 {
+fn os_font_scale() -> f32 {
     std::process::Command::new("gsettings")
         .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])
         .output()
@@ -44,7 +57,7 @@ pub fn system_font_scale() -> f32 {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-pub fn system_font_scale() -> f32 {
+fn os_font_scale() -> f32 {
     1.0
 }
 

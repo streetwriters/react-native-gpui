@@ -288,3 +288,40 @@ describe('TextInput props', () => {
     expect(count(await text('input-event-log'))).toBe(before);
   });
 });
+
+describe('font scale', () => {
+  let scaled: DesktopApp;
+  beforeAll(async () => {
+    scaled = await launchApp({
+      bundle: path.resolve(
+        'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+      ),
+      env: {
+        RN_GPUI_MODULE: 'RNGPUITester--core-components',
+        RN_GPUI_DEV_PORT: '1',
+        RN_GPUI_TEST_FONT_SCALE: '2',
+      },
+      disableAnimations: true,
+      offscreen: true,
+    });
+    await scaled.setWindowSize(1024, 768);
+    await desktopExpect(
+      scaled.getByTestId('tester-screen-core-components'),
+    ).toBeVisible();
+  });
+  afterAll(() => scaled?.disconnect());
+
+  async function width(testID: string) {
+    return PNG.sync.read(await scaled.getByTestId(testID).screenshot()).width;
+  }
+
+  test('allowFontScaling and maxFontSizeMultiplier bound the system text scale', async () => {
+    const fixed = await width('font-fixed');
+    const capped = await width('font-capped');
+    const full = await width('font-default');
+    expect(capped / fixed).toBeGreaterThan(1.4);
+    expect(capped / fixed).toBeLessThan(1.6);
+    expect(full / fixed).toBeGreaterThan(1.9);
+    expect(full / fixed).toBeLessThan(2.1);
+  });
+});

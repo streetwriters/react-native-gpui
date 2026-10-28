@@ -3,6 +3,9 @@
 #include "GpuiModules.h"
 #include "GpuiTextMeasure.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/nativeviewhost/NativeViewHost.h>
@@ -40,7 +43,20 @@ TextFragmentFlat flattenTextFragment(
   TextFragmentFlat out{};
   out.text = text;
   out.font_family = attributes.fontFamily;
-  out.font_size = std::isnan(attributes.fontSize) ? 14.f : attributes.fontSize;
+  // allowFontScaling and maxFontSizeMultiplier decide how much of the system
+  // text scale (carried in fontSizeMultiplier) this fragment follows.
+  float scale = std::isnan(attributes.fontSizeMultiplier)
+      ? 1.f
+      : attributes.fontSizeMultiplier;
+  if (attributes.allowFontScaling && !*attributes.allowFontScaling) {
+    scale = 1.f;
+  } else if (
+      !std::isnan(attributes.maxFontSizeMultiplier) &&
+      attributes.maxFontSizeMultiplier >= 1.f) {
+    scale = std::min(scale, attributes.maxFontSizeMultiplier);
+  }
+  out.font_size =
+      (std::isnan(attributes.fontSize) ? 14.f : attributes.fontSize) * scale;
   out.font_weight = attributes.fontWeight
       ? static_cast<uint16_t>(*attributes.fontWeight)
       : 400;
@@ -48,7 +64,7 @@ TextFragmentFlat flattenTextFragment(
       attributes.fontStyle && *attributes.fontStyle != FontStyle::Normal;
   out.color = argb(attributes.foregroundColor);
   out.line_height =
-      std::isnan(attributes.lineHeight) ? 0.f : attributes.lineHeight;
+      std::isnan(attributes.lineHeight) ? 0.f : attributes.lineHeight * scale;
   out.letter_spacing =
       std::isnan(attributes.letterSpacing) ? 0.f : attributes.letterSpacing;
   if (attributes.textDecorationLineType) {

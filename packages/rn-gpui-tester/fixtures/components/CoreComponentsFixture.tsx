@@ -27,6 +27,25 @@ export default function CoreComponentsFixture() {
       contentContainerStyle={styles.content}
     >
       <Text style={styles.title}>Core components</Text>
+      <View style={styles.fontRow}>
+        <Text testID="font-default" style={styles.fontSample}>
+          Scale
+        </Text>
+        <Text
+          testID="font-fixed"
+          allowFontScaling={false}
+          style={styles.fontSample}
+        >
+          Scale
+        </Text>
+        <Text
+          testID="font-capped"
+          maxFontSizeMultiplier={1.5}
+          style={styles.fontSample}
+        >
+          Scale
+        </Text>
+      </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Switch</Text>
         <Switch
@@ -103,6 +122,12 @@ export default function CoreComponentsFixture() {
           style={styles.input}
         />
         <TextInput
+          testID="input-caret-hidden"
+          defaultValue="no caret"
+          caretHidden
+          style={styles.input}
+        />
+        <TextInput
           testID="input-select-on-focus"
           defaultValue="select me"
           selectTextOnFocus
@@ -140,12 +165,6 @@ export default function CoreComponentsFixture() {
           style={styles.input}
         />
         <Text testID="input-max-length-value">{`[${limited}]`}</Text>
-        <TextInput
-          testID="input-caret-hidden"
-          defaultValue="no caret"
-          caretHidden
-          style={styles.input}
-        />
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>TextInput 2</Text>
@@ -204,6 +223,13 @@ const styles = StyleSheet.create({
     color: '#111',
     backgroundColor: '#eef',
   },
+  fontRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  fontSample: { fontSize: 16, color: '#111' },
   input: {
     height: 32,
     borderWidth: 1,
