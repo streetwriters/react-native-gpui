@@ -26,6 +26,7 @@ const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 export default function CoreComponentsFixture() {
   const commandScroll = useRef<ScrollViewInstance>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [rotatedPresses, setRotatedPresses] = useState(0);
   const keepScroll = useRef<ScrollViewInstance>(null);
   const [keepOffset, setKeepOffset] = useState('0');
   const [keepItems, setKeepItems] = useState([3, 2, 1, 0]);
@@ -684,6 +685,37 @@ export default function CoreComponentsFixture() {
           toggle refreshing
         </Text>
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Transforms</Text>
+        <View testID="rot-area" style={styles.rotArea}>
+          <Pressable
+            testID="rot-press"
+            onPress={() => setRotatedPresses(count => count + 1)}
+            style={styles.rotBox}
+          />
+        </View>
+        <Text testID="rot-count">{String(rotatedPresses)}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>More transforms</Text>
+        <View testID="rot-diamond-area" style={styles.rotArea}>
+          <View style={[styles.shape, styles.diamond]} />
+        </View>
+        <View testID="flip-area" style={styles.rotArea}>
+          <View style={[styles.shape, styles.flip]}>
+            <View style={styles.flipLeft} />
+            <View style={styles.flipRight} />
+          </View>
+        </View>
+        <View testID="skew-area" style={styles.rotArea}>
+          <View style={[styles.shape, styles.skew]} />
+        </View>
+        <View testID="clip-area" style={styles.rotArea}>
+          <View style={[styles.shape, styles.clip]}>
+            <View style={styles.clipChild} />
+          </View>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -730,6 +762,52 @@ const styles = StyleSheet.create({
   },
   selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
   layoutSample: { fontSize: 20, color: '#000', width: 140 },
+  rotArea: { width: 100, height: 100, backgroundColor: '#fff' },
+  rotBox: {
+    position: 'absolute',
+    left: 20,
+    top: 35,
+    width: 60,
+    height: 30,
+    backgroundColor: '#ff0000',
+    transform: [{ rotate: '90deg' }],
+  },
+  shape: { position: 'absolute' },
+  diamond: {
+    left: 30,
+    top: 30,
+    width: 40,
+    height: 40,
+    backgroundColor: '#ff0000',
+    transform: [{ rotate: '45deg' }],
+  },
+  flip: {
+    left: 30,
+    top: 40,
+    width: 40,
+    height: 20,
+    flexDirection: 'row',
+    transform: [{ scaleX: -1 }],
+  },
+  flipLeft: { flex: 1, backgroundColor: '#0000ff' },
+  flipRight: { flex: 1, backgroundColor: '#ff0000' },
+  skew: {
+    left: 30,
+    top: 40,
+    width: 40,
+    height: 20,
+    backgroundColor: '#ff0000',
+    transform: [{ skewX: '45deg' }],
+  },
+  clip: {
+    left: 20,
+    top: 35,
+    width: 60,
+    height: 30,
+    overflow: 'hidden',
+    transform: [{ rotate: '90deg' }],
+  },
+  clipChild: { width: 60, height: 60, backgroundColor: '#ff0000' },
   swatch: { width: 40, height: 40 },
   imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
   pager: {

@@ -432,6 +432,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   }
 
   const auto transform = props->resolveTransform(layoutMetrics);
+  out.transform_origin_set = props->transformOrigin.isSet();
   out.transform = transform.matrix;
   out.has_transform = !(transform == Transform::Identity());
   return out;

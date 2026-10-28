@@ -1232,14 +1232,43 @@ impl RNNodeView {
             return (1.0, 1.0, 0.0, 0.0);
         }
         let m = self.animated_transform.unwrap_or(self.view.transform);
-        let (scale_x, scale_y, translate_x, translate_y) = axis_aligned_transform(&m);
+        // What the folded scale and translate cannot show is drawn by GPUI under
+        // the node's matrix instead, so the layout below it stays unscaled.
         if has_unsupported_subtree_transform(&m) {
-            log::trace!(
-                "[transform] tag={} has rotation/skew/perspective; GPUI subtree transform spike is not supported",
+            return (1.0, 1.0, 0.0, 0.0);
+        }
+        axis_aligned_transform(&m)
+    }
+
+    /// The matrix GPUI draws this node's subtree under, when the transform is
+    /// more than a positive scale and a translation: a turn, a skew or a flip.
+    /// Its translation is in the units the ancestors' folded scale has made.
+    fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
+        if self.animated_transform.is_none() && !self.view.has_transform {
+            return None;
+        }
+        let m = self.animated_transform.unwrap_or(self.view.transform);
+        if !has_unsupported_subtree_transform(&m) {
+            return None;
+        }
+        if crate::transform::is_three_dimensional(&m) {
+            log::debug!(
+                "[transform] tag={} has perspective or a turn about x or y; drawn flat",
                 self.tag
             );
         }
-        (scale_x, scale_y, translate_x, translate_y)
+        let mut matrix = crate::transform::affine(&m)?;
+        matrix.translation[0] *= scale.0;
+        matrix.translation[1] *= scale.1;
+        if !self.view.transform_origin_set {
+            // Without a `transformOrigin` a view turns about its centre.
+            matrix = gpui::TransformationMatrix::about(
+                self.frame.w * scale.0 / 2.0,
+                self.frame.h * scale.1 / 2.0,
+                matrix,
+            );
+        }
+        Some(matrix)
     }
 
     pub(crate) fn stable_paint_tree<'a>(&'a self, cx: &'a App) -> crate::extensions::TreeView<'a> {
@@ -4262,7 +4291,11 @@ impl Render for RNNodeView {
                 0,
             ));
         }
-        element.children(outline_rules).into_any_element()
+        let element = element.children(outline_rules).into_any_element();
+        match self.gpui_transform((scale_x, scale_y)) {
+            Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
+            None => element,
+        }
     }
 }
 

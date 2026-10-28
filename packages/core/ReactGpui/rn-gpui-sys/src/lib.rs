@@ -69,6 +69,8 @@ pub mod ffi {
         pub background_json: String, // gradients with their size, position and repeat; empty = none
         pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
+        /// Whether `transformOrigin` is in the matrix; when it is not, the view turns about its centre.
+        pub transform_origin_set: bool,
         pub test_id: String,
         pub accessibility_label: String,
         pub accessibility_hint: String,

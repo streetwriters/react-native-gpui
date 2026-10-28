@@ -359,6 +359,111 @@ describe('TextInput props', () => {
   });
 });
 
+describe('Transforms', () => {
+  test('a rotated box is drawn and hit where it was turned to', async () => {
+    await reveal('rot-count');
+    const image = PNG.sync.read(await app.getByTestId('rot-area').screenshot());
+    const scale = image.width / 100;
+    const red = (x: number, y: number) => {
+      const at =
+        (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4;
+      return (
+        image.data[at] > 200 &&
+        image.data[at + 1] < 60 &&
+        image.data[at + 2] < 60
+      );
+    };
+    // 60 x 30 about (50, 50), turned a quarter: 30 wide, 60 tall.
+    expect(red(50, 50)).toBe(true);
+    expect(red(50, 25)).toBe(true);
+    expect(red(50, 75)).toBe(true);
+    expect(red(70, 50)).toBe(false);
+    expect(red(30, 50)).toBe(false);
+    const [area] = await app.query('testID', 'rot-area', true);
+    const click = async (x: number, y: number) => {
+      await app.mouseDown({ x: area.frame.x + x, y: area.frame.y + y });
+      await app.mouseUp({ x: area.frame.x + x, y: area.frame.y + y });
+      await app.waitForIdle();
+    };
+    // Inside the turned shape but outside the box as it was laid out.
+    await click(50, 28);
+    await poll(async () => (await text('rot-count')) === '1');
+    // Inside the box as laid out but outside the turned shape.
+    await click(75, 50);
+    await app.waitForIdle();
+    expect(await text('rot-count')).toBe('1');
+  });
+});
+
+describe('Transforms, more shapes', () => {
+  async function paint(testID: string) {
+    await reveal(testID);
+    // `reveal` stops at the first sight of the node; the screenshot needs all of it.
+    const [root] = await app.query(
+      'testID',
+      'tester-screen-core-components',
+      true,
+    );
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const [node] = await app.query('testID', testID, true);
+      if (
+        node.frame.y + node.frame.height <=
+        root.frame.y + root.frame.height
+      ) {
+        break;
+      }
+      await app.scroll(root.tag, 0, -100);
+    }
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    const scale = image.width / 100;
+    return (x: number, y: number) => {
+      const at =
+        (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4;
+      return [image.data[at], image.data[at + 1], image.data[at + 2]];
+    };
+  }
+  const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
+  const isBlue = ([r, g, b]: number[]) => b > 200 && r < 60 && g < 60;
+
+  test('a box turned 45 degrees is a diamond with antialiased edges', async () => {
+    const at = await paint('rot-diamond-area');
+    // 40 px square about (50, 50): corners 28 from the centre along the axes.
+    expect(isRed(at(50, 50))).toBe(true);
+    expect(isRed(at(50, 26))).toBe(true);
+    expect(isRed(at(74, 50))).toBe(true);
+    // The square's own corners lie outside the diamond.
+    expect(isRed(at(31, 31))).toBe(false);
+    expect(isRed(at(69, 69))).toBe(false);
+  });
+
+  test('scaleX of minus one mirrors the box', async () => {
+    const at = await paint('flip-area');
+    // The blue half was on the left; mirrored it is on the right.
+    expect(isRed(at(35, 50))).toBe(true);
+    expect(isBlue(at(65, 50))).toBe(true);
+  });
+
+  test('skewX shears the box', async () => {
+    const at = await paint('skew-area');
+    // 40 x 20, skewed 45° about its centre: the top edge moves left by 10 and
+    // the bottom edge right by 10.
+    expect(isRed(at(50, 50))).toBe(true);
+    expect(isRed(at(34, 42))).toBe(true);
+    expect(isRed(at(66, 42))).toBe(false);
+    expect(isRed(at(66, 58))).toBe(true);
+    expect(isRed(at(34, 58))).toBe(false);
+  });
+
+  test('a turned parent clips its children to the turned rectangle', async () => {
+    const at = await paint('clip-area');
+    // A 60 x 30 clip, turned a quarter: 30 wide, 60 tall. Its child is a
+    // 60 x 60 red square, so only the turned strip shows.
+    expect(isRed(at(50, 50))).toBe(true);
+    expect(isRed(at(50, 25))).toBe(true);
+    expect(isRed(at(70, 50))).toBe(false);
+  });
+});
+
 describe('Platform colors', () => {
   async function centre(testID: string) {
     await reveal(testID);

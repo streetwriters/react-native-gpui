@@ -27,6 +27,7 @@ pub mod surface;
 #[cfg(feature = "test-driver")]
 mod test_driver;
 pub(crate) mod text;
+mod transform;
 
 mod bootstrap;
 mod http_client;
