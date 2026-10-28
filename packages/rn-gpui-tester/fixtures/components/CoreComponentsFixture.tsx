@@ -428,6 +428,12 @@ export default function CoreComponentsFixture() {
         <Text testID="select-text" selectable style={styles.selectSample}>
           alpha beta gamma
         </Text>
+        <Text
+          testID="select-user"
+          style={[styles.selectSample, { userSelect: 'text' }]}
+        >
+          alpha beta gamma
+        </Text>
         <Text testID="select-text-off" style={styles.selectSample}>
           alpha beta gamma
         </Text>

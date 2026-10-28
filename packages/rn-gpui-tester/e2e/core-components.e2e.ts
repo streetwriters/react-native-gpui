@@ -410,6 +410,15 @@ describe('Text', () => {
     await poll(async () => (await app.clipboardText()) === 'beta');
   });
 
+  test('userSelect text selects like selectable', async () => {
+    await reveal('select-user');
+    await app.setClipboardText('');
+    await app.getByTestId('select-user').doubleClick();
+    await app.getByTestId('select-user').rightClick();
+    expect(await app.selectContextMenuItem('copy')).toBe(true);
+    await poll(async () => (await app.clipboardText()) === 'beta');
+  });
+
   test('text without selectable offers no selection', async () => {
     await reveal('select-text-off');
     await app.setClipboardText('');
