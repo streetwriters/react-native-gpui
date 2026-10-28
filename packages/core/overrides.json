@@ -28,6 +28,17 @@
     },
     {
       "type": "platform",
+      "file": "src-gpui/Libraries/Components/RefreshControl/RefreshControl.desktop.js"
+    },
+    {
+      "type": "derived",
+      "file": "src-gpui/Libraries/Components/ScrollView/ScrollView.desktop.js",
+      "baseFile": "packages/react-native/Libraries/Components/ScrollView/ScrollView.js",
+      "baseHash": "8f218c6e51209bbe56bba4d3fbb9b6320c718c29",
+      "issue": 0
+    },
+    {
+      "type": "platform",
       "file": "src-gpui/Libraries/StyleSheet/PlatformColorValueTypes.desktop.js"
     },
     {

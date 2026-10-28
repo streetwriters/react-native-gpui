@@ -66,6 +66,10 @@ module.exports = [
         Readonly: 'readonly',
         ReadonlyArray: 'readonly',
         Stringish: 'readonly',
+        $ReadOnly: 'readonly',
+        $ReadOnlyArray: 'readonly',
+        $FlowFixMe: 'readonly',
+        Omit: 'readonly',
       },
     },
     rules: {

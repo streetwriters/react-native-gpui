@@ -356,6 +356,19 @@ describe('Platform colors', () => {
   });
 });
 
+describe('RefreshControl', () => {
+  test('a refreshing RefreshControl shows its indicator inside the ScrollView', async () => {
+    const present = async () =>
+      (await app.query('testID', 'refresh-control-indicator', true)).length > 0;
+    await reveal('refresh-toggle');
+    expect(await present()).toBe(false);
+    await app.getByTestId('refresh-toggle').click();
+    await poll(present);
+    await app.getByTestId('refresh-toggle').click();
+    await poll(async () => !(await present()));
+  });
+});
+
 describe('Keyboard', () => {
   test('Keyboard.dismiss blurs the focused input', async () => {
     await app.getByTestId('input-dismiss').click();

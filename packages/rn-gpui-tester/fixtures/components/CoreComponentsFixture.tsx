@@ -4,6 +4,7 @@ import {
   Appearance,
   DynamicColorIOS,
   PlatformColor,
+  RefreshControl,
   Image,
   Keyboard,
   Modal,
@@ -24,6 +25,7 @@ const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
   const commandScroll = useRef<ScrollViewInstance>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const keepScroll = useRef<ScrollViewInstance>(null);
   const [keepOffset, setKeepOffset] = useState('0');
   const [keepItems, setKeepItems] = useState([3, 2, 1, 0]);
@@ -666,6 +668,21 @@ export default function CoreComponentsFixture() {
             },
           ]}
         />
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>RefreshControl</Text>
+        <ScrollView
+          testID="refresh-scroll"
+          style={styles.pager}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => {}} />
+          }
+        >
+          <Text>refresh content</Text>
+        </ScrollView>
+        <Text testID="refresh-toggle" onPress={() => setRefreshing(on => !on)}>
+          toggle refreshing
+        </Text>
       </View>
     </ScrollView>
   );
