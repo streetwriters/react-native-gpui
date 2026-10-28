@@ -627,6 +627,15 @@ describe('ScrollView', () => {
     await settled('scroll-command-offset', '300');
   });
 
+  test('maintainVisibleContentPosition keeps the visible items put when items are added above', async () => {
+    await reveal('scroll-keep-to');
+    await app.getByTestId('scroll-keep-to').click();
+    await settled('scroll-keep-offset', '100');
+    await app.getByTestId('scroll-keep-prepend').click();
+    // One 80 px item was added before the visible ones.
+    await settled('scroll-keep-offset', '180');
+  });
+
   test('snapToInterval rests on an interval', async () => {
     await reveal('scroll-interval');
     const tag = (await app.query('testID', 'scroll-interval', true))[0].tag;

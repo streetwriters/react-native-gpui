@@ -25,6 +25,14 @@ std::string scrollViewPropsJson(
     enabled = props->scrollEnabled;
     indicator = props->horizontal ? props->showsHorizontalScrollIndicator
                                   : props->showsVerticalScrollIndicator;
+    if (props->maintainVisibleContentPosition) {
+      object["maintainMinIndex"] =
+          props->maintainVisibleContentPosition->minIndexForVisible;
+      if (props->maintainVisibleContentPosition->autoscrollToTopThreshold) {
+        object["maintainAutoscrollThreshold"] =
+            *props->maintainVisibleContentPosition->autoscrollToTopThreshold;
+      }
+    }
     object["pagingEnabled"] = props->pagingEnabled;
     object["snapToInterval"] = props->snapToInterval;
     object["snapToStart"] = props->snapToStart;

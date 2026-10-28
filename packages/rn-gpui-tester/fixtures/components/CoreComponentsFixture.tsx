@@ -20,6 +20,9 @@ const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
   const commandScroll = useRef<ScrollViewInstance>(null);
+  const keepScroll = useRef<ScrollViewInstance>(null);
+  const [keepOffset, setKeepOffset] = useState('0');
+  const [keepItems, setKeepItems] = useState([3, 2, 1, 0]);
   const [commandOffset, setCommandOffset] = useState('0');
   const [controlled, setControlled] = useState(false);
   const [changes, setChanges] = useState(0);
@@ -588,6 +591,39 @@ export default function CoreComponentsFixture() {
           onPress={() => commandScroll.current?.scrollToEnd({ animated: true })}
         >
           to end
+        </Text>
+        <ScrollView
+          ref={keepScroll}
+          testID="scroll-keep"
+          style={styles.pager}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onScroll={event =>
+            setKeepOffset(
+              Math.round(event.nativeEvent.contentOffset.y).toString(),
+            )
+          }
+          scrollEventThrottle={16}
+        >
+          {keepItems.map(id => (
+            <View key={id} style={styles.interval}>
+              <Text>{`keep ${id}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-keep-offset">{keepOffset}</Text>
+        <Text
+          testID="scroll-keep-to"
+          onPress={() =>
+            keepScroll.current?.scrollTo({ y: 100, animated: false })
+          }
+        >
+          keep to 100
+        </Text>
+        <Text
+          testID="scroll-keep-prepend"
+          onPress={() => setKeepItems(items => [items.length, ...items])}
+        >
+          prepend
         </Text>
       </View>
     </ScrollView>

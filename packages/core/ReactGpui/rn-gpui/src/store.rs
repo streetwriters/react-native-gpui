@@ -477,6 +477,7 @@ impl ViewStore {
                 self.retain_subtree(tag, cx);
             }
         }
+        let anchors = self.capture_scroll_anchors(cx);
         for op in batch.ops.iter() {
             match op.kind {
                 MountKind::Create | MountKind::Update => {
@@ -770,6 +771,7 @@ impl ViewStore {
                 );
             }
         }
+        self.restore_scroll_anchors(anchors, cx);
         for observer in &observers {
             let tree = self.tree_view(cx);
             observer.after_batch(&tree, &handle, cx);
@@ -784,6 +786,36 @@ impl ViewStore {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+    }
+
+    /// The scroll views that keep their visible content in place, with the
+    /// item each is anchored to before a batch moves things.
+    fn capture_scroll_anchors(&self, cx: &Context<Self>) -> Vec<ScrollAnchor> {
+        self.nodes
+            .iter()
+            .filter_map(|(tag, node)| {
+                let node = node.read(cx);
+                let (min_index, threshold) = node.maintain_visible()?;
+                let (anchor, start) = node.visible_anchor(min_index, cx)?;
+                Some(ScrollAnchor {
+                    scroll: *tag,
+                    anchor,
+                    start,
+                    threshold,
+                })
+            })
+            .collect()
+    }
+
+    fn restore_scroll_anchors(&mut self, anchors: Vec<ScrollAnchor>, cx: &mut Context<Self>) {
+        let host = self.host.clone();
+        for anchor in anchors {
+            if let Some(node) = self.nodes.get(&anchor.scroll).cloned() {
+                node.update(cx, |node, cx| {
+                    node.keep_anchor(anchor.anchor, anchor.start, anchor.threshold, &host, cx);
+                });
+            }
+        }
     }
 
     /// Applies every host component report queued so far, in order.
@@ -2534,6 +2566,14 @@ impl Render for SurfaceRootView {
         }
         window_root.into_any_element()
     }
+}
+
+/// An item a scroll view keeps at the same place across a batch.
+struct ScrollAnchor {
+    scroll: i32,
+    anchor: i32,
+    start: f32,
+    threshold: Option<f32>,
 }
 
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {

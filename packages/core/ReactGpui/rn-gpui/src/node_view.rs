@@ -4552,6 +4552,86 @@ impl RNNodeView {
         self.scroll_position.get()
     }
 
+    /// `maintainVisibleContentPosition`: the first index kept in place, and the
+    /// distance from the start within which new items scroll into view.
+    pub(crate) fn maintain_visible(&self) -> Option<(usize, Option<f32>)> {
+        self.scroll.as_ref()?;
+        let min = self.extension_props.get("maintainMinIndex")?.as_i64()?;
+        let threshold = self
+            .extension_props
+            .get("maintainAutoscrollThreshold")
+            .and_then(serde_json::Value::as_f64)
+            .map(|value| value as f32);
+        Some((min.max(0) as usize, threshold))
+    }
+
+    /// The tag of the first item at or after `min_index` that reaches into the
+    /// viewport, with its start along the scroll axis.
+    pub(crate) fn visible_anchor(&self, min_index: usize, cx: &App) -> Option<(i32, f32)> {
+        let horizontal = self.scroll.as_ref()?.horizontal;
+        let offset = self.scroll_position.get();
+        let start = if horizontal { offset.x } else { offset.y };
+        let (_, content) = self.children.first()?;
+        let content = content.read(cx);
+        content
+            .children
+            .iter()
+            .skip(min_index)
+            .find_map(|(tag, child)| {
+                let frame = child.read(cx).frame;
+                let (from, length) = if horizontal {
+                    (frame.x, frame.w)
+                } else {
+                    (frame.y, frame.h)
+                };
+                (from + length > start).then_some((*tag, from))
+            })
+    }
+
+    /// The start along the scroll axis of one of this node's items.
+    pub(crate) fn item_start(&self, tag: i32, cx: &App) -> Option<f32> {
+        let horizontal = self.scroll.as_ref()?.horizontal;
+        let (_, content) = self.children.first()?;
+        let content = content.read(cx);
+        let (_, child) = content.children.iter().find(|(child, _)| *child == tag)?;
+        let frame = child.read(cx).frame;
+        Some(if horizontal { frame.x } else { frame.y })
+    }
+
+    /// Moves the offset by what an item above the viewport's start moved.
+    pub(crate) fn keep_anchor(
+        &mut self,
+        anchor: i32,
+        before: f32,
+        threshold: Option<f32>,
+        host: &crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(after) = self.item_start(anchor, cx) else {
+            return;
+        };
+        let delta = after - before;
+        if delta.abs() < 0.5 {
+            return;
+        }
+        let horizontal = self.scroll.as_ref().is_some_and(|scroll| scroll.horizontal);
+        let current = self.scroll_position.get();
+        let along = if horizontal { current.x } else { current.y };
+        let max = self.max_scroll();
+        let max = if horizontal { max.0 } else { max.1 };
+        let next = if delta > 0.0 && threshold.is_some_and(|limit| along <= limit) {
+            0.0
+        } else {
+            (along + delta).clamp(0.0, max)
+        };
+        let target = if horizontal {
+            point(next, current.y)
+        } else {
+            point(current.x, next)
+        };
+        self.set_scroll_offset(target, host, cx);
+    }
+
     /// The largest offset the scroll content allows.
     fn max_scroll(&self) -> (f32, f32) {
         let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
@@ -4599,13 +4679,23 @@ impl RNNodeView {
             _ => return false,
         };
         let target = point(target.x.clamp(0.0, max.0), target.y.clamp(0.0, max.1));
-        self.scroll_to(target, animated, cx);
+        let Some(host) = crate::store::store_from(cx).map(|store| store.read(cx).host.clone())
+        else {
+            return false;
+        };
+        self.scroll_to(target, animated, host, cx);
         true
     }
 
     /// Moves the scroll offset the way `scrollTo` does: reported through
     /// `onScroll`, and handed to Fabric once it settles.
-    pub(crate) fn scroll_to(&mut self, target: Point<f32>, animated: bool, cx: &mut Context<Self>) {
+    pub(crate) fn scroll_to(
+        &mut self,
+        target: Point<f32>,
+        animated: bool,
+        host: crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
         const STEPS: u32 = 10;
         let generation = {
             let mut gesture = self.scroll_gesture.borrow_mut();
@@ -4614,7 +4704,7 @@ impl RNNodeView {
         };
         let from = self.scroll_position.get();
         if !animated || (from.x - target.x).abs() + (from.y - target.y).abs() < 0.5 {
-            self.set_scroll_offset(target, cx);
+            self.set_scroll_offset(target, &host, cx);
             return;
         }
         let gesture = self.scroll_gesture.clone();
@@ -4633,7 +4723,7 @@ impl RNNodeView {
                     from.y + (target.y - from.y) * eased,
                 );
                 if this
-                    .update(cx, |node, cx| node.set_scroll_offset(next, cx))
+                    .update(cx, |node, cx| node.set_scroll_offset(next, &host, cx))
                     .is_err()
                 {
                     return;
@@ -4643,14 +4733,16 @@ impl RNNodeView {
         .detach();
     }
 
-    fn set_scroll_offset(&mut self, offset: Point<f32>, cx: &mut Context<Self>) {
+    fn set_scroll_offset(
+        &mut self,
+        offset: Point<f32>,
+        host: &crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
         self.scroll_position.set(offset);
         self.scroll_handle_stale = true;
         cx.notify();
-        let Some(store) = crate::store::store_from(cx) else {
-            return;
-        };
-        let host = store.read(cx).host.clone();
+        let host = host.clone();
         let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
         if let Some(event) = self.scroll.as_ref().and_then(|s| s.event.as_ref()) {
             host.dispatch_event(
