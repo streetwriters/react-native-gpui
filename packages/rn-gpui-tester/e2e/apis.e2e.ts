@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { PNG } from 'pngjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   launchApp,
@@ -53,6 +54,7 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
   const ltrA = await frameOf('i18n-box-a');
   const ltrC = await frameOf('i18n-box-c');
   expect(ltrA.x).toBeLessThan(ltrC.x);
+  expect(await inkCentre('i18n-text')).toBeLessThan(0.3);
   try {
     await app.getByTestId('i18n-force-rtl').click();
     await launch();
@@ -63,12 +65,30 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
     expect(rtlA.x).toBeGreaterThan(rtlC.x);
     // marginStart lands on the right: the gap sits between B and C's far side.
     expect(rtlB.x - (rtlC.x + rtlC.width)).toBe(40);
+    // `textAlign: 'auto'` follows the writing direction.
+    expect(await inkCentre('i18n-text')).toBeGreaterThan(0.7);
   } finally {
     await app.getByTestId('i18n-reset-rtl').click();
     await launch();
   }
   expect(await text('i18n-is-rtl')).toBe('false');
 });
+
+/** Where the dark pixels sit across a node, 0 at its left edge and 1 at its right. */
+async function inkCentre(testID: string) {
+  const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+  let total = 0;
+  let sum = 0;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      if (image.data[(y * image.width + x) * 4] < 100) {
+        total += 1;
+        sum += x;
+      }
+    }
+  }
+  return total === 0 ? -1 : sum / total / image.width;
+}
 
 async function poll(check: () => Promise<boolean>, timeout = 5000) {
   const deadline = Date.now() + timeout;

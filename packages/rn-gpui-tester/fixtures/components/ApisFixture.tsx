@@ -261,6 +261,12 @@ export default function ApisFixture() {
         >
           <Text>Reset RTL</Text>
         </Pressable>
+        <View
+          testID="i18n-text"
+          style={{ width: 200, backgroundColor: '#fff' }}
+        >
+          <Text style={{ fontSize: 20, color: '#000' }}>Hi</Text>
+        </View>
         <View style={styles.row}>
           <View testID="i18n-box-a" style={styles.box} />
           <View testID="i18n-box-b" style={styles.box} />
