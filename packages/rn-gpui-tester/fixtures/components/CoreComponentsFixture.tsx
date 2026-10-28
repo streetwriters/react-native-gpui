@@ -14,6 +14,7 @@ import {
 
 const RED_2X3 =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGP4z8DwH4QZMBgAoXkL9U3EmgcAAAAASUVORK5CYII=';
+const IMAGE_BASE = 'http://127.0.0.1:18765';
 const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
@@ -32,6 +33,7 @@ export default function CoreComponentsFixture() {
   const [hoverLog, setHoverLog] = useState('');
   const [keyPresses, setKeyPresses] = useState(0);
   const [showImages, setShowImages] = useState(false);
+  const [showStyled, setShowStyled] = useState(false);
   const [imageLog, setImageLog] = useState('');
   const [imageProgress, setImageProgress] = useState('');
   const [limited, setLimited] = useState('');
@@ -333,6 +335,49 @@ export default function CoreComponentsFixture() {
               }}
             />
             <Text testID="image-progress-log">{imageProgress}</Text>
+          </>
+        ) : null}
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Image styles</Text>
+        <Text testID="image-styled-show" onPress={() => setShowStyled(true)}>
+          show styled
+        </Text>
+        {showStyled ? (
+          <>
+            <Image
+              testID="image-tint"
+              source={{ uri: `${IMAGE_BASE}/white.png` }}
+              tintColor="#00ff00"
+              resizeMode="stretch"
+              style={styles.imageSample}
+            />
+            <Image
+              testID="image-sharp"
+              source={{ uri: `${IMAGE_BASE}/checker.png` }}
+              resizeMode="stretch"
+              style={styles.imageSample}
+            />
+            <Image
+              testID="image-blur"
+              source={{ uri: `${IMAGE_BASE}/checker.png` }}
+              blurRadius={8}
+              resizeMode="stretch"
+              style={styles.imageSample}
+            />
+            <Image
+              testID="image-repeat"
+              source={{ uri: `${IMAGE_BASE}/split.png` }}
+              resizeMode="repeat"
+              style={styles.imageSample}
+            />
+            <Image
+              testID="image-default"
+              source={{ uri: `${IMAGE_BASE}/slow.png` }}
+              defaultSource={{ uri: `${IMAGE_BASE}/green.png` }}
+              resizeMode="stretch"
+              style={styles.imageSample}
+            />
           </>
         ) : null}
       </View>
