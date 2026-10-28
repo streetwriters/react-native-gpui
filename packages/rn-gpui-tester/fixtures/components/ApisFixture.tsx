@@ -8,6 +8,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Settings,
   Share,
   StyleSheet,
   Text,
@@ -24,6 +25,7 @@ import {
 } from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const [settingsResult, setSettingsResult] = useState('none');
   const [vibrationResult, setVibrationResult] = useState('none');
   const anchorRef = useRef<React.ComponentRef<typeof View>>(null);
   const [appStates, setAppStates] = useState<string[]>([
@@ -317,6 +319,36 @@ export default function ApisFixture() {
           }}
         >
           <Text>vibrate</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Settings</Text>
+        <Text testID="settings-result">{settingsResult}</Text>
+        <Pressable
+          testID="settings-save"
+          onPress={() => {
+            let watched = 0;
+            const id = Settings.watchKeys('theme', () => {
+              watched += 1;
+            });
+            Settings.set({ theme: 'dark', count: 3 });
+            Settings.set({ theme: 'dark' });
+            Settings.clearWatch(id);
+            Settings.set({ theme: 'light' });
+            setSettingsResult(`watched:${watched}`);
+          }}
+        >
+          <Text>save</Text>
+        </Pressable>
+        <Pressable
+          testID="settings-read"
+          onPress={() =>
+            setSettingsResult(
+              `${String(Settings.get('theme'))}:${String(Settings.get('count'))}`,
+            )
+          }
+        >
+          <Text>read</Text>
         </Pressable>
       </View>
     </ScrollView>

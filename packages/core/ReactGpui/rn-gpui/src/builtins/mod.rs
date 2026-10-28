@@ -14,6 +14,7 @@ pub mod main_thread;
 pub mod modal;
 pub mod perf_monitor;
 pub mod scrollview;
+pub mod settings;
 pub mod share;
 pub mod shortcut_scope;
 pub mod shortcuts;
@@ -39,6 +40,7 @@ pub fn register() {
     modal::register();
     perf_monitor::register();
     scrollview::register();
+    settings::register();
     share::register();
     shortcut_scope::register();
     shortcuts::register();

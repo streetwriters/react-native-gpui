@@ -24,6 +24,10 @@
     },
     {
       "type": "platform",
+      "file": "src-gpui/Libraries/Settings/Settings.desktop.js"
+    },
+    {
+      "type": "platform",
       "file": "src-gpui/Libraries/Utilities/useWindowDimensions.desktop.js"
     },
     {

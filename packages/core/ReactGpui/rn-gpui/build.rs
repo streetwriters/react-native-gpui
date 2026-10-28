@@ -28,6 +28,7 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiDevMenu.ts",
         "../../src-gpui/src/private/specs/NativeGpuiShortcuts.ts",
         "../../src-gpui/src/private/specs/NativeVibration.ts",
+        "../../src-gpui/src/private/specs/NativeSettingsManager.ts",
     ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");

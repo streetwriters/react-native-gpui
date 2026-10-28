@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { PNG } from 'pngjs';
@@ -280,6 +281,33 @@ describe('Vibration', () => {
     await app.getByTestId('vibration-run').click();
     await poll(async () => (await text('vibration-result')) !== 'none');
     expect(await text('vibration-result')).toBe('ok');
+  });
+});
+
+describe('Settings', () => {
+  async function pressBottom(testID: string) {
+    const [root] = await app.query('testID', 'apis-fixture', true);
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const [button] = await app.query('testID', testID, true);
+      if (button?.visible) break;
+      await app.scroll(root.tag, 0, -300);
+    }
+    await app.getByTestId(testID).click();
+  }
+
+  test('values persist, and watchKeys fires for changes until cleared', async () => {
+    fs.rmSync(path.resolve('.local/e2e-apis-state.settings.json'), {
+      force: true,
+    });
+    await launch();
+    await pressBottom('settings-save');
+    await poll(async () => (await text('settings-result')) !== 'none');
+    // The repeated `dark` is no change; the cleared watch hears nothing more.
+    expect(await text('settings-result')).toBe('watched:1');
+    await launch();
+    await pressBottom('settings-read');
+    await poll(async () => (await text('settings-result')) !== 'none');
+    expect(await text('settings-result')).toBe('light:3');
   });
 });
 
