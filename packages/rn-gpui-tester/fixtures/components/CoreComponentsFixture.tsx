@@ -32,6 +32,8 @@ export default function CoreComponentsFixture() {
   const [modalRequests, setModalRequests] = useState(0);
   const [hoverLog, setHoverLog] = useState('');
   const [keyPresses, setKeyPresses] = useState(0);
+  const [imageSize, setImageSize] = useState('none');
+  const [imagePrefetch, setImagePrefetch] = useState('none');
   const [showImages, setShowImages] = useState(false);
   const [showStyled, setShowStyled] = useState(false);
   const [intervalOffset, setIntervalOffset] = useState('');
@@ -473,6 +475,23 @@ export default function CoreComponentsFixture() {
               }}
             />
             <Text testID="image-progress-log">{imageProgress}</Text>
+            <Text
+              testID="image-size-run"
+              onPress={() => {
+                Image.getSize(RED_2X3).then(
+                  ({ width, height }) => setImageSize(`${width}x${height}`),
+                  () => setImageSize('size-error'),
+                );
+                Image.prefetch(RED_2X3).then(
+                  ok => setImagePrefetch(String(ok)),
+                  () => setImagePrefetch('prefetch-error'),
+                );
+              }}
+            >
+              measure
+            </Text>
+            <Text testID="image-size">{imageSize}</Text>
+            <Text testID="image-prefetch">{imagePrefetch}</Text>
           </>
         ) : null}
       </View>

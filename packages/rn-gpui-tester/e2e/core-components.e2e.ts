@@ -556,6 +556,15 @@ describe('Image events', () => {
     expect(total).toBe(body.length);
     expect(loaded).toBeGreaterThan(0);
   });
+
+  test('Image.getSize and prefetch resolve for a loadable image', async () => {
+    await reveal('image-size-run');
+    await app.getByTestId('image-size-run').click();
+    await poll(async () => (await text('image-size')) !== 'none');
+    expect(await text('image-size')).toBe('2x3');
+    await poll(async () => (await text('image-prefetch')) !== 'none');
+    expect(await text('image-prefetch')).toBe('true');
+  });
 });
 
 describe('ScrollView', () => {
