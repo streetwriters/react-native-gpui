@@ -21,6 +21,7 @@ pub mod switch;
 pub(crate) mod text_select;
 pub mod textinput;
 pub mod tray;
+pub mod vibration;
 pub mod window_control;
 pub mod windows;
 
@@ -43,6 +44,7 @@ pub fn register() {
     shortcuts::register();
     switch::register();
     tray::register();
+    vibration::register();
     window_control::register();
     windows::register();
 }

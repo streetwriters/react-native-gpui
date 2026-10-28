@@ -265,6 +265,24 @@ describe.runIf(onMac)('Alert', () => {
   });
 });
 
+describe('Vibration', () => {
+  beforeAll(async () => {
+    await launch();
+  });
+
+  test('vibrate, a pattern and cancel do not throw', async () => {
+    const [root] = await app.query('testID', 'apis-fixture', true);
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const [button] = await app.query('testID', 'vibration-run', true);
+      if (button?.visible) break;
+      await app.scroll(root.tag, 0, -300);
+    }
+    await app.getByTestId('vibration-run').click();
+    await poll(async () => (await text('vibration-result')) !== 'none');
+    expect(await text('vibration-result')).toBe('ok');
+  });
+});
+
 describe('Linking', () => {
   beforeAll(async () => {
     await launch();

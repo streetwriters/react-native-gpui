@@ -11,6 +11,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  Vibration,
   View,
   findNodeHandle,
   useWindowDimensions,
@@ -23,6 +24,7 @@ import {
 } from '@react-native-gpui/core/desktop';
 
 export default function ApisFixture() {
+  const [vibrationResult, setVibrationResult] = useState('none');
   const anchorRef = useRef<React.ComponentRef<typeof View>>(null);
   const [appStates, setAppStates] = useState<string[]>([
     String(AppState.currentState),
@@ -297,6 +299,25 @@ export default function ApisFixture() {
           <View testID="i18n-box-b" style={styles.box} />
           <View testID="i18n-box-c" style={[styles.box, { marginStart: 40 }]} />
         </View>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Vibration</Text>
+        <Text testID="vibration-result">{vibrationResult}</Text>
+        <Pressable
+          testID="vibration-run"
+          onPress={() => {
+            try {
+              Vibration.vibrate();
+              Vibration.vibrate([0, 50, 50]);
+              Vibration.cancel();
+              setVibrationResult('ok');
+            } catch (error) {
+              setVibrationResult(`threw:${(error as Error).message}`);
+            }
+          }}
+        >
+          <Text>vibrate</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );
