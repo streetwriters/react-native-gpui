@@ -333,6 +333,29 @@ describe('TextInput props', () => {
   });
 });
 
+describe('Platform colors', () => {
+  async function centre(testID: string) {
+    await reveal(testID);
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    const at = ((image.height >> 1) * image.width + (image.width >> 1)) * 4;
+    return [image.data[at], image.data[at + 1], image.data[at + 2]];
+  }
+
+  test('PlatformColor and DynamicColorIOS resolve to real colours', async () => {
+    await reveal('color-scheme');
+    const dark = (await text('color-scheme')) === 'dark';
+    expect(await centre('color-platform')).toEqual(
+      dark ? [255, 69, 58] : [255, 59, 48],
+    );
+    expect(await centre('color-fallback')).toEqual(
+      dark ? [10, 132, 255] : [0, 122, 255],
+    );
+    expect(await centre('color-dynamic')).toEqual(
+      dark ? [255, 0, 255] : [0, 255, 0],
+    );
+  });
+});
+
 describe('Keyboard', () => {
   test('Keyboard.dismiss blurs the focused input', async () => {
     await app.getByTestId('input-dismiss').click();

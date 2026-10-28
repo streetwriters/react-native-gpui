@@ -27,6 +27,14 @@
       "file": "src-gpui/Libraries/Settings/Settings.desktop.js"
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/StyleSheet/PlatformColorValueTypes.desktop.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/StyleSheet/PlatformColorValueTypesIOS.desktop.js"
+    },
+    {
       "type": "derived",
       "file": "src-gpui/Libraries/Components/TextInput/TextInputState.desktop.js",
       "baseFile": "packages/react-native/Libraries/Components/TextInput/TextInputState.js",

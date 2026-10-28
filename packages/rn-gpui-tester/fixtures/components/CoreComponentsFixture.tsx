@@ -1,6 +1,9 @@
 import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Appearance,
+  DynamicColorIOS,
+  PlatformColor,
   Image,
   Keyboard,
   Modal,
@@ -634,6 +637,36 @@ export default function CoreComponentsFixture() {
           prepend
         </Text>
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Platform colors</Text>
+        <Text testID="color-scheme">{String(Appearance.getColorScheme())}</Text>
+        <View
+          testID="color-platform"
+          style={[
+            styles.swatch,
+            { backgroundColor: PlatformColor('systemRedColor') },
+          ]}
+        />
+        <View
+          testID="color-fallback"
+          style={[
+            styles.swatch,
+            { backgroundColor: PlatformColor('noSuchColorZzz', 'systemBlue') },
+          ]}
+        />
+        <View
+          testID="color-dynamic"
+          style={[
+            styles.swatch,
+            {
+              backgroundColor: DynamicColorIOS({
+                light: '#00ff00',
+                dark: '#ff00ff',
+              }),
+            },
+          ]}
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -680,6 +713,7 @@ const styles = StyleSheet.create({
   },
   selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
   layoutSample: { fontSize: 20, color: '#000', width: 140 },
+  swatch: { width: 40, height: 40 },
   imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
   pager: {
     height: 100,
