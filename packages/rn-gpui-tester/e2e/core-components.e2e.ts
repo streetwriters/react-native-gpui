@@ -23,7 +23,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(1024, 768);
+  await app.setWindowSize(1024, 1100);
   await desktopExpect(
     app.getByTestId('tester-screen-core-components'),
   ).toBeVisible();
@@ -289,6 +289,23 @@ describe('TextInput props', () => {
   });
 });
 
+describe('Pressable', () => {
+  test('hover calls onHoverIn and onHoverOut, after delayHoverIn when set', async () => {
+    await app.getByTestId('hover-target').hover();
+    await poll(async () => (await text('hover-log')).includes('in,'));
+    await app.getByTestId('hover-delayed').hover();
+    await poll(async () => (await text('hover-log')).includes('out,'));
+    await poll(async () => (await text('hover-log')).includes('delayed-in,'));
+  });
+
+  test('Space and Enter activate a focused Pressable', async () => {
+    await app.getByTestId('press-key').press('enter');
+    await poll(async () => (await text('key-presses')) === '1');
+    await app.getByTestId('press-key').press('space');
+    await poll(async () => (await text('key-presses')) === '2');
+  });
+});
+
 describe('Modal', () => {
   test('Escape asks to close and the modal stays until JS hides it', async () => {
     await app.getByTestId('modal-open').click();
@@ -323,7 +340,7 @@ describe('font scale', () => {
       disableAnimations: true,
       offscreen: true,
     });
-    await scaled.setWindowSize(1024, 768);
+    await scaled.setWindowSize(1024, 1100);
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -23,6 +24,8 @@ export default function CoreComponentsFixture() {
   const [multiScroll, setMultiScroll] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalRequests, setModalRequests] = useState(0);
+  const [hoverLog, setHoverLog] = useState('');
+  const [keyPresses, setKeyPresses] = useState(0);
   const [limited, setLimited] = useState('');
   return (
     <ScrollView
@@ -48,6 +51,30 @@ export default function CoreComponentsFixture() {
           </Text>
         </View>
       </Modal>
+      <View style={styles.fontRow}>
+        <Pressable
+          testID="hover-target"
+          onHoverIn={() => setHoverLog(previous => previous + 'in,')}
+          onHoverOut={() => setHoverLog(previous => previous + 'out,')}
+        >
+          <Text>hover</Text>
+        </Pressable>
+        <Pressable
+          testID="hover-delayed"
+          delayHoverIn={300}
+          onHoverIn={() => setHoverLog(previous => previous + 'delayed-in,')}
+        >
+          <Text>delayed</Text>
+        </Pressable>
+        <Pressable
+          testID="press-key"
+          onPress={() => setKeyPresses(count => count + 1)}
+        >
+          <Text>key</Text>
+        </Pressable>
+        <Text testID="hover-log">{hoverLog}</Text>
+        <Text testID="key-presses">{String(keyPresses)}</Text>
+      </View>
       <View style={styles.fontRow}>
         <Text testID="modal-open" onPress={() => setModalOpen(true)}>
           open modal

@@ -2912,17 +2912,18 @@ impl Render for RNNodeView {
                     if !event.is_held
                         && matches!(event.keystroke.key.as_str(), "enter" | "space")
                         && this.component != "TextInput"
-                        && matches!(
-                            this.accessibility_role(),
-                            Some(
-                                Role::Button
-                                    | Role::DefaultButton
-                                    | Role::CheckBox
-                                    | Role::RadioButton
-                                    | Role::Switch
-                                    | Role::Link
-                            )
-                        )
+                        && (this.view.accessible
+                            || matches!(
+                                this.accessibility_role(),
+                                Some(
+                                    Role::Button
+                                        | Role::DefaultButton
+                                        | Role::CheckBox
+                                        | Role::RadioButton
+                                        | Role::Switch
+                                        | Role::Link
+                                )
+                            ))
                     {
                         let activated = crate::extensions::component_renderer(&this.component)
                             .zip(
