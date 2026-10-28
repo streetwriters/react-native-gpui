@@ -138,11 +138,15 @@ const Platform = {
   },
 
   // `spec[OS]` wins, then this platform's own `spec.desktop`, then the
-  // platform-neutral `spec.native`, then `default`.
+  // platform-neutral `spec.native`, then `default`. A spec with none of those
+  // names only the mobile platforms, and a desktop app behaves like iOS, so it
+  // takes `ios` (React Native's own `pagingEnabled` is one such spec).
   select: spec => {
     if (Platform.OS in spec) return spec[Platform.OS];
     if ('desktop' in spec) return spec.desktop;
-    return 'native' in spec ? spec.native : spec.default;
+    if ('native' in spec) return spec.native;
+    if ('default' in spec) return spec.default;
+    return spec.ios;
   },
 };
 

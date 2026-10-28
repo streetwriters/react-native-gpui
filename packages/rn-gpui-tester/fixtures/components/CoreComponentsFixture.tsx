@@ -34,6 +34,9 @@ export default function CoreComponentsFixture() {
   const [keyPresses, setKeyPresses] = useState(0);
   const [showImages, setShowImages] = useState(false);
   const [showStyled, setShowStyled] = useState(false);
+  const [intervalOffset, setIntervalOffset] = useState('');
+  const [scrollLog, setScrollLog] = useState('');
+  const [scrollOffsets, setScrollOffsets] = useState('');
   const [imageLog, setImageLog] = useState('');
   const [imageProgress, setImageProgress] = useState('');
   const [limited, setLimited] = useState('');
@@ -381,6 +384,55 @@ export default function CoreComponentsFixture() {
           </>
         ) : null}
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>ScrollView</Text>
+        <ScrollView
+          testID="scroll-paged"
+          style={styles.pager}
+          pagingEnabled
+          onScrollBeginDrag={() =>
+            setScrollLog(previous => previous + 'begin,')
+          }
+          onScrollEndDrag={() => setScrollLog(previous => previous + 'end,')}
+          onMomentumScrollBegin={() =>
+            setScrollLog(previous => previous + 'mbegin,')
+          }
+          onMomentumScrollEnd={() =>
+            setScrollLog(previous => previous + 'mend,')
+          }
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setScrollOffsets(y.toString());
+          }}
+          scrollEventThrottle={16}
+        >
+          {[0, 1, 2, 3, 4, 5].map(index => (
+            <View key={index} style={styles.page}>
+              <Text>{`page ${index}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-log">{scrollLog}</Text>
+        <Text testID="scroll-offset">{scrollOffsets}</Text>
+        <ScrollView
+          testID="scroll-interval"
+          style={styles.pager}
+          snapToInterval={80}
+          decelerationRate="fast"
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setIntervalOffset(y.toString());
+          }}
+          scrollEventThrottle={16}
+        >
+          {[0, 1, 2, 3, 4].map(index => (
+            <View key={index} style={styles.interval}>
+              <Text>{`row ${index}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-interval-offset">{intervalOffset}</Text>
+      </View>
     </ScrollView>
   );
 }
@@ -427,6 +479,15 @@ const styles = StyleSheet.create({
   },
   selectSample: { fontSize: 20, color: '#000', alignSelf: 'flex-start' },
   imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
+  pager: {
+    height: 100,
+    width: 200,
+    flexGrow: 0,
+    flexShrink: 0,
+    backgroundColor: '#eef',
+  },
+  page: { height: 100, alignItems: 'center', justifyContent: 'center' },
+  interval: { height: 80, alignItems: 'center', justifyContent: 'center' },
   fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },
   fontSample: { fontSize: 16, color: '#111' },
   input: {

@@ -151,5 +151,7 @@ describe('Platform.select', () => {
     expect(platform.select({ macos: 1, desktop: 2, native: 3 })).toBe(2);
     expect(platform.select({ macos: 1, native: 3, default: 4 })).toBe(3);
     expect(platform.select({ desktop: 2, default: 4 })).toBe(2);
+    expect(platform.select({ ios: 5, android: 6 })).toBe(5);
+    expect(platform.select({ android: 6 })).toBeUndefined();
   });
 });

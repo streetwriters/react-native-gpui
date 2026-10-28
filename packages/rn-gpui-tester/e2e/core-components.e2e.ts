@@ -451,6 +451,61 @@ describe('Image events', () => {
   });
 });
 
+describe('ScrollView', () => {
+  // The scrolls above can leave the screen's own scroll view moved.
+  afterAll(async () => {
+    const [root] = await app.query(
+      'testID',
+      'tester-screen-core-components',
+      true,
+    );
+    await app.scroll(root.tag, 0, 5000);
+  });
+
+  // The window only draws when the driver asks, so each check asks first.
+  async function settled(testID: string, expected: string) {
+    let last = '';
+    try {
+      await poll(async () => {
+        await app.waitForIdle();
+        last = await text(testID);
+        return last === expected;
+      }, 8000);
+    } catch {
+      throw new Error(
+        `${testID} was ${JSON.stringify(last)}, not ${JSON.stringify(expected)}`,
+      );
+    }
+  }
+
+  test('a trackpad drag reports drag and momentum, and paging rests on a page', async () => {
+    const pager = app.getByTestId('scroll-paged');
+    const tag = (await app.query('testID', 'scroll-paged', true))[0].tag;
+    await app.scroll(tag, 0, -30, 1, 'started');
+    await app.scroll(tag, 0, -40, 1, 'moved');
+    await app.scroll(tag, 0, 0, 1, 'ended');
+    // Moved events after the fingers lift are the system's momentum.
+    await app.scroll(tag, 0, -3, 1, 'moved');
+    await app.scroll(tag, 0, -2, 1, 'moved');
+    await settled('scroll-log', 'begin,end,mbegin,mend,');
+    await settled('scroll-offset', '100');
+    await desktopExpect(pager).toBeVisible();
+  });
+
+  test('snapToInterval rests on an interval', async () => {
+    const tag = (await app.query('testID', 'scroll-interval', true))[0].tag;
+    await app.scroll(tag, 0, -75, 1, 'started');
+    await app.scroll(tag, 0, 0, 1, 'ended');
+    await settled('scroll-interval-offset', '80');
+  });
+
+  test('a mouse wheel snaps once it stops', async () => {
+    const tag = (await app.query('testID', 'scroll-paged', true))[0].tag;
+    await app.scroll(tag, 0, -60);
+    await settled('scroll-offset', '200');
+  });
+});
+
 describe('Modal', () => {
   test('Escape asks to close and the modal stays until JS hides it', async () => {
     await app.getByTestId('modal-open').click();

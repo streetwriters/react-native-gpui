@@ -940,6 +940,7 @@ export class DesktopApp {
     dx = 0,
     dy = 0,
     repeat = 1,
+    phase?: 'started' | 'moved' | 'ended',
   ): Promise<{
     drawMs: number;
     renderedViews: number;
@@ -951,6 +952,7 @@ export class DesktopApp {
       dx,
       dy,
       repeat,
+      phase,
     })) as {
       drawMs?: number;
       renderedViews?: number;

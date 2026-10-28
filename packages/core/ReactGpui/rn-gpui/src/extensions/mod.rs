@@ -574,6 +574,7 @@ pub struct ScrollSpec {
     pub indicator: bool,
     pub offset: (f32, f32),
     pub event: Option<String>,
+    pub snap: Option<crate::scroll_snap::SnapSpec>,
 }
 
 /// Paints one component name.

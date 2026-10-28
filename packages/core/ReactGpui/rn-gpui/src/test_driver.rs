@@ -523,6 +523,11 @@ async fn serve_commands(
                         let kind = method.to_owned();
                         let dx = params.get("dx").and_then(Value::as_f64).unwrap_or(0.0) as f32;
                         let dy = params.get("dy").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                        let touch_phase = match params.get("phase").and_then(Value::as_str) {
+                            Some("started") => gpui::TouchPhase::Started,
+                            Some("ended") => gpui::TouchPhase::Ended,
+                            _ => gpui::TouchPhase::Moved,
+                        };
                         let preflight = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
                             window.dispatch_event(
@@ -560,6 +565,7 @@ async fn serve_commands(
                                         gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                                             position,
                                             delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+                                            touch_phase,
                                             ..Default::default()
                                         }),
                                         app,
@@ -575,6 +581,7 @@ async fn serve_commands(
                                                             px(dx),
                                                             px(dy),
                                                         )),
+                                                        touch_phase,
                                                         ..Default::default()
                                                     },
                                                 ),

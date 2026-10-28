@@ -117,6 +117,7 @@ pub struct RNNodeView {
     pub(crate) input_scroll_x: f32,
     pub(crate) input_scroll_y: f32,
     pub(crate) text_selection: std::ops::Range<usize>,
+    pub(crate) scroll_gesture: Rc<std::cell::RefCell<ScrollGesture>>,
     pub(crate) text_selection_anchor: Option<usize>,
     pub(crate) input_content_size: (f32, f32),
     pub(crate) input_selection_anchor: Option<usize>,
@@ -901,6 +902,7 @@ impl RNNodeView {
             input_scroll_x: 0.0,
             input_scroll_y: 0.0,
             text_selection: 0..0,
+            scroll_gesture: Rc::default(),
             text_selection_anchor: None,
             input_content_size: (0.0, 0.0),
             input_selection_anchor: None,
@@ -1012,6 +1014,7 @@ impl RNNodeView {
                 previous.horizontal = next.horizontal;
                 previous.enabled = next.enabled;
                 previous.indicator = next.indicator;
+                previous.snap = next.snap;
             } else {
                 self.scroll = Some(next);
             }
@@ -3812,9 +3815,13 @@ impl Render for RNNodeView {
                     viewport: (frame.w, frame.h),
                     scale: (scale_x, scale_y),
                     event: scroll.event.clone(),
+                    horizontal: scroll.horizontal,
+                    snap: scroll.snap.clone(),
+                    gesture: self.scroll_gesture.clone(),
                 });
                 content =
-                    content.on_scroll_wheel(move |_event: &gpui::ScrollWheelEvent, window, cx| {
+                    content.on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
+                        scroller.on_wheel(event, window, cx);
                         let scroller = scroller.clone();
                         window.defer(cx, move |window, cx| scroller.sync(window, cx));
                     });
@@ -4662,6 +4669,23 @@ impl RNNodeView {
     }
 }
 
+/// What the pointer is doing to a scroll view, so drag and momentum can be
+/// reported. A trackpad sends `Started`, `Moved` and `Ended` while the fingers
+/// are down; the momentum that follows arrives as more `Moved` events with no
+/// `Started`. A mouse wheel sends `Moved` only.
+#[derive(Default)]
+pub(crate) struct ScrollGesture {
+    dragging: bool,
+    after_drag: bool,
+    momentum: bool,
+    wheel: bool,
+    generation: u64,
+    drag_start: Option<f32>,
+}
+
+/// How long without a wheel event before the scroll counts as over.
+const SCROLL_IDLE: std::time::Duration = std::time::Duration::from_millis(120);
+
 struct Scroller {
     tag: i32,
     position: Rc<Cell<Point<f32>>>,
@@ -4671,9 +4695,166 @@ struct Scroller {
     event: Option<String>,
     viewport: (f32, f32),
     scale: (f32, f32),
+    horizontal: bool,
+    snap: Option<crate::scroll_snap::SnapSpec>,
+    gesture: Rc<std::cell::RefCell<ScrollGesture>>,
 }
 
 impl Scroller {
+    fn payload(&self) -> serde_json::Value {
+        let offset = self.position.get();
+        serde_json::json!({
+            "contentOffset": {"x": offset.x, "y": offset.y},
+            "contentSize": {"width": self.content_size.0, "height": self.content_size.1},
+            "layoutMeasurement": {"width": self.viewport.0, "height": self.viewport.1},
+            "velocity": {"x": 0, "y": 0},
+            "zoomScale": 1
+        })
+    }
+
+    fn emit(&self, event: &str, cx: &App) {
+        if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+            store
+                .0
+                .read(cx)
+                .host
+                .dispatch_event(self.tag, event, &self.payload());
+        }
+    }
+
+    fn main_offset(&self) -> f32 {
+        let offset = self.position.get();
+        if self.horizontal {
+            offset.x
+        } else {
+            offset.y
+        }
+    }
+
+    /// Reports the drag and momentum a wheel event is part of, and snaps once
+    /// the scroll has come to rest.
+    fn on_wheel(
+        self: &Rc<Self>,
+        event: &gpui::ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let generation = {
+            let mut gesture = self.gesture.borrow_mut();
+            gesture.generation += 1;
+            match event.touch_phase {
+                gpui::TouchPhase::Started => {
+                    if gesture.momentum {
+                        gesture.momentum = false;
+                        self.emit("topMomentumScrollEnd", cx);
+                    }
+                    gesture.dragging = true;
+                    gesture.after_drag = false;
+                    gesture.wheel = false;
+                    gesture.drag_start = Some(self.main_offset());
+                    self.emit("topScrollBeginDrag", cx);
+                }
+                gpui::TouchPhase::Moved => {
+                    if gesture.dragging {
+                    } else if gesture.after_drag {
+                        if !gesture.momentum {
+                            gesture.momentum = true;
+                            self.emit("topMomentumScrollBegin", cx);
+                        }
+                    } else {
+                        gesture.wheel = true;
+                    }
+                }
+                _ => {
+                    if gesture.dragging {
+                        gesture.dragging = false;
+                        gesture.after_drag = true;
+                        self.emit("topScrollEndDrag", cx);
+                    }
+                }
+            }
+            gesture.generation
+        };
+        let handle = window.window_handle();
+        let scroller = self.clone();
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(SCROLL_IDLE).await;
+            let _ = cx.update_window(handle, |_, window, cx| {
+                scroller.settle(generation, window, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// The scroll went quiet: end any momentum, then snap.
+    fn settle(self: &Rc<Self>, generation: u64, window: &mut Window, cx: &mut App) {
+        let (moved_by_wheel, drag_start) = {
+            let mut gesture = self.gesture.borrow_mut();
+            if gesture.generation != generation || gesture.dragging {
+                return;
+            }
+            if gesture.momentum {
+                gesture.momentum = false;
+                self.emit("topMomentumScrollEnd", cx);
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    store.0.read(cx).frame_hook.arm(window);
+                }
+            }
+            let result = (gesture.wheel, gesture.drag_start.take());
+            gesture.after_drag = false;
+            gesture.wheel = false;
+            result
+        };
+        let _ = moved_by_wheel;
+        let Some(snap) = self.snap.as_ref() else {
+            return;
+        };
+        let (viewport, content) = if self.horizontal {
+            (self.viewport.0, self.content_size.0)
+        } else {
+            (self.viewport.1, self.content_size.1)
+        };
+        let from = self.main_offset();
+        let target = snap.target(from, drag_start, viewport, content);
+        if (target - from).abs() < 0.5 {
+            return;
+        }
+        self.animate_to(from, target, window, cx);
+    }
+
+    /// Eases the offset from `from` to `to` over a short time, reporting each
+    /// step as a scroll.
+    fn animate_to(self: &Rc<Self>, from: f32, to: f32, window: &mut Window, cx: &mut App) {
+        const STEPS: u32 = 10;
+        let handle = window.window_handle();
+        let scroller = self.clone();
+        let generation = self.gesture.borrow().generation;
+        cx.spawn(async move |cx| {
+            for step in 1..=STEPS {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(15))
+                    .await;
+                if scroller.gesture.borrow().generation != generation {
+                    return;
+                }
+                let t = step as f32 / STEPS as f32;
+                let eased = 1.0 - (1.0 - t) * (1.0 - t);
+                let value = from + (to - from) * eased;
+                let _ = cx.update_window(handle, |_, window, cx| {
+                    let current = scroller.handle.offset();
+                    let next = if scroller.horizontal {
+                        point(px(-value * scroller.scale.0), current.y)
+                    } else {
+                        point(current.x, px(-value * scroller.scale.1))
+                    };
+                    scroller.handle.set_offset(next);
+                    scroller.sync(window, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
     fn sync(&self, window: &mut Window, cx: &mut App) {
         let scrolled = self.handle.offset();
         let offset = point(

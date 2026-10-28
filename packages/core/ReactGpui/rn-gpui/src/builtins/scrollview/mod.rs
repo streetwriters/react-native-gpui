@@ -37,6 +37,7 @@ impl ComponentRenderer for ScrollViewRenderer {
                 .unwrap_or(true),
             offset: (number("offsetX"), number("offsetY")),
             event: Some(SCROLL_EVENT.to_string()),
+            snap: crate::scroll_snap::SnapSpec::from_props(props),
         })
     }
 }

@@ -25,6 +25,27 @@ std::string scrollViewPropsJson(
     enabled = props->scrollEnabled;
     indicator = props->horizontal ? props->showsHorizontalScrollIndicator
                                   : props->showsVerticalScrollIndicator;
+    object["pagingEnabled"] = props->pagingEnabled;
+    object["snapToInterval"] = props->snapToInterval;
+    object["snapToStart"] = props->snapToStart;
+    object["snapToEnd"] = props->snapToEnd;
+    object["disableIntervalMomentum"] = props->disableIntervalMomentum;
+    folly::dynamic offsets = folly::dynamic::array;
+    for (const auto offset : props->snapToOffsets) {
+      offsets.push_back(offset);
+    }
+    object["snapToOffsets"] = offsets;
+    switch (props->snapToAlignment) {
+      case facebook::react::ScrollViewSnapToAlignment::Center:
+        object["snapToAlignment"] = "center";
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::End:
+        object["snapToAlignment"] = "end";
+        break;
+      default:
+        object["snapToAlignment"] = "start";
+        break;
+    }
   }
   object["horizontal"] = horizontal;
   object["enabled"] = enabled;
