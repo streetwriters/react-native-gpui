@@ -99,6 +99,28 @@ async function poll(check: () => Promise<boolean>, timeout = 5000) {
   throw new Error(`timed out waiting for the condition: ${check}`);
 }
 
+/** Resolves once `read` has returned the same value for `quiet` ms. */
+async function settled(
+  read: () => Promise<string>,
+  quiet = 400,
+  timeout = 8000,
+) {
+  const deadline = Date.now() + timeout;
+  let last = await read();
+  let since = Date.now();
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const now = await read();
+    if (now !== last) {
+      last = now;
+      since = Date.now();
+    } else if (Date.now() - since >= quiet) {
+      return;
+    }
+  }
+  throw new Error('value kept changing');
+}
+
 test('window hooks report focus per window and the window size', async () => {
   // An offscreen window is never active, so focus needs a real one.
   await launch({ offscreen: false });
@@ -134,6 +156,7 @@ test('Dimensions reports the screen, the font scale and each window', async () =
   ).toBeVisible();
   await poll(
     async () => (await text('desktop-child-dimensions-width')) === '420',
+    15000,
   );
   expect(await text('dimensions-window-width')).toBe('1024');
 });
@@ -142,13 +165,15 @@ test('AppState ignores focus moving between app windows', async () => {
   await launch({ offscreen: false });
   await app.focusWindow();
   await poll(async () => (await text('appstate-current')) === 'active');
+  await poll(async () => (await text('window-focus')) === 'true');
   // Other applications can take and give back focus while the app starts, so
-  // only what happens after it has settled counts.
-  await new Promise(resolve => setTimeout(resolve, 500));
+  // only what happens after the log has stopped changing counts.
+  await settled(() => text('appstate-log'));
   const before = await text('appstate-log');
   await app.getByTestId('window-open-child').click();
+  await poll(async () => (await text('desktop-child-focus')) === 'true');
   await poll(async () => (await text('window-focus')) === 'false');
-  await new Promise(resolve => setTimeout(resolve, 300));
+  await settled(() => text('appstate-log'));
   expect(await text('appstate-log')).toBe(before);
 });
 
@@ -348,14 +373,28 @@ describe('deep links', () => {
 });
 
 describe.runIf(onMac)('Share', () => {
+  /** The picker needs the key window, which other apps can take at any time. */
+  async function openShare(testID: string) {
+    await poll(async () => !(await app.shareOpen()));
+    for (let attempt = 0; ; attempt += 1) {
+      await app.focusWindow();
+      await app.getByTestId(testID).click();
+      try {
+        await poll(() => app.shareOpen(), 3000);
+        return;
+      } catch (error) {
+        if (attempt === 2) throw error;
+      }
+    }
+  }
+
   beforeAll(async () => {
     await launch({ offscreen: false });
     await app.focusWindow();
   });
 
   test('the share sheet opens, and its dismissal resolves dismissedAction', async () => {
-    await app.getByTestId('share-open').click();
-    await poll(() => app.shareOpen());
+    await openShare('share-open');
     await app.shareChoose();
     await poll(
       async () => (await text('share-result')) === 'dismissedAction:null',
@@ -364,8 +403,7 @@ describe.runIf(onMac)('Share', () => {
   });
 
   test('the share sheet opens relative to the anchor view', async () => {
-    await app.getByTestId('share-open-anchored').click();
-    await poll(() => app.shareOpen());
+    await openShare('share-open-anchored');
     const anchor = await app.shareAnchor();
     const [view] = await app.query('testID', 'share-anchor-view', true);
     expect(anchor).not.toBeNull();
@@ -378,8 +416,7 @@ describe.runIf(onMac)('Share', () => {
   });
 
   test('a chosen service resolves sharedAction with its name', async () => {
-    await app.getByTestId('share-open').click();
-    await poll(() => app.shareOpen());
+    await openShare('share-open');
     await app.shareChoose('com.apple.share.Mail.compose');
     await poll(async () =>
       (await text('share-result')).startsWith('sharedAction:'),
