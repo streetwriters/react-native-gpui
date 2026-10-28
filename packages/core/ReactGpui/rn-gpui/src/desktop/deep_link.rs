@@ -4,6 +4,7 @@
 use crate::host::Host;
 use serde_json::json;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(not(unix))]
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,10 +62,32 @@ pub enum Instance {
     Forwarded,
 }
 
+#[cfg(not(unix))]
 fn lock_path(dir: &Path, app_id: &str) -> std::path::PathBuf {
     dir.join(format!("{}-instance.json", super::app_dir::safe_id(app_id)))
 }
 
+/// Where the running copy listens: in the user's own runtime directory when
+/// there is one (`XDG_RUNTIME_DIR` on Linux, the per-user `TMPDIR` on macOS),
+/// whose permissions already keep other users out, else beside the app's data.
+/// A socket path is limited to about a hundred bytes, so the name is a hash.
+#[cfg(unix)]
+fn socket_path(dir: &Path, app_id: &str) -> std::path::PathBuf {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    app_id.hash(&mut hasher);
+    let runtime = ["XDG_RUNTIME_DIR", "TMPDIR"]
+        .iter()
+        .filter_map(|name| std::env::var_os(name))
+        .map(std::path::PathBuf::from)
+        .find(|path| path.is_dir());
+    runtime.unwrap_or_else(|| dir.to_path_buf()).join(format!(
+        "rngpui-{:012x}.sock",
+        hasher.finish() & 0xffff_ffff_ffff
+    ))
+}
+
+#[cfg(not(unix))]
 fn token() -> String {
     use std::hash::{BuildHasher, Hasher};
     let state = std::collections::hash_map::RandomState::new();
@@ -80,7 +103,23 @@ fn token() -> String {
     format!("{first:016x}{:016x}", hasher.finish())
 }
 
-fn forward(path: &Path, args: &[String]) -> bool {
+#[cfg(unix)]
+fn forward(dir: &Path, app_id: &str, args: &[String]) -> bool {
+    let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket_path(dir, app_id)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let message = json!({ "args": args }).to_string();
+    if writeln!(stream, "{message}").is_err() {
+        return false;
+    }
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).is_ok() && reply.trim() == "ok"
+}
+
+#[cfg(not(unix))]
+fn forward(dir: &Path, app_id: &str, args: &[String]) -> bool {
+    let path = lock_path(dir, app_id);
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
     };
@@ -108,10 +147,46 @@ fn forward(path: &Path, args: &[String]) -> bool {
 
 /// Becomes the running instance, or hands `args` to the one that is.
 ///
-/// The first process listens on a loopback port and records the port and a
-/// secret in a file only the user can read. A later launch connects, sends its
-/// arguments with the secret and exits. A lock file whose process is gone fails
-/// to connect, and the new process takes over.
+/// The first process listens on a Unix socket in the user's runtime directory,
+/// which only that user can reach. Where there are no Unix sockets it listens on
+/// a loopback port and records the port and a secret in a file only the user can
+/// read. A later launch connects, sends its arguments and exits. A socket or lock
+/// file whose process is gone fails to connect, and the new process takes over.
+#[cfg(unix)]
+pub fn acquire(
+    dir: &Path,
+    app_id: &str,
+    args: &[String],
+    on_args: impl Fn(Vec<String>) + Send + 'static,
+) -> Instance {
+    use std::os::unix::fs::PermissionsExt;
+    if forward(dir, app_id, args) {
+        return Instance::Forwarded;
+    }
+    let path = socket_path(dir, app_id);
+    if std::fs::create_dir_all(dir).is_err() {
+        return Instance::Primary;
+    }
+    let _ = std::fs::remove_file(&path);
+    let Ok(listener) = std::os::unix::net::UnixListener::bind(&path) else {
+        return Instance::Primary;
+    };
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    let spawned = std::thread::Builder::new()
+        .name("single-instance".into())
+        .spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                serve(&stream, &stream, None, &on_args);
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("single instance listener not started: {error}");
+    }
+    Instance::Primary
+}
+
+#[cfg(not(unix))]
 pub fn acquire(
     dir: &Path,
     app_id: &str,
@@ -119,7 +194,7 @@ pub fn acquire(
     on_args: impl Fn(Vec<String>) + Send + 'static,
 ) -> Instance {
     let path = lock_path(dir, app_id);
-    if forward(&path, args) {
+    if forward(dir, app_id, args) {
         return Instance::Forwarded;
     }
     let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) else {
@@ -143,7 +218,8 @@ pub fn acquire(
         .name("single-instance".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
-                serve(stream, &secret, &on_args);
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                serve(&stream, &stream, Some(&secret), &on_args);
             }
         });
     if let Err(error) = spawned {
@@ -152,6 +228,7 @@ pub fn acquire(
     Instance::Primary
 }
 
+#[cfg(not(unix))]
 fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -170,18 +247,24 @@ fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
     }
 }
 
-fn serve(stream: TcpStream, secret: &str, on_args: &impl Fn(Vec<String>)) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+fn serve(
+    reader: impl Read,
+    mut writer: impl Write,
+    secret: Option<&str>,
+    on_args: &impl Fn(Vec<String>),
+) {
     let mut line = String::new();
-    let mut reader = BufReader::new(&stream).take(64 * 1024);
+    let mut reader = BufReader::new(reader).take(64 * 1024);
     if reader.read_line(&mut line).is_err() {
         return;
     }
     let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
         return;
     };
-    if message.get("token").and_then(serde_json::Value::as_str) != Some(secret) {
-        return;
+    if let Some(secret) = secret {
+        if message.get("token").and_then(serde_json::Value::as_str) != Some(secret) {
+            return;
+        }
     }
     let args = message
         .get("args")
@@ -193,8 +276,7 @@ fn serve(stream: TcpStream, secret: &str, on_args: &impl Fn(Vec<String>)) {
         })
         .unwrap_or_default();
     on_args(args);
-    let mut stream = &stream;
-    let _ = writeln!(stream, "ok");
+    let _ = writeln!(writer, "ok");
 }
 
 use std::io::Read;
@@ -240,9 +322,44 @@ mod tests {
             url_in_args(&received, &schemes()).as_deref(),
             Some("myapp://hello")
         );
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(socket_path(&dir, "com.example.test"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_socket_is_taken_over() {
+        let dir = std::env::temp_dir().join(format!("rngpui-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A socket file nothing listens on is what a crashed copy leaves behind.
+        let path = socket_path(&dir, "com.example.stale");
+        let _ = std::fs::remove_file(&path);
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        let instance = acquire(&dir, "com.example.stale", &[], |_| {});
+        assert!(matches!(instance, Instance::Primary));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_socket_is_reachable_only_by_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("rngpui-mode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        acquire(&dir, "com.example.mode", &[], |_| {});
+        let mode = std::fs::metadata(socket_path(&dir, "com.example.mode"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0);
+        let _ = std::fs::remove_file(socket_path(&dir, "com.example.mode"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(unix))]
     #[test]
     fn a_stale_lock_is_taken_over() {
         let dir = std::env::temp_dir().join(format!("rngpui-stale-{}", std::process::id()));
@@ -259,6 +376,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(not(unix))]
     #[test]
     fn a_wrong_secret_is_ignored() {
         let dir = std::env::temp_dir().join(format!("rngpui-secret-{}", std::process::id()));

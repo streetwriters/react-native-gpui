@@ -173,7 +173,7 @@ mod tests {
             "disableIntervalMomentum": true
         }))
         .unwrap();
-        assert_eq!(spec.target(450.0, Some(100.0), 100.0, 1000.0), 200.0);
-        assert_eq!(spec.target(450.0, None, 100.0, 1000.0), 500.0);
+        assert_eq!(spec.target(460.0, Some(100.0), 100.0, 1000.0), 200.0);
+        assert_eq!(spec.target(460.0, None, 100.0, 1000.0), 500.0);
     }
 }
