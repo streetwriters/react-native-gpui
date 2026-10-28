@@ -2250,6 +2250,8 @@ impl RNNodeView {
                     letter_spacing: 0.0,
                     underline: false,
                     strikethrough: false,
+                    text_transform: 0,
+                    font_variant: 0,
                 });
         } else {
             paragraph.fragments[0].text.clone_from(visible);

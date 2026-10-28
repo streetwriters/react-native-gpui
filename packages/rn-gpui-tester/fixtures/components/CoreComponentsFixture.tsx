@@ -114,6 +114,55 @@ export default function CoreComponentsFixture() {
         </Text>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>ScrollView</Text>
+        <ScrollView
+          testID="scroll-paged"
+          style={styles.pager}
+          pagingEnabled
+          onScrollBeginDrag={() =>
+            setScrollLog(previous => previous + 'begin,')
+          }
+          onScrollEndDrag={() => setScrollLog(previous => previous + 'end,')}
+          onMomentumScrollBegin={() =>
+            setScrollLog(previous => previous + 'mbegin,')
+          }
+          onMomentumScrollEnd={() =>
+            setScrollLog(previous => previous + 'mend,')
+          }
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setScrollOffsets(y.toString());
+          }}
+          scrollEventThrottle={16}
+        >
+          {[0, 1, 2, 3, 4, 5].map(index => (
+            <View key={index} style={styles.page}>
+              <Text>{`page ${index}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-log">{scrollLog}</Text>
+        <Text testID="scroll-offset">{scrollOffsets}</Text>
+        <ScrollView
+          testID="scroll-interval"
+          style={styles.pager}
+          snapToInterval={80}
+          decelerationRate="fast"
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setIntervalOffset(y.toString());
+          }}
+          scrollEventThrottle={16}
+        >
+          {[0, 1, 2, 3, 4].map(index => (
+            <View key={index} style={styles.interval}>
+              <Text>{`row ${index}`}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <Text testID="scroll-interval-offset">{intervalOffset}</Text>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>Switch</Text>
         <Switch
           testID="switch-controlled"
@@ -284,12 +333,37 @@ export default function CoreComponentsFixture() {
         >
           Shadow
         </Text>
-        <Text testID="select-text" selectable style={styles.selectSample}>
-          alpha beta gamma
+        <Text
+          testID="shadow-soft"
+          style={[
+            styles.shadowSample,
+            {
+              textShadowColor: 'rgba(0, 0, 0, 0.75)',
+              textShadowOffset: { width: 2, height: 2 },
+              textShadowRadius: 4,
+            },
+          ]}
+        >
+          Shadow
         </Text>
-        <Text testID="select-text-off" style={styles.selectSample}>
-          alpha beta gamma
-        </Text>
+        <View
+          testID="box-shadow-wrap"
+          style={{
+            padding: 16,
+            backgroundColor: '#fff',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <View
+            testID="box-shadow"
+            style={{
+              width: 60,
+              height: 30,
+              backgroundColor: '#fff',
+              boxShadow: '4px 4px 6px rgba(0, 0, 0, 0.6)',
+            }}
+          />
+        </View>
         <Text testID="fit-off" numberOfLines={1} style={styles.fitSample}>
           Long text that cannot fit
         </Text>
@@ -301,6 +375,33 @@ export default function CoreComponentsFixture() {
           style={styles.fitSample}
         >
           Long text that cannot fit
+        </Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Text 2</Text>
+        <Text testID="transform-plain" style={styles.selectSample}>
+          abab
+        </Text>
+        <Text
+          testID="transform-upper"
+          style={[styles.selectSample, { textTransform: 'uppercase' }]}
+        >
+          abab
+        </Text>
+        <Text testID="digits-plain" style={styles.selectSample}>
+          1111
+        </Text>
+        <Text
+          testID="digits-tabular"
+          style={[styles.selectSample, { fontVariant: ['tabular-nums'] }]}
+        >
+          1111
+        </Text>
+        <Text testID="select-text" selectable style={styles.selectSample}>
+          alpha beta gamma
+        </Text>
+        <Text testID="select-text-off" style={styles.selectSample}>
+          alpha beta gamma
         </Text>
       </View>
       <View style={styles.section}>
@@ -383,55 +484,6 @@ export default function CoreComponentsFixture() {
             />
           </>
         ) : null}
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.heading}>ScrollView</Text>
-        <ScrollView
-          testID="scroll-paged"
-          style={styles.pager}
-          pagingEnabled
-          onScrollBeginDrag={() =>
-            setScrollLog(previous => previous + 'begin,')
-          }
-          onScrollEndDrag={() => setScrollLog(previous => previous + 'end,')}
-          onMomentumScrollBegin={() =>
-            setScrollLog(previous => previous + 'mbegin,')
-          }
-          onMomentumScrollEnd={() =>
-            setScrollLog(previous => previous + 'mend,')
-          }
-          onScroll={event => {
-            const y = Math.round(event.nativeEvent.contentOffset.y);
-            setScrollOffsets(y.toString());
-          }}
-          scrollEventThrottle={16}
-        >
-          {[0, 1, 2, 3, 4, 5].map(index => (
-            <View key={index} style={styles.page}>
-              <Text>{`page ${index}`}</Text>
-            </View>
-          ))}
-        </ScrollView>
-        <Text testID="scroll-log">{scrollLog}</Text>
-        <Text testID="scroll-offset">{scrollOffsets}</Text>
-        <ScrollView
-          testID="scroll-interval"
-          style={styles.pager}
-          snapToInterval={80}
-          decelerationRate="fast"
-          onScroll={event => {
-            const y = Math.round(event.nativeEvent.contentOffset.y);
-            setIntervalOffset(y.toString());
-          }}
-          scrollEventThrottle={16}
-        >
-          {[0, 1, 2, 3, 4].map(index => (
-            <View key={index} style={styles.interval}>
-              <Text>{`row ${index}`}</Text>
-            </View>
-          ))}
-        </ScrollView>
-        <Text testID="scroll-interval-offset">{intervalOffset}</Text>
       </View>
     </ScrollView>
   );

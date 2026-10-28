@@ -29,6 +29,8 @@ struct FragmentKey {
     letter_spacing: u32,
     underline: bool,
     strikethrough: bool,
+    text_transform: u8,
+    font_variant: u32,
 }
 
 impl From<&TextFragmentFlat> for FragmentKey {
@@ -44,6 +46,8 @@ impl From<&TextFragmentFlat> for FragmentKey {
             letter_spacing: fragment.letter_spacing.to_bits(),
             underline: fragment.underline,
             strikethrough: fragment.strikethrough,
+            text_transform: fragment.text_transform,
+            font_variant: fragment.font_variant,
         }
     }
 }
@@ -354,6 +358,52 @@ fn font_size_of(size: f32) -> f32 {
     }
 }
 
+/// The OpenType features `fontVariant` asks for.
+fn variant_features(variant: u32) -> Vec<(String, u32)> {
+    const TAGS: [(u32, &str); 5] = [
+        (1 << 1, "smcp"),
+        (1 << 2, "onum"),
+        (1 << 3, "lnum"),
+        (1 << 4, "tnum"),
+        (1 << 5, "pnum"),
+    ];
+    let mut features: Vec<(String, u32)> = TAGS
+        .iter()
+        .filter(|(bit, _)| variant & bit != 0)
+        .map(|(_, tag)| ((*tag).to_owned(), 1))
+        .collect();
+    // `stylistic-one` to `stylistic-twenty` are `ss01` to `ss20`.
+    for set in 1..=20u32 {
+        if variant & (1 << (5 + set)) != 0 {
+            features.push((format!("ss{set:02}"), 1));
+        }
+    }
+    features
+}
+
+/// The fragment's text with its `textTransform` applied.
+pub(crate) fn fragment_text(fragment: &TextFragmentFlat) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    match fragment.text_transform {
+        1 => Cow::Owned(fragment.text.to_uppercase()),
+        2 => Cow::Owned(fragment.text.to_lowercase()),
+        3 => {
+            let mut out = String::with_capacity(fragment.text.len());
+            let mut word_start = true;
+            for ch in fragment.text.chars() {
+                if word_start && ch.is_alphabetic() {
+                    out.extend(ch.to_uppercase());
+                } else {
+                    out.push(ch);
+                }
+                word_start = ch.is_whitespace();
+            }
+            Cow::Owned(out)
+        }
+        _ => Cow::Borrowed(fragment.text.as_str()),
+    }
+}
+
 fn font_of(fragment: &TextFragmentFlat) -> Font {
     let family = font_aliases()
         .read()
@@ -370,6 +420,10 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
     font.weight = FontWeight(f32::from(fragment.font_weight));
     if fragment.italic {
         font.style = FontStyle::Italic;
+    }
+    if fragment.font_variant != 0 {
+        font.features =
+            gpui::FontFeatures(std::sync::Arc::new(variant_features(fragment.font_variant)));
     }
     font
 }
@@ -444,8 +498,9 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
         } else {
             fragment.color
         });
+        let shown = fragment_text(fragment);
         runs.push(TextRun {
-            len: fragment.text.len(),
+            len: shown.len(),
             font: font_of(fragment),
             color,
             background_color: None,
@@ -459,7 +514,7 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
                 color: None,
             }),
         });
-        text.push_str(&fragment.text);
+        text.push_str(&shown);
     }
     (text, runs)
 }
@@ -677,53 +732,31 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         height,
         shaped.lines.len()
     );
-    let shadow = (paragraph.shadow_color >> 24 != 0).then(|| {
-        let mut flat = paragraph.clone();
-        let alpha = (paragraph.shadow_color >> 24) as f32 / 255.0;
-        let rgb = paragraph.shadow_color & 0x00FF_FFFF;
-        let samples: &[(f32, f32)] = if paragraph.shadow_radius > 0.0 {
-            &[
-                (0.0, 0.0),
-                (1.0, 0.0),
-                (-1.0, 0.0),
-                (0.0, 1.0),
-                (0.0, -1.0),
-                (0.7, 0.7),
-                (-0.7, 0.7),
-                (0.7, -0.7),
-                (-0.7, -0.7),
-            ]
-        } else {
-            &[(0.0, 0.0)]
-        };
-        let sample_alpha = (alpha * if samples.len() > 1 { 0.3 } else { 1.0 }).min(1.0);
-        let color = (((sample_alpha * 255.0) as u32) << 24) | rgb;
-        for fragment in &mut flat.fragments {
-            fragment.color = color;
-        }
-        let shaped = TEXT_SERVICE
-            .get()
-            .map(|service| service.shape(&flat, width));
-        (
-            shaped,
-            samples.to_vec(),
-            paragraph.shadow_radius * 0.5,
-            (paragraph.shadow_dx, paragraph.shadow_dy),
-        )
-    });
+    let shadow = (paragraph.shadow_color >> 24 != 0).then(|| shadow_layers(paragraph, width));
+    let reach =
+        paragraph.shadow_radius.max(0.0) + paragraph.shadow_dx.abs().max(paragraph.shadow_dy.abs());
     canvas(
         |_, _, _| (),
         move |bounds, (), window, cx| {
-            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
-                if let Some((Some(shadow_shaped), samples, spread, (dx, dy))) = shadow.as_ref() {
-                    for (sx, sy) in samples {
-                        let origin = point(
-                            bounds.origin.x + px(dx + sx * spread),
-                            bounds.origin.y + px(dy + sy * spread),
-                        );
-                        paint_lines(shadow_shaped, origin, bounds, window, cx);
+            if let Some(layers) = shadow.as_ref() {
+                let wide = gpui::Bounds {
+                    origin: bounds.origin - point(px(reach), px(reach)),
+                    size: gpui::size(
+                        bounds.size.width + px(reach * 2.0),
+                        bounds.size.height + px(reach * 2.0),
+                    ),
+                };
+                window.with_content_mask(Some(ContentMask::new(wide)), |window| {
+                    for layer in layers {
+                        for (dx, dy) in &layer.offsets {
+                            let origin = bounds.origin
+                                + point(px(paragraph_dx(layer, *dx)), px(paragraph_dy(layer, *dy)));
+                            paint_lines(&layer.shaped, origin, wide, window, cx);
+                        }
                     }
-                }
+                });
+            }
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 paint_lines(&shaped, bounds.origin, bounds, window, cx);
             });
         },
@@ -734,11 +767,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
 
 /// The paragraph's text as the shaper sees it, fragments joined.
 pub(crate) fn paragraph_text(paragraph: &ParagraphFlat) -> String {
-    paragraph
-        .fragments
-        .iter()
-        .map(|fragment| fragment.text.as_str())
-        .collect()
+    paragraph.fragments.iter().map(fragment_text).collect()
 }
 
 /// The byte offset in the paragraph's text closest to a point in its box.
@@ -814,6 +843,78 @@ pub(crate) fn text_range_rects(
         offset += line.len() + 1;
     }
     rects
+}
+
+/// One alpha of a blurred shadow: the shaped text in that alpha and the offsets
+/// it is painted at.
+struct ShadowLayer {
+    shaped: Arc<ShapedParagraph>,
+    offsets: Vec<(f32, f32)>,
+    base: (f32, f32),
+}
+
+fn paragraph_dx(layer: &ShadowLayer, offset: f32) -> f32 {
+    layer.base.0 + offset
+}
+
+fn paragraph_dy(layer: &ShadowLayer, offset: f32) -> f32 {
+    layer.base.1 + offset
+}
+
+/// A Gaussian-weighted blur of the text's shadow, drawn as the text repeated on
+/// rings around the shadow's position. Each ring is painted in the alpha that,
+/// composited over every sample, leaves the shadow's own alpha where all of
+/// them overlap, so a thick glyph keeps its colour and a thin one fades out.
+fn shadow_layers(paragraph: &ParagraphFlat, width: f32) -> Vec<ShadowLayer> {
+    let Some(service) = TEXT_SERVICE.get() else {
+        return Vec::new();
+    };
+    let alpha = ((paragraph.shadow_color >> 24) as f32 / 255.0).min(0.999);
+    let rgb = paragraph.shadow_color & 0x00FF_FFFF;
+    let radius = paragraph.shadow_radius.max(0.0);
+    let base = (paragraph.shadow_dx, paragraph.shadow_dy);
+    // (distance from the centre, number of samples on that ring)
+    let mut rings: Vec<(f32, usize)> = vec![(0.0, 1)];
+    if radius > 0.0 {
+        const RINGS: usize = 4;
+        for ring in 1..=RINGS {
+            rings.push((radius * ring as f32 / RINGS as f32, 6 * ring));
+        }
+    }
+    let sigma = (radius / 2.0).max(0.001);
+    let weight = |distance: f32| (-(distance * distance) / (2.0 * sigma * sigma)).exp();
+    let total: f32 = rings
+        .iter()
+        .map(|(distance, count)| weight(*distance) * *count as f32)
+        .sum();
+    rings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (distance, count))| {
+            let ring_alpha = if radius > 0.0 {
+                1.0 - (1.0 - alpha).powf(weight(*distance) / total)
+            } else {
+                alpha
+            };
+            let color = (((ring_alpha * 255.0).round().max(1.0) as u32) << 24) | rgb;
+            let mut flat = paragraph.clone();
+            for fragment in &mut flat.fragments {
+                fragment.color = color;
+            }
+            let offsets = (0..*count)
+                .map(|point_index| {
+                    let angle = std::f32::consts::TAU * point_index as f32 / *count as f32
+                        + index as f32 * 0.5;
+                    (distance * angle.cos(), distance * angle.sin())
+                })
+                .collect();
+            Some(ShadowLayer {
+                shaped: service.shape(&flat, width),
+                offsets,
+                base,
+            })
+        })
+        .collect()
 }
 
 fn paint_lines(

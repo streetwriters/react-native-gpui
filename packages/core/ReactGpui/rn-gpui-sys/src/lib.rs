@@ -121,6 +121,8 @@ pub mod ffi {
         pub letter_spacing: f32,
         pub underline: bool,
         pub strikethrough: bool,
+        pub text_transform: u8, // 0 none, 1 uppercase, 2 lowercase, 3 capitalize
+        pub font_variant: u32,  // RN's FontVariant bitmask
     }
 
     #[derive(Clone, Debug, Default)]

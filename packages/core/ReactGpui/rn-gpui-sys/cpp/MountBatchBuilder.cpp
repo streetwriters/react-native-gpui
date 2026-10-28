@@ -82,6 +82,24 @@ TextFragmentFlat flattenTextFragment(
   }
   out.font_size =
       (std::isnan(attributes.fontSize) ? 14.f : attributes.fontSize) * scale;
+  if (attributes.textTransform) {
+    switch (*attributes.textTransform) {
+      case TextTransform::Uppercase:
+        out.text_transform = 1;
+        break;
+      case TextTransform::Lowercase:
+        out.text_transform = 2;
+        break;
+      case TextTransform::Capitalize:
+        out.text_transform = 3;
+        break;
+      default:
+        break;
+    }
+  }
+  out.font_variant = attributes.fontVariant
+      ? static_cast<uint32_t>(*attributes.fontVariant)
+      : 0;
   out.font_weight = attributes.fontWeight
       ? static_cast<uint16_t>(*attributes.fontWeight)
       : 400;

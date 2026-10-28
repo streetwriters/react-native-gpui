@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import {
   launchApp,
   expect as desktopExpect,
@@ -24,7 +24,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(1024, 1100);
+  await app.setWindowSize(1024, 1500);
   await desktopExpect(
     app.getByTestId('tester-screen-core-components'),
   ).toBeVisible();
@@ -38,6 +38,40 @@ async function poll(check: () => Promise<boolean>, timeout = 5000) {
   }
   throw new Error(`timed out waiting for the condition: ${check}`);
 }
+
+// The screen is taller than the window: scroll its own scroll view until the
+// element can be reached.
+async function reveal(testID: string) {
+  const [root] = await app.query(
+    'testID',
+    'tester-screen-core-components',
+    true,
+  );
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const [match] = await app.query('testID', testID, true);
+    if (match?.visible) return;
+    await app.scroll(root.tag, 0, -300);
+  }
+  throw new Error(`${testID} could not be scrolled into view`);
+}
+
+async function scrollToTop() {
+  const [root] = await app.query(
+    'testID',
+    'tester-screen-core-components',
+    true,
+  );
+  await app.scroll(root.tag, 0, 5000);
+}
+
+afterEach(async () => {
+  // Keep every test starting from the top of the screen.
+  try {
+    await scrollToTop();
+  } catch {
+    // The app may have been closed by the test.
+  }
+});
 
 async function text(testID: string) {
   return (await app.getByTestId(testID).textContent()) ?? '';
@@ -169,6 +203,7 @@ describe('TextInput props', () => {
       offscreen: false,
     });
     await app.focusWindow();
+    await app.setWindowSize(1024, 1500);
     expect(await text('input-selection')).toBe('none');
     await app.getByTestId('input-select-on-focus').click();
     await poll(async () => (await text('input-selection')) === '0-9');
@@ -330,6 +365,18 @@ describe('Text', () => {
     );
     expect(plain.count).toBe(0);
     expect(shadow.count).toBeGreaterThan(50);
+
+    // A blurred shadow fades out through many grey levels instead of stacking
+    // a few copies of the text.
+    const soft = PNG.sync.read(
+      await app.getByTestId('shadow-soft').screenshot(),
+    );
+    const levels = new Set<number>();
+    for (let index = 0; index < soft.data.length; index += 4) {
+      const grey = soft.data[index];
+      if (grey > 20 && grey < 235) levels.add(grey);
+    }
+    expect(levels.size).toBeGreaterThan(40);
   });
 
   async function box(testID: string) {
@@ -338,6 +385,7 @@ describe('Text', () => {
   }
 
   test('selectable text selects by drag, word and line, and copies', async () => {
+    await reveal('select-text');
     const frame = await box('select-text');
     const y = frame.y + frame.height / 2;
     await app.setClipboardText('');
@@ -359,11 +407,22 @@ describe('Text', () => {
   });
 
   test('text without selectable offers no selection', async () => {
+    await reveal('select-text-off');
     await app.setClipboardText('');
     await app.getByTestId('select-text-off').doubleClick();
     await app.getByTestId('select-text-off').rightClick();
     await app.waitForIdle();
     expect((await app.clipboardText()) ?? '').toBe('');
+  });
+
+  test('textTransform and fontVariant change how the text is shaped', async () => {
+    const width = async (testID: string) => (await box(testID)).width;
+    expect(await width('transform-upper')).toBeGreaterThan(
+      (await width('transform-plain')) * 1.08,
+    );
+    expect(await width('digits-tabular')).toBeGreaterThan(
+      await width('digits-plain'),
+    );
   });
 
   test('adjustsFontSizeToFit shrinks text that would not fit on its lines', async () => {
@@ -497,6 +556,7 @@ describe('ScrollView', () => {
   });
 
   test('snapToInterval rests on an interval', async () => {
+    await reveal('scroll-interval');
     const tag = (await app.query('testID', 'scroll-interval', true))[0].tag;
     await app.scroll(tag, 0, -75, 1, 'started');
     await app.scroll(tag, 0, 0, 1, 'ended');
@@ -544,7 +604,7 @@ describe('font scale', () => {
       disableAnimations: true,
       offscreen: true,
     });
-    await scaled.setWindowSize(1024, 1100);
+    await scaled.setWindowSize(1024, 1500);
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();
