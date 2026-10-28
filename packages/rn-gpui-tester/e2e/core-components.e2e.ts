@@ -188,6 +188,20 @@ describe('TextInput props', () => {
     expect(await frames('input-placeholder')).toBeGreaterThan(1);
   });
 
+  test('maxLength limits typed and replaced text', async () => {
+    await app.getByTestId('input-max-length').click();
+    await app.getByTestId('input-max-length').type('abcdefgh');
+    await poll(
+      async () => (await text('input-max-length-value')) === '[abcde]',
+    );
+    await app.getByTestId('input-max-length').type('x');
+    await app.getByTestId('input-max-length').press('backspace');
+    await app.getByTestId('input-max-length').type('yz');
+    await poll(
+      async () => (await text('input-max-length-value')) === '[abcdy]',
+    );
+  });
+
   test('onKeyPress reports each key before it is applied', async () => {
     await app.getByTestId('input-keys').click();
     await app.getByTestId('input-keys').press('a');

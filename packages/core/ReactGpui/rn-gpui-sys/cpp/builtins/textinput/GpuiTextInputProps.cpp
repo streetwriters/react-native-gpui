@@ -6,6 +6,7 @@
 #include <folly/json.h>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 #include "GpuiModules.h"
@@ -51,6 +52,9 @@ std::string textInputPropsJson(
       default:
         object["submitBehavior"] = "default";
         break;
+    }
+    if (props->maxLength != std::numeric_limits<int>::max()) {
+      object["maxLength"] = props->maxLength;
     }
     object["caretHidden"] = props->traits.caretHidden;
     object["selectTextOnFocus"] = props->traits.selectTextOnFocus;

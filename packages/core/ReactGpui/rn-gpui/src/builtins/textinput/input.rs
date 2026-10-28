@@ -55,6 +55,7 @@ pub(crate) fn handle_key(
                     &mut this.input_marked,
                     None,
                     "\n",
+                    this.input_max_length,
                 );
                 this.sync_input_paragraph();
                 emit_change(this, window, cx);
@@ -243,6 +244,7 @@ pub(crate) fn paste_clipboard(
         &mut this.input_marked,
         None,
         &text,
+        this.input_max_length,
     );
     this.sync_input_paragraph();
     emit_change(this, window, cx);
@@ -318,14 +320,39 @@ fn replacement_range(
         .unwrap_or_else(|| selection.clone())
 }
 
+/// The longest prefix of `inserted` that keeps `text` within `max_length`
+/// UTF-16 units once `range` is replaced, never splitting a character.
+fn fit_insert<'a>(
+    text: &str,
+    range: &Range<usize>,
+    inserted: &'a str,
+    max_length: usize,
+) -> &'a str {
+    if max_length == usize::MAX {
+        return inserted;
+    }
+    let kept =
+        utf16_at_byte(text, range.start) + text[range.end.min(text.len())..].encode_utf16().count();
+    let mut room = max_length.saturating_sub(kept);
+    for (byte, ch) in inserted.char_indices() {
+        if ch.len_utf16() > room {
+            return &inserted[..byte];
+        }
+        room -= ch.len_utf16();
+    }
+    inserted
+}
+
 fn replace_plain_text(
     text: &mut String,
     selection: &mut Range<usize>,
     marked: &mut Option<Range<usize>>,
     range_utf16: Option<Range<usize>>,
     inserted: &str,
+    max_length: usize,
 ) {
     let range = replacement_range(text, selection, marked, range_utf16);
+    let inserted = fit_insert(text, &range, inserted, max_length);
     text.replace_range(range.clone(), inserted);
     let cursor = range.start + inserted.len();
     *selection = cursor..cursor;
@@ -339,8 +366,10 @@ fn replace_marked_text(
     range_utf16: Option<Range<usize>>,
     inserted: &str,
     selected_range_utf16: Option<Range<usize>>,
+    max_length: usize,
 ) {
     let range = replacement_range(text, selection, marked, range_utf16);
+    let inserted = fit_insert(text, &range, inserted, max_length);
     text.replace_range(range.clone(), inserted);
     let composing = range.start..range.start + inserted.len();
     *marked = (!inserted.is_empty()).then_some(composing.clone());
@@ -529,6 +558,7 @@ impl EntityInputHandler for RNNodeView {
             &mut self.input_marked,
             range_utf16,
             text,
+            self.input_max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -552,6 +582,7 @@ impl EntityInputHandler for RNNodeView {
             range_utf16,
             new_text,
             new_selected_range_utf16,
+            self.input_max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -687,11 +718,36 @@ mod tests {
         let mut selection = 1..5;
         let mut marked = None;
 
-        replace_plain_text(&mut text, &mut selection, &mut marked, Some(1..3), "é");
+        replace_plain_text(
+            &mut text,
+            &mut selection,
+            &mut marked,
+            Some(1..3),
+            "é",
+            usize::MAX,
+        );
 
         assert_eq!(text, "AéZ");
         assert_eq!(selection, 3..3);
         assert_eq!(marked, None);
+    }
+
+    #[test]
+    fn insertion_stops_at_max_length_without_splitting_a_character() {
+        let mut text = "ab".to_owned();
+        let mut selection = 2..2;
+        let mut marked = None;
+
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "😀c", 3);
+        assert_eq!(text, "ab");
+
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "cd", 3);
+        assert_eq!(text, "abc");
+        assert_eq!(selection, 3..3);
+
+        selection = 0..3;
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "wxyz", 3);
+        assert_eq!(text, "wxy");
     }
 
     #[test]
@@ -700,7 +756,15 @@ mod tests {
         let mut selection = 3..3;
         let mut marked = None;
 
-        replace_marked_text(&mut text, &mut selection, &mut marked, None, "k", None);
+        replace_marked_text(
+            &mut text,
+            &mut selection,
+            &mut marked,
+            None,
+            "k",
+            None,
+            usize::MAX,
+        );
         assert_eq!(text, "Hi k");
         assert_eq!(marked, Some(3..4));
 
@@ -711,12 +775,13 @@ mod tests {
             None,
             "か",
             Some(1..1),
+            usize::MAX,
         );
         assert_eq!(text, "Hi か");
         assert_eq!(marked, Some(3..6));
         assert_eq!(selection, 6..6);
 
-        replace_plain_text(&mut text, &mut selection, &mut marked, None, "");
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "", usize::MAX);
         assert_eq!(text, "Hi ");
         assert_eq!(marked, None);
     }
@@ -848,6 +913,7 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     this.input_caret_hidden = next.caret_hidden;
     this.input_select_on_focus = next.select_on_focus;
     this.input_submit_behavior = next.submit_behavior;
+    this.input_max_length = next.max_length;
     this.input_selection = reconcile_selection(
         &this.input_text,
         this.input_selection.clone(),
@@ -868,6 +934,7 @@ pub(crate) struct TextInputProps {
     pub caret_hidden: bool,
     pub select_on_focus: bool,
     pub submit_behavior: SubmitBehavior,
+    pub max_length: usize,
     pub event_count: i32,
     pub selection: Option<Range<usize>>,
 }
@@ -914,6 +981,10 @@ impl TextInputProps {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default(),
             ),
+            max_length: value
+                .get("maxLength")
+                .and_then(serde_json::Value::as_u64)
+                .map_or(usize::MAX, |length| length as usize),
             event_count: number("eventCount") as i32,
             selection,
         }

@@ -16,6 +16,7 @@ export default function CoreComponentsFixture() {
   const [selection, setSelection] = useState('none');
   const [keys, setKeys] = useState('');
   const [events, setEvents] = useState('');
+  const [limited, setLimited] = useState('');
   return (
     <ScrollView
       testID="core-components-fixture"
@@ -109,6 +110,13 @@ export default function CoreComponentsFixture() {
           onEndEditing={() => setEvents(previous => previous + 'keep-end,')}
           style={styles.input}
         />
+        <TextInput
+          testID="input-max-length"
+          maxLength={5}
+          onChangeText={setLimited}
+          style={styles.input}
+        />
+        <Text testID="input-max-length-value">{`[${limited}]`}</Text>
         <TextInput
           testID="input-caret-hidden"
           defaultValue="no caret"
