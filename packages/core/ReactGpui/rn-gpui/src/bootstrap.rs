@@ -1937,6 +1937,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     last_surface_size.set((width, height, scale, origin.0, origin.1));
                     save_window_bounds(&window_state_path, bounds, size);
                     if inset_changed {
+                        crate::desktop::window_mirror::patch(
+                            crate::desktop::windows::MAIN_WINDOW_KEY,
+                            &[("topInset", serde_json::json!(top))],
+                        );
                         store.update(cx, |store, cx| {
                             store.top_inset = top;
                             store.host.set_window_top_inset(top);

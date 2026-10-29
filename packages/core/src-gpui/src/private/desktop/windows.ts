@@ -42,6 +42,8 @@ export interface WindowState {
   isFocused: boolean;
   isMinimized: boolean;
   scaleFactor: number;
+  /** How far a transparent title bar reaches into the content, in points. */
+  topInset: number;
 }
 
 export interface OpenWindowOptions {

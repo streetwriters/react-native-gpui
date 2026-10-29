@@ -16,6 +16,7 @@ export type WindowState = {
   isFocused: boolean;
   isMinimized: boolean;
   scaleFactor: number;
+  topInset: number;
 };
 
 export type WindowHandle = {

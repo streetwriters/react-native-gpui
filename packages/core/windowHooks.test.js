@@ -103,6 +103,7 @@ const windowState = overrides => ({
   isFocused: true,
   isMinimized: false,
   scaleFactor: 2,
+  topInset: 0,
   ...overrides,
 });
 

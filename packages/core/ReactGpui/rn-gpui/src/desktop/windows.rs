@@ -502,6 +502,7 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
                         json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
                     ),
                     ("scaleFactor", json!(window.scale_factor())),
+                    ("topInset", json!(top_inset(window))),
                 ],
             );
             let Some(store) = cx.try_global::<StoreGlobal>() else {
@@ -751,9 +752,24 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 "isFocused": window.is_window_active(),
                 "isMinimized": platform_window::is_minimized(window),
                 "scaleFactor": window.scale_factor(),
+                "topInset": top_inset(window),
             })
         })
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))
+}
+
+/// How far the platform's title bar reaches into the content area: nonzero only
+/// for a window drawn under a transparent title bar.
+fn top_inset(window: &gpui::Window) -> f32 {
+    #[cfg(target_os = "macos")]
+    {
+        crate::native_view::window_top_inset(window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        0.0
+    }
 }
 
 /// The OS's own frame for a window, in physical pixels, for the test driver:
@@ -849,6 +865,7 @@ fn install_bounds_observer(
                         }),
                     ),
                     ("scaleFactor", json!(scale)),
+                    ("topInset", json!(top_inset(window))),
                 ],
             );
             let host = store.read(cx).host.clone();

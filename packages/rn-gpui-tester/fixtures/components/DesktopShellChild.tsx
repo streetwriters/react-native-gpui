@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { Text, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView, Text, View, useWindowDimensions } from 'react-native';
 import {
   useDesktopWindow,
   useWindowFocus,
@@ -47,6 +47,12 @@ function DesktopShellChild(props: DesktopShellChildProps) {
         {String(Math.round(dimensions.width))}
       </Text>
       <Text testID="desktop-child-label">label: {props.label ?? '(none)'}</Text>
+      <Text testID="desktop-child-top-inset">
+        {String(Math.round(windowState?.topInset ?? -1))}
+      </Text>
+      <SafeAreaView testID="desktop-child-safe">
+        <Text testID="desktop-child-safe-label">inside the safe area</Text>
+      </SafeAreaView>
     </View>
   );
 }
