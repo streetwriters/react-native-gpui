@@ -386,7 +386,7 @@ export type ScrollViewPropsIOS = Readonly<{
    */
   zoomScale?: ?number,
   /**
-   * This property specifies how the safe area insets are used to modify the
+   * This property specifies how the system insets are used to modify the
    * content area of the scroll view.
    *
    * @default `'never'`
@@ -822,7 +822,7 @@ export type ScrollViewComponentStatics = Readonly<{
  * makes it very easy to understand and use.
  *
  * On the other hand, this has a performance downside. Imagine you have a very
- * long list of items you want to display, maybe several screens worth of
+ * long list of items you want to display, maybe several viewports worth of
  * content. Creating JS components and native views for everything all at once,
  * much of which may not even be shown, will contribute to slow rendering and
  * increased memory usage.
