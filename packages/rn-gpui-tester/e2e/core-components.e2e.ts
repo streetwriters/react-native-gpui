@@ -61,7 +61,7 @@ async function reveal(testID: string) {
     'tester-screen-core-components',
     true,
   );
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
     const [match] = await app.query('testID', testID, true);
     // Clicks land on the middle of the node, so that has to be in the window,
     // not just the first row.
