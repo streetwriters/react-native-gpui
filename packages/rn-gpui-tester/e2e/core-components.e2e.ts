@@ -31,6 +31,11 @@ async function start(offscreen: boolean) {
     disableAnimations: true,
     offscreen,
   });
+  if (!offscreen) {
+    await app.focusWindow();
+    // The OS activates the window on its own schedule.
+    await poll(async () => (await app.windowState(1)).isFocused, 10000);
+  }
   await app.setWindowSize(1024, 1500);
   await desktopExpect(
     app.getByTestId('tester-screen-core-components'),
@@ -200,27 +205,6 @@ describe('TextInput props', () => {
     expect(red).toBeGreaterThan(20);
   });
 
-  test.runIf(windowActivation)(
-    'selectTextOnFocus selects all the text on focus',
-    async () => {
-      // Focus events only fire in a window that can be active. The window is
-      // then as tall as the screen allows, so the tests after it start again
-      // from an offscreen one.
-      await app.close();
-      try {
-        await start(false);
-        await app.focusWindow();
-        await reveal('input-select-on-focus');
-        expect(await text('input-selection')).toBe('none');
-        await app.getByTestId('input-select-on-focus').click();
-        await poll(async () => (await text('input-selection')) === '0-9');
-      } finally {
-        await app.close();
-        await start(true);
-      }
-    },
-  );
-
   test('caretHidden draws no caret while the input is focused', async () => {
     async function frames(testID: string) {
       await app.getByTestId(testID).click();
@@ -343,20 +327,6 @@ describe('TextInput props', () => {
     expect(log.indexOf('[a]')).toBeLessThan(log.indexOf('[Backspace]'));
     expect(log.indexOf('[Backspace]')).toBeLessThan(log.indexOf('[Tab]'));
   });
-
-  test.runIf(windowActivation)(
-    'Enter submits and blurs by default, and onEndEditing follows the blur',
-    async () => {
-      await app.getByTestId('input-keys').click();
-      await app.getByTestId('input-keys').press('enter');
-      // The blur is delivered on a frame, which the window draws when asked.
-      await poll(async () => {
-        await app.waitForIdle();
-        const log = await text('input-event-log');
-        return log.includes('submit,') && log.includes('end,');
-      });
-    },
-  );
 
   test('submitBehavior submit keeps focus after Enter', async () => {
     const count = (log: string) => log.split('keep-end,').length - 1;
@@ -510,21 +480,6 @@ describe('RefreshControl', () => {
     await app.getByTestId('refresh-toggle').click();
     await poll(async () => !(await present()));
   });
-});
-
-describe('Keyboard', () => {
-  test.runIf(windowActivation)(
-    'Keyboard.dismiss blurs the focused input',
-    async () => {
-      await app.getByTestId('input-dismiss').click();
-      await new Promise(resolve => setTimeout(resolve, 200));
-      await app.getByTestId('input-dismiss').press('enter');
-      await poll(async () => {
-        await app.waitForIdle();
-        return (await text('input-event-log')).includes('dismiss-end,');
-      });
-    },
-  );
 });
 
 describe('Text', () => {
@@ -910,5 +865,49 @@ describe('font scale', () => {
     expect(capped / fixed).toBeLessThan(1.6);
     expect(full / fixed).toBeGreaterThan(1.9);
     expect(full / fixed).toBeLessThan(2.1);
+  });
+});
+
+// Focus and blur events only fire in a window that can be active. Such a
+// window is as tall as the screen allows, so it lives only for these tests.
+describe.runIf(windowActivation)('with an active window', () => {
+  beforeAll(async () => {
+    await app.close();
+    await start(false);
+  });
+  afterAll(async () => {
+    await app.close();
+    await start(true);
+  });
+
+  test('selectTextOnFocus selects all the text on focus', async () => {
+    await reveal('input-select-on-focus');
+    expect(await text('input-selection')).toBe('none');
+    await app.getByTestId('input-select-on-focus').click();
+    await poll(async () => (await text('input-selection')) === '0-9');
+  });
+
+  test('Enter submits and blurs by default, and onEndEditing follows the blur', async () => {
+    await reveal('input-keys');
+    await app.getByTestId('input-keys').click();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await app.getByTestId('input-keys').press('enter');
+    // The blur is delivered on a frame, which the window draws when asked.
+    await poll(async () => {
+      await app.waitForIdle();
+      const log = await text('input-event-log');
+      return log.includes('submit,') && log.includes('end,');
+    }, 15000);
+  });
+
+  test('Keyboard.dismiss blurs the focused input', async () => {
+    await reveal('input-dismiss');
+    await app.getByTestId('input-dismiss').click();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await app.getByTestId('input-dismiss').press('enter');
+    await poll(async () => {
+      await app.waitForIdle();
+      return (await text('input-event-log')).includes('dismiss-end,');
+    }, 15000);
   });
 });
