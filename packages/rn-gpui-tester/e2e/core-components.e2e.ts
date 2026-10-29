@@ -63,8 +63,15 @@ async function reveal(testID: string) {
   );
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const [match] = await app.query('testID', testID, true);
-    if (match?.visible) return;
-    await app.scroll(root.tag, 0, -300);
+    // Clicks land on the middle of the node, so all of it has to be in the
+    // window, not just its first row.
+    if (
+      match?.visible &&
+      match.frame.y + match.frame.height <= root.frame.y + root.frame.height
+    ) {
+      return;
+    }
+    await app.scroll(root.tag, 0, -100);
   }
   throw new Error(`${testID} could not be scrolled into view`);
 }
