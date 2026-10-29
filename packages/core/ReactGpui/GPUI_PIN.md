@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `3a4e87e` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
-  per-frame transform table below; not yet pushed to the fork)
+- Commit: `956427e` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
+  per-frame transform table, the sRGB-tagged Metal layer and shadow dithering below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -211,3 +211,12 @@ views; that is out of scope for now.
   The wgpu shaders read the table from a storage buffer at group 0 binding 2
   (16384 entries; the WebGL transport has none and draws untransformed). The
   DirectX shaders read it from a structured buffer at `t2`.
+
+## Rendering
+
+- `df99de6`: the Metal layer is tagged sRGB, so a wide-gamut display shows a React
+  Native colour the way AppKit shows the same sRGB value.
+- `956427e`: blurred shadows are dithered on every backend (interleaved gradient noise,
+  scaled by the alpha so a zero stays zero), and the wgpu linear gradient is dithered like
+  the Metal and DirectX ones. The noise is keyed to the primitive's own origin, so a tile
+  rasterised at another offset gets the same pixels.
