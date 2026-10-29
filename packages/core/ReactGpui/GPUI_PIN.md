@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `8dab27d` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
+- Commit: `81357fc` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
   per-frame transform table below; not yet pushed to the fork)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
@@ -203,10 +203,12 @@ views; that is out of scope for now.
 
 ## Transforms
 
-- `590f2bb`, `a678e91`, `8dab27d`: a per-frame table of 2D affine matrices and
+- `590f2bb`, `a678e91`, `8dab27d`, `81357fc`: a per-frame table of 2D affine matrices and
   an index on every primitive (`Quad`'s packs it above its border style).
   `Window::with_transformation` and `with_transformation_about` draw and
   hit-test a subtree under a matrix; hit boxes keep theirs. The Metal shaders
   evaluate corners, borders, masks and shadows in the primitive's own space.
-  The wgpu and DirectX shaders do not read the table yet, so they draw
-  transformed content untransformed.
+  The wgpu shaders read the table from a storage buffer at group 0 binding 2
+  (16384 entries; the WebGL transport has none and draws untransformed). The
+  DirectX shaders do not read it yet, so they draw transformed content
+  untransformed.
