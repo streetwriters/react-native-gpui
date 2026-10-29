@@ -704,6 +704,18 @@ export default function CoreComponentsFixture() {
         <Text testID="rot-location">{rotatedLocation}</Text>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>Filters</Text>
+        <View testID="filter-gray" style={styles.rotArea}>
+          <View style={[styles.shape, styles.filterBox, styles.filterGray]} />
+        </View>
+        <View testID="filter-invert" style={styles.rotArea}>
+          <View style={[styles.shape, styles.filterBox, styles.filterInvert]} />
+        </View>
+        <View testID="filter-half" style={styles.rotArea}>
+          <View style={[styles.shape, styles.filterBox, styles.filterHalf]} />
+        </View>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>More transforms</Text>
         <View testID="rot-diamond-area" style={styles.rotArea}>
           <View style={[styles.shape, styles.diamond]} />
@@ -780,6 +792,16 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '90deg' }],
   },
   shape: { position: 'absolute' },
+  filterBox: {
+    left: 20,
+    top: 20,
+    width: 60,
+    height: 60,
+    backgroundColor: '#ff0000',
+  },
+  filterGray: { filter: [{ grayscale: 1 }] },
+  filterInvert: { filter: [{ invert: 1 }] },
+  filterHalf: { filter: [{ opacity: 0.5 }] },
   diamond: {
     left: 30,
     top: 30,

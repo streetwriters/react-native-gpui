@@ -4273,8 +4273,12 @@ impl Render for RNNodeView {
             ));
         }
         let element = element.children(outline_rules).into_any_element();
-        match self.gpui_transform((scale_x, scale_y)) {
+        let element = match self.gpui_transform((scale_x, scale_y)) {
             Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
+            None => element,
+        };
+        match crate::filter::parse(&self.view.filter_json) {
+            Some(filter) => crate::filter::Filtered::new(element, filter).into_any_element(),
             None => element,
         }
     }

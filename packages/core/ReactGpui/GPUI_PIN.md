@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `956427e` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
+- Commit: `e2a4638` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
   per-frame transform table, the sRGB-tagged Metal layer and shadow dithering below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
@@ -220,3 +220,7 @@ views; that is out of scope for now.
   scaled by the alpha so a zero stays zero), and the wgpu linear gradient is dithered like
   the Metal and DirectX ones. The noise is keyed to the primitive's own origin, so a tile
   rasterised at another offset gets the same pixels.
+- `bdc7e62`..`e2a4638`: colour filters. `Window::with_color_filter` composes a 4x5 colour matrix into
+  the same per-frame table as transforms (the wgpu storage buffer holds both; DirectX reads
+  the matrices at `t3`; Metal binds them at fragment buffer 9). Each primitive is filtered on its
+  own, so overlapping content is not filtered as a group. Paths and surfaces are not filtered.

@@ -67,6 +67,7 @@ pub mod ffi {
         pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto
         pub shadows: Vec<ShadowF>,
         pub background_json: String, // gradients with their size, position and repeat; empty = none
+        pub filter_json: String,     // `[[name, amount], ...]` from `filter`; empty = none
         pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
         /// Whether `transformOrigin` is in the matrix; when it is not, the view turns about its centre.

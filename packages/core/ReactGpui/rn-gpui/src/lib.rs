@@ -5,6 +5,7 @@ pub(crate) mod counters;
 pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
+mod filter;
 pub(crate) mod frame;
 pub(crate) mod gradient;
 pub(crate) mod host;

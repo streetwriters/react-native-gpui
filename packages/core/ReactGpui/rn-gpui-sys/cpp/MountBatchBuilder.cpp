@@ -265,6 +265,25 @@ TextFragmentFlat flattenTextFragment(
   return out;
 }
 
+// The `filter` functions that take one number, as `[[name, amount], ...]`.
+// `dropShadow` carries a shadow instead and is left out.
+static std::string filterJson(const BaseViewProps& props) {
+  if (props.filter.empty()) {
+    return {};
+  }
+  folly::dynamic functions = folly::dynamic::array;
+  for (const auto& function : props.filter) {
+    if (const auto* amount = std::get_if<Float>(&function.parameters)) {
+      functions.push_back(
+          folly::dynamic::array(toString(function.type), *amount));
+    }
+  }
+  if (functions.empty()) {
+    return {};
+  }
+  return folly::toJson(functions);
+}
+
 static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   ViewPropsFlat out{};
   // Non-view components must remain opaque; a value-initialized flat struct
@@ -279,6 +298,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   out.opacity = props->opacity;
   out.background_color = argb(props->backgroundColor);
   out.background_json = backgroundJson(*props);
+  out.filter_json = filterJson(*props);
 
   // layoutMetrics.borderWidth is already fully resolved per edge; the cascaded
   // props->getBorderWidths() would need the same resolve() dance as the colors.

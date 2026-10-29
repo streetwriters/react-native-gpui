@@ -457,6 +457,36 @@ describe('Transforms, more shapes', () => {
   });
 });
 
+describe('Filters', () => {
+  async function centre(testID: string) {
+    await reveal(testID);
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    const at = ((image.height >> 1) * image.width + (image.width >> 1)) * 4;
+    return [image.data[at], image.data[at + 1], image.data[at + 2]];
+  }
+
+  test('grayscale takes the colour out of a red box', async () => {
+    const [r, g, b] = await centre('filter-gray');
+    expect(Math.abs(r - 54)).toBeLessThan(8);
+    expect(Math.abs(g - 54)).toBeLessThan(8);
+    expect(Math.abs(b - 54)).toBeLessThan(8);
+  });
+
+  test('invert turns red to cyan', async () => {
+    const [r, g, b] = await centre('filter-invert');
+    expect(r).toBeLessThan(40);
+    expect(g).toBeGreaterThan(215);
+    expect(b).toBeGreaterThan(215);
+  });
+
+  test('opacity lets the white behind show through', async () => {
+    const [r, g, b] = await centre('filter-half');
+    expect(r).toBeGreaterThan(240);
+    expect(Math.abs(g - 128)).toBeLessThan(12);
+    expect(Math.abs(b - 128)).toBeLessThan(12);
+  });
+});
+
 describe('Platform colors', () => {
   async function centre(testID: string) {
     await reveal(testID);
