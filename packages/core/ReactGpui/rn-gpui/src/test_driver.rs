@@ -1289,9 +1289,18 @@ async fn serve_commands(
                 let name = params.get("service").and_then(Value::as_str);
                 json!({"sent": crate::builtins::share::mac::simulate_choice(name)})
             }
-            #[cfg(target_os = "macos")]
-            "alertState" => crate::builtins::alert::mac::describe().unwrap_or(Value::Null),
-            #[cfg(target_os = "macos")]
+            "alertState" => cx.update(|cx| {
+                crate::builtins::alert::dialog::describe(cx).unwrap_or_else(|| {
+                    #[cfg(target_os = "macos")]
+                    {
+                        crate::builtins::alert::mac::describe().unwrap_or(Value::Null)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        Value::Null
+                    }
+                })
+            }),
             "alertRespond" => {
                 let button = params.get("button").and_then(Value::as_u64).unwrap_or(0) as usize;
                 let texts: Vec<String> = params
@@ -1304,10 +1313,34 @@ async fn serve_commands(
                             .collect()
                     })
                     .unwrap_or_default();
-                json!({"responded": crate::builtins::alert::mac::respond(button, &texts)})
+                let responded = cx.update(|cx| {
+                    if crate::builtins::alert::dialog::respond(cx, button, &texts) {
+                        return true;
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        crate::builtins::alert::mac::respond(button, &texts)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        false
+                    }
+                });
+                json!({ "responded": responded })
             }
-            #[cfg(target_os = "macos")]
-            "alertEscape" => json!({"sent": crate::builtins::alert::mac::press_escape()}),
+            "alertEscape" => cx.update(|cx| {
+                if crate::builtins::alert::dialog::press_escape(cx) {
+                    return json!({"sent": true});
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    json!({"sent": crate::builtins::alert::mac::press_escape()})
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    json!({"sent": false})
+                }
+            }),
             "listWindows" => cx.update(|cx| {
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
             }),

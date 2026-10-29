@@ -5,6 +5,7 @@ use crate::builtins::rn_gpui_specs::{
     AlertArgs, NativeGpuiAlertManagerEvents, NativeGpuiAlertManagerSpec,
 };
 
+pub(crate) mod dialog;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac;
 
@@ -131,7 +132,9 @@ impl NativeGpuiAlertManagerSpec for AlertManagerModule {
                 Outcome::Dismissed => callback(-1.0, String::new()),
             };
             #[cfg(target_os = "macos")]
-            {
+            if std::env::var_os("RN_GPUI_ALERT_DIALOG").is_some() {
+                dialog::present(cx, request, Box::new(answer));
+            } else {
                 let mut answer = Some(answer);
                 let shown = cx.update_window(window, |_root, window, _cx| {
                     mac::present(
@@ -148,33 +151,8 @@ impl NativeGpuiAlertManagerSpec for AlertManagerModule {
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let labels: Vec<gpui::PromptButton> = request
-                    .buttons
-                    .iter()
-                    .map(|(_, label)| gpui::PromptButton::new(label.clone()))
-                    .collect();
-                let receiver = cx.update_window(window, |_root, window, cx| {
-                    window.prompt(
-                        gpui::PromptLevel::Info,
-                        &request.title,
-                        request.message.as_deref(),
-                        &labels,
-                        cx,
-                    )
-                });
-                match receiver {
-                    Ok(receiver) => {
-                        cx.spawn(async move |_cx| {
-                            let position = receiver.await.unwrap_or(0);
-                            answer(Outcome::Button {
-                                position,
-                                text: String::new(),
-                            });
-                        })
-                        .detach();
-                    }
-                    Err(_) => answer(Outcome::Dismissed),
-                }
+                let _ = window;
+                dialog::present(cx, request, Box::new(answer));
             }
         }));
     }

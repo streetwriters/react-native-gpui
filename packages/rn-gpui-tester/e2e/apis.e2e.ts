@@ -24,6 +24,7 @@ async function launch({ offscreen = true } = {}) {
     env: {
       RN_GPUI_MODULE: 'RNGPUITester--apis',
       RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_ALERT_DIALOG: '1',
       RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-apis-state.json'),
     },
     disableAnimations: true,
@@ -220,10 +221,10 @@ async function alertShown() {
   return (await app.alertState())!;
 }
 
-describe.runIf(onMac)('Alert', () => {
+describe('Alert', () => {
   beforeAll(async () => {
     await launch({ offscreen: false });
-    await app.focusWindow();
+    if (windowActivation) await app.focusWindow();
   });
 
   test('each button reports its own index', async () => {
