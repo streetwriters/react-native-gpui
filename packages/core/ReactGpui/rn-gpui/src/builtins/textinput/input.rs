@@ -67,7 +67,7 @@ pub(crate) fn handle_key(
                         "text": this.input_text, "eventCount": this.input_event_count,
                     }),
                 );
-                if this.input_submit_behavior.blurs() {
+                if this.input_submit_behavior.blurs(this.input_multiline) {
                     window.blur(cx);
                 }
             }
@@ -1087,8 +1087,14 @@ impl SubmitBehavior {
         }
     }
 
-    pub(crate) fn blurs(self) -> bool {
-        self == Self::BlurAndSubmit
+    /// Whether Enter blurs the input once it has submitted: a single-line
+    /// input does unless `submitBehavior` is `submit`.
+    pub(crate) fn blurs(self, multiline: bool) -> bool {
+        match self {
+            Self::BlurAndSubmit => true,
+            Self::Default => !multiline,
+            Self::Submit | Self::Newline => false,
+        }
     }
 }
 
@@ -1210,8 +1216,10 @@ mod submit_behavior_tests {
         assert!(!SubmitBehavior::BlurAndSubmit.inserts_newline(true));
         assert!(SubmitBehavior::Newline.inserts_newline(true));
         assert!(!SubmitBehavior::Newline.inserts_newline(false));
-        assert!(SubmitBehavior::BlurAndSubmit.blurs());
-        assert!(!SubmitBehavior::Submit.blurs());
+        assert!(SubmitBehavior::BlurAndSubmit.blurs(true));
+        assert!(SubmitBehavior::Default.blurs(false));
+        assert!(!SubmitBehavior::Default.blurs(true));
+        assert!(!SubmitBehavior::Submit.blurs(false));
     }
 
     #[test]
