@@ -9,9 +9,9 @@ so we pin by commit SHA and bump on purpose.
 ## Pinned
 
 - Repository: https://github.com/streetwriters/gpui-fast
-- Branch: `rn-gpui-transforms`, from `rn-gpui-linux` (tracks upstream `main`;
+- Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `8dab27d` (`rn-gpui-transforms`, 2026-10-29: `8da7d89` plus the
+- Commit: `8dab27d` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
   per-frame transform table below; not yet pushed to the fork)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
