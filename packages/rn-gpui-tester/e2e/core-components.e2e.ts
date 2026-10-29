@@ -63,11 +63,11 @@ async function reveal(testID: string) {
   );
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const [match] = await app.query('testID', testID, true);
-    // Clicks land on the middle of the node, so all of it has to be in the
-    // window, not just its first row.
+    // Clicks land on the middle of the node, so that has to be in the window,
+    // not just the first row.
     if (
       match?.visible &&
-      match.frame.y + match.frame.height <= root.frame.y + root.frame.height
+      match.frame.y + match.frame.height / 2 <= root.frame.y + root.frame.height
     ) {
       return;
     }
