@@ -11,8 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `e2a4638` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
-  per-frame transform table, the sRGB-tagged Metal layer and shadow dithering below)
+- Commit: `464a119` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
+  per-frame transform table, colour filters, the sRGB-tagged Metal layer and shadow dithering below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -211,6 +211,14 @@ views; that is out of scope for now.
   The wgpu shaders read the table from a storage buffer at group 0 binding 2
   (16384 entries; the WebGL transport has none and draws untransformed). The
   DirectX shaders read it from a structured buffer at `t2`.
+- `d58e7e2`..`464a119`: glyph and SVG sprites no longer carry an inline matrix; an `Svg`
+  with a `Transformation` draws under `Window::with_transformation` (so its clip is in the
+  svg's own space and it bypasses tile layers). Mono and subpixel sprites are 24 bytes
+  smaller, and the WebGL record stride for them is 30 words. A hit box keeps an `Rc` of its
+  matrix (none for the identity), so layers and retained frames can carry it.
+  Replay skips the table for identity primitives.
+  Against `8da7d89` on `randomized_element_tree` (18 cases): foreground instructions +0.4%,
+  wall time median about +1%, the smallest frames (110-210 us) still 5-10% slower.
 
 ## Rendering
 
