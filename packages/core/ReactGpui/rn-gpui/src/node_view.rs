@@ -1236,6 +1236,13 @@ impl RNNodeView {
         (1.0, 1.0, 0.0, 0.0)
     }
 
+    /// `backfaceVisibility: 'hidden'` while the node is turned to face away.
+    fn backface_hidden(&self) -> bool {
+        self.view.backface_hidden
+            && (self.animated_transform.is_some() || self.view.has_transform)
+            && crate::transform::faces_away(&self.animated_transform.unwrap_or(self.view.transform))
+    }
+
     /// The matrix GPUI draws this node's subtree under.
     fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
         if self.animated_transform.is_none() && !self.view.has_transform {
@@ -2482,7 +2489,7 @@ impl Render for RNNodeView {
             &crate::extensions::parse_extension_props(&self.extension_props_json),
         )
         .is_some_and(|portal| !portal.visible);
-        if self.view.display_none || hidden_portal {
+        if self.view.display_none || hidden_portal || self.backface_hidden() {
             return div().id(self.tag).size_0().into_any_element();
         }
         if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {

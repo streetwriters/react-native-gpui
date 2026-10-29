@@ -717,6 +717,16 @@ export default function CoreComponentsFixture() {
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>More transforms</Text>
+        <View testID="backface-hidden" style={styles.rotArea}>
+          <View
+            style={[styles.shape, styles.filterBox, styles.backfaceHidden]}
+          />
+        </View>
+        <View testID="backface-visible" style={styles.rotArea}>
+          <View
+            style={[styles.shape, styles.filterBox, styles.backfaceShown]}
+          />
+        </View>
         <View testID="rot-diamond-area" style={styles.rotArea}>
           <View style={[styles.shape, styles.diamond]} />
         </View>
@@ -792,6 +802,14 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '90deg' }],
   },
   shape: { position: 'absolute' },
+  backfaceHidden: {
+    backfaceVisibility: 'hidden',
+    transform: [{ rotateY: '180deg' }],
+  },
+  backfaceShown: {
+    backfaceVisibility: 'visible',
+    transform: [{ rotateY: '180deg' }],
+  },
   filterBox: {
     left: 20,
     top: 20,

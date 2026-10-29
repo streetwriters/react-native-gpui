@@ -415,6 +415,13 @@ describe('Transforms, more shapes', () => {
   const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
   const isBlue = ([r, g, b]: number[]) => b > 200 && r < 60 && g < 60;
 
+  test('backfaceVisibility hides a node turned to face away', async () => {
+    const hidden = await paint('backface-hidden');
+    expect(isRed(hidden(50, 50))).toBe(false);
+    const visible = await paint('backface-visible');
+    expect(isRed(visible(50, 50))).toBe(true);
+  });
+
   test('a box turned 45 degrees is a diamond with antialiased edges', async () => {
     const at = await paint('rot-diamond-area');
     // 40 px square about (50, 50): corners 28 from the centre along the axes.

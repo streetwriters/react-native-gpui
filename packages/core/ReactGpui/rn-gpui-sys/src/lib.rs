@@ -70,6 +70,7 @@ pub mod ffi {
         pub filter_json: String,     // `[[name, amount], ...]` from `filter`; empty = none
         pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
+        pub backface_hidden: bool, // `backfaceVisibility: 'hidden'`
         /// Whether `transformOrigin` is in the matrix; when it is not, the view turns about its centre.
         pub transform_origin_set: bool,
         pub test_id: String,

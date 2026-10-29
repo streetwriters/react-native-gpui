@@ -32,6 +32,12 @@ pub(crate) fn is_three_dimensional(matrix: &[f32; 16]) -> bool {
         || (matrix[15] - 1.0).abs() > 0.0001
 }
 
+/// Whether a node turned by `matrix` shows its back to the viewer: it is
+/// turned out of the plane and the screen axes are mirrored.
+pub(crate) fn faces_away(matrix: &[f32; 16]) -> bool {
+    is_three_dimensional(matrix) && matrix[0] * matrix[5] - matrix[4] * matrix[1] < 0.0
+}
+
 /// `child` drawn under `matrix`, turned about the child's own top-left corner.
 pub(crate) struct Transformed {
     child: AnyElement,
@@ -103,5 +109,44 @@ impl Element for Transformed {
         window.with_transformation_about(bounds.origin, matrix, |window| {
             child.paint(window, cx);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity() -> [f32; 16] {
+        let mut m = [0.0; 16];
+        m[0] = 1.0;
+        m[5] = 1.0;
+        m[10] = 1.0;
+        m[15] = 1.0;
+        m
+    }
+
+    #[test]
+    fn a_half_turn_about_y_faces_away() {
+        let mut m = identity();
+        m[0] = -1.0;
+        m[10] = -1.0;
+        assert!(faces_away(&m));
+    }
+
+    #[test]
+    fn a_quarter_turn_about_y_still_faces_front() {
+        let mut m = identity();
+        m[0] = 0.5;
+        m[8] = -0.87;
+        m[2] = 0.87;
+        m[10] = 0.5;
+        assert!(!faces_away(&m));
+    }
+
+    #[test]
+    fn a_flat_mirror_does_not_face_away() {
+        let mut m = identity();
+        m[0] = -1.0;
+        assert!(!faces_away(&m));
     }
 }
