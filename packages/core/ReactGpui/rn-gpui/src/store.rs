@@ -1829,7 +1829,8 @@ mod test_app_context_tests {
         let transformed = cx.read_entity(&store, |store, app| {
             crate::test_driver::node_frame(store, 101, app).expect("mounted frame")
         });
-        assert_eq!((transformed.x, transformed.y), (18.0, 18.0));
+        // Scaled about the centre of the 40 x 30 box at (10, 12), then moved by (8, 6).
+        assert_eq!((transformed.x, transformed.y), (-2.0, 25.5));
         assert_eq!((transformed.w, transformed.h), (80.0, 15.0));
 
         let clipped = cx.read_entity(&store, |store, app| {
@@ -1839,15 +1840,15 @@ mod test_app_context_tests {
                 RectF {
                     x: 0.0,
                     y: 0.0,
-                    w: 20.0,
-                    h: 20.0,
+                    w: 40.0,
+                    h: 30.0,
                 },
                 app,
             )
         });
         let clipped = clipped.expect("transformed frame intersects viewport");
-        assert_eq!((clipped.x, clipped.y), (18.0, 18.0));
-        assert_eq!((clipped.w, clipped.h), (2.0, 2.0));
+        assert_eq!((clipped.x, clipped.y), (0.0, 25.5));
+        assert_eq!((clipped.w, clipped.h), (40.0, 4.5));
 
         let outside = cx.read_entity(&store, |store, app| {
             crate::test_driver::node_visible_frame(

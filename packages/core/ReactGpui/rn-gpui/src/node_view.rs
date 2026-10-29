@@ -1231,26 +1231,17 @@ impl RNNodeView {
         if self.animated_transform.is_none() && !self.view.has_transform {
             return (1.0, 1.0, 0.0, 0.0);
         }
-        let m = self.animated_transform.unwrap_or(self.view.transform);
-        // What the folded scale and translate cannot show is drawn by GPUI under
-        // the node's matrix instead, so the layout below it stays unscaled.
-        if has_unsupported_subtree_transform(&m) {
-            return (1.0, 1.0, 0.0, 0.0);
-        }
-        axis_aligned_transform(&m)
+        // GPUI draws the node's subtree under its matrix, so layout, borders,
+        // text and scroll offsets below it stay in unscaled units.
+        (1.0, 1.0, 0.0, 0.0)
     }
 
-    /// The matrix GPUI draws this node's subtree under, when the transform is
-    /// more than a positive scale and a translation: a turn, a skew or a flip.
-    /// Its translation is in the units the ancestors' folded scale has made.
+    /// The matrix GPUI draws this node's subtree under.
     fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
         if self.animated_transform.is_none() && !self.view.has_transform {
             return None;
         }
         let m = self.animated_transform.unwrap_or(self.view.transform);
-        if !has_unsupported_subtree_transform(&m) {
-            return None;
-        }
         if crate::transform::is_three_dimensional(&m) {
             log::debug!(
                 "[transform] tag={} has perspective or a turn about x or y; drawn flat",
@@ -1445,6 +1436,39 @@ impl RNNodeView {
         }
         inverses.reverse();
         inverses
+    }
+
+    /// Where the window shows `rect` (in layout space): the bounds of its
+    /// corners under every matrix GPUI draws this node under.
+    pub(crate) fn transformed_bounds(
+        &self,
+        cx: &App,
+        rect: (f32, f32, f32, f32),
+    ) -> (f32, f32, f32, f32) {
+        let inverses = self.transform_inverses(cx);
+        if inverses.is_empty() {
+            return rect;
+        }
+        let forwards: Vec<_> = inverses
+            .iter()
+            .rev()
+            .filter_map(|inverse| inverse.inverse())
+            .collect();
+        let (x, y, w, h) = rect;
+        let corners = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].map(|(cx_, cy)| {
+            forwards
+                .iter()
+                .fold(point(px(cx_), px(cy)), |p, m| m.transform_logical_point(p))
+        });
+        let xs = corners.map(|p| f32::from(p.x));
+        let ys = corners.map(|p| f32::from(p.y));
+        let (min_x, max_x) = xs
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        let (min_y, max_y) = ys
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        (min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {
@@ -1962,27 +1986,6 @@ fn accumulate_origin(chain: &[OriginStep]) -> (f32, f32) {
     (x, y)
 }
 
-fn axis_aligned_transform(matrix: &[f32; 16]) -> (f32, f32, f32, f32) {
-    if matrix.iter().any(|value| !value.is_finite()) {
-        return (1.0, 1.0, 0.0, 0.0);
-    }
-    (matrix[0], matrix[5], matrix[12], matrix[13])
-}
-
-fn has_unsupported_subtree_transform(matrix: &[f32; 16]) -> bool {
-    matrix.iter().any(|value| !value.is_finite())
-        || [
-            matrix[1], matrix[2], matrix[3], matrix[4], matrix[6], matrix[7], matrix[8], matrix[9],
-            matrix[11], matrix[14],
-        ]
-        .into_iter()
-        .any(|value| value.abs() > 0.0001)
-        || matrix[0] < 0.0
-        || matrix[5] < 0.0
-        || (matrix[10] - 1.0).abs() > 0.0001
-        || (matrix[15] - 1.0).abs() > 0.0001
-}
-
 thread_local! {
     /// How many node copies a `TreeView` has taken, for the test that guards
     /// against copying the whole tree once per mount operation.
@@ -2004,59 +2007,7 @@ pub(crate) fn snapshot_count() -> usize {
 
 #[cfg(test)]
 mod transform_matrix_tests {
-    use super::{
-        accumulate_origin, axis_aligned_transform, has_unsupported_subtree_transform, OriginStep,
-    };
-
-    fn identity() -> [f32; 16] {
-        [
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-        ]
-    }
-
-    #[test]
-    fn axis_aligned_matrix_keeps_translation_and_nonuniform_scale() {
-        let mut matrix = identity();
-        matrix[0] = 1.5;
-        matrix[5] = 0.75;
-        matrix[12] = 12.0;
-        matrix[13] = -3.0;
-
-        assert_eq!(axis_aligned_transform(&matrix), (1.5, 0.75, 12.0, -3.0));
-        assert!(!has_unsupported_subtree_transform(&matrix));
-    }
-
-    #[test]
-    fn rotation_is_flagged_for_the_documented_gpui_spike() {
-        let mut matrix = identity();
-        matrix[0] = 0.0;
-        matrix[1] = 1.0;
-        matrix[4] = -1.0;
-        matrix[5] = 0.0;
-
-        assert!(has_unsupported_subtree_transform(&matrix));
-    }
-
-    #[test]
-    fn reflection_and_perspective_are_flagged() {
-        let mut reflection = identity();
-        reflection[0] = -1.0;
-        assert!(has_unsupported_subtree_transform(&reflection));
-
-        for perspective_index in [14, 15] {
-            let mut perspective = identity();
-            perspective[perspective_index] = if perspective_index == 15 { 0.5 } else { 0.01 };
-            assert!(has_unsupported_subtree_transform(&perspective));
-        }
-    }
-
-    #[test]
-    fn nonfinite_transform_is_flagged() {
-        let mut matrix = identity();
-        matrix[12] = f32::NAN;
-        assert!(has_unsupported_subtree_transform(&matrix));
-        assert_eq!(axis_aligned_transform(&matrix), (1.0, 1.0, 0.0, 0.0));
-    }
+    use super::{accumulate_origin, OriginStep};
 
     #[test]
     fn nested_scaled_origins_apply_parent_scroll_and_translation() {

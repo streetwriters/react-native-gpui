@@ -1610,13 +1610,16 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
     let node = entity.read(cx);
     let origin = node.absolute_origin(cx);
     let (scale_x, scale_y) = node.cumulative_scale(cx);
-    let height = node.frame.h;
-    Some(RectF {
-        x: f32::from(origin.x),
-        y: f32::from(origin.y),
-        w: node.frame.w * scale_x,
-        h: height * scale_y,
-    })
+    let (x, y, w, h) = node.transformed_bounds(
+        cx,
+        (
+            f32::from(origin.x),
+            f32::from(origin.y),
+            node.frame.w * scale_x,
+            node.frame.h * scale_y,
+        ),
+    );
+    Some(RectF { x, y, w, h })
 }
 
 /// The GPUI menu bar is drawn inside the window (Linux by default), so the RN
