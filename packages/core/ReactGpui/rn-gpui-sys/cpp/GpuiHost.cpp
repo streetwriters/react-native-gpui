@@ -88,7 +88,11 @@ extern "C" bool rn_gpui_accessibility_active_default() {
     "/alternatename:rn_gpui_accessibility_active=rn_gpui_accessibility_active_default")
 #endif
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32) || defined(__linux__)
+#define RN_GPUI_ACCESSIBILITY_SETTINGS 1
+#endif
+
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
 extern "C" bool rn_gpui_get_reduce_motion();
 extern "C" bool rn_gpui_get_reduce_transparency();
 extern "C" bool rn_gpui_get_increase_contrast();
@@ -170,7 +174,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_invert_colors());
 #else
     onSuccess(false);
@@ -180,7 +184,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_reduce_motion());
 #else
     onSuccess(false);
@@ -190,7 +194,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_increase_contrast());
 #else
     onSuccess(false);
@@ -206,7 +210,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_reduce_transparency());
 #else
     onSuccess(false);
@@ -218,6 +222,8 @@ class GpuiAccessibilityManagerModule final
       AsyncCallback<jsi::Value> /*onError*/) {
 #if defined(__APPLE__)
     onSuccess(rn_gpui_get_voice_over());
+#elif defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
+    onSuccess(rn_gpui_get_voice_over() || rn_gpui_accessibility_active());
 #else
     onSuccess(rn_gpui_accessibility_active());
 #endif
@@ -266,21 +272,21 @@ class GpuiAccessibilityInfoModule final
       : NativeAccessibilityInfoCxxSpec(std::move(jsInvoker)) {}
 
   void isReduceMotionEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_reduce_motion());
 #else
     callback(false);
 #endif
   }
   void isInvertColorsEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_invert_colors());
 #else
     callback(false);
 #endif
   }
   void isHighTextContrastEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_increase_contrast());
 #else
     callback(false);
@@ -549,13 +555,13 @@ GpuiHost::GpuiHost(
                 binding->getRuntimeScheduler()));
       });
   activeGpuiHost.store(this, std::memory_order_release);
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
   rn_gpui_start_accessibility_observing();
 #endif
 }
 
 GpuiHost::~GpuiHost() {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
   rn_gpui_stop_accessibility_observing();
 #endif
   reactHost_->stopAllSurfaces();
@@ -876,7 +882,7 @@ void GpuiHost::emit_accessibility_setting_event(
   }
 }
 
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
 extern "C" void rn_gpui_accessibility_setting_changed(
     const char* eventName,
     bool enabled) {
