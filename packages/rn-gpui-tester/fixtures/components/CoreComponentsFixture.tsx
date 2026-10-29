@@ -27,6 +27,7 @@ export default function CoreComponentsFixture() {
   const commandScroll = useRef<ScrollViewInstance>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rotatedPresses, setRotatedPresses] = useState(0);
+  const [rotatedLocation, setRotatedLocation] = useState('none');
   const keepScroll = useRef<ScrollViewInstance>(null);
   const [keepOffset, setKeepOffset] = useState('0');
   const [keepItems, setKeepItems] = useState([3, 2, 1, 0]);
@@ -691,10 +692,16 @@ export default function CoreComponentsFixture() {
           <Pressable
             testID="rot-press"
             onPress={() => setRotatedPresses(count => count + 1)}
+            onPressIn={event =>
+              setRotatedLocation(
+                `${Math.round(event.nativeEvent.locationX)},${Math.round(event.nativeEvent.locationY)}`,
+              )
+            }
             style={styles.rotBox}
           />
         </View>
         <Text testID="rot-count">{String(rotatedPresses)}</Text>
+        <Text testID="rot-location">{rotatedLocation}</Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>More transforms</Text>

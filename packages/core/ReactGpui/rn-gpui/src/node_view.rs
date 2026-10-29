@@ -1417,6 +1417,36 @@ impl RNNodeView {
         point(px(x + surface_x), px(y + surface_y))
     }
 
+    /// The inverse of every matrix GPUI draws this node under, outermost
+    /// first, each about its node's origin. Applying them in order maps a point
+    /// of the window into the space the layout (and `absolute_origin`) uses.
+    pub(crate) fn transform_inverses(&self, cx: &App) -> Vec<gpui::TransformationMatrix> {
+        let mut inverses = Vec::new();
+        let mut push = |node: &RNNodeView| {
+            if let Some(matrix) = node.gpui_transform(node.inherited.parent_scale) {
+                let origin = node.absolute_origin(cx);
+                let about = gpui::TransformationMatrix::about(
+                    f32::from(origin.x),
+                    f32::from(origin.y),
+                    matrix,
+                );
+                if let Some(inverse) = about.inverse() {
+                    inverses.push(inverse);
+                }
+            }
+        };
+        push(self);
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let Some(node) = weak.upgrade() else { break };
+            let node = node.read(cx);
+            push(node);
+            parent = node.parent.clone();
+        }
+        inverses.reverse();
+        inverses
+    }
+
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {
         (self.inherited.scale.0.abs(), self.inherited.scale.1.abs())
     }

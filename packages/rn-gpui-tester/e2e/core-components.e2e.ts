@@ -377,6 +377,10 @@ describe('Transforms', () => {
     // Inside the turned shape but outside the box as it was laid out.
     await click(50, 28);
     await poll(async () => (await text('rot-count')) === '1');
+    // 22 along the turned box's long side from its centre, on its axis.
+    const [x, y] = (await text('rot-location')).split(',').map(Number);
+    expect(y).toBe(15);
+    expect([8, 52]).toContain(x);
     // Inside the box as laid out but outside the turned shape.
     await click(75, 50);
     await app.waitForIdle();

@@ -73,6 +73,8 @@ pub struct Target {
     pub origin: Point<Pixels>,
     scale_x: f32,
     scale_y: f32,
+    /// Inverses of the matrices GPUI draws the target under, outermost first.
+    inverses: Vec<gpui::TransformationMatrix>,
     /// The target and its ancestors, innermost first: RN's hover path
     /// (`PointerHoverTracker::getEventPathTargets`), the surface root excluded.
     pub chain: Vec<i32>,
@@ -84,6 +86,9 @@ pub fn active_touch_target(cx: &App) -> Option<Target> {
 
 impl Target {
     fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
+        let position = self.inverses.iter().fold(position, |position, inverse| {
+            inverse.transform_logical_point(position)
+        });
         point(
             px(f32::from(position.x - self.origin.x) / self.scale_x.max(0.0001)),
             px(f32::from(position.y - self.origin.y) / self.scale_y.max(0.0001)),
@@ -103,11 +108,33 @@ mod transform_tests {
             origin: point(px(30.0), px(40.0)),
             scale_x: 2.0,
             scale_y: 0.5,
+            inverses: Vec::new(),
             chain: vec![7],
         };
         let local = target.local_position(point(px(70.0), px(60.0)));
         assert_eq!(f32::from(local.x), 20.0);
         assert_eq!(f32::from(local.y), 40.0);
+    }
+
+    #[test]
+    fn pointer_location_undoes_the_matrices_a_target_is_drawn_under() {
+        use gpui::TransformationMatrix;
+        let quarter = TransformationMatrix {
+            rotation_scale: [[0.0, -1.0], [1.0, 0.0]],
+            translation: [0.0, 0.0],
+        };
+        let about = TransformationMatrix::about(50.0, 50.0, quarter);
+        let target = Target {
+            tag: 7,
+            origin: point(px(20.0), px(35.0)),
+            scale_x: 1.0,
+            scale_y: 1.0,
+            inverses: vec![about.inverse().unwrap()],
+            chain: vec![7],
+        };
+        let local = target.local_position(about.transform_logical_point(point(px(30.0), px(50.0))));
+        assert!((f32::from(local.x) - 10.0).abs() < 0.001);
+        assert!((f32::from(local.y) - 15.0).abs() < 0.001);
     }
 }
 
@@ -237,14 +264,24 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         }
     }
     let index = chosen?;
-    let (origin, scale_x, scale_y) = if index == 0 {
+    let (origin, scale_x, scale_y, inverses) = if index == 0 {
         let (scale_x, scale_y) = hit_node.cumulative_scale(cx);
-        (hit_node.absolute_origin(cx), scale_x, scale_y)
+        (
+            hit_node.absolute_origin(cx),
+            scale_x,
+            scale_y,
+            hit_node.transform_inverses(cx),
+        )
     } else {
         let node = steps[index].entity.as_ref()?.upgrade()?;
         let node = node.read(cx);
         let (scale_x, scale_y) = node.cumulative_scale(cx);
-        (node.absolute_origin(cx), scale_x, scale_y)
+        (
+            node.absolute_origin(cx),
+            scale_x,
+            scale_y,
+            node.transform_inverses(cx),
+        )
     };
     let chain = steps[index..].iter().map(|step| step.tag).collect();
     Some(Target {
@@ -252,6 +289,7 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         origin,
         scale_x,
         scale_y,
+        inverses,
         chain,
     })
 }
@@ -674,6 +712,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
                     origin: node.absolute_origin(cx),
                     scale_x: node.cumulative_scale(cx).0,
                     scale_y: node.cumulative_scale(cx).1,
+                    inverses: node.transform_inverses(cx),
                     chain: Vec::new(),
                 }
                 .local_position(position)
