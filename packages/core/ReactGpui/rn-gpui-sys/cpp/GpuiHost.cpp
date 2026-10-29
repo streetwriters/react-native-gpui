@@ -757,7 +757,9 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
     mountingManager_->setWindowSize(w, h);
   }
   reactHost_->setSurfaceConstraints(id, constraints, context);
-  set_window_metrics(w, h, scale);
+  if (id == kAppSurfaceId) {
+    set_window_metrics(w, h, scale);
+  }
 }
 
 void GpuiHost::set_window_top_inset(float top) {
