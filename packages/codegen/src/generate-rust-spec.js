@@ -948,6 +948,8 @@ use gpui::{AnyElement, Window};
 use react_native_gpui::host_component::{
     EmitterHandle, HostArg, HostComponentSpec, HostContext, HostObject, PropsHandle, Value,
 };
+#[allow(unused_imports)]
+use react_native_gpui::native_surface::NativeViewHandle;
 `;
 
 /// The C ABI between the generated Rust and the generated C++ file, emitted
@@ -2568,6 +2570,44 @@ function renderSpecTrait(generator) {
   lines.push('        let _ = (props, window, cx);');
   lines.push('        None');
   lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// The OS view this node hosts, for a component declared with',
+  );
+  lines.push(
+    '    /// `nativeSurface: true`. Core calls it once, when the node is first',
+  );
+  lines.push(
+    '    /// painted, and attaches the view to a composition surface at the',
+  );
+  lines.push("    /// node's bounds.");
+  lines.push('    fn create_view(');
+  lines.push('        &mut self,');
+  lines.push(`        props: &${generator.propsName},`);
+  lines.push('        window: &mut Window,');
+  lines.push(`        cx: &mut ${generator.contextName},`);
+  lines.push(
+    '    ) -> react_native_gpui::native_surface::Result<NativeViewHandle> {',
+  );
+  lines.push('        let _ = (props, window, cx);');
+  lines.push(
+    '        Err(react_native_gpui::native_surface::Error::msg("the component hosts no native view"))',
+  );
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// The props changed while the hosted view is attached. Called after',
+  );
+  lines.push('    /// [`update`](Self::update).');
+  lines.push('    fn update_view(');
+  lines.push('        &mut self,');
+  lines.push('        view: NativeViewHandle,');
+  lines.push(`        props: &${generator.propsName},`);
+  lines.push(`        changed: ${generator.changedName},`);
+  lines.push(`        cx: &mut ${generator.contextName},`);
+  lines.push('    ) {');
+  lines.push('        let _ = (view, props, changed, cx);');
+  lines.push('    }');
   for (const command of generator.commands) {
     lines.push('');
     lines.push(`    /// JS dispatched the \`${command.jsName}\` command.`);
@@ -2723,6 +2763,31 @@ function renderComponentInstance(generator) {
   );
   lines.push(
     '        self.component.render_overlay(&self.props, window, &mut cx)',
+  );
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn create_view(&mut self, window: &mut Window, cx: HostContext) -> react_native_gpui::native_surface::Result<NativeViewHandle> {',
+  );
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+  );
+  lines.push(
+    '        self.component.create_view(&self.props, window, &mut cx)',
+  );
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn update_view(&mut self, view: NativeViewHandle, changed: &[u64], cx: HostContext) {',
+  );
+  lines.push(
+    `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
+  );
+  lines.push(
+    `        let changed = ${generator.changedName}::from_slice(changed);`,
+  );
+  lines.push(
+    '        self.component.update_view(view, &self.props, changed, &mut cx);',
   );
   lines.push('    }');
   lines.push('');

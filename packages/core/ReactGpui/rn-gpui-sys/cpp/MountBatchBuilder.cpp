@@ -8,7 +8,6 @@
 
 #include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
-#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/BaseParagraphProps.h>
@@ -582,14 +581,6 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       }
     }
   }
-  if (op.component == "NativeViewHost") {
-    if (auto props = std::dynamic_pointer_cast<const NativeViewHostProps>(
-            shadowView.props)) {
-      op.native_view_name = props->viewName;
-      op.native_view_props = props->nativePropsJson;
-    }
-  }
-
   const auto& frame = shadowView.layoutMetrics.frame;
   op.frame = {
       frame.origin.x, frame.origin.y, frame.size.width, frame.size.height};

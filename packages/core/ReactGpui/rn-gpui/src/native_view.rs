@@ -1,14 +1,10 @@
-//! The macOS-only window helpers, and the `NativeViewHost` compatibility
-//! layer over [`crate::native_surface`].
+//! The macOS-only window helpers.
 
 use cocoa::{base::id, foundation::NSRect};
 use gpui::Window;
 use objc::{msg_send, sel, sel_impl};
 
-pub use crate::native_surface::{
-    has_native_view_factory, register_native_view_factory, NativeSurface, NativeSurfaceContent,
-    NativeSurfaceElement, NativeViewContext, NativeViewFactory, NativeViewHandle, Result,
-};
+pub use crate::native_surface::{NativeSurface, NativeSurfaceElement, NativeViewHandle, Result};
 pub use cocoa as appkit;
 pub use objc as objective_c;
 

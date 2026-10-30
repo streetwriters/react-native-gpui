@@ -652,7 +652,6 @@ endif()
 target_include_directories(rn_gpui_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(rn_gpui_core PUBLIC "${REACT_CXX_PLATFORM_DIR}")
 target_sources(rn_gpui_core PRIVATE
-  "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeviewhost/NativeViewHost.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/windowcontrol/WindowControl.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/desktopswitch/DesktopSwitch.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.cpp"

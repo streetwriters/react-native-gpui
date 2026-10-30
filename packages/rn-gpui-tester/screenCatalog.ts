@@ -235,13 +235,13 @@ export const screens = [
   },
   {
     id: 'native-view',
-    title: 'Native NSView',
+    title: 'Native view',
     group: 'Native modules',
     fixture: 'NativeViewFixture',
   },
   {
     id: 'webview',
-    title: 'Native WKWebView',
+    title: 'Web view',
     group: 'Native modules',
     fixture: 'WebViewFixture',
   },

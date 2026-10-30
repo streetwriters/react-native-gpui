@@ -3,7 +3,6 @@
 
 #include <react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.h>
 #include <react/renderer/components/desktopswitch/DesktopSwitch.h>
-#include <react/renderer/components/nativeviewhost/NativeViewHost.h>
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
 #include "GpuiHost.h" // KAllSurfacesStopped
@@ -710,8 +709,6 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
           concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   GpuiModalHostViewComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  NativeViewHostComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   WindowControlComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<

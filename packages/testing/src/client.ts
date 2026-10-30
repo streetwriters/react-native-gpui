@@ -375,6 +375,34 @@ export class DesktopApp {
     return this.request('hostCounters', { reset: options.reset ?? false });
   }
 
+  /**
+   * The OS views hosted by `nativeSurface` components that have been painted:
+   * the bounds core last gave each one, in logical pixels, whether it is
+   * shown, and (macOS) what the view itself reports.
+   */
+  async nativeSurfaces(): Promise<
+    Array<{
+      tag: number;
+      testID: string;
+      visible: boolean;
+      bounds: { x: number; y: number; width: number; height: number } | null;
+      view: {
+        width: number;
+        height: number;
+        attached: boolean;
+        hidden: boolean;
+        /** The layer's background as RGBA components, empty when unset. */
+        background: number[];
+      } | null;
+    }>
+  > {
+    const { surfaces } = await this.request<{ surfaces: never[] }>(
+      'nativeSurfaces',
+      {},
+    );
+    return surfaces;
+  }
+
   async idleStatus(
     options: Pick<IdleOptions, 'ignore' | 'ignoreUrls'> = {},
   ): Promise<{

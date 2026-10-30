@@ -5,26 +5,10 @@ use gpui::{
     relative, App, Bounds, Element, ElementId, GlobalElementId, IntoElement, LayoutId, Style,
     Window, WindowCompositionSurface,
 };
-use serde_json::Value;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
 
-pub use anyhow::Result;
+pub use anyhow::{Error, Result};
 
-/// What a native view factory is given when a view is created.
-pub struct NativeViewContext {
-    /// The `nativeProps` JSON of the `NativeViewHost`, parsed.
-    pub native_props: Value,
-}
-
-/// A package's factory for one kind of native view.
-pub trait NativeViewFactory: Send + Sync + 'static {
-    fn create_view(&self, context: &NativeViewContext) -> Result<NativeViewHandle>;
-}
-
-/// One native view, as a factory hands it back.
+/// One OS view, as a host component creates it.
 #[derive(Clone, Copy, Debug)]
 pub struct NativeViewHandle {
     #[cfg(target_os = "macos")]
@@ -48,6 +32,12 @@ impl NativeViewHandle {
         Self {
             view: view as usize,
         }
+    }
+
+    /// The `NSView` the handle names.
+    #[cfg(target_os = "macos")]
+    pub fn as_nsview(&self) -> *mut std::ffi::c_void {
+        self.view as *mut std::ffi::c_void
     }
 
     /// Transfer an `HWND` to the runtime. The factory keeps ownership and is
@@ -81,57 +71,6 @@ impl NativeViewHandle {
     }
 }
 
-#[derive(Clone, Default)]
-struct NativeViewFactories(Arc<Mutex<HashMap<String, Arc<dyn NativeViewFactory>>>>);
-
-impl gpui::Global for NativeViewFactories {}
-
-/// Registers a factory under `name`, which a `NativeViewHost`'s `viewName`
-/// selects. Registering the same name twice replaces the factory.
-pub fn register_native_view_factory(
-    cx: &mut App,
-    name: impl Into<String>,
-    factory: impl NativeViewFactory,
-) {
-    let registry = if let Some(registry) = cx.try_global::<NativeViewFactories>() {
-        registry.clone()
-    } else {
-        let registry = NativeViewFactories::default();
-        cx.set_global(registry.clone());
-        registry
-    };
-    registry
-        .0
-        .lock()
-        .expect("native view registry poisoned")
-        .insert(name.into(), Arc::new(factory));
-}
-
-/// Whether a factory is registered under `name`.
-pub fn has_native_view_factory(cx: &App, name: &str) -> bool {
-    cx.try_global::<NativeViewFactories>()
-        .is_some_and(|registry| {
-            registry
-                .0
-                .lock()
-                .expect("native view registry poisoned")
-                .contains_key(name)
-        })
-}
-
-/// What a [`NativeSurface`] is created from: a registered factory, or a view
-/// the caller already made.
-pub enum NativeSurfaceContent {
-    /// Look the view up in the factory registry by name.
-    Factory {
-        name: String,
-        /// The `nativeProps` JSON handed to the factory; empty means `null`.
-        props: String,
-    },
-    /// Use a view the caller already created.
-    Handle(NativeViewHandle),
-}
-
 /// A native view attached to a window's composition surface.
 pub struct NativeSurface {
     surface: WindowCompositionSurface,
@@ -141,43 +80,13 @@ pub struct NativeSurface {
 }
 
 impl NativeSurface {
-    /// Creates the composition surface and attaches the view to it.
-    pub fn create(content: NativeSurfaceContent, window: &Window, cx: &App) -> Result<Self> {
+    /// Creates the composition surface and attaches `view` to it. The surface
+    /// owns the view from here on.
+    pub fn create(view: NativeViewHandle, window: &Window) -> Result<Self> {
+        anyhow::ensure!(!view.is_null(), "the native view is null");
         let surface = window
             .enable_window_composition()?
             .create_native_surface()?;
-        let view = match content {
-            NativeSurfaceContent::Factory { name, props } => {
-                let registry = cx
-                    .try_global::<NativeViewFactories>()
-                    .context("no native view factories have been registered")?;
-                let factory = registry
-                    .0
-                    .lock()
-                    .expect("native view registry poisoned")
-                    .get(&name)
-                    .cloned()
-                    .with_context(|| format!("no NativeViewFactory is registered for '{name}'"))?;
-                let native_props = if props.is_empty() {
-                    Value::Null
-                } else {
-                    serde_json::from_str(&props).context("parsing NativeViewHost nativeProps")?
-                };
-                let handle = factory.create_view(&NativeViewContext { native_props })?;
-                anyhow::ensure!(
-                    !handle.is_null(),
-                    "NativeViewFactory '{name}' returned a null view"
-                );
-                handle
-            }
-            NativeSurfaceContent::Handle(handle) => {
-                anyhow::ensure!(
-                    !handle.is_null(),
-                    "NativeSurfaceContent::Handle was given a null view"
-                );
-                handle
-            }
-        };
         let surface = Self {
             surface,
             view,
@@ -185,7 +94,6 @@ impl NativeSurface {
             visible: std::cell::Cell::new(true),
         };
         imp::attach(&surface.surface, view)?;
-        log::info!("[native-surface] attached native view");
         Ok(surface)
     }
 
@@ -237,6 +145,49 @@ impl NativeSurface {
             .context("setting native view visibility")
     }
 
+    /// What the surface and its view look like now, for the test driver.
+    #[cfg(feature = "test-driver")]
+    pub fn test_state(&self, scale_factor: f32) -> serde_json::Value {
+        let bounds = self.last_bounds.get().map(|bounds| {
+            serde_json::json!({
+                "x": bounds.origin.x.0 as f32 / scale_factor,
+                "y": bounds.origin.y.0 as f32 / scale_factor,
+                "width": bounds.size.width.0 as f32 / scale_factor,
+                "height": bounds.size.height.0 as f32 / scale_factor,
+            })
+        });
+        #[cfg(target_os = "macos")]
+        let view = {
+            use cocoa::{base::id, foundation::NSRect};
+            use objc::{msg_send, sel, sel_impl};
+            let view = self.view.view as id;
+            // SAFETY: the view is owned by this surface and read on the main thread.
+            unsafe {
+                let frame: NSRect = msg_send![view, frame];
+                let superview: id = msg_send![view, superview];
+                let hidden: bool = !superview.is_null() && msg_send![superview, isHidden];
+                let layer: id = msg_send![view, layer];
+                let color: *const std::ffi::c_void = msg_send![layer, backgroundColor];
+                let components = if color.is_null() {
+                    Vec::new()
+                } else {
+                    let count = CGColorGetNumberOfComponents(color);
+                    std::slice::from_raw_parts(CGColorGetComponents(color), count).to_vec()
+                };
+                serde_json::json!({
+                    "width": frame.size.width,
+                    "height": frame.size.height,
+                    "attached": !superview.is_null(),
+                    "hidden": hidden,
+                    "background": components,
+                })
+            }
+        };
+        #[cfg(not(target_os = "macos"))]
+        let view = serde_json::Value::Null;
+        serde_json::json!({"bounds": bounds, "visible": self.visible.get(), "view": view})
+    }
+
     /// The bounds last sent, in device pixels.
     pub fn last_bounds(&self) -> Option<Bounds<gpui::DevicePixels>> {
         self.last_bounds.get()
@@ -252,6 +203,13 @@ impl Drop for NativeSurface {
     fn drop(&mut self) {
         imp::detach(self.view);
     }
+}
+
+#[cfg(all(feature = "test-driver", target_os = "macos"))]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGColorGetNumberOfComponents(color: *const std::ffi::c_void) -> usize;
+    fn CGColorGetComponents(color: *const std::ffi::c_void) -> *const f64;
 }
 
 /// The one genuinely platform-specific step: putting the view into the

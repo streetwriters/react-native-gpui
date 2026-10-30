@@ -511,10 +511,12 @@ pub struct HostComponentOptions {
     /// [`HostContext::set_intrinsic_size`]. Its shadow node is a leaf with a Yoga
     /// measure function.
     pub measured: bool,
-    /// The component's content is composited by the OS (a native view, a GPU
-    /// surface) rather than painted by GPUI. A `ScrollView` holding one stays
-    /// off the scroll-layer path, because a scroll-only composite frame skips
-    /// the prepaint that sets a native surface's bounds.
+    /// The component hosts an OS view (a web view, a map) that the platform
+    /// composites above GPUI's content. Core attaches the view
+    /// [`HostObject::create_view`] returns to a composition surface and places
+    /// it at the node's bounds every frame. A `ScrollView` holding one stays off
+    /// the scroll-layer path, because a scroll-only composite frame skips the
+    /// prepaint that sets the bounds.
     pub native_surface: bool,
     /// The component is a container that draws chrome around React children.
     /// Core paints the children; the component paints only its chrome.
@@ -540,6 +542,29 @@ pub trait HostObject: 'static {
 
     /// A command from JS, by its index in the spec's `COMMANDS`.
     fn command(&mut self, index: u32, args: &[HostArg], cx: HostContext);
+
+    /// The OS view of a component declared `nativeSurface`. Core calls it once,
+    /// when the node is first painted; a component that hosts no view returns an
+    /// error.
+    fn create_view(
+        &mut self,
+        window: &mut Window,
+        cx: HostContext,
+    ) -> crate::native_surface::Result<crate::native_surface::NativeViewHandle> {
+        let _ = (window, cx);
+        Err(anyhow::anyhow!("the component hosts no native view"))
+    }
+
+    /// The node's props changed while `view` is attached. Called after
+    /// [`update`](Self::update), with the same mask.
+    fn update_view(
+        &mut self,
+        view: crate::native_surface::NativeViewHandle,
+        changed: &[u64],
+        cx: HostContext,
+    ) {
+        let _ = (view, changed, cx);
+    }
 }
 
 /// A generated registration value: a component's name and how to create it.

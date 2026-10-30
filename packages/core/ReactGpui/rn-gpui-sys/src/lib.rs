@@ -171,12 +171,10 @@ pub mod ffi {
     pub struct MountOp {
         pub kind: MountKind,
         pub tag: i32,
-        pub parent_tag: i32,           // Insert/Remove/Update, else -1
-        pub index: i32,                // Insert/Remove, else -1
-        pub component: String,         // "View", "Paragraph", "Image", "ScrollView", ...
-        pub native_view_name: String,  // Registered NativeViewFactory key
-        pub native_view_props: String, // JSON object supplied to the native view factory
-        pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
+        pub parent_tag: i32,   // Insert/Remove/Update, else -1
+        pub index: i32,        // Insert/Remove, else -1
+        pub component: String, // "View", "Paragraph", "Image", "ScrollView", ...
+        pub frame: RectF,      // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,

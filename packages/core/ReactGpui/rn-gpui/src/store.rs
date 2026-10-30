@@ -502,14 +502,6 @@ impl ViewStore {
             }
             match op.kind {
                 MountKind::Create => {
-                    if op.component == "NativeViewHost" {
-                        log::info!(
-                            "[native-view] Fabric created tag={} factory='{}' props={}",
-                            op.tag,
-                            op.native_view_name,
-                            op.native_view_props
-                        );
-                    }
                     let host_reports = host_reports.clone();
                     let origin = self.origin_for(surface_id);
                     let node = cx.new(|_| {
@@ -1240,8 +1232,6 @@ mod test_app_context_tests {
             parent_tag: -1,
             index: 0,
             component: "View".into(),
-            native_view_name: String::new(),
-            native_view_props: "{}".into(),
             frame: RectF {
                 x: 10.0,
                 y: 12.0,
@@ -1595,36 +1585,6 @@ mod test_app_context_tests {
             "the shared ancestor is unchanged, not doubled"
         );
         assert_eq!(root_count(cx, &root), 1);
-    }
-
-    #[gpui::test]
-    fn a_native_view_host_counts_only_once_it_has_a_factory(cx: &mut TestAppContext) {
-        let (store, root) = store_with_root(cx);
-
-        let mut create_host = create(1, "NativeViewHost");
-        create_host.native_view_name = String::new();
-        apply(cx, &store, vec![create_host, insert(1, -1)]);
-        assert_eq!(
-            count_of(cx, &store, 1),
-            Some(0),
-            "a host with no factory composites nothing"
-        );
-        assert_eq!(root_count(cx, &root), 0);
-
-        let mut update = op(MountKind::Update);
-        update.tag = 1;
-        update.component = "NativeViewHost".into();
-        update.native_view_name = "MapView".into();
-        apply(cx, &store, vec![update]);
-        assert_eq!(count_of(cx, &store, 1), Some(1));
-        assert_eq!(root_count(cx, &root), 1, "the update reached the root");
-
-        let mut update = op(MountKind::Update);
-        update.tag = 1;
-        update.component = "NativeViewHost".into();
-        apply(cx, &store, vec![update]);
-        assert_eq!(count_of(cx, &store, 1), Some(0));
-        assert_eq!(root_count(cx, &root), 0);
     }
 
     #[gpui::test]

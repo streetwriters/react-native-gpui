@@ -1,6 +1,44 @@
-import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import NativeViewHost from '@react-native-gpui/core/NativeViewHost';
+import React, { useRef, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  FixtureNativeProbe,
+  FixtureWebView,
+  type FixtureNativeProbeType,
+  type FixtureWebViewType,
+} from '@react-native-gpui/host-components-fixture';
+import { Commands as FixtureNativeProbeCommands } from '@react-native-gpui/host-components-fixture/src/FixtureNativeProbeNativeComponent';
+import { Commands as FixtureWebViewCommands } from '@react-native-gpui/host-components-fixture/src/FixtureWebViewNativeComponent';
+
+const BLUE = 0xff147aad;
+const ORANGE = 0xffe8743b;
+const PAGE_ONE =
+  "<html><body style='background:#153b59;color:white;font:24px system-ui'><h1>One</h1></body></html>";
+const PAGE_TWO =
+  "<html><body style='background:#59153b;color:white;font:24px system-ui'><h1>Two</h1></body></html>";
+
+function Button({
+  testID,
+  label,
+  onPress,
+}: {
+  testID: string;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      style={{
+        padding: 10,
+        backgroundColor: '#5865f2',
+        borderRadius: 8,
+      }}
+    >
+      <Text style={{ color: '#fff' }}>{label}</Text>
+    </Pressable>
+  );
+}
 
 export default function NativeViewFixture({
   webView = false,
@@ -8,31 +46,118 @@ export default function NativeViewFixture({
   webView?: boolean;
 }) {
   const [overlay, setOverlay] = useState(false);
+  const [mounted, setMounted] = useState(true);
+  const [hidden, setHidden] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [orange, setOrange] = useState(false);
+  const [second, setSecond] = useState(false);
+  const [counts, setCounts] = useState('no report');
+  const [loads, setLoads] = useState(0);
+  const probe = useRef<React.ElementRef<FixtureNativeProbeType>>(null);
+  const web = useRef<React.ElementRef<FixtureWebViewType>>(null);
+
+  const nativeStyle = hidden
+    ? ({
+        flex: 1,
+        backfaceVisibility: 'hidden',
+        transform: [{ rotateY: '180deg' }],
+      } as const)
+    : ({ flex: 1 } as const);
+  const nativeView = webView ? (
+    <FixtureWebView
+      ref={web}
+      testID="native-view-host"
+      html={second ? PAGE_TWO : PAGE_ONE}
+      onLoadStart={() => setLoads(count => count + 1)}
+      style={nativeStyle}
+    />
+  ) : (
+    <FixtureNativeProbe
+      ref={probe}
+      testID="native-view-host"
+      color={orange ? ORANGE : BLUE}
+      onViewCount={event => {
+        const { created, live } = event.nativeEvent;
+        setCounts(`created ${created} live ${live}`);
+      }}
+      style={nativeStyle}
+    />
+  );
+
   return (
     <View style={{ flex: 1, padding: 24, gap: 16, backgroundColor: '#171923' }}>
       <Text style={{ fontSize: 24, color: '#fff' }}>
-        {webView ? 'WKWebView composition' : 'Native NSView composition'}
+        {webView ? 'Web view composition' : 'Native view composition'}
       </Text>
-      <Pressable
-        testID="native-overlay-toggle"
-        onPress={() => setOverlay(value => !value)}
-        style={{
-          padding: 12,
-          backgroundColor: '#5865f2',
-          alignSelf: 'flex-start',
-          borderRadius: 8,
-        }}
-      >
-        <Text style={{ color: '#fff' }}>
-          {overlay ? 'Hide overlay' : 'Show overlay'}
-        </Text>
-      </Pressable>
-      <View style={{ flex: 1 }}>
-        <NativeViewHost
-          testID="native-view-host"
-          viewName={webView ? 'TesterWebView' : 'BlueNativeProbe'}
-          style={{ flex: 1 }}
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        <Button
+          testID="native-overlay-toggle"
+          label={overlay ? 'Hide overlay' : 'Show overlay'}
+          onPress={() => setOverlay(value => !value)}
         />
+        <Button
+          testID="native-mount-toggle"
+          label={mounted ? 'Unmount' : 'Mount'}
+          onPress={() => setMounted(value => !value)}
+        />
+        <Button
+          testID="native-hide-toggle"
+          label={hidden ? 'Show' : 'Hide'}
+          onPress={() => setHidden(value => !value)}
+        />
+        <Button
+          testID="native-scroll-toggle"
+          label={scrolled ? 'Unscroll' : 'Scroll'}
+          onPress={() => setScrolled(value => !value)}
+        />
+        {webView ? (
+          <>
+            <Button
+              testID="native-page-toggle"
+              label="Other page"
+              onPress={() => setSecond(value => !value)}
+            />
+            <Button
+              testID="native-reload"
+              label="Reload"
+              onPress={() =>
+                web.current && FixtureWebViewCommands.reload(web.current)
+              }
+            />
+          </>
+        ) : (
+          <>
+            <Button
+              testID="native-color-toggle"
+              label="Change colour"
+              onPress={() => setOrange(value => !value)}
+            />
+            <Button
+              testID="native-report"
+              label="Report views"
+              onPress={() =>
+                probe.current &&
+                FixtureNativeProbeCommands.reportViews(probe.current)
+              }
+            />
+          </>
+        )}
+      </View>
+      <Text testID="native-status" style={{ color: '#fff' }}>
+        {webView ? `loads ${loads}` : counts}
+      </Text>
+      <View testID="native-area" style={{ flex: 1 }}>
+        {mounted ? (
+          scrolled ? (
+            <ScrollView testID="native-scroll" style={{ flex: 1 }}>
+              <View style={{ height: 120 }} />
+              <View style={{ height: 240 }}>{nativeView}</View>
+              <View style={{ height: 600 }} />
+            </ScrollView>
+          ) : (
+            <View style={{ flex: 1 }}>{nativeView}</View>
+          )
+        ) : null}
         {overlay ? (
           <View
             testID="native-view-overlay"

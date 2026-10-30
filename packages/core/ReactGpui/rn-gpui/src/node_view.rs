@@ -54,12 +54,9 @@ pub struct RNNodeView {
     hovered: bool,
     pub surface_id: i32,
     pub component: String,
-    pub native_view_name: String,
-    pub native_view_props: String,
     /// Whether this node's own content is composited by the OS rather than
     /// painted by GPUI. Decided once, when the node is created, from its
-    /// registry entry; only a `NativeViewHost` can change it later, when an
-    /// update gives it a factory name.
+    /// registry entry.
     pub(crate) renders_native_surface: bool,
     /// How many nodes in this subtree render a native surface, this node
     /// included.
@@ -68,7 +65,9 @@ pub struct RNNodeView {
     pub(crate) native_surface_counted: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
-    native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
+    /// The composition surface hosting the OS view of a `nativeSurface`
+    /// component, created when the node is first painted.
+    native_surface: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
     /// The host component rendering this node, when its op carried a registry
     /// index. Created on the main thread when the node is mounted, and the only
     /// thing about the component this node ever looks up: from here on it is a
@@ -429,9 +428,6 @@ fn dispatch_context_menu(
 
 /// Whether a newly created node's own content is composited by the OS.
 fn renders_native_surface_for_op(op: &MountOp) -> bool {
-    if op.component == "NativeViewHost" {
-        return !op.native_view_name.is_empty();
-    }
     if op.host_index >= 0 && crate::host_component::renders_native_surface(op.host_index as u32) {
         return true;
     }
@@ -839,13 +835,11 @@ impl RNNodeView {
             hovered: false,
             surface_id,
             component: op.component.clone(),
-            native_view_name: op.native_view_name.clone(),
-            native_view_props: op.native_view_props.clone(),
             extension_props_json: op.extension_props_json.clone(),
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
-            native_view_host: None,
+            native_surface: None,
             renders_native_surface,
             native_surface_descendants: u32::from(renders_native_surface),
             native_surface_counted: false,
@@ -1022,22 +1016,6 @@ impl RNNodeView {
     }
 
     pub fn update_from_op(&mut self, op: &MountOp) {
-        if self.native_view_name != op.native_view_name
-            || self.native_view_props != op.native_view_props
-        {
-            self.native_view_name.clone_from(&op.native_view_name);
-            self.native_view_props.clone_from(&op.native_view_props);
-            self.native_view_host = None;
-        }
-        if self.component == "NativeViewHost" {
-            let renders = !self.native_view_name.is_empty();
-            if renders != self.renders_native_surface {
-                self.renders_native_surface = renders;
-                self.native_surface_descendants = self
-                    .native_surface_descendants
-                    .saturating_add_signed(if renders { 1 } else { -1 });
-            }
-        }
         self.frame = if crate::extensions::component_portal(
             &op.component,
             &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -1174,6 +1152,42 @@ impl RNNodeView {
         let cx = crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
         crate::counters::bump(crate::counters::Counter::HostUpdateCalls);
         component.update(props, &changed, cx);
+        if let Some(surface) = &self.native_surface {
+            let cx =
+                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+            component.update_view(surface.view(), &changed, cx);
+        }
+    }
+
+    /// Creates the OS view of a `nativeSurface` component the first time the
+    /// node is painted, and shows or hides its composition surface with the node.
+    fn show_native_surface(&mut self, visible: bool, window: &mut Window) {
+        if !self.renders_native_surface {
+            return;
+        }
+        if self.native_surface.is_none() && visible {
+            let Some(component) = self.host_component.as_mut() else {
+                return;
+            };
+            let cx =
+                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+            let created = component
+                .create_view(window, cx)
+                .and_then(|view| crate::native_surface::NativeSurface::create(view, window));
+            match created {
+                Ok(surface) => self.native_surface = Some(std::rc::Rc::new(surface)),
+                Err(error) => log::error!(
+                    "[native-view] tag {} ({}) initialization failed: {error:#}",
+                    self.tag,
+                    self.component
+                ),
+            }
+        }
+        if let Some(surface) = &self.native_surface {
+            if let Err(error) = surface.set_visible(visible) {
+                log::error!("[native-view] tag {} visibility: {error:#}", self.tag);
+            }
+        }
     }
 
     pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
@@ -1192,6 +1206,12 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
+    /// The composition surface hosting this node's OS view, once painted.
+    #[cfg(feature = "test-driver")]
+    pub(crate) fn native_surface(&self) -> Option<&crate::native_surface::NativeSurface> {
+        self.native_surface.as_deref()
+    }
+
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
         self.native_surface_descendants > 0
     }
@@ -2489,27 +2509,10 @@ impl Render for RNNodeView {
             &crate::extensions::parse_extension_props(&self.extension_props_json),
         )
         .is_some_and(|portal| !portal.visible);
-        if self.view.display_none || hidden_portal || self.backface_hidden() {
+        let hidden = self.view.display_none || hidden_portal || self.backface_hidden();
+        self.show_native_surface(!hidden, window);
+        if hidden {
             return div().id(self.tag).size_0().into_any_element();
-        }
-        if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
-            if self.native_view_host.is_none() {
-                match crate::native_surface::NativeSurface::create(
-                    crate::native_surface::NativeSurfaceContent::Factory {
-                        name: self.native_view_name.clone(),
-                        props: self.native_view_props.clone(),
-                    },
-                    window,
-                    cx,
-                ) {
-                    Ok(host) => self.native_view_host = Some(std::rc::Rc::new(host)),
-                    Err(error) => log::error!(
-                        "[native-view] tag {} ({}) initialization failed: {error:#}",
-                        self.tag,
-                        self.native_view_name
-                    ),
-                }
-            }
         }
         let frame = self.layout_frame(&self.stable_paint_tree(cx));
         let (scale_x, scale_y) = self.cumulative_scale(cx);
@@ -3833,9 +3836,9 @@ impl Render for RNNodeView {
                 element = element.child(focus_child);
             }
         }
-        if let Some(native_view_host) = &self.native_view_host {
+        if let Some(surface) = &self.native_surface {
             element = element.child(crate::native_surface::NativeSurfaceElement {
-                surface: native_view_host.clone(),
+                surface: surface.clone(),
             });
         }
         if let Some(gradient) = self.gradient_element(frame, (scale_x, scale_y)) {
@@ -4423,8 +4426,6 @@ mod host_component_node_tests {
             parent_tag: -1,
             index: 0,
             component: "NodeTestFake".into(),
-            native_view_name: String::new(),
-            native_view_props: "{}".into(),
             frame: RectF {
                 x: 0.0,
                 y: 0.0,

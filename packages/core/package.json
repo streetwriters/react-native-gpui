@@ -11,8 +11,6 @@
     "types.d.ts",
     "babel-plugin-node-addons.js",
     "polyfills",
-    "NativeViewHost.tsx",
-    "NativeViewHostNativeComponent.ts",
     "metro.config.js",
     "metro-transform-worker.js",
     "setup-env.js",

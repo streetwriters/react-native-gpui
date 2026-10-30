@@ -125,6 +125,27 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            "nativeSurfaces" => {
+                let scale = cx
+                    .update_window(window, |_, window, _| window.scale_factor())
+                    .unwrap_or(1.0);
+                cx.update_entity(&store, |store, cx| {
+                    let mut surfaces: Vec<Value> = store
+                        .nodes
+                        .iter()
+                        .filter_map(|(tag, entity)| {
+                            let node = entity.read(cx);
+                            let surface = node.native_surface()?;
+                            let mut state = surface.test_state(scale);
+                            state["tag"] = json!(tag);
+                            state["testID"] = json!(node.view.test_id);
+                            Some(state)
+                        })
+                        .collect();
+                    surfaces.sort_by_key(|surface| surface["tag"].as_i64());
+                    json!({"surfaces": surfaces})
+                })
+            }
             "hostCounters" => {
                 use crate::counters::{read, reset, Counter};
                 let counters = json!({

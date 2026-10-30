@@ -118,6 +118,20 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain('let _ = (props, window, cx);');
   });
 
+  test('gives a native view component a view hook that defaults to an error', () => {
+    expect(header).toContain('fn create_view(');
+    expect(header).toContain(
+      '-> react_native_gpui::native_surface::Result<NativeViewHandle>',
+    );
+    expect(header).toContain('fn update_view(');
+    expect(header).toContain(
+      'self.component.create_view(&self.props, window, &mut cx)',
+    );
+    expect(header).toContain(
+      'self.component.update_view(view, &self.props, changed, &mut cx)',
+    );
+  });
+
   test('wires the spec into core through a generated instance', () => {
     expect(header).toContain(
       'struct FixtureChartInstance<T: FixtureChartSpec> {',
