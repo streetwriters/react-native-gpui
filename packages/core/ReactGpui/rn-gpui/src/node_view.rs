@@ -4347,10 +4347,14 @@ impl Render for RNNodeView {
             Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
             None => element,
         };
-        let element = match crate::filter::parse(&self.view.filter_json) {
-            Some(filter) => crate::filter::Filtered::new(element, filter).into_any_element(),
-            None => element,
-        };
+        let element = crate::filter::parse(&self.view.filter_json)
+            .into_iter()
+            .fold(element, |element, step| match step {
+                crate::filter::Step::Color(filter) => {
+                    crate::filter::Filtered::new(element, filter).into_any_element()
+                }
+                step => crate::filter::Grouped::with_step(element, step).into_any_element(),
+            });
         match group_opacity {
             Some(opacity) => crate::filter::Grouped::new(element, opacity).into_any_element(),
             None => element,

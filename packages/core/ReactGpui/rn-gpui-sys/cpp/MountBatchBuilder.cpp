@@ -264,8 +264,8 @@ TextFragmentFlat flattenTextFragment(
   return out;
 }
 
-// The `filter` functions that take one number, as `[[name, amount], ...]`.
-// `dropShadow` carries a shadow instead and is left out.
+// The `filter` functions in order, as `[[name, amount], ...]`; a `dropShadow`
+// carries `{x, y, blur, color}` in place of the amount.
 static std::string filterJson(const BaseViewProps& props) {
   if (props.filter.empty()) {
     return {};
@@ -275,6 +275,14 @@ static std::string filterJson(const BaseViewProps& props) {
     if (const auto* amount = std::get_if<Float>(&function.parameters)) {
       functions.push_back(
           folly::dynamic::array(toString(function.type), *amount));
+    } else if (
+        const auto* shadow =
+            std::get_if<DropShadowParams>(&function.parameters)) {
+      functions.push_back(folly::dynamic::array(
+          toString(function.type),
+          folly::dynamic::object("x", shadow->offsetX)("y", shadow->offsetY)(
+              "blur", shadow->standardDeviation)(
+              "color", static_cast<int64_t>(argb(shadow->color)))));
     }
   }
   if (functions.empty()) {

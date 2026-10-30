@@ -1,26 +1,77 @@
-//! The `filter` style: its colour functions as one matrix GPUI applies to
-//! every primitive under the node.
+//! The `filter` style, in the order its functions are listed: colour
+//! functions become a matrix GPUI applies to what is under the node, `blur`
+//! and `dropShadow` paint what is under the node into a group of its own and
+//! work on that picture.
 
 use gpui::{
-    AnyElement, App, Bounds, ColorFilter, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, Window,
+    AnyElement, App, Bounds, ColorFilter, Element, ElementId, GlobalElementId, GroupEffect,
+    InspectorElementId, IntoElement, LayoutId, Pixels, Window,
 };
 
-/// The matrix for `[[name, amount], ...]`, `None` when no function changes
-/// colour. `blur` is not a colour function and is left out.
-pub(crate) fn parse(json: &str) -> Option<ColorFilter> {
-    let functions: Vec<(String, f32)> = serde_json::from_str(json).ok()?;
-    let mut filter = ColorFilter::IDENTITY;
-    for (name, amount) in functions {
-        let Some(next) = function(&name, amount) else {
-            if name == "blur" {
-                log::debug!("[filter] blur is not drawn");
+/// One step of a `filter`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Step {
+    /// Consecutive colour functions as one matrix.
+    Color(ColorFilter),
+    /// A gaussian blur of standard deviation `sigma`, in logical pixels.
+    Blur(f32),
+    DropShadow {
+        dx: f32,
+        dy: f32,
+        sigma: f32,
+        color: [f32; 4],
+    },
+}
+
+/// The steps of `[[name, amount], ...]`, where a `dropShadow` carries
+/// `{x, y, blur, color}` for its amount. Functions that change nothing are
+/// left out.
+pub(crate) fn parse(json: &str) -> Vec<Step> {
+    let Ok(functions) = serde_json::from_str::<Vec<(String, serde_json::Value)>>(json) else {
+        return Vec::new();
+    };
+    let mut steps = Vec::new();
+    let mut matrix = ColorFilter::IDENTITY;
+    let flush = |steps: &mut Vec<Step>, matrix: &mut ColorFilter| {
+        if !matrix.is_identity() {
+            steps.push(Step::Color(*matrix));
+        }
+        *matrix = ColorFilter::IDENTITY;
+    };
+    for (name, value) in functions {
+        match name.as_str() {
+            "blur" => {
+                let sigma = value.as_f64().unwrap_or(0.0) as f32;
+                if sigma.is_finite() && sigma > 0.0 {
+                    flush(&mut steps, &mut matrix);
+                    steps.push(Step::Blur(sigma));
+                }
             }
-            continue;
-        };
-        filter = next.after(&filter);
+            "dropShadow" => {
+                let field = |key: &str| value.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let argb = field("color") as i64 as u32;
+                let [a, r, g, b] =
+                    [24, 16, 8, 0].map(|shift| ((argb >> shift) & 0xff) as f32 / 255.0);
+                flush(&mut steps, &mut matrix);
+                steps.push(Step::DropShadow {
+                    dx: field("x") as f32,
+                    dy: field("y") as f32,
+                    sigma: field("blur").max(0.0) as f32,
+                    color: [r, g, b, a],
+                });
+            }
+            _ => {
+                if let Some(next) = value
+                    .as_f64()
+                    .and_then(|amount| function(&name, amount as f32))
+                {
+                    matrix = next.after(&matrix);
+                }
+            }
+        }
     }
-    (!filter.is_identity()).then_some(filter)
+    flush(&mut steps, &mut matrix);
+    steps
 }
 
 fn rgb(rows: [[f32; 3]; 3], offset: [f32; 3]) -> ColorFilter {
@@ -229,11 +280,26 @@ impl Element for Filtered {
 pub(crate) struct Grouped {
     child: AnyElement,
     opacity: f32,
+    effect: Step,
 }
 
 impl Grouped {
     pub(crate) fn new(child: AnyElement, opacity: f32) -> Self {
-        Self { child, opacity }
+        Self {
+            child,
+            opacity,
+            effect: Step::Color(ColorFilter::IDENTITY),
+        }
+    }
+
+    /// `child` with `step` done to its picture; `step` must be a blur or a
+    /// drop shadow.
+    pub(crate) fn with_step(child: AnyElement, step: Step) -> Self {
+        Self {
+            child,
+            opacity: 1.0,
+            effect: step,
+        }
     }
 }
 
@@ -290,7 +356,25 @@ impl Element for Grouped {
         cx: &mut App,
     ) {
         let child = &mut self.child;
-        window.with_effect_group(self.opacity, |window| child.paint(window, cx));
+        let scale = window.scale_factor();
+        let effect = match self.effect {
+            Step::Blur(sigma) => GroupEffect::Blur {
+                sigma: sigma * scale,
+            },
+            Step::DropShadow {
+                dx,
+                dy,
+                sigma,
+                color,
+            } => GroupEffect::DropShadow {
+                dx: dx * scale,
+                dy: dy * scale,
+                sigma: sigma * scale,
+                color,
+            },
+            Step::Color(_) => GroupEffect::None,
+        };
+        window.with_group_effect(self.opacity, effect, |window| child.paint(window, cx));
     }
 }
 
@@ -316,17 +400,44 @@ mod tests {
         }
     }
 
+    /// The matrix of the colour functions in `json`.
+    fn matrix(json: &str) -> Option<ColorFilter> {
+        parse(json).into_iter().find_map(|step| match step {
+            Step::Color(filter) => Some(filter),
+            _ => None,
+        })
+    }
+
     #[test]
-    fn an_empty_or_neutral_filter_is_none() {
-        assert!(parse("[]").is_none());
-        assert!(parse("[[\"brightness\",1.0]]").is_none());
-        assert!(parse("[[\"blur\",4.0]]").is_none());
-        assert!(parse("not json").is_none());
+    fn an_empty_or_neutral_filter_has_no_steps() {
+        assert!(parse("[]").is_empty());
+        assert!(parse("[[\"brightness\",1.0]]").is_empty());
+        assert!(parse("[[\"blur\",0.0]]").is_empty());
+        assert!(parse("not json").is_empty());
+    }
+
+    #[test]
+    fn blur_and_drop_shadow_are_steps_in_order() {
+        let json = "[[\"grayscale\",1.0],[\"blur\",4.0],[\"dropShadow\",{\"x\":2.0,\"y\":3.0,\"blur\":1.5,\"color\":4294901760}],[\"invert\",1.0]]";
+        let steps = parse(json);
+        assert_eq!(steps.len(), 4);
+        assert!(matches!(steps[0], Step::Color(_)));
+        assert_eq!(steps[1], Step::Blur(4.0));
+        assert_eq!(
+            steps[2],
+            Step::DropShadow {
+                dx: 2.0,
+                dy: 3.0,
+                sigma: 1.5,
+                color: [1.0, 0.0, 0.0, 1.0]
+            }
+        );
+        assert!(matches!(steps[3], Step::Color(_)));
     }
 
     #[test]
     fn grayscale_collapses_red_to_its_luminance() {
-        let filter = parse("[[\"grayscale\",1.0]]").unwrap();
+        let filter = matrix("[[\"grayscale\",1.0]]").unwrap();
         near(
             apply(&filter, [1., 0., 0., 1.]),
             [0.2126, 0.2126, 0.2126, 1.],
@@ -335,32 +446,32 @@ mod tests {
 
     #[test]
     fn invert_flips_each_channel() {
-        let filter = parse("[[\"invert\",1.0]]").unwrap();
+        let filter = matrix("[[\"invert\",1.0]]").unwrap();
         near(apply(&filter, [1., 0.25, 0., 1.]), [0., 0.75, 1., 1.]);
     }
 
     #[test]
     fn opacity_scales_alpha_only() {
-        let filter = parse("[[\"opacity\",0.5]]").unwrap();
+        let filter = matrix("[[\"opacity\",0.5]]").unwrap();
         near(apply(&filter, [0.2, 0.4, 0.6, 1.]), [0.2, 0.4, 0.6, 0.5]);
     }
 
     #[test]
     fn contrast_pivots_on_mid_grey() {
-        let filter = parse("[[\"contrast\",2.0]]").unwrap();
+        let filter = matrix("[[\"contrast\",2.0]]").unwrap();
         near(apply(&filter, [0.5, 0.75, 0.25, 1.]), [0.5, 1.0, 0.0, 1.]);
     }
 
     #[test]
     fn functions_apply_in_order() {
         // Brightness doubles, then invert flips: 0.25 -> 0.5 -> 0.5; 0.5 -> 1 -> 0.
-        let filter = parse("[[\"brightness\",2.0],[\"invert\",1.0]]").unwrap();
+        let filter = matrix("[[\"brightness\",2.0],[\"invert\",1.0]]").unwrap();
         near(apply(&filter, [0.25, 0.5, 0., 1.]), [0.5, 0., 1., 1.]);
     }
 
     #[test]
     fn a_full_turn_of_hue_changes_nothing() {
-        assert!(parse("[[\"hueRotate\",360.0]]").map_or(true, |filter| {
+        assert!(matrix("[[\"hueRotate\",360.0]]").map_or(true, |filter| {
             let out = apply(&filter, [0.8, 0.2, 0.4, 1.]);
             (out[0] - 0.8).abs() < 0.01 && (out[1] - 0.2).abs() < 0.01
         }));

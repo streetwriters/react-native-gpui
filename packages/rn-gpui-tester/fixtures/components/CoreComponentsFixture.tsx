@@ -716,6 +716,15 @@ export default function CoreComponentsFixture() {
         </View>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>Blur and drop shadow</Text>
+        <View testID="filter-blur" style={styles.rotArea}>
+          <View style={styles.blurBox} />
+        </View>
+        <View testID="filter-shadow" style={styles.rotArea}>
+          <View style={styles.shadowBox} />
+        </View>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>Group opacity</Text>
         <View testID="group-opacity" style={styles.rotArea}>
           <View style={styles.groupFaded}>
@@ -825,6 +834,33 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     backgroundColor: '#ff0000',
+  },
+  blurBox: {
+    position: 'absolute',
+    left: 30,
+    top: 30,
+    width: 40,
+    height: 40,
+    backgroundColor: '#000000',
+    filter: [{ blur: 4 }],
+  },
+  shadowBox: {
+    position: 'absolute',
+    left: 20,
+    top: 20,
+    width: 40,
+    height: 40,
+    backgroundColor: '#ff0000',
+    filter: [
+      {
+        dropShadow: {
+          offsetX: 12,
+          offsetY: 12,
+          standardDeviation: 1,
+          color: '#0000ff',
+        },
+      },
+    ],
   },
   groupFaded: {
     position: 'absolute',

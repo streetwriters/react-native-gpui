@@ -496,6 +496,46 @@ describe('Filters', () => {
   });
 });
 
+describe('Blur and drop shadow', () => {
+  async function pixels(testID: string) {
+    await reveal(testID);
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    // The capture is in device pixels; the view is 100 points wide.
+    const scale = image.width / 100;
+    return (x: number, y: number) => {
+      const i =
+        (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4;
+      return [image.data[i], image.data[i + 1], image.data[i + 2]];
+    };
+  }
+
+  test('blur softens the edge of a black box on white', async () => {
+    const at = await pixels('filter-blur');
+    expect(at(50, 50)[0]).toBeLessThan(12);
+    // On the box's edge the blur is half way.
+    expect(Math.abs(at(30, 50)[0] - 128)).toBeLessThan(30);
+    // Just outside it has begun; far away it has not.
+    const outside = at(26, 50)[0];
+    expect(outside).toBeGreaterThan(150);
+    expect(outside).toBeLessThan(250);
+    expect(at(8, 50)[0]).toBeGreaterThan(250);
+  });
+
+  test('a drop shadow is drawn beneath the box, offset', async () => {
+    const at = await pixels('filter-shadow');
+    const [r, g, b] = at(40, 40);
+    expect(r).toBeGreaterThan(245);
+    expect(g).toBeLessThan(12);
+    expect(b).toBeLessThan(12);
+    // Past the box's corner, the shadow shows in its colour.
+    const [sr, sg, sb] = at(68, 68);
+    expect(sr).toBeLessThan(30);
+    expect(sg).toBeLessThan(30);
+    expect(sb).toBeGreaterThan(220);
+    expect(at(8, 8)).toEqual([255, 255, 255]);
+  });
+});
+
 describe('Group opacity', () => {
   test('overlapping children fade as one picture', async () => {
     await reveal('group-opacity');
