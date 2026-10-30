@@ -502,7 +502,6 @@ jobs:
       # backend has no input devices and so no wl_seat, which GPUI requires.)
       - name: e2e native views on Wayland
         if: runner.os == 'Linux'
-        continue-on-error: true
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
           RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
