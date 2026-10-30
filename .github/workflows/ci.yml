@@ -334,6 +334,10 @@ jobs:
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          # The test binaries import msvcp140_2.dll, which the toolset ships in
+          # its redistributable folder and the system does not have.
+          $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+          if ($crt) { Add-Content -Path $env:GITHUB_PATH -Value $crt.FullName -Encoding utf8 }
           $link = (Get-Command link.exe -ErrorAction Stop).Source
           if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8
@@ -717,6 +721,10 @@ jobs:
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          # The test binaries import msvcp140_2.dll, which the toolset ships in
+          # its redistributable folder and the system does not have.
+          $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+          if ($crt) { Add-Content -Path $env:GITHUB_PATH -Value $crt.FullName -Encoding utf8 }
           $link = (Get-Command link.exe -ErrorAction Stop).Source
           if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8
