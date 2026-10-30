@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/hermes",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pinned Hermes engine for react-native-gpui: public headers and prebuilt VM and compiler binaries",
   "license": "MIT",
   "repository": {
