@@ -517,9 +517,17 @@ jobs:
             [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break
             sleep 0.2
           done
-          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci \
+          if ! env -u DISPLAY WAYLAND_DISPLAY=wayland-ci \
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
-            npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts
+            npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts; then
+            echo '--- weston'
+            cat "$RUNNER_TEMP/weston.log" || true
+            for log in "${TMPDIR:-/tmp}"/rn-gpui-test-*.log; do
+              echo "--- $log"
+              tail -n 40 "$log"
+            done
+            exit 1
+          fi
 
       - name: Upload the new screenshot baselines
         if: always() && inputs.update_screenshots
