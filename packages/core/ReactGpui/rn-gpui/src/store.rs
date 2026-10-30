@@ -2606,6 +2606,43 @@ impl Render for SurfaceRootView {
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            // A press that started on a node follows the pointer wherever it
+            // goes: over a node, the node moves and ends it first; anywhere
+            // else it moves and ends here, so a drag that left every touchable
+            // still reaches React, which decides from it whether the press
+            // is kept.
+            .on_mouse_move(|event, window, cx| {
+                if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
+                    return;
+                }
+                if let Some(target) = crate::events::active_touch_target(cx) {
+                    crate::events::send(
+                        window,
+                        cx,
+                        &target,
+                        event.position,
+                        crate::events::Phase::Move,
+                        None,
+                        crate::node_view::modifier_state(event.modifiers),
+                    );
+                }
+            })
+            .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
+                if crate::events::press_belongs_to_window() {
+                    return;
+                }
+                if let Some(target) = crate::events::active_touch_target(cx) {
+                    crate::events::send(
+                        window,
+                        cx,
+                        &target,
+                        event.position,
+                        crate::events::Phase::End,
+                        Some(crate::events::Button::Left),
+                        crate::node_view::modifier_state(event.modifiers),
+                    );
+                }
+            })
             .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]

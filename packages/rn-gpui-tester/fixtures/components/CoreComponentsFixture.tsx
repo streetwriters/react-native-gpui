@@ -27,6 +27,9 @@ export default function CoreComponentsFixture() {
   const commandScroll = useRef<ScrollViewInstance>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rotatedPresses, setRotatedPresses] = useState(0);
+  const [slopPresses, setSlopPresses] = useState(0);
+  const [retainedPresses, setRetainedPresses] = useState(0);
+  const [defaultPresses, setDefaultPresses] = useState(0);
   const [rotatedLocation, setRotatedLocation] = useState('none');
   const keepScroll = useRef<ScrollViewInstance>(null);
   const [keepOffset, setKeepOffset] = useState('0');
@@ -63,6 +66,32 @@ export default function CoreComponentsFixture() {
       contentContainerStyle={styles.content}
     >
       <Text style={styles.title}>Core components</Text>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Hit slop</Text>
+        <View testID="slop-area" style={styles.slopArea}>
+          <Pressable
+            testID="slop-press"
+            hitSlop={20}
+            pressRetentionOffset={{ top: 80, left: 80, right: 80, bottom: 80 }}
+            style={styles.slopBox}
+            onPress={() => setSlopPresses(count => count + 1)}
+          />
+          <Pressable
+            testID="slop-default"
+            style={styles.slopDefault}
+            onPress={() => setDefaultPresses(count => count + 1)}
+          />
+          <Pressable
+            testID="slop-retained"
+            pressRetentionOffset={{ top: 80, left: 80, right: 80, bottom: 80 }}
+            style={styles.slopRetained}
+            onPress={() => setRetainedPresses(count => count + 1)}
+          />
+        </View>
+        <Text testID="slop-count">{String(slopPresses)}</Text>
+        <Text testID="slop-default-count">{String(defaultPresses)}</Text>
+        <Text testID="slop-retained-count">{String(retainedPresses)}</Text>
+      </View>
       <Modal
         visible={modalOpen}
         transparent
@@ -929,6 +958,31 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: '#000000',
     filter: [{ blur: 4 }],
+  },
+  slopArea: { width: 170, height: 260, backgroundColor: '#eee' },
+  slopBox: {
+    position: 'absolute',
+    left: 60,
+    top: 20,
+    width: 40,
+    height: 40,
+    backgroundColor: '#08f',
+  },
+  slopDefault: {
+    position: 'absolute',
+    left: 60,
+    top: 110,
+    width: 40,
+    height: 40,
+    backgroundColor: '#f80',
+  },
+  slopRetained: {
+    position: 'absolute',
+    left: 60,
+    top: 200,
+    width: 40,
+    height: 40,
+    backgroundColor: '#8f0',
   },
   groupFaded: {
     position: 'absolute',

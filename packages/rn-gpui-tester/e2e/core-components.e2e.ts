@@ -600,6 +600,77 @@ describe('Effects in a scroll view', () => {
   });
 });
 
+describe('hitSlop and pressRetentionOffset', () => {
+  // All of the area, not just its middle, so that every point of it can be
+  // pressed.
+  async function area() {
+    const [root] = await app.query(
+      'testID',
+      'tester-screen-core-components',
+      true,
+    );
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const [node] = await app.query('testID', 'slop-area', true);
+      if (
+        node?.visible &&
+        node.frame.y + node.frame.height <= root.frame.y + root.frame.height
+      ) {
+        return node.frame;
+      }
+      await app.scroll(root.tag, 0, -100);
+    }
+    throw new Error('slop-area could not be scrolled into view');
+  }
+
+  async function click(frame: { x: number; y: number }, x: number, y: number) {
+    const at = { x: frame.x + x, y: frame.y + y + TITLE_BAR };
+    await app.mouseDown(at);
+    await app.mouseUp(at);
+    await app.waitForIdle();
+  }
+
+  async function drag(
+    frame: { x: number; y: number },
+    from: [number, number],
+    to: [number, number],
+  ) {
+    const start = { x: frame.x + from[0], y: frame.y + from[1] + TITLE_BAR };
+    const end = { x: frame.x + to[0], y: frame.y + to[1] + TITLE_BAR };
+    await app.mouseDown(start);
+    await app.mouseMove(end, { button: 'left' });
+    await app.mouseUp(end);
+    await app.waitForIdle();
+  }
+
+  test('a press in the slop around a view reaches it, and one past it does not', async () => {
+    const frame = await area();
+    // The blue box is 60 to 100 across, 20 to 60 down, with 20 points of slop.
+    await click(frame, 50, 40);
+    await poll(async () => (await text('slop-count')) === '1');
+    await click(frame, 80, 75);
+    await poll(async () => (await text('slop-count')) === '2');
+    await click(frame, 30, 40);
+    await click(frame, 80, 85);
+    expect(await text('slop-count')).toBe('2');
+    // The orange view below has no slop.
+    await click(frame, 50, 130);
+    expect(await text('slop-default-count')).toBe('0');
+  });
+
+  test('dragging out of a view keeps the press only as far as pressRetentionOffset', async () => {
+    const frame = await area();
+    // The green view retains 80 points: released 60 past its edge it presses.
+    await drag(frame, [80, 220], [160, 220]);
+    await poll(async () => (await text('slop-retained-count')) === '1');
+    // The orange one retains the default 20: released 60 past, it does not.
+    await drag(frame, [80, 130], [160, 130]);
+    expect(await text('slop-default-count')).toBe('0');
+    // Released 15 past its edge, it does.
+    await drag(frame, [80, 130], [115, 130]);
+    await poll(async () => (await text('slop-default-count')) === '1');
+  });
+});
+
 describe('Group opacity', () => {
   test('overlapping children fade as one picture', async () => {
     await reveal('group-opacity');

@@ -503,6 +503,14 @@ pub fn send(
         let store = store.read(cx);
         (store.host.clone(), store.frame_hook.clone())
     };
+    if matches!(phase, Phase::Start) {
+        // What React measures on the press (its retention region) is where the
+        // node is now, scrolled as far as it has been.
+        let nodes: Vec<_> = store.read(cx).nodes.values().cloned().collect();
+        for node in nodes {
+            node.read(cx).flush_scroll_state(&host);
+        }
+    }
     match phase {
         Phase::Start => frame_hook.set_gesture_active(true, window),
         Phase::End | Phase::Cancel => frame_hook.set_gesture_active(false, window),

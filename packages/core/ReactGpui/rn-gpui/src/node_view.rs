@@ -141,6 +141,8 @@ pub struct RNNodeView {
     pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
     scroll_sync_generation: Rc<Cell<u64>>,
+    /// Whether Fabric's copy of the offset is behind the node's own.
+    scroll_sync_pending: Rc<Cell<bool>>,
     scroll_handle: gpui::ScrollHandle,
     scroll_handle_stale: bool,
     pub focusable: bool,
@@ -161,7 +163,7 @@ static A11Y_TREE_DUMP_COMPLETE: AtomicBool = AtomicBool::new(false);
 static A11Y_TREE_DUMP_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 
 /// The DOM view of the modifiers held during an event.
-fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
+pub(crate) fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
     crate::events::ModifierState::from_gpui(&modifiers)
 }
 
@@ -926,6 +928,7 @@ impl RNNodeView {
             ),
             scroll_indicator: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
+            scroll_sync_pending: Rc::new(Cell::new(false)),
             scroll_handle: gpui::ScrollHandle::new(),
             scroll_handle_stale: true,
             focusable: op.view.focusable || op.component == "TextInput",
@@ -1326,6 +1329,15 @@ impl RNNodeView {
         let before = self.effect_group_descendants;
         self.effect_group_descendants = before.saturating_sub(delta);
         before != 0 && self.effect_group_descendants == 0
+    }
+
+    /// Hands Fabric the scroll offset it has not been given yet, so that a
+    /// measurement taken now is in the window's coordinates.
+    pub(crate) fn flush_scroll_state(&self, host: &crate::host::Host) {
+        if self.scroll_sync_pending.replace(false) {
+            let offset = self.scroll_position.get();
+            host.set_scroll_offset(self.tag, offset.x, offset.y);
+        }
     }
 
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
@@ -3954,7 +3966,7 @@ impl Render for RNNodeView {
             }
         } else {
             if !handlers.is_empty() {
-                element = element.child(pointer_area(handlers));
+                element = element.child(pointer_area(handlers, self.view.hit_slop));
             }
         }
         // Not for a scroll container, which never had one: its content is
@@ -4040,6 +4052,7 @@ impl Render for RNNodeView {
                     position: self.scroll_position.clone(),
                     handle: self.scroll_handle.clone(),
                     sync_generation: self.scroll_sync_generation.clone(),
+                    sync_pending: self.scroll_sync_pending.clone(),
                     content_size: scroll.content_size,
                     viewport: (frame.w, frame.h),
                     scale: (scale_x, scale_y),
@@ -4916,16 +4929,18 @@ impl RNNodeView {
         }
         let generation = self.scroll_sync_generation.get() + 1;
         self.scroll_sync_generation.set(generation);
-        let (tag, position, sync_generation) = (
+        self.scroll_sync_pending.set(true);
+        let (tag, position, sync_generation, pending) = (
             self.tag,
             self.scroll_position.clone(),
             self.scroll_sync_generation.clone(),
+            self.scroll_sync_pending.clone(),
         );
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(SCROLL_STATE_SYNC_DELAY)
                 .await;
-            if sync_generation.get() == generation {
+            if sync_generation.get() == generation && pending.replace(false) {
                 let offset = position.get();
                 host.set_scroll_offset(tag, offset.x, offset.y);
             }
@@ -5164,6 +5179,7 @@ struct Scroller {
     position: Rc<Cell<Point<f32>>>,
     handle: gpui::ScrollHandle,
     sync_generation: Rc<Cell<u64>>,
+    sync_pending: Rc<Cell<bool>>,
     content_size: (f32, f32),
     event: Option<String>,
     viewport: (f32, f32),
@@ -5360,16 +5376,18 @@ impl Scroller {
         // scrolling pauses.
         let generation = self.sync_generation.get() + 1;
         self.sync_generation.set(generation);
-        let (tag, position, sync_generation) = (
+        self.sync_pending.set(true);
+        let (tag, position, sync_generation, pending) = (
             self.tag,
             self.position.clone(),
             self.sync_generation.clone(),
+            self.sync_pending.clone(),
         );
         cx.spawn(async move |cx| {
             cx.background_executor()
                 .timer(SCROLL_STATE_SYNC_DELAY)
                 .await;
-            if sync_generation.get() == generation {
+            if sync_generation.get() == generation && pending.replace(false) {
                 let offset = position.get();
                 host.set_scroll_offset(tag, offset.x, offset.y);
             }

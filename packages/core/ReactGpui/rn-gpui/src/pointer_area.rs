@@ -3,8 +3,8 @@
 //! asks only inside its event handlers, where nothing is recorded.
 
 use gpui::{
-    canvas, prelude::*, App, DispatchPhase, HitboxBehavior, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, NavigationDirection, Window,
+    canvas, point, prelude::*, px, size, App, Bounds, DispatchPhase, HitboxBehavior, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Window,
 };
 use std::rc::Rc;
 
@@ -114,15 +114,33 @@ impl PointerHandlers {
     }
 }
 
-pub(crate) fn pointer_area(handlers: PointerHandlers) -> impl IntoElement {
+/// How far past its box a node takes a press, in points: left, top, right,
+/// bottom. Only presses use it: hover and moves are over the box itself.
+pub(crate) type HitSlop = [f32; 4];
+
+pub(crate) fn pointer_area(handlers: PointerHandlers, slop: HitSlop) -> impl IntoElement {
     canvas(
-        |bounds, window, _cx| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-        move |_bounds, hitbox, window, _cx| {
+        move |bounds, window, _cx| {
+            let reach = Bounds {
+                origin: point(bounds.origin.x - px(slop[0]), bounds.origin.y - px(slop[1])),
+                size: size(
+                    bounds.size.width + px(slop[0] + slop[2]),
+                    bounds.size.height + px(slop[1] + slop[3]),
+                ),
+            };
+            // Inserted together, so they stack alike: a sibling above covers
+            // the slop as it covers the box.
+            (
+                window.insert_hitbox(reach, HitboxBehavior::Normal),
+                window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            )
+        },
+        move |_bounds, (press_box, hitbox), window, _cx| {
             // Every button, including the ones nothing currently registers, so
             // adding a listener for a middle click needs no change here.
             for button in POINTER_BUTTONS {
                 for handler in handlers.down(button).clone() {
-                    let hitbox = hitbox.clone();
+                    let hitbox = press_box.clone();
                     window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                         if phase == DispatchPhase::Bubble
                             && PointerButton::from_gpui(event.button) == Some(button)
@@ -133,7 +151,7 @@ pub(crate) fn pointer_area(handlers: PointerHandlers) -> impl IntoElement {
                     });
                 }
                 for handler in handlers.up(button).clone() {
-                    let hitbox = hitbox.clone();
+                    let hitbox = press_box.clone();
                     window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
                         if phase == DispatchPhase::Bubble
                             && PointerButton::from_gpui(event.button) == Some(button)
@@ -195,7 +213,9 @@ mod hover_tests {
             _cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             let handlers = self.handlers.borrow_mut().take().unwrap_or_default();
-            gpui::div().size_full().child(pointer_area(handlers))
+            gpui::div()
+                .size_full()
+                .child(pointer_area(handlers, [0.0; 4]))
         }
     }
 
@@ -302,5 +322,99 @@ mod hover_tests {
             vec![true, false],
             "enter once, then leave once, with the repaint in between ignored",
         );
+    }
+
+    /// A 40 by 40 box at (60, 60) holding a pointer area with `slop`.
+    struct SlopProbe {
+        handlers: RefCell<Option<PointerHandlers>>,
+        slop: HitSlop,
+    }
+
+    impl gpui::Render for SlopProbe {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            let handlers = self.handlers.borrow_mut().take().unwrap_or_default();
+            gpui::div().size_full().child(
+                gpui::div()
+                    .absolute()
+                    .left(gpui::px(60.0))
+                    .top(gpui::px(60.0))
+                    .size(gpui::px(40.0))
+                    .child(pointer_area(handlers, self.slop)),
+            )
+        }
+    }
+
+    /// Whether a press at (x, y) reaches a handler on a box with `slop`, and
+    /// whether a move there is seen as hover.
+    fn press_and_hover(
+        cx: &mut gpui::TestAppContext,
+        slop: HitSlop,
+        x: f32,
+        y: f32,
+    ) -> (bool, bool) {
+        let pressed = Rc::new(std::cell::Cell::new(false));
+        let hovered = Rc::new(std::cell::Cell::new(false));
+        let (sink, hover_sink) = (pressed.clone(), hovered.clone());
+        let handlers = PointerHandlers {
+            left_down: vec![Rc::new(move |_: &MouseDownEvent, _, _| sink.set(true))],
+            hover: vec![Rc::new(move |over: bool, _, _| {
+                if over {
+                    hover_sink.set(true);
+                }
+            })],
+            ..PointerHandlers::default()
+        };
+        let window = cx.open_window(gpui::size(gpui::px(200.0), gpui::px(200.0)), move |_, _| {
+            SlopProbe {
+                handlers: RefCell::new(Some(handlers)),
+                slop,
+            }
+        });
+        window
+            .update(cx, |_, window, app| {
+                let needs_clear = window.draw(app);
+                needs_clear.clear(app);
+                let position = gpui::point(gpui::px(x), gpui::px(y));
+                window.dispatch_event(
+                    gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                        position,
+                        pressed_button: None,
+                        ..Default::default()
+                    }),
+                    app,
+                );
+                window.dispatch_event(
+                    gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                        position,
+                        button: gpui::MouseButton::Left,
+                        ..Default::default()
+                    }),
+                    app,
+                );
+            })
+            .unwrap();
+        (pressed.get(), hovered.get())
+    }
+
+    #[gpui::test]
+    fn a_press_in_the_slop_reaches_the_handler_but_a_hover_does_not(cx: &mut gpui::TestAppContext) {
+        let slop = [10.0, 20.0, 30.0, 40.0];
+        // Inside the box.
+        assert_eq!(press_and_hover(cx, slop, 80.0, 80.0), (true, true));
+        // Left of the box by 5 (slop 10), above it by 15 (slop 20).
+        assert_eq!(press_and_hover(cx, slop, 55.0, 80.0), (true, false));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 45.0), (true, false));
+        // Right of the box by 25 (slop 30), below it by 35 (slop 40).
+        assert_eq!(press_and_hover(cx, slop, 125.0, 80.0), (true, false));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 135.0), (true, false));
+        // Past the slop on each side.
+        assert_eq!(press_and_hover(cx, slop, 45.0, 80.0), (false, false));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 35.0), (false, false));
+        assert_eq!(press_and_hover(cx, slop, 135.0, 80.0), (false, false));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 145.0), (false, false));
     }
 }
