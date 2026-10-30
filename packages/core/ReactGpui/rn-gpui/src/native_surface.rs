@@ -13,7 +13,7 @@ pub use anyhow::{Error, Result};
 /// How a view is placed differs per platform, because each compositor takes
 /// native content differently: macOS adds an `NSView` to the node's container,
 /// X11 and Wayland give the component the surface to draw into, Windows takes
-/// either composition content on the surface's visual or a child window.
+/// composition content on the surface's visual.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeViewHandle(Repr);
 
@@ -22,8 +22,6 @@ enum Repr {
     Composited,
     #[cfg(target_os = "macos")]
     Nsview(usize),
-    #[cfg(target_os = "windows")]
-    Hwnd(isize),
     #[cfg(target_os = "linux")]
     X11Window(u32),
 }
@@ -55,22 +53,6 @@ impl NativeViewHandle {
         match self.0 {
             Repr::Nsview(view) => view as *mut std::ffi::c_void,
             Repr::Composited => std::ptr::null_mut(),
-        }
-    }
-
-    /// An ordinary child window. The component keeps ownership and destroys it
-    /// after the node unmounts; core moves and shows it with the node.
-    #[cfg(target_os = "windows")]
-    pub fn from_hwnd(hwnd: isize) -> Self {
-        Self(Repr::Hwnd(hwnd))
-    }
-
-    /// The `HWND` the handle names, or zero when it names none.
-    #[cfg(target_os = "windows")]
-    pub fn as_hwnd(&self) -> isize {
-        match self.0 {
-            Repr::Hwnd(hwnd) => hwnd,
-            Repr::Composited => 0,
         }
     }
 
@@ -360,27 +342,13 @@ mod imp {
         }
     }
 
-    /// Windows: the view is a child window, and DirectComposition's clip and
-    /// offset already place it. The factory owns the `HWND`; the runtime only
-    /// styles it as a child and hides it when the surface does.
+    /// Windows: the content is composition content on the surface's visual,
+    /// which DirectComposition clips and offsets, so core has nothing to do.
     #[cfg(target_os = "windows")]
     pub(super) fn attach(
         _surface: &WindowCompositionSurface,
-        view: NativeViewHandle,
+        _view: NativeViewHandle,
     ) -> Result<()> {
-        use windows_sys::Win32::{
-            Foundation::HWND,
-            UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CHILD},
-        };
-        let Repr::Hwnd(hwnd) = view.0 else {
-            return Ok(());
-        };
-        let hwnd = hwnd as HWND;
-        // SAFETY: the factory keeps the `HWND` alive for the surface's lifetime.
-        unsafe {
-            let style = GetWindowLongW(hwnd, GWL_STYLE);
-            SetWindowLongW(hwnd, GWL_STYLE, style | WS_CHILD as i32);
-        }
         Ok(())
     }
 
@@ -559,8 +527,6 @@ mod tests {
             assert!(!handle.is_composited());
             assert_eq!(handle.as_nsview(), view);
         }
-        #[cfg(target_os = "windows")]
-        assert!(!NativeViewHandle::from_hwnd(7).is_composited());
         #[cfg(target_os = "linux")]
         assert!(!NativeViewHandle::from_x11_window(7).is_composited());
     }
