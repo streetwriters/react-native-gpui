@@ -496,6 +496,35 @@ describe('Filters', () => {
   });
 });
 
+describe('Group opacity', () => {
+  test('overlapping children fade as one picture', async () => {
+    // Content under a translucent view is drawn into a group on macOS; the
+    // other platforms fade each primitive until their renderers have groups.
+    if (process.platform !== 'darwin') return;
+    await reveal('group-opacity');
+    const image = PNG.sync.read(
+      await app.getByTestId('group-opacity').screenshot(),
+    );
+    // The capture is in device pixels; the view is 100 points wide.
+    const scale = image.width / 100;
+    const at = (x: number, y: number) => {
+      const i =
+        (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4;
+      return [image.data[i], image.data[i + 1], image.data[i + 2]];
+    };
+    // Blue over red at half strength on white: the red leaves no trace in the
+    // overlap, as it would if each child faded on its own.
+    const [r, g, b] = at(55, 55);
+    expect(Math.abs(r - 128)).toBeLessThan(10);
+    expect(Math.abs(g - 128)).toBeLessThan(10);
+    expect(b).toBeGreaterThan(245);
+    const [rr, rg, rb] = at(25, 25);
+    expect(rr).toBeGreaterThan(245);
+    expect(Math.abs(rg - 128)).toBeLessThan(10);
+    expect(Math.abs(rb - 128)).toBeLessThan(10);
+  });
+});
+
 describe('Platform colors', () => {
   async function centre(testID: string) {
     await reveal(testID);

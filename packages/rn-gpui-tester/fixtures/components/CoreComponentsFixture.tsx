@@ -716,6 +716,15 @@ export default function CoreComponentsFixture() {
         </View>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>Group opacity</Text>
+        <View testID="group-opacity" style={styles.rotArea}>
+          <View style={styles.groupFaded}>
+            <View style={styles.groupRed} />
+            <View style={styles.groupBlue} />
+          </View>
+        </View>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>More transforms</Text>
         <View testID="backface-hidden" style={styles.rotArea}>
           <View
@@ -816,6 +825,30 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     backgroundColor: '#ff0000',
+  },
+  groupFaded: {
+    position: 'absolute',
+    left: 10,
+    top: 10,
+    width: 80,
+    height: 80,
+    opacity: 0.5,
+  },
+  groupRed: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 50,
+    height: 50,
+    backgroundColor: '#ff0000',
+  },
+  groupBlue: {
+    position: 'absolute',
+    left: 30,
+    top: 30,
+    width: 50,
+    height: 50,
+    backgroundColor: '#0000ff',
   },
   filterGray: { filter: [{ grayscale: 1 }] },
   filterInvert: { filter: [{ invert: 1 }] },

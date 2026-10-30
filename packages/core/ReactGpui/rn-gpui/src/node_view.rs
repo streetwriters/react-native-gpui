@@ -3373,6 +3373,7 @@ impl Render for RNNodeView {
                 }
             }));
         }
+        let mut group_opacity = None;
         *element.style() = {
             let mut style = self.cached_style.clone();
             if let Some(color) = self.animated_background_color {
@@ -3413,6 +3414,11 @@ impl Render for RNNodeView {
             style.inset.top = Some(px(base_top).into());
             style.size.width = Some(px(frame.w * scale_x).into());
             style.size.height = Some(px(frame.h * scale_y).into());
+            // Content under a translucent node fades as one picture, not
+            // primitive by primitive.
+            if cfg!(target_os = "macos") && !self.children.is_empty() {
+                group_opacity = style.opacity.take().filter(|opacity| *opacity < 1.0);
+            }
             style
         };
         // The listeners live on a `pointer_area` child, not on the node's own div: a
@@ -4341,8 +4347,12 @@ impl Render for RNNodeView {
             Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
             None => element,
         };
-        match crate::filter::parse(&self.view.filter_json) {
+        let element = match crate::filter::parse(&self.view.filter_json) {
             Some(filter) => crate::filter::Filtered::new(element, filter).into_any_element(),
+            None => element,
+        };
+        match group_opacity {
+            Some(opacity) => crate::filter::Grouped::new(element, opacity).into_any_element(),
             None => element,
         }
     }
