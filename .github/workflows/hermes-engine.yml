@@ -283,9 +283,9 @@ jobs:
             "
           }
           # ICU 70 and ICU 74, and a machine with no ICU at all.
-          run_in ubuntu:22.04 'apt-get install -y -qq libicu70 libstdc++6' icu
-          run_in ubuntu:24.04 'apt-get install -y -qq libicu74 libstdc++6' icu
-          run_in ubuntu:24.04 'apt-get remove -y -qq --purge "libicu*" 2>/dev/null || true' none
+          run_in ubuntu:22.04 'apt-get install -y -qq libicu70 libstdc++6 libreadline8' icu
+          run_in ubuntu:24.04 'apt-get install -y -qq libicu74 libstdc++6 libreadline8' icu
+          run_in ubuntu:24.04 'apt-get install -y -qq libstdc++6 libreadline8' none
 
       - name: Stage binaries
         if: runner.os != 'Windows'
