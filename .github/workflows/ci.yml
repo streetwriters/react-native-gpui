@@ -513,14 +513,19 @@ jobs:
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
           : > "$RUNNER_TEMP/sway.conf"
-          WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
-            WAYLAND_DISPLAY=wayland-ci sway -c "$RUNNER_TEMP/sway.conf" \
-            > "$RUNNER_TEMP/sway.log" 2>&1 &
-          for _ in $(seq 50); do
-            [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break
+          # sway names its own socket (wayland-1 when another one is taken), so
+          # the name is read back instead of asked for.
+          env -u WAYLAND_DISPLAY -u DISPLAY \
+            WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
+            sway -c "$RUNNER_TEMP/sway.conf" > "$RUNNER_TEMP/sway.log" 2>&1 &
+          socket=
+          for _ in $(seq 75); do
+            socket=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -printf '%f\n' | head -n 1)
+            [ -n "$socket" ] && break
             sleep 0.2
           done
-          if ! env -u DISPLAY WAYLAND_DISPLAY=wayland-ci \
+          echo "wayland socket: ${socket:-none}"
+          if ! env -u DISPLAY WAYLAND_DISPLAY="$socket" \
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
             npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts; then
             echo '--- sway'
