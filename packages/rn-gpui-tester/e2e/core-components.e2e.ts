@@ -498,9 +498,6 @@ describe('Filters', () => {
 
 describe('Group opacity', () => {
   test('overlapping children fade as one picture', async () => {
-    // Content under a translucent view is drawn into a group on macOS; the
-    // other platforms fade each primitive until their renderers have groups.
-    if (process.platform !== 'darwin') return;
     await reveal('group-opacity');
     const image = PNG.sync.read(
       await app.getByTestId('group-opacity').screenshot(),

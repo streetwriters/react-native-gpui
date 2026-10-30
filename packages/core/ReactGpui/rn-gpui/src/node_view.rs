@@ -3416,7 +3416,7 @@ impl Render for RNNodeView {
             style.size.height = Some(px(frame.h * scale_y).into());
             // Content under a translucent node fades as one picture, not
             // primitive by primitive.
-            if cfg!(target_os = "macos") && !self.children.is_empty() {
+            if !self.children.is_empty() {
                 group_opacity = style.opacity.take().filter(|opacity| *opacity < 1.0);
             }
             style

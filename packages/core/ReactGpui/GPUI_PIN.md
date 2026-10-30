@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `4097a2c` (`rn-gpui-linux`, 2026-10-30: `8da7d89` plus the
+- Commit: `7df993c` (`rn-gpui-linux`, 2026-10-30: `8da7d89` plus the
   per-frame transform table, colour filters, effect groups on Metal, the sRGB-tagged Metal layer and shadow dithering below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
@@ -219,9 +219,11 @@ views; that is out of scope for now.
   Replay skips the table for identity primitives.
 - `934adc1`: `Window::composed_scene_layers` reports how the last frame is split across
   GPUI composition surfaces, so a test can see which surface a view painted onto.
-- `4097a2c`: effect groups: a subtree painted into a texture of its own and composited with group opacity
-  (Metal only; `Window::with_effect_group` must not be used on other backends yet). A group's texture is its
-  bounds rounded out to device pixels and clipped to the window.
+- `7df993c`: effect groups (`Window::with_effect_group`): a subtree painted into a texture of its own and
+  composited with group opacity, on Metal, wgpu and Direct3D 11. `Scene::finish` moves each group's primitives
+  into a scene of its own, in the texture's space. A group's texture is its bounds rounded out to device pixels
+  and clipped to the window (wgpu and Direct3D round the texture up to 64 px so frames reuse it). A group
+  inside a scroll layer's content is not made: it paints without one.
 - `549d4cd`: a native surface on Windows is hidden by an empty clip; a visual from a plain
   DirectComposition device has no `IDCompositionVisual3` opacity.
   Against `8da7d89` on `randomized_element_tree` (18 cases): foreground instructions +0.4%,
