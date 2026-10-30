@@ -33,6 +33,7 @@ std::string scrollViewPropsJson(
             *props->maintainVisibleContentPosition->autoscrollToTopThreshold;
       }
     }
+    object["decelerationRate"] = props->decelerationRate;
     object["pagingEnabled"] = props->pagingEnabled;
     object["snapToInterval"] = props->snapToInterval;
     object["snapToStart"] = props->snapToStart;

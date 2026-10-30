@@ -988,6 +988,36 @@ describe('Image events', () => {
   });
 });
 
+describe('Touchpad momentum', () => {
+  // macOS sends the momentum of a flick itself; the other platforms carry on.
+  const flick = async (testID: string) => {
+    await reveal(testID);
+    const [node] = await app.query('testID', testID, true);
+    // Twelve deltas of 14 points, 8 ms apart: about 1.75 points a millisecond.
+    for (let step = 0; step < 12; step += 1) {
+      await app.scroll(node.tag, 0, -14);
+      await new Promise(resolve => setTimeout(resolve, 8));
+    }
+    await poll(
+      async () => (await text(`${testID}-state`)).endsWith('|end'),
+      8000,
+    );
+    return Number((await text(`${testID}-state`)).split('|')[0]);
+  };
+
+  test.skipIf(process.platform === 'darwin')(
+    'a flick carries on after the pointer goes quiet, and `fast` stops sooner',
+    async () => {
+      const normal = await flick('flick-normal');
+      // The flick itself was 12 x 14 = 168 points.
+      expect(normal).toBeGreaterThan(300);
+      const fast = await flick('flick-fast');
+      expect(fast).toBeGreaterThan(168);
+      expect(fast).toBeLessThan(normal * 0.7);
+    },
+  );
+});
+
 describe('ScrollView', () => {
   // The scrolls above can leave the screen's own scroll view moved.
   afterAll(async () => {

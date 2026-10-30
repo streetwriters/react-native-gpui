@@ -4060,6 +4060,7 @@ impl Render for RNNodeView {
                     horizontal: scroll.horizontal,
                     snap: scroll.snap.clone(),
                     gesture: self.scroll_gesture.clone(),
+                    deceleration: scroll.deceleration,
                 });
                 content =
                     content.on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
@@ -5169,10 +5170,16 @@ pub(crate) struct ScrollGesture {
     wheel: bool,
     generation: u64,
     drag_start: Option<f32>,
+    /// Recent touchpad deltas along the scroll axis, for the speed of a flick.
+    samples: Vec<(std::time::Instant, f32)>,
 }
 
 /// How long without a wheel event before the scroll counts as over.
 const SCROLL_IDLE: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// How long without a touchpad event before a flick counts as lifted.
+#[cfg(not(target_os = "macos"))]
+const FLICK_IDLE: std::time::Duration = std::time::Duration::from_millis(40);
 
 struct Scroller {
     tag: i32,
@@ -5187,6 +5194,7 @@ struct Scroller {
     horizontal: bool,
     snap: Option<crate::scroll_snap::SnapSpec>,
     gesture: Rc<std::cell::RefCell<ScrollGesture>>,
+    deceleration: f32,
 }
 
 impl Scroller {
@@ -5252,6 +5260,13 @@ impl Scroller {
                         }
                     } else {
                         gesture.wheel = true;
+                        if let gpui::ScrollDelta::Pixels(delta) = event.delta {
+                            let delta = f32::from(if self.horizontal { delta.x } else { delta.y });
+                            gesture.samples.push((std::time::Instant::now(), delta));
+                            if gesture.samples.len() > 32 {
+                                gesture.samples.remove(0);
+                            }
+                        }
                     }
                 }
                 _ => {
@@ -5265,6 +5280,19 @@ impl Scroller {
             gesture.generation
         };
         let handle = window.window_handle();
+        // macOS sends its own momentum. Elsewhere a flick ends when the
+        // touchpad goes quiet, and the scroll view carries it on.
+        #[cfg(not(target_os = "macos"))]
+        {
+            let scroller = self.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(FLICK_IDLE).await;
+                let _ = cx.update_window(handle, |_, window, cx| {
+                    scroller.carry_on(generation, window, cx)
+                });
+            })
+            .detach();
+        }
         let scroller = self.clone();
         cx.spawn(async move |cx| {
             cx.background_executor().timer(SCROLL_IDLE).await;
@@ -5273,6 +5301,78 @@ impl Scroller {
             });
         })
         .detach();
+    }
+
+    /// The touchpad went quiet after a flick: keeps the content moving at the
+    /// speed it had, slowing at the scroll view's `decelerationRate`.
+    #[cfg(not(target_os = "macos"))]
+    fn carry_on(self: &Rc<Self>, generation: u64, window: &mut Window, cx: &mut App) {
+        let speed = {
+            let mut gesture = self.gesture.borrow_mut();
+            if gesture.generation != generation || gesture.dragging || !gesture.wheel {
+                return;
+            }
+            let samples = std::mem::take(&mut gesture.samples);
+            let Some(speed) = crate::scroll_momentum::flick_speed(&samples) else {
+                return;
+            };
+            gesture.momentum = true;
+            speed
+        };
+        self.emit("topMomentumScrollBegin", cx);
+        let handle = window.window_handle();
+        let scroller = self.clone();
+        cx.spawn(async move |cx| {
+            const TICK: u64 = 16;
+            let mut speed = speed;
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(TICK))
+                    .await;
+                let (distance, next) =
+                    crate::scroll_momentum::step(speed, scroller.deceleration, TICK as f32);
+                speed = next;
+                let carried = cx
+                    .update_window(handle, |_, window, cx| {
+                        // A wheel event since means the user took over.
+                        if scroller.gesture.borrow().generation != generation {
+                            return false;
+                        }
+                        let moved = scroller.shift_by(distance);
+                        if moved {
+                            scroller.sync(window, cx);
+                        }
+                        moved && !crate::scroll_momentum::stopped(speed)
+                    })
+                    .unwrap_or(false);
+                if !carried {
+                    break;
+                }
+            }
+            let _ = cx.update_window(handle, |_, window, cx| {
+                scroller.settle(generation, window, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// Moves the content `distance` along the scroll axis, in the direction
+    /// of the wheel deltas, and says whether it went anywhere.
+    #[cfg(not(target_os = "macos"))]
+    fn shift_by(&self, distance: f32) -> bool {
+        let current = self.handle.offset();
+        let max = self.handle.max_offset();
+        let mut next = current;
+        if self.horizontal {
+            next.x = (current.x + px(distance)).clamp(-max.x, px(0.0));
+        } else {
+            next.y = (current.y + px(distance)).clamp(-max.y, px(0.0));
+        }
+        if next == current {
+            return false;
+        }
+        self.handle.set_offset(next);
+        true
     }
 
     /// The scroll went quiet: end any momentum, then snap.

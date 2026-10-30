@@ -575,6 +575,8 @@ pub struct ScrollSpec {
     pub offset: (f32, f32),
     pub event: Option<String>,
     pub snap: Option<crate::scroll_snap::SnapSpec>,
+    /// The fraction of its speed a flick keeps each millisecond.
+    pub deceleration: f32,
 }
 
 /// Paints one component name.

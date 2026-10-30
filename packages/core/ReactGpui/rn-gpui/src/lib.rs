@@ -21,6 +21,7 @@ pub(crate) mod pointer_area;
 pub mod runtime;
 pub(crate) mod scroll_indicator;
 pub(crate) mod scroll_layers;
+pub(crate) mod scroll_momentum;
 pub(crate) mod scroll_snap;
 pub(crate) mod store;
 pub(crate) mod style;

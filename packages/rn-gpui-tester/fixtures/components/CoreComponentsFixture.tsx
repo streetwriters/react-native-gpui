@@ -56,6 +56,8 @@ export default function CoreComponentsFixture() {
   const [showStyled, setShowStyled] = useState(false);
   const [intervalOffset, setIntervalOffset] = useState('');
   const [scrollLog, setScrollLog] = useState('');
+  const [normalFlick, setNormalFlick] = useState('0|');
+  const [fastFlick, setFastFlick] = useState('0|');
   const [scrollOffsets, setScrollOffsets] = useState('');
   const [imageLog, setImageLog] = useState('');
   const [imageProgress, setImageProgress] = useState('');
@@ -207,6 +209,47 @@ export default function CoreComponentsFixture() {
           ))}
         </ScrollView>
         <Text testID="scroll-interval-offset">{intervalOffset}</Text>
+        <ScrollView
+          testID="flick-normal"
+          style={styles.pager}
+          onScroll={event =>
+            setNormalFlick(
+              previous =>
+                `${Math.round(event.nativeEvent.contentOffset.y)}|${previous.split('|')[1]}`,
+            )
+          }
+          onMomentumScrollBegin={() =>
+            setNormalFlick(previous => `${previous.split('|')[0]}|begin`)
+          }
+          onMomentumScrollEnd={() =>
+            setNormalFlick(previous => `${previous.split('|')[0]}|end`)
+          }
+          scrollEventThrottle={16}
+        >
+          <View style={styles.flickContent} />
+        </ScrollView>
+        <Text testID="flick-normal-state">{normalFlick}</Text>
+        <ScrollView
+          testID="flick-fast"
+          style={styles.pager}
+          decelerationRate="fast"
+          onScroll={event =>
+            setFastFlick(
+              previous =>
+                `${Math.round(event.nativeEvent.contentOffset.y)}|${previous.split('|')[1]}`,
+            )
+          }
+          onMomentumScrollBegin={() =>
+            setFastFlick(previous => `${previous.split('|')[0]}|begin`)
+          }
+          onMomentumScrollEnd={() =>
+            setFastFlick(previous => `${previous.split('|')[0]}|end`)
+          }
+          scrollEventThrottle={16}
+        >
+          <View style={styles.flickContent} />
+        </ScrollView>
+        <Text testID="flick-fast-state">{fastFlick}</Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Switch</Text>
@@ -1055,6 +1098,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     backgroundColor: '#eef',
   },
+  flickContent: { height: 6000 },
   page: { height: 100, alignItems: 'center', justifyContent: 'center' },
   interval: { height: 80, alignItems: 'center', justifyContent: 'center' },
   fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },
