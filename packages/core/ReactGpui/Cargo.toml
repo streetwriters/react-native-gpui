@@ -42,8 +42,8 @@ lto = "fat"
 codegen-units = 1
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "38d03ea" }
-gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "38d03ea" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "d81cb29" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "d81cb29" }
 cxx = "=1.0.202"
 cxx-build = "=1.0.202"
 cmake = "0.1"
@@ -53,5 +53,5 @@ log = "0.4"
 env_logger = "0.11"
 serde_json = "1"
 futures = "0.3"
-http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "38d03ea" }
+http_client = { git = "https://github.com/streetwriters/gpui-fast", rev = "d81cb29" }
 fontdue = "0.9"
