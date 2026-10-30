@@ -266,29 +266,6 @@ describe('secrets', () => {
   });
 });
 
-describe('the app.json migration', () => {
-  test('a non-empty app.json desktop key is refused with the migration', () => {
-    const root = createProject({
-      appJson: { name: 'MyApp', desktop: { appId: 'com.example.app' } },
-    });
-    expect(() => loadDesktopConfig(root, 'macos')).toThrow(
-      'move `app.json` desktop.* into `desktop/desktop.json` (see the README)',
-    );
-  });
-
-  test('an empty app.json desktop key is tolerated', () => {
-    const root = createProject({
-      appJson: { name: 'MyApp', desktop: {} },
-    });
-    expect(() => loadDesktopConfig(root, 'macos')).not.toThrow();
-  });
-
-  test('no app.json desktop key at all is fine', () => {
-    const root = createProject();
-    expect(() => loadDesktopConfig(root, 'macos')).not.toThrow();
-  });
-});
-
 describe('targetsFor', () => {
   const config = targets => ({ bundle: { targets } });
 

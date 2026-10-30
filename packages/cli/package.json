@@ -1,7 +1,7 @@
 {
   "name": "@react-native-gpui/cli",
   "version": "0.1.0",
-  "description": "React Native CLI integration and project scaffolding for the GPUI desktop platform.",
+  "description": "React Native CLI integration and project scaffolding for the React Native desktop platform.",
   "files": [
     "bin",
     "src",

@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
+import { LINUX_LIBRARIES, installCommands } from './doctor.cjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
@@ -42,50 +43,7 @@ export function linuxBuildDependencyProblem(
   systemPkgConfigPath = () => null,
 ) {
   if (platform !== 'linux') return null;
-  // The libraries the app links on Linux (GPUI's keyboard handling over X11).
-  const modules = [
-    {
-      pc: 'xkbcommon',
-      packages: {
-        'Debian/Ubuntu': 'libxkbcommon-dev',
-        Fedora: 'libxkbcommon-devel',
-        Arch: 'libxkbcommon',
-      },
-    },
-    {
-      pc: 'xkbcommon-x11',
-      packages: {
-        'Debian/Ubuntu': 'libxkbcommon-x11-dev',
-        Fedora: 'libxkbcommon-x11-devel',
-        Arch: 'libxkbcommon-x11',
-      },
-    },
-    {
-      pc: 'xcb',
-      packages: {
-        'Debian/Ubuntu': 'libxcb1-dev',
-        Fedora: 'libxcb-devel',
-        Arch: 'libxcb',
-      },
-    },
-  ];
-  const installExamples = packages =>
-    Object.entries(packages)
-      .map(([distribution, name]) => {
-        const manager =
-          distribution === 'Fedora'
-            ? 'dnf'
-            : distribution === 'Arch'
-              ? 'pacman'
-              : 'apt';
-        const command =
-          manager === 'pacman'
-            ? `sudo pacman -S ${name}`
-            : `sudo ${manager} install ${name}`;
-        return `${distribution}: ${command}`;
-      })
-      .join(', ');
-  for (const { pc, packages } of modules) {
+  for (const { pc, packages } of LINUX_LIBRARIES) {
     const result = runPkgConfig(pc);
     if (result === 'missing-pkg-config') {
       return (
@@ -104,7 +62,7 @@ export function linuxBuildDependencyProblem(
       return (
         `Linux build dependency ${pc} was not found. ` +
         `Install your distribution's development package for it ` +
-        `(${installExamples(packages)}). ` +
+        `(${installCommands(packages)}). ` +
         `If pkg-config cannot see the system packages (Linuxbrew or Nix ` +
         `pkg-config first on PATH does this), ${hint}`
       );
@@ -866,8 +824,7 @@ export function scaffoldDesktop(
   if (typeof appConfig.name !== 'string' || appConfig.name.length === 0) {
     throw new Error(`app.json must define a nonempty name: ${appConfigPath}`);
   }
-  // Every launch setting comes from `desktop/desktop.json`; `app.json`'s old
-  // `desktop` key is rejected by the loader with a pointer to the new file.
+  // Every launch setting comes from `desktop/desktop.json`.
   const launchConfig = desktopLaunchConfig(
     loadDesktopConfig(projectRoot, process.platform),
     path.join(projectRoot, 'desktop/desktop.json'),
@@ -1030,7 +987,7 @@ export function initDesktop({
       );
     }
     console.log(
-      `Added GPUI desktop support to ${projectRoot}. Run npx react-native run-desktop.`,
+      `Added desktop support to ${projectRoot}. Run npx react-native run-desktop.`,
     );
   } catch (error) {
     removeNewFiles(
@@ -1109,7 +1066,7 @@ export function initProject({ appName, destination, initArgs = [] }) {
       path.join(destination, 'App.tsx'),
     );
     console.log(
-      `Created standard React Native project ${appName} (iOS, Android, and GPUI desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`,
+      `Created standard React Native project ${appName} (iOS, Android and desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`,
     );
   } catch (error) {
     fs.rmSync(destination, { recursive: true, force: true });
@@ -1292,7 +1249,7 @@ export function createLibrary({
       : 'implement methods defined by its generated spec.';
   fs.writeFileSync(
     path.join(destination, 'README.md'),
-    `# ${libraryName}\n\n${language} TurboModule library for React Native GPUI. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in ${implementation} and is discovered through package metadata. Import the default export from ${packageName} and ${description}\n`,
+    `# ${libraryName}\n\n${language} TurboModule library for React Native on desktop. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in ${implementation} and is discovered through package metadata. Import the default export from ${packageName} and ${description}\n`,
   );
   console.log(
     `Created ${type} TurboModule library ${packageName} in ${destination}. Install/link it in a React Native app, then run npx react-native run-desktop.`,
