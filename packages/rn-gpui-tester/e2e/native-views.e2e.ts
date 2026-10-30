@@ -9,6 +9,8 @@ import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
  */
 
 const macOnly = process.platform === 'darwin';
+/** Linux draws its own title bar inside the window, above the React root. */
+const CLIENT_FRAME = process.platform === 'linux' ? 26 : 0;
 /** The fixture's probe view exists on every desktop OS. */
 const probeOs = ['darwin', 'linux', 'win32'].includes(process.platform);
 
@@ -68,7 +70,7 @@ async function expectAtLayoutBounds() {
   const { bounds, view } = await surface();
   expect(bounds).not.toBeNull();
   expect(bounds!.x).toBeCloseTo(frame.x, 0);
-  expect(bounds!.y).toBeCloseTo(frame.y, 0);
+  expect(bounds!.y).toBeCloseTo(frame.y + CLIENT_FRAME, 0);
   expect(bounds!.width).toBeCloseTo(frame.width, 0);
   expect(bounds!.height).toBeCloseTo(frame.height, 0);
   if (view) {
@@ -275,7 +277,7 @@ async function composited() {
   const top = png.height / shot.scale - shot.viewport.height;
   return (x: number, y: number): Rgb => {
     const column = Math.round(x * shot.scale);
-    const row = Math.round((y + top) * shot.scale);
+    const row = Math.round((y + top + CLIENT_FRAME) * shot.scale);
     const at = (row * png.width + column) * 4;
     return [png.data[at], png.data[at + 1], png.data[at + 2]];
   };

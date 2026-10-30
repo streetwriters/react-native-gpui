@@ -4,8 +4,8 @@
 use std::os::fd::AsFd as _;
 
 use anyhow::Context as _;
-use gpui::{HasDisplayHandle as _, Window};
-use raw_window_handle::RawDisplayHandle;
+use gpui::Window;
+use raw_window_handle::{HasDisplayHandle as _, RawDisplayHandle};
 use wayland_client::{
     backend::{Backend, ObjectId},
     delegate_noop,
