@@ -1591,7 +1591,7 @@ index 0000000..b0e7237
 +  }
 +
 +  const bool negative = text.find(u'-') != std::u16string::npos ||
-+      text.find(u'−') != std::u16string::npos || std::signbit(number);
++      text.find(u'\u2212') != std::u16string::npos || std::signbit(number);
 +  const bool notANumber = std::isnan(number);
 +  const bool infinite = std::isinf(number);
 +
