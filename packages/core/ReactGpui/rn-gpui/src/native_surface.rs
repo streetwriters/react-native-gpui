@@ -2,8 +2,8 @@
 
 use anyhow::Context as _;
 use gpui::{
-    relative, App, Bounds, Element, ElementId, GlobalElementId, IntoElement, LayoutId, Style,
-    Window, WindowCompositionSurface,
+    relative, AnyElement, AnyWindowHandle, App, AsyncApp, Bounds, CompositionSurfaceId, Element,
+    ElementId, GlobalElementId, IntoElement, LayoutId, Style, Window, WindowCompositionSurface,
 };
 
 pub use anyhow::{Error, Result};
@@ -71,9 +71,13 @@ impl NativeViewHandle {
     }
 }
 
-/// A native view attached to a window's composition surface.
+/// A native view attached to a window's composition surface, with a GPUI
+/// surface stacked directly above it for the views painted after it.
 pub struct NativeSurface {
     surface: WindowCompositionSurface,
+    above: WindowCompositionSurface,
+    window: AnyWindowHandle,
+    app: AsyncApp,
     view: NativeViewHandle,
     last_bounds: std::cell::Cell<Option<Bounds<gpui::DevicePixels>>>,
     visible: std::cell::Cell<bool>,
@@ -82,13 +86,16 @@ pub struct NativeSurface {
 impl NativeSurface {
     /// Creates the composition surface and attaches `view` to it. The surface
     /// owns the view from here on.
-    pub fn create(view: NativeViewHandle, window: &Window) -> Result<Self> {
+    pub fn create(view: NativeViewHandle, window: &Window, cx: &App) -> Result<Self> {
         anyhow::ensure!(!view.is_null(), "the native view is null");
-        let surface = window
-            .enable_window_composition()?
-            .create_native_surface()?;
+        let composition = window.enable_window_composition()?;
+        let surface = composition.create_native_surface()?;
+        let above = composition.create_gpui_surface(Some(surface.id()))?;
         let surface = Self {
             surface,
+            above,
+            window: window.window_handle(),
+            app: cx.to_async(),
             view,
             last_bounds: std::cell::Cell::new(None),
             visible: std::cell::Cell::new(true),
@@ -114,6 +121,11 @@ impl NativeSurface {
     #[cfg(target_os = "linux")]
     pub fn raw_window_handle(&self) -> Result<Box<dyn std::any::Any>> {
         self.surface.platform_surface()?.platform_handle()
+    }
+
+    /// The GPUI surface drawn directly above this view.
+    pub fn above(&self) -> CompositionSurfaceId {
+        self.above.id()
     }
 
     /// The platform view, as the factory returned it.
@@ -202,6 +214,30 @@ impl NativeSurface {
 impl Drop for NativeSurface {
     fn drop(&mut self) {
         imp::detach(self.view);
+        // Removing the composition surfaces needs the window, which a drop does
+        // not have, and may land inside an update; do it on a later turn.
+        let app = self.app.clone();
+        let window = self.window;
+        let surfaces = [self.above.id(), self.surface.id()];
+        self.app
+            .foreground_executor()
+            .spawn(async move {
+                app.update(|cx| {
+                    let _ = window.update(cx, |_, window, _| {
+                        let Ok(composition) = window.enable_window_composition() else {
+                            return;
+                        };
+                        for surface in surfaces {
+                            if let Err(error) = composition.remove_surface(surface) {
+                                log::error!(
+                                    "[native-surface] removing a composition surface: {error:#}"
+                                );
+                            }
+                        }
+                    });
+                });
+            })
+            .detach();
     }
 }
 
@@ -317,6 +353,82 @@ mod imp {
 
     #[cfg(target_os = "linux")]
     pub(super) fn detach(_view: NativeViewHandle) {}
+}
+
+/// An element that paints its child onto a GPUI composition surface instead of
+/// the one being painted: how views drawn after a native view end up above it.
+pub(crate) struct OnSurface {
+    child: AnyElement,
+    surface: CompositionSurfaceId,
+}
+
+impl OnSurface {
+    pub(crate) fn new(child: AnyElement, surface: CompositionSurfaceId) -> Self {
+        Self { child, surface }
+    }
+}
+
+impl IntoElement for OnSurface {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for OnSurface {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        _bounds: Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        _bounds: Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let child = &mut self.child;
+        let painted = window.with_composition_surface(self.surface, |window| {
+            child.paint(window, cx);
+        });
+        if let Err(error) = painted {
+            log::error!("[native-surface] painting above a native view: {error:#}");
+            self.child.paint(window, cx);
+        }
+    }
 }
 
 /// An element that places a [`NativeSurface`] at its bounds.

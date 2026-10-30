@@ -125,10 +125,26 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            "compositionLayers" => cx
+                .update_window(window, |_, window, _| {
+                    json!({"count": window.composed_scene_layers().len()})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "nativeSurfaces" => {
-                let scale = cx
-                    .update_window(window, |_, window, _| window.scale_factor())
-                    .unwrap_or(1.0);
+                let (scale, layers) = cx
+                    .update_window(window, |_, window, _| {
+                        (window.scale_factor(), window.composed_scene_layers())
+                    })
+                    .unwrap_or((1.0, Vec::new()));
+                let ops = |surface| {
+                    layers
+                        .iter()
+                        .find(|layer| layer.surface == surface)
+                        .map_or(0, |layer| layer.ranges.iter().map(|range| range.len()).sum())
+                };
+                let base_ops: usize = layers.first().map_or(0, |layer| {
+                    layer.ranges.iter().map(|range| range.len()).sum()
+                });
                 cx.update_entity(&store, |store, cx| {
                     let mut surfaces: Vec<Value> = store
                         .nodes
@@ -139,6 +155,8 @@ async fn serve_commands(
                             let mut state = surface.test_state(scale);
                             state["tag"] = json!(tag);
                             state["testID"] = json!(node.view.test_id);
+                            state["aboveOps"] = json!(ops(surface.above()));
+                            state["baseOps"] = json!(base_ops);
                             Some(state)
                         })
                         .collect();

@@ -46,6 +46,7 @@ export default function NativeViewFixture({
   webView?: boolean;
 }) {
   const [overlay, setOverlay] = useState(false);
+  const [underlay, setUnderlay] = useState(false);
   const [mounted, setMounted] = useState(true);
   const [hidden, setHidden] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -94,6 +95,11 @@ export default function NativeViewFixture({
           testID="native-overlay-toggle"
           label={overlay ? 'Hide overlay' : 'Show overlay'}
           onPress={() => setOverlay(value => !value)}
+        />
+        <Button
+          testID="native-underlay-toggle"
+          label={underlay ? 'Hide underlay' : 'Show underlay'}
+          onPress={() => setUnderlay(value => !value)}
         />
         <Button
           testID="native-mount-toggle"
@@ -147,6 +153,19 @@ export default function NativeViewFixture({
         {webView ? `loads ${loads}` : counts}
       </Text>
       <View testID="native-area" style={{ flex: 1 }}>
+        {underlay ? (
+          <View
+            testID="native-view-underlay"
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              width: 200,
+              height: 60,
+              backgroundColor: '#22c55e',
+            }}
+          />
+        ) : null}
         {mounted ? (
           scrolled ? (
             <ScrollView testID="native-scroll" style={{ flex: 1 }}>

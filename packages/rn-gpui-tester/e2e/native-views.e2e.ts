@@ -123,8 +123,10 @@ test.skipIf(!macOnly)(
   'unmounting releases the view and mounting creates a fresh one',
   async () => {
     await launch('NativeViewFixture');
+    expect(await app.compositionLayerCount()).toBe(3);
     await click('native-mount-toggle');
     expect(await app.nativeSurfaces()).toHaveLength(0);
+    expect(await app.compositionLayerCount()).toBe(2);
 
     await click('native-mount-toggle');
     await expectAtLayoutBounds();
@@ -175,5 +177,27 @@ test.skipIf(!macOnly)(
     );
     const [after] = await app.nativeSurfaces();
     expect(after.tag).toBe(first.tag);
+  },
+);
+
+test.skipIf(!macOnly)(
+  'views painted after a native view are drawn above it and those before it below',
+  async () => {
+    await launch('NativeViewFixture');
+    const plain = await surface();
+    expect(plain.aboveOps).toBe(0);
+
+    await click('native-overlay-toggle');
+    const over = await surface();
+    expect(over.aboveOps).toBeGreaterThan(0);
+    expect(over.baseOps).toBe(plain.baseOps);
+
+    await click('native-overlay-toggle');
+    expect((await surface()).aboveOps).toBe(0);
+
+    await click('native-underlay-toggle');
+    const under = await surface();
+    expect(under.aboveOps).toBe(0);
+    expect(under.baseOps).toBeGreaterThan(plain.baseOps);
   },
 );

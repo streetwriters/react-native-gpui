@@ -1161,7 +1161,7 @@ impl RNNodeView {
 
     /// Creates the OS view of a `nativeSurface` component the first time the
     /// node is painted, and shows or hides its composition surface with the node.
-    fn show_native_surface(&mut self, visible: bool, window: &mut Window) {
+    fn show_native_surface(&mut self, visible: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !self.renders_native_surface {
             return;
         }
@@ -1169,13 +1169,16 @@ impl RNNodeView {
             let Some(component) = self.host_component.as_mut() else {
                 return;
             };
-            let cx =
+            let host_cx =
                 crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
             let created = component
-                .create_view(window, cx)
-                .and_then(|view| crate::native_surface::NativeSurface::create(view, window));
+                .create_view(window, host_cx)
+                .and_then(|view| crate::native_surface::NativeSurface::create(view, window, cx));
             match created {
-                Ok(surface) => self.native_surface = Some(std::rc::Rc::new(surface)),
+                Ok(surface) => {
+                    self.native_surface = Some(std::rc::Rc::new(surface));
+                    self.notify_ancestors(cx);
+                }
                 Err(error) => log::error!(
                     "[native-view] tag {} ({}) initialization failed: {error:#}",
                     self.tag,
@@ -1206,6 +1209,61 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
+    /// Asks every ancestor to render again, so that what they paint after this
+    /// node reads its new composition surface.
+    fn notify_ancestors(&self, cx: &mut Context<Self>) {
+        let mut parent = self.parent.as_ref().and_then(|parent| parent.upgrade());
+        while let Some(entity) = parent {
+            entity.update(cx, |_, cx| cx.notify());
+            parent = entity
+                .read(cx)
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.upgrade());
+        }
+    }
+
+    /// The GPUI surface that what is painted after this subtree belongs on, when
+    /// the subtree hosts a native view: the surface above its last one.
+    fn surface_after(&self, cx: &App) -> Option<gpui::CompositionSurfaceId> {
+        if let Some(surface) = &self.native_surface {
+            return Some(surface.above());
+        }
+        if self.native_surface_descendants == 0 {
+            return None;
+        }
+        self.children
+            .iter()
+            .rev()
+            .find_map(|(_, child)| child.read(cx).surface_after(cx))
+    }
+
+    /// The children as elements, those painted after a native view moved onto
+    /// the surface above it so that they cover it.
+    fn child_elements(
+        children: &[(i32, Entity<RNNodeView>)],
+        has_native: bool,
+        cx: &App,
+    ) -> Vec<AnyElement> {
+        let mut above = None;
+        children
+            .iter()
+            .map(|(_, child)| {
+                let element = child.clone().into_any_element();
+                let element = match above {
+                    Some(surface) => {
+                        crate::native_surface::OnSurface::new(element, surface).into_any_element()
+                    }
+                    None => element,
+                };
+                if has_native {
+                    above = child.read(cx).surface_after(cx).or(above);
+                }
+                element
+            })
+            .collect()
+    }
+
     /// The composition surface hosting this node's OS view, once painted.
     #[cfg(feature = "test-driver")]
     pub(crate) fn native_surface(&self) -> Option<&crate::native_surface::NativeSurface> {
@@ -2510,7 +2568,7 @@ impl Render for RNNodeView {
         )
         .is_some_and(|portal| !portal.visible);
         let hidden = self.view.display_none || hidden_portal || self.backface_hidden();
-        self.show_native_surface(!hidden, window);
+        self.show_native_surface(!hidden, window, cx);
         if hidden {
             return div().id(self.tag).size_0().into_any_element();
         }
@@ -2574,6 +2632,7 @@ impl Render for RNNodeView {
         let scroll = self.scroll.clone();
         let is_scroll = scroll.is_some();
         let ordered_children = self.children.clone();
+        let has_native = self.native_surface_descendants > 0;
         if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.component_node(cx);
             if let Some(painted) = renderer.render(&node, window, cx) {
@@ -3893,7 +3952,7 @@ impl Render for RNNodeView {
                 .flex_none()
                 .w(px(content_width.max(frame.w)))
                 .h(px(content_height.max(frame.h)));
-            content = content.children(ordered_children.iter().map(|(_, child)| child.clone()));
+            content = content.children(Self::child_elements(&ordered_children, has_native, cx));
             // The handle is only written when React or a layout change moved
             // the offset. Writing it on every render would count as a scroll.
             if std::mem::take(&mut self.scroll_handle_stale) {
@@ -3952,7 +4011,7 @@ impl Render for RNNodeView {
                         .top(px(-offset_y * scale_y))
                         .w(px(scroll.content_size.0.max(frame.w)))
                         .h(px(scroll.content_size.1.max(frame.h)))
-                        .children(ordered_children.iter().map(|(_, child)| child.clone()));
+                        .children(Self::child_elements(&ordered_children, has_native, cx));
                     if scroll.enabled {
                         let horizontal = scroll.horizontal;
                         let max = (
@@ -4031,11 +4090,7 @@ impl Render for RNNodeView {
             schedule_frame_host_report_flush(&self.host_reports, window, cx);
             element = element
                 .children(chrome)
-                .children(
-                    ordered_children
-                        .iter()
-                        .map(|(_, child)| child.clone().into_any_element()),
-                )
+                .children(Self::child_elements(&ordered_children, has_native, cx))
                 .children(overlay);
         } else {
             let content =
@@ -4045,11 +4100,7 @@ impl Render for RNNodeView {
                 });
             let painted: Vec<AnyElement> = content
                 .into_iter()
-                .chain(
-                    ordered_children
-                        .iter()
-                        .map(|(_, child)| child.clone().into_any_element()),
-                )
+                .chain(Self::child_elements(&ordered_children, has_native, cx))
                 .collect();
             let painted = match crate::extensions::component_renderer(&self.component) {
                 Some(renderer) => renderer.children(&self.component_node(cx), painted, window, cx),

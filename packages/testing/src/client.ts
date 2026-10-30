@@ -385,6 +385,10 @@ export class DesktopApp {
       tag: number;
       testID: string;
       visible: boolean;
+      /** Scene operations painted onto the GPUI surface above this view. */
+      aboveOps: number;
+      /** Scene operations painted onto the base surface, below every view. */
+      baseOps: number;
       bounds: { x: number; y: number; width: number; height: number } | null;
       view: {
         width: number;
@@ -401,6 +405,15 @@ export class DesktopApp {
       {},
     );
     return surfaces;
+  }
+
+  /** How many GPUI surfaces the window composes: two, plus one per native view. */
+  async compositionLayerCount(): Promise<number> {
+    const { count } = await this.request<{ count: number }>(
+      'compositionLayers',
+      {},
+    );
+    return count;
   }
 
   async idleStatus(
