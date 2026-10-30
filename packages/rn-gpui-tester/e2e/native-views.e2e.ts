@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { expect, test } from 'vitest';
@@ -269,10 +270,17 @@ function inDisplayP3([red, green, blue]: Rgb): Rgb {
   ];
 }
 
+let captures = 0;
+
 /** The composited window, read by logical window coordinates. */
 async function composited() {
   const shot = await app.compositeScreenshot();
   const png = PNG.sync.read(shot.png);
+  // Kept for a failing run to be looked at; CI uploads ci-out.
+  if (process.env.CI) {
+    fs.mkdirSync('ci-out', { recursive: true });
+    fs.writeFileSync(`ci-out/native-views-${captures++}.png`, shot.png);
+  }
   // The capture includes the title bar the viewport leaves out.
   const top = png.height / shot.scale - shot.viewport.height;
   return (x: number, y: number): Rgb => {
