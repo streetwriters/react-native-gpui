@@ -550,7 +550,8 @@ export class DesktopApp {
     return result.sent;
   }
 
-  /** The native alert on screen (macOS), or `null`. */
+  /** The alert on screen, or `null`. On macOS this is the native sheet unless
+   * `RN_GPUI_ALERT_DIALOG` is set; elsewhere it is the app's dialog window. */
   async alertState(): Promise<{
     title: string;
     buttons: string[];
