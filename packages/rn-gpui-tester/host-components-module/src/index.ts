@@ -17,6 +17,7 @@ export type {
   NativeProps as FixtureWebViewProps,
   FixtureWebViewType,
   FixtureWebViewLoadEvent,
+  FixtureWebViewLoadedEvent,
 } from './FixtureWebViewNativeComponent';
 export { default as FixtureCard } from './FixtureCardNativeComponent';
 export type { NativeProps as FixtureCardProps } from './FixtureCardNativeComponent';

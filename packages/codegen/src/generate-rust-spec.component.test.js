@@ -118,6 +118,21 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain('let _ = (props, window, cx);');
   });
 
+  test('hands out an owned event sender with the same typed methods', () => {
+    expect(header).toContain('pub struct FixtureChartEventSender {');
+    expect(header).toContain(
+      'pub fn event_sender(&self) -> FixtureChartEventSender',
+    );
+    expect(header).toContain('self.host.send(move || {');
+    expect(header).toContain(
+      'pub fn point_selected(&self, value: OnPointSelected)',
+    );
+    // The shim is declared once, although two types send through it.
+    expect(
+      countOf(header, 'fn rn_gpui_fixture_chart_event_point_selected('),
+    ).toBe(1);
+  });
+
   test('gives a native view component a view hook that defaults to an error', () => {
     expect(header).toContain('fn create_view(');
     expect(header).toContain(
@@ -420,7 +435,7 @@ describe('the generated file', () => {
   test('imports only what a component needs', () => {
     expect(header).toContain('use gpui::{AnyElement, Window};');
     expect(header).toContain(
-      'EmitterHandle, HostArg, HostComponentSpec, HostContext, HostObject, PropsHandle, Value,',
+      'EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject,',
     );
     expect(header).not.toContain('use rn_gpui_module::');
   });

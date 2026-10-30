@@ -9,6 +9,9 @@ import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
 
 const macOnly = process.platform === 'darwin';
 
+/** How long a web view may take to report a navigation finished. */
+const LOAD_TIMEOUT = 15_000;
+
 let app: DesktopApp;
 
 async function launch(module: 'NativeViewFixture' | 'WebViewFixture') {
@@ -157,26 +160,47 @@ test.skipIf(!macOnly)(
 );
 
 test.skipIf(!macOnly)(
-  'a web view loads its html prop, reloads on a command and reloads on a prop change',
+  'a web view reports start and finish in order, on a prop change and a command',
   async () => {
     await launch('WebViewFixture');
     await expectAtLayoutBounds();
     const [first] = await app.nativeSurfaces();
-    expect(await app.getByTestId('native-status').textContent()).toBe(
-      'loads 1',
-    );
+    const status = () => app.getByTestId('native-status').textContent();
+
+    // `onLoad` comes from the web view's own navigation callback, long after
+    // the call that started the load returned.
+    await expect.poll(status, { timeout: LOAD_TIMEOUT }).toBe('start,load');
 
     await click('native-reload');
-    expect(await app.getByTestId('native-status').textContent()).toBe(
-      'loads 2',
-    );
+    await expect
+      .poll(status, { timeout: LOAD_TIMEOUT })
+      .toBe('start,load,start,load');
 
     await click('native-page-toggle');
-    expect(await app.getByTestId('native-status').textContent()).toBe(
-      'loads 3',
-    );
+    await expect
+      .poll(status, { timeout: LOAD_TIMEOUT })
+      .toBe('start,load,start,load,start,load');
     const [after] = await app.nativeSurfaces();
     expect(after.tag).toBe(first.tag);
+  },
+);
+
+test.skipIf(!macOnly)(
+  'an event sent after the node unmounted is dropped',
+  async () => {
+    await launch('WebViewFixture');
+    await expect
+      .poll(() => app.getByTestId('native-status').textContent(), {
+        timeout: LOAD_TIMEOUT,
+      })
+      .toBe('start,load');
+
+    // The component sends one more event from its destructor.
+    await app.hostCounters({ reset: true });
+    await click('native-mount-toggle');
+    await app.waitForIdle();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect((await app.hostCounters()).hostReportsDelivered).toBe(0);
   },
 );
 

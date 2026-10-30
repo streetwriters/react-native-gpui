@@ -5,8 +5,9 @@ use react_native_gpui::native_surface::{NativeViewHandle, Result};
 
 use crate::{
     FixtureNativeProbeChanged, FixtureNativeProbeContext, FixtureNativeProbeProps,
-    FixtureNativeProbeSpec, FixtureWebViewChanged, FixtureWebViewContext, FixtureWebViewProps,
-    FixtureWebViewSpec, OnAttach, OnLoadStart, OnViewCount,
+    FixtureNativeProbeSpec, FixtureWebViewChanged, FixtureWebViewContext,
+    FixtureWebViewEventSender, FixtureWebViewProps, FixtureWebViewSpec, OnAttach, OnLoad,
+    OnLoadStart, OnViewCount,
 };
 
 #[cfg(target_os = "macos")]
@@ -103,11 +104,89 @@ mod appkit {
         }
     }
 
-    pub fn web_view() -> NativeViewHandle {
-        // SAFETY: the view is created on the main thread, and its ownership passes to the handle.
+    type OnFinish = Box<dyn Fn(String)>;
+
+    extern "C" fn did_finish_navigation(this: &Object, _cmd: Sel, web_view: id, _navigation: id) {
+        // SAFETY: `callback` is the leaked box `web_view` stored in the delegate, which lives as long as the delegate; the call runs on the main thread.
+        unsafe {
+            let callback = *this.get_ivar::<usize>("callback") as *const OnFinish;
+            let url: id = msg_send![web_view, URL];
+            let text: id = msg_send![url, absoluteString];
+            let utf8: *const std::ffi::c_char = msg_send![text, UTF8String];
+            let url = std::ffi::CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .into_owned();
+            (*callback)(url);
+        }
+    }
+
+    extern "C" fn delegate_dealloc(this: &Object, _cmd: Sel) {
+        // SAFETY: frees the box `web_view` leaked into this delegate, once, then forwards to `NSObject`.
+        unsafe {
+            let callback = *this.get_ivar::<usize>("callback") as *mut OnFinish;
+            drop(Box::from_raw(callback));
+            let _: () = msg_send![super(this, class!(NSObject)), dealloc];
+        }
+    }
+
+    /// A `WKNavigationDelegate` that reports each finished navigation.
+    fn delegate_class() -> &'static Class {
+        static REGISTER: Once = Once::new();
+        REGISTER.call_once(|| {
+            let mut declaration =
+                react_native_gpui::native_view::objective_c::declare::ClassDecl::new(
+                    "RnGpuiFixtureNavigationDelegate",
+                    class!(NSObject),
+                )
+                .expect("the delegate class is declared once");
+            declaration.add_ivar::<usize>("callback");
+            // SAFETY: the selectors and signatures are the ones WebKit and the runtime call.
+            unsafe {
+                declaration.add_method(
+                    sel!(webView:didFinishNavigation:),
+                    did_finish_navigation as extern "C" fn(&Object, Sel, id, id),
+                );
+                declaration.add_method(
+                    sel!(dealloc),
+                    delegate_dealloc as extern "C" fn(&Object, Sel),
+                );
+            }
+            declaration.register();
+        });
+        Class::get("RnGpuiFixtureNavigationDelegate").expect("registered above")
+    }
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_setAssociatedObject(
+            object: id,
+            key: *const std::ffi::c_void,
+            value: id,
+            policy: usize,
+        );
+    }
+
+    /// A web view that calls `on_finish` with the address each time a navigation
+    /// finishes. The web view holds its delegate weakly, so the delegate is tied
+    /// to the view's lifetime with an associated object.
+    pub fn web_view(on_finish: OnFinish) -> NativeViewHandle {
+        static DELEGATE_KEY: u8 = 0;
+        // SAFETY: the view and delegate are created on the main thread; the view's ownership passes to the handle, and the associated object keeps the delegate alive exactly as long as the view.
         unsafe {
             let allocated: id = msg_send![class!(WKWebView), alloc];
             let view: id = msg_send![allocated, initWithFrame: zero_frame()];
+            let delegate: id = msg_send![delegate_class(), new];
+            let callback = Box::into_raw(Box::new(on_finish)) as usize;
+            (*(delegate as *mut Object)).set_ivar("callback", callback);
+            let _: () = msg_send![view, setNavigationDelegate: delegate];
+            const RETAIN_NONATOMIC: usize = 1;
+            objc_setAssociatedObject(
+                view,
+                std::ptr::addr_of!(DELEGATE_KEY).cast(),
+                delegate,
+                RETAIN_NONATOMIC,
+            );
+            let _: () = msg_send![delegate, release];
             NativeViewHandle::from_owned_nsview(view as *mut std::ffi::c_void)
         }
     }
@@ -204,15 +283,29 @@ impl FixtureNativeProbeSpec for NativeProbe {
 }
 
 /// A web view showing an HTML string.
-#[derive(Default)]
 pub struct WebView {
     view: Option<NativeViewHandle>,
     html: String,
+    sender: FixtureWebViewEventSender,
+}
+
+impl Drop for WebView {
+    /// Sends one more event as the node goes away; the store drops it because
+    /// the node no longer exists.
+    fn drop(&mut self) {
+        self.sender.load_start(OnLoadStart {
+            html: self.html.clone(),
+        });
+    }
 }
 
 impl FixtureWebViewSpec for WebView {
-    fn create(_props: &FixtureWebViewProps, _cx: &mut FixtureWebViewContext) -> Self {
-        Self::default()
+    fn create(_props: &FixtureWebViewProps, cx: &mut FixtureWebViewContext) -> Self {
+        Self {
+            view: None,
+            html: String::new(),
+            sender: cx.event_sender(),
+        }
     }
 
     fn update(
@@ -239,7 +332,8 @@ impl FixtureWebViewSpec for WebView {
         _window: &mut Window,
         cx: &mut FixtureWebViewContext,
     ) -> Result<NativeViewHandle> {
-        let view = appkit::web_view();
+        let sender = self.sender.clone();
+        let view = appkit::web_view(Box::new(move |url| sender.load(OnLoad { url })));
         self.view = Some(view);
         self.html = props.html().to_string();
         appkit::load_html(view, &self.html);

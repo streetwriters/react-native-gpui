@@ -11,11 +11,18 @@ export type FixtureWebViewLoadEvent = Readonly<{
   html: string;
 }>;
 
+export type FixtureWebViewLoadedEvent = Readonly<{
+  /** The address the view finished loading. */
+  url: string;
+}>;
+
 /** A web view showing an HTML string. */
 export interface NativeProps extends ViewProps {
   html?: string;
   /** Sent each time the view starts loading `html`. */
   onLoadStart?: CodegenTypes.DirectEventHandler<FixtureWebViewLoadEvent>;
+  /** Sent when the web view reports that navigation finished. */
+  onLoad?: CodegenTypes.DirectEventHandler<FixtureWebViewLoadedEvent>;
 }
 
 export type FixtureWebViewType = HostComponent<NativeProps>;

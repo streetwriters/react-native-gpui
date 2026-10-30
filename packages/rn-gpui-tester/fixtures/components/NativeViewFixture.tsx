@@ -53,7 +53,7 @@ export default function NativeViewFixture({
   const [orange, setOrange] = useState(false);
   const [second, setSecond] = useState(false);
   const [counts, setCounts] = useState('no report');
-  const [loads, setLoads] = useState(0);
+  const [events, setEvents] = useState<string[]>([]);
   const probe = useRef<React.ElementRef<FixtureNativeProbeType>>(null);
   const web = useRef<React.ElementRef<FixtureWebViewType>>(null);
 
@@ -69,7 +69,8 @@ export default function NativeViewFixture({
       ref={web}
       testID="native-view-host"
       html={second ? PAGE_TWO : PAGE_ONE}
-      onLoadStart={() => setLoads(count => count + 1)}
+      onLoadStart={() => setEvents(log => [...log, 'start'])}
+      onLoad={() => setEvents(log => [...log, 'load'])}
       style={nativeStyle}
     />
   ) : (
@@ -150,7 +151,7 @@ export default function NativeViewFixture({
         )}
       </View>
       <Text testID="native-status" style={{ color: '#fff' }}>
-        {webView ? `loads ${loads}` : counts}
+        {webView ? events.join(',') : counts}
       </Text>
       <View testID="native-area" style={{ flex: 1 }}>
         {underlay ? (

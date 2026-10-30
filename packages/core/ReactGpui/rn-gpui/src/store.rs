@@ -418,6 +418,7 @@ impl ViewStore {
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
     /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
+        self.install_report_waker(cx);
         let surface_id = batch.surface_id;
         if batch.has_content_size {
             let size = (batch.content_width, batch.content_height);
@@ -817,11 +818,16 @@ impl ViewStore {
         }
         self.host_reports.release_flush();
         let reports = self.host_reports.take();
-        crate::counters::add(
-            crate::counters::Counter::HostReportsDelivered,
-            reports.len() as u64,
-        );
+        let mut delivered = 0;
         for report in reports {
+            // An event for a node that unmounted since it was sent has no one to
+            // receive it.
+            if let crate::host_component::HostReport::Event { tag, .. } = &report {
+                if !self.nodes.contains_key(tag) {
+                    continue;
+                }
+            }
+            delivered += 1;
             match report {
                 crate::host_component::HostReport::Size { tag, width, height } => {
                     crate::host_component::apply_size(tag, width, height);
@@ -839,6 +845,33 @@ impl ViewStore {
                 crate::host_component::HostReport::Event { send, .. } => send(),
             }
         }
+        crate::counters::add(crate::counters::Counter::HostReportsDelivered, delivered);
+    }
+
+    /// Lets an event sent outside a host call ask for its own delivery.
+    fn install_report_waker(&self, cx: &mut Context<Self>) {
+        let queue = std::rc::Rc::downgrade(&self.host_reports);
+        let app = cx.to_async();
+        self.host_reports.install_waker(move || {
+            let (queue, app) = (queue.clone(), app.clone());
+            app.foreground_executor()
+                .clone()
+                .spawn(async move {
+                    app.update(|cx| {
+                        let Some(queue) = queue.upgrade() else { return };
+                        queue.release_flush();
+                        if let Some(store) = store_from(cx) {
+                            store.update(cx, |store, cx| {
+                                store.flush_host_reports(cx);
+                                // React Native buffers events until its next
+                                // event beat; nothing else is about to tick it.
+                                store.host.on_render();
+                            });
+                        }
+                    });
+                })
+                .detach();
+        });
     }
 
     fn apply_commands(
@@ -1585,6 +1618,32 @@ mod test_app_context_tests {
             "the shared ancestor is unchanged, not doubled"
         );
         assert_eq!(root_count(cx, &root), 1);
+    }
+
+    #[gpui::test]
+    fn an_event_sent_after_its_node_unmounted_is_dropped(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        register_native_component("EventSenderProbe");
+        apply(cx, &store, vec![create(1, "View"), insert(1, -1)]);
+
+        let delivered = std::rc::Rc::new(std::cell::Cell::new(0));
+        let (sender, queue) = store.read_with(cx, |store, _| {
+            let context = crate::host_component::HostContext::queued(1, store.host_reports.clone());
+            (context.event_sender(), store.host_reports.clone())
+        });
+        for _ in 0..2 {
+            let delivered = delivered.clone();
+            sender.send(move || delivered.set(delivered.get() + 1));
+        }
+        store.update(cx, |store, cx| store.flush_host_reports(cx));
+        assert_eq!(delivered.get(), 2, "the node is mounted");
+
+        apply(cx, &store, vec![remove(1, -1), delete(1)]);
+        let late = delivered.clone();
+        sender.send(move || late.set(late.get() + 1));
+        store.update(cx, |store, cx| store.flush_host_reports(cx));
+        assert_eq!(delivered.get(), 2, "the node is gone");
+        assert!(queue.is_empty());
     }
 
     #[gpui::test]

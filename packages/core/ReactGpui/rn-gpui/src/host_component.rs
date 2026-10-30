@@ -100,6 +100,10 @@ impl std::fmt::Debug for HostReport {
 pub(crate) struct HostReports {
     reports: RefCell<Vec<HostReport>>,
     flush_scheduled: Cell<bool>,
+    /// Asks the store to deliver the queue on a later turn. Installed by the
+    /// store; a report sent from outside a host call needs it, because nothing
+    /// else would deliver it.
+    waker: RefCell<Option<Box<dyn Fn()>>>,
 }
 
 impl HostReports {
@@ -126,6 +130,25 @@ impl HostReports {
     pub(crate) fn release_flush(&self) {
         self.flush_scheduled.set(false);
     }
+
+    /// Installs the waker, once.
+    pub(crate) fn install_waker(&self, waker: impl Fn() + 'static) {
+        let mut slot = self.waker.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(Box::new(waker));
+        }
+    }
+
+    /// Schedules a delivery of what is queued, unless one is already scheduled.
+    pub(crate) fn wake(&self) {
+        if self.claim_flush() {
+            return;
+        }
+        match self.waker.borrow().as_ref() {
+            Some(waker) => waker(),
+            None => self.release_flush(),
+        }
+    }
 }
 
 impl std::fmt::Debug for HostReports {
@@ -134,6 +157,36 @@ impl std::fmt::Debug for HostReports {
             .field("reports", &self.reports.borrow().len())
             .field("flush_scheduled", &self.flush_scheduled.get())
             .finish()
+    }
+}
+
+/// Sends typed events for one node from anywhere on the main thread: an OS
+/// callback, a timer, a task. Generated code wraps it with the component's
+/// event methods.
+///
+/// The event joins the store's ordered report queue and is delivered on a later
+/// turn. It is dropped, without effect, if the node has unmounted by then. A
+/// sender is not `Send`: the platforms deliver view callbacks on the main
+/// thread, and the payload closures and the queue are single-threaded.
+#[derive(Clone)]
+pub struct HostEventSender {
+    tag: i32,
+    queue: HostReportQueue,
+}
+
+impl HostEventSender {
+    /// The Fabric tag of the node the events are about.
+    pub fn tag(&self) -> i32 {
+        self.tag
+    }
+
+    /// Queues `send`, which owns the payload and calls the generated shim.
+    pub fn send(&self, send: impl FnOnce() + 'static) {
+        self.queue.push(HostReport::Event {
+            tag: self.tag,
+            send: Box::new(send),
+        });
+        self.queue.wake();
     }
 }
 
@@ -437,6 +490,14 @@ impl HostContext {
             tag: self.tag,
             send: Box::new(send),
         });
+    }
+
+    /// A sender for this node's events that outlives the call.
+    pub fn event_sender(&self) -> HostEventSender {
+        HostEventSender {
+            tag: self.tag,
+            queue: self.queue.clone(),
+        }
     }
 
     /// Core's store handle, for a component that needs to run a deferred

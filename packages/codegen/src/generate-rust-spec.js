@@ -946,7 +946,8 @@ const COMPONENT_IMPORTS = `#[allow(unused_imports)]
 use gpui::{AnyElement, Window};
 #[allow(unused_imports)]
 use react_native_gpui::host_component::{
-    EmitterHandle, HostArg, HostComponentSpec, HostContext, HostObject, PropsHandle, Value,
+    EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject,
+    PropsHandle, Value,
 };
 #[allow(unused_imports)]
 use react_native_gpui::native_surface::NativeViewHandle;
@@ -1272,6 +1273,10 @@ export class ComponentGenerator {
 
   get eventsName() {
     return `${this.name}Events`;
+  }
+
+  get eventSenderName() {
+    return `${this.name}EventSender`;
   }
 
   get contextName() {
@@ -2146,20 +2151,71 @@ function renderComponentEvents(generator) {
   lines.push('}');
   lines.push('');
   lines.push(`impl ${generator.eventsName}<'_> {`);
+  lines.push(
+    ...renderEventMethods(generator, {
+      receiver: '&mut self',
+      emitter: 'self.context.emitter.clone()',
+      queue: 'self.context.host.queue_event',
+      verb: 'Queues',
+      registerShims: true,
+    }),
+  );
+  lines.push('}');
+  lines.push('');
+  lines.push(
+    docComment([
+      `Sends the typed events of a \`${generator.name}\` node from outside a`,
+      'component method: an OS callback, a timer, a task on the main thread.',
+      '',
+      'Take one with `event_sender()` from the context a method is given and keep',
+      'it. An event joins the same ordered queue as `events()` and is delivered on',
+      'a later turn; if the node has unmounted by then it is dropped, so sending',
+      "after the view's teardown is harmless. A sender is not `Send`: platform",
+      'views call back on the main thread.',
+    ]),
+  );
+  lines.push('#[derive(Clone)]');
+  lines.push(`pub struct ${generator.eventSenderName} {`);
+  lines.push('    host: HostEventSender,');
+  lines.push('    emitter: EmitterHandle,');
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl ${generator.eventSenderName} {`);
+  lines.push(
+    ...renderEventMethods(generator, {
+      receiver: '&self',
+      emitter: 'self.emitter.clone()',
+      queue: 'self.host.send',
+      verb: 'Sends',
+      registerShims: false,
+    }),
+  );
+  lines.push('}');
+  return lines;
+}
+
+/// The methods that send each event of a component, for the context's `events()`
+/// view and for the owned sender alike. `queue` is the call that takes the
+/// closure carrying the payload.
+function renderEventMethods(generator, options) {
+  const { receiver, emitter, queue, verb, registerShims } = options;
+  const lines = [];
   let first = true;
   for (const event of generator.events) {
     const shim = `rn_gpui_${snakeCase(generator.name)}_event_${snakeCase(event.name)}`;
     if (!first) lines.push('');
     first = false;
-    lines.push(`    /// Queues \`${event.jsName}\`.`);
+    lines.push(`    /// ${verb} \`${event.jsName}\`.`);
     if (event.payload === null) {
-      lines.push(`    pub fn ${event.name}(&mut self) {`);
-      lines.push('        let emitter = self.context.emitter.clone();');
-      lines.push('        self.context.host.queue_event(move || {');
+      lines.push(`    pub fn ${event.name}(${receiver}) {`);
+      lines.push(`        let emitter = ${emitter};`);
+      lines.push(`        ${queue}(move || {`);
       lines.push(`            unsafe { ${shim}(emitter.as_ptr()) }`);
       lines.push('        });');
       lines.push('    }');
-      generator.shims.push(`    fn ${shim}(emitter: ${HANDLE});`);
+      if (registerShims) {
+        generator.shims.push(`    fn ${shim}(emitter: ${HANDLE});`);
+      }
       continue;
     }
     const {
@@ -2168,21 +2224,22 @@ function renderComponentEvents(generator) {
       args,
     } = flattenPayload(generator, event.payload, '            ');
     lines.push(
-      `    pub fn ${event.name}(&mut self, value: ${event.payload.name}) {`,
+      `    pub fn ${event.name}(${receiver}, value: ${event.payload.name}) {`,
     );
-    lines.push('        let emitter = self.context.emitter.clone();');
-    lines.push('        self.context.host.queue_event(move || {');
+    lines.push(`        let emitter = ${emitter};`);
+    lines.push(`        ${queue}(move || {`);
     lines.push(...flatten);
     lines.push(
       ...unsafeCallLines(shim, ['emitter.as_ptr()', ...args], '            '),
     );
     lines.push('        });');
     lines.push('    }');
-    generator.shims.push(
-      `    fn ${shim}(${['emitter: ' + HANDLE, ...params].join(', ')});`,
-    );
+    if (registerShims) {
+      generator.shims.push(
+        `    fn ${shim}(${['emitter: ' + HANDLE, ...params].join(', ')});`,
+      );
+    }
   }
-  lines.push('}');
   return lines;
 }
 
@@ -2252,6 +2309,19 @@ function renderContext(generator) {
   lines.push("    /// The component's typed events.");
   lines.push(`    pub fn events(&mut self) -> ${generator.eventsName}<'_> {`);
   lines.push(`        ${generator.eventsName} { context: self }`);
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// A sender for the same events that outlives this call, for an OS',
+  );
+  lines.push('    /// callback or a task on the main thread.');
+  lines.push(
+    `    pub fn event_sender(&self) -> ${generator.eventSenderName} {`,
+  );
+  lines.push(`        ${generator.eventSenderName} {`);
+  lines.push('            host: self.host.event_sender(),');
+  lines.push('            emitter: self.emitter.clone(),');
+  lines.push('        }');
   lines.push('    }');
   lines.push('}');
   return lines;
