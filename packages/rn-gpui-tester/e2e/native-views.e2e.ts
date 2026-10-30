@@ -282,11 +282,18 @@ async function composited() {
 }
 
 function expectColor(actual: Rgb, srgb: Rgb) {
-  const expected = macOnly ? inDisplayP3(srgb) : srgb;
-  const close = actual.every(
-    (channel, index) => Math.abs(channel - expected[index]) <= COLOR_TOLERANCE,
+  // A Mac's capture is in its display's colour space: Display P3 on a
+  // wide-gamut screen, sRGB on a virtual display such as a CI runner's.
+  const accepted = macOnly ? [srgb, inDisplayP3(srgb)] : [srgb];
+  const close = accepted.some(expected =>
+    actual.every(
+      (channel, index) =>
+        Math.abs(channel - expected[index]) <= COLOR_TOLERANCE,
+    ),
   );
-  expect(close, `rgb(${actual}) is not rgb(${expected})`).toBe(true);
+  expect(close, `rgb(${actual}) is not ${accepted.map(c => `rgb(${c})`)}`).toBe(
+    true,
+  );
 }
 
 test.skipIf(!probeOs)(
