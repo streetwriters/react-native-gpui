@@ -15,7 +15,6 @@ on:
       - 'website/**'
       - 'docs/**'
       - 'LICENSE-docs'
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
