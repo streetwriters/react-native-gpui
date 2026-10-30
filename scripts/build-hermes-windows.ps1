@@ -98,7 +98,7 @@ function Invoke-HermesPatches {
     # --check is quiet on success and non-zero when the patch does not fit.
     & git -C $Source apply --check $patch.FullName 2>$null
     if ($LASTEXITCODE -eq 0) {
-      & git -C $Source apply $patch.FullName
+      & git -C $Source apply --whitespace=nowarn $patch.FullName
       if ($LASTEXITCODE -ne 0) {
         throw "Failed to apply $($patch.Name) to $Source."
       }

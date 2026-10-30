@@ -37,7 +37,7 @@ if [[ -d "$patches_dir" ]]; then
     if git -C "$hermes_source" apply --reverse --check "$patch" >/dev/null 2>&1; then
       echo "Patch already applied: $(basename "$patch")"
     else
-      git -C "$hermes_source" apply "$patch"
+      git -C "$hermes_source" apply --whitespace=nowarn "$patch"
       echo "Applied patch: $(basename "$patch")"
     fi
   done
