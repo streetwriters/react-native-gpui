@@ -605,14 +605,16 @@ pub trait HostObject: 'static {
     fn command(&mut self, index: u32, args: &[HostArg], cx: HostContext);
 
     /// The OS view of a component declared `nativeSurface`. Core calls it once,
-    /// when the node is first painted; a component that hosts no view returns an
+    /// when the node is first painted, after it created the composition surface
+    /// the view lives in (`parent`); a component that hosts no view returns an
     /// error.
     fn create_view(
         &mut self,
+        parent: &crate::native_surface::NativeViewParent<'_>,
         window: &mut Window,
         cx: HostContext,
     ) -> crate::native_surface::Result<crate::native_surface::NativeViewHandle> {
-        let _ = (window, cx);
+        let _ = (parent, window, cx);
         Err(anyhow::anyhow!("the component hosts no native view"))
     }
 

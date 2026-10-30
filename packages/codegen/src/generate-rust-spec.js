@@ -950,7 +950,7 @@ use react_native_gpui::host_component::{
     PropsHandle, Value,
 };
 #[allow(unused_imports)]
-use react_native_gpui::native_surface::NativeViewHandle;
+use react_native_gpui::native_surface::{NativeViewHandle, NativeViewParent};
 `;
 
 /// The C ABI between the generated Rust and the generated C++ file, emitted
@@ -2654,12 +2654,13 @@ function renderSpecTrait(generator) {
   lines.push('    fn create_view(');
   lines.push('        &mut self,');
   lines.push(`        props: &${generator.propsName},`);
+  lines.push("        parent: &NativeViewParent<'_>,");
   lines.push('        window: &mut Window,');
   lines.push(`        cx: &mut ${generator.contextName},`);
   lines.push(
     '    ) -> react_native_gpui::native_surface::Result<NativeViewHandle> {',
   );
-  lines.push('        let _ = (props, window, cx);');
+  lines.push('        let _ = (props, parent, window, cx);');
   lines.push(
     '        Err(react_native_gpui::native_surface::Error::msg("the component hosts no native view"))',
   );
@@ -2837,13 +2838,13 @@ function renderComponentInstance(generator) {
   lines.push('    }');
   lines.push('');
   lines.push(
-    '    fn create_view(&mut self, window: &mut Window, cx: HostContext) -> react_native_gpui::native_surface::Result<NativeViewHandle> {',
+    "    fn create_view(&mut self, parent: &NativeViewParent<'_>, window: &mut Window, cx: HostContext) -> react_native_gpui::native_surface::Result<NativeViewHandle> {",
   );
   lines.push(
     `        let mut cx = ${generator.contextName}::new(cx, self.emitter.clone());`,
   );
   lines.push(
-    '        self.component.create_view(&self.props, window, &mut cx)',
+    '        self.component.create_view(&self.props, parent, window, &mut cx)',
   );
   lines.push('    }');
   lines.push('');

@@ -8,66 +8,121 @@ use gpui::{
 
 pub use anyhow::{Error, Result};
 
-/// One OS view, as a host component creates it.
-#[derive(Clone, Copy, Debug)]
-pub struct NativeViewHandle {
+/// What a host component hands core as its native view.
+///
+/// How a view is placed differs per platform, because each compositor takes
+/// native content differently: macOS adds an `NSView` to the node's container,
+/// X11 and Wayland give the component the surface to draw into, Windows takes
+/// either composition content on the surface's visual or a child window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeViewHandle(Repr);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Repr {
+    Composited,
     #[cfg(target_os = "macos")]
-    view: usize,
+    Nsview(usize),
     #[cfg(target_os = "windows")]
-    hwnd: isize,
+    Hwnd(isize),
     #[cfg(target_os = "linux")]
-    window: u32,
+    X11Window(u32),
 }
 
 impl NativeViewHandle {
+    /// The component put its content on the [`NativeViewParent`] itself: on
+    /// Windows a DirectComposition visual, on Linux the surface's window or
+    /// `wl_surface`. Core places and shows the surface; there is no view to
+    /// attach or release.
+    pub fn composited() -> Self {
+        Self(Repr::Composited)
+    }
+
     /// Transfer one owned `NSView` reference to the runtime. The view must have
     /// been created with AppKit's `alloc`/`init` convention and remain valid
     /// until the runtime releases it when the Fabric node unmounts.
-    #[cfg(target_os = "macos")]
     ///
     /// # Safety
     ///
     /// `view` must be an owned `NSView` reference, created with `alloc`/`init`, that stays valid until the runtime releases it.
+    #[cfg(target_os = "macos")]
     pub unsafe fn from_owned_nsview(view: *mut std::ffi::c_void) -> Self {
-        Self {
-            view: view as usize,
-        }
+        Self(Repr::Nsview(view as usize))
     }
 
-    /// The `NSView` the handle names.
+    /// The `NSView` the handle names, or null when it names none.
     #[cfg(target_os = "macos")]
     pub fn as_nsview(&self) -> *mut std::ffi::c_void {
-        self.view as *mut std::ffi::c_void
+        match self.0 {
+            Repr::Nsview(view) => view as *mut std::ffi::c_void,
+            Repr::Composited => std::ptr::null_mut(),
+        }
     }
 
-    /// Transfer an `HWND` to the runtime. The factory keeps ownership and is
-    /// responsible for destroying the window.
+    /// An ordinary child window. The component keeps ownership and destroys it
+    /// after the node unmounts; core moves and shows it with the node.
     #[cfg(target_os = "windows")]
     pub fn from_hwnd(hwnd: isize) -> Self {
-        Self { hwnd }
+        Self(Repr::Hwnd(hwnd))
     }
 
-    /// Transfer an X11 window id to the runtime. The factory keeps ownership
-    /// and is responsible for destroying the window.
+    /// The `HWND` the handle names, or zero when it names none.
+    #[cfg(target_os = "windows")]
+    pub fn as_hwnd(&self) -> isize {
+        match self.0 {
+            Repr::Hwnd(hwnd) => hwnd,
+            Repr::Composited => 0,
+        }
+    }
+
+    /// A child window the component created under the surface window. The
+    /// component keeps ownership and destroys it after the node unmounts.
     #[cfg(target_os = "linux")]
     pub fn from_x11_window(window: u32) -> Self {
-        Self { window }
+        Self(Repr::X11Window(window))
     }
 
-    /// Whether the handle is null, on any platform.
-    pub fn is_null(&self) -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            self.view == 0
+    /// The X11 window the handle names, or zero when it names none.
+    #[cfg(target_os = "linux")]
+    pub fn as_x11_window(&self) -> u32 {
+        match self.0 {
+            Repr::X11Window(window) => window,
+            Repr::Composited => 0,
         }
-        #[cfg(target_os = "windows")]
-        {
-            self.hwnd == 0
-        }
-        #[cfg(target_os = "linux")]
-        {
-            self.window == 0
-        }
+    }
+
+    /// Whether the content is on the parent rather than a view of its own.
+    pub fn is_composited(&self) -> bool {
+        matches!(self.0, Repr::Composited)
+    }
+}
+
+/// The composition surface core made for a native view node, which the
+/// component puts its content in. It exists before the component is asked for
+/// its view, so a platform that needs the parent to create the view has it.
+pub struct NativeViewParent<'a> {
+    surface: &'a NativeSurface,
+}
+
+impl NativeViewParent<'_> {
+    /// The surface's DirectComposition visual, as the `IUnknown` that casts to
+    /// `IDCompositionVisual3`. Content set on it is placed, clipped and hidden
+    /// with the node.
+    #[cfg(target_os = "windows")]
+    pub fn visual(&self) -> Result<Box<dyn std::any::Any>> {
+        self.surface.surface.platform_surface()?.platform_handle()
+    }
+
+    /// The window the surface draws in: an XCB window on X11, a `wl_surface`
+    /// subsurface on Wayland. Create a child window under it or draw into it.
+    #[cfg(target_os = "linux")]
+    pub fn raw_window_handle(&self) -> Result<raw_window_handle::RawWindowHandle> {
+        self.surface
+            .surface
+            .platform_surface()?
+            .platform_handle()?
+            .downcast::<raw_window_handle::RawWindowHandle>()
+            .map(|handle| *handle)
+            .map_err(|_| anyhow::anyhow!("composition surface did not return a RawWindowHandle"))
     }
 }
 
@@ -78,16 +133,16 @@ pub struct NativeSurface {
     above: WindowCompositionSurface,
     window: AnyWindowHandle,
     app: AsyncApp,
-    view: NativeViewHandle,
+    view: std::cell::Cell<NativeViewHandle>,
     last_bounds: std::cell::Cell<Option<Bounds<gpui::DevicePixels>>>,
     visible: std::cell::Cell<bool>,
 }
 
 impl NativeSurface {
-    /// Creates the composition surface and attaches `view` to it. The surface
-    /// owns the view from here on.
-    pub fn create(view: NativeViewHandle, window: &Window, cx: &App) -> Result<Self> {
-        anyhow::ensure!(!view.is_null(), "the native view is null");
+    /// Creates the composition surfaces of a native view node. The view comes
+    /// later, from [`attach`](Self::attach), once the component has the
+    /// [`parent`](Self::parent) to create it in.
+    pub fn new(window: &Window, cx: &App) -> Result<Self> {
         let composition = window.enable_window_composition()?;
         let surface = composition.create_native_surface()?;
         // A root above the view, not a child of its container: the container
@@ -95,36 +150,27 @@ impl NativeSurface {
         // reaches outside them.
         let above = composition.create_gpui_surface(None)?;
         composition.place_above(above.id(), surface.id())?;
-        let surface = Self {
+        Ok(Self {
             surface,
             above,
             window: window.window_handle(),
             app: cx.to_async(),
-            view,
+            view: std::cell::Cell::new(NativeViewHandle::composited()),
             last_bounds: std::cell::Cell::new(None),
             visible: std::cell::Cell::new(true),
-        };
-        imp::attach(&surface.surface, view)?;
-        Ok(surface)
+        })
     }
 
-    /// The macOS `NSView` this surface hosts.
-    #[cfg(target_os = "macos")]
-    pub fn macos_view(&self) -> *mut std::ffi::c_void {
-        self.view.view as *mut std::ffi::c_void
+    /// What a component creates its view in.
+    pub fn parent(&self) -> NativeViewParent<'_> {
+        NativeViewParent { surface: self }
     }
 
-    /// The Windows composition visual this surface hosts: the `IUnknown` the
-    /// attachment returned, ready to cast to `IDCompositionVisual3`.
-    #[cfg(target_os = "windows")]
-    pub fn windows_visual(&self) -> Result<Box<dyn std::any::Any>> {
-        self.surface.platform_surface()?.platform_handle()
-    }
-
-    /// The Linux `RawWindowHandle` of the surface the view presents into.
-    #[cfg(target_os = "linux")]
-    pub fn raw_window_handle(&self) -> Result<Box<dyn std::any::Any>> {
-        self.surface.platform_surface()?.platform_handle()
+    /// Takes `view` into the surface. The surface owns it from here on.
+    pub fn attach(&self, view: NativeViewHandle) -> Result<()> {
+        imp::attach(&self.surface, view)?;
+        self.view.set(view);
+        Ok(())
     }
 
     /// The GPUI surface drawn directly above this view.
@@ -134,7 +180,7 @@ impl NativeSurface {
 
     /// The platform view, as the factory returned it.
     pub fn view(&self) -> NativeViewHandle {
-        self.view
+        self.view.get()
     }
 
     /// Places the native view at `bounds`, in the window's pixels.
@@ -176,9 +222,12 @@ impl NativeSurface {
         let view = {
             use cocoa::{base::id, foundation::NSRect};
             use objc::{msg_send, sel, sel_impl};
-            let view = self.view.view as id;
+            let view = self.view.get().as_nsview() as id;
             // SAFETY: the view is owned by this surface and read on the main thread.
             unsafe {
+                if view.is_null() {
+                    return serde_json::json!({"bounds": bounds, "visible": self.visible.get(), "view": null});
+                }
                 let frame: NSRect = msg_send![view, frame];
                 let superview: id = msg_send![view, superview];
                 let hidden: bool = !superview.is_null() && msg_send![superview, isHidden];
@@ -217,7 +266,7 @@ impl NativeSurface {
 
 impl Drop for NativeSurface {
     fn drop(&mut self) {
-        imp::detach(self.view);
+        imp::detach(self.view.get());
         // Removing the composition surfaces needs the window, which a drop does
         // not have, and may land inside an update; do it on a later turn.
         let app = self.app.clone();
@@ -271,7 +320,10 @@ mod imp {
             .downcast::<usize>()
             .map(|handle| *handle as id)
             .map_err(|_| anyhow::anyhow!("native composition surface is not an AppKit view"))?;
-        let view = view.view as id;
+        let Repr::Nsview(view) = view.0 else {
+            return Ok(());
+        };
+        let view = view as id;
         // SAFETY: `view` is the owned `NSView` the factory returned, and `container` is the live composition surface view; both are used on the main thread.
         unsafe {
             let _: () =
@@ -297,7 +349,10 @@ mod imp {
     pub(super) fn detach(view: NativeViewHandle) {
         use cocoa::{appkit::NSView, base::id};
         use objc::{msg_send, sel, sel_impl};
-        let view = view.view as id;
+        let Repr::Nsview(view) = view.0 else {
+            return;
+        };
+        let view = view as id;
         // SAFETY: `view` is the owned `NSView` attached by `attach`; it is detached and released once, on drop.
         unsafe {
             NSView::removeFromSuperview(view);
@@ -317,7 +372,10 @@ mod imp {
             Foundation::HWND,
             UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CHILD},
         };
-        let hwnd = view.hwnd as HWND;
+        let Repr::Hwnd(hwnd) = view.0 else {
+            return Ok(());
+        };
+        let hwnd = hwnd as HWND;
         // SAFETY: the factory keeps the `HWND` alive for the surface's lifetime.
         unsafe {
             let style = GetWindowLongW(hwnd, GWL_STYLE);
@@ -329,38 +387,15 @@ mod imp {
     #[cfg(target_os = "windows")]
     pub(super) fn detach(_view: NativeViewHandle) {}
 
-    /// Linux: on X11 the view is a child window of the composition surface's
-    /// window, so X clips and moves it with the surface; on Wayland the surface
-    /// is a subsurface the producer presents into directly. Neither needs the
-    /// runtime to reparent anything, because the parent is known when the view
-    /// is created from the handle.
+    /// Linux: the component made its window under the surface window, or draws
+    /// into the surface; the server clips and moves it with the surface, so
+    /// core has nothing to do.
     #[cfg(target_os = "linux")]
-    pub(super) fn attach(surface: &WindowCompositionSurface, view: NativeViewHandle) -> Result<()> {
-        use raw_window_handle::RawWindowHandle;
-        let handle = surface.platform_surface()?.platform_handle()?;
-        let raw = handle
-            .downcast::<RawWindowHandle>()
-            .map_err(|_| anyhow::anyhow!("composition surface did not return a RawWindowHandle"))?;
-        match *raw {
-            RawWindowHandle::Xcb(xcb) => {
-                log::info!(
-                    "[native-surface] x11 view {} under {}",
-                    view.window,
-                    xcb.window.get()
-                );
-                Ok(())
-            }
-            RawWindowHandle::Xlib(xlib) => {
-                log::info!(
-                    "[native-surface] xlib view {} under {}",
-                    view.window,
-                    xlib.window
-                );
-                Ok(())
-            }
-            RawWindowHandle::Wayland(_) => Ok(()),
-            _ => anyhow::bail!("unsupported native surface handle on Linux"),
-        }
+    pub(super) fn attach(
+        _surface: &WindowCompositionSurface,
+        _view: NativeViewHandle,
+    ) -> Result<()> {
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
@@ -514,14 +549,20 @@ mod tests {
     use gpui::{point, px, size};
 
     #[test]
-    fn a_surface_handle_reads_null_before_it_is_given_a_view() {
+    fn a_handle_that_names_no_view_is_composited() {
+        assert!(NativeViewHandle::composited().is_composited());
         #[cfg(target_os = "macos")]
-        let null = unsafe { NativeViewHandle::from_owned_nsview(std::ptr::null_mut()) };
+        {
+            let view = std::ptr::NonNull::<std::ffi::c_void>::dangling().as_ptr();
+            // SAFETY: the handle is only inspected, never attached or released.
+            let handle = unsafe { NativeViewHandle::from_owned_nsview(view) };
+            assert!(!handle.is_composited());
+            assert_eq!(handle.as_nsview(), view);
+        }
         #[cfg(target_os = "windows")]
-        let null = NativeViewHandle::from_hwnd(0);
+        assert!(!NativeViewHandle::from_hwnd(7).is_composited());
         #[cfg(target_os = "linux")]
-        let null = NativeViewHandle::from_x11_window(0);
-        assert!(null.is_null());
+        assert!(!NativeViewHandle::from_x11_window(7).is_composited());
     }
 
     #[test]

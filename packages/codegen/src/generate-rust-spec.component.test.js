@@ -138,9 +138,10 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       '-> react_native_gpui::native_surface::Result<NativeViewHandle>',
     );
+    expect(header).toContain("parent: &NativeViewParent<'_>,");
     expect(header).toContain('fn update_view(');
     expect(header).toContain(
-      'self.component.create_view(&self.props, window, &mut cx)',
+      'self.component.create_view(&self.props, parent, window, &mut cx)',
     );
     expect(header).toContain(
       'self.component.update_view(view, &self.props, changed, &mut cx)',

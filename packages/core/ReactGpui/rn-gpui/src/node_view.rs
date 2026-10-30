@@ -1171,9 +1171,12 @@ impl RNNodeView {
             };
             let host_cx =
                 crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
-            let created = component
-                .create_view(window, host_cx)
-                .and_then(|view| crate::native_surface::NativeSurface::create(view, window, cx));
+            let created =
+                crate::native_surface::NativeSurface::new(window, cx).and_then(|surface| {
+                    let view = component.create_view(&surface.parent(), window, host_cx)?;
+                    surface.attach(view)?;
+                    Ok(surface)
+                });
             match created {
                 Ok(surface) => {
                     self.native_surface = Some(std::rc::Rc::new(surface));

@@ -1,7 +1,7 @@
 //! Host components whose content is an OS view.
 
 use gpui::{div, prelude::*, AnyElement, Window};
-use react_native_gpui::native_surface::{NativeViewHandle, Result};
+use react_native_gpui::native_surface::{NativeViewHandle, NativeViewParent, Result};
 
 use crate::{
     FixtureNativeProbeChanged, FixtureNativeProbeContext, FixtureNativeProbeProps,
@@ -234,6 +234,7 @@ impl FixtureNativeProbeSpec for NativeProbe {
     fn create_view(
         &mut self,
         props: &FixtureNativeProbeProps,
+        _parent: &NativeViewParent<'_>,
         _window: &mut Window,
         cx: &mut FixtureNativeProbeContext,
     ) -> Result<NativeViewHandle> {
@@ -247,6 +248,7 @@ impl FixtureNativeProbeSpec for NativeProbe {
     fn create_view(
         &mut self,
         _props: &FixtureNativeProbeProps,
+        _parent: &NativeViewParent<'_>,
         _window: &mut Window,
         _cx: &mut FixtureNativeProbeContext,
     ) -> Result<NativeViewHandle> {
@@ -329,6 +331,7 @@ impl FixtureWebViewSpec for WebView {
     fn create_view(
         &mut self,
         props: &FixtureWebViewProps,
+        _parent: &NativeViewParent<'_>,
         _window: &mut Window,
         cx: &mut FixtureWebViewContext,
     ) -> Result<NativeViewHandle> {
@@ -347,6 +350,7 @@ impl FixtureWebViewSpec for WebView {
     fn create_view(
         &mut self,
         _props: &FixtureWebViewProps,
+        _parent: &NativeViewParent<'_>,
         _window: &mut Window,
         _cx: &mut FixtureWebViewContext,
     ) -> Result<NativeViewHandle> {
