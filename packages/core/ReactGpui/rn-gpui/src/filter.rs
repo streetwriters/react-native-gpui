@@ -4,8 +4,8 @@
 //! work on that picture.
 
 use gpui::{
-    AnyElement, App, Bounds, ColorFilter, Element, ElementId, GlobalElementId, GroupEffect,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Window,
+    AnyElement, App, BlendMode, Bounds, ColorFilter, Element, ElementId, GlobalElementId,
+    GroupEffect, InspectorElementId, IntoElement, LayoutId, Pixels, Window,
 };
 
 /// One step of a `filter`.
@@ -281,6 +281,35 @@ pub(crate) struct Grouped {
     child: AnyElement,
     opacity: f32,
     effect: Step,
+    blend: BlendMode,
+    isolate: bool,
+}
+
+/// The blend mode for RN's `BlendMode` ordinal.
+pub(crate) fn blend_mode(ordinal: u8) -> BlendMode {
+    use BlendMode::*;
+    [
+        Normal,
+        Multiply,
+        Screen,
+        Overlay,
+        Darken,
+        Lighten,
+        ColorDodge,
+        ColorBurn,
+        HardLight,
+        SoftLight,
+        Difference,
+        Exclusion,
+        Hue,
+        Saturation,
+        Color,
+        Luminosity,
+        PlusLighter,
+    ]
+    .get(ordinal as usize)
+    .copied()
+    .unwrap_or(Normal)
 }
 
 impl Grouped {
@@ -289,6 +318,25 @@ impl Grouped {
             child,
             opacity,
             effect: Step::Color(ColorFilter::IDENTITY),
+            blend: BlendMode::Normal,
+            isolate: false,
+        }
+    }
+
+    /// `child` faded by `opacity`, combined with the backdrop by `blend`,
+    /// and, if `isolate`, painted as a group whatever the other two say.
+    pub(crate) fn blended(
+        child: AnyElement,
+        opacity: f32,
+        blend: BlendMode,
+        isolate: bool,
+    ) -> Self {
+        Self {
+            child,
+            opacity,
+            effect: Step::Color(ColorFilter::IDENTITY),
+            blend,
+            isolate,
         }
     }
 
@@ -299,6 +347,8 @@ impl Grouped {
             child,
             opacity: 1.0,
             effect: step,
+            blend: BlendMode::Normal,
+            isolate: false,
         }
     }
 }
@@ -372,9 +422,12 @@ impl Element for Grouped {
                 sigma: sigma * scale,
                 color,
             },
+            Step::Color(_) if self.isolate => GroupEffect::Isolate,
             Step::Color(_) => GroupEffect::None,
         };
-        window.with_group_effect(self.opacity, effect, |window| child.paint(window, cx));
+        window.with_blended_group(self.opacity, effect, self.blend, |window| {
+            child.paint(window, cx)
+        });
     }
 }
 

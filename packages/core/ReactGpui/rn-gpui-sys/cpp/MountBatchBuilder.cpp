@@ -306,6 +306,8 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   out.background_color = argb(props->backgroundColor);
   out.background_json = backgroundJson(*props);
   out.filter_json = filterJson(*props);
+  out.mix_blend_mode = static_cast<uint8_t>(props->mixBlendMode);
+  out.isolate = props->isolation == Isolation::Isolate;
   out.backface_hidden = props->backfaceVisibility == BackfaceVisibility::Hidden;
 
   // layoutMetrics.borderWidth is already fully resolved per edge; the cascaded

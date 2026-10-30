@@ -725,6 +725,20 @@ export default function CoreComponentsFixture() {
         </View>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>Blend modes</Text>
+        <View testID="blend-multiply" style={styles.blendBackdrop}>
+          <View style={[styles.blendBox, { mixBlendMode: 'multiply' }]} />
+        </View>
+        <View testID="blend-difference" style={styles.blendBackdrop}>
+          <View style={[styles.blendBox, { mixBlendMode: 'difference' }]} />
+        </View>
+        <View testID="blend-isolated" style={styles.blendBackdrop}>
+          <View style={styles.blendIsolated}>
+            <View style={[styles.blendBox, { mixBlendMode: 'multiply' }]} />
+          </View>
+        </View>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>Group opacity</Text>
         <View testID="group-opacity" style={styles.rotArea}>
           <View style={styles.groupFaded}>
@@ -861,6 +875,23 @@ const styles = StyleSheet.create({
         },
       },
     ],
+  },
+  blendBackdrop: { width: 100, height: 100, backgroundColor: '#808080' },
+  blendBox: {
+    position: 'absolute',
+    left: 25,
+    top: 25,
+    width: 50,
+    height: 50,
+    backgroundColor: '#ff8000',
+  },
+  blendIsolated: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+    isolation: 'isolate',
   },
   groupFaded: {
     position: 'absolute',

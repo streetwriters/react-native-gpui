@@ -3374,6 +3374,8 @@ impl Render for RNNodeView {
             }));
         }
         let mut group_opacity = None;
+        let mut blend = gpui::BlendMode::Normal;
+        let mut isolated = false;
         *element.style() = {
             let mut style = self.cached_style.clone();
             if let Some(color) = self.animated_background_color {
@@ -3419,6 +3421,10 @@ impl Render for RNNodeView {
             if !self.children.is_empty() {
                 group_opacity = style.opacity.take().filter(|opacity| *opacity < 1.0);
             }
+            // A blend mode combines the node's picture with what is beneath
+            // it; isolation keeps its content's blend modes to itself.
+            blend = crate::filter::blend_mode(self.view.mix_blend_mode);
+            isolated = self.view.isolate;
             style
         };
         // The listeners live on a `pointer_area` child, not on the node's own div: a
@@ -4355,9 +4361,11 @@ impl Render for RNNodeView {
                 }
                 step => crate::filter::Grouped::with_step(element, step).into_any_element(),
             });
-        match group_opacity {
-            Some(opacity) => crate::filter::Grouped::new(element, opacity).into_any_element(),
-            None => element,
+        if group_opacity.is_some() || blend != gpui::BlendMode::Normal || isolated {
+            crate::filter::Grouped::blended(element, group_opacity.unwrap_or(1.0), blend, isolated)
+                .into_any_element()
+        } else {
+            element
         }
     }
 }

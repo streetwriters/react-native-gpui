@@ -536,6 +536,36 @@ describe('Blur and drop shadow', () => {
   });
 });
 
+describe('Blend modes', () => {
+  async function centre(testID: string) {
+    await reveal(testID);
+    const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
+    // The view is 100 points square and may be cut off by the window, so the
+    // middle is found from its width.
+    const middle = image.width >> 1;
+    const at = (middle * image.width + middle) * 4;
+    return [image.data[at], image.data[at + 1], image.data[at + 2]];
+  }
+
+  function near(actual: number[], expected: number[]) {
+    actual.forEach((channel, index) =>
+      expect(Math.abs(channel - expected[index])).toBeLessThan(14),
+    );
+  }
+
+  test('multiply darkens the backdrop it is drawn on', async () => {
+    near(await centre('blend-multiply'), [128, 64, 0]);
+  });
+
+  test('difference subtracts the backdrop', async () => {
+    near(await centre('blend-difference'), [127, 0, 128]);
+  });
+
+  test('an isolated parent keeps a child from blending with what is behind it', async () => {
+    near(await centre('blend-isolated'), [255, 128, 0]);
+  });
+});
+
 describe('Group opacity', () => {
   test('overlapping children fade as one picture', async () => {
     await reveal('group-opacity');

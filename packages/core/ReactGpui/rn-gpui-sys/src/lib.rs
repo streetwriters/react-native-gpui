@@ -68,6 +68,8 @@ pub mod ffi {
         pub shadows: Vec<ShadowF>,
         pub background_json: String, // gradients with their size, position and repeat; empty = none
         pub filter_json: String,     // `[[name, amount], ...]` from `filter`; empty = none
+        pub mix_blend_mode: u8,      // RN's `BlendMode` ordinal; 0 = normal
+        pub isolate: bool,           // `isolation: 'isolate'`
         pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
         pub backface_hidden: bool, // `backfaceVisibility: 'hidden'`
