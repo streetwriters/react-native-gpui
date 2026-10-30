@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `464a119` (`rn-gpui-linux`, 2026-10-29: `8da7d89` plus the
+- Commit: `934adc1` (`rn-gpui-linux`, 2026-10-30: `8da7d89` plus the
   per-frame transform table, colour filters, the sRGB-tagged Metal layer and shadow dithering below)
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
@@ -217,6 +217,8 @@ views; that is out of scope for now.
   smaller, and the WebGL record stride for them is 30 words. A hit box keeps an `Rc` of its
   matrix (none for the identity), so layers and retained frames can carry it.
   Replay skips the table for identity primitives.
+- `934adc1`: `Window::composed_scene_layers` reports how the last frame is split across
+  GPUI composition surfaces, so a test can see which surface a view painted onto.
   Against `8da7d89` on `randomized_element_tree` (18 cases): foreground instructions +0.4%,
   wall time median about +1%, the smallest frames (110-210 us) still 5-10% slower.
 
