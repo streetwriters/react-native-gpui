@@ -874,10 +874,10 @@ index 844a314..5d8ffed 100644
        result,
 diff --git a/lib/Platform/Intl/impl_icu/NumberFormat.cpp b/lib/Platform/Intl/impl_icu/NumberFormat.cpp
 new file mode 100644
-index 0000000..b0e7237
+index 0000000..58da83f
 --- /dev/null
 +++ b/lib/Platform/Intl/impl_icu/NumberFormat.cpp
-@@ -0,0 +1,786 @@
+@@ -0,0 +1,798 @@
 +/*
 + * Copyright (c) Meta Platforms, Inc. and affiliates.
 + *
@@ -1386,22 +1386,32 @@ index 0000000..b0e7237
 +  // the "measure-unit/length-kilometer per-measure-unit/duration-hour" form
 +  // exists, and newer ICU drops some of its names. So try the modern form
 +  // first and fall back to the old one.
++  // The minimum integer digits are "integer-width/*000" from ICU 67 and
++  // "integer-width/+000" before, which newer ICU still reads.
 +  UErrorCode status = U_ZERO_ERROR;
 +  for (bool legacyUnits : {false, true}) {
 +    if (legacyUnits && style_ != u"unit") {
 +      break;
 +    }
-+    const std::u16string skeletonText = skeleton(legacyUnits);
-+    status = U_ZERO_ERROR;
-+    formatter_ = unumf_openForSkeletonAndLocale(
-+        reinterpret_cast<const UChar *>(skeletonText.c_str()),
-+        static_cast<int32_t>(skeletonText.size()),
-+        locale8_.c_str(),
-+        &status);
-+    if (U_SUCCESS(status) && formatter_) {
++    for (bool starWidth : {true, false}) {
++      if (!starWidth && minimumIntegerDigits_ <= 1) {
++        break;
++      }
++      const std::u16string skeletonText = skeleton(legacyUnits, starWidth);
++      status = U_ZERO_ERROR;
++      formatter_ = unumf_openForSkeletonAndLocale(
++          reinterpret_cast<const UChar *>(skeletonText.c_str()),
++          static_cast<int32_t>(skeletonText.size()),
++          locale8_.c_str(),
++          &status);
++      if (U_SUCCESS(status) && formatter_) {
++        break;
++      }
++      formatter_ = nullptr;
++    }
++    if (formatter_) {
 +      break;
 +    }
-+    formatter_ = nullptr;
 +  }
 +  if (!formatter_) {
 +    return runtime.raiseRangeError("Unsupported number format options");
@@ -1409,7 +1419,7 @@ index 0000000..b0e7237
 +  return vm::ExecutionStatus::RETURNED;
 +}
 +
-+std::u16string NumberFormat::skeleton(bool legacyUnits) const {
++std::u16string NumberFormat::skeleton(bool legacyUnits, bool starWidth) const {
 +  std::u16string s;
 +  auto token = [&s](const std::u16string &text) {
 +    if (!s.empty()) {
@@ -1485,7 +1495,9 @@ index 0000000..b0e7237
 +  tokenAscii(roundingModeToken(roundingMode_));
 +
 +  if (minimumIntegerDigits_ > 1) {
-+    token(u"integer-width/*" + std::u16string(minimumIntegerDigits_, u'0'));
++    token(
++        std::u16string(u"integer-width/") + (starWidth ? u"*" : u"+") +
++        std::u16string(minimumIntegerDigits_, u'0'));
 +  }
 +
 +  if (useGrouping_ == u"false")
@@ -1666,7 +1678,7 @@ index 0000000..b0e7237
 +} // namespace hermes
 diff --git a/lib/Platform/Intl/impl_icu/NumberFormat.h b/lib/Platform/Intl/impl_icu/NumberFormat.h
 new file mode 100644
-index 0000000..db6aacf
+index 0000000..3836e39
 --- /dev/null
 +++ b/lib/Platform/Intl/impl_icu/NumberFormat.h
 @@ -0,0 +1,92 @@
@@ -1726,7 +1738,7 @@ index 0000000..db6aacf
 +      int mxfdDefault) noexcept;
 +
 +  /// The ICU number skeleton that stands for the resolved options.
-+  std::u16string skeleton(bool legacyUnits) const;
++  std::u16string skeleton(bool legacyUnits, bool starWidth) const;
 +
 +  /// Formats \p number into \p result and returns its text.
 +  std::u16string formatInto(double number, UFormattedNumber *result) noexcept;
