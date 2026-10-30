@@ -497,6 +497,30 @@ jobs:
               --outputFile=ci-out/junit/e2e.xml
           fi
 
+      # The native view probe draws into a wl_surface on Wayland, so it needs a
+      # Wayland session: weston without a display, software rendered.
+      - name: e2e native views on Wayland
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends weston
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/wayland-runtime"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless --socket=wayland-ci --width=1280 --height=900 \
+            --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          for _ in $(seq 50); do
+            [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break
+            sleep 0.2
+          done
+          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci \
+            node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
+            npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts
+
       - name: Upload the new screenshot baselines
         if: always() && inputs.update_screenshots
         uses: actions/upload-artifact@v4
