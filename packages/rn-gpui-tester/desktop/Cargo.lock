@@ -5309,12 +5309,17 @@ dependencies = [
 name = "rn-gpui-host-components-fixture"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "gpui",
  "log",
+ "raw-window-handle",
  "react-native-gpui",
  "rn-gpui-module",
  "rn-gpui-module-build",
  "serde_json",
+ "wayland-backend",
+ "wayland-client",
+ "x11rb",
 ]
 
 [[package]]

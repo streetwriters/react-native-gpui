@@ -369,7 +369,7 @@ export class DesktopApp {
       scale: number;
       viewport: { width: number; height: number };
       error?: string;
-    }>('compositeScreenshot', {});
+    }>('compositeCapture', {});
     if (result.error) throw new Error(result.error);
     return { ...result, png: Buffer.from(result.png, 'base64') };
   }

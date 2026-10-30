@@ -9,6 +9,8 @@ import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
  */
 
 const macOnly = process.platform === 'darwin';
+/** The fixture's probe view exists on macOS and Linux. */
+const probeOs = process.platform === 'darwin' || process.platform === 'linux';
 
 /** How long a web view may take to report a navigation finished. */
 const LOAD_TIMEOUT = 15_000;
@@ -69,15 +71,17 @@ async function expectAtLayoutBounds() {
   expect(bounds!.y).toBeCloseTo(frame.y, 0);
   expect(bounds!.width).toBeCloseTo(frame.width, 0);
   expect(bounds!.height).toBeCloseTo(frame.height, 0);
-  expect(view!.width).toBeCloseTo(frame.width, 0);
-  expect(view!.height).toBeCloseTo(frame.height, 0);
+  if (view) {
+    expect(view.width).toBeCloseTo(frame.width, 0);
+    expect(view.height).toBeCloseTo(frame.height, 0);
+  }
 }
 
 afterAll(async () => {
   app?.disconnect();
 });
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'a native view is placed at its layout bounds and follows a resize',
   async () => {
     await launch('NativeViewFixture');
@@ -94,7 +98,7 @@ test.skipIf(!macOnly)(
   },
 );
 
-test.skipIf(!macOnly)('a native view follows a scroll', async () => {
+test.skipIf(!probeOs)('a native view follows a scroll', async () => {
   await launch('NativeViewFixture');
   await click('native-scroll-toggle');
   await expectAtLayoutBounds();
@@ -108,16 +112,18 @@ test.skipIf(!macOnly)('a native view follows a scroll', async () => {
   await expectAtLayoutBounds();
 });
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'a prop change reaches the view without creating another',
   async () => {
     await launch('NativeViewFixture');
-    const initial = (await surface()).view!.background;
-    expect(initial[2]).toBeCloseTo(0xad / 255, 1);
+    // Where the platform reports the view's layer (macOS) read its colour;
+    // the composited-pixel test below reads the colour everywhere else.
+    const initial = (await surface()).view?.background;
+    if (initial) expect(initial[2]).toBeCloseTo(0xad / 255, 1);
 
     await click('native-color-toggle');
-    const changed = await surface();
-    expect(changed.view!.background[0]).toBeCloseTo(0xe8 / 255, 1);
+    const changed = (await surface()).view?.background;
+    if (changed) expect(changed[0]).toBeCloseTo(0xe8 / 255, 1);
 
     await click('native-report');
     expect(await app.getByTestId('native-status').textContent()).toBe(
@@ -126,7 +132,7 @@ test.skipIf(!macOnly)(
   },
 );
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'unmounting releases the view and mounting creates a fresh one',
   async () => {
     await launch('NativeViewFixture');
@@ -144,21 +150,21 @@ test.skipIf(!macOnly)(
   },
 );
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'a view turned away under backfaceVisibility hidden is hidden',
   async () => {
     await launch('NativeViewFixture');
-    expect((await surface()).view!.hidden).toBe(false);
+    expect((await surface()).view?.hidden ?? false).toBe(false);
 
     await click('native-hide-toggle');
     const hidden = await surface();
     expect(hidden.visible).toBe(false);
-    expect(hidden.view!.hidden).toBe(true);
+    if (hidden.view) expect(hidden.view.hidden).toBe(true);
 
     await click('native-hide-toggle');
     const shown = await surface();
     expect(shown.visible).toBe(true);
-    expect(shown.view!.hidden).toBe(false);
+    if (shown.view) expect(shown.view.hidden).toBe(false);
     await expectAtLayoutBounds();
   },
 );
@@ -208,7 +214,7 @@ test.skipIf(!macOnly)(
   },
 );
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'views painted after a native view are drawn above it and those before it below',
   async () => {
     await launch('NativeViewFixture');
@@ -276,14 +282,14 @@ async function composited() {
 }
 
 function expectColor(actual: Rgb, srgb: Rgb) {
-  const expected = inDisplayP3(srgb);
+  const expected = macOnly ? inDisplayP3(srgb) : srgb;
   const close = actual.every(
     (channel, index) => Math.abs(channel - expected[index]) <= COLOR_TOLERANCE,
   );
   expect(close, `rgb(${actual}) is not rgb(${expected})`).toBe(true);
 }
 
-test.skipIf(!macOnly)(
+test.skipIf(!probeOs)(
   'the compositor shows the native view, and a React view above it covering it',
   async () => {
     await launch('NativeViewFixture', { onScreen: true });
@@ -316,5 +322,14 @@ test.skipIf(!macOnly)(
     expect(strip.y).toBeGreaterThanOrEqual(shrunk.y + shrunk.height);
     pixel = await composited();
     expectColor(pixel(strip.x + 40, strip.y + 20), [0xf5, 0x9e, 0x0b]);
+
+    // A prop change repaints the view.
+    await click('native-color-toggle');
+    const tall = await frameOf('native-view-host');
+    pixel = await composited();
+    expectColor(
+      pixel(tall.x + tall.width - 30, tall.y + tall.height - 30),
+      [0xe8, 0x74, 0x3b],
+    );
   },
 );

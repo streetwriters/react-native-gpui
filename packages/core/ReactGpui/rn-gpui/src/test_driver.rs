@@ -125,10 +125,10 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
-            #[cfg(target_os = "macos")]
-            "compositeScreenshot" => cx
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            "compositeCapture" => cx
                 .update_window(window, |_, window, _| {
-                    match crate::native_view::test_composite_png(window) {
+                    match composite_png(window) {
                         Ok((png, width, height)) => json!({
                             "png": base64::engine::general_purpose::STANDARD.encode(png),
                             "width": width,
@@ -2055,5 +2055,73 @@ mod tests {
         };
 
         assert!(intersect(frame, clip).is_none());
+    }
+}
+
+/// The window as the compositor shows it, native views included, as PNG bytes
+/// with its size in pixels.
+#[cfg(target_os = "macos")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    crate::native_view::test_composite_png(window)
+}
+
+/// The window as the X server shows it: `XGetImage` includes the child windows
+/// native views live in. Wayland offers no such read.
+#[cfg(target_os = "linux")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11_dl::xlib;
+
+    let id = match HasWindowHandle::window_handle(window)
+        .map_err(|error| error.to_string())?
+        .as_raw()
+    {
+        RawWindowHandle::Xcb(handle) => u64::from(handle.window.get()),
+        RawWindowHandle::Xlib(handle) => handle.window,
+        _ => return Err("the window cannot be captured outside X11".into()),
+    };
+    let scale = window.scale_factor();
+    let size = window.viewport_size();
+    let (width, height) = (
+        (f32::from(size.width) * scale).round() as u32,
+        (f32::from(size.height) * scale).round() as u32,
+    );
+    let xlib = xlib::Xlib::open().map_err(|error| error.to_string())?;
+    // SAFETY: the display is opened and closed here, the image is destroyed once, and its pixels are read within its own `bytes_per_line` and height.
+    unsafe {
+        let display = (xlib.XOpenDisplay)(std::ptr::null());
+        if display.is_null() {
+            return Err("could not open the X display".into());
+        }
+        let image = (xlib.XGetImage)(display, id, 0, 0, width, height, !0, xlib::ZPixmap);
+        if image.is_null() {
+            (xlib.XCloseDisplay)(display);
+            return Err("XGetImage failed".into());
+        }
+        let (red, green, blue) = ((*image).red_mask, (*image).green_mask, (*image).blue_mask);
+        let channel =
+            |mask: u64, pixel: u64| -> u8 { ((pixel & mask) >> mask.trailing_zeros()) as u8 };
+        let mut rgba = image::RgbaImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = ((xlib.XGetPixel)(image, x as i32, y as i32)) as u64;
+                rgba.put_pixel(
+                    x,
+                    y,
+                    image::Rgba([
+                        channel(red, pixel),
+                        channel(green, pixel),
+                        channel(blue, pixel),
+                        255,
+                    ]),
+                );
+            }
+        }
+        (xlib.XDestroyImage)(image);
+        (xlib.XCloseDisplay)(display);
+        let mut png = std::io::Cursor::new(Vec::new());
+        rgba.write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|error| error.to_string())?;
+        Ok((png.into_inner(), width as usize, height as usize))
     }
 }
