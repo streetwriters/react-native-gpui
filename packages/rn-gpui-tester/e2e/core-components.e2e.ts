@@ -256,6 +256,7 @@ describe('TextInput props', () => {
   });
 
   test('maxLength limits typed and replaced text', async () => {
+    await reveal('input-max-length');
     await app.getByTestId('input-max-length').click();
     await app.getByTestId('input-max-length').type('abcdefgh');
     await poll(
@@ -880,6 +881,7 @@ describe('Text', () => {
     const middle = at(multi, multi.width >> 1, multi.height >> 1);
     expect(middle[1]).toBeGreaterThan(200);
 
+    await reveal('gradient-radial');
     const radial = PNG.sync.read(
       await app.getByTestId('gradient-radial').screenshot(),
     );
@@ -892,6 +894,7 @@ describe('Text', () => {
   test('adjustsFontSizeToFit shrinks text that would not fit on its lines', async () => {
     const dark = (r: number, g: number, b: number) =>
       r < 90 && g < 90 && b < 90;
+    await reveal('fit-off');
     const off = pixels(
       PNG.sync.read(await app.getByTestId('fit-off').screenshot()),
       dark,

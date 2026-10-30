@@ -212,12 +212,10 @@ export default function CoreComponentsFixture() {
         <ScrollView
           testID="flick-normal"
           style={styles.pager}
-          onScroll={event =>
-            setNormalFlick(
-              previous =>
-                `${Math.round(event.nativeEvent.contentOffset.y)}|${previous.split('|')[1]}`,
-            )
-          }
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setNormalFlick(previous => `${y}|${previous.split('|')[1]}`);
+          }}
           onMomentumScrollBegin={() =>
             setNormalFlick(previous => `${previous.split('|')[0]}|begin`)
           }
@@ -233,12 +231,10 @@ export default function CoreComponentsFixture() {
           testID="flick-fast"
           style={styles.pager}
           decelerationRate="fast"
-          onScroll={event =>
-            setFastFlick(
-              previous =>
-                `${Math.round(event.nativeEvent.contentOffset.y)}|${previous.split('|')[1]}`,
-            )
-          }
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setFastFlick(previous => `${y}|${previous.split('|')[1]}`);
+          }}
           onMomentumScrollBegin={() =>
             setFastFlick(previous => `${previous.split('|')[0]}|begin`)
           }
