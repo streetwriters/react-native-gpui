@@ -350,6 +350,30 @@ export class DesktopApp {
     return Buffer.from(result.png, 'base64');
   }
 
+  /**
+   * The window as the compositor shows it, native views included (macOS). The
+   * window must be on screen, so launch without `offscreen`. `png` is in pixels;
+   * `scale` converts the viewport's logical size to it.
+   */
+  async compositeScreenshot(): Promise<{
+    png: Buffer;
+    width: number;
+    height: number;
+    scale: number;
+    viewport: { width: number; height: number };
+  }> {
+    const result = await this.request<{
+      png: string;
+      width: number;
+      height: number;
+      scale: number;
+      viewport: { width: number; height: number };
+      error?: string;
+    }>('compositeScreenshot', {});
+    if (result.error) throw new Error(result.error);
+    return { ...result, png: Buffer.from(result.png, 'base64') };
+  }
+
   setIdleOptions(options: IdleOptions): void {
     this.idleOptions = options;
   }

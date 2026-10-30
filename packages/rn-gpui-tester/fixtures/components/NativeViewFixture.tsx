@@ -47,6 +47,7 @@ export default function NativeViewFixture({
 }) {
   const [overlay, setOverlay] = useState(false);
   const [underlay, setUnderlay] = useState(false);
+  const [after, setAfter] = useState(false);
   const [mounted, setMounted] = useState(true);
   const [hidden, setHidden] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -101,6 +102,11 @@ export default function NativeViewFixture({
           testID="native-underlay-toggle"
           label={underlay ? 'Hide underlay' : 'Show underlay'}
           onPress={() => setUnderlay(value => !value)}
+        />
+        <Button
+          testID="native-after-toggle"
+          label={after ? 'Hide strip' : 'Show strip'}
+          onPress={() => setAfter(value => !value)}
         />
         <Button
           testID="native-mount-toggle"
@@ -199,6 +205,12 @@ export default function NativeViewFixture({
           </View>
         ) : null}
       </View>
+      {after ? (
+        <View
+          testID="native-after"
+          style={{ height: 40, backgroundColor: '#f59e0b' }}
+        />
+      ) : null}
     </View>
   );
 }

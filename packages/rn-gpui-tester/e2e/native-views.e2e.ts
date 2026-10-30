@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PNG } from 'pngjs';
 import { expect, test } from 'vitest';
 import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
 
@@ -14,7 +15,10 @@ const LOAD_TIMEOUT = 15_000;
 
 let app: DesktopApp;
 
-async function launch(module: 'NativeViewFixture' | 'WebViewFixture') {
+async function launch(
+  module: 'NativeViewFixture' | 'WebViewFixture',
+  { onScreen = false } = {},
+) {
   if (app) await app.close();
   app = await launchApp({
     bundle: path.resolve(
@@ -31,7 +35,7 @@ async function launch(module: 'NativeViewFixture' | 'WebViewFixture') {
     },
     initialProps: {},
     disableAnimations: true,
-    offscreen: true,
+    offscreen: !onScreen,
   });
   await app.setWindowSize(1024, 768);
   await app.waitForIdle();
@@ -223,5 +227,94 @@ test.skipIf(!macOnly)(
     const under = await surface();
     expect(under.aboveOps).toBe(0);
     expect(under.baseOps).toBeGreaterThan(plain.baseOps);
+  },
+);
+
+type Rgb = [number, number, number];
+
+const COLOR_TOLERANCE = 6;
+
+const toLinear = (channel: number) => {
+  const value = channel / 255;
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+};
+const fromLinear = (value: number) => {
+  const clamped = Math.min(1, Math.max(0, value));
+  return Math.round(
+    255 *
+      (clamped <= 0.0031308
+        ? 12.92 * clamped
+        : 1.055 * clamped ** (1 / 2.4) - 0.055),
+  );
+};
+
+/**
+ * What the capture reads for an sRGB colour. The compositor hands the window
+ * back in Display P3, whose primaries differ from sRGB's.
+ */
+function inDisplayP3([red, green, blue]: Rgb): Rgb {
+  const [r, g, b] = [red, green, blue].map(toLinear);
+  return [
+    fromLinear(0.8225 * r + 0.1774 * g),
+    fromLinear(0.0332 * r + 0.9669 * g),
+    fromLinear(0.0171 * r + 0.0724 * g + 0.9108 * b),
+  ];
+}
+
+/** The composited window, read by logical window coordinates. */
+async function composited() {
+  const shot = await app.compositeScreenshot();
+  const png = PNG.sync.read(shot.png);
+  // The capture includes the title bar the viewport leaves out.
+  const top = png.height / shot.scale - shot.viewport.height;
+  return (x: number, y: number): Rgb => {
+    const column = Math.round(x * shot.scale);
+    const row = Math.round((y + top) * shot.scale);
+    const at = (row * png.width + column) * 4;
+    return [png.data[at], png.data[at + 1], png.data[at + 2]];
+  };
+}
+
+function expectColor(actual: Rgb, srgb: Rgb) {
+  const expected = inDisplayP3(srgb);
+  const close = actual.every(
+    (channel, index) => Math.abs(channel - expected[index]) <= COLOR_TOLERANCE,
+  );
+  expect(close, `rgb(${actual}) is not rgb(${expected})`).toBe(true);
+}
+
+test.skipIf(!macOnly)(
+  'the compositor shows the native view, and a React view above it covering it',
+  async () => {
+    await launch('NativeViewFixture', { onScreen: true });
+    const PROBE: Rgb = [0x14, 0x7a, 0xad];
+    const OVERLAY: Rgb = [0xd9, 0x46, 0xef];
+    const host = await frameOf('native-view-host');
+    const clear = {
+      x: host.x + host.width - 30,
+      y: host.y + host.height - 30,
+    };
+
+    let pixel = await composited();
+    expectColor(pixel(clear.x, clear.y), PROBE);
+
+    await click('native-overlay-toggle');
+    const overlay = await frameOf('native-view-overlay');
+    const covered = { x: overlay.x + 20, y: overlay.y + 20 };
+    pixel = await composited();
+    expectColor(pixel(covered.x, covered.y), OVERLAY);
+    expectColor(pixel(clear.x, clear.y), PROBE);
+
+    await click('native-overlay-toggle');
+    pixel = await composited();
+    expectColor(pixel(covered.x, covered.y), PROBE);
+
+    // Painted after the view, but outside its bounds: still drawn.
+    await click('native-after-toggle');
+    const strip = await frameOf('native-after');
+    const shrunk = await frameOf('native-view-host');
+    expect(strip.y).toBeGreaterThanOrEqual(shrunk.y + shrunk.height);
+    pixel = await composited();
+    expectColor(pixel(strip.x + 40, strip.y + 20), [0xf5, 0x9e, 0x0b]);
   },
 );

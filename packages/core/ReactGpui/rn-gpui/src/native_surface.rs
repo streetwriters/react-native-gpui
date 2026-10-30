@@ -90,7 +90,11 @@ impl NativeSurface {
         anyhow::ensure!(!view.is_null(), "the native view is null");
         let composition = window.enable_window_composition()?;
         let surface = composition.create_native_surface()?;
-        let above = composition.create_gpui_surface(Some(surface.id()))?;
+        // A root above the view, not a child of its container: the container
+        // clips to the view's bounds, and what is painted after the view
+        // reaches outside them.
+        let above = composition.create_gpui_surface(None)?;
+        composition.place_above(above.id(), surface.id())?;
         let surface = Self {
             surface,
             above,
@@ -276,7 +280,15 @@ mod imp {
                 view,
                 setFrame: NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.))
             ];
-            let _: () = msg_send![container, addSubview: view];
+            // Below the GPUI surface that was stacked on this container first,
+            // so that what is painted after the view covers it.
+            const NS_WINDOW_BELOW: isize = -1;
+            let _: () = msg_send![
+                container,
+                addSubview: view
+                positioned: NS_WINDOW_BELOW
+                relativeTo: cocoa::base::nil
+            ];
         }
         Ok(())
     }

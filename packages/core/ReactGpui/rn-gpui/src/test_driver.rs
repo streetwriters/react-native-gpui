@@ -125,6 +125,24 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            #[cfg(target_os = "macos")]
+            "compositeScreenshot" => cx
+                .update_window(window, |_, window, _| {
+                    match crate::native_view::test_composite_png(window) {
+                        Ok((png, width, height)) => json!({
+                            "png": base64::engine::general_purpose::STANDARD.encode(png),
+                            "width": width,
+                            "height": height,
+                            "scale": window.scale_factor(),
+                            "viewport": {
+                                "width": f32::from(window.viewport_size().width),
+                                "height": f32::from(window.viewport_size().height),
+                            },
+                        }),
+                        Err(error) => json!({"error": error}),
+                    }
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "compositionLayers" => cx
                 .update_window(window, |_, window, _| {
                     json!({"count": window.composed_scene_layers().len()})
