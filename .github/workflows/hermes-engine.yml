@@ -96,6 +96,12 @@ jobs:
             arch: arm64
             configure: -DBOOST_CONTEXT_IMPLEMENTATION=winfib -DHERMES_ICU_RUNTIME_LOAD=ON
     steps:
+      # Git for Windows would turn the patches and the Hermes sources into CRLF,
+      # which a patch made on LF files does not apply to.
+      - name: Keep line endings as committed
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - name: Check out Hermes at the pinned commit
         uses: actions/checkout@v4
         with:
