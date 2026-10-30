@@ -498,7 +498,8 @@ jobs:
           fi
 
       # The native view probe draws into a wl_surface on Wayland, so it needs a
-      # Wayland session: weston without a display, software rendered.
+      # Wayland session: headless sway, software rendered. (weston's headless
+      # backend has no input devices and so no wl_seat, which GPUI requires.)
       - name: e2e native views on Wayland
         if: runner.os == 'Linux'
         continue-on-error: true
@@ -507,12 +508,14 @@ jobs:
           RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
         run: |
           set -euo pipefail
-          sudo apt-get install -y --no-install-recommends weston
+          sudo apt-get install -y --no-install-recommends sway
           export XDG_RUNTIME_DIR="$RUNNER_TEMP/wayland-runtime"
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
-          weston --backend=headless --socket=wayland-ci --width=1280 --height=900 \
-            --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          : > "$RUNNER_TEMP/sway.conf"
+          WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
+            WAYLAND_DISPLAY=wayland-ci sway -c "$RUNNER_TEMP/sway.conf" \
+            > "$RUNNER_TEMP/sway.log" 2>&1 &
           for _ in $(seq 50); do
             [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break
             sleep 0.2
@@ -520,9 +523,10 @@ jobs:
           if ! env -u DISPLAY WAYLAND_DISPLAY=wayland-ci \
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
             npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts; then
-            echo '--- weston'
-            cat "$RUNNER_TEMP/weston.log" || true
-            for log in "${TMPDIR:-/tmp}"/rn-gpui-test-*.log; do
+            echo '--- sway'
+            cat "$RUNNER_TEMP/sway.log" || true
+            latest=$(ls -t "${TMPDIR:-/tmp}"/rn-gpui-test-*.log | head -n 3)
+            for log in $latest; do
               echo "--- $log"
               tail -n 40 "$log"
             done
