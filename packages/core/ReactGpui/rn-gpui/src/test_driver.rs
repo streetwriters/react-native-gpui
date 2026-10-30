@@ -2149,12 +2149,15 @@ fn capture_client(
 ) -> Result<(Vec<u8>, usize, usize), String> {
     use windows_sys::Win32::{
         Foundation::{POINT, RECT},
+        Graphics::Dwm::DwmFlush,
         Graphics::Gdi::{
             BitBlt, ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject,
             GetDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
             DIB_RGB_COLORS, SRCCOPY,
         },
-        UI::WindowsAndMessaging::GetClientRect,
+        UI::WindowsAndMessaging::{
+            GetClientRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        },
     };
     // SAFETY: every GDI object created here is released before returning; the pixel buffer is the section's own memory, read within its width and height.
     unsafe {
@@ -2169,6 +2172,19 @@ fn capture_client(
         if width <= 0 || height <= 0 {
             return Err("the window has no client area".into());
         }
+        // The screen is copied, so a window in front of this one (a console
+        // another test left on the desktop) would be copied with it. Put this
+        // one on top and let the compositor present it.
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        DwmFlush();
         let mut origin = POINT { x: 0, y: 0 };
         ClientToScreen(hwnd, &mut origin);
         let screen = GetDC(std::ptr::null_mut());
