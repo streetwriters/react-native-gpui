@@ -1073,6 +1073,7 @@ describe('ScrollView', () => {
     await reveal('scroll-keep-to');
     await app.getByTestId('scroll-keep-to').click();
     await settled('scroll-keep-offset', '100');
+    await reveal('scroll-keep-prepend');
     await app.getByTestId('scroll-keep-prepend').click();
     // One 80 px item was added before the visible ones.
     await settled('scroll-keep-offset', '180');

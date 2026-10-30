@@ -448,6 +448,20 @@ jobs:
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- \
             npm run test:rust
+      # A test binary that cannot start exits 0xC0000135 and says nothing
+      # about which DLL it was missing.
+      - name: Find the DLL a Windows test binary is missing
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem target/debug/deps -Filter 'rn_gpui_svg-*.exe' | Sort-Object LastWriteTime | Select-Object -Last 1
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
+          $names = [regex]::Matches($text, '[A-Za-z0-9_\-\.]{3,40}\.dll') | ForEach-Object { $_.Value.ToLower() } | Sort-Object -Unique
+          foreach ($name in $names) {
+            $found = (Get-Command $name -ErrorAction SilentlyContinue).Source
+            Write-Host ("{0,-45} {1}" -f $name, $(if ($found) { $found } else { 'NOT FOUND' }))
+          }
+
       - name: Build the tester
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
@@ -523,7 +537,7 @@ jobs:
             sway -c "$RUNNER_TEMP/sway.conf" > "$RUNNER_TEMP/sway.log" 2>&1 &
           socket=
           for _ in $(seq 75); do
-            socket=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -printf '%f\n' | head -n 1)
+            socket=$(find "$XDG_RUNTIME_DIR" -mindepth 1 -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -printf '%f\n' | head -n 1)
             [ -n "$socket" ] && break
             sleep 0.2
           done
