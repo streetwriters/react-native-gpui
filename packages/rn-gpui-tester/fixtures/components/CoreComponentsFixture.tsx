@@ -739,6 +739,18 @@ export default function CoreComponentsFixture() {
         </View>
       </View>
       <View style={styles.section}>
+        <Text style={styles.heading}>Effects in a scroll view</Text>
+        <ScrollView testID="effects-scroll" style={styles.effectsScroll}>
+          <View style={styles.effectsContent}>
+            <View style={styles.effectsFaded}>
+              <View style={styles.groupRed} />
+              <View style={styles.groupBlue} />
+            </View>
+            <View style={styles.effectsBlur} />
+          </View>
+        </ScrollView>
+      </View>
+      <View style={styles.section}>
         <Text style={styles.heading}>Group opacity</Text>
         <View testID="group-opacity" style={styles.rotArea}>
           <View style={styles.groupFaded}>
@@ -892,6 +904,31 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     isolation: 'isolate',
+  },
+  effectsScroll: {
+    width: 100,
+    height: 100,
+    flexGrow: 0,
+    flexShrink: 0,
+    backgroundColor: '#fff',
+  },
+  effectsContent: { width: 100, height: 400 },
+  effectsFaded: {
+    position: 'absolute',
+    left: 10,
+    top: 120,
+    width: 80,
+    height: 80,
+    opacity: 0.5,
+  },
+  effectsBlur: {
+    position: 'absolute',
+    left: 30,
+    top: 240,
+    width: 40,
+    height: 40,
+    backgroundColor: '#000000',
+    filter: [{ blur: 4 }],
   },
   groupFaded: {
     position: 'absolute',

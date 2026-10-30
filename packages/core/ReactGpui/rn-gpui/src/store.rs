@@ -318,15 +318,17 @@ impl ViewStore {
         }
     }
 
-    /// Carries `delta` from `parent_tag` up to the surface root.
+    /// Carries `native` more native surfaces and `effects` more nodes painted
+    /// as groups from `parent_tag` up to the surface root.
     fn carry_native_surface_delta(
         &mut self,
         surface_id: i32,
         parent_tag: Option<i32>,
-        delta: i64,
+        native: i64,
+        effects: i64,
         cx: &mut Context<Self>,
     ) {
-        if delta == 0 {
+        if native == 0 && effects == 0 {
             return;
         }
         let mut parent = parent_tag;
@@ -338,23 +340,32 @@ impl ViewStore {
             let mut next = None;
             node.update(cx, |node, cx| {
                 next = node.parent_tag_cached();
-                let crossed = if delta > 0 {
-                    node.add_native_surface_descendants(delta as u32)
-                } else {
-                    node.sub_native_surface_descendants((-delta) as u32)
-                };
+                let mut crossed = false;
+                if native > 0 {
+                    crossed |= node.add_native_surface_descendants(native as u32);
+                } else if native < 0 {
+                    crossed |= node.sub_native_surface_descendants((-native) as u32);
+                }
+                if effects > 0 {
+                    crossed |= node.add_effect_group_descendants(effects as u32);
+                } else if effects < 0 {
+                    crossed |= node.sub_effect_group_descendants((-effects) as u32);
+                }
                 if crossed {
                     cx.notify();
                 }
             });
             parent = next;
         }
+        if native == 0 {
+            return;
+        }
         if let Some(root) = self.roots.get(&surface_id).cloned() {
             root.update(cx, |root, cx| {
-                let crossed = if delta > 0 {
-                    root.add_native_surfaces(delta as u32)
+                let crossed = if native > 0 {
+                    root.add_native_surfaces(native as u32)
                 } else {
-                    root.sub_native_surfaces((-delta) as u32)
+                    root.sub_native_surfaces((-native) as u32)
                 };
                 if crossed {
                     cx.notify();
@@ -363,22 +374,31 @@ impl ViewStore {
         }
     }
 
-    /// Claims what `tag`'s subtree owes, so it is counted exactly once.
-    fn claim_native_surface_contribution(&mut self, tag: i32, cx: &mut Context<Self>) -> u32 {
+    /// Claims what `tag`'s subtree owes, so it is counted exactly once: its
+    /// native surfaces and its nodes painted as groups.
+    fn claim_native_surface_contribution(
+        &mut self,
+        tag: i32,
+        cx: &mut Context<Self>,
+    ) -> (u32, u32) {
         let Some(node) = self.nodes.get(&tag).cloned() else {
-            return 0;
+            return (0, 0);
         };
-        let (counted, descendants) = {
+        let (counted, native, effects) = {
             let node = node.read(cx);
-            (node.native_surface_counted, node.native_surface_descendants)
+            (
+                node.native_surface_counted,
+                node.native_surface_descendants,
+                node.effect_group_descendants,
+            )
         };
         if !counted {
-            return 0;
+            return (0, 0);
         }
         node.update(cx, |node, _cx| {
             node.take_native_surface_contribution();
         });
-        descendants
+        (native, effects)
     }
 
     /// Adds what `tag`'s subtree contributes to its ancestors.
@@ -392,15 +412,25 @@ impl ViewStore {
         let Some(node) = self.nodes.get(&tag).cloned() else {
             return;
         };
-        let (counted, descendants) = {
+        let (counted, native, effects) = {
             let node = node.read(cx);
-            (node.native_surface_counted, node.native_surface_descendants)
+            (
+                node.native_surface_counted,
+                node.native_surface_descendants,
+                node.effect_group_descendants,
+            )
         };
         if counted {
             return;
         }
         node.update(cx, |node, _cx| node.mark_native_surface_counted());
-        self.carry_native_surface_delta(surface_id, parent_tag, i64::from(descendants), cx);
+        self.carry_native_surface_delta(
+            surface_id,
+            parent_tag,
+            i64::from(native),
+            i64::from(effects),
+            cx,
+        );
     }
 
     /// Takes what `tag`'s subtree contributes back off its ancestors.
@@ -411,8 +441,14 @@ impl ViewStore {
         parent_tag: Option<i32>,
         cx: &mut Context<Self>,
     ) {
-        let contribution = self.claim_native_surface_contribution(tag, cx);
-        self.carry_native_surface_delta(surface_id, parent_tag, -i64::from(contribution), cx);
+        let (native, effects) = self.claim_native_surface_contribution(tag, cx);
+        self.carry_native_surface_delta(
+            surface_id,
+            parent_tag,
+            -i64::from(native),
+            -i64::from(effects),
+            cx,
+        );
     }
 
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
@@ -531,14 +567,15 @@ impl ViewStore {
                     }
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let parent_tag = node.read(cx).parent_tag_cached();
-                        let contribution = self.claim_native_surface_contribution(op.tag, cx);
+                        let (native, effects) = self.claim_native_surface_contribution(op.tag, cx);
                         self.carry_native_surface_delta(
                             surface_id,
                             parent_tag,
-                            -i64::from(contribution),
+                            -i64::from(native),
+                            -i64::from(effects),
                             cx,
                         );
-                        if contribution > 0 {
+                        if native + effects > 0 {
                             if let Some(parent) =
                                 parent_tag.and_then(|tag| self.nodes.get(&tag).cloned())
                             {
@@ -703,21 +740,33 @@ impl ViewStore {
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let previous_node = node.read(cx).component_node(cx);
-                        let (counted, before) = {
+                        let (counted, before, effects_before) = {
                             let node = node.read(cx);
-                            (node.native_surface_counted, node.native_surface_descendants)
+                            (
+                                node.native_surface_counted,
+                                node.native_surface_descendants,
+                                node.effect_group_descendants,
+                            )
                         };
                         node.update(cx, |node, cx| {
                             node.update_from_op(op);
+                            node.sync_effect_group();
                             cx.notify();
                         });
-                        let after = node.read(cx).native_surface_descendants;
-                        if counted && after != before {
+                        let (after, effects_after) = {
+                            let node = node.read(cx);
+                            (
+                                node.native_surface_descendants,
+                                node.effect_group_descendants,
+                            )
+                        };
+                        if counted && (after != before || effects_after != effects_before) {
                             let parent_tag = node.read(cx).parent_tag_cached();
                             self.carry_native_surface_delta(
                                 surface_id,
                                 parent_tag,
                                 i64::from(after) - i64::from(before),
+                                i64::from(effects_after) - i64::from(effects_before),
                                 cx,
                             );
                         }
@@ -1420,6 +1469,78 @@ mod test_app_context_tests {
     /// The surface root's own count.
     fn root_count(cx: &mut TestAppContext, root: &gpui::Entity<SurfaceRootView>) -> u32 {
         root.read_with(cx, |root, _| root.native_surfaces)
+    }
+
+    /// The effect-group count read off one node.
+    fn effect_count_of(
+        cx: &mut TestAppContext,
+        store: &gpui::Entity<ViewStore>,
+        tag: i32,
+    ) -> Option<u32> {
+        cx.read_entity(store, |store, app| {
+            store
+                .nodes
+                .get(&tag)
+                .map(|node| node.read(app).effect_group_descendants)
+        })
+    }
+
+    fn translucent(mut create: MountOp) -> MountOp {
+        create.view.opacity = 0.5;
+        create
+    }
+
+    #[gpui::test]
+    fn a_translucent_node_is_counted_up_the_parent_chain_and_off_again(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                translucent(create(3, "View")),
+                insert(3, 2),
+            ],
+        );
+        assert_eq!(effect_count_of(cx, &store, 3), Some(1), "its own");
+        assert_eq!(effect_count_of(cx, &store, 2), Some(1));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
+
+        apply(cx, &store, vec![remove(3, 2)]);
+        assert_eq!(effect_count_of(cx, &store, 2), Some(0));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(0));
+    }
+
+    #[gpui::test]
+    fn a_node_that_becomes_opaque_gives_its_count_back(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                translucent(create(2, "View")),
+                insert(2, 1),
+            ],
+        );
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
+
+        let mut opaque = op(MountKind::Update);
+        opaque.tag = 2;
+        opaque.view.opacity = 1.0;
+        apply(cx, &store, vec![opaque]);
+        assert_eq!(effect_count_of(cx, &store, 2), Some(0));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(0));
+
+        let mut faded = op(MountKind::Update);
+        faded.tag = 2;
+        faded.view.opacity = 0.25;
+        apply(cx, &store, vec![faded]);
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
     }
 
     #[gpui::test]

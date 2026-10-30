@@ -566,6 +566,40 @@ describe('Blend modes', () => {
   });
 });
 
+describe('Effects in a scroll view', () => {
+  async function pixels() {
+    await reveal('effects-scroll');
+    const image = PNG.sync.read(
+      await app.getByTestId('effects-scroll').screenshot(),
+    );
+    const scale = image.width / 100;
+    return (x: number, y: number) => {
+      const i =
+        (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4;
+      return [image.data[i], image.data[i + 1], image.data[i + 2]];
+    };
+  }
+
+  test('an opacity group and a blur keep their pictures as the content scrolls', async () => {
+    await reveal('effects-scroll');
+    const scroller = app.getByTestId('effects-scroll');
+    await scroller.scroll(0, -100);
+    let at = await pixels();
+    // The faded view is at 20..100; its children overlap at 40..60 by 50..70.
+    expect(at(20, 30)[0]).toBeGreaterThan(245);
+    expect(Math.abs(at(20, 30)[1] - 128)).toBeLessThan(12);
+    expect(Math.abs(at(50, 60)[0] - 128)).toBeLessThan(12);
+    expect(Math.abs(at(50, 60)[1] - 128)).toBeLessThan(12);
+    expect(at(50, 60)[2]).toBeGreaterThan(245);
+    await scroller.scroll(0, -100);
+    at = await pixels();
+    // The blurred box is now at 40..80 over 30..70.
+    expect(at(50, 60)[0]).toBeLessThan(16);
+    expect(Math.abs(at(30, 60)[0] - 128)).toBeLessThan(30);
+    expect(at(8, 60)[0]).toBeGreaterThan(250);
+  });
+});
+
 describe('Group opacity', () => {
   test('overlapping children fade as one picture', async () => {
     await reveal('group-opacity');

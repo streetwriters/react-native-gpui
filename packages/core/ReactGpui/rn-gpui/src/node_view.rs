@@ -63,6 +63,12 @@ pub struct RNNodeView {
     pub(crate) native_surface_descendants: u32,
     /// Whether this node's contribution has been added to its ancestors.
     pub(crate) native_surface_counted: bool,
+    /// How many nodes in this subtree are painted as a group of their own
+    /// (see `forms_effect_group`), this node included. A scroll container
+    /// holding one does not cache its content as a layer.
+    pub(crate) effect_group_descendants: u32,
+    /// Whether this node counts itself in `effect_group_descendants`.
+    forms_effect_group: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
     /// The composition surface hosting the OS view of a `nativeSurface`
@@ -843,6 +849,8 @@ impl RNNodeView {
             renders_native_surface,
             native_surface_descendants: u32::from(renders_native_surface),
             native_surface_counted: false,
+            effect_group_descendants: 0,
+            forms_effect_group: false,
             host_component,
             host_index: op.host_index,
             host_container,
@@ -942,6 +950,7 @@ impl RNNodeView {
         }
         view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
+        view.sync_effect_group();
         view
     }
 
@@ -1271,6 +1280,52 @@ impl RNNodeView {
     #[cfg(feature = "test-driver")]
     pub(crate) fn native_surface(&self) -> Option<&crate::native_surface::NativeSurface> {
         self.native_surface.as_deref()
+    }
+
+    /// Whether a scroll container holding this node cannot cache its content
+    /// as a layer: the node is painted as a group of its own, which a layer's
+    /// tiles do not draw.
+    pub(crate) fn subtree_forms_effect_group(&self) -> bool {
+        self.effect_group_descendants > 0
+    }
+
+    /// Whether this node's props make its content a group of its own: a
+    /// translucent view, a blur or drop shadow, a blend mode or isolation.
+    fn props_form_effect_group(&self) -> bool {
+        self.view.opacity < 1.0
+            || self.view.mix_blend_mode != 0
+            || self.view.isolate
+            || self.view.filter_json.contains("\"blur\"")
+            || self.view.filter_json.contains("\"dropShadow\"")
+    }
+
+    /// Brings this node's own count in line with its props, and returns the
+    /// change in the subtree's count.
+    pub(crate) fn sync_effect_group(&mut self) -> i64 {
+        let forms = self.props_form_effect_group();
+        if forms == self.forms_effect_group {
+            return 0;
+        }
+        self.forms_effect_group = forms;
+        if forms {
+            self.effect_group_descendants += 1;
+            1
+        } else {
+            self.effect_group_descendants = self.effect_group_descendants.saturating_sub(1);
+            -1
+        }
+    }
+
+    pub(crate) fn add_effect_group_descendants(&mut self, delta: u32) -> bool {
+        let before = self.effect_group_descendants;
+        self.effect_group_descendants = before.saturating_add(delta);
+        before == 0 && self.effect_group_descendants != 0
+    }
+
+    pub(crate) fn sub_effect_group_descendants(&mut self, delta: u32) -> bool {
+        let before = self.effect_group_descendants;
+        self.effect_group_descendants = before.saturating_sub(delta);
+        before != 0 && self.effect_group_descendants == 0
     }
 
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
@@ -3976,8 +4031,9 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
-            let strategy =
-                crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface());
+            let strategy = crate::scroll_layers::scroll_strategy(
+                self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
+            );
             if scroll.enabled {
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
@@ -4913,7 +4969,9 @@ impl RNNodeView {
     pub(crate) fn scroll_strategy_name(&self) -> Option<&'static str> {
         self.scroll.as_ref()?;
         Some(
-            match crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface()) {
+            match crate::scroll_layers::scroll_strategy(
+                self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
+            ) {
                 crate::scroll_layers::ScrollStrategy::GpuiLayer => "GpuiLayer",
                 crate::scroll_layers::ScrollStrategy::ManualOffset => "ManualOffset",
             },
