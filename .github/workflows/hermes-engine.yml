@@ -77,10 +77,10 @@ jobs:
         include:
           - platform: darwin-arm64
             os: macos-15
-            configure: -DCMAKE_OSX_ARCHITECTURES=arm64
+            configure: -DCMAKE_OSX_ARCHITECTURES=arm64 -DHERMES_ICU_RUNTIME_LOAD=ON
           - platform: darwin-x64
             os: macos-15
-            configure: -DCMAKE_OSX_ARCHITECTURES=x86_64
+            configure: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DHERMES_ICU_RUNTIME_LOAD=ON
           - platform: linux-x64
             os: ubuntu-22.04
             configure: -DHERMES_ICU_RUNTIME_LOAD=ON
@@ -90,11 +90,11 @@ jobs:
           - platform: win32-x64
             os: windows-2022
             arch: x64
-            configure: ''
+            configure: -DHERMES_ICU_RUNTIME_LOAD=ON
           - platform: win32-arm64
             os: windows-11-arm
             arch: arm64
-            configure: -DBOOST_CONTEXT_IMPLEMENTATION=winfib
+            configure: -DBOOST_CONTEXT_IMPLEMENTATION=winfib -DHERMES_ICU_RUNTIME_LOAD=ON
     steps:
       - name: Check out Hermes at the pinned commit
         uses: actions/checkout@v4
@@ -108,7 +108,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: rn-gpui
-          sparse-checkout: packages/hermes/patches
+          sparse-checkout: |
+            packages/hermes/patches
+            packages/hermes/third_party/icu
+            packages/hermes/scripts/intl-smoke.js
           fetch-depth: 1
 
       - name: Apply react-native-gpui patches
@@ -183,7 +186,8 @@ jobs:
             -DHERMES_ENABLE_NAPI=ON \
             -DHERMES_ENABLE_DEBUGGER=ON \
             -DHERMES_ENABLE_TEST_SUITE=OFF \
-            -DHERMES_ENABLE_INTL=OFF \
+            -DHERMES_ENABLE_INTL=ON \
+            -DHERMES_ICU_HEADERS_DIR="$GITHUB_WORKSPACE/rn-gpui/packages/hermes/third_party/icu" \
             -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
             ${{ matrix.configure }}
 
@@ -198,7 +202,8 @@ jobs:
             -DHERMES_ENABLE_NAPI=ON `
             -DHERMES_ENABLE_DEBUGGER=ON `
             -DHERMES_ENABLE_TEST_SUITE=OFF `
-            -DHERMES_ENABLE_INTL=OFF `
+            -DHERMES_ENABLE_INTL=ON `
+            "-DHERMES_ICU_HEADERS_DIR=$env:GITHUB_WORKSPACE/rn-gpui/packages/hermes/third_party/icu" `
             ${{ matrix.configure }}
           if ($LASTEXITCODE -ne 0) { throw "Hermes configure failed ($LASTEXITCODE)" }
           $cache = Get-Content hermes-build/CMakeCache.txt -Raw
@@ -218,6 +223,63 @@ jobs:
         run: |
           cmake --build hermes-build --target hermesvm hermesc hermes --parallel
           if ($LASTEXITCODE -ne 0) { throw "Hermes build failed ($LASTEXITCODE)" }
+
+      - name: Check that the library links no ICU
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib="$(find hermes-build -name 'libhermesvm.*' \( -name '*.so' -o -name '*.dylib' \) -type f -print -quit)"
+          if [ "$RUNNER_OS" = macOS ]; then
+            deps="$(otool -L "$lib")"
+          else
+            deps="$(readelf -d "$lib")"
+          fi
+          if printf '%s' "$deps" | grep -qi 'icu'; then
+            echo "$lib depends on ICU:" >&2
+            printf '%s\n' "$deps" | grep -i icu >&2
+            exit 1
+          fi
+
+      - name: Intl smoke test
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_bin="$(find hermes-build -name hermes -type f -print -quit)"
+          smoke="$GITHUB_WORKSPACE/rn-gpui/packages/hermes/scripts/intl-smoke.js"
+          out="$("$hermes_bin" "$smoke")"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -qx 'MODE icu'
+          printf '%s\n' "$out" | grep -qx 'PASS'
+          # No usable ICU: Intl still starts, with its fallbacks.
+          none="$(RN_GPUI_ICU_VERSION=0 "$hermes_bin" "$smoke" 2>/dev/null)"
+          printf '%s\n' "$none"
+          printf '%s\n' "$none" | grep -qx 'MODE none'
+          printf '%s\n' "$none" | grep -qx 'PASS'
+
+      - name: Intl smoke test against other ICU versions
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_bin="$(find hermes-build -name hermes -type f -print -quit)"
+          run_in() {
+            image="$1"; install="$2"; expected="$3"
+            docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w "$image" bash -c "
+              set -e
+              apt-get update -qq
+              $install
+              out=\"\$(/w/$hermes_bin /w/rn-gpui/packages/hermes/scripts/intl-smoke.js 2>/dev/null)\"
+              printf '%s\n' \"\$out\"
+              printf '%s\n' \"\$out\" | grep -qx 'MODE $expected'
+              printf '%s\n' \"\$out\" | grep -qx PASS
+            "
+          }
+          # ICU 70 and ICU 74, and a machine with no ICU at all.
+          run_in ubuntu:22.04 'apt-get install -y -qq libicu70 libstdc++6' icu
+          run_in ubuntu:24.04 'apt-get install -y -qq libicu74 libstdc++6' icu
+          run_in ubuntu:24.04 'apt-get remove -y -qq --purge "libicu*" 2>/dev/null || true' none
 
       - name: Stage binaries
         if: runner.os != 'Windows'
@@ -252,20 +314,31 @@ jobs:
             echo "glibc floor $highest is above 2.35" >&2
             exit 1
           fi
-          cat > "$RUNNER_TEMP/icu-smoke.js" <<'EOF'
-          print("ß".toUpperCase());
-          print("é".normalize("NFD").length);
-          print(["b","a","ä","z"].sort((x,y)=>x.localeCompare(y)).join(","));
-          print(typeof new Date(0).toLocaleDateString());
-          EOF
-          hermes_bin="$(find hermes-build -name hermes -type f -print -quit)"
-          actual="$("$hermes_bin" "$RUNNER_TEMP/icu-smoke.js")"
-          expected="$(printf 'SS\n2\na,ä,b,z\nstring')"
-          if [ "$actual" != "$expected" ]; then
-            echo "Unexpected smoke output:" >&2
-            printf '%s\n' "$actual" >&2
-            exit 1
-          fi
+
+      - name: Check that the library imports no ICU
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vm = Get-ChildItem -Path hermes-build -Filter hermesvm.dll -Recurse -File | Select-Object -First 1
+          $deps = & dumpbin /dependents $vm.FullName | Out-String
+          Write-Host $deps
+          if ($deps -match '(?i)icu') {
+            throw "$($vm.Name) imports an ICU library"
+          }
+
+      - name: Intl smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hermes = (Get-ChildItem -Path hermes-build -Filter hermes.exe -Recurse -File | Select-Object -First 1).FullName
+          $smoke = "$env:GITHUB_WORKSPACE/rn-gpui/packages/hermes/scripts/intl-smoke.js"
+          $out = & $hermes $smoke 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch '(?m)^MODE icu\s*$' -or $out -notmatch '(?m)^PASS\s*$') { throw 'Intl smoke test failed' }
+          $env:RN_GPUI_ICU_VERSION = '0'
+          $none = & $hermes $smoke 2>&1 | Out-String
+          Write-Host $none
+          if ($none -notmatch '(?m)^MODE none\s*$' -or $none -notmatch '(?m)^PASS\s*$') { throw 'Intl fallback smoke test failed' }
 
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'

@@ -140,8 +140,9 @@ The build flags are mirrored from `package.json`'s `hermes.buildFlags`:
 ```
 HERMES_ENABLE_NAPI=ON
 HERMES_ENABLE_DEBUGGER=ON
-HERMES_ENABLE_INTL=ON    # Apple only; OFF on Linux and Windows
-HERMES_ICU_RUNTIME_LOAD=ON    # Linux only; other platforms build without it
+HERMES_ENABLE_INTL=ON
+HERMES_ICU_RUNTIME_LOAD=ON
+HERMES_ICU_HEADERS_DIR=packages/hermes/third_party/icu
 HERMES_ENABLE_TEST_SUITE=OFF
 HERMES_BUILD_APPLE_FRAMEWORK=OFF
 ```
@@ -149,22 +150,33 @@ HERMES_BUILD_APPLE_FRAMEWORK=OFF
 ### Intl
 
 `HERMES_ENABLE_INTL=ON` exposes `Intl.Collator`, `Intl.NumberFormat` and
-`Intl.DateTimeFormat` (plus `Intl.getCanonicalLocales` and the `toLocale*` /
-`localeCompare` prototype methods). It is enabled on Apple only for now:
+`Intl.DateTimeFormat` (plus `Intl.getCanonicalLocales`, `formatToParts`, and the
+`toLocale*` / `localeCompare` prototype methods). The pinned Hermes has no
+`Intl.PluralRules`, `ListFormat`, `RelativeTimeFormat` or `Segmenter`.
 
-- **Apple**: Foundation (`NSLocale`, `NSDateFormatter`, …). No ICU involved and
-  nothing extra ships.
-- **Windows and Linux**: off. Upstream's backend for these platforms
-  (`lib/Platform/Intl/PlatformIntlICU.cpp`) needs ICU's C++ API, which the ICU
-  built into Windows does not expose, and its `NumberFormat` is a stub
-  (`std::to_string`). Bundling ICU would add about 30 MB. Intl comes back once
-  Hermes has a backend that loads the OS's ICU at runtime.
+Every platform uses one backend (`patches/0003-intl-on-the-system-icu.patch`)
+written against ICU's C API, with ICU loaded when it is first needed, so the
+engine ships no ICU data and links no ICU:
 
-ICU is still used with Intl off, because the non-Apple/Android Unicode backend
-needs it for case conversion, `localeCompare`, `normalize` and
-`toLocaleDateString`. Windows links the OS ICU; Linux resolves whichever
-`libicui18n.so.N` the system has with `dlopen` at first use (see
-`patches/0001-linux-load-icu-at-runtime.patch` of the react-native-gpui
-repository this package is built from). Without a system ICU on Linux the VM
-keeps working with ASCII-only case mapping, code-unit collation and no-op
-normalization. Apple builds link only CoreFoundation.
+| Platform | ICU it loads                                              | Minimum                  |
+| -------- | --------------------------------------------------------- | ------------------------ |
+| macOS    | `/usr/lib/libicucore.A.dylib`                             | the ICU of the OS (64+)  |
+| Windows  | `icu.dll` from System32                                   | Windows 10 1903 (ICU 64) |
+| Linux    | `libicui18n.so.N`, N from 100 down to 64, with `libicuuc` | ICU 64                   |
+
+`RN_GPUI_ICU_VERSION` forces one Linux version, and `0` turns loading off so
+the fallback can be tested. With no usable ICU the VM still starts: it logs one
+warning, `Intl` stays defined, numbers format as plain JavaScript numbers,
+dates as ISO 8601 in UTC, strings compare by code unit, and case mapping covers
+ASCII only.
+
+The ICU headers it compiles against are vendored in `third_party/icu` (ICU 76.1,
+unmodified, for signatures only). The backend calls only functions that ICU 64
+has; `uloc_openAvailableByType` and `ucal_getCanonicalTimeZoneID` are optional.
+`NumberFormat` builds an ICU number skeleton from the resolved options and
+formats with `unumf_*`, so style (decimal, currency, percent, unit), digits,
+grouping, compact and scientific notation, `signDisplay`, `roundingMode` and
+`trailingZeroDisplay` come from ICU itself.
+
+`scripts/intl-smoke.js` holds the assertions the `hermes-engine` workflow runs
+on every platform, and on Linux against ICU 70, ICU 74 and no ICU.

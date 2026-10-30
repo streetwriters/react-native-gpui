@@ -18,6 +18,9 @@ module.exports = [
       // Vendored facebook/hermes sources, kept byte-identical to the pin.
       'packages/hermes/API/',
       'packages/hermes/include/',
+      'packages/hermes/third_party/',
+      // Runs in the Hermes CLI, not in Node.
+      'packages/hermes/scripts/intl-smoke.js',
       'packages/hermes/public/',
       'packages/rn-gpui-tester/desktop/autolink/',
     ],

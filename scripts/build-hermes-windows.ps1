@@ -18,8 +18,9 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $HermesSource) { $HermesSource = Join-Path (Split-Path $repoRoot -Parent) "hermes\hermes" }
 if (-not $HermesBuild) { $HermesBuild = Join-Path (Split-Path $HermesSource -Parent) "build-gpui-windows-$Arch-release" }
 $HermesSource = (Resolve-Path $HermesSource).Path
+$IcuHeaders = Join-Path $repoRoot "packages\hermes\third_party\icu"
 $platform = "win32-$Arch"
-$platformBin = Join-Path $repoRoot "packages\@react-native-gpui\hermes\bin\$platform"
+$platformBin = Join-Path $repoRoot "packages\hermes\bin\$platform"
 
 foreach ($tool in @("cmake", "ninja")) {
   if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
@@ -84,7 +85,7 @@ function Initialize-MsvcEnvironment {
 function Invoke-HermesPatches {
   param([string]$Source)
 
-  $patchDir = Join-Path $repoRoot "packages\@react-native-gpui\hermes\patches"
+  $patchDir = Join-Path $repoRoot "packages\hermes\patches"
   if (-not (Test-Path $patchDir)) {
     throw "Hermes patch directory not found: $patchDir"
   }
@@ -142,7 +143,7 @@ function Repair-NodeApiTestAddons {
 Initialize-MsvcEnvironment -TargetArch $Arch
 Repair-NodeApiTestAddons -Source $HermesSource
 
-$packageJson = Join-Path $repoRoot "packages\@react-native-gpui\hermes\package.json"
+$packageJson = Join-Path $repoRoot "packages\hermes\package.json"
 $pinnedCommit = (Get-Content $packageJson -Raw | ConvertFrom-Json).hermes.commit
 if (Test-Path (Join-Path $HermesSource ".git")) {
   $headCommit = (& git -C $HermesSource rev-parse HEAD).Trim()
@@ -203,7 +204,9 @@ $configureArgs = @(
   "-DHERMES_ENABLE_NAPI=ON",
   "-DHERMES_ENABLE_DEBUGGER=ON",
   "-DHERMES_ENABLE_TEST_SUITE=OFF",
-  "-DHERMES_ENABLE_INTL=OFF"
+  "-DHERMES_ENABLE_INTL=ON",
+  "-DHERMES_ICU_RUNTIME_LOAD=ON",
+  "-DHERMES_ICU_HEADERS_DIR=$IcuHeaders"
 )
 if ($Generator -eq "Ninja") {
   # Pin the compiler so a missing MSVC environment fails loudly instead of
