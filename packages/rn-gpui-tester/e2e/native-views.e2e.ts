@@ -9,8 +9,8 @@ import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
  */
 
 const macOnly = process.platform === 'darwin';
-/** The fixture's probe view exists on macOS and Linux. */
-const probeOs = process.platform === 'darwin' || process.platform === 'linux';
+/** The fixture's probe view exists on every desktop OS. */
+const probeOs = ['darwin', 'linux', 'win32'].includes(process.platform);
 
 /** How long a web view may take to report a navigation finished. */
 const LOAD_TIMEOUT = 15_000;

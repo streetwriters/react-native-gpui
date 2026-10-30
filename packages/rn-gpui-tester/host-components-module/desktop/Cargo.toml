@@ -13,6 +13,17 @@ wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 x11rb = "0.13"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+anyhow = "1"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_DirectComposition",
+] }
+
 [dependencies]
 react-native-gpui = "0.1"
 rn-gpui-module = "0.1"

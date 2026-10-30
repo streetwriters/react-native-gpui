@@ -125,7 +125,7 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             "compositeCapture" => cx
                 .update_window(window, |_, window, _| {
                     match composite_png(window) {
@@ -2123,5 +2123,104 @@ fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), Strin
         rgba.write_to(&mut png, image::ImageFormat::Png)
             .map_err(|error| error.to_string())?;
         Ok((png.into_inner(), width as usize, height as usize))
+    }
+}
+
+/// The window as the desktop shows it, DirectComposition content included: the
+/// screen is copied at the window's client rectangle, so the window must be on
+/// screen and not covered.
+#[cfg(target_os = "windows")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+
+    let RawWindowHandle::Win32(handle) = HasWindowHandle::window_handle(window)
+        .map_err(|error| error.to_string())?
+        .as_raw()
+    else {
+        return Err("the window is not a Win32 window".into());
+    };
+    capture_client(handle.hwnd.get() as HWND)
+}
+
+#[cfg(target_os = "windows")]
+fn capture_client(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+) -> Result<(Vec<u8>, usize, usize), String> {
+    use windows_sys::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::Gdi::{
+            BitBlt, ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject,
+            GetDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+            DIB_RGB_COLORS, SRCCOPY,
+        },
+        UI::WindowsAndMessaging::GetClientRect,
+    };
+    // SAFETY: every GDI object created here is released before returning; the pixel buffer is the section's own memory, read within its width and height.
+    unsafe {
+        let mut client = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        GetClientRect(hwnd, &mut client);
+        let (width, height) = (client.right - client.left, client.bottom - client.top);
+        if width <= 0 || height <= 0 {
+            return Err("the window has no client area".into());
+        }
+        let mut origin = POINT { x: 0, y: 0 };
+        ClientToScreen(hwnd, &mut origin);
+        let screen = GetDC(std::ptr::null_mut());
+        let memory = CreateCompatibleDC(screen);
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..std::mem::zeroed()
+        };
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let section = CreateDIBSection(
+            screen,
+            &info,
+            DIB_RGB_COLORS,
+            &mut bits,
+            std::ptr::null_mut(),
+            0,
+        );
+        let previous = SelectObject(memory, section);
+        let copied = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            screen,
+            origin.x,
+            origin.y,
+            SRCCOPY | CAPTUREBLT,
+        );
+        let result = if copied == 0 || bits.is_null() {
+            Err("the screen could not be copied".to_string())
+        } else {
+            let bgra = std::slice::from_raw_parts(bits as *const u8, (width * height * 4) as usize);
+            let mut rgba = image::RgbaImage::new(width as u32, height as u32);
+            for (pixel, source) in rgba.pixels_mut().zip(bgra.chunks_exact(4)) {
+                *pixel = image::Rgba([source[2], source[1], source[0], 255]);
+            }
+            let mut png = std::io::Cursor::new(Vec::new());
+            rgba.write_to(&mut png, image::ImageFormat::Png)
+                .map(|()| (png.into_inner(), width as usize, height as usize))
+                .map_err(|error| error.to_string())
+        };
+        SelectObject(memory, previous);
+        DeleteObject(section);
+        DeleteDC(memory);
+        ReleaseDC(std::ptr::null_mut(), screen);
+        result
     }
 }

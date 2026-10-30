@@ -14,6 +14,8 @@ use crate::{
 mod appkit;
 #[cfg(not(target_os = "macos"))]
 mod counted;
+#[cfg(target_os = "windows")]
+mod dcomp;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(target_os = "linux")]
@@ -145,13 +147,12 @@ fn create_probe(
 
 #[cfg(target_os = "windows")]
 fn create_probe(
-    _props: &FixtureNativeProbeProps,
-    _parent: &NativeViewParent<'_>,
+    props: &FixtureNativeProbeProps,
+    parent: &NativeViewParent<'_>,
     _window: &mut Window,
 ) -> Result<(NativeViewHandle, Box<dyn ProbeBackend>)> {
-    Err(react_native_gpui::native_surface::Error::msg(
-        "the fixture has no OS view on Windows yet",
-    ))
+    let backend = dcomp::Composited::new(parent.visual()?, props.color(), counted::Count::new())?;
+    Ok((NativeViewHandle::composited(), Box::new(backend)))
 }
 
 /// A web view showing an HTML string.

@@ -5319,6 +5319,7 @@ dependencies = [
  "serde_json",
  "wayland-backend",
  "wayland-client",
+ "windows 0.62.2",
  "x11rb",
 ]
 
