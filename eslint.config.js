@@ -8,6 +8,7 @@ module.exports = [
       '**/node_modules/',
       '**/target/',
       '**/build/',
+      'website/.docusaurus/',
       'packages/testing/dist/',
       '.local/',
       'desktop/',
