@@ -1405,12 +1405,15 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .unwrap_or(estimated_scale);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let top_inset = window.update(cx, |_root, window, _cx| {
-            #[cfg(target_os = "macos")]
-            { crate::native_view::window_top_inset(window) }
-            #[cfg(not(target_os = "macos"))]
-            { 0.0 }
-        }).unwrap_or(0.0);
+        crate::desktop::windows::set_custom_title_bar(
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+            config.title_bar.is_custom(),
+        );
+        let top_inset = window
+            .update(cx, |_root, window, _cx| {
+                crate::desktop::windows::top_inset(window, crate::desktop::windows::MAIN_WINDOW_KEY)
+            })
+            .unwrap_or(0.0);
         host.set_window_top_inset(top_inset);
         log::info!("[window-inset] native window top inset={top_inset}");
         let appearance = match cx.window_appearance() {
@@ -1926,10 +1929,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         || (previous.2 - scale).abs() > 0.001;
                     let moved = (previous.3 - origin.0).abs() > 0.01
                         || (previous.4 - origin.1).abs() > 0.01;
-                    #[cfg(target_os = "macos")]
-                    let top = crate::native_view::window_top_inset(window);
-                    #[cfg(not(target_os = "macos"))]
-                    let top = 0.0;
+                    let top = crate::desktop::windows::top_inset(
+                        window,
+                        crate::desktop::windows::MAIN_WINDOW_KEY,
+                    );
                     let inset_changed = cx
                         .try_global::<StoreGlobal>()
                         .is_some_and(|global| (global.0.read(cx).top_inset - top).abs() > 0.01);

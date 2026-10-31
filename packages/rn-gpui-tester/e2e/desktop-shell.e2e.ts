@@ -127,22 +127,26 @@ test('a transparent-title-bar window opens with its own window id', async () => 
   expect(await textOf('desktop-window-list')).toContain('DesktopShellChild');
 });
 
-test.runIf(process.platform === 'darwin')(
-  'a SafeAreaView pads its top by a transparent title bar',
-  async () => {
-    await launch('WindowControlFixture');
-    await app.waitForIdle();
-    await app.getByTestId('desktop-open-titlebar-window').click();
-    await app.waitForIdle();
+test('a SafeAreaView pads its top by a transparent title bar', async () => {
+  await launch('WindowControlFixture');
+  await app.waitForIdle();
+  await app.getByTestId('desktop-open-titlebar-window').click();
+  await app.waitForIdle();
+  // A Linux compositor may refuse client-side decorations and leave its own
+  // bar, which takes no room from the content.
+  if (process.platform !== 'linux') {
     await expect
       .poll(async () => Number(await textOf('desktop-child-top-inset')))
       .toBeGreaterThan(0);
-    const inset = Number(await textOf('desktop-child-top-inset'));
-    const [safe] = await app.query('testID', 'desktop-child-safe', true);
-    const [label] = await app.query('testID', 'desktop-child-safe-label', true);
-    expect(label.frame.y - safe.frame.y).toBeGreaterThanOrEqual(inset - 1);
-  },
-);
+  }
+  await expect
+    .poll(async () => await textOf('desktop-child-top-inset'))
+    .not.toBe('-1');
+  const inset = Number(await textOf('desktop-child-top-inset'));
+  const [safe] = await app.query('testID', 'desktop-child-safe', true);
+  const [label] = await app.query('testID', 'desktop-child-safe-label', true);
+  expect(label.frame.y - safe.frame.y).toBeGreaterThanOrEqual(inset - 1);
+});
 
 test('the caption buttons are the native WindowControl component', async () => {
   // `desktopWindowControl` is gone: caption buttons are a component now, so they

@@ -187,6 +187,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         let windows = &mut cx.global_mut::<DesktopWindowsGlobal>().0;
         (windows.alloc_key(), windows.alloc_surface())
     };
+    set_custom_title_bar(key, options.title_bar.is_custom());
 
     let width = options.width.unwrap_or(800.0).max(120.0);
     let height = options.height.unwrap_or(600.0).max(120.0);
@@ -404,6 +405,7 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
 /// `remove_window` is false when the platform is already closing the window:
 /// GPUI must not be asked to remove it again from inside that callback.
 fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
+    set_custom_title_bar(key, false);
     super::window_mirror::remove(key);
     super::app_state::schedule(cx);
     let surface_id = entry.surface_id;
@@ -502,7 +504,7 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
                         json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
                     ),
                     ("scaleFactor", json!(window.scale_factor())),
-                    ("topInset", json!(top_inset(window))),
+                    ("topInset", json!(top_inset(window, key))),
                 ],
             );
             let Some(store) = cx.try_global::<StoreGlobal>() else {
@@ -757,23 +759,85 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 "isFocused": window.is_window_active(),
                 "isMinimized": platform_window::is_minimized(window),
                 "scaleFactor": window.scale_factor(),
-                "topInset": top_inset(window),
+                "topInset": top_inset(window, key),
             })
         })
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))
 }
 
-/// How far the platform's title bar reaches into the content area: nonzero only
-/// for a window drawn under a transparent title bar.
-fn top_inset(window: &gpui::Window) -> f32 {
+/// Windows whose title bar the app draws, by key.
+static CUSTOM_TITLE_BARS: std::sync::Mutex<std::collections::BTreeSet<u32>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+pub fn set_custom_title_bar(key: u32, custom: bool) {
+    let mut keys = CUSTOM_TITLE_BARS.lock().expect("title bars poisoned");
+    if custom {
+        keys.insert(key);
+    } else {
+        keys.remove(&key);
+    }
+}
+
+/// The height of the `TitleBar` component, which is the bar an app draws under
+/// a window without the platform's own.
+const TITLE_BAR_HEIGHT: f32 = 38.0;
+
+/// How far the title bar reaches into the content area. On macOS that is the
+/// system bar under a transparent title bar. Elsewhere it is the bar the app
+/// draws: nonzero for a custom title bar, and on Linux only once the
+/// compositor has agreed to client-side decorations.
+pub fn top_inset(window: &gpui::Window, key: u32) -> f32 {
     #[cfg(target_os = "macos")]
     {
+        let _ = key;
         crate::native_view::window_top_inset(window)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = window;
+        let custom = CUSTOM_TITLE_BARS
+            .lock()
+            .expect("title bars poisoned")
+            .contains(&key);
+        #[cfg(target_os = "linux")]
+        let drawn_by_app = matches!(
+            window.window_decorations(),
+            gpui::Decorations::Client { .. }
+        );
+        #[cfg(not(target_os = "linux"))]
+        let drawn_by_app = {
+            let _ = window;
+            true
+        };
+        app_bar_inset(custom, drawn_by_app)
+    }
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn app_bar_inset(custom: bool, drawn_by_app: bool) -> f32 {
+    if custom && drawn_by_app {
+        TITLE_BAR_HEIGHT
+    } else {
         0.0
+    }
+}
+
+#[cfg(test)]
+mod inset_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_bar_the_app_draws_takes_room() {
+        assert_eq!(app_bar_inset(true, true), TITLE_BAR_HEIGHT);
+        assert_eq!(app_bar_inset(true, false), 0.0);
+        assert_eq!(app_bar_inset(false, true), 0.0);
+    }
+
+    #[test]
+    fn a_closed_window_forgets_its_bar() {
+        set_custom_title_bar(9_001, true);
+        assert!(CUSTOM_TITLE_BARS.lock().unwrap().contains(&9_001));
+        set_custom_title_bar(9_001, false);
+        assert!(!CUSTOM_TITLE_BARS.lock().unwrap().contains(&9_001));
     }
 }
 
@@ -870,7 +934,7 @@ fn install_bounds_observer(
                         }),
                     ),
                     ("scaleFactor", json!(scale)),
-                    ("topInset", json!(top_inset(window))),
+                    ("topInset", json!(top_inset(window, key))),
                 ],
             );
             let host = store.read(cx).host.clone();
