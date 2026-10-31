@@ -1,9 +1,13 @@
 {
   "name": "@react-native-gpui/codegen",
-  "version": "0.1.0",
+  "version": "0.87.0-alpha.0",
   "description": "C++ and Rust code generators for react-native-gpui, plugged into @react-native/codegen.",
   "files": [
-    "src"
+    "src",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*.test.cjs"
   ],
   "type": "module",
   "exports": {
@@ -17,5 +21,9 @@
   },
   "dependencies": {
     "@react-native/codegen": "0.87.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
   }
 }

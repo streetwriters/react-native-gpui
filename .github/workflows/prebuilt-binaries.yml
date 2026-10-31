@@ -229,7 +229,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          version="$(node -p "require('./packages/hermes/package.json').version")"
+          version="$(node -p "require('./packages/hermes/package.json').hermes.engineRelease")"
           node packages/hermes/scripts/fetch-binaries.mjs \
             --tag "@react-native-gpui/hermes@$version" --platform ${{ matrix.platform }}
 

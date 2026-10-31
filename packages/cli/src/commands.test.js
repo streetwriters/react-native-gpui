@@ -6,7 +6,10 @@ import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
+  assertReleaseExists,
   collectNodeAddons,
+  gpuiVersionRange,
+  reactNativeMinor,
   createLibrary,
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
@@ -531,4 +534,69 @@ test('stageBundle ships JavaScript for an engine without a compiler', () => {
     engineName: 'plain',
   });
   expect(fs.readFileSync(staged, 'utf8')).toBe('console.log(1)');
+});
+
+test('the React Native minor comes from an exact version or a range', () => {
+  expect(reactNativeMinor('0.87.1')).toBe(87);
+  expect(reactNativeMinor('^0.88.0')).toBe(88);
+  expect(reactNativeMinor('~0.87.2')).toBe(87);
+  expect(reactNativeMinor('latest')).toBeUndefined();
+  expect(reactNativeMinor(undefined)).toBeUndefined();
+});
+
+test("our packages are asked for at the app's React Native minor", () => {
+  expect(
+    gpuiVersionRange('/nowhere', {
+      dependencies: { 'react-native': '0.87.1' },
+    }),
+  ).toBe('~0.87.0-alpha.0');
+  expect(() => gpuiVersionRange('/nowhere', { dependencies: {} })).toThrow(
+    /Cannot tell which React Native version/,
+  );
+});
+
+test('scaffolding writes the matching range for every package it adds', () => {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rn-gpui-scaffold-'));
+  try {
+    fs.writeFileSync(nodePath.join(root, 'app.json'), '{"name":"App"}');
+    const result = scaffoldDesktop(root, {
+      name: 'app',
+      dependencies: { 'react-native': '0.87.1' },
+    });
+    expect(result.dependencies['@react-native-gpui/core']).toBe(
+      '~0.87.0-alpha.0',
+    );
+    expect(result.dependencies['@react-native-gpui/hermes']).toBe(
+      '~0.87.0-alpha.0',
+    );
+    expect(result.devDependencies['@react-native-gpui/cli']).toBe(
+      '~0.87.0-alpha.0',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a React Native minor without a release is refused with a clear message', () => {
+  const view = result => () => result;
+  expect(() =>
+    assertReleaseExists('~0.88.0-alpha.0', {
+      registryView: view({ status: 0, stdout: '' }),
+    }),
+  ).toThrow(/supports React Native 0\.88/);
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 0, stdout: '"0.87.0-alpha.0"' }),
+    }),
+  ).not.toThrow();
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 1, stderr: 'npm error code E404' }),
+    }),
+  ).toThrow(/not published/);
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 1, stderr: 'ENOTFOUND' }),
+    }),
+  ).not.toThrow();
 });

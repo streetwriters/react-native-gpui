@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { LINUX_LIBRARIES, installCommands } from './doctor.cjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -778,6 +778,75 @@ const ENV_TYPES_CONTENT = `/// <reference types="@react-native-gpui/core/types" 
 // Added by react-native-gpui. Do not edit: it is regenerated.
 `;
 
+/** The minor of a React Native version or range such as `0.87.1` or `^0.87.0`. */
+export function reactNativeMinor(spec) {
+  const match = /(?:^|[^\d.])0\.(\d+)\.\d+/u.exec(String(spec ?? ''));
+  return match === null ? undefined : Number(match[1]);
+}
+
+/**
+ * The range of our packages that supports the app's React Native minor.
+ *
+ * Our packages are versioned `0.<react-native minor>.<patch>`, so React Native
+ * 0.87 takes `0.87.x`. The prerelease floor lets the alphas satisfy it.
+ */
+export function gpuiVersionRange(projectRoot, packageJson) {
+  let minor = reactNativeMinor(
+    packageJson.dependencies?.['react-native'] ??
+      packageJson.devDependencies?.['react-native'],
+  );
+  if (minor === undefined) {
+    try {
+      const installed = JSON.parse(
+        fs.readFileSync(
+          path.join(projectRoot, 'node_modules/react-native/package.json'),
+          'utf8',
+        ),
+      );
+      minor = reactNativeMinor(installed.version);
+    } catch {
+      // Not installed yet.
+    }
+  }
+  if (minor === undefined) {
+    throw new Error(
+      'Cannot tell which React Native version this app uses. Pin react-native to an exact version such as 0.87.1 in package.json.',
+    );
+  }
+  return `~0.${minor}.0-alpha.0`;
+}
+
+/**
+ * Fails with a readable message when the registry has no release of the core
+ * package for the app's React Native minor. A registry that cannot be reached is
+ * not a failure here: the install that follows reports it.
+ */
+export function assertReleaseExists(range, { registryView = npmView } = {}) {
+  const result = registryView(`@react-native-gpui/core@${range}`);
+  if (result.status !== 0) {
+    if (/E404|404 Not Found/u.test(result.stderr ?? '')) {
+      throw new Error(
+        `@react-native-gpui/core is not published on the registry (looked for ${range}).`,
+      );
+    }
+    return;
+  }
+  if (String(result.stdout ?? '').trim() === '') {
+    const minor = /^~0\.(\d+)\./u.exec(range)?.[1];
+    throw new Error(
+      `No @react-native-gpui/core release supports React Native 0.${minor}. Use a React Native version that has one (the packages follow it: 0.${minor}.x).`,
+    );
+  }
+}
+
+function npmView(spec) {
+  return spawnSync(
+    process.platform === 'win32' ? 'npm.cmd' : 'npm',
+    ['view', spec, 'version', '--json'],
+    { encoding: 'utf8', shell: process.platform === 'win32' },
+  );
+}
+
 export function scaffoldDesktop(
   projectRoot,
   packageJson,
@@ -837,14 +906,15 @@ export function scaffoldDesktop(
     }
   }
 
+  const range = gpuiVersionRange(projectRoot, packageJson);
   const updatedPackageJson = {
     ...packageJson,
     dependencies: {
       ...packageJson.dependencies,
       '@react-native-gpui/core':
-        packageJson.dependencies?.['@react-native-gpui/core'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/core'] ?? range,
       '@react-native-gpui/hermes':
-        packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/hermes'] ?? range,
       // `rn-gpui-module-build` resolves its spec generator from the app
       // (`require.resolve('@react-native-gpui/codegen/generate-rust-spec')` with
       // the crate directory as the search path), so the app must depend on it
@@ -852,7 +922,7 @@ export function scaffoldDesktop(
       // entry goes unnoticed; an app installed from the registry fails with
       // "Cannot find module '@react-native-gpui/codegen/generate-rust-spec'".
       '@react-native-gpui/codegen':
-        packageJson.dependencies?.['@react-native-gpui/codegen'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/codegen'] ?? range,
     },
     scripts: {
       ...packageJson.scripts,
@@ -864,9 +934,9 @@ export function scaffoldDesktop(
       ...packageJson.devDependencies,
       vitest: packageJson.devDependencies?.vitest ?? '^3.2.4',
       '@react-native-gpui/testing':
-        packageJson.devDependencies?.['@react-native-gpui/testing'] ?? '^0.1.0',
+        packageJson.devDependencies?.['@react-native-gpui/testing'] ?? range,
       '@react-native-gpui/cli':
-        packageJson.devDependencies?.['@react-native-gpui/cli'] ?? '^0.1.0',
+        packageJson.devDependencies?.['@react-native-gpui/cli'] ?? range,
     },
   };
   return updatedPackageJson;
@@ -918,6 +988,7 @@ export function initDesktop({
     );
 
     if (!skipInstall) {
+      assertReleaseExists(gpuiVersionRange(projectRoot, packageJson));
       const manager = fs.existsSync(path.join(projectRoot, 'pnpm-lock.yaml'))
         ? 'pnpm'
         : fs.existsSync(path.join(projectRoot, 'yarn.lock'))

@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/testing",
-  "version": "0.1.0",
+  "version": "0.87.0-alpha.0",
   "description": "Test presets and desktop test-driver client for React Native GPUI",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,7 +24,7 @@
   },
   "peerDependencies": {
     "react": "19.2.3",
-    "react-native": "0.87.1",
+    "react-native": "0.87.x",
     "vitest": ">=3"
   },
   "peerDependenciesMeta": {
@@ -51,6 +51,14 @@
     "*.js",
     "*.cjs",
     "*.d.cts",
-    "vitest"
-  ]
+    "vitest",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*.test.cjs"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  }
 }

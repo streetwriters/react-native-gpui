@@ -383,7 +383,8 @@ async function downloadFromPin(options) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
   );
-  const tag = `${RELEASE_PREFIX}${manifest.version}`;
+  // The engine release has its own number: the package follows React Native.
+  const tag = `${RELEASE_PREFIX}${manifest.hermes?.engineRelease ?? manifest.version}`;
   const repository = repositoryFromManifest(manifest);
   const wanted = selectedPlatforms(options);
 
