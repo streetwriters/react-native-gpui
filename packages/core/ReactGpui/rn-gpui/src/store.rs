@@ -822,6 +822,9 @@ impl ViewStore {
         self.refresh_inherited(surface_id, cx);
         self.flush_host_reports(cx);
         self.host.on_render();
+        // A mount moves views against their scroll views; the store is borrowed
+        // here, so the modes are looked at once it is not.
+        cx.defer(crate::virtual_view::update);
         let hook = self.frame_hook.clone();
         let target = self.window_for(surface_id).unwrap_or(self.window);
         let _ = cx.update_window(target, |_root, window, _cx| {

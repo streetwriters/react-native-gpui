@@ -30,6 +30,7 @@ pub mod surface;
 mod test_driver;
 pub(crate) mod text;
 mod transform;
+pub(crate) mod virtual_view;
 
 mod bootstrap;
 mod http_client;

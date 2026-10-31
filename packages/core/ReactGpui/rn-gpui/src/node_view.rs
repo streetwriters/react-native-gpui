@@ -143,6 +143,8 @@ pub struct RNNodeView {
     scroll_sync_generation: Rc<Cell<u64>>,
     /// Whether Fabric's copy of the offset is behind the node's own.
     scroll_sync_pending: Rc<Cell<bool>>,
+    /// The mode `onModeChange` last reported, for a `VirtualView`.
+    pub(crate) virtual_view_mode: Cell<Option<i32>>,
     /// When the last scroll event went out, and whether one is waiting for the
     /// throttle to pass.
     scroll_emit: Rc<ScrollEmit>,
@@ -932,6 +934,7 @@ impl RNNodeView {
             scroll_indicator: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
             scroll_sync_pending: Rc::new(Cell::new(false)),
+            virtual_view_mode: Cell::new(None),
             scroll_emit: Rc::default(),
             scroll_handle: gpui::ScrollHandle::new(),
             scroll_handle_stale: true,
@@ -1342,6 +1345,44 @@ impl RNNodeView {
             let offset = self.scroll_position.get();
             host.set_scroll_offset(self.tag, offset.x, offset.y);
         }
+    }
+
+    /// Where this view lies in the content of the scroll view around it, that
+    /// scroll view's viewport in the same space, and whether it scrolls
+    /// sideways; `None` when no scroll view is around it.
+    pub(crate) fn virtual_view_geometry(
+        &self,
+        cx: &App,
+    ) -> Option<(crate::virtual_view::Rect, crate::virtual_view::Rect, bool)> {
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let node = weak.upgrade()?;
+            let node = node.read(cx);
+            if let Some(scroll) = &node.scroll {
+                let offset = node.scroll_position.get();
+                let (x, y) = (
+                    self.inherited.origin_unscrolled.0 - node.inherited.origin_unscrolled.0,
+                    self.inherited.origin_unscrolled.1 - node.inherited.origin_unscrolled.1,
+                );
+                return Some((
+                    crate::virtual_view::Rect {
+                        x,
+                        y,
+                        w: self.frame.w,
+                        h: self.frame.h,
+                    },
+                    crate::virtual_view::Rect {
+                        x: offset.x,
+                        y: offset.y,
+                        w: node.frame.w,
+                        h: node.frame.h,
+                    },
+                    scroll.horizontal,
+                ));
+            }
+            parent = node.parent.clone();
+        }
+        None
     }
 
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
@@ -5529,6 +5570,7 @@ impl Scroller {
                 }
             }
         }
+        crate::virtual_view::update(cx);
         frame_hook.arm(window);
         // Fabric's copy of the offset costs a commit per update, so it follows once
         // scrolling pauses.

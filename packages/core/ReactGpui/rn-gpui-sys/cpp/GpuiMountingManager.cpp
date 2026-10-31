@@ -27,6 +27,7 @@
 #include <react/renderer/components/text/TextComponentDescriptor.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/components/view/conversions.h>
+#include <react/renderer/components/virtualview/VirtualViewComponentDescriptor.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/imagemanager/ImageResponse.h>
 
@@ -719,6 +720,8 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
                   DesktopContextMenuViewComponentDescriptor>());
       result->add(concreteComponentDescriptorProvider<
                   ShortcutScopeComponentDescriptor>());
+      result->add(concreteComponentDescriptorProvider<
+                  VirtualViewComponentDescriptor>());
       result->setComponentDescriptorProviderRequest([](ComponentName name) {
         LOG(ERROR) << "Fabric component " << name
                    << " is not implemented on gpui";
