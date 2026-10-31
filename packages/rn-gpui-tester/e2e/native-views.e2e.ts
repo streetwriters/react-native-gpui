@@ -306,7 +306,12 @@ function expectColor(actual: Rgb, srgb: Rgb) {
   );
 }
 
-test.skipIf(!probeOs)(
+// A Wayland session offers no way to read the screen back.
+const screenReadable = !(
+  process.platform === 'linux' && process.env.WAYLAND_DISPLAY
+);
+
+test.skipIf(!probeOs || !screenReadable)(
   'the compositor shows the native view, and a React view above it covering it',
   async () => {
     await launch('NativeViewFixture', { onScreen: true });

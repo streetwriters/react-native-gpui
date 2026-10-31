@@ -454,14 +454,19 @@ jobs:
         if: failure() && runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = Get-ChildItem target/debug/deps -Filter 'rn_gpui_svg-*.exe' | Sort-Object LastWriteTime | Select-Object -Last 1
-          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
-          $names = [regex]::Matches($text, '[A-Za-z0-9_\-\.]{3,40}\.dll') | ForEach-Object { $_.Value.ToLower() } | Sort-Object -Unique
-          foreach ($name in $names) {
-            $found = (Get-Command $name -ErrorAction SilentlyContinue).Source
-            Write-Host ("{0,-45} {1}" -f $name, $(if ($found) { $found } else { 'NOT FOUND' }))
+          $dirs = @("$PWD/packages/hermes/bin/win32-x64") + (Get-ChildItem target/rn-gpui-cmake -Recurse -Filter jsi.dll -ErrorAction SilentlyContinue | ForEach-Object { $_.DirectoryName })
+          $env:PATH = (($dirs | Select-Object -Unique) -join ';') + ';' + $env:PATH
+          foreach ($prefix in 'react_native_gpui', 'rn_gpui_svg', 'rn_gpui_screens') {
+            $exe = Get-ChildItem target/debug/deps -Filter "$prefix-*.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
+            if (-not $exe) { continue }
+            Write-Host "== $($exe.Name)"
+            $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
+            $names = [regex]::Matches($text, '[A-Za-z0-9_\-\.]{3,40}\.dll') | ForEach-Object { $_.Value.ToLower() } | Sort-Object -Unique
+            foreach ($name in $names) {
+              $found = (Get-Command $name -ErrorAction SilentlyContinue).Source
+              if (-not $found) { Write-Host ("{0,-45} NOT FOUND" -f $name) }
+            }
           }
-          Get-ChildItem -Path . , $env:RUNNER_TEMP -Recurse -Include hermesvm.dll, jsi.dll -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "on disk: $($_.FullName)" }
 
       - name: Build the tester
         env:
@@ -543,7 +548,7 @@ jobs:
             sleep 0.2
           done
           echo "wayland socket: ${socket:-none}"
-          if ! env -u DISPLAY WAYLAND_DISPLAY="$socket" \
+          if ! env -u DISPLAY WAYLAND_DISPLAY="$socket" WGPU_BACKEND=vulkan \
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
             npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts; then
             echo '--- sway'
