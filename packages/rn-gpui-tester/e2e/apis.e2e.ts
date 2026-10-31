@@ -436,6 +436,33 @@ describe('deep links', () => {
   });
 });
 
+describe.skipIf(onMac)('Share dialog', () => {
+  beforeAll(async () => {
+    await launch({ offscreen: false });
+    if (windowActivation) await app.focusWindow();
+  });
+
+  test('offers copy, email and cancel', async () => {
+    await app.getByTestId('share-open').click();
+    const dialog = await alertShown();
+    expect(dialog.title).toBe('Share');
+    expect(dialog.buttons).toEqual(['Copy', 'Email', 'Cancel']);
+    await app.alertRespond(2);
+    await poll(
+      async () => (await text('share-result')) === 'dismissedAction:null',
+    );
+  });
+
+  test('copy puts the message and link on the clipboard', async () => {
+    await app.getByTestId('share-open').click();
+    await alertShown();
+    await app.alertRespond(0);
+    await poll(
+      async () => (await text('share-result')) === 'sharedAction:copy',
+    );
+  });
+});
+
 describe.runIf(onMac)('Share', () => {
   /** The picker needs the key window, which other apps can take at any time. */
   async function openShare(testID: string) {

@@ -1,5 +1,5 @@
-//! `Share`: the system share sheet on macOS, and a copy to the clipboard on the
-//! systems that have no sheet to open.
+//! `Share`: the system share sheet on macOS, and a small dialog on the systems
+//! that have no sheet: copy to the clipboard or send by email.
 
 use rn_gpui_module::{ModuleError, ModuleThread};
 
@@ -20,6 +20,27 @@ fn clipboard_text(message: Option<&str>, url: Option<&str>) -> String {
         (Some(message), _) => message.to_string(),
         (None, Some(url)) => url.to_string(),
         (None, None) => String::new(),
+    }
+}
+
+/// `mailto:` for the content, with the subject and body percent-encoded.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn mailto(subject: Option<&str>, body: &str) -> String {
+    fn encode(text: &str) -> String {
+        let mut out = String::new();
+        for byte in text.bytes() {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(byte as char)
+                }
+                _ => out.push_str(&format!("%{byte:02X}")),
+            }
+        }
+        out
+    }
+    match subject {
+        Some(subject) => format!("mailto:?subject={}&body={}", encode(subject), encode(body)),
+        None => format!("mailto:?body={}", encode(body)),
     }
 }
 
@@ -51,6 +72,7 @@ impl NativeGpuiShareSpec for ShareModule {
         let sender = std::sync::Mutex::new(Some(sender));
         let message = items.message.clone();
         let url = items.url.clone();
+        let subject = items.subject.clone();
         let anchor_tag = items.anchor.map(|tag| tag as i32);
         let _ = on_main(move |cx| {
             let finish = move |activity: Option<String>| {
@@ -87,11 +109,47 @@ impl NativeGpuiShareSpec for ShareModule {
             }
             #[cfg(not(target_os = "macos"))]
             {
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(clipboard_text(
-                    message.as_deref(),
-                    url.as_deref(),
-                )));
-                finish(Some("copy".to_string()));
+                let _ = anchor_tag;
+                let text = clipboard_text(message.as_deref(), url.as_deref());
+                let request = crate::builtins::alert::Request {
+                    title: subject.clone().unwrap_or_else(|| "Share".to_string()),
+                    message: Some(text.clone()).filter(|text| !text.is_empty()),
+                    buttons: vec![
+                        ("copy".to_string(), "Copy".to_string()),
+                        ("email".to_string(), "Email".to_string()),
+                        ("cancel".to_string(), "Cancel".to_string()),
+                    ],
+                    cancel: Some(2),
+                    destructive: None,
+                    preferred: Some(0),
+                    cancelable: true,
+                    input: crate::builtins::alert::Input::None,
+                    default_value: String::new(),
+                    dark: None,
+                };
+                crate::builtins::alert::dialog::present(
+                    cx,
+                    request,
+                    Box::new(move |outcome| {
+                        use crate::builtins::alert::Outcome;
+                        let Outcome::Button { position, .. } = outcome else {
+                            return finish(None);
+                        };
+                        crate::desktop::post_to_main(Box::new(move |cx: &mut gpui::App| {
+                            match position {
+                                0 => {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                                    finish(Some("copy".to_string()));
+                                }
+                                1 => {
+                                    cx.open_url(&mailto(subject.as_deref(), &text));
+                                    finish(Some("email".to_string()));
+                                }
+                                _ => finish(None),
+                            }
+                        }));
+                    }),
+                );
             }
         })
         .await?;
@@ -119,7 +177,16 @@ pub fn register() {
 
 #[cfg(test)]
 mod tests {
-    use super::clipboard_text;
+    use super::{clipboard_text, mailto};
+
+    #[test]
+    fn the_mail_link_encodes_the_subject_and_body() {
+        assert_eq!(
+            mailto(Some("A & B"), "hi\nhttps://x/?a=1"),
+            "mailto:?subject=A%20%26%20B&body=hi%0Ahttps%3A%2F%2Fx%2F%3Fa%3D1"
+        );
+        assert_eq!(mailto(None, "é"), "mailto:?body=%C3%A9");
+    }
 
     #[test]
     fn the_clipboard_gets_the_message_and_the_link_once() {
