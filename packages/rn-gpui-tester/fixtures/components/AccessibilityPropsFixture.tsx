@@ -567,6 +567,7 @@ function AccessibilityPropsFixture() {
         }}
       />
       <Pressable
+        testID="announce"
         onPress={() =>
           AccessibilityInfo.announceForAccessibility('Announcement API works')
         }

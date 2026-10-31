@@ -237,7 +237,7 @@ class GpuiAccessibilityManagerModule final
   void announceForAccessibility(
       jsi::Runtime& runtime,
       jsi::String announcement) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     auto text = announcement.utf8(runtime);
     rn_gpui_announce_accessibility(text.c_str(), 1);
 #endif
@@ -246,7 +246,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& runtime,
       jsi::String announcement,
       jsi::Object options) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     auto text = announcement.utf8(runtime);
     const auto queue = options.getProperty(runtime, "queue");
     int priorityLevel = queue.isBool() && queue.getBool() ? 0 : 1;
@@ -306,7 +306,7 @@ class GpuiAccessibilityInfoModule final
     rn_gpui_request_accessibility_focus(static_cast<int32_t>(reactTag));
   }
   void announceForAccessibility(jsi::Runtime& runtime, jsi::String text) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     const auto announcement = text.utf8(runtime);
     rn_gpui_announce_accessibility(announcement.c_str(), 1);
 #endif

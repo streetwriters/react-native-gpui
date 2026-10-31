@@ -1226,6 +1226,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
             crate::desktop::display::system_font_scale(),
         );
         crate::desktop::memory_pressure::start(host.clone());
+        #[cfg(not(target_os = "macos"))]
+        crate::accessibility::install_announcer();
         startup_trace("bundle load start");
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");

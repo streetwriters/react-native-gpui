@@ -173,7 +173,22 @@ extern "C" bool rn_gpui_get_voice_over() {
   return readScreenReader();
 }
 
-extern "C" void rn_gpui_announce_accessibility(const char*, int) {}
+namespace {
+std::atomic<void (*)(const char*, int)> announceHandler{nullptr};
+} // namespace
+
+// The application shows an announcement as a live region of its own window, so
+// the screen reader reads it as it reads any other live region change.
+extern "C" void rn_gpui_set_announce_handler(
+    void (*handler)(const char*, int)) {
+  announceHandler.store(handler);
+}
+
+extern "C" void rn_gpui_announce_accessibility(const char* text, int priority) {
+  if (auto handler = announceHandler.load()) {
+    handler(text, priority);
+  }
+}
 
 extern "C" void rn_gpui_start_accessibility_observing() {
   auto& state = observer();

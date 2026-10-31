@@ -2672,6 +2672,11 @@ impl Render for SurfaceRootView {
         if let Some(monitor) = self.perf_monitor.clone() {
             root = root.child(monitor);
         }
+        if _window.is_a11y_active() {
+            if let Some(announcement) = crate::accessibility::current_announcement() {
+                root = root.child(crate::accessibility::announcement_element(announcement));
+            }
+        }
         // The hardware navigation buttons belong to the window, not the
         // surface: the handlers go on the outermost element so the in-window
         // menu bar (Linux) cannot swallow a press aimed at the app.

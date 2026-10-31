@@ -235,6 +235,17 @@ test.skipIf(!nativeA11y)(
   },
 );
 
+test.skipIf(!nativeA11y || process.platform === 'darwin')(
+  'announceForAccessibility shows a live region that carries the text',
+  async () => {
+    await launch('AccessibilityFixture');
+    await app.getByTestId('announce').click();
+    await poll(async () =>
+      JSON.stringify(await app.a11yTree()).includes('Announcement API works'),
+    );
+  },
+);
+
 // Windows exposes accessibility through UI Automation, and the driver reads
 // GPUI's own copy of the tree, so a break in the AccessKit adapter could leave
 // the test above passing while assistive technology sees nothing. This walks the
