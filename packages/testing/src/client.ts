@@ -350,6 +350,30 @@ export class DesktopApp {
     return Buffer.from(result.png, 'base64');
   }
 
+  /**
+   * The window as the compositor shows it, native views included (macOS). The
+   * window must be on screen, so launch without `offscreen`. `png` is in pixels;
+   * `scale` converts the viewport's logical size to it.
+   */
+  async compositeScreenshot(): Promise<{
+    png: Buffer;
+    width: number;
+    height: number;
+    scale: number;
+    viewport: { width: number; height: number };
+  }> {
+    const result = await this.request<{
+      png: string;
+      width: number;
+      height: number;
+      scale: number;
+      viewport: { width: number; height: number };
+      error?: string;
+    }>('compositeCapture', {});
+    if (result.error) throw new Error(result.error);
+    return { ...result, png: Buffer.from(result.png, 'base64') };
+  }
+
   setIdleOptions(options: IdleOptions): void {
     this.idleOptions = options;
   }
@@ -373,6 +397,47 @@ export class DesktopApp {
     hostReportsDelivered: number;
   }> {
     return this.request('hostCounters', { reset: options.reset ?? false });
+  }
+
+  /**
+   * The OS views hosted by `nativeSurface` components that have been painted:
+   * the bounds core last gave each one, in logical pixels, whether it is
+   * shown, and (macOS) what the view itself reports.
+   */
+  async nativeSurfaces(): Promise<
+    Array<{
+      tag: number;
+      testID: string;
+      visible: boolean;
+      /** Scene operations painted onto the GPUI surface above this view. */
+      aboveOps: number;
+      /** Scene operations painted onto the base surface, below every view. */
+      baseOps: number;
+      bounds: { x: number; y: number; width: number; height: number } | null;
+      view: {
+        width: number;
+        height: number;
+        attached: boolean;
+        hidden: boolean;
+        /** The layer's background as RGBA components, empty when unset. */
+        background: number[];
+      } | null;
+    }>
+  > {
+    const { surfaces } = await this.request<{ surfaces: never[] }>(
+      'nativeSurfaces',
+      {},
+    );
+    return surfaces;
+  }
+
+  /** How many GPUI surfaces the window composes: two, plus one per native view. */
+  async compositionLayerCount(): Promise<number> {
+    const { count } = await this.request<{ count: number }>(
+      'compositionLayers',
+      {},
+    );
+    return count;
   }
 
   async idleStatus(
@@ -508,6 +573,72 @@ export class DesktopApp {
     await this.waitForIdle({ timeout: 30000 });
   }
 
+  /** Delivers `url` as if the OS had opened one of the app's URL schemes. */
+  async openUrl(url: string): Promise<void> {
+    await this.request('openUrl', { url });
+  }
+
+  /** Whether the macOS share picker is on screen. */
+  async shareOpen(): Promise<boolean> {
+    const result = (await this.request('shareOpen')) as { open: boolean };
+    return result.open;
+  }
+
+  /** The view rectangle the share sheet was last shown relative to. */
+  async shareAnchor(): Promise<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    flipped: boolean;
+  } | null> {
+    const result = (await this.request('shareOpen')) as {
+      anchor: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        flipped: boolean;
+      } | null;
+    };
+    return result.anchor;
+  }
+
+  /**
+   * Makes the share picker report what the OS reports: the service chosen, by
+   * its `NSSharingServiceName`, or a dismissal when `service` is omitted.
+   */
+  async shareChoose(service?: string): Promise<boolean> {
+    const result = (await this.request('shareChoose', { service })) as {
+      sent: boolean;
+    };
+    return result.sent;
+  }
+
+  /** The alert on screen, or `null`. On macOS this is the native sheet unless
+   * `RN_GPUI_ALERT_DIALOG` is set; elsewhere it is the app's dialog window. */
+  async alertState(): Promise<{
+    title: string;
+    buttons: string[];
+    fields: string[];
+  } | null> {
+    return this.request('alertState');
+  }
+
+  /** Types `texts` into the alert's fields and presses button `button`. */
+  async alertRespond(button: number, texts: string[] = []): Promise<boolean> {
+    const result = (await this.request('alertRespond', { button, texts })) as {
+      responded: boolean;
+    };
+    return result.responded;
+  }
+
+  /** Sends Escape to the native alert. */
+  async alertEscape(): Promise<boolean> {
+    const result = (await this.request('alertEscape')) as { sent: boolean };
+    return result.sent;
+  }
+
   async focusWindow(): Promise<void> {
     await this.request('focusWindow');
   }
@@ -580,6 +711,15 @@ export class DesktopApp {
     });
     await this.waitForIdle();
     return result.opened;
+  }
+
+  async clipboardText(): Promise<string | null> {
+    const result = await this.request<{ text: string | null }>('clipboardText');
+    return result.text;
+  }
+
+  async setClipboardText(text: string): Promise<void> {
+    await this.request('setClipboardText', { text });
   }
 
   async contextMenuPresenter(): Promise<{ presenter: string }> {
@@ -730,6 +870,17 @@ export class DesktopApp {
    * goes away, the surface stops and `windowClosed` fires, but the veto path is
    * skipped (the OS already decided).
    */
+  /**
+   * Does what the window's close button does first when a Modal is shown:
+   * asks the Modal to close, as `onRequestClose`. Whether one was shown.
+   */
+  async modalCloseRequest(): Promise<boolean> {
+    const result = await this.request<{ handled: boolean }>(
+      'modalCloseRequest',
+    );
+    return result.handled;
+  }
+
   async osCloseWindow(windowId: number): Promise<boolean> {
     const result = await this.request<{ closed: boolean }>('osCloseWindow', {
       windowId,
@@ -879,13 +1030,16 @@ export class DesktopApp {
    * scroll took to draw, `renderedViews` how many node views it rebuilt and
    * `renderedViewsTotal` how many it rebuilt over every one of the `repeat`
    * frames. `repeat` scrolls that many times on consecutive frames; the single
-   * frame numbers are the last frame's.
+   * frame numbers are the last frame's. `intervalMs` waits that long between
+   * the repeats, as a touchpad's events are apart.
    */
   async scroll(
     tag: number,
     dx = 0,
     dy = 0,
     repeat = 1,
+    phase?: 'started' | 'moved' | 'ended',
+    intervalMs = 0,
   ): Promise<{
     drawMs: number;
     renderedViews: number;
@@ -897,6 +1051,8 @@ export class DesktopApp {
       dx,
       dy,
       repeat,
+      phase,
+      intervalMs,
     })) as {
       drawMs?: number;
       renderedViews?: number;

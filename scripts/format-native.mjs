@@ -22,6 +22,7 @@ const excluded = [
   // (the hermes-engine workflow diffs them against upstream).
   'packages/hermes/API/',
   'packages/hermes/include/',
+  'packages/hermes/third_party/',
   'packages/hermes/public/',
   'packages/rn-gpui-tester/ios/',
   'packages/rn-gpui-tester/android/',

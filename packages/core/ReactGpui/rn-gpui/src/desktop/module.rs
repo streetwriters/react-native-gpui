@@ -40,6 +40,13 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
         Ok(super::snapshot_platform())
     }
 
+    fn platform_constants(&self) -> Result<PlatformConstants, ModuleError> {
+        Ok(PlatformConstants {
+            os_version: super::os_version::os_version(),
+            is_testing: super::os_version::is_testing(),
+        })
+    }
+
     fn app_id(&self) -> Result<String, ModuleError> {
         Ok(super::snapshot_app_id())
     }

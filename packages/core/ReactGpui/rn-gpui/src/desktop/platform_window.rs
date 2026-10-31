@@ -12,7 +12,7 @@ mod imp {
     const FLOATING_WINDOW_LEVEL: i64 = 3;
     const NORMAL_WINDOW_LEVEL: i64 = 0;
 
-    fn ns_window(window: &gpui::Window) -> Result<id, String> {
+    pub(crate) fn ns_window(window: &gpui::Window) -> Result<id, String> {
         let handle = HasWindowHandle::window_handle(window)
             .map_err(|error| format!("no platform window handle: {error}"))?;
         match handle.as_raw() {

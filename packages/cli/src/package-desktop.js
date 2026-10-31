@@ -63,6 +63,55 @@ function sharedLibrariesIn(directory, extension) {
 }
 
 /**
+ * The Visual C++ runtime DLLs of the toolset that built the app.
+ *
+ * The engine and JSI are DLLs built with the dynamic runtime and exchange
+ * standard-library objects with the executable (strings, shared pointers,
+ * exceptions), so they have to share one runtime: it cannot be linked statically
+ * into each module. The runtime travels beside the executable instead, which
+ * Microsoft documents as app-local deployment, so a machine without the
+ * Visual C++ Redistributable still starts the app. `VCToolsRedistDir` is set in
+ * a Visual Studio developer prompt; otherwise the installed editions are
+ * searched.
+ */
+export function vcRuntimeLibraries({ arch, env = process.env, roots } = {}) {
+  const folder = (arch ?? process.arch) === 'arm64' ? 'arm64' : 'x64';
+  const candidates = [];
+  if (env.VCToolsRedistDir) {
+    candidates.push(path.join(env.VCToolsRedistDir, folder));
+  }
+  for (const base of roots ?? [env.ProgramFiles, env['ProgramFiles(x86)']]) {
+    if (!base) continue;
+    const studio = path.join(base, 'Microsoft Visual Studio');
+    for (const year of safeList(studio)) {
+      for (const edition of safeList(path.join(studio, year))) {
+        const msvc = path.join(studio, year, edition, 'VC', 'Redist', 'MSVC');
+        for (const version of safeList(msvc).sort().reverse()) {
+          candidates.push(path.join(msvc, version, folder));
+        }
+      }
+    }
+  }
+  for (const directory of candidates) {
+    const crt = safeList(directory).find(name =>
+      /^Microsoft\.VC\d+\.CRT$/iu.test(name),
+    );
+    if (crt === undefined) continue;
+    const dlls = sharedLibrariesIn(path.join(directory, crt), '.dll');
+    if (dlls.length > 0) return dlls;
+  }
+  return [];
+}
+
+function safeList(directory) {
+  try {
+    return fs.readdirSync(directory);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Every runtime library a packaged app must carry.
  *
  * `os` and `arch` are the ones being packaged — Node's `process.platform` and
@@ -128,6 +177,12 @@ export function runtimeLibraries(
     extension,
   })) {
     libraries.add(file);
+  }
+
+  if (platform === 'win32') {
+    for (const file of vcRuntimeLibraries({ arch: architecture })) {
+      libraries.add(file);
+    }
   }
 
   // One file per name. Two paths can supply the same library — the prebuilt cache
@@ -675,6 +730,10 @@ export function toPackagerConfig(config, build) {
     macos.frameworks = libraries;
   }
   config_.macos = macos;
+
+  if ((config.urlSchemes ?? []).length > 0) {
+    config_.deepLinkProtocols = [{ schemes: config.urlSchemes }];
+  }
 
   if (config.bundle.windows.nsis !== undefined) {
     config_.nsis = { installMode: config.bundle.windows.nsis.installMode };

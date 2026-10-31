@@ -7,6 +7,7 @@
  * @format
  */
 
+import { useEffect, useState } from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiWindows from '../specs/NativeGpuiWindows';
 import { nativeRequest } from './index';
@@ -41,6 +42,8 @@ export interface WindowState {
   isFocused: boolean;
   isMinimized: boolean;
   scaleFactor: number;
+  /** How far a transparent title bar reaches into the content, in points. */
+  topInset: number;
 }
 
 export interface OpenWindowOptions {
@@ -245,4 +248,67 @@ export class DesktopWindow {
 
 export function useDesktopWindow(): DesktopWindow {
   return new DesktopWindow(useDesktopWindowId());
+}
+
+function readStateSync(windowId: number): WindowState | null {
+  try {
+    return (
+      (NativeGpuiWindows?.windowGetStateSync(windowId) as WindowState) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The state of a window, kept current as it moves, resizes, changes state,
+ * gains or loses focus. The first render already has real values; `null` only
+ * for a window that is not open.
+ */
+export function useWindowState(windowIdOverride?: number): WindowState | null {
+  const contextId = useDesktopWindowId();
+  const windowId = windowIdOverride ?? contextId;
+  const [state, setState] = useState(() => readStateSync(windowId));
+  useEffect(() => {
+    const refresh = (event: WindowEvent) => {
+      if (event.windowId === windowId) {
+        setState(readStateSync(windowId));
+      }
+    };
+    const subscriptions = (
+      ['focus', 'blur', 'resize', 'move', 'stateChange'] as const
+    ).map(name => DeviceEventEmitter.addListener(EVENT_NAMES[name], refresh));
+    setState(readStateSync(windowId));
+    return () => subscriptions.forEach(subscription => subscription.remove());
+  }, [windowId]);
+  return state;
+}
+
+/** Whether a window has focus. It does not re-render when the window moves. */
+export function useWindowFocus(windowIdOverride?: number): boolean {
+  const contextId = useDesktopWindowId();
+  const windowId = windowIdOverride ?? contextId;
+  const [focused, setFocused] = useState(
+    () => readStateSync(windowId)?.isFocused ?? false,
+  );
+  useEffect(() => {
+    const on = DeviceEventEmitter.addListener(
+      EVENT_NAMES.focus,
+      (event: WindowEvent) => {
+        if (event?.windowId === windowId) setFocused(true);
+      },
+    );
+    const off = DeviceEventEmitter.addListener(
+      EVENT_NAMES.blur,
+      (event: WindowEvent) => {
+        if (event?.windowId === windowId) setFocused(false);
+      },
+    );
+    setFocused(readStateSync(windowId)?.isFocused ?? false);
+    return () => {
+      on.remove();
+      off.remove();
+    };
+  }, [windowId]);
+  return focused;
 }

@@ -235,13 +235,13 @@ export const screens = [
   },
   {
     id: 'native-view',
-    title: 'Native NSView',
+    title: 'Native view',
     group: 'Native modules',
     fixture: 'NativeViewFixture',
   },
   {
     id: 'webview',
-    title: 'Native WKWebView',
+    title: 'Web view',
     group: 'Native modules',
     fixture: 'WebViewFixture',
   },
@@ -270,6 +270,12 @@ export const screens = [
     fixture: 'AccessibilityPropsFixture',
   },
   {
+    id: 'intl',
+    title: 'Intl',
+    group: 'Platform',
+    fixture: 'IntlFixture',
+  },
+  {
     id: 'accessibility-tree',
     title: 'Accessibility semantics',
     group: 'Platform',
@@ -286,6 +292,18 @@ export const screens = [
     title: 'Window dimensions',
     group: 'Platform',
     fixture: 'DimensionsFixture',
+  },
+  {
+    id: 'apis',
+    title: 'Core APIs',
+    group: 'Platform',
+    fixture: 'ApisFixture',
+  },
+  {
+    id: 'core-components',
+    title: 'Core components',
+    group: 'Views',
+    fixture: 'CoreComponentsFixture',
   },
   {
     id: 'core-modules',

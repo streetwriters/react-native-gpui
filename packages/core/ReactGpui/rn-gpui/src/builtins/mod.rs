@@ -1,39 +1,52 @@
 rn_gpui_module::include_specs!();
 
+pub mod activity_indicator;
 pub mod alert;
 pub mod app_menu;
 pub mod clipboard;
 pub mod context_menu;
 pub mod context_menu_view;
 pub mod dev_menu;
+pub mod i18n;
 pub mod image;
 pub mod linking;
 pub mod main_thread;
 pub mod modal;
 pub mod perf_monitor;
 pub mod scrollview;
+pub mod settings;
+pub mod share;
 pub mod shortcut_scope;
 pub mod shortcuts;
+pub mod switch;
+pub(crate) mod text_select;
 pub mod textinput;
 pub mod tray;
+pub mod vibration;
 pub mod window_control;
 pub mod windows;
 
 pub fn register() {
+    activity_indicator::register();
     alert::register();
     app_menu::register();
     clipboard::register();
     context_menu::register();
     context_menu_view::register();
     dev_menu::register();
+    i18n::register();
     image::register();
     linking::register();
     modal::register();
     perf_monitor::register();
     scrollview::register();
+    settings::register();
+    share::register();
     shortcut_scope::register();
     shortcuts::register();
+    switch::register();
     tray::register();
+    vibration::register();
     window_control::register();
     windows::register();
 }

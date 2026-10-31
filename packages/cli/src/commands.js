@@ -1,7 +1,8 @@
 import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { LINUX_LIBRARIES, installCommands } from './doctor.cjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { autolink, npxArgs, npxCommand, npxShell } from './autolink.js';
@@ -42,50 +43,7 @@ export function linuxBuildDependencyProblem(
   systemPkgConfigPath = () => null,
 ) {
   if (platform !== 'linux') return null;
-  // The libraries the app links on Linux (GPUI's keyboard handling over X11).
-  const modules = [
-    {
-      pc: 'xkbcommon',
-      packages: {
-        'Debian/Ubuntu': 'libxkbcommon-dev',
-        Fedora: 'libxkbcommon-devel',
-        Arch: 'libxkbcommon',
-      },
-    },
-    {
-      pc: 'xkbcommon-x11',
-      packages: {
-        'Debian/Ubuntu': 'libxkbcommon-x11-dev',
-        Fedora: 'libxkbcommon-x11-devel',
-        Arch: 'libxkbcommon-x11',
-      },
-    },
-    {
-      pc: 'xcb',
-      packages: {
-        'Debian/Ubuntu': 'libxcb1-dev',
-        Fedora: 'libxcb-devel',
-        Arch: 'libxcb',
-      },
-    },
-  ];
-  const installExamples = packages =>
-    Object.entries(packages)
-      .map(([distribution, name]) => {
-        const manager =
-          distribution === 'Fedora'
-            ? 'dnf'
-            : distribution === 'Arch'
-              ? 'pacman'
-              : 'apt';
-        const command =
-          manager === 'pacman'
-            ? `sudo pacman -S ${name}`
-            : `sudo ${manager} install ${name}`;
-        return `${distribution}: ${command}`;
-      })
-      .join(', ');
-  for (const { pc, packages } of modules) {
+  for (const { pc, packages } of LINUX_LIBRARIES) {
     const result = runPkgConfig(pc);
     if (result === 'missing-pkg-config') {
       return (
@@ -104,7 +62,7 @@ export function linuxBuildDependencyProblem(
       return (
         `Linux build dependency ${pc} was not found. ` +
         `Install your distribution's development package for it ` +
-        `(${installExamples(packages)}). ` +
+        `(${installCommands(packages)}). ` +
         `If pkg-config cannot see the system packages (Linuxbrew or Nix ` +
         `pkg-config first on PATH does this), ${hint}`
       );
@@ -157,6 +115,23 @@ function loadEngineBundle(projectRoot) {
     path.join(path.dirname(platformPackageJson), 'js-engine.js'),
   );
   return activeJsEngineBundle(projectRoot);
+}
+
+function activeEngineName(projectRoot) {
+  const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+  try {
+    const { activeJsEngine } = appRequire(
+      path.join(
+        path.dirname(
+          appRequire.resolve('@react-native-gpui/core/package.json'),
+        ),
+        'js-engine.js',
+      ),
+    );
+    return activeJsEngine(projectRoot)?.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function copyFontAssets(projectRoot, bundlePath, config) {
@@ -737,6 +712,11 @@ export function desktopLaunchConfig(config, configPath) {
     chain.push(`    .traffic_light_position(${asFloat(x)}, ${asFloat(y)})`);
   }
   chain.push(`    .dev_menu(${config.devMenu})`);
+  if ((config.urlSchemes ?? []).length > 0) {
+    const schemes = config.urlSchemes.map(scheme => JSON.stringify(scheme));
+    chain.push(`    .url_schemes(&[${schemes.join(', ')}])`);
+    chain.push(`    .single_instance(${config.singleInstance !== false})`);
+  }
   if (config.tray !== undefined) {
     const tray = config.tray;
     let trayChain = 'TrayConfig::default()';
@@ -798,6 +778,75 @@ const ENV_TYPES_CONTENT = `/// <reference types="@react-native-gpui/core/types" 
 // Added by react-native-gpui. Do not edit: it is regenerated.
 `;
 
+/** The minor of a React Native version or range such as `0.87.1` or `^0.87.0`. */
+export function reactNativeMinor(spec) {
+  const match = /(?:^|[^\d.])0\.(\d+)\.\d+/u.exec(String(spec ?? ''));
+  return match === null ? undefined : Number(match[1]);
+}
+
+/**
+ * The range of our packages that supports the app's React Native minor.
+ *
+ * Our packages are versioned `0.<react-native minor>.<patch>`, so React Native
+ * 0.87 takes `0.87.x`. The prerelease floor lets the alphas satisfy it.
+ */
+export function gpuiVersionRange(projectRoot, packageJson) {
+  let minor = reactNativeMinor(
+    packageJson.dependencies?.['react-native'] ??
+      packageJson.devDependencies?.['react-native'],
+  );
+  if (minor === undefined) {
+    try {
+      const installed = JSON.parse(
+        fs.readFileSync(
+          path.join(projectRoot, 'node_modules/react-native/package.json'),
+          'utf8',
+        ),
+      );
+      minor = reactNativeMinor(installed.version);
+    } catch {
+      // Not installed yet.
+    }
+  }
+  if (minor === undefined) {
+    throw new Error(
+      'Cannot tell which React Native version this app uses. Pin react-native to an exact version such as 0.87.1 in package.json.',
+    );
+  }
+  return `~0.${minor}.0-alpha.0`;
+}
+
+/**
+ * Fails with a readable message when the registry has no release of the core
+ * package for the app's React Native minor. A registry that cannot be reached is
+ * not a failure here: the install that follows reports it.
+ */
+export function assertReleaseExists(range, { registryView = npmView } = {}) {
+  const result = registryView(`@react-native-gpui/core@${range}`);
+  if (result.status !== 0) {
+    if (/E404|404 Not Found/u.test(result.stderr ?? '')) {
+      throw new Error(
+        `@react-native-gpui/core is not published on the registry (looked for ${range}).`,
+      );
+    }
+    return;
+  }
+  if (String(result.stdout ?? '').trim() === '') {
+    const minor = /^~0\.(\d+)\./u.exec(range)?.[1];
+    throw new Error(
+      `No @react-native-gpui/core release supports React Native 0.${minor}. Use a React Native version that has one (the packages follow it: 0.${minor}.x).`,
+    );
+  }
+}
+
+function npmView(spec) {
+  return spawnSync(
+    process.platform === 'win32' ? 'npm.cmd' : 'npm',
+    ['view', spec, 'version', '--json'],
+    { encoding: 'utf8', shell: process.platform === 'win32' },
+  );
+}
+
 export function scaffoldDesktop(
   projectRoot,
   packageJson,
@@ -844,8 +893,7 @@ export function scaffoldDesktop(
   if (typeof appConfig.name !== 'string' || appConfig.name.length === 0) {
     throw new Error(`app.json must define a nonempty name: ${appConfigPath}`);
   }
-  // Every launch setting comes from `desktop/desktop.json`; `app.json`'s old
-  // `desktop` key is rejected by the loader with a pointer to the new file.
+  // Every launch setting comes from `desktop/desktop.json`.
   const launchConfig = desktopLaunchConfig(
     loadDesktopConfig(projectRoot, process.platform),
     path.join(projectRoot, 'desktop/desktop.json'),
@@ -858,14 +906,15 @@ export function scaffoldDesktop(
     }
   }
 
+  const range = gpuiVersionRange(projectRoot, packageJson);
   const updatedPackageJson = {
     ...packageJson,
     dependencies: {
       ...packageJson.dependencies,
       '@react-native-gpui/core':
-        packageJson.dependencies?.['@react-native-gpui/core'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/core'] ?? range,
       '@react-native-gpui/hermes':
-        packageJson.dependencies?.['@react-native-gpui/hermes'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/hermes'] ?? range,
       // `rn-gpui-module-build` resolves its spec generator from the app
       // (`require.resolve('@react-native-gpui/codegen/generate-rust-spec')` with
       // the crate directory as the search path), so the app must depend on it
@@ -873,7 +922,7 @@ export function scaffoldDesktop(
       // entry goes unnoticed; an app installed from the registry fails with
       // "Cannot find module '@react-native-gpui/codegen/generate-rust-spec'".
       '@react-native-gpui/codegen':
-        packageJson.dependencies?.['@react-native-gpui/codegen'] ?? '^0.1.0',
+        packageJson.dependencies?.['@react-native-gpui/codegen'] ?? range,
     },
     scripts: {
       ...packageJson.scripts,
@@ -885,9 +934,9 @@ export function scaffoldDesktop(
       ...packageJson.devDependencies,
       vitest: packageJson.devDependencies?.vitest ?? '^3.2.4',
       '@react-native-gpui/testing':
-        packageJson.devDependencies?.['@react-native-gpui/testing'] ?? '^0.1.0',
+        packageJson.devDependencies?.['@react-native-gpui/testing'] ?? range,
       '@react-native-gpui/cli':
-        packageJson.devDependencies?.['@react-native-gpui/cli'] ?? '^0.1.0',
+        packageJson.devDependencies?.['@react-native-gpui/cli'] ?? range,
     },
   };
   return updatedPackageJson;
@@ -939,6 +988,7 @@ export function initDesktop({
     );
 
     if (!skipInstall) {
+      assertReleaseExists(gpuiVersionRange(projectRoot, packageJson));
       const manager = fs.existsSync(path.join(projectRoot, 'pnpm-lock.yaml'))
         ? 'pnpm'
         : fs.existsSync(path.join(projectRoot, 'yarn.lock'))
@@ -1008,7 +1058,7 @@ export function initDesktop({
       );
     }
     console.log(
-      `Added GPUI desktop support to ${projectRoot}. Run npx react-native run-desktop.`,
+      `Added desktop support to ${projectRoot}. Run npx react-native run-desktop.`,
     );
   } catch (error) {
     removeNewFiles(
@@ -1087,7 +1137,7 @@ export function initProject({ appName, destination, initArgs = [] }) {
       path.join(destination, 'App.tsx'),
     );
     console.log(
-      `Created standard React Native project ${appName} (iOS, Android, and GPUI desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`,
+      `Created standard React Native project ${appName} (iOS, Android and desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`,
     );
   } catch (error) {
     fs.rmSync(destination, { recursive: true, force: true });
@@ -1270,7 +1320,7 @@ export function createLibrary({
       : 'implement methods defined by its generated spec.';
   fs.writeFileSync(
     path.join(destination, 'README.md'),
-    `# ${libraryName}\n\n${language} TurboModule library for React Native GPUI. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in ${implementation} and is discovered through package metadata. Import the default export from ${packageName} and ${description}\n`,
+    `# ${libraryName}\n\n${language} TurboModule library for React Native on desktop. The spec is in src/${specName}.ts and uses React Native's public TurboModuleRegistry API. The implementation is in ${implementation} and is discovered through package metadata. Import the default export from ${packageName} and ${description}\n`,
   );
   console.log(
     `Created ${type} TurboModule library ${packageName} in ${destination}. Install/link it in a React Native app, then run npx react-native run-desktop.`,
@@ -1402,13 +1452,6 @@ export function collectNodeAddons({
   return { copied, out: outDirectory };
 }
 
-/// The first four bytes of a Hermes bytecode file.
-///
-/// Hermes identifies its output by content, and React Native's loader does too:
-/// the file extension is not consulted, which is why a `.bundle` holding
-/// bytecode works. The magic is `c6 1f bc 03`, followed by the version.
-const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03]);
-
 /**
  * Strip the symbol table from the release binary, once its debug info is safe.
  *
@@ -1437,11 +1480,16 @@ function stripReleaseBinary({ crateDir, binaryName }) {
  * Copy the bundle a release should ship to `desktop/build/package/index.bundle`.
  *
  * One name, one file, and the content is whatever the engine produced. A
- * Hermes build ships bytecode; a JavaScript-only engine ships JavaScript under
- * the same name, with one line saying so. The name never varies, so the runtime
+ * compiling engine ships its bytecode; a JavaScript-only engine ships JavaScript
+ * under the same name, with one line saying so. The name never varies, so the runtime
  * has nothing to guess and `Resources/` holds exactly one bundle.
  */
-function stageBundle({ projectRoot, build }) {
+export function stageBundle({
+  projectRoot,
+  build,
+  engine = loadEngineBundle(projectRoot),
+  engineName = activeEngineName(projectRoot),
+}) {
   const packageDir = path.join(projectRoot, 'desktop', 'build', 'package');
   fs.mkdirSync(packageDir, { recursive: true });
   const staged = path.join(packageDir, 'index.bundle');
@@ -1453,28 +1501,31 @@ function stageBundle({ projectRoot, build }) {
   }
   fs.copyFileSync(source, staged);
 
-  const head = Buffer.alloc(HERMES_MAGIC.length);
+  if (!engine || typeof engine.compile !== 'function') {
+    console.log(
+      'packaging a JavaScript bundle: the active engine has no compiler',
+    );
+    return staged;
+  }
+
+  // The engine declares how its output is recognised; without a declaration the
+  // output of `compile()` is trusted.
+  const magic = engine.bytecodeMagic;
+  if (!Buffer.isBuffer(magic) || magic.length === 0) return staged;
+
+  const head = Buffer.alloc(magic.length);
   const fd = fs.openSync(staged, 'r');
   try {
-    fs.readSync(fd, head, 0, HERMES_MAGIC.length, 0);
+    fs.readSync(fd, head, 0, magic.length, 0);
   } finally {
     fs.closeSync(fd);
   }
-  if (head.equals(HERMES_MAGIC)) return staged;
-
-  // Not bytecode. That is correct for a JavaScript-only engine and a packaging
-  // mistake with Hermes, so the two are told apart by whether the engine claims
-  // to compile at all.
-  const engine = loadEngineBundle(projectRoot);
-  if (engine && typeof engine.compile === 'function') {
+  if (!head.equals(magic)) {
     throw new Error(
-      `the Hermes engine did not produce bytecode: ${source} starts with ` +
-        `${JSON.stringify(head.toString('latin1'))}, not the Hermes magic`,
+      `the ${engineName ?? 'JS'} engine did not produce bytecode: ${source} starts with ` +
+        `${JSON.stringify(head.toString('latin1'))}, not the engine's bytecode magic`,
     );
   }
-  console.log(
-    'packaging a JavaScript bundle: the active engine compiles to bytecode only with Hermes',
-  );
   return staged;
 }
 
@@ -1528,8 +1579,7 @@ export async function packageDesktop({
     packaging: true,
   });
   // What the release ships: one bundle, always named `index.bundle`, holding
-  // whatever the engine compiled the JavaScript into. React Native's own release
-  // builds do the same — an iOS `main.jsbundle` is bytecode when Hermes is on.
+  // whatever the engine compiled the JavaScript into.
   const shippedBundle = stageBundle({ projectRoot, build });
 
   const crateDir = path.join(projectRoot, 'desktop');

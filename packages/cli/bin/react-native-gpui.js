@@ -11,6 +11,7 @@ import {
   runDesktop,
 } from '../src/commands.js';
 import { autolink } from '../src/autolink.js';
+import { doctor } from '../src/doctor.cjs';
 const requestedCommand = process.argv[2];
 const command = requestedCommand === 'run-desktop' ? 'run' : requestedCommand;
 const option = name => {
@@ -28,6 +29,10 @@ if (hasFlag('--help') || hasFlag('-h')) {
     'usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release] [--features feature,...] [--no-launch]',
   );
   process.exit(0);
+}
+
+if (command === 'doctor' || command === 'doctor-desktop') {
+  process.exit(doctor());
 }
 
 if (command === 'init-desktop') {
@@ -73,7 +78,7 @@ if (
   )
 ) {
   console.error(
-    'usage: react-native-gpui <init|init-desktop|create-library|autolink|bundle|collect-node-addons|package-desktop|prebuilt|run> [options]',
+    'usage: react-native-gpui <init|init-desktop|doctor|create-library|autolink|bundle|collect-node-addons|package-desktop|prebuilt|run> [options]',
   );
   process.exit(2);
 }

@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/core",
-  "version": "0.1.0",
+  "version": "0.87.0-alpha.0",
   "description": "React Native platform powered by GPUI. Desktop React Native for macOS, Windows and Linux with one GPU-accelerated renderer.",
   "main": "index.desktop.js",
   "files": [
@@ -11,9 +11,8 @@
     "types.d.ts",
     "babel-plugin-node-addons.js",
     "polyfills",
-    "NativeViewHost.tsx",
-    "NativeViewHostNativeComponent.ts",
     "metro.config.js",
+    "metro-babel-transformer.js",
     "metro-transform-worker.js",
     "setup-env.js",
     "src-gpui",
@@ -41,22 +40,25 @@
     "scripts/generate-prebuilt-inputs.mjs",
     "scripts/check-standalone-cmake.mjs",
     "scripts/check-prebuilt-pin.mjs",
-    "prebuilt-binaries.json",
     "ReactGpui/rn-gpui-module/Cargo.toml",
     "ReactGpui/rn-gpui-module/src",
     "ReactGpui/rn-gpui-module/tests",
     "ReactGpui/rn-gpui-module-build/Cargo.toml",
-    "ReactGpui/rn-gpui-module-build/src"
+    "ReactGpui/rn-gpui-module-build/src",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*.test.cjs"
   ],
   "scripts": {
     "prepublishOnly": "node scripts/check-prebuilt-pin.mjs"
   },
   "peerDependencies": {
     "react": "19.2.3",
-    "react-native": "0.87.1"
+    "react-native": "0.87.x"
   },
   "dependencies": {
-    "@react-native-gpui/codegen": "0.1.0"
+    "@react-native-gpui/codegen": "0.87.0-alpha.0"
   },
   "keywords": [
     "react-native",
@@ -70,5 +72,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/streetwriters/react-native-gpui"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
   }
 }

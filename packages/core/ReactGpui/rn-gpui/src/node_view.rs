@@ -54,21 +54,26 @@ pub struct RNNodeView {
     hovered: bool,
     pub surface_id: i32,
     pub component: String,
-    pub native_view_name: String,
-    pub native_view_props: String,
     /// Whether this node's own content is composited by the OS rather than
     /// painted by GPUI. Decided once, when the node is created, from its
-    /// registry entry; only a `NativeViewHost` can change it later, when an
-    /// update gives it a factory name.
+    /// registry entry.
     pub(crate) renders_native_surface: bool,
     /// How many nodes in this subtree render a native surface, this node
     /// included.
     pub(crate) native_surface_descendants: u32,
     /// Whether this node's contribution has been added to its ancestors.
     pub(crate) native_surface_counted: bool,
+    /// How many nodes in this subtree are painted as a group of their own
+    /// (see `forms_effect_group`), this node included. A scroll container
+    /// holding one does not cache its content as a layer.
+    pub(crate) effect_group_descendants: u32,
+    /// Whether this node counts itself in `effect_group_descendants`.
+    forms_effect_group: bool,
     extension_props_json: String,
     extension_props: std::sync::Arc<serde_json::Value>,
-    native_view_host: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
+    /// The composition surface hosting the OS view of a `nativeSurface`
+    /// component, created when the node is first painted.
+    native_surface: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
     /// The host component rendering this node, when its op carried a registry
     /// index. Created on the main thread when the node is mounted, and the only
     /// thing about the component this node ever looks up: from here on it is a
@@ -95,6 +100,7 @@ pub struct RNNodeView {
     pub view: ViewPropsFlat,
     animated_transform: Option<[f32; 16]>,
     animated_background_color: Option<u32>,
+    gradient_cache: Option<GradientCache>,
     animated_text_color: Option<u32>,
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
@@ -104,9 +110,22 @@ pub struct RNNodeView {
     pub(crate) input_selection_color: u32,
     pub input_multiline: bool,
     pub input_editable: bool,
+    pub(crate) input_placeholder_color: u32,
+    pub(crate) input_caret_hidden: bool,
+    pub(crate) input_select_on_focus: bool,
+    pub(crate) input_submit_behavior: crate::builtins::textinput::input::SubmitBehavior,
+    pub(crate) input_max_length: usize,
+    pub(crate) input_context_menu_hidden: bool,
+    /// Until when a click selects all, because it is the one that focused the input.
+    pub(crate) input_select_all_until: Option<std::time::Instant>,
     pub(crate) input_secure_text: bool,
     pub input_selection: std::ops::Range<usize>,
     pub(crate) input_scroll_x: f32,
+    pub(crate) input_scroll_y: f32,
+    pub(crate) text_selection: std::ops::Range<usize>,
+    pub(crate) scroll_gesture: Rc<std::cell::RefCell<ScrollGesture>>,
+    pub(crate) text_selection_anchor: Option<usize>,
+    pub(crate) input_content_size: (f32, f32),
     pub(crate) input_selection_anchor: Option<usize>,
     pub input_marked: Option<std::ops::Range<usize>>,
     pub input_event_count: i32,
@@ -122,6 +141,13 @@ pub struct RNNodeView {
     pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
     scroll_sync_generation: Rc<Cell<u64>>,
+    /// Whether Fabric's copy of the offset is behind the node's own.
+    scroll_sync_pending: Rc<Cell<bool>>,
+    /// The mode `onModeChange` last reported, for a `VirtualView`.
+    pub(crate) virtual_view_mode: Cell<Option<i32>>,
+    /// When the last scroll event went out, and whether one is waiting for the
+    /// throttle to pass.
+    scroll_emit: Rc<ScrollEmit>,
     scroll_handle: gpui::ScrollHandle,
     scroll_handle_stale: bool,
     pub focusable: bool,
@@ -142,7 +168,7 @@ static A11Y_TREE_DUMP_COMPLETE: AtomicBool = AtomicBool::new(false);
 static A11Y_TREE_DUMP_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 
 /// The DOM view of the modifiers held during an event.
-fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
+pub(crate) fn modifier_state(modifiers: gpui::Modifiers) -> crate::events::ModifierState {
     crate::events::ModifierState::from_gpui(&modifiers)
 }
 
@@ -249,6 +275,13 @@ fn dispatch_right_press(
     )
     .is_some()
     {
+        let shown =
+            crate::builtins::textinput::input::show_text_menu(&entity, event.position, window, cx)
+                || crate::builtins::text_select::show_menu(&entity, event.position, window, cx);
+        if shown {
+            cx.stop_propagation();
+            return;
+        }
         if let Some(owner) = owner {
             // A component that asked for context menus owns the press and renders
             // its own; a `View` with the prop dispatches to JS. The hook has to be
@@ -408,9 +441,6 @@ fn dispatch_context_menu(
 
 /// Whether a newly created node's own content is composited by the OS.
 fn renders_native_surface_for_op(op: &MountOp) -> bool {
-    if op.component == "NativeViewHost" {
-        return !op.native_view_name.is_empty();
-    }
     if op.host_index >= 0 && crate::host_component::renders_native_surface(op.host_index as u32) {
         return true;
     }
@@ -458,9 +488,6 @@ impl RNNodeView {
         cx: &mut Context<Self>,
     ) {
         if self.component != "TextInput" {
-            return;
-        }
-        if focus && !self.input_editable {
             return;
         }
         let Some(handle) = self.focus_handle.as_ref().cloned() else {
@@ -821,16 +848,16 @@ impl RNNodeView {
             hovered: false,
             surface_id,
             component: op.component.clone(),
-            native_view_name: op.native_view_name.clone(),
-            native_view_props: op.native_view_props.clone(),
             extension_props_json: op.extension_props_json.clone(),
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
-            native_view_host: None,
+            native_surface: None,
             renders_native_surface,
             native_surface_descendants: u32::from(renders_native_surface),
             native_surface_counted: false,
+            effect_group_descendants: 0,
+            forms_effect_group: false,
             host_component,
             host_index: op.host_index,
             host_container,
@@ -855,6 +882,7 @@ impl RNNodeView {
             view: op.view.clone(),
             animated_transform: None,
             animated_background_color: None,
+            gradient_cache: None,
             animated_text_color: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
@@ -871,9 +899,23 @@ impl RNNodeView {
                 .unwrap_or(0xff000000),
             input_multiline: text_input.multiline,
             input_editable: text_input.editable,
+            input_placeholder_color: crate::builtins::textinput::input::placeholder_color(
+                text_input.placeholder_color,
+            ),
+            input_caret_hidden: text_input.caret_hidden,
+            input_select_on_focus: text_input.select_on_focus,
+            input_submit_behavior: text_input.submit_behavior,
+            input_max_length: text_input.max_length,
+            input_context_menu_hidden: text_input.context_menu_hidden,
+            input_select_all_until: None,
             input_secure_text: text_input.secure,
             input_selection: 0..0,
             input_scroll_x: 0.0,
+            input_scroll_y: 0.0,
+            text_selection: 0..0,
+            scroll_gesture: Rc::default(),
+            text_selection_anchor: None,
+            input_content_size: (0.0, 0.0),
             input_selection_anchor: None,
             input_marked: None,
             input_event_count: 0,
@@ -891,6 +933,9 @@ impl RNNodeView {
             ),
             scroll_indicator: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
+            scroll_sync_pending: Rc::new(Cell::new(false)),
+            virtual_view_mode: Cell::new(None),
+            scroll_emit: Rc::default(),
             scroll_handle: gpui::ScrollHandle::new(),
             scroll_handle_stale: true,
             focusable: op.view.focusable || op.component == "TextInput",
@@ -913,27 +958,83 @@ impl RNNodeView {
             );
             view.sync_input_paragraph();
         }
+        view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
+        view.sync_effect_group();
         view
     }
 
+    /// The gradients of `backgroundImage`, painted in the node's box.
+    fn gradient_element(&mut self, frame: RectF, scale: (f32, f32)) -> Option<AnyElement> {
+        let json = &self.view.background_json;
+        if json.is_empty() {
+            self.gradient_cache = None;
+            return None;
+        }
+        let size = (
+            (frame.w * 10.0).round() as u32,
+            (frame.h * 10.0).round() as u32,
+        );
+        let stale = self
+            .gradient_cache
+            .as_ref()
+            .is_none_or(|cache| cache.json != *json || cache.size != size);
+        if stale {
+            let image = crate::gradient::Background::parse(json).map(|background| {
+                let (width, height, mut bytes) =
+                    background.render(frame.w, frame.h, GRADIENT_RASTER_LIMIT);
+                for pixel in bytes.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                let buffer = image::RgbaImage::from_raw(width, height, bytes);
+                buffer.map(|buffer| {
+                    std::sync::Arc::new(gpui::RenderImage::new(vec![image::Frame::new(buffer)]))
+                })
+            });
+            self.gradient_cache = Some(GradientCache {
+                json: json.clone(),
+                size,
+                image: image.flatten(),
+            });
+        }
+        let image = self.gradient_cache.as_ref()?.image.clone()?;
+        let radii = self.view.border_radii;
+        let corners = gpui::Corners {
+            top_left: px(radii.tl * scale.0),
+            top_right: px(radii.tr * scale.0),
+            bottom_right: px(radii.br * scale.0),
+            bottom_left: px(radii.bl * scale.0),
+        };
+        Some(
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, (), window, _cx| {
+                    let _ = window.paint_image(bounds, bounds, corners, image.clone(), 0, false);
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .into_any_element(),
+        )
+    }
+
+    /// A switch reports whether it is on, which RN's `Switch` does not put in
+    /// `accessibilityState` on iOS and so on desktop.
+    fn apply_switch_state(&mut self) {
+        if self.component != "Switch" {
+            return;
+        }
+        let on = self
+            .extension_props
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        self.view.accessibility_checked = if on { 2 } else { 1 };
+    }
+
     pub fn update_from_op(&mut self, op: &MountOp) {
-        if self.native_view_name != op.native_view_name
-            || self.native_view_props != op.native_view_props
-        {
-            self.native_view_name.clone_from(&op.native_view_name);
-            self.native_view_props.clone_from(&op.native_view_props);
-            self.native_view_host = None;
-        }
-        if self.component == "NativeViewHost" {
-            let renders = !self.native_view_name.is_empty();
-            if renders != self.renders_native_surface {
-                self.renders_native_surface = renders;
-                self.native_surface_descendants = self
-                    .native_surface_descendants
-                    .saturating_add_signed(if renders { 1 } else { -1 });
-            }
-        }
         self.frame = if crate::extensions::component_portal(
             &op.component,
             &crate::extensions::parse_extension_props(&op.extension_props_json),
@@ -950,7 +1051,10 @@ impl RNNodeView {
         };
         if op.props_changed {
             self.view = op.view.clone();
-            self.focusable = op.view.focusable || self.component == "TextInput";
+            self.focusable = op.view.focusable
+                || self.component == "TextInput"
+                || crate::extensions::component_renderer(&self.component)
+                    .is_some_and(|renderer| renderer.focusable_by_default());
             if !self.focusable {
                 self.focus_handle = None;
                 self.focus_subscriptions.clear();
@@ -980,6 +1084,7 @@ impl RNNodeView {
                 previous.horizontal = next.horizontal;
                 previous.enabled = next.enabled;
                 previous.indicator = next.indicator;
+                previous.snap = next.snap;
             } else {
                 self.scroll = Some(next);
             }
@@ -993,6 +1098,7 @@ impl RNNodeView {
                 &self.extension_props_json,
             ));
         }
+        self.apply_switch_state();
     }
 
     /// Creates the host component an op names by registry index, if it names
@@ -1065,6 +1171,48 @@ impl RNNodeView {
         let cx = crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
         crate::counters::bump(crate::counters::Counter::HostUpdateCalls);
         component.update(props, &changed, cx);
+        if let Some(surface) = &self.native_surface {
+            let cx =
+                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+            component.update_view(surface.view(), &changed, cx);
+        }
+    }
+
+    /// Creates the OS view of a `nativeSurface` component the first time the
+    /// node is painted, and shows or hides its composition surface with the node.
+    fn show_native_surface(&mut self, visible: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.renders_native_surface {
+            return;
+        }
+        if self.native_surface.is_none() && visible {
+            let Some(component) = self.host_component.as_mut() else {
+                return;
+            };
+            let host_cx =
+                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
+            let created =
+                crate::native_surface::NativeSurface::new(window, cx).and_then(|surface| {
+                    let view = component.create_view(&surface.parent(), window, host_cx)?;
+                    surface.attach(view)?;
+                    Ok(surface)
+                });
+            match created {
+                Ok(surface) => {
+                    self.native_surface = Some(std::rc::Rc::new(surface));
+                    self.notify_ancestors(cx);
+                }
+                Err(error) => log::error!(
+                    "[native-view] tag {} ({}) initialization failed: {error:#}",
+                    self.tag,
+                    self.component
+                ),
+            }
+        }
+        if let Some(surface) = &self.native_surface {
+            if let Err(error) = surface.set_visible(visible) {
+                log::error!("[native-view] tag {} visibility: {error:#}", self.tag);
+            }
+        }
     }
 
     pub(crate) fn set_parent(&mut self, parent: Option<WeakEntity<RNNodeView>>, tag: Option<i32>) {
@@ -1083,6 +1231,160 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
+    /// Asks every ancestor to render again, so that what they paint after this
+    /// node reads its new composition surface.
+    fn notify_ancestors(&self, cx: &mut Context<Self>) {
+        let mut parent = self.parent.as_ref().and_then(|parent| parent.upgrade());
+        while let Some(entity) = parent {
+            entity.update(cx, |_, cx| cx.notify());
+            parent = entity
+                .read(cx)
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.upgrade());
+        }
+    }
+
+    /// The GPUI surface that what is painted after this subtree belongs on, when
+    /// the subtree hosts a native view: the surface above its last one.
+    fn surface_after(&self, cx: &App) -> Option<gpui::CompositionSurfaceId> {
+        if let Some(surface) = &self.native_surface {
+            return Some(surface.above());
+        }
+        if self.native_surface_descendants == 0 {
+            return None;
+        }
+        self.children
+            .iter()
+            .rev()
+            .find_map(|(_, child)| child.read(cx).surface_after(cx))
+    }
+
+    /// The children as elements, those painted after a native view moved onto
+    /// the surface above it so that they cover it.
+    fn child_elements(
+        children: &[(i32, Entity<RNNodeView>)],
+        has_native: bool,
+        cx: &App,
+    ) -> Vec<AnyElement> {
+        let mut above = None;
+        children
+            .iter()
+            .map(|(_, child)| {
+                let element = child.clone().into_any_element();
+                let element = match above {
+                    Some(surface) => {
+                        crate::native_surface::OnSurface::new(element, surface).into_any_element()
+                    }
+                    None => element,
+                };
+                if has_native {
+                    above = child.read(cx).surface_after(cx).or(above);
+                }
+                element
+            })
+            .collect()
+    }
+
+    /// The composition surface hosting this node's OS view, once painted.
+    #[cfg(feature = "test-driver")]
+    pub(crate) fn native_surface(&self) -> Option<&crate::native_surface::NativeSurface> {
+        self.native_surface.as_deref()
+    }
+
+    /// Whether a scroll container holding this node cannot cache its content
+    /// as a layer: the node is painted as a group of its own, which a layer's
+    /// tiles do not draw.
+    pub(crate) fn subtree_forms_effect_group(&self) -> bool {
+        self.effect_group_descendants > 0
+    }
+
+    /// Whether this node's props make its content a group of its own: a
+    /// translucent view, a blur or drop shadow, a blend mode or isolation.
+    fn props_form_effect_group(&self) -> bool {
+        self.view.opacity < 1.0
+            || self.view.mix_blend_mode != 0
+            || self.view.isolate
+            || self.view.filter_json.contains("\"blur\"")
+            || self.view.filter_json.contains("\"dropShadow\"")
+    }
+
+    /// Brings this node's own count in line with its props, and returns the
+    /// change in the subtree's count.
+    pub(crate) fn sync_effect_group(&mut self) -> i64 {
+        let forms = self.props_form_effect_group();
+        if forms == self.forms_effect_group {
+            return 0;
+        }
+        self.forms_effect_group = forms;
+        if forms {
+            self.effect_group_descendants += 1;
+            1
+        } else {
+            self.effect_group_descendants = self.effect_group_descendants.saturating_sub(1);
+            -1
+        }
+    }
+
+    pub(crate) fn add_effect_group_descendants(&mut self, delta: u32) -> bool {
+        let before = self.effect_group_descendants;
+        self.effect_group_descendants = before.saturating_add(delta);
+        before == 0 && self.effect_group_descendants != 0
+    }
+
+    pub(crate) fn sub_effect_group_descendants(&mut self, delta: u32) -> bool {
+        let before = self.effect_group_descendants;
+        self.effect_group_descendants = before.saturating_sub(delta);
+        before != 0 && self.effect_group_descendants == 0
+    }
+
+    /// Hands Fabric the scroll offset it has not been given yet, so that a
+    /// measurement taken now is in the window's coordinates.
+    pub(crate) fn flush_scroll_state(&self, host: &crate::host::Host) {
+        if self.scroll_sync_pending.replace(false) {
+            let offset = self.scroll_position.get();
+            host.set_scroll_offset(self.tag, offset.x, offset.y);
+        }
+    }
+
+    /// Where this view lies in the content of the scroll view around it, that
+    /// scroll view's viewport in the same space, and whether it scrolls
+    /// sideways; `None` when no scroll view is around it.
+    pub(crate) fn virtual_view_geometry(
+        &self,
+        cx: &App,
+    ) -> Option<(crate::virtual_view::Rect, crate::virtual_view::Rect, bool)> {
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let node = weak.upgrade()?;
+            let node = node.read(cx);
+            if let Some(scroll) = &node.scroll {
+                let offset = node.scroll_position.get();
+                let (x, y) = (
+                    self.inherited.origin_unscrolled.0 - node.inherited.origin_unscrolled.0,
+                    self.inherited.origin_unscrolled.1 - node.inherited.origin_unscrolled.1,
+                );
+                return Some((
+                    crate::virtual_view::Rect {
+                        x,
+                        y,
+                        w: self.frame.w,
+                        h: self.frame.h,
+                    },
+                    crate::virtual_view::Rect {
+                        x: offset.x,
+                        y: offset.y,
+                        w: node.frame.w,
+                        h: node.frame.h,
+                    },
+                    scroll.horizontal,
+                ));
+            }
+            parent = node.parent.clone();
+        }
+        None
+    }
+
     pub(crate) fn subtree_renders_native_surface(&self) -> bool {
         self.native_surface_descendants > 0
     }
@@ -1122,15 +1424,42 @@ impl RNNodeView {
         if self.animated_transform.is_none() && !self.view.has_transform {
             return (1.0, 1.0, 0.0, 0.0);
         }
+        // GPUI draws the node's subtree under its matrix, so layout, borders,
+        // text and scroll offsets below it stay in unscaled units.
+        (1.0, 1.0, 0.0, 0.0)
+    }
+
+    /// `backfaceVisibility: 'hidden'` while the node is turned to face away.
+    fn backface_hidden(&self) -> bool {
+        self.view.backface_hidden
+            && (self.animated_transform.is_some() || self.view.has_transform)
+            && crate::transform::faces_away(&self.animated_transform.unwrap_or(self.view.transform))
+    }
+
+    /// The matrix GPUI draws this node's subtree under.
+    fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
+        if self.animated_transform.is_none() && !self.view.has_transform {
+            return None;
+        }
         let m = self.animated_transform.unwrap_or(self.view.transform);
-        let (scale_x, scale_y, translate_x, translate_y) = axis_aligned_transform(&m);
-        if has_unsupported_subtree_transform(&m) {
-            log::trace!(
-                "[transform] tag={} has rotation/skew/perspective; GPUI subtree transform spike is not supported",
+        if crate::transform::is_three_dimensional(&m) {
+            log::debug!(
+                "[transform] tag={} has perspective or a turn about x or y; drawn flat",
                 self.tag
             );
         }
-        (scale_x, scale_y, translate_x, translate_y)
+        let mut matrix = crate::transform::affine(&m)?;
+        matrix.translation[0] *= scale.0;
+        matrix.translation[1] *= scale.1;
+        if !self.view.transform_origin_set {
+            // Without a `transformOrigin` a view turns about its centre.
+            matrix = gpui::TransformationMatrix::about(
+                self.frame.w * scale.0 / 2.0,
+                self.frame.h * scale.1 / 2.0,
+                matrix,
+            );
+        }
+        Some(matrix)
     }
 
     pub(crate) fn stable_paint_tree<'a>(&'a self, cx: &'a App) -> crate::extensions::TreeView<'a> {
@@ -1277,6 +1606,69 @@ impl RNNodeView {
         let (x, y) = accumulate_origin(&chain);
         let (surface_x, surface_y) = self.surface_origin.get();
         point(px(x + surface_x), px(y + surface_y))
+    }
+
+    /// The inverse of every matrix GPUI draws this node under, outermost
+    /// first, each about its node's origin. Applying them in order maps a point
+    /// of the window into the space the layout (and `absolute_origin`) uses.
+    pub(crate) fn transform_inverses(&self, cx: &App) -> Vec<gpui::TransformationMatrix> {
+        let mut inverses = Vec::new();
+        let mut push = |node: &RNNodeView| {
+            if let Some(matrix) = node.gpui_transform(node.inherited.parent_scale) {
+                let origin = node.absolute_origin(cx);
+                let about = gpui::TransformationMatrix::about(
+                    f32::from(origin.x),
+                    f32::from(origin.y),
+                    matrix,
+                );
+                if let Some(inverse) = about.inverse() {
+                    inverses.push(inverse);
+                }
+            }
+        };
+        push(self);
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let Some(node) = weak.upgrade() else { break };
+            let node = node.read(cx);
+            push(node);
+            parent = node.parent.clone();
+        }
+        inverses.reverse();
+        inverses
+    }
+
+    /// Where the window shows `rect` (in layout space): the bounds of its
+    /// corners under every matrix GPUI draws this node under.
+    pub(crate) fn transformed_bounds(
+        &self,
+        cx: &App,
+        rect: (f32, f32, f32, f32),
+    ) -> (f32, f32, f32, f32) {
+        let inverses = self.transform_inverses(cx);
+        if inverses.is_empty() {
+            return rect;
+        }
+        let forwards: Vec<_> = inverses
+            .iter()
+            .rev()
+            .filter_map(|inverse| inverse.inverse())
+            .collect();
+        let (x, y, w, h) = rect;
+        let corners = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].map(|(cx_, cy)| {
+            forwards
+                .iter()
+                .fold(point(px(cx_), px(cy)), |p, m| m.transform_logical_point(p))
+        });
+        let xs = corners.map(|p| f32::from(p.x));
+        let ys = corners.map(|p| f32::from(p.y));
+        let (min_x, max_x) = xs
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        let (min_y, max_y) = ys
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        (min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
     pub(crate) fn cumulative_scale(&self, _cx: &App) -> (f32, f32) {
@@ -1794,27 +2186,6 @@ fn accumulate_origin(chain: &[OriginStep]) -> (f32, f32) {
     (x, y)
 }
 
-fn axis_aligned_transform(matrix: &[f32; 16]) -> (f32, f32, f32, f32) {
-    if matrix.iter().any(|value| !value.is_finite()) {
-        return (1.0, 1.0, 0.0, 0.0);
-    }
-    (matrix[0], matrix[5], matrix[12], matrix[13])
-}
-
-fn has_unsupported_subtree_transform(matrix: &[f32; 16]) -> bool {
-    matrix.iter().any(|value| !value.is_finite())
-        || [
-            matrix[1], matrix[2], matrix[3], matrix[4], matrix[6], matrix[7], matrix[8], matrix[9],
-            matrix[11], matrix[14],
-        ]
-        .into_iter()
-        .any(|value| value.abs() > 0.0001)
-        || matrix[0] < 0.0
-        || matrix[5] < 0.0
-        || (matrix[10] - 1.0).abs() > 0.0001
-        || (matrix[15] - 1.0).abs() > 0.0001
-}
-
 thread_local! {
     /// How many node copies a `TreeView` has taken, for the test that guards
     /// against copying the whole tree once per mount operation.
@@ -1836,59 +2207,7 @@ pub(crate) fn snapshot_count() -> usize {
 
 #[cfg(test)]
 mod transform_matrix_tests {
-    use super::{
-        accumulate_origin, axis_aligned_transform, has_unsupported_subtree_transform, OriginStep,
-    };
-
-    fn identity() -> [f32; 16] {
-        [
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-        ]
-    }
-
-    #[test]
-    fn axis_aligned_matrix_keeps_translation_and_nonuniform_scale() {
-        let mut matrix = identity();
-        matrix[0] = 1.5;
-        matrix[5] = 0.75;
-        matrix[12] = 12.0;
-        matrix[13] = -3.0;
-
-        assert_eq!(axis_aligned_transform(&matrix), (1.5, 0.75, 12.0, -3.0));
-        assert!(!has_unsupported_subtree_transform(&matrix));
-    }
-
-    #[test]
-    fn rotation_is_flagged_for_the_documented_gpui_spike() {
-        let mut matrix = identity();
-        matrix[0] = 0.0;
-        matrix[1] = 1.0;
-        matrix[4] = -1.0;
-        matrix[5] = 0.0;
-
-        assert!(has_unsupported_subtree_transform(&matrix));
-    }
-
-    #[test]
-    fn reflection_and_perspective_are_flagged() {
-        let mut reflection = identity();
-        reflection[0] = -1.0;
-        assert!(has_unsupported_subtree_transform(&reflection));
-
-        for perspective_index in [14, 15] {
-            let mut perspective = identity();
-            perspective[perspective_index] = if perspective_index == 15 { 0.5 } else { 0.01 };
-            assert!(has_unsupported_subtree_transform(&perspective));
-        }
-    }
-
-    #[test]
-    fn nonfinite_transform_is_flagged() {
-        let mut matrix = identity();
-        matrix[12] = f32::NAN;
-        assert!(has_unsupported_subtree_transform(&matrix));
-        assert_eq!(axis_aligned_transform(&matrix), (1.0, 1.0, 0.0, 0.0));
-    }
+    use super::{accumulate_origin, OriginStep};
 
     #[test]
     fn nested_scaled_origins_apply_parent_scroll_and_translation() {
@@ -2207,7 +2526,7 @@ impl RNNodeView {
                     font_weight: 400,
                     italic: false,
                     color: if show_placeholder {
-                        0xff8e8e93
+                        self.input_placeholder_color
                     } else {
                         self.input_text_color
                     },
@@ -2215,6 +2534,8 @@ impl RNNodeView {
                     letter_spacing: 0.0,
                     underline: false,
                     strikethrough: false,
+                    text_transform: 0,
+                    font_variant: 0,
                 });
         } else {
             paragraph.fragments[0].text.clone_from(visible);
@@ -2222,7 +2543,7 @@ impl RNNodeView {
                 self.input_text_color = paragraph.fragments[0].color;
             }
             paragraph.fragments[0].color = if show_placeholder {
-                0xff8e8e93
+                self.input_placeholder_color
             } else if self.input_placeholder_mode {
                 self.input_text_color
             } else {
@@ -2361,27 +2682,10 @@ impl Render for RNNodeView {
             &crate::extensions::parse_extension_props(&self.extension_props_json),
         )
         .is_some_and(|portal| !portal.visible);
-        if self.view.display_none || hidden_portal {
+        let hidden = self.view.display_none || hidden_portal || self.backface_hidden();
+        self.show_native_surface(!hidden, window, cx);
+        if hidden {
             return div().id(self.tag).size_0().into_any_element();
-        }
-        if self.component == "NativeViewHost" && !self.native_view_name.is_empty() {
-            if self.native_view_host.is_none() {
-                match crate::native_surface::NativeSurface::create(
-                    crate::native_surface::NativeSurfaceContent::Factory {
-                        name: self.native_view_name.clone(),
-                        props: self.native_view_props.clone(),
-                    },
-                    window,
-                    cx,
-                ) {
-                    Ok(host) => self.native_view_host = Some(std::rc::Rc::new(host)),
-                    Err(error) => log::error!(
-                        "[native-view] tag {} ({}) initialization failed: {error:#}",
-                        self.tag,
-                        self.native_view_name
-                    ),
-                }
-            }
         }
         let frame = self.layout_frame(&self.stable_paint_tree(cx));
         let (scale_x, scale_y) = self.cumulative_scale(cx);
@@ -2443,6 +2747,7 @@ impl Render for RNNodeView {
         let scroll = self.scroll.clone();
         let is_scroll = scroll.is_some();
         let ordered_children = self.children.clone();
+        let has_native = self.native_surface_descendants > 0;
         if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.component_node(cx);
             if let Some(painted) = renderer.render(&node, window, cx) {
@@ -2798,6 +3103,17 @@ impl Render for RNNodeView {
                         move |this, window, cx| {
                             if is_text_input {
                                 this.start_caret_blink(cx);
+                                if this.input_select_on_focus {
+                                    this.input_select_all_until = Some(
+                                        std::time::Instant::now()
+                                            + std::time::Duration::from_millis(300),
+                                    );
+                                    cx.defer_in(window, |this, window, cx| {
+                                        crate::builtins::textinput::input::select_all(
+                                            this, window, cx,
+                                        );
+                                    });
+                                }
                             }
                             focused_host.dispatch_event(
                                 tag,
@@ -2818,6 +3134,16 @@ impl Render for RNNodeView {
                             if is_text_input {
                                 this.stop_caret_blink();
                                 cx.notify();
+                            }
+                            if is_text_input {
+                                host.dispatch_event(
+                                    tag,
+                                    "topEndEditing",
+                                    &serde_json::json!({
+                                        "text": this.input_text,
+                                        "eventCount": this.input_event_count,
+                                    }),
+                                );
                             }
                             host.dispatch_event(
                                 tag,
@@ -2853,6 +3179,9 @@ impl Render for RNNodeView {
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                    if this.component == "TextInput" {
+                        dispatch_key(this.tag, "topKeyPress", &event.keystroke, event.is_held, cx);
+                    }
                     if !event.is_held
                         && focus_adjacent_semantic_sibling(this, &event.keystroke.key, window, cx)
                     {
@@ -2861,25 +3190,42 @@ impl Render for RNNodeView {
                     if !event.is_held
                         && matches!(event.keystroke.key.as_str(), "enter" | "space")
                         && this.component != "TextInput"
-                        && matches!(
-                            this.accessibility_role(),
-                            Some(
-                                Role::Button
-                                    | Role::DefaultButton
-                                    | Role::CheckBox
-                                    | Role::RadioButton
-                                    | Role::Switch
-                                    | Role::Link
-                            )
-                        )
+                        && (this.view.accessible
+                            || matches!(
+                                this.accessibility_role(),
+                                Some(
+                                    Role::Button
+                                        | Role::DefaultButton
+                                        | Role::CheckBox
+                                        | Role::RadioButton
+                                        | Role::Switch
+                                        | Role::Link
+                                )
+                            ))
                     {
-                        dispatch_accessibility_event(
-                            this.tag,
-                            "click",
-                            &serde_json::json!({}),
-                            window,
-                            cx,
-                        );
+                        let activated = crate::extensions::component_renderer(&this.component)
+                            .zip(
+                                cx.try_global::<crate::store::StoreGlobal>()
+                                    .map(|s| s.0.clone()),
+                            )
+                            .is_some_and(|(renderer, store)| {
+                                let handle = crate::extensions::StoreHandle::new(store.downgrade());
+                                renderer.activate(
+                                    &this.component_node_shallow(),
+                                    &handle,
+                                    window,
+                                    cx,
+                                )
+                            });
+                        if !activated {
+                            dispatch_accessibility_event(
+                                this.tag,
+                                "click",
+                                &serde_json::json!({}),
+                                window,
+                                cx,
+                            );
+                        }
                         cx.stop_propagation();
                     }
                     if event.keystroke.key == "escape" {
@@ -3139,6 +3485,9 @@ impl Render for RNNodeView {
                 }
             }));
         }
+        let mut group_opacity = None;
+        let mut blend = gpui::BlendMode::Normal;
+        let mut isolated = false;
         *element.style() = {
             let mut style = self.cached_style.clone();
             if let Some(color) = self.animated_background_color {
@@ -3179,6 +3528,15 @@ impl Render for RNNodeView {
             style.inset.top = Some(px(base_top).into());
             style.size.width = Some(px(frame.w * scale_x).into());
             style.size.height = Some(px(frame.h * scale_y).into());
+            // Content under a translucent node fades as one picture, not
+            // primitive by primitive.
+            if !self.children.is_empty() {
+                group_opacity = style.opacity.take().filter(|opacity| *opacity < 1.0);
+            }
+            // A blend mode combines the node's picture with what is beneath
+            // it; isolation keeps its content's blend modes to itself.
+            blend = crate::filter::blend_mode(self.view.mix_blend_mode);
+            isolated = self.view.isolate;
             style
         };
         // The listeners live on a `pointer_area` child, not on the node's own div: a
@@ -3202,6 +3560,15 @@ impl Render for RNNodeView {
             let spec = renderer.input(&node);
             (spec, node)
         });
+        // A component that owns the press has its left-button hooks run before the
+        // ones that start a React Native touch, which would otherwise stop the
+        // press first: GPUI runs listeners in reverse order of registration.
+        let claims_press = input_spec.is_some()
+            && crate::extensions::component_renderer(&self.component)
+                .is_some_and(|renderer| renderer.claims_press(&self.component_node_shallow()));
+        let mut late_left_down: Vec<crate::pointer_area::PointerHandler<MouseDownEvent>> =
+            Vec::new();
+        let mut late_left_up: Vec<crate::pointer_area::PointerHandler<MouseUpEvent>> = Vec::new();
         if let Some((spec, node)) = input_spec {
             for button in [
                 crate::events::Button::Left,
@@ -3230,6 +3597,7 @@ impl Render for RNNodeView {
                         );
                     });
                 match button {
+                    crate::events::Button::Left if claims_press => late_left_down.push(handler),
                     crate::events::Button::Left => handlers.left_down.push(handler),
                     crate::events::Button::Middle => handlers.middle_down.push(handler),
                     crate::events::Button::Right => handlers.right_down.push(handler),
@@ -3253,6 +3621,7 @@ impl Render for RNNodeView {
                         );
                     });
                 match button {
+                    crate::events::Button::Left if claims_press => late_left_up.push(handler),
                     crate::events::Button::Left => handlers.left_up.push(handler),
                     crate::events::Button::Middle => handlers.middle_up.push(handler),
                     crate::events::Button::Right => handlers.right_up.push(handler),
@@ -3315,14 +3684,27 @@ impl Render for RNNodeView {
                     let Some(node) = down_node.upgrade() else {
                         return;
                     };
-                    let (target, focus_handle, is_text_input) = {
+                    let (target, focus_handle, is_text_input, selectable_text) = {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
                             this.nearest_focus_handle(cx),
                             this.component == "TextInput",
+                            crate::builtins::text_select::is_selectable(this),
                         )
                     };
+                    if selectable_text {
+                        node.update(cx, |this, cx| {
+                            crate::builtins::text_select::begin(
+                                this,
+                                event.position,
+                                event.click_count,
+                                cx,
+                            );
+                        });
+                    } else {
+                        crate::builtins::text_select::clear_active(cx);
+                    }
                     let Some(target) = target else {
                         return;
                     };
@@ -3443,14 +3825,20 @@ impl Render for RNNodeView {
                     let Some(node) = move_node.upgrade() else {
                         return;
                     };
-                    let (hit_target, selecting) = {
+                    let (hit_target, selecting, selecting_text) = {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
                             this.component == "TextInput" && this.input_selection_anchor.is_some(),
+                            this.text_selection_anchor.is_some(),
                         )
                     };
                     if event.pressed_button.is_some() {
+                        if selecting_text {
+                            node.update(cx, |this, cx| {
+                                crate::builtins::text_select::extend(this, event.position, cx);
+                            });
+                        }
                         if selecting {
                             node.update(cx, |this, cx| {
                                 crate::builtins::textinput::input::select_at_point(
@@ -3538,6 +3926,8 @@ impl Render for RNNodeView {
                     cx.stop_propagation();
                 }));
         }
+        handlers.left_down.extend(late_left_down);
+        handlers.left_up.extend(late_left_up);
         // A child of a scrolling container moves with its content, so a pointer area
         // here would drift off the viewport. A node that claims a window-control
         // area has the same problem for a different reason: the platform asks
@@ -3621,7 +4011,7 @@ impl Render for RNNodeView {
             }
         } else {
             if !handlers.is_empty() {
-                element = element.child(pointer_area(handlers));
+                element = element.child(pointer_area(handlers, self.view.hit_slop));
             }
         }
         // Not for a scroll container, which never had one: its content is
@@ -3632,13 +4022,19 @@ impl Render for RNNodeView {
                 element = element.child(focus_child);
             }
         }
-        if let Some(native_view_host) = &self.native_view_host {
+        if let Some(surface) = &self.native_surface {
             element = element.child(crate::native_surface::NativeSurfaceElement {
-                surface: native_view_host.clone(),
+                surface: surface.clone(),
             });
+        }
+        if let Some(gradient) = self.gradient_element(frame, (scale_x, scale_y)) {
+            element = element.child(gradient);
         }
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
+            scaled_paragraph.shadow_dx *= scale_x;
+            scaled_paragraph.shadow_dy *= scale_y;
+            scaled_paragraph.shadow_radius *= scale_x;
             for fragment in &mut scaled_paragraph.fragments {
                 fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;
@@ -3683,7 +4079,7 @@ impl Render for RNNodeView {
                 .flex_none()
                 .w(px(content_width.max(frame.w)))
                 .h(px(content_height.max(frame.h)));
-            content = content.children(ordered_children.iter().map(|(_, child)| child.clone()));
+            content = content.children(Self::child_elements(&ordered_children, has_native, cx));
             // The handle is only written when React or a layout change moved
             // the offset. Writing it on every render would count as a scroll.
             if std::mem::take(&mut self.scroll_handle_stale) {
@@ -3692,21 +4088,32 @@ impl Render for RNNodeView {
                     px(-self.scroll_offset().y * scale_y),
                 ));
             }
-            let strategy =
-                crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface());
+            let strategy = crate::scroll_layers::scroll_strategy(
+                self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
+            );
             if scroll.enabled {
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
                     position: self.scroll_position.clone(),
                     handle: self.scroll_handle.clone(),
                     sync_generation: self.scroll_sync_generation.clone(),
+                    sync_pending: self.scroll_sync_pending.clone(),
+                    emit: self.scroll_emit.clone(),
+                    event_throttle: std::time::Duration::from_secs_f32(
+                        scroll.event_throttle_ms.max(0.0) / 1000.0,
+                    ),
                     content_size: scroll.content_size,
                     viewport: (frame.w, frame.h),
                     scale: (scale_x, scale_y),
                     event: scroll.event.clone(),
+                    horizontal: scroll.horizontal,
+                    snap: scroll.snap.clone(),
+                    gesture: self.scroll_gesture.clone(),
+                    deceleration: scroll.deceleration,
                 });
                 content =
-                    content.on_scroll_wheel(move |_event: &gpui::ScrollWheelEvent, window, cx| {
+                    content.on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
+                        scroller.on_wheel(event, window, cx);
                         let scroller = scroller.clone();
                         window.defer(cx, move |window, cx| scroller.sync(window, cx));
                     });
@@ -3738,7 +4145,7 @@ impl Render for RNNodeView {
                         .top(px(-offset_y * scale_y))
                         .w(px(scroll.content_size.0.max(frame.w)))
                         .h(px(scroll.content_size.1.max(frame.h)))
-                        .children(ordered_children.iter().map(|(_, child)| child.clone()));
+                        .children(Self::child_elements(&ordered_children, has_native, cx));
                     if scroll.enabled {
                         let horizontal = scroll.horizontal;
                         let max = (
@@ -3817,11 +4224,7 @@ impl Render for RNNodeView {
             schedule_frame_host_report_flush(&self.host_reports, window, cx);
             element = element
                 .children(chrome)
-                .children(
-                    ordered_children
-                        .iter()
-                        .map(|(_, child)| child.clone().into_any_element()),
-                )
+                .children(Self::child_elements(&ordered_children, has_native, cx))
                 .children(overlay);
         } else {
             let content =
@@ -3831,17 +4234,32 @@ impl Render for RNNodeView {
                 });
             let painted: Vec<AnyElement> = content
                 .into_iter()
-                .chain(
-                    ordered_children
-                        .iter()
-                        .map(|(_, child)| child.clone().into_any_element()),
-                )
+                .chain(Self::child_elements(&ordered_children, has_native, cx))
                 .collect();
             let painted = match crate::extensions::component_renderer(&self.component) {
                 Some(renderer) => renderer.children(&self.component_node(cx), painted, window, cx),
                 None => painted,
             };
             element = element.children(painted);
+            if self.component == "TextInput" && self.input_multiline {
+                element = element.on_scroll_wheel(cx.listener(
+                    |this, event: &gpui::ScrollWheelEvent, _window, cx| {
+                        let delta = match &event.delta {
+                            gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y),
+                            gpui::ScrollDelta::Lines(lines) => lines.y * 40.0,
+                        };
+                        let before = this.input_scroll_y;
+                        crate::builtins::textinput::input::scroll_input_to(
+                            this,
+                            before - delta,
+                            cx,
+                        );
+                        if this.input_scroll_y != before {
+                            cx.stop_propagation();
+                        }
+                    },
+                ));
+            }
             if self.component == "TextInput" && !self.input_multiline {
                 element = element.on_scroll_wheel(cx.listener(
                     |this, event: &gpui::ScrollWheelEvent, window, cx| {
@@ -4049,7 +4467,25 @@ impl Render for RNNodeView {
                 0,
             ));
         }
-        element.children(outline_rules).into_any_element()
+        let element = element.children(outline_rules).into_any_element();
+        let element = match self.gpui_transform((scale_x, scale_y)) {
+            Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
+            None => element,
+        };
+        let element = crate::filter::parse(&self.view.filter_json)
+            .into_iter()
+            .fold(element, |element, step| match step {
+                crate::filter::Step::Color(filter) => {
+                    crate::filter::Filtered::new(element, filter).into_any_element()
+                }
+                step => crate::filter::Grouped::with_step(element, step).into_any_element(),
+            });
+        if group_opacity.is_some() || blend != gpui::BlendMode::Normal || isolated {
+            crate::filter::Grouped::blended(element, group_opacity.unwrap_or(1.0), blend, isolated)
+                .into_any_element()
+        } else {
+            element
+        }
     }
 }
 
@@ -4185,8 +4621,6 @@ mod host_component_node_tests {
             parent_tag: -1,
             index: 0,
             component: "NodeTestFake".into(),
-            native_view_name: String::new(),
-            native_view_props: "{}".into(),
             frame: RectF {
                 x: 0.0,
                 y: 0.0,
@@ -4339,6 +4773,231 @@ impl RNNodeView {
         self.scroll_position.get()
     }
 
+    /// `maintainVisibleContentPosition`: the first index kept in place, and the
+    /// distance from the start within which new items scroll into view.
+    pub(crate) fn maintain_visible(&self) -> Option<(usize, Option<f32>)> {
+        self.scroll.as_ref()?;
+        let min = self.extension_props.get("maintainMinIndex")?.as_i64()?;
+        let threshold = self
+            .extension_props
+            .get("maintainAutoscrollThreshold")
+            .and_then(serde_json::Value::as_f64)
+            .map(|value| value as f32);
+        Some((min.max(0) as usize, threshold))
+    }
+
+    /// The tag of the first item at or after `min_index` that reaches into the
+    /// viewport, with its start along the scroll axis.
+    pub(crate) fn visible_anchor(&self, min_index: usize, cx: &App) -> Option<(i32, f32)> {
+        let horizontal = self.scroll.as_ref()?.horizontal;
+        let offset = self.scroll_position.get();
+        let start = if horizontal { offset.x } else { offset.y };
+        let (_, content) = self.children.first()?;
+        let content = content.read(cx);
+        content
+            .children
+            .iter()
+            .skip(min_index)
+            .find_map(|(tag, child)| {
+                let frame = child.read(cx).frame;
+                let (from, length) = if horizontal {
+                    (frame.x, frame.w)
+                } else {
+                    (frame.y, frame.h)
+                };
+                (from + length > start).then_some((*tag, from))
+            })
+    }
+
+    /// The start along the scroll axis of one of this node's items.
+    pub(crate) fn item_start(&self, tag: i32, cx: &App) -> Option<f32> {
+        let horizontal = self.scroll.as_ref()?.horizontal;
+        let (_, content) = self.children.first()?;
+        let content = content.read(cx);
+        let (_, child) = content.children.iter().find(|(child, _)| *child == tag)?;
+        let frame = child.read(cx).frame;
+        Some(if horizontal { frame.x } else { frame.y })
+    }
+
+    /// Moves the offset by what an item above the viewport's start moved.
+    pub(crate) fn keep_anchor(
+        &mut self,
+        anchor: i32,
+        before: f32,
+        threshold: Option<f32>,
+        host: &crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(after) = self.item_start(anchor, cx) else {
+            return;
+        };
+        let delta = after - before;
+        if delta.abs() < 0.5 {
+            return;
+        }
+        let horizontal = self.scroll.as_ref().is_some_and(|scroll| scroll.horizontal);
+        let current = self.scroll_position.get();
+        let along = if horizontal { current.x } else { current.y };
+        let max = self.max_scroll();
+        let max = if horizontal { max.0 } else { max.1 };
+        let next = if delta > 0.0 && threshold.is_some_and(|limit| along <= limit) {
+            0.0
+        } else {
+            (along + delta).clamp(0.0, max)
+        };
+        let target = if horizontal {
+            point(next, current.y)
+        } else {
+            point(current.x, next)
+        };
+        self.set_scroll_offset(target, host, cx);
+    }
+
+    /// The largest offset the scroll content allows.
+    fn max_scroll(&self) -> (f32, f32) {
+        let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
+        (
+            (content.0 - self.frame.w).max(0.0),
+            (content.1 - self.frame.h).max(0.0),
+        )
+    }
+
+    /// Runs `scrollTo`, `scrollToEnd` and `flashScrollIndicators`.
+    pub(crate) fn scroll_command(
+        &mut self,
+        name: &str,
+        args: &serde_json::Value,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(scroll) = self.scroll.as_ref() else {
+            return false;
+        };
+        let number = |index: usize| args.get(index).and_then(serde_json::Value::as_f64);
+        let flag = |index: usize| {
+            args.get(index)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        };
+        let current = self.scroll_position.get();
+        let max = self.max_scroll();
+        let (target, animated) = match name {
+            "scrollTo" => (
+                point(
+                    number(0).map_or(current.x, |x| x as f32),
+                    number(1).map_or(current.y, |y| y as f32),
+                ),
+                flag(2),
+            ),
+            "scrollToEnd" => (
+                if scroll.horizontal {
+                    point(max.0, current.y)
+                } else {
+                    point(current.x, max.1)
+                },
+                flag(0),
+            ),
+            "flashScrollIndicators" => return true,
+            _ => return false,
+        };
+        let target = point(target.x.clamp(0.0, max.0), target.y.clamp(0.0, max.1));
+        let Some(host) = crate::store::store_from(cx).map(|store| store.read(cx).host.clone())
+        else {
+            return false;
+        };
+        self.scroll_to(target, animated, host, cx);
+        true
+    }
+
+    /// Moves the scroll offset the way `scrollTo` does: reported through
+    /// `onScroll`, and handed to Fabric once it settles.
+    pub(crate) fn scroll_to(
+        &mut self,
+        target: Point<f32>,
+        animated: bool,
+        host: crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
+        const STEPS: u32 = 10;
+        let generation = {
+            let mut gesture = self.scroll_gesture.borrow_mut();
+            gesture.generation += 1;
+            gesture.generation
+        };
+        let from = self.scroll_position.get();
+        if !animated || (from.x - target.x).abs() + (from.y - target.y).abs() < 0.5 {
+            self.set_scroll_offset(target, &host, cx);
+            return;
+        }
+        let gesture = self.scroll_gesture.clone();
+        cx.spawn(async move |this, cx| {
+            for step in 1..=STEPS {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(15))
+                    .await;
+                if gesture.borrow().generation != generation {
+                    return;
+                }
+                let t = step as f32 / STEPS as f32;
+                let eased = 1.0 - (1.0 - t) * (1.0 - t);
+                let next = point(
+                    from.x + (target.x - from.x) * eased,
+                    from.y + (target.y - from.y) * eased,
+                );
+                if this
+                    .update(cx, |node, cx| node.set_scroll_offset(next, &host, cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn set_scroll_offset(
+        &mut self,
+        offset: Point<f32>,
+        host: &crate::host::Host,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_position.set(offset);
+        self.scroll_handle_stale = true;
+        cx.notify();
+        let host = host.clone();
+        let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
+        if let Some(event) = self.scroll.as_ref().and_then(|s| s.event.as_ref()) {
+            host.dispatch_event(
+                self.tag,
+                event,
+                &serde_json::json!({
+                    "contentOffset": {"x": offset.x, "y": offset.y},
+                    "contentSize": {"width": content.0, "height": content.1},
+                    "layoutMeasurement": {"width": self.frame.w, "height": self.frame.h},
+                    "zoomScale": 1
+                }),
+            );
+        }
+        let generation = self.scroll_sync_generation.get() + 1;
+        self.scroll_sync_generation.set(generation);
+        self.scroll_sync_pending.set(true);
+        let (tag, position, sync_generation, pending) = (
+            self.tag,
+            self.scroll_position.clone(),
+            self.scroll_sync_generation.clone(),
+            self.scroll_sync_pending.clone(),
+        );
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(SCROLL_STATE_SYNC_DELAY)
+                .await;
+            if sync_generation.get() == generation && pending.replace(false) {
+                let offset = position.get();
+                host.set_scroll_offset(tag, offset.x, offset.y);
+            }
+        })
+        .detach();
+    }
+
     /// Runs a Fabric command on this node's host component.
     pub(crate) fn dispatch_host_command(
         &mut self,
@@ -4375,7 +5034,9 @@ impl RNNodeView {
     pub(crate) fn scroll_strategy_name(&self) -> Option<&'static str> {
         self.scroll.as_ref()?;
         Some(
-            match crate::scroll_layers::scroll_strategy(self.subtree_renders_native_surface()) {
+            match crate::scroll_layers::scroll_strategy(
+                self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
+            ) {
                 crate::scroll_layers::ScrollStrategy::GpuiLayer => "GpuiLayer",
                 crate::scroll_layers::ScrollStrategy::ManualOffset => "ManualOffset",
             },
@@ -4535,18 +5196,315 @@ impl RNNodeView {
     }
 }
 
+/// The `backgroundImage` of a node, drawn for one box size.
+struct GradientCache {
+    json: String,
+    size: (u32, u32),
+    image: Option<std::sync::Arc<gpui::RenderImage>>,
+}
+
+/// The longest side, in pixels, a gradient is drawn at before the renderer
+/// scales it up to the box.
+const GRADIENT_RASTER_LIMIT: u32 = 512;
+
+/// What the pointer is doing to a scroll view, so drag and momentum can be
+/// reported. A trackpad sends `Started`, `Moved` and `Ended` while the fingers
+/// are down; the momentum that follows arrives as more `Moved` events with no
+/// `Started`. A mouse wheel sends `Moved` only.
+#[derive(Default)]
+pub(crate) struct ScrollGesture {
+    dragging: bool,
+    after_drag: bool,
+    momentum: bool,
+    wheel: bool,
+    generation: u64,
+    drag_start: Option<f32>,
+    /// Recent touchpad deltas along the scroll axis, for the speed of a flick.
+    samples: Vec<(std::time::Instant, f32)>,
+}
+
+/// What `scrollEventThrottle` needs to remember between scroll events.
+#[derive(Default)]
+pub(crate) struct ScrollEmit {
+    last: Cell<Option<std::time::Instant>>,
+    waiting: Cell<bool>,
+}
+
+/// More than a frame between events is a throttle; a frame or less is not.
+const FRAME: std::time::Duration = std::time::Duration::from_millis(17);
+
+/// How long without a wheel event before the scroll counts as over.
+const SCROLL_IDLE: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// How long without a touchpad event before a flick counts as lifted.
+#[cfg(not(target_os = "macos"))]
+const FLICK_IDLE: std::time::Duration = std::time::Duration::from_millis(40);
+
 struct Scroller {
     tag: i32,
     position: Rc<Cell<Point<f32>>>,
     handle: gpui::ScrollHandle,
     sync_generation: Rc<Cell<u64>>,
+    sync_pending: Rc<Cell<bool>>,
+    emit: Rc<ScrollEmit>,
+    event_throttle: std::time::Duration,
     content_size: (f32, f32),
     event: Option<String>,
     viewport: (f32, f32),
     scale: (f32, f32),
+    horizontal: bool,
+    snap: Option<crate::scroll_snap::SnapSpec>,
+    gesture: Rc<std::cell::RefCell<ScrollGesture>>,
+    deceleration: f32,
 }
 
 impl Scroller {
+    fn payload(&self) -> serde_json::Value {
+        let offset = self.position.get();
+        serde_json::json!({
+            "contentOffset": {"x": offset.x, "y": offset.y},
+            "contentSize": {"width": self.content_size.0, "height": self.content_size.1},
+            "layoutMeasurement": {"width": self.viewport.0, "height": self.viewport.1},
+            "velocity": {"x": 0, "y": 0},
+            "zoomScale": 1
+        })
+    }
+
+    fn emit(&self, event: &str, cx: &App) {
+        if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+            store
+                .0
+                .read(cx)
+                .host
+                .dispatch_event(self.tag, event, &self.payload());
+        }
+    }
+
+    fn main_offset(&self) -> f32 {
+        let offset = self.position.get();
+        if self.horizontal {
+            offset.x
+        } else {
+            offset.y
+        }
+    }
+
+    /// Reports the drag and momentum a wheel event is part of, and snaps once
+    /// the scroll has come to rest.
+    fn on_wheel(
+        self: &Rc<Self>,
+        event: &gpui::ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let generation = {
+            let mut gesture = self.gesture.borrow_mut();
+            gesture.generation += 1;
+            match event.touch_phase {
+                gpui::TouchPhase::Started => {
+                    if gesture.momentum {
+                        gesture.momentum = false;
+                        self.emit("topMomentumScrollEnd", cx);
+                    }
+                    gesture.dragging = true;
+                    gesture.after_drag = false;
+                    gesture.wheel = false;
+                    gesture.drag_start = Some(self.main_offset());
+                    self.emit("topScrollBeginDrag", cx);
+                }
+                gpui::TouchPhase::Moved => {
+                    if gesture.dragging {
+                    } else if gesture.after_drag {
+                        if !gesture.momentum {
+                            gesture.momentum = true;
+                            self.emit("topMomentumScrollBegin", cx);
+                        }
+                    } else {
+                        gesture.wheel = true;
+                        if let gpui::ScrollDelta::Pixels(delta) = event.delta {
+                            let delta = f32::from(if self.horizontal { delta.x } else { delta.y });
+                            gesture.samples.push((std::time::Instant::now(), delta));
+                            if gesture.samples.len() > 32 {
+                                gesture.samples.remove(0);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    if gesture.dragging {
+                        gesture.dragging = false;
+                        gesture.after_drag = true;
+                        self.emit("topScrollEndDrag", cx);
+                    }
+                }
+            }
+            gesture.generation
+        };
+        let handle = window.window_handle();
+        // macOS sends its own momentum. Elsewhere a flick ends when the
+        // touchpad goes quiet, and the scroll view carries it on.
+        #[cfg(not(target_os = "macos"))]
+        {
+            let scroller = self.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(FLICK_IDLE).await;
+                let _ = cx.update_window(handle, |_, window, cx| {
+                    scroller.carry_on(generation, window, cx)
+                });
+            })
+            .detach();
+        }
+        let scroller = self.clone();
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(SCROLL_IDLE).await;
+            let _ = cx.update_window(handle, |_, window, cx| {
+                scroller.settle(generation, window, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// The touchpad went quiet after a flick: keeps the content moving at the
+    /// speed it had, slowing at the scroll view's `decelerationRate`.
+    #[cfg(not(target_os = "macos"))]
+    fn carry_on(self: &Rc<Self>, generation: u64, window: &mut Window, cx: &mut App) {
+        let speed = {
+            let mut gesture = self.gesture.borrow_mut();
+            if gesture.generation != generation || gesture.dragging || !gesture.wheel {
+                return;
+            }
+            let samples = std::mem::take(&mut gesture.samples);
+            let Some(speed) = crate::scroll_momentum::flick_speed(&samples) else {
+                return;
+            };
+            gesture.momentum = true;
+            speed
+        };
+        self.emit("topMomentumScrollBegin", cx);
+        let handle = window.window_handle();
+        let scroller = self.clone();
+        cx.spawn(async move |cx| {
+            const TICK: u64 = 16;
+            let mut speed = speed;
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(TICK))
+                    .await;
+                let (distance, next) =
+                    crate::scroll_momentum::step(speed, scroller.deceleration, TICK as f32);
+                speed = next;
+                let carried = cx
+                    .update_window(handle, |_, window, cx| {
+                        // A wheel event since means the user took over.
+                        if scroller.gesture.borrow().generation != generation {
+                            return false;
+                        }
+                        let moved = scroller.shift_by(distance);
+                        if moved {
+                            scroller.sync(window, cx);
+                        }
+                        moved && !crate::scroll_momentum::stopped(speed)
+                    })
+                    .unwrap_or(false);
+                if !carried {
+                    break;
+                }
+            }
+            let _ = cx.update_window(handle, |_, window, cx| {
+                scroller.settle(generation, window, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// Moves the content `distance` along the scroll axis, in the direction
+    /// of the wheel deltas, and says whether it went anywhere.
+    #[cfg(not(target_os = "macos"))]
+    fn shift_by(&self, distance: f32) -> bool {
+        let current = self.handle.offset();
+        let max = self.handle.max_offset();
+        let mut next = current;
+        if self.horizontal {
+            next.x = (current.x + px(distance)).clamp(-max.x, px(0.0));
+        } else {
+            next.y = (current.y + px(distance)).clamp(-max.y, px(0.0));
+        }
+        if next == current {
+            return false;
+        }
+        self.handle.set_offset(next);
+        true
+    }
+
+    /// The scroll went quiet: end any momentum, then snap.
+    fn settle(self: &Rc<Self>, generation: u64, window: &mut Window, cx: &mut App) {
+        let (moved_by_wheel, drag_start) = {
+            let mut gesture = self.gesture.borrow_mut();
+            if gesture.generation != generation || gesture.dragging {
+                return;
+            }
+            if gesture.momentum {
+                gesture.momentum = false;
+                self.emit("topMomentumScrollEnd", cx);
+                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                    store.0.read(cx).frame_hook.arm(window);
+                }
+            }
+            let result = (gesture.wheel, gesture.drag_start.take());
+            gesture.after_drag = false;
+            gesture.wheel = false;
+            result
+        };
+        let _ = moved_by_wheel;
+        let Some(snap) = self.snap.as_ref() else {
+            return;
+        };
+        let (viewport, content) = if self.horizontal {
+            (self.viewport.0, self.content_size.0)
+        } else {
+            (self.viewport.1, self.content_size.1)
+        };
+        let from = self.main_offset();
+        let target = snap.target(from, drag_start, viewport, content);
+        if (target - from).abs() < 0.5 {
+            return;
+        }
+        self.animate_to(from, target, window, cx);
+    }
+
+    /// Eases the offset from `from` to `to` over a short time, reporting each
+    /// step as a scroll.
+    fn animate_to(self: &Rc<Self>, from: f32, to: f32, window: &mut Window, cx: &mut App) {
+        const STEPS: u32 = 10;
+        let handle = window.window_handle();
+        let scroller = self.clone();
+        let generation = self.gesture.borrow().generation;
+        cx.spawn(async move |cx| {
+            for step in 1..=STEPS {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(15))
+                    .await;
+                if scroller.gesture.borrow().generation != generation {
+                    return;
+                }
+                let t = step as f32 / STEPS as f32;
+                let eased = 1.0 - (1.0 - t) * (1.0 - t);
+                let value = from + (to - from) * eased;
+                let _ = cx.update_window(handle, |_, window, cx| {
+                    let current = scroller.handle.offset();
+                    let next = if scroller.horizontal {
+                        point(px(-value * scroller.scale.0), current.y)
+                    } else {
+                        point(current.x, px(-value * scroller.scale.1))
+                    };
+                    scroller.handle.set_offset(next);
+                    scroller.sync(window, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
     fn sync(&self, window: &mut Window, cx: &mut App) {
         let scrolled = self.handle.offset();
         let offset = point(
@@ -4572,23 +5530,64 @@ impl Scroller {
             "zoomScale": 1
         });
         if let Some(event) = &self.event {
-            host.dispatch_event(self.tag, event, &payload);
+            let since = self.emit.last.get().map(|at| at.elapsed());
+            match since {
+                Some(since) if self.event_throttle > FRAME && since < self.event_throttle => {
+                    // Too soon: one event carrying the offset it has then
+                    // goes out when the throttle has passed.
+                    if !self.emit.waiting.replace(true) {
+                        let (emit, position, host, event, tag) = (
+                            self.emit.clone(),
+                            self.position.clone(),
+                            host.clone(),
+                            event.clone(),
+                            self.tag,
+                        );
+                        let (content, viewport) = (self.content_size, self.viewport);
+                        let wait = self.event_throttle - since;
+                        cx.spawn(async move |cx| {
+                            cx.background_executor().timer(wait).await;
+                            emit.waiting.set(false);
+                            emit.last.set(Some(std::time::Instant::now()));
+                            let offset = position.get();
+                            host.dispatch_event(
+                                tag,
+                                &event,
+                                &serde_json::json!({
+                                    "contentOffset": {"x": offset.x, "y": offset.y},
+                                    "contentSize": {"width": content.0, "height": content.1},
+                                    "layoutMeasurement": {"width": viewport.0, "height": viewport.1},
+                                    "zoomScale": 1
+                                }),
+                            );
+                        })
+                        .detach();
+                    }
+                }
+                _ => {
+                    self.emit.last.set(Some(std::time::Instant::now()));
+                    host.dispatch_event(self.tag, event, &payload);
+                }
+            }
         }
+        crate::virtual_view::update(cx);
         frame_hook.arm(window);
         // Fabric's copy of the offset costs a commit per update, so it follows once
         // scrolling pauses.
         let generation = self.sync_generation.get() + 1;
         self.sync_generation.set(generation);
-        let (tag, position, sync_generation) = (
+        self.sync_pending.set(true);
+        let (tag, position, sync_generation, pending) = (
             self.tag,
             self.position.clone(),
             self.sync_generation.clone(),
+            self.sync_pending.clone(),
         );
         cx.spawn(async move |cx| {
             cx.background_executor()
                 .timer(SCROLL_STATE_SYNC_DELAY)
                 .await;
-            if sync_generation.get() == generation {
+            if sync_generation.get() == generation && pending.replace(false) {
                 let offset = position.get();
                 host.set_scroll_offset(tag, offset.x, offset.y);
             }

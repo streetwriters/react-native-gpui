@@ -132,19 +132,7 @@ export function loadDesktopConfig(projectRoot, platform) {
     assertObject(override, `desktop/desktop.${os}.json`, '$');
   }
 
-  // The key that used to hold these options. It is rejected rather than read:
-  // the option would be ignored, and the app would silently get a default.
   const appConfig = readJson(appConfigPath, 'app.json') ?? {};
-  if (
-    appConfig.desktop !== undefined &&
-    appConfig.desktop !== null &&
-    typeof appConfig.desktop === 'object' &&
-    Object.keys(appConfig.desktop).length > 0
-  ) {
-    throw new Error(
-      'move `app.json` desktop.* into `desktop/desktop.json` (see the README)',
-    );
-  }
 
   const merged =
     base === undefined && override === undefined
@@ -222,6 +210,9 @@ function withDefaults(config, { appConfig, packageJson }) {
     ...(config.icon === undefined ? {} : { icon: config.icon }),
     window,
     devMenu: config.devMenu ?? true,
+    urlSchemes: config.urlSchemes ?? [],
+    singleInstance:
+      config.singleInstance ?? (config.urlSchemes ?? []).length > 0,
     ...(tray === undefined ? {} : { tray }),
     bundle,
   };

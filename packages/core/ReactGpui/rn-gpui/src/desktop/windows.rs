@@ -187,6 +187,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         let windows = &mut cx.global_mut::<DesktopWindowsGlobal>().0;
         (windows.alloc_key(), windows.alloc_surface())
     };
+    set_custom_title_bar(key, options.title_bar.is_custom());
 
     let width = options.width.unwrap_or(800.0).max(120.0);
     let height = options.height.unwrap_or(600.0).max(120.0);
@@ -360,6 +361,10 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         subscriptions,
     };
     cx.global_mut::<DesktopWindowsGlobal>().0.insert(entry);
+    if let Ok(state) = window_state(cx, key) {
+        super::window_mirror::set(key, &state);
+    }
+    super::app_state::schedule(cx);
     log::info!(
         "[desktop] opened window {key} (surface {surface_id}, {})",
         options.component
@@ -400,6 +405,9 @@ pub fn close_window(cx: &mut App, key: u32, force: bool) -> DesktopResult {
 /// `remove_window` is false when the platform is already closing the window:
 /// GPUI must not be asked to remove it again from inside that callback.
 fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool) {
+    set_custom_title_bar(key, false);
+    super::window_mirror::remove(key);
+    super::app_state::schedule(cx);
     let surface_id = entry.surface_id;
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
@@ -459,6 +467,73 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     };
     let _ = handle.update(cx, |_root, window, cx| {
         install_close_hook(window, cx, key);
+    });
+}
+
+/// Reports the main window's bounds, state and focus to JS and to the state
+/// mirror, as `open_window` does for the windows it creates. The main window
+/// resizes the store through its own observer in `bootstrap`, so this only
+/// reports.
+pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
+    let Some(handle) = handle.downcast::<SurfaceRootView>() else {
+        return;
+    };
+    if let Ok(state) = window_state(cx, key) {
+        super::window_mirror::set(key, &state);
+    }
+    super::app_state::schedule(cx);
+    let _ = handle.update(cx, |_root, window, cx| {
+        let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
+        cx.observe_window_bounds(window, move |_root, window, cx| {
+            let bounds = window.bounds();
+            let now = (
+                f32::from(bounds.origin.x),
+                f32::from(bounds.origin.y),
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height),
+            );
+            if last.get() == Some(now) {
+                return;
+            }
+            last.set(Some(now));
+            super::window_mirror::patch(
+                key,
+                &[
+                    (
+                        "bounds",
+                        json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
+                    ),
+                    ("scaleFactor", json!(window.scale_factor())),
+                    ("topInset", json!(top_inset(window, key))),
+                ],
+            );
+            let Some(store) = cx.try_global::<StoreGlobal>() else {
+                return;
+            };
+            let host = store.0.read(cx).host.clone();
+            if key == MAIN_WINDOW_KEY {
+                super::display::report(window, cx, &host);
+            }
+            host.emit_device_event_json(
+                "gpuiDesktop:windowResize",
+                &json!({"windowId": key, "width": now.2, "height": now.3}).to_string(),
+            );
+            host.emit_device_event_json(
+                "gpuiDesktop:windowMove",
+                &json!({"windowId": key, "x": now.0, "y": now.1}).to_string(),
+            );
+        })
+        .detach();
+        install_activation_observer(window, cx, key).detach();
+        #[cfg(target_os = "windows")]
+        if let Some(store) = cx.try_global::<StoreGlobal>() {
+            let host = store.0.read(cx).host.clone();
+            super::keyboard::watch(window, host);
+        }
+        // Windows installs its own state observer for the main window.
+        if !cfg!(windows) {
+            install_state_observer(window, cx).detach();
+        }
     });
 }
 
@@ -627,15 +702,25 @@ pub fn set_fullscreen(cx: &mut App, key: u32, fullscreen: bool) -> DesktopResult
 }
 
 pub fn show(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         platform_window::show(window).map_err(DesktopError::unsupported)
-    })
+    });
+    if result.is_ok() {
+        super::window_mirror::patch(key, &[("isVisible", json!(true))]);
+        super::app_state::schedule(cx);
+    }
+    result
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         platform_window::hide(window).map_err(DesktopError::unsupported)
-    })
+    });
+    if result.is_ok() {
+        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
+        super::app_state::schedule(cx);
+    }
+    result
 }
 
 pub fn start_dragging(cx: &mut App, key: u32) -> DesktopResult {
@@ -674,9 +759,86 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 "isFocused": window.is_window_active(),
                 "isMinimized": platform_window::is_minimized(window),
                 "scaleFactor": window.scale_factor(),
+                "topInset": top_inset(window, key),
             })
         })
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))
+}
+
+/// Windows whose title bar the app draws, by key.
+static CUSTOM_TITLE_BARS: std::sync::Mutex<std::collections::BTreeSet<u32>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+pub fn set_custom_title_bar(key: u32, custom: bool) {
+    let mut keys = CUSTOM_TITLE_BARS.lock().expect("title bars poisoned");
+    if custom {
+        keys.insert(key);
+    } else {
+        keys.remove(&key);
+    }
+}
+
+/// The height of the `TitleBar` component, which is the bar an app draws under
+/// a window without the platform's own.
+const TITLE_BAR_HEIGHT: f32 = 38.0;
+
+/// How far the title bar reaches into the content area. On macOS that is the
+/// system bar under a transparent title bar. Elsewhere it is the bar the app
+/// draws: nonzero for a custom title bar, and on Linux only once the
+/// compositor has agreed to client-side decorations.
+pub fn top_inset(window: &gpui::Window, key: u32) -> f32 {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = key;
+        crate::native_view::window_top_inset(window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let custom = CUSTOM_TITLE_BARS
+            .lock()
+            .expect("title bars poisoned")
+            .contains(&key);
+        #[cfg(target_os = "linux")]
+        let drawn_by_app = matches!(
+            window.window_decorations(),
+            gpui::Decorations::Client { .. }
+        );
+        #[cfg(not(target_os = "linux"))]
+        let drawn_by_app = {
+            let _ = window;
+            true
+        };
+        app_bar_inset(custom, drawn_by_app)
+    }
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn app_bar_inset(custom: bool, drawn_by_app: bool) -> f32 {
+    if custom && drawn_by_app {
+        TITLE_BAR_HEIGHT
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod inset_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_bar_the_app_draws_takes_room() {
+        assert_eq!(app_bar_inset(true, true), TITLE_BAR_HEIGHT);
+        assert_eq!(app_bar_inset(true, false), 0.0);
+        assert_eq!(app_bar_inset(false, true), 0.0);
+    }
+
+    #[test]
+    fn a_closed_window_forgets_its_bar() {
+        set_custom_title_bar(9_001, true);
+        assert!(CUSTOM_TITLE_BARS.lock().unwrap().contains(&9_001));
+        set_custom_title_bar(9_001, false);
+        assert!(!CUSTOM_TITLE_BARS.lock().unwrap().contains(&9_001));
+    }
 }
 
 /// The OS's own frame for a window, in physical pixels, for the test driver:
@@ -759,6 +921,22 @@ fn install_bounds_observer(
         let frame_hook = store.read(cx).frame_hook.clone();
         frame_hook.arm(window);
         if let Some(key) = window_key_for_handle(cx, handle) {
+            super::window_mirror::patch(
+                key,
+                &[
+                    (
+                        "bounds",
+                        json!({
+                            "x": x,
+                            "y": y,
+                            "width": f32::from(bounds.size.width),
+                            "height": f32::from(bounds.size.height),
+                        }),
+                    ),
+                    ("scaleFactor", json!(scale)),
+                    ("topInset", json!(top_inset(window, key))),
+                ],
+            );
             let host = store.read(cx).host.clone();
             host.emit_device_event_json(
                 "gpuiDesktop:windowResize",
@@ -811,6 +989,15 @@ pub(crate) fn install_state_observer<T: 'static>(
         let Some(key) = window_key_for_handle(cx, handle) else {
             return;
         };
+        super::window_mirror::patch(
+            key,
+            &[
+                ("isMaximized", json!(state.0)),
+                ("isMinimized", json!(state.1)),
+                ("isFullscreen", json!(state.2)),
+            ],
+        );
+        super::app_state::schedule(cx);
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
@@ -840,10 +1027,16 @@ fn install_activation_observer(
             return;
         }
         last = active;
+        super::window_mirror::patch(key, &[("isFocused", json!(active))]);
+        super::app_state::schedule(cx);
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
         let host = store.0.read(cx).host.clone();
+        if active && key == MAIN_WINDOW_KEY {
+            // The text scale is changed in system settings, outside the app.
+            super::display::report(window, cx, &host);
+        }
         let name = if active {
             "gpuiDesktop:windowFocus"
         } else {
@@ -875,6 +1068,42 @@ fn install_activation_observer(
     })
 }
 
+/// Asks the Modal shown last to close itself, as `onRequestClose`, and says
+/// whether one was shown.
+pub(crate) fn request_modal_close(window: &mut gpui::Window, cx: &mut gpui::App) -> bool {
+    let Some(store) = crate::store::store_from(cx) else {
+        return false;
+    };
+    let target = {
+        let store = store.read(cx);
+        store
+            .nodes
+            .iter()
+            .filter_map(|(tag, node)| {
+                let node = node.read(cx);
+                let portal = crate::extensions::component_portal(
+                    &node.component,
+                    &crate::extensions::parse_extension_props(&node.extension_props_json()),
+                )?;
+                portal
+                    .visible
+                    .then_some(portal.close_request_event)
+                    .flatten()
+                    .map(|event| (*tag, event))
+            })
+            .max_by_key(|(tag, _)| *tag)
+    };
+    let Some((tag, event)) = target else {
+        return false;
+    };
+    let store = store.read(cx);
+    store
+        .host
+        .dispatch_event(tag, &event, &serde_json::json!({}));
+    store.frame_hook.arm(window);
+    true
+}
+
 fn install_close_hook(
     window: &mut gpui::Window,
     cx: &mut gpui::Context<SurfaceRootView>,
@@ -883,6 +1112,11 @@ fn install_close_hook(
     let last_request: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>> =
         std::rc::Rc::new(std::cell::Cell::new(None));
     window.on_window_should_close(cx, move |window, cx| {
+        // A visible Modal answers the close button first, as it answers the
+        // Escape key: `onRequestClose` decides, and the window stays.
+        if request_modal_close(window, cx) {
+            return false;
+        }
         let intercept = cx
             .try_global::<DesktopWindowsGlobal>()
             .and_then(|windows| windows.0.get(key).map(|entry| entry.intercept_close))

@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
   const [invalid, setInvalid] = useState(false);
   return (
@@ -21,6 +28,14 @@ function AccessibilityFixture({ duplicate = false }: { duplicate?: boolean }) {
         onPress={() => setInvalid(true)}
       >
         <Text style={styles.button}>Save</Text>
+      </Pressable>
+      <Pressable
+        testID="announce"
+        onPress={() =>
+          AccessibilityInfo.announceForAccessibility('Announcement API works')
+        }
+      >
+        <Text style={styles.button}>Announce</Text>
       </Pressable>
       <View
         testID="switch"

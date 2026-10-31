@@ -2,6 +2,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <jsi/instrumentation.h>
+#include <react/coremodules/AppStateModule.h>
 #include <react/coremodules/DeviceInfoModule.h>
 #include "GpuiHttpClient.h"
 #include "GpuiJsEngine.h"
@@ -43,6 +44,12 @@
 #include <utility>
 
 namespace {
+facebook::react::LayoutDirection surfaceLayoutDirection() {
+  return rngpui::rn_gpui_layout_direction_rtl()
+      ? facebook::react::LayoutDirection::RightToLeft
+      : facebook::react::LayoutDirection::LeftToRight;
+}
+
 std::atomic<bool> nativeAnimationActive{false};
 } // namespace
 
@@ -81,7 +88,11 @@ extern "C" bool rn_gpui_accessibility_active_default() {
     "/alternatename:rn_gpui_accessibility_active=rn_gpui_accessibility_active_default")
 #endif
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32) || defined(__linux__)
+#define RN_GPUI_ACCESSIBILITY_SETTINGS 1
+#endif
+
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
 extern "C" bool rn_gpui_get_reduce_motion();
 extern "C" bool rn_gpui_get_reduce_transparency();
 extern "C" bool rn_gpui_get_increase_contrast();
@@ -163,7 +174,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_invert_colors());
 #else
     onSuccess(false);
@@ -173,7 +184,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_reduce_motion());
 #else
     onSuccess(false);
@@ -183,7 +194,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_increase_contrast());
 #else
     onSuccess(false);
@@ -199,7 +210,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& /*runtime*/,
       AsyncCallback<bool> onSuccess,
       AsyncCallback<jsi::Value> /*onError*/) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     onSuccess(rn_gpui_get_reduce_transparency());
 #else
     onSuccess(false);
@@ -211,6 +222,8 @@ class GpuiAccessibilityManagerModule final
       AsyncCallback<jsi::Value> /*onError*/) {
 #if defined(__APPLE__)
     onSuccess(rn_gpui_get_voice_over());
+#elif defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
+    onSuccess(rn_gpui_get_voice_over() || rn_gpui_accessibility_active());
 #else
     onSuccess(rn_gpui_accessibility_active());
 #endif
@@ -224,7 +237,7 @@ class GpuiAccessibilityManagerModule final
   void announceForAccessibility(
       jsi::Runtime& runtime,
       jsi::String announcement) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     auto text = announcement.utf8(runtime);
     rn_gpui_announce_accessibility(text.c_str(), 1);
 #endif
@@ -233,7 +246,7 @@ class GpuiAccessibilityManagerModule final
       jsi::Runtime& runtime,
       jsi::String announcement,
       jsi::Object options) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     auto text = announcement.utf8(runtime);
     const auto queue = options.getProperty(runtime, "queue");
     int priorityLevel = queue.isBool() && queue.getBool() ? 0 : 1;
@@ -259,21 +272,21 @@ class GpuiAccessibilityInfoModule final
       : NativeAccessibilityInfoCxxSpec(std::move(jsInvoker)) {}
 
   void isReduceMotionEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_reduce_motion());
 #else
     callback(false);
 #endif
   }
   void isInvertColorsEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_invert_colors());
 #else
     callback(false);
 #endif
   }
   void isHighTextContrastEnabled(jsi::Runtime&, AsyncCallback<bool> callback) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     callback(rn_gpui_get_increase_contrast());
 #else
     callback(false);
@@ -293,7 +306,7 @@ class GpuiAccessibilityInfoModule final
     rn_gpui_request_accessibility_focus(static_cast<int32_t>(reactTag));
   }
   void announceForAccessibility(jsi::Runtime& runtime, jsi::String text) {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
     const auto announcement = text.utf8(runtime);
     rn_gpui_announce_accessibility(announcement.c_str(), 1);
 #endif
@@ -407,6 +420,7 @@ GpuiHost::GpuiHost(
   rngpui::selectJsEngine(std::string(jsEngine));
   install_feature_flags();
   rngpui::installGpuiTextMeasureTable();
+  rngpui::installGpuiImageLoadTable();
 
   ReactInstanceConfig config;
   config.appId = std::string(appId);
@@ -541,13 +555,13 @@ GpuiHost::GpuiHost(
                 binding->getRuntimeScheduler()));
       });
   activeGpuiHost.store(this, std::memory_order_release);
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
   rn_gpui_start_accessibility_observing();
 #endif
 }
 
 GpuiHost::~GpuiHost() {
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
   rn_gpui_stop_accessibility_observing();
 #endif
   reactHost_->stopAllSurfaces();
@@ -623,7 +637,7 @@ facebook::react::LayoutConstraints constraintsFrom(
   const float maxH = std::max(minH, maxHeight);
   constraints.minimumSize = {minW, minH};
   constraints.maximumSize = {maxW, maxH};
-  constraints.layoutDirection = facebook::react::LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   return constraints;
 }
 } // namespace
@@ -647,11 +661,12 @@ void GpuiHost::start_surface_with_props(
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
-  // SurfaceHandler asserts on Undefined; GPUI surfaces are LTR for now (an RTL
-  // flag would come from the GPUI window's text direction).
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  // SurfaceHandler asserts on Undefined.
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
     surfaceHeight_ = h;
@@ -690,6 +705,8 @@ void GpuiHost::start_surface_with_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
     surfaceHeight_ = maxHeight;
@@ -719,6 +736,8 @@ void GpuiHost::set_surface_constraints(
       constraintsFrom(minWidth, minHeight, maxWidth, maxHeight, scale);
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = maxWidth;
     surfaceHeight_ = maxHeight;
@@ -732,9 +751,11 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
   LayoutConstraints constraints;
   constraints.minimumSize = {w, h};
   constraints.maximumSize = {w, h};
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = scale;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   if (id == kAppSurfaceId) {
     surfaceWidth_ = w;
     surfaceHeight_ = h;
@@ -742,7 +763,9 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
     mountingManager_->setWindowSize(w, h);
   }
   reactHost_->setSurfaceConstraints(id, constraints, context);
-  set_window_metrics(w, h, scale);
+  if (id == kAppSurfaceId) {
+    set_window_metrics(w, h, scale);
+  }
 }
 
 void GpuiHost::set_window_top_inset(float top) {
@@ -753,12 +776,41 @@ void GpuiHost::set_window_metrics(float w, float h, float scale) {
   if (!DeviceInfoModule::setWindowMetrics(w, h, scale) || !scriptLoaded_) {
     return;
   }
-  const folly::dynamic metrics = folly::dynamic::object("width", w)(
-      "height", h)("scale", scale)("fontScale", 1.0);
+  emitDimensions();
+}
+
+void GpuiHost::emitDimensions() const {
+  const auto windowSize = DeviceInfoModule::windowSize();
+  const auto screenSize = DeviceInfoModule::screenSize();
+  const double scale = surfaceScale_;
+  const double fontScale = DeviceInfoModule::fontScale();
+  const folly::dynamic window =
+      folly::dynamic::object("width", windowSize.width)(
+          "height", windowSize.height)("scale", scale)("fontScale", fontScale);
+  const folly::dynamic screen =
+      folly::dynamic::object("width", screenSize.width)(
+          "height", screenSize.height)("scale", scale)("fontScale", fontScale);
   folly::dynamic payload =
-      folly::dynamic::object("window", metrics)("screen", metrics);
+      folly::dynamic::object("window", window)("screen", screen);
   reactHost_->emitDeviceEvent(
       folly::dynamic::array("didUpdateDimensions", std::move(payload)));
+}
+
+void GpuiHost::set_display_metrics(
+    float screenWidth,
+    float screenHeight,
+    float fontScale) {
+  const bool fontScaleChanged = DeviceInfoModule::fontScale() != fontScale;
+  if (!DeviceInfoModule::setDisplayMetrics(
+          screenWidth, screenHeight, fontScale) ||
+      !scriptLoaded_) {
+    return;
+  }
+  if (fontScaleChanged && surfaceWidth_ > 0.f) {
+    set_surface_size(
+        kAppSurfaceId, surfaceWidth_, surfaceHeight_, surfaceScale_);
+  }
+  emitDimensions();
 }
 
 void GpuiHost::emit_device_event(rust::Str eventName) const {
@@ -798,6 +850,30 @@ void GpuiHost::emit_device_event_json(
       folly::dynamic::array(std::string(eventName), std::move(payload)));
 }
 
+void GpuiHost::set_app_state(rust::Str state) {
+  const std::string next(state);
+  const std::string previous = AppStateModule::state();
+  if (next == previous) {
+    return;
+  }
+  AppStateModule::setState(next);
+  if (!scriptLoaded_) {
+    return;
+  }
+  reactHost_->emitDeviceEvent(folly::dynamic::array(
+      "appStateDidChange", folly::dynamic::object("app_state", next)));
+  if ((next == "active") != (previous == "active")) {
+    reactHost_->emitDeviceEvent(
+        folly::dynamic::array("appStateFocusChange", next == "active"));
+  }
+}
+
+void GpuiHost::emit_memory_warning() const {
+  if (scriptLoaded_) {
+    reactHost_->emitDeviceEvent(folly::dynamic::array("memoryWarning"));
+  }
+}
+
 void GpuiHost::emit_accessibility_setting_event(
     const std::string& eventName,
     bool enabled) const {
@@ -806,7 +882,7 @@ void GpuiHost::emit_accessibility_setting_event(
   }
 }
 
-#if defined(__APPLE__)
+#if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
 extern "C" void rn_gpui_accessibility_setting_changed(
     const char* eventName,
     bool enabled) {
@@ -933,9 +1009,11 @@ void GpuiHost::start_log_box_surface() {
   LayoutConstraints constraints;
   constraints.minimumSize = {surfaceWidth_, surfaceHeight_};
   constraints.maximumSize = {surfaceWidth_, surfaceHeight_};
-  constraints.layoutDirection = LayoutDirection::LeftToRight;
+  constraints.layoutDirection = surfaceLayoutDirection();
   LayoutContext context;
   context.pointScaleFactor = surfaceScale_;
+  context.fontSizeMultiplier = DeviceInfoModule::fontScale();
+  context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
   reactHost_->startSurface(
       kLogBoxSurfaceId,
       "LogBox",

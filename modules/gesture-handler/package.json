@@ -1,14 +1,18 @@
 {
   "name": "@react-native-gpui/gesture-handler",
-  "version": "0.1.0",
+  "version": "0.87.0-alpha.0",
   "description": "Native GPUI gesture recognition for react-native-gesture-handler",
   "files": [
     "desktop",
     "react-native.config.js",
-    "src"
+    "src",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*.test.cjs"
   ],
   "peerDependencies": {
-    "react-native": "0.87.1",
+    "react-native": "0.87.x",
     "react-native-gesture-handler": "3.3.x",
     "react-native-reanimated": "4.7.x",
     "react-native-worklets": "0.13.x"
@@ -18,5 +22,9 @@
     "type": "modules",
     "jsSrcsDir": "src"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  }
 }

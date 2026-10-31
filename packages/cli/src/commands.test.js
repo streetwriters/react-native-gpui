@@ -1,10 +1,15 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
+  assertReleaseExists,
   collectNodeAddons,
+  gpuiVersionRange,
+  reactNativeMinor,
   createLibrary,
   desktopLaunchConfig,
   linuxBuildDependencyProblem,
@@ -12,6 +17,7 @@ import {
   metroTerminal,
   scanNodeAddonCalls,
   scaffoldDesktop,
+  stageBundle,
 } from './commands.js';
 
 // The repository root by lookup, not by counting parents: this file sits at a
@@ -200,6 +206,20 @@ test('collect-node-addons requires both arguments', () => {
 // The launch chain used to be built from `app.json`'s `desktop` key. It reads
 // `desktop/desktop.json` now, and these check that the generated `main.rs` is
 // the same for the same options.
+test('urlSchemes reach the launch chain and turn single instance on', () => {
+  const chain = desktopLaunchConfig(
+    { devMenu: true, urlSchemes: ['myapp', 'my-app'], singleInstance: true },
+    'desktop/desktop.json',
+  );
+  expect(chain).toContain('.url_schemes(&["myapp", "my-app"])');
+  expect(chain).toContain('.single_instance(true)');
+  const none = desktopLaunchConfig(
+    { devMenu: true, urlSchemes: [], singleInstance: false },
+    'desktop/desktop.json',
+  );
+  expect(none).not.toContain('.url_schemes(');
+});
+
 test('menuBar: false asks the host for no menu bar, and its absence does not', () => {
   const hidden = desktopLaunchConfig(
     { window: { menuBar: false }, devMenu: true },
@@ -466,4 +486,117 @@ test('a tray icon in desktop.json is embedded in the launch chain', () => {
   expect(
     desktopLaunchConfig({ tray: { tooltip: 'Tray' }, devMenu: true }, 'x'),
   ).not.toContain('.icon_bytes(');
+});
+
+function stageFixture(content) {
+  const projectRoot = fs.mkdtempSync(
+    nodePath.join(os.tmpdir(), 'stage-bundle-'),
+  );
+  temporaryRoots.push(projectRoot);
+  const runtimeBundlePath = nodePath.join(projectRoot, 'compiled.bundle');
+  fs.writeFileSync(runtimeBundlePath, content);
+  return { projectRoot, build: { runtimeBundlePath } };
+}
+
+test('stageBundle accepts the bytecode magic the engine declares', () => {
+  const magic = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+  const staged = stageBundle({
+    ...stageFixture(Buffer.concat([magic, Buffer.from('rest')])),
+    engine: { compile() {}, bytecodeMagic: magic },
+    engineName: 'other',
+  });
+  expect(fs.existsSync(staged)).toBe(true);
+});
+
+test('stageBundle names the engine when its output lacks the declared magic', () => {
+  expect(() =>
+    stageBundle({
+      ...stageFixture('console.log(1)'),
+      engine: { compile() {}, bytecodeMagic: Buffer.from([1, 2, 3, 4]) },
+      engineName: 'other',
+    }),
+  ).toThrow(/the other engine did not produce bytecode/u);
+});
+
+test('stageBundle trusts an engine that compiles but declares no magic', () => {
+  const staged = stageBundle({
+    ...stageFixture('opaque'),
+    engine: { compile() {} },
+    engineName: 'other',
+  });
+  expect(fs.readFileSync(staged, 'utf8')).toBe('opaque');
+});
+
+test('stageBundle ships JavaScript for an engine without a compiler', () => {
+  const staged = stageBundle({
+    ...stageFixture('console.log(1)'),
+    engine: {},
+    engineName: 'plain',
+  });
+  expect(fs.readFileSync(staged, 'utf8')).toBe('console.log(1)');
+});
+
+test('the React Native minor comes from an exact version or a range', () => {
+  expect(reactNativeMinor('0.87.1')).toBe(87);
+  expect(reactNativeMinor('^0.88.0')).toBe(88);
+  expect(reactNativeMinor('~0.87.2')).toBe(87);
+  expect(reactNativeMinor('latest')).toBeUndefined();
+  expect(reactNativeMinor(undefined)).toBeUndefined();
+});
+
+test("our packages are asked for at the app's React Native minor", () => {
+  expect(
+    gpuiVersionRange('/nowhere', {
+      dependencies: { 'react-native': '0.87.1' },
+    }),
+  ).toBe('~0.87.0-alpha.0');
+  expect(() => gpuiVersionRange('/nowhere', { dependencies: {} })).toThrow(
+    /Cannot tell which React Native version/,
+  );
+});
+
+test('scaffolding writes the matching range for every package it adds', () => {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rn-gpui-scaffold-'));
+  try {
+    fs.writeFileSync(nodePath.join(root, 'app.json'), '{"name":"App"}');
+    const result = scaffoldDesktop(root, {
+      name: 'app',
+      dependencies: { 'react-native': '0.87.1' },
+    });
+    expect(result.dependencies['@react-native-gpui/core']).toBe(
+      '~0.87.0-alpha.0',
+    );
+    expect(result.dependencies['@react-native-gpui/hermes']).toBe(
+      '~0.87.0-alpha.0',
+    );
+    expect(result.devDependencies['@react-native-gpui/cli']).toBe(
+      '~0.87.0-alpha.0',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a React Native minor without a release is refused with a clear message', () => {
+  const view = result => () => result;
+  expect(() =>
+    assertReleaseExists('~0.88.0-alpha.0', {
+      registryView: view({ status: 0, stdout: '' }),
+    }),
+  ).toThrow(/supports React Native 0\.88/);
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 0, stdout: '"0.87.0-alpha.0"' }),
+    }),
+  ).not.toThrow();
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 1, stderr: 'npm error code E404' }),
+    }),
+  ).toThrow(/not published/);
+  expect(() =>
+    assertReleaseExists('~0.87.0-alpha.0', {
+      registryView: view({ status: 1, stderr: 'ENOTFOUND' }),
+    }),
+  ).not.toThrow();
 });

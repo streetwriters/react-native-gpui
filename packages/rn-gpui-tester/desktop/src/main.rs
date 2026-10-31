@@ -1,84 +1,3 @@
-#[cfg(target_os = "macos")]
-struct BlueNativeProbe;
-
-#[cfg(target_os = "macos")]
-impl react_native_gpui::native_view::NativeViewFactory for BlueNativeProbe {
-    fn create_view(
-        &self,
-        context: &react_native_gpui::native_view::NativeViewContext,
-    ) -> react_native_gpui::native_view::Result<react_native_gpui::native_view::NativeViewHandle>
-    {
-        use react_native_gpui::native_view::{
-            appkit::{
-                base::{id, YES},
-                foundation::{NSPoint, NSRect, NSSize},
-            },
-            objective_c::{class, msg_send, sel, sel_impl},
-        };
-
-        let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
-        // SAFETY: the view is created and configured on the main thread, and its ownership passes to the native view handle.
-        unsafe {
-            let allocated: id = msg_send![class!(NSView), alloc];
-            let view: id = msg_send![allocated, initWithFrame: frame];
-            let _: () = msg_send![view, setWantsLayer: YES];
-            let layer: id = msg_send![view, layer];
-            let color: id = msg_send![
-                class!(NSColor),
-                colorWithSRGBRed: 0.08
-                green: 0.48
-                blue: 0.68
-                alpha: 1.0
-            ];
-            let cg_color: id = msg_send![color, CGColor];
-            let _: () = msg_send![layer, setBackgroundColor: cg_color];
-            let _: () = msg_send![layer, setCornerRadius: 12.0];
-            let _: () = msg_send![layer, setMasksToBounds: YES];
-            let _ = context.native_props.get("label");
-            Ok(
-                react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(
-                    view as *mut std::ffi::c_void,
-                ),
-            )
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-struct TesterWebView;
-
-#[cfg(target_os = "macos")]
-impl react_native_gpui::native_view::NativeViewFactory for TesterWebView {
-    fn create_view(
-        &self,
-        _context: &react_native_gpui::native_view::NativeViewContext,
-    ) -> react_native_gpui::native_view::Result<react_native_gpui::native_view::NativeViewHandle>
-    {
-        use react_native_gpui::native_view::{
-            appkit::{
-                base::{id, nil},
-                foundation::{NSPoint, NSRect, NSSize, NSString},
-            },
-            objective_c::{class, msg_send, sel, sel_impl},
-        };
-        // SAFETY: the web view is created and configured on the main thread, and its ownership passes to the native view handle.
-        unsafe {
-            let allocated: id = msg_send![class!(WKWebView), alloc];
-            let view: id = msg_send![allocated, initWithFrame: NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.))];
-            let html = NSString::alloc(nil).init_str(
-                "<html><body style='background:#153b59;color:white;font:24px system-ui;padding:32px'><h1>WKWebView</h1><p>A native WebKit view hosted inside React Native GPUI.</p></body></html>",
-            );
-            let _: id = msg_send![view, loadHTMLString: html baseURL: nil];
-            let _: () = msg_send![html, release];
-            Ok(
-                react_native_gpui::native_view::NativeViewHandle::from_owned_nsview(
-                    view as *mut std::ffi::c_void,
-                ),
-            )
-        }
-    }
-}
-
 mod gpui_first;
 
 fn main() {
@@ -99,22 +18,12 @@ fn main() {
     // The tester installs Hermes; with a second engine package present it would
     // otherwise be ambiguous. `RN_GPUI_JS_ENGINE` overrides this.
     .js_engine("hermes")
+    .url_schemes(&["rngpuitester"])
+    // The e2e suite starts many copies of the tester under one app id, so a
+    // second copy must not hand itself to the first unless a test asks.
+    .single_instance(std::env::var_os("RN_GPUI_SINGLE_INSTANCE").is_some())
     .configure_window(|options| {
         options.is_resizable = true;
-    })
-    .on_app_ready(|_cx| {
-        #[cfg(target_os = "macos")]
-        react_native_gpui::native_view::register_native_view_factory(
-            _cx,
-            "BlueNativeProbe",
-            BlueNativeProbe,
-        );
-        #[cfg(target_os = "macos")]
-        react_native_gpui::native_view::register_native_view_factory(
-            _cx,
-            "TesterWebView",
-            TesterWebView,
-        );
     });
 
     // No system title bar: the app draws its own (`TitleBar` in App.tsx), so its

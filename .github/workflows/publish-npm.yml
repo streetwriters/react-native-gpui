@@ -1,0 +1,71 @@
+name: publish-npm
+
+# Publishes the @react-native-gpui packages to npm. Dispatch only; the default is
+# a dry run that checks everything and publishes nothing. Needs the NPM_TOKEN
+# repository secret for a real publish.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check and pack everything, publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  # npm provenance signs the packages with the workflow's identity.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      # The published core pins a prebuilt runtime; it has to be the one built
+      # from the C++ inputs in this commit.
+      - name: The prebuilt pin matches the C++ inputs
+        run: node packages/core/scripts/check-prebuilt-pin.mjs
+
+      - name: The Hermes engine release exists with all six zips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release="$(node -p "require('./packages/hermes/package.json').hermes.engineRelease")"
+          tag="@react-native-gpui/hermes@${release}"
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("^hermes-.*\\.zip$"))] | length')"
+          echo "$tag has $assets zips"
+          [ "$assets" = "6" ]
+
+      - name: CI is green on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --json status,conclusion --jq '[.[] | select(.status == "completed")]')"
+          echo "$runs"
+          [ "$(echo "$runs" | jq 'length')" -gt 0 ]
+          [ "$(echo "$runs" | jq '[.[] | select(.conclusion != "success")] | length')" = "0" ]
+
+      - name: Versions follow the React Native minor
+        run: node scripts/ci/publish-npm.mjs --check-only
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            node scripts/ci/publish-npm.mjs --dry-run
+          else
+            node scripts/ci/publish-npm.mjs
+          fi

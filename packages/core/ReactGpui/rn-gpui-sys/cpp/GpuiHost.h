@@ -85,6 +85,11 @@ class GpuiHost {
       float maxHeight,
       float scale);
   void set_window_metrics(float w, float h, float scale);
+  void
+  set_display_metrics(float screenWidth, float screenHeight, float fontScale);
+  void emitDimensions() const;
+  void set_app_state(rust::Str state);
+  void emit_memory_warning() const;
   void set_window_top_inset(float top);
   void set_system_appearance(rust::Str appearance);
   void stop_surface(int32_t surfaceId);

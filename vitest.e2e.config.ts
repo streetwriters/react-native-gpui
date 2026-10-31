@@ -9,6 +9,7 @@ export default defineConfig({
     setupFiles: ['packages/rn-gpui-tester/e2e/vitest.setup.ts'],
     testTimeout: 60_000,
     hookTimeout: 45_000,
-    maxWorkers: 4,
+    // Tests that need real window focus fight for it when files run together.
+    fileParallelism: false,
   },
 });

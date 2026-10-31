@@ -125,6 +125,63 @@ async fn serve_commands(
                     let hidden = false;
                 json!({"x":f32::from(bounds.origin.x),"y":f32::from(bounds.origin.y),"width":f32::from(bounds.size.width),"height":f32::from(bounds.size.height), "hidden":hidden})
             }).unwrap_or_else(|error|json!({"error":error.to_string()})),
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            "compositeCapture" => cx
+                .update_window(window, |_, window, _| {
+                    match composite_png(window) {
+                        Ok((png, width, height)) => json!({
+                            "png": base64::engine::general_purpose::STANDARD.encode(png),
+                            "width": width,
+                            "height": height,
+                            "scale": window.scale_factor(),
+                            "viewport": {
+                                "width": f32::from(window.viewport_size().width),
+                                "height": f32::from(window.viewport_size().height),
+                            },
+                        }),
+                        Err(error) => json!({"error": error}),
+                    }
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
+            "compositionLayers" => cx
+                .update_window(window, |_, window, _| {
+                    json!({"count": window.composed_scene_layers().len()})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
+            "nativeSurfaces" => {
+                let (scale, layers) = cx
+                    .update_window(window, |_, window, _| {
+                        (window.scale_factor(), window.composed_scene_layers())
+                    })
+                    .unwrap_or((1.0, Vec::new()));
+                let ops = |surface| {
+                    layers
+                        .iter()
+                        .find(|layer| layer.surface == surface)
+                        .map_or(0, |layer| layer.ranges.iter().map(|range| range.len()).sum())
+                };
+                let base_ops: usize = layers.first().map_or(0, |layer| {
+                    layer.ranges.iter().map(|range| range.len()).sum()
+                });
+                cx.update_entity(&store, |store, cx| {
+                    let mut surfaces: Vec<Value> = store
+                        .nodes
+                        .iter()
+                        .filter_map(|(tag, entity)| {
+                            let node = entity.read(cx);
+                            let surface = node.native_surface()?;
+                            let mut state = surface.test_state(scale);
+                            state["tag"] = json!(tag);
+                            state["testID"] = json!(node.view.test_id);
+                            state["aboveOps"] = json!(ops(surface.above()));
+                            state["baseOps"] = json!(base_ops);
+                            Some(state)
+                        })
+                        .collect();
+                    surfaces.sort_by_key(|surface| surface["tag"].as_i64());
+                    json!({"surfaces": surfaces})
+                })
+            }
             "hostCounters" => {
                 use crate::counters::{read, reset, Counter};
                 let counters = json!({
@@ -523,6 +580,11 @@ async fn serve_commands(
                         let kind = method.to_owned();
                         let dx = params.get("dx").and_then(Value::as_f64).unwrap_or(0.0) as f32;
                         let dy = params.get("dy").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                        let touch_phase = match params.get("phase").and_then(Value::as_str) {
+                            Some("started") => gpui::TouchPhase::Started,
+                            Some("ended") => gpui::TouchPhase::Ended,
+                            _ => gpui::TouchPhase::Moved,
+                        };
                         let preflight = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
                             window.dispatch_event(
@@ -546,6 +608,11 @@ async fn serve_commands(
                         let mut rendered = 0usize;
                         let mut rendered_total = 0usize;
                         let mut a11y_active = false;
+                        let interval_ms = params
+                            .get("intervalMs")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0)
+                            .min(200);
                         let repeat = params
                             .get("repeat")
                             .and_then(Value::as_u64)
@@ -560,12 +627,18 @@ async fn serve_commands(
                                         gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                                             position,
                                             delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+                                            touch_phase,
                                             ..Default::default()
                                         }),
                                         app,
                                     );
                                     a11y_active = window.is_a11y_active();
                                     for step in 0..repeat {
+                                        if step > 0 && interval_ms > 0 {
+                                            std::thread::sleep(std::time::Duration::from_millis(
+                                                interval_ms,
+                                            ));
+                                        }
                                         if step > 0 {
                                             window.dispatch_event(
                                                 gpui::PlatformInput::ScrollWheel(
@@ -575,6 +648,7 @@ async fn serve_commands(
                                                             px(dx),
                                                             px(dy),
                                                         )),
+                                                        touch_phase,
                                                         ..Default::default()
                                                     },
                                                 ),
@@ -1191,6 +1265,20 @@ async fn serve_commands(
                     json!({"opened": crate::desktop::gpui_menu::open_menu_bar_menu(cx, &title)})
                 })
             }
+            "clipboardText" => cx.update(|cx| {
+                json!({"text": cx.read_from_clipboard().and_then(|item| item.text())})
+            }),
+            "setClipboardText" => {
+                let text = params
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                cx.update(|cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                    json!({"set": true})
+                })
+            }
             "contextMenuPresenter" => {
                 cx.update(|cx| json!({"presenter": crate::desktop::context_menu::presenter_name(cx)}))
             }
@@ -1236,6 +1324,12 @@ async fn serve_commands(
                         .unwrap_or_else(|error| error.to_json_value())
                 })
             }
+            // What the window's close button does first when a Modal is shown.
+            "modalCloseRequest" => cx
+                .update_window(window, |_, window, app| {
+                    json!({"handled": crate::desktop::windows::request_modal_close(window, app)})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "osCloseWindow" => {
                 let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
                 cx.update(|cx| json!({"closed": crate::desktop::windows::os_close(cx, key)}))
@@ -1246,6 +1340,79 @@ async fn serve_commands(
             "appReopen" => cx.update(|cx| {
                 crate::desktop::windows::reopen(cx);
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
+            }),
+            // Stands in for the OS opening one of the app's URL schemes.
+            "openUrl" => {
+                let url = params
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                crate::desktop::deep_link::handle_url(url);
+                json!({"delivered": true})
+            }
+            #[cfg(target_os = "macos")]
+            "shareOpen" => json!({
+                "open": crate::builtins::share::mac::is_open(),
+                "anchor": crate::builtins::share::mac::last_anchor()
+                    .map(|(x, y, w, h, flipped)| json!({"x": x, "y": y, "width": w, "height": h, "flipped": flipped})),
+            }),
+            #[cfg(target_os = "macos")]
+            "shareChoose" => {
+                let name = params.get("service").and_then(Value::as_str);
+                json!({"sent": crate::builtins::share::mac::simulate_choice(name)})
+            }
+            "alertState" => cx.update(|cx| {
+                crate::builtins::alert::dialog::describe(cx).unwrap_or_else(|| {
+                    #[cfg(target_os = "macos")]
+                    {
+                        crate::builtins::alert::mac::describe().unwrap_or(Value::Null)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        Value::Null
+                    }
+                })
+            }),
+            "alertRespond" => {
+                let button = params.get("button").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let texts: Vec<String> = params
+                    .get("texts")
+                    .and_then(Value::as_array)
+                    .map(|texts| {
+                        texts
+                            .iter()
+                            .filter_map(|text| text.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let responded = cx.update(|cx| {
+                    if crate::builtins::alert::dialog::respond(cx, button, &texts) {
+                        return true;
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        crate::builtins::alert::mac::respond(button, &texts)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        false
+                    }
+                });
+                json!({ "responded": responded })
+            }
+            "alertEscape" => cx.update(|cx| {
+                if crate::builtins::alert::dialog::press_escape(cx) {
+                    return json!({"sent": true});
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    json!({"sent": crate::builtins::alert::mac::press_escape()})
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    json!({"sent": false})
+                }
             }),
             "listWindows" => cx.update(|cx| {
                 crate::desktop::windows::list_windows(cx).unwrap_or(Value::Null)
@@ -1549,13 +1716,16 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
     let node = entity.read(cx);
     let origin = node.absolute_origin(cx);
     let (scale_x, scale_y) = node.cumulative_scale(cx);
-    let height = node.frame.h;
-    Some(RectF {
-        x: f32::from(origin.x),
-        y: f32::from(origin.y),
-        w: node.frame.w * scale_x,
-        h: height * scale_y,
-    })
+    let (x, y, w, h) = node.transformed_bounds(
+        cx,
+        (
+            f32::from(origin.x),
+            f32::from(origin.y),
+            node.frame.w * scale_x,
+            node.frame.h * scale_y,
+        ),
+    );
+    Some(RectF { x, y, w, h })
 }
 
 /// The GPUI menu bar is drawn inside the window (Linux by default), so the RN
@@ -1901,5 +2071,188 @@ mod tests {
         };
 
         assert!(intersect(frame, clip).is_none());
+    }
+}
+
+/// The window as the compositor shows it, native views included, as PNG bytes
+/// with its size in pixels.
+#[cfg(target_os = "macos")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    crate::native_view::test_composite_png(window)
+}
+
+/// The window as the X server shows it: `XGetImage` includes the child windows
+/// native views live in. Wayland offers no such read.
+#[cfg(target_os = "linux")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11_dl::xlib;
+
+    let id = match HasWindowHandle::window_handle(window)
+        .map_err(|error| error.to_string())?
+        .as_raw()
+    {
+        RawWindowHandle::Xcb(handle) => u64::from(handle.window.get()),
+        RawWindowHandle::Xlib(handle) => handle.window,
+        _ => return Err("the window cannot be captured outside X11".into()),
+    };
+    let scale = window.scale_factor();
+    let size = window.viewport_size();
+    let (width, height) = (
+        (f32::from(size.width) * scale).round() as u32,
+        (f32::from(size.height) * scale).round() as u32,
+    );
+    let xlib = xlib::Xlib::open().map_err(|error| error.to_string())?;
+    // SAFETY: the display is opened and closed here, the image is destroyed once, and its pixels are read within its own `bytes_per_line` and height.
+    unsafe {
+        let display = (xlib.XOpenDisplay)(std::ptr::null());
+        if display.is_null() {
+            return Err("could not open the X display".into());
+        }
+        let image = (xlib.XGetImage)(display, id, 0, 0, width, height, !0, xlib::ZPixmap);
+        if image.is_null() {
+            (xlib.XCloseDisplay)(display);
+            return Err("XGetImage failed".into());
+        }
+        let (red, green, blue) = ((*image).red_mask, (*image).green_mask, (*image).blue_mask);
+        let channel =
+            |mask: u64, pixel: u64| -> u8 { ((pixel & mask) >> mask.trailing_zeros()) as u8 };
+        let mut rgba = image::RgbaImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = ((xlib.XGetPixel)(image, x as i32, y as i32)) as u64;
+                rgba.put_pixel(
+                    x,
+                    y,
+                    image::Rgba([
+                        channel(red, pixel),
+                        channel(green, pixel),
+                        channel(blue, pixel),
+                        255,
+                    ]),
+                );
+            }
+        }
+        (xlib.XDestroyImage)(image);
+        (xlib.XCloseDisplay)(display);
+        let mut png = std::io::Cursor::new(Vec::new());
+        rgba.write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|error| error.to_string())?;
+        Ok((png.into_inner(), width as usize, height as usize))
+    }
+}
+
+/// The window as the desktop shows it, DirectComposition content included: the
+/// screen is copied at the window's client rectangle, so the window must be on
+/// screen and not covered.
+#[cfg(target_os = "windows")]
+fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+
+    let RawWindowHandle::Win32(handle) = HasWindowHandle::window_handle(window)
+        .map_err(|error| error.to_string())?
+        .as_raw()
+    else {
+        return Err("the window is not a Win32 window".into());
+    };
+    capture_client(handle.hwnd.get() as HWND)
+}
+
+#[cfg(target_os = "windows")]
+fn capture_client(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+) -> Result<(Vec<u8>, usize, usize), String> {
+    use windows_sys::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::Dwm::DwmFlush,
+        Graphics::Gdi::{
+            BitBlt, ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject,
+            GetDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+            DIB_RGB_COLORS, SRCCOPY,
+        },
+        UI::WindowsAndMessaging::{
+            GetClientRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        },
+    };
+    // SAFETY: every GDI object created here is released before returning; the pixel buffer is the section's own memory, read within its width and height.
+    unsafe {
+        let mut client = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        GetClientRect(hwnd, &mut client);
+        let (width, height) = (client.right - client.left, client.bottom - client.top);
+        if width <= 0 || height <= 0 {
+            return Err("the window has no client area".into());
+        }
+        // The screen is copied, so a window in front of this one (a console
+        // another test left on the desktop) would be copied with it. Put this
+        // one on top and let the compositor present it.
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        DwmFlush();
+        let mut origin = POINT { x: 0, y: 0 };
+        ClientToScreen(hwnd, &mut origin);
+        let screen = GetDC(std::ptr::null_mut());
+        let memory = CreateCompatibleDC(screen);
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..std::mem::zeroed()
+        };
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let section = CreateDIBSection(
+            screen,
+            &info,
+            DIB_RGB_COLORS,
+            &mut bits,
+            std::ptr::null_mut(),
+            0,
+        );
+        let previous = SelectObject(memory, section);
+        let copied = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            screen,
+            origin.x,
+            origin.y,
+            SRCCOPY | CAPTUREBLT,
+        );
+        let result = if copied == 0 || bits.is_null() {
+            Err("the screen could not be copied".to_string())
+        } else {
+            let bgra = std::slice::from_raw_parts(bits as *const u8, (width * height * 4) as usize);
+            let mut rgba = image::RgbaImage::new(width as u32, height as u32);
+            for (pixel, source) in rgba.pixels_mut().zip(bgra.chunks_exact(4)) {
+                *pixel = image::Rgba([source[2], source[1], source[0], 255]);
+            }
+            let mut png = std::io::Cursor::new(Vec::new());
+            rgba.write_to(&mut png, image::ImageFormat::Png)
+                .map(|()| (png.into_inner(), width as usize, height as usize))
+                .map_err(|error| error.to_string())
+        };
+        SelectObject(memory, previous);
+        DeleteObject(section);
+        DeleteDC(memory);
+        ReleaseDC(std::ptr::null_mut(), screen);
+        result
     }
 }

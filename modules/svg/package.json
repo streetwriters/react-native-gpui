@@ -1,14 +1,22 @@
 {
   "name": "@react-native-gpui/svg",
-  "version": "0.1.0",
+  "version": "0.87.0-alpha.0",
   "description": "GPUI Fabric renderer adapter for react-native-svg",
   "files": [
     "desktop",
-    "react-native.config.js"
+    "react-native.config.js",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*.test.cjs"
   ],
   "peerDependencies": {
-    "react-native": "0.87.1",
+    "react-native": "0.87.x",
     "react-native-svg": "15.15.x"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  }
 }

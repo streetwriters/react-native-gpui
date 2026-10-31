@@ -13,7 +13,7 @@ pub(crate) fn handle_key(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) -> bool {
-    if !this.input_editable {
+    if !this.input_editable && !matches!(key, "left" | "right" | "home" | "end") {
         return false;
     }
     match key {
@@ -45,13 +45,17 @@ pub(crate) fn handle_key(
             true
         }
         "enter" => {
-            if this.input_multiline {
+            if this
+                .input_submit_behavior
+                .inserts_newline(this.input_multiline)
+            {
                 replace_plain_text(
                     &mut this.input_text,
                     &mut this.input_selection,
                     &mut this.input_marked,
                     None,
                     "\n",
+                    this.input_max_length,
                 );
                 this.sync_input_paragraph();
                 emit_change(this, window, cx);
@@ -63,6 +67,9 @@ pub(crate) fn handle_key(
                         "text": this.input_text, "eventCount": this.input_event_count,
                     }),
                 );
+                if this.input_submit_behavior.blurs(this.input_multiline) {
+                    window.blur(cx);
+                }
             }
             true
         }
@@ -143,6 +150,102 @@ pub(crate) fn handle_key(
     }
 }
 
+const MENU_CUT: &str = "cut";
+const MENU_COPY: &str = "copy";
+const MENU_PASTE: &str = "paste";
+const MENU_SELECT_ALL: &str = "selectAll";
+
+fn text_menu_model(this: &RNNodeView, can_paste: bool) -> crate::desktop::menu_model::MenuModel {
+    use crate::desktop::menu_model::{MenuItemDef, MenuModel, MenuNode};
+    let has_selection = !selected_range(this).is_empty();
+    let editable = this.input_editable;
+    let item = |id: &str, label: &str, enabled: bool| {
+        MenuNode::Item(MenuItemDef {
+            id: id.to_string(),
+            label: label.to_string(),
+            accelerator: None,
+            enabled,
+            checked: false,
+            role: None,
+            icon: None,
+        })
+    };
+    let mut items = Vec::new();
+    if editable {
+        items.push(item(MENU_CUT, "Cut", has_selection));
+    }
+    items.push(item(MENU_COPY, "Copy", has_selection));
+    if editable {
+        items.push(item(MENU_PASTE, "Paste", can_paste));
+    }
+    items.push(MenuNode::Separator);
+    items.push(item(
+        MENU_SELECT_ALL,
+        "Select All",
+        !this.input_text.is_empty(),
+    ));
+    MenuModel { items }
+}
+
+/// Opens the Cut, Copy, Paste and Select All menu over a text input, unless the
+/// input hides it. Returns whether a menu was shown.
+pub(crate) fn show_text_menu(
+    entity: &gpui::Entity<RNNodeView>,
+    position: Point<Pixels>,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> bool {
+    let can_paste = cx
+        .read_from_clipboard()
+        .is_some_and(|item| item.text().is_some_and(|text| !text.is_empty()));
+    let this = entity.read(cx);
+    if this.component != "TextInput" || this.input_context_menu_hidden {
+        return false;
+    }
+    let model = text_menu_model(this, can_paste);
+    let tag = this.tag;
+    let handle = window.window_handle();
+    let responder = crate::desktop::context_menu::Responder::callback(Box::new(move |choice| {
+        let Some(choice) = choice else {
+            return;
+        };
+        crate::desktop::post_to_main(Box::new(move |cx: &mut gpui::App| {
+            let Some(store) = store_from(cx) else {
+                return;
+            };
+            let Some(entity) = store.read(cx).nodes.get(&tag).cloned() else {
+                return;
+            };
+            let _ = handle.update(cx, |_root, window, cx| {
+                entity.update(cx, |this, cx| {
+                    match choice.as_str() {
+                        MENU_CUT => {
+                            cut_selection(this, window, cx);
+                        }
+                        MENU_COPY => {
+                            copy_selection(this, cx);
+                        }
+                        MENU_PASTE => {
+                            paste_clipboard(this, window, cx);
+                        }
+                        MENU_SELECT_ALL => select_all(this, window, cx),
+                        _ => {}
+                    }
+                    cx.notify();
+                });
+            });
+        }));
+    }));
+    crate::desktop::context_menu::present(
+        cx,
+        model,
+        handle,
+        (f32::from(position.x), f32::from(position.y)),
+        responder,
+    );
+    true
+}
+
 pub(crate) fn select_at_point(
     this: &mut RNNodeView,
     point: Point<Pixels>,
@@ -150,7 +253,7 @@ pub(crate) fn select_at_point(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) {
-    if this.component != "TextInput" || !this.input_editable {
+    if this.component != "TextInput" {
         return;
     }
     let index = this
@@ -165,11 +268,20 @@ pub(crate) fn select_at_point(
     };
     this.input_selection_anchor = Some(anchor);
     this.input_selection = anchor.min(index)..anchor.max(index);
+    // The press that focused the input selects everything, not a caret.
+    if !extend
+        && this
+            .input_select_all_until
+            .is_some_and(|until| std::time::Instant::now() < until)
+    {
+        this.input_selection = 0..this.input_text.len();
+        this.input_selection_anchor = None;
+    }
     emit_selection(this, window, cx);
 }
 
 pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
-    if this.component != "TextInput" || !this.input_editable {
+    if this.component != "TextInput" {
         return;
     }
     this.input_selection = 0..this.input_text.len();
@@ -228,6 +340,7 @@ pub(crate) fn paste_clipboard(
         &mut this.input_marked,
         None,
         &text,
+        this.input_max_length,
     );
     this.sync_input_paragraph();
     emit_change(this, window, cx);
@@ -303,14 +416,39 @@ fn replacement_range(
         .unwrap_or_else(|| selection.clone())
 }
 
+/// The longest prefix of `inserted` that keeps `text` within `max_length`
+/// UTF-16 units once `range` is replaced, never splitting a character.
+fn fit_insert<'a>(
+    text: &str,
+    range: &Range<usize>,
+    inserted: &'a str,
+    max_length: usize,
+) -> &'a str {
+    if max_length == usize::MAX {
+        return inserted;
+    }
+    let kept =
+        utf16_at_byte(text, range.start) + text[range.end.min(text.len())..].encode_utf16().count();
+    let mut room = max_length.saturating_sub(kept);
+    for (byte, ch) in inserted.char_indices() {
+        if ch.len_utf16() > room {
+            return &inserted[..byte];
+        }
+        room -= ch.len_utf16();
+    }
+    inserted
+}
+
 fn replace_plain_text(
     text: &mut String,
     selection: &mut Range<usize>,
     marked: &mut Option<Range<usize>>,
     range_utf16: Option<Range<usize>>,
     inserted: &str,
+    max_length: usize,
 ) {
     let range = replacement_range(text, selection, marked, range_utf16);
+    let inserted = fit_insert(text, &range, inserted, max_length);
     text.replace_range(range.clone(), inserted);
     let cursor = range.start + inserted.len();
     *selection = cursor..cursor;
@@ -324,8 +462,10 @@ fn replace_marked_text(
     range_utf16: Option<Range<usize>>,
     inserted: &str,
     selected_range_utf16: Option<Range<usize>>,
+    max_length: usize,
 ) {
     let range = replacement_range(text, selection, marked, range_utf16);
+    let inserted = fit_insert(text, &range, inserted, max_length);
     text.replace_range(range.clone(), inserted);
     let composing = range.start..range.start + inserted.len();
     *marked = (!inserted.is_empty()).then_some(composing.clone());
@@ -354,6 +494,7 @@ fn clear_text_state(
 fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     this.input_event_count += 1;
     this.input_selection_anchor = None;
+    let scrolled_from = this.input_scroll_y;
     keep_caret_visible(this, window);
     let text = this.input_text.clone();
     let selection = utf16_range(&text, selected_range(this));
@@ -372,13 +513,18 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
+        if this.input_scroll_y != scrolled_from {
+            host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+        }
         store.read(cx).frame_hook.arm(window);
     }
+    emit_content_size(this, window, cx);
     this.reset_text_input_caret(cx);
     cx.notify();
 }
 
 fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    let scrolled_from = this.input_scroll_y;
     keep_caret_visible(this, window);
     let selection = utf16_range(&this.input_text, selected_range(this));
     if let Some(store) = store_from(cx) {
@@ -388,15 +534,112 @@ fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<R
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
+        if this.input_scroll_y != scrolled_from {
+            host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+        }
         store.read(cx).frame_hook.arm(window);
     }
     this.reset_text_input_caret(cx);
     cx.notify();
 }
 
+/// The height of one line in the input's own units, as the caret and the
+/// selection use it.
+pub(crate) fn input_line_height(this: &RNNodeView) -> f32 {
+    let fragment = this
+        .paragraph
+        .as_ref()
+        .and_then(|paragraph| paragraph.fragments.first());
+    match fragment {
+        Some(fragment) if fragment.line_height > 0.0 => fragment.line_height,
+        Some(fragment) => fragment.font_size.max(14.0) * 1.2,
+        None => 14.0 * 1.2,
+    }
+}
+
+fn viewport_height(this: &RNNodeView) -> f32 {
+    (this.frame.h - this.view.content_insets.top - this.view.content_insets.bottom).max(0.0)
+}
+
+fn multiline_content_height(this: &RNNodeView) -> f32 {
+    this.input_text.split('\n').count().max(1) as f32 * input_line_height(this)
+}
+
+pub(crate) fn max_scroll_y(this: &RNNodeView) -> f32 {
+    (multiline_content_height(this) - viewport_height(this)).max(0.0)
+}
+
+fn scroll_payload(this: &RNNodeView) -> serde_json::Value {
+    let width =
+        (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0);
+    serde_json::json!({
+        "contentOffset": {"x": this.input_scroll_x, "y": this.input_scroll_y},
+        "contentSize": {"width": width, "height": multiline_content_height(this)},
+        "layoutMeasurement": {"width": width, "height": viewport_height(this)},
+    })
+}
+
+/// Sets the vertical offset of a multiline input and reports it to `onScroll`
+/// when it moved.
+pub(crate) fn scroll_input_to(this: &mut RNNodeView, y: f32, cx: &mut Context<RNNodeView>) {
+    let next = y.clamp(0.0, max_scroll_y(this));
+    if (next - this.input_scroll_y).abs() <= f32::EPSILON {
+        return;
+    }
+    this.input_scroll_y = next;
+    if let Some(store) = store_from(cx) {
+        store
+            .read(cx)
+            .host
+            .dispatch_event(this.tag, "topScroll", &scroll_payload(this));
+    }
+    cx.notify();
+}
+
+/// Reports the content size to `onContentSizeChange` when it differs from the
+/// last report.
+fn emit_content_size(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
+    let width = if this.input_multiline {
+        (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0)
+    } else {
+        this.paragraph.as_ref().map_or(0.0, |paragraph| {
+            let line = this.input_text.split('\n').next().unwrap_or_default();
+            crate::text::input_caret_x(window.text_system(), paragraph, line, line.len())
+        })
+    };
+    let height = if this.input_multiline {
+        multiline_content_height(this)
+    } else {
+        input_line_height(this)
+    };
+    if this.input_content_size == (width, height) {
+        return;
+    }
+    this.input_content_size = (width, height);
+    if let Some(store) = store_from(cx) {
+        store.read(cx).host.dispatch_event(
+            this.tag,
+            "topContentSizeChange",
+            &serde_json::json!({"contentSize": {"width": width, "height": height}}),
+        );
+    }
+}
+
 pub(crate) fn keep_caret_visible(this: &mut RNNodeView, window: &mut Window) {
     if this.input_multiline {
         this.input_scroll_x = 0.0;
+        let line_height = input_line_height(this);
+        let end = this.input_selection.end.min(this.input_text.len());
+        let line = this.input_text[..end].matches('\n').count() as f32;
+        let (top, bottom) = (line * line_height, (line + 1.0) * line_height);
+        let height = viewport_height(this);
+        let mut offset = this.input_scroll_y;
+        if top < offset {
+            offset = top;
+        } else if bottom > offset + height {
+            offset = bottom - height;
+        }
+        this.input_scroll_y = offset.clamp(0.0, max_scroll_y(this));
         return;
     }
     let Some(paragraph) = this.paragraph.as_ref() else {
@@ -514,6 +757,7 @@ impl EntityInputHandler for RNNodeView {
             &mut self.input_marked,
             range_utf16,
             text,
+            self.input_max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -537,6 +781,7 @@ impl EntityInputHandler for RNNodeView {
             range_utf16,
             new_text,
             new_selected_range_utf16,
+            self.input_max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -590,6 +835,11 @@ impl EntityInputHandler for RNNodeView {
         let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)
             - self.view.content_insets.top)
             .max(0.0);
+        let local_y = if self.input_multiline {
+            local_y + self.input_scroll_y
+        } else {
+            local_y
+        };
         let target_line = if self.input_multiline {
             (local_y / line_height.max(1.0)).floor() as usize
         } else {
@@ -672,11 +922,36 @@ mod tests {
         let mut selection = 1..5;
         let mut marked = None;
 
-        replace_plain_text(&mut text, &mut selection, &mut marked, Some(1..3), "é");
+        replace_plain_text(
+            &mut text,
+            &mut selection,
+            &mut marked,
+            Some(1..3),
+            "é",
+            usize::MAX,
+        );
 
         assert_eq!(text, "AéZ");
         assert_eq!(selection, 3..3);
         assert_eq!(marked, None);
+    }
+
+    #[test]
+    fn insertion_stops_at_max_length_without_splitting_a_character() {
+        let mut text = "ab".to_owned();
+        let mut selection = 2..2;
+        let mut marked = None;
+
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "😀c", 3);
+        assert_eq!(text, "ab");
+
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "cd", 3);
+        assert_eq!(text, "abc");
+        assert_eq!(selection, 3..3);
+
+        selection = 0..3;
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "wxyz", 3);
+        assert_eq!(text, "wxy");
     }
 
     #[test]
@@ -685,7 +960,15 @@ mod tests {
         let mut selection = 3..3;
         let mut marked = None;
 
-        replace_marked_text(&mut text, &mut selection, &mut marked, None, "k", None);
+        replace_marked_text(
+            &mut text,
+            &mut selection,
+            &mut marked,
+            None,
+            "k",
+            None,
+            usize::MAX,
+        );
         assert_eq!(text, "Hi k");
         assert_eq!(marked, Some(3..4));
 
@@ -696,12 +979,13 @@ mod tests {
             None,
             "か",
             Some(1..1),
+            usize::MAX,
         );
         assert_eq!(text, "Hi か");
         assert_eq!(marked, Some(3..6));
         assert_eq!(selection, 6..6);
 
-        replace_plain_text(&mut text, &mut selection, &mut marked, None, "");
+        replace_plain_text(&mut text, &mut selection, &mut marked, None, "", usize::MAX);
         assert_eq!(text, "Hi ");
         assert_eq!(marked, None);
     }
@@ -773,6 +1057,56 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
 }
 
 /// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
+/// What Enter does, from `submitBehavior`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum SubmitBehavior {
+    /// Not set by JS: a single-line input submits, a multiline one adds a line.
+    #[default]
+    Default,
+    Submit,
+    BlurAndSubmit,
+    Newline,
+}
+
+impl SubmitBehavior {
+    pub(crate) fn parse(name: &str) -> Self {
+        match name {
+            "submit" => Self::Submit,
+            "blurAndSubmit" => Self::BlurAndSubmit,
+            "newline" => Self::Newline,
+            _ => Self::Default,
+        }
+    }
+
+    /// Whether Enter inserts a newline for an input that is `multiline`.
+    pub(crate) fn inserts_newline(self, multiline: bool) -> bool {
+        match self {
+            Self::Newline => multiline,
+            Self::Submit | Self::BlurAndSubmit => false,
+            Self::Default => multiline,
+        }
+    }
+
+    /// Whether Enter blurs the input once it has submitted: a single-line
+    /// input does unless `submitBehavior` is `submit`.
+    pub(crate) fn blurs(self, multiline: bool) -> bool {
+        match self {
+            Self::BlurAndSubmit => true,
+            Self::Default => !multiline,
+            Self::Submit | Self::Newline => false,
+        }
+    }
+}
+
+/// The placeholder's colour: the one the app asked for, or the platform grey.
+pub(crate) fn placeholder_color(requested: u32) -> u32 {
+    if requested == 0 {
+        0xff8e8e93
+    } else {
+        requested
+    }
+}
+
 pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp) {
     let next = TextInputProps::from_json(&op.extension_props_json);
     if should_apply_text_update(this.input_event_count, next.event_count)
@@ -785,6 +1119,12 @@ pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp
     this.input_selection_color = next.selection_color;
     this.input_multiline = next.multiline;
     this.input_editable = next.editable;
+    this.input_placeholder_color = placeholder_color(next.placeholder_color);
+    this.input_caret_hidden = next.caret_hidden;
+    this.input_select_on_focus = next.select_on_focus;
+    this.input_submit_behavior = next.submit_behavior;
+    this.input_max_length = next.max_length;
+    this.input_context_menu_hidden = next.context_menu_hidden;
     this.input_selection = reconcile_selection(
         &this.input_text,
         this.input_selection.clone(),
@@ -801,6 +1141,12 @@ pub(crate) struct TextInputProps {
     pub multiline: bool,
     pub editable: bool,
     pub secure: bool,
+    pub placeholder_color: u32,
+    pub caret_hidden: bool,
+    pub select_on_focus: bool,
+    pub submit_behavior: SubmitBehavior,
+    pub max_length: usize,
+    pub context_menu_hidden: bool,
     pub event_count: i32,
     pub selection: Option<Range<usize>>,
 }
@@ -838,8 +1184,52 @@ impl TextInputProps {
             multiline: flag("multiline", false),
             editable: flag("editable", true),
             secure: flag("secure", false),
+            placeholder_color: number("placeholderTextColor") as u32,
+            caret_hidden: flag("caretHidden", false),
+            select_on_focus: flag("selectTextOnFocus", false),
+            submit_behavior: SubmitBehavior::parse(
+                value
+                    .get("submitBehavior")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+            ),
+            max_length: value
+                .get("maxLength")
+                .and_then(serde_json::Value::as_u64)
+                .map_or(usize::MAX, |length| length as usize),
+            context_menu_hidden: flag("contextMenuHidden", false),
             event_count: number("eventCount") as i32,
             selection,
         }
+    }
+}
+
+#[cfg(test)]
+mod submit_behavior_tests {
+    use super::SubmitBehavior;
+
+    #[test]
+    fn enter_follows_the_submit_behavior_and_the_input_kind() {
+        assert!(SubmitBehavior::Default.inserts_newline(true));
+        assert!(!SubmitBehavior::Default.inserts_newline(false));
+        assert!(!SubmitBehavior::Submit.inserts_newline(true));
+        assert!(!SubmitBehavior::BlurAndSubmit.inserts_newline(true));
+        assert!(SubmitBehavior::Newline.inserts_newline(true));
+        assert!(!SubmitBehavior::Newline.inserts_newline(false));
+        assert!(SubmitBehavior::BlurAndSubmit.blurs(true));
+        assert!(SubmitBehavior::Default.blurs(false));
+        assert!(!SubmitBehavior::Default.blurs(true));
+        assert!(!SubmitBehavior::Submit.blurs(false));
+    }
+
+    #[test]
+    fn names_from_the_props_parse() {
+        assert_eq!(SubmitBehavior::parse("submit"), SubmitBehavior::Submit);
+        assert_eq!(
+            SubmitBehavior::parse("blurAndSubmit"),
+            SubmitBehavior::BlurAndSubmit
+        );
+        assert_eq!(SubmitBehavior::parse("newline"), SubmitBehavior::Newline);
+        assert_eq!(SubmitBehavior::parse("default"), SubmitBehavior::Default);
     }
 }
