@@ -67,7 +67,8 @@ async function reveal(testID: string) {
     // not just the first row.
     if (
       match?.visible &&
-      match.frame.y + match.frame.height / 2 <= root.frame.y + root.frame.height
+      match.frame.y + Math.min(match.frame.height, 160) <=
+        root.frame.y + root.frame.height
     ) {
       return;
     }
@@ -1000,10 +1001,16 @@ describe('Touchpad momentum', () => {
     const [node] = await app.query('testID', testID, true);
     // Twelve deltas of 14 points, 8 ms apart: about 1.75 points a millisecond.
     await app.scroll(node.tag, 0, -14, 12, undefined, 8);
-    await poll(
-      async () => (await text(`${testID}-state`)).endsWith('|end'),
-      8000,
-    );
+    try {
+      await poll(
+        async () => (await text(`${testID}-state`)).endsWith('|end'),
+        8000,
+      );
+    } catch (error) {
+      throw new Error(
+        `${testID} did not end its momentum; state ${await text(`${testID}-state`)}: ${error}`,
+      );
+    }
     return Number((await text(`${testID}-state`)).split('|')[0]);
   };
 
