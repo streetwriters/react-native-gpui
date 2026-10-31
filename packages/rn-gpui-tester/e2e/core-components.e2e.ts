@@ -197,6 +197,7 @@ describe('ActivityIndicator', () => {
 
 describe('TextInput props', () => {
   test('placeholderTextColor colours the placeholder', async () => {
+    await reveal('input-placeholder');
     const image = PNG.sync.read(
       await app.getByTestId('input-placeholder').screenshot(),
     );
@@ -215,6 +216,7 @@ describe('TextInput props', () => {
 
   test('caretHidden draws no caret while the input is focused', async () => {
     async function frames(testID: string) {
+      await reveal(testID);
       await app.getByTestId(testID).click();
       const seen = new Set<string>();
       for (let sample = 0; sample < 8; sample += 1) {
@@ -272,6 +274,7 @@ describe('TextInput props', () => {
   });
 
   test('readOnly selects text but rejects edits and draws no caret', async () => {
+    await reveal('input-read-only');
     const before = await text('input-event-log');
     await app.getByTestId('input-read-only').click();
     await app.getByTestId('input-read-only').press('mod-a');
@@ -294,6 +297,7 @@ describe('TextInput props', () => {
   });
 
   test('right click opens a text menu, which contextMenuHidden suppresses', async () => {
+    await reveal('input-menu');
     await app.getByTestId('input-menu').rightClick();
     const menu = await app.getContextMenu();
     const ids = ((menu?.items ?? []) as { id?: string }[]).map(item => item.id);
