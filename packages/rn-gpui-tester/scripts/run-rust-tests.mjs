@@ -70,9 +70,14 @@ function cmakeLibraryCandidates(targetTriple) {
     'rn-gpui-cmake',
     targetTriple,
   );
-  return ['Debug', 'Release', 'Debug-prebuilt', 'Release-prebuilt'].map(
-    configuration =>
-      path.join(root, configuration, 'build', 'ReactCommon', 'jsi'),
+  // The Visual Studio generator adds a directory per configuration under the
+  // library's own, so Windows has `jsi/Debug/jsi.dll`.
+  const configurations = ['Debug', 'Release', 'RelWithDebInfo'];
+  return ['Debug', 'Release', 'Debug-prebuilt', 'Release-prebuilt'].flatMap(
+    configuration => {
+      const jsi = path.join(root, configuration, 'build', 'ReactCommon', 'jsi');
+      return [jsi, ...configurations.map(name => path.join(jsi, name))];
+    },
   );
 }
 
