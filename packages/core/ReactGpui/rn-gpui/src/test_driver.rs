@@ -608,6 +608,11 @@ async fn serve_commands(
                         let mut rendered = 0usize;
                         let mut rendered_total = 0usize;
                         let mut a11y_active = false;
+                        let interval_ms = params
+                            .get("intervalMs")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0)
+                            .min(200);
                         let repeat = params
                             .get("repeat")
                             .and_then(Value::as_u64)
@@ -629,6 +634,11 @@ async fn serve_commands(
                                     );
                                     a11y_active = window.is_a11y_active();
                                     for step in 0..repeat {
+                                        if step > 0 && interval_ms > 0 {
+                                            std::thread::sleep(std::time::Duration::from_millis(
+                                                interval_ms,
+                                            ));
+                                        }
                                         if step > 0 {
                                             window.dispatch_event(
                                                 gpui::PlatformInput::ScrollWheel(

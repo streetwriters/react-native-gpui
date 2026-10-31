@@ -864,6 +864,7 @@ describe('Text', () => {
       const index = (y * image.width + x) * 4;
       return [image.data[index], image.data[index + 1], image.data[index + 2]];
     };
+    await reveal('gradient-linear');
     const linear = PNG.sync.read(
       await app.getByTestId('gradient-linear').screenshot(),
     );
@@ -875,6 +876,7 @@ describe('Text', () => {
     expect(right[2]).toBeGreaterThan(200);
     expect(right[0]).toBeLessThan(60);
 
+    await reveal('gradient-multi');
     const multi = PNG.sync.read(
       await app.getByTestId('gradient-multi').screenshot(),
     );
@@ -997,10 +999,7 @@ describe('Touchpad momentum', () => {
     await reveal(testID);
     const [node] = await app.query('testID', testID, true);
     // Twelve deltas of 14 points, 8 ms apart: about 1.75 points a millisecond.
-    for (let step = 0; step < 12; step += 1) {
-      await app.scroll(node.tag, 0, -14);
-      await new Promise(resolve => setTimeout(resolve, 8));
-    }
+    await app.scroll(node.tag, 0, -14, 12, undefined, 8);
     await poll(
       async () => (await text(`${testID}-state`)).endsWith('|end'),
       8000,

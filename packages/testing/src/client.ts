@@ -1019,7 +1019,8 @@ export class DesktopApp {
    * scroll took to draw, `renderedViews` how many node views it rebuilt and
    * `renderedViewsTotal` how many it rebuilt over every one of the `repeat`
    * frames. `repeat` scrolls that many times on consecutive frames; the single
-   * frame numbers are the last frame's.
+   * frame numbers are the last frame's. `intervalMs` waits that long between
+   * the repeats, as a touchpad's events are apart.
    */
   async scroll(
     tag: number,
@@ -1027,6 +1028,7 @@ export class DesktopApp {
     dy = 0,
     repeat = 1,
     phase?: 'started' | 'moved' | 'ended',
+    intervalMs = 0,
   ): Promise<{
     drawMs: number;
     renderedViews: number;
@@ -1039,6 +1041,7 @@ export class DesktopApp {
       dy,
       repeat,
       phase,
+      intervalMs,
     })) as {
       drawMs?: number;
       renderedViews?: number;
