@@ -910,6 +910,7 @@ describe('Text', () => {
       PNG.sync.read(await app.getByTestId('fit-off').screenshot()),
       dark,
     );
+    await reveal('fit-on');
     const on = pixels(
       PNG.sync.read(await app.getByTestId('fit-on').screenshot()),
       dark,
