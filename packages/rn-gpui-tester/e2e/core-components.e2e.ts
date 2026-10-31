@@ -303,6 +303,7 @@ describe('TextInput props', () => {
     expect(await app.selectContextMenuItem('selectAll')).toBe(true);
     await poll(async () => (await text('input-menu-selection')) === '0-11');
     const shownBefore = (await app.getContextMenu())?.shown;
+    await reveal('input-menu-hidden');
     await app.getByTestId('input-menu-hidden').rightClick();
     expect((await app.getContextMenu())?.shown).toBe(shownBefore);
   });
@@ -326,6 +327,7 @@ describe('TextInput props', () => {
   });
 
   test('onKeyPress reports each key before it is applied', async () => {
+    await reveal('input-keys');
     await app.getByTestId('input-keys').click();
     await app.getByTestId('input-keys').press('a');
     await app.getByTestId('input-keys').press('backspace');
@@ -339,6 +341,7 @@ describe('TextInput props', () => {
 
   test('submitBehavior submit keeps focus after Enter', async () => {
     const count = (log: string) => log.split('keep-end,').length - 1;
+    await reveal('input-submit-keeps-focus');
     await app.getByTestId('input-submit-keeps-focus').click();
     await new Promise(resolve => setTimeout(resolve, 200));
     const before = count(await text('input-event-log'));
@@ -759,10 +762,12 @@ describe('Text', () => {
   test('textShadow* paints a shadow behind the text', async () => {
     const red = (r: number, g: number, b: number) =>
       r > 200 && g < 90 && b < 90;
+    await reveal('shadow-plain');
     const plain = pixels(
       PNG.sync.read(await app.getByTestId('shadow-plain').screenshot()),
       red,
     );
+    await reveal('shadow-hard');
     const shadow = pixels(
       PNG.sync.read(await app.getByTestId('shadow-hard').screenshot()),
       red,
@@ -772,6 +777,7 @@ describe('Text', () => {
 
     // A blurred shadow fades out through many grey levels instead of stacking
     // a few copies of the text.
+    await reveal('shadow-soft');
     const soft = PNG.sync.read(
       await app.getByTestId('shadow-soft').screenshot(),
     );
@@ -998,6 +1004,7 @@ describe('scrollEventThrottle', () => {
     const [node] = await app.query('testID', 'throttled-scroll', true);
     // Forty deltas of 5 points, 15 ms apart: 600 ms of scrolling, 200 points.
     // Driven as a mouse wheel would, so no momentum follows.
+    const started = Date.now();
     for (let step = 0; step < 40; step += 1) {
       await app.scroll(node.tag, 0, -5);
       await new Promise(resolve => setTimeout(resolve, 15));
@@ -1011,9 +1018,11 @@ describe('scrollEventThrottle', () => {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     const [count, offset] = (await text('throttled-state')).split('|');
-    // One event per 300 ms, and the last carries where the scroll ended.
+    // One event per 300 ms of scrolling, and the last carries where the scroll
+    // ended. A slow runner stretches the 600 ms the deltas take.
+    const scrolling = Date.now() - started;
     expect(Number(count)).toBeGreaterThanOrEqual(2);
-    expect(Number(count)).toBeLessThanOrEqual(8);
+    expect(Number(count)).toBeLessThanOrEqual(Math.ceil(scrolling / 300) + 3);
     expect(Number(offset)).toBe(200);
   });
 });
