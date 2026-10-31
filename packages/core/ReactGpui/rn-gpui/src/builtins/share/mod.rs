@@ -72,6 +72,7 @@ impl NativeGpuiShareSpec for ShareModule {
         let sender = std::sync::Mutex::new(Some(sender));
         let message = items.message.clone();
         let url = items.url.clone();
+        #[cfg(not(target_os = "macos"))]
         let subject = items.subject.clone();
         let anchor_tag = items.anchor.map(|tag| tag as i32);
         let _ = on_main(move |cx| {
