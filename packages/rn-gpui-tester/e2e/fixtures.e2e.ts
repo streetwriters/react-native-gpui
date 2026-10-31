@@ -261,7 +261,9 @@ test('Intl formats numbers, dates and collation through the system ICU', async (
   expect(await read('missing')).toBe(
     'PluralRules,ListFormat,RelativeTimeFormat,Segmenter',
   );
-  // Older ICU on Windows 10 lacks some of these, and the engine then throws.
+  // Optional formats. Nothing is tolerated yet: the values are printed so the
+  // first run on the oldest supported ICU (64.2, Windows 10 1903) names exactly
+  // which calls throw and with what message.
   const extras: Record<string, string> = {
     compact: '1.5M',
     'date-fr': 'lundi 15 janvier 2024',
@@ -269,11 +271,8 @@ test('Intl formats numbers, dates and collation through the system ICU', async (
   };
   for (const [id, expected] of Object.entries(extras)) {
     const value = await read(id);
-    if (value.startsWith('error:')) {
-      expect(process.platform, `${id}: ${value}`).toBe('win32');
-    } else {
-      expect(value, id).toBe(expected);
-    }
+    console.log(`intl ${id} on ${process.platform}: ${value}`);
+    expect(value, id).toBe(expected);
   }
 });
 
