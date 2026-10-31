@@ -4967,6 +4967,7 @@ dependencies = [
  "sys-locale",
  "tray-icon",
  "tungstenite",
+ "windows 0.62.2",
  "windows-sys 0.59.0",
  "x11-dl",
  "zbus",

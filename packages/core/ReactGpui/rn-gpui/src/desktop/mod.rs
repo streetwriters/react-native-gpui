@@ -10,6 +10,7 @@ pub mod display;
 pub mod errors;
 pub mod gpui_menu;
 pub mod icon;
+pub mod keyboard;
 pub mod keymap;
 pub mod memory_pressure;
 pub mod menu_events;

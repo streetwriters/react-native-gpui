@@ -523,6 +523,11 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
         })
         .detach();
         install_activation_observer(window, cx, key).detach();
+        #[cfg(target_os = "windows")]
+        if let Some(store) = cx.try_global::<StoreGlobal>() {
+            let host = store.0.read(cx).host.clone();
+            super::keyboard::watch(window, host);
+        }
         // Windows installs its own state observer for the main window.
         if !cfg!(windows) {
             install_state_observer(window, cx).detach();
