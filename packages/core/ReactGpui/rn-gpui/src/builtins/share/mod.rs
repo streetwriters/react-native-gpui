@@ -1,5 +1,5 @@
-//! `Share`: the system share sheet on macOS, and a small dialog on the systems
-//! that have no sheet: copy to the clipboard or send by email.
+//! `Share`: the system share sheet on macOS and Windows, and a small dialog on
+//! Linux, which has none: copy to the clipboard or send by email.
 
 use rn_gpui_module::{ModuleError, ModuleThread};
 
@@ -10,10 +10,13 @@ use crate::builtins::rn_gpui_specs::{
 
 #[cfg(target_os = "macos")]
 pub(crate) mod mac;
+#[cfg(target_os = "windows")]
+pub(crate) mod win;
 
 struct ShareModule;
 
 /// What goes on the clipboard when there is no share sheet.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn clipboard_text(message: Option<&str>, url: Option<&str>) -> String {
     match (message, url) {
         (Some(message), Some(url)) if !message.contains(url) => format!("{message}\n{url}"),
@@ -24,7 +27,7 @@ fn clipboard_text(message: Option<&str>, url: Option<&str>) -> String {
 }
 
 /// `mailto:` for the content, with the subject and body percent-encoded.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn mailto(subject: Option<&str>, body: &str) -> String {
     fn encode(text: &str) -> String {
         let mut out = String::new();
@@ -68,7 +71,7 @@ impl NativeGpuiShareSpec for ShareModule {
     }
 
     async fn share(&self, items: ShareItems) -> Result<ShareResult, ModuleError> {
-        let (sender, receiver) = futures::channel::oneshot::channel();
+        let (sender, receiver) = futures::channel::oneshot::channel::<Option<Option<String>>>();
         let sender = std::sync::Mutex::new(Some(sender));
         let message = items.message.clone();
         let url = items.url.clone();
@@ -76,9 +79,11 @@ impl NativeGpuiShareSpec for ShareModule {
         let subject = items.subject.clone();
         let anchor_tag = items.anchor.map(|tag| tag as i32);
         let _ = on_main(move |cx| {
-            let finish = move |activity: Option<String>| {
+            // `None` is a dismissal; `Some` is a share, with the activity if the
+            // system names one.
+            let finish = move |outcome: Option<Option<String>>| {
                 if let Some(sender) = sender.lock().expect("share sender poisoned").take() {
-                    let _ = sender.send(activity);
+                    let _ = sender.send(outcome);
                 }
             };
             #[cfg(target_os = "macos")]
@@ -97,7 +102,10 @@ impl NativeGpuiShareSpec for ShareModule {
                             message.clone(),
                             url.clone(),
                             anchor,
-                            Box::new(finish.take().expect("finish taken once")),
+                            Box::new({
+                                let finish = finish.take().expect("finish taken once");
+                                move |activity: Option<String>| finish(activity.map(Some))
+                            }),
                         );
                     })
                     .ok()
@@ -108,7 +116,48 @@ impl NativeGpuiShareSpec for ShareModule {
                     }
                 }
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
+            {
+                use gpui::AppContext as _;
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                let _ = anchor_tag;
+                let finish = std::sync::Arc::new(finish);
+                let window = cx
+                    .try_global::<crate::store::StoreGlobal>()
+                    .map(|store| store.0.clone())
+                    .map(|store| store.read(cx).window);
+                let hwnd = window
+                    .and_then(|window| {
+                        cx.update_window(window, |_root, window, _cx| {
+                            match HasWindowHandle::window_handle(window)
+                                .map(|handle| handle.as_raw())
+                            {
+                                Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
+                                _ => None,
+                            }
+                        })
+                        .ok()
+                    })
+                    .flatten();
+                // Like Android's chooser, the share is reported as soon as Windows
+                // asks for the content; the UI gives no sign that it was dismissed.
+                let shown = hwnd.is_some_and(|hwnd| {
+                    let requested = finish.clone();
+                    win::present(
+                        hwnd,
+                        subject.as_deref().unwrap_or("Share"),
+                        message.as_deref(),
+                        url.as_deref(),
+                        move || requested(Some(None)),
+                    )
+                    .map_err(|error| log::warn!("share UI unavailable: {error}"))
+                    .is_ok()
+                });
+                if !shown {
+                    finish(None);
+                }
+            }
+            #[cfg(target_os = "linux")]
             {
                 let _ = anchor_tag;
                 let text = clipboard_text(message.as_deref(), url.as_deref());
@@ -140,11 +189,11 @@ impl NativeGpuiShareSpec for ShareModule {
                             match position {
                                 0 => {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                                    finish(Some("copy".to_string()));
+                                    finish(Some(Some("copy".to_string())));
                                 }
                                 1 => {
                                     cx.open_url(&mailto(subject.as_deref(), &text));
-                                    finish(Some("email".to_string()));
+                                    finish(Some(Some("email".to_string())));
                                 }
                                 _ => finish(None),
                             }
@@ -160,7 +209,7 @@ impl NativeGpuiShareSpec for ShareModule {
         Ok(match activity {
             Some(activity_type) => ShareResult {
                 action: "sharedAction".to_string(),
-                activity_type: Some(activity_type),
+                activity_type,
             },
             None => ShareResult {
                 action: "dismissedAction".to_string(),

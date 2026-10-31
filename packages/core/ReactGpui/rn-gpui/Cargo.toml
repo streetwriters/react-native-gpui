@@ -113,8 +113,16 @@ windows-sys = { version = "0.59", features = [
     # `DwmFlush`: wait for the compositor before a screen copy in the test driver.
     "Win32_Graphics_Dwm",
 ] }
-# `InputPane`: the on-screen keyboard's occluded rectangle.
-windows = { version = "0.62", features = ["UI_ViewManagement", "Foundation", "Win32_System_WinRT", "Win32_Foundation"] }
+# `InputPane`: the on-screen keyboard's occluded rectangle. `DataTransferManager`: the
+# system share UI.
+windows = { version = "0.62", features = [
+    "UI_ViewManagement",
+    "ApplicationModel_DataTransfer",
+    "Foundation",
+    "Win32_System_WinRT",
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+] }
 # The HWND for the native menu bar and context menus, read from the window's
 # raw handle the same way macOS reads its NSView.
 raw-window-handle = "0.6"
