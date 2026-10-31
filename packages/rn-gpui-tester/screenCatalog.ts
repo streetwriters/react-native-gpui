@@ -270,6 +270,12 @@ export const screens = [
     fixture: 'AccessibilityPropsFixture',
   },
   {
+    id: 'intl',
+    title: 'Intl',
+    group: 'Platform',
+    fixture: 'IntlFixture',
+  },
+  {
     id: 'accessibility-tree',
     title: 'Accessibility semantics',
     group: 'Platform',

@@ -235,6 +235,48 @@ test.skipIf(!nativeA11y)(
   },
 );
 
+// The engine's `Intl` runs on the operating system's ICU: ICU on Windows and
+// Linux, libicucore on macOS. Spaces are compared loosely because ICU versions
+// disagree on which no-break space goes before "PM" and "€".
+test('Intl formats numbers, dates and collation through the system ICU', async () => {
+  await launch('IntlFixture');
+  const read = async (id: string) =>
+    (await app.getByTestId(`intl-${id}`).textContent()).replace(
+      /[\s\u00a0\u202f]+/gu,
+      ' ',
+    );
+  const required: Record<string, string> = {
+    number: '1,234,567.891',
+    currency: '1.234,50 €',
+    percent: '25.6%',
+    date: 'January 15, 2024',
+    collator: 'a,ä,b',
+    'to-locale': '1,234.5',
+  };
+  for (const [id, expected] of Object.entries(required)) {
+    expect(await read(id), id).toBe(expected);
+  }
+  // Hermes implements only part of `Intl`; a newer engine that adds these
+  // should update this list and the documentation.
+  expect(await read('missing')).toBe(
+    'PluralRules,ListFormat,RelativeTimeFormat,Segmenter',
+  );
+  // Older ICU on Windows 10 lacks some of these, and the engine then throws.
+  const extras: Record<string, string> = {
+    compact: '1.5M',
+    'date-fr': 'lundi 15 janvier 2024',
+    time: '1:30 PM',
+  };
+  for (const [id, expected] of Object.entries(extras)) {
+    const value = await read(id);
+    if (value.startsWith('error:')) {
+      expect(process.platform, `${id}: ${value}`).toBe('win32');
+    } else {
+      expect(value, id).toBe(expected);
+    }
+  }
+});
+
 test.skipIf(!nativeA11y || process.platform === 'darwin')(
   'announceForAccessibility shows a live region that carries the text',
   async () => {

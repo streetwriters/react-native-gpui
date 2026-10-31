@@ -203,6 +203,8 @@ export const renderScreen: Record<
       require('./components/AccessibilityPropsFixture').default,
       props,
     ),
+  intl: props =>
+    React.createElement(require('./components/IntlFixture').default, props),
   'accessibility-tree': props =>
     React.createElement(
       require('./components/AccessibilityFixture').default,
