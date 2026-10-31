@@ -15,6 +15,7 @@
     "modules/fonts",
     "modules/vector-icons",
     "modules/gesture-handler",
+    "modules/safe-area-context",
     "modules/screens",
     "modules/fs",
     "packages/rn-gpui-tester",
