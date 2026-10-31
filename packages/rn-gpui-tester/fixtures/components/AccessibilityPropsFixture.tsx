@@ -107,6 +107,26 @@ function AccessibilityPropsFixture() {
         gap: 14,
       }}
     >
+      <Pressable
+        testID="announce"
+        onPress={() =>
+          AccessibilityInfo.announceForAccessibility('Announcement API works')
+        }
+        style={{
+          padding: 12,
+          backgroundColor: '#7c3aed',
+          borderRadius: 8,
+        }}
+      >
+        <Text
+          style={{
+            color: 'white',
+          }}
+        >
+          Announce test phrase
+        </Text>
+      </Pressable>
+
       <Text
         style={{
           color: 'white',
@@ -566,25 +586,6 @@ function AccessibilityPropsFixture() {
           height: 48,
         }}
       />
-      <Pressable
-        testID="announce"
-        onPress={() =>
-          AccessibilityInfo.announceForAccessibility('Announcement API works')
-        }
-        style={{
-          padding: 12,
-          backgroundColor: '#7c3aed',
-          borderRadius: 8,
-        }}
-      >
-        <Text
-          style={{
-            color: 'white',
-          }}
-        >
-          Announce test phrase
-        </Text>
-      </Pressable>
     </ScrollView>
   );
 }
