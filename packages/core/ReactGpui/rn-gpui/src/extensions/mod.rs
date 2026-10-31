@@ -577,6 +577,9 @@ pub struct ScrollSpec {
     pub snap: Option<crate::scroll_snap::SnapSpec>,
     /// The fraction of its speed a flick keeps each millisecond.
     pub deceleration: f32,
+    /// The least time, in milliseconds, between two scroll events; zero or
+    /// one frame lets every change through.
+    pub event_throttle_ms: f32,
 }
 
 /// Paints one component name.

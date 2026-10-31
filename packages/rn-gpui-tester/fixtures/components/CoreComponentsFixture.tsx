@@ -58,6 +58,7 @@ export default function CoreComponentsFixture() {
   const [scrollLog, setScrollLog] = useState('');
   const [normalFlick, setNormalFlick] = useState('0|');
   const [fastFlick, setFastFlick] = useState('0|');
+  const [throttled, setThrottled] = useState('0|0');
   const [scrollOffsets, setScrollOffsets] = useState('');
   const [imageLog, setImageLog] = useState('');
   const [imageProgress, setImageProgress] = useState('');
@@ -246,6 +247,21 @@ export default function CoreComponentsFixture() {
           <View style={styles.flickContent} />
         </ScrollView>
         <Text testID="flick-fast-state">{fastFlick}</Text>
+        <ScrollView
+          testID="throttled-scroll"
+          style={styles.pager}
+          scrollEventThrottle={300}
+          onScroll={event => {
+            const y = Math.round(event.nativeEvent.contentOffset.y);
+            setThrottled(previous => {
+              const [count] = previous.split('|');
+              return `${Number(count) + 1}|${y}`;
+            });
+          }}
+        >
+          <View style={styles.flickContent} />
+        </ScrollView>
+        <Text testID="throttled-state">{throttled}</Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Switch</Text>

@@ -34,6 +34,7 @@ std::string scrollViewPropsJson(
       }
     }
     object["decelerationRate"] = props->decelerationRate;
+    object["scrollEventThrottle"] = props->scrollEventThrottle;
     object["pagingEnabled"] = props->pagingEnabled;
     object["snapToInterval"] = props->snapToInterval;
     object["snapToStart"] = props->snapToStart;

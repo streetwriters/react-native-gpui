@@ -994,6 +994,32 @@ describe('Image events', () => {
   });
 });
 
+describe('scrollEventThrottle', () => {
+  test('events more than a frame apart carry the offset they had when they went out', async () => {
+    await reveal('throttled-scroll');
+    const [node] = await app.query('testID', 'throttled-scroll', true);
+    // Forty deltas of 5 points, 15 ms apart: 600 ms of scrolling, 200 points.
+    // Driven as a mouse wheel would, so no momentum follows.
+    for (let step = 0; step < 40; step += 1) {
+      await app.scroll(node.tag, 0, -5);
+      await new Promise(resolve => setTimeout(resolve, 15));
+    }
+    let last = '';
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await app.waitForIdle();
+      const now = await text('throttled-state');
+      if (now === last && now.endsWith('|200')) break;
+      last = now;
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    const [count, offset] = (await text('throttled-state')).split('|');
+    // One event per 300 ms, and the last carries where the scroll ended.
+    expect(Number(count)).toBeGreaterThanOrEqual(2);
+    expect(Number(count)).toBeLessThanOrEqual(8);
+    expect(Number(offset)).toBe(200);
+  });
+});
+
 describe('Touchpad momentum', () => {
   // macOS sends the momentum of a flick itself; the other platforms carry on.
   const flick = async (testID: string) => {

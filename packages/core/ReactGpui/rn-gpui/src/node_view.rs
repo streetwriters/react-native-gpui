@@ -143,6 +143,9 @@ pub struct RNNodeView {
     scroll_sync_generation: Rc<Cell<u64>>,
     /// Whether Fabric's copy of the offset is behind the node's own.
     scroll_sync_pending: Rc<Cell<bool>>,
+    /// When the last scroll event went out, and whether one is waiting for the
+    /// throttle to pass.
+    scroll_emit: Rc<ScrollEmit>,
     scroll_handle: gpui::ScrollHandle,
     scroll_handle_stale: bool,
     pub focusable: bool,
@@ -929,6 +932,7 @@ impl RNNodeView {
             scroll_indicator: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
             scroll_sync_pending: Rc::new(Cell::new(false)),
+            scroll_emit: Rc::default(),
             scroll_handle: gpui::ScrollHandle::new(),
             scroll_handle_stale: true,
             focusable: op.view.focusable || op.component == "TextInput",
@@ -4053,6 +4057,10 @@ impl Render for RNNodeView {
                     handle: self.scroll_handle.clone(),
                     sync_generation: self.scroll_sync_generation.clone(),
                     sync_pending: self.scroll_sync_pending.clone(),
+                    emit: self.scroll_emit.clone(),
+                    event_throttle: std::time::Duration::from_secs_f32(
+                        scroll.event_throttle_ms.max(0.0) / 1000.0,
+                    ),
                     content_size: scroll.content_size,
                     viewport: (frame.w, frame.h),
                     scale: (scale_x, scale_y),
@@ -5174,6 +5182,16 @@ pub(crate) struct ScrollGesture {
     samples: Vec<(std::time::Instant, f32)>,
 }
 
+/// What `scrollEventThrottle` needs to remember between scroll events.
+#[derive(Default)]
+pub(crate) struct ScrollEmit {
+    last: Cell<Option<std::time::Instant>>,
+    waiting: Cell<bool>,
+}
+
+/// More than a frame between events is a throttle; a frame or less is not.
+const FRAME: std::time::Duration = std::time::Duration::from_millis(17);
+
 /// How long without a wheel event before the scroll counts as over.
 const SCROLL_IDLE: std::time::Duration = std::time::Duration::from_millis(120);
 
@@ -5187,6 +5205,8 @@ struct Scroller {
     handle: gpui::ScrollHandle,
     sync_generation: Rc<Cell<u64>>,
     sync_pending: Rc<Cell<bool>>,
+    emit: Rc<ScrollEmit>,
+    event_throttle: std::time::Duration,
     content_size: (f32, f32),
     event: Option<String>,
     viewport: (f32, f32),
@@ -5469,7 +5489,45 @@ impl Scroller {
             "zoomScale": 1
         });
         if let Some(event) = &self.event {
-            host.dispatch_event(self.tag, event, &payload);
+            let since = self.emit.last.get().map(|at| at.elapsed());
+            match since {
+                Some(since) if self.event_throttle > FRAME && since < self.event_throttle => {
+                    // Too soon: one event carrying the offset it has then
+                    // goes out when the throttle has passed.
+                    if !self.emit.waiting.replace(true) {
+                        let (emit, position, host, event, tag) = (
+                            self.emit.clone(),
+                            self.position.clone(),
+                            host.clone(),
+                            event.clone(),
+                            self.tag,
+                        );
+                        let (content, viewport) = (self.content_size, self.viewport);
+                        let wait = self.event_throttle - since;
+                        cx.spawn(async move |cx| {
+                            cx.background_executor().timer(wait).await;
+                            emit.waiting.set(false);
+                            emit.last.set(Some(std::time::Instant::now()));
+                            let offset = position.get();
+                            host.dispatch_event(
+                                tag,
+                                &event,
+                                &serde_json::json!({
+                                    "contentOffset": {"x": offset.x, "y": offset.y},
+                                    "contentSize": {"width": content.0, "height": content.1},
+                                    "layoutMeasurement": {"width": viewport.0, "height": viewport.1},
+                                    "zoomScale": 1
+                                }),
+                            );
+                        })
+                        .detach();
+                    }
+                }
+                _ => {
+                    self.emit.last.set(Some(std::time::Instant::now()));
+                    host.dispatch_event(self.tag, event, &payload);
+                }
+            }
         }
         frame_hook.arm(window);
         // Fabric's copy of the offset costs a commit per update, so it follows once
