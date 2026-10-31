@@ -1002,10 +1002,11 @@ describe('Touchpad momentum', () => {
     // Twelve deltas of 14 points, 8 ms apart: about 1.75 points a millisecond.
     await app.scroll(node.tag, 0, -14, 12, undefined, 8);
     try {
-      await poll(
-        async () => (await text(`${testID}-state`)).endsWith('|end'),
-        8000,
-      );
+      await poll(async () => {
+        // The page only hears the events once the frames that carry them run.
+        await app.waitForIdle();
+        return (await text(`${testID}-state`)).endsWith('|end');
+      }, 8000);
     } catch (error) {
       throw new Error(
         `${testID} did not end its momentum; state ${await text(`${testID}-state`)}: ${error}`,
