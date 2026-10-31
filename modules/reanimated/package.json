@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/reanimated",
-  "version": "0.87.0-alpha.0",
+  "version": "4.7.0-alpha.0",
   "description": "GPUI platform bindings for Reanimated 4",
   "files": [
     "desktop",
@@ -15,7 +15,7 @@
     "react-native": "0.87.x",
     "react-native-reanimated": "4.7.x",
     "react-native-worklets": "0.13.x",
-    "@react-native-gpui/worklets": "0.87.0-alpha.0"
+    "@react-native-gpui/worklets": "0.13.0-alpha.0"
   },
   "codegenConfig": {
     "name": "GPUIReanimatedSpec",

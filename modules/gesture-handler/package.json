@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/gesture-handler",
-  "version": "0.87.0-alpha.0",
+  "version": "3.3.0-alpha.0",
   "description": "Native GPUI gesture recognition for react-native-gesture-handler",
   "files": [
     "desktop",

@@ -39,9 +39,9 @@ describe('version rules', () => {
     expect(versionProblems(publishablePackages())).toEqual([]);
   });
 
-  test('a version off the react-native minor is reported', () => {
+  test('a package that follows React Native must match its peer', () => {
     const problems = versionProblems([
-      entry('a', {
+      entry('@react-native-gpui/core', {
         version: '0.88.0',
         peerDependencies: { 'react-native': '0.87.x' },
       }),
@@ -49,15 +49,48 @@ describe('version rules', () => {
     expect(problems.join('\n')).toMatch(/does not match peer/);
   });
 
-  test('an internal dependency on another version is reported', () => {
-    const problems = versionProblems([
-      entry('a', { dependencies: { b: '^0.87.0' } }),
-      entry('b'),
-    ]);
-    expect(problems.join('\n')).toMatch(/dependencies.b is \^0.87.0/);
+  test('an adapter takes the version of the library it adapts', () => {
+    const ok = entry('@react-native-gpui/screens', {
+      version: '4.28.0-alpha.0',
+      peerDependencies: { 'react-native-screens': '4.28.x' },
+    });
+    expect(versionProblems([ok])).toEqual([]);
+    const wrong = entry('@react-native-gpui/screens', {
+      version: '0.87.0-alpha.0',
+      peerDependencies: { 'react-native-screens': '4.28.x' },
+    });
+    expect(versionProblems([wrong]).join('\n')).toMatch(/does not match peer/);
   });
 
-  test('a version that is not 0.minor.patch is reported', () => {
-    expect(versionProblems([entry('a', { version: '1.0.0' })])).toHaveLength(1);
+  test('a standalone module is 0.0.x', () => {
+    expect(
+      versionProblems([
+        entry('@react-native-gpui/fonts', { version: '0.0.1-alpha.0' }),
+      ]),
+    ).toEqual([]);
+    expect(
+      versionProblems([
+        entry('@react-native-gpui/fonts', { version: '0.87.0' }),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  test("a dependency on our own package is that package's version", () => {
+    const problems = versionProblems([
+      entry('@react-native-gpui/worklets', {
+        version: '0.13.0-alpha.0',
+        peerDependencies: { 'react-native-worklets': '0.13.x' },
+      }),
+      entry('@react-native-gpui/reanimated', {
+        version: '4.7.0-alpha.0',
+        peerDependencies: {
+          'react-native-reanimated': '4.7.x',
+          '@react-native-gpui/worklets': '0.87.0-alpha.0',
+        },
+      }),
+    ]);
+    expect(problems.join('\n')).toMatch(
+      /peerDependencies.@react-native-gpui\/worklets is 0.87.0-alpha.0, expected 0.13.0-alpha.0/,
+    );
   });
 });

@@ -2,4 +2,4 @@
 
 GPUI platform bindings for Reanimated 4
 
-Part of [react-native-gpui](https://github.com/streetwriters/react-native-gpui), React Native for macOS, Windows and Linux. The package follows the React Native minor: `0.87.x` supports React Native 0.87.
+Part of [react-native-gpui](https://github.com/streetwriters/react-native-gpui), React Native for macOS, Windows and Linux. The package adapts `react-native-reanimated`: version `4.7.0` goes with `react-native-reanimated` 4.7.x. It needs React Native 0.87.x.

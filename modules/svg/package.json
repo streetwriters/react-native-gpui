@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/svg",
-  "version": "0.87.0-alpha.0",
+  "version": "15.15.0-alpha.0",
   "description": "GPUI Fabric renderer adapter for react-native-svg",
   "files": [
     "desktop",
