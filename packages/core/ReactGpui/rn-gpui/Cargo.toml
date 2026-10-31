@@ -104,6 +104,12 @@ windows-sys = { version = "0.59", features = [
     # `GetDpiForSystem`: the scale a tray icon's physical rectangle is divided by.
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
+    # `CreateNamedPipeW`: the single-instance pipe, with an owner-only access list.
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
     # `DwmFlush`: wait for the compositor before a screen copy in the test driver.
     "Win32_Graphics_Dwm",
 ] }
