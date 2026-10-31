@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { expect, test } from 'vitest';
@@ -314,9 +315,44 @@ const screenReadable = !(
   process.platform === 'linux' && process.env.WAYLAND_DISPLAY
 );
 
+/**
+ * Why a macOS screen grab would not show the display, or `undefined` when it
+ * would. A locked session or a sleeping display photographs as black, which says
+ * nothing about the renderer, so the test is skipped with that reason instead of
+ * judging the pixels. A genuinely black frame on a live display still fails.
+ */
+function macScreenUnavailable(): string | undefined {
+  if (process.platform !== 'darwin') return undefined;
+  try {
+    const session = execFileSync('ioreg', ['-n', 'Root', '-d1', '-a'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (/<key>CGSSessionScreenIsLocked<\/key>\s*<true\/>/u.test(session)) {
+      return 'the macOS session is locked';
+    }
+    const asleep = execFileSync(
+      'python3',
+      [
+        '-c',
+        'import ctypes;cg=ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics");' +
+          'cg.CGMainDisplayID.restype=ctypes.c_uint32;cg.CGDisplayIsAsleep.argtypes=[ctypes.c_uint32];' +
+          'print(cg.CGDisplayIsAsleep(cg.CGMainDisplayID()))',
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    if (asleep === '1') return 'the display is asleep';
+  } catch {
+    // Cannot tell: run the test.
+  }
+  return undefined;
+}
+
 test.skipIf(!probeOs || !screenReadable)(
   'the compositor shows the native view, and a React view above it covering it',
-  async () => {
+  async ctx => {
+    const unavailable = macScreenUnavailable();
+    if (unavailable) ctx.skip(unavailable);
     await launch('NativeViewFixture', { onScreen: true });
     const PROBE: Rgb = [0x14, 0x7a, 0xad];
     const OVERLAY: Rgb = [0xd9, 0x46, 0xef];
