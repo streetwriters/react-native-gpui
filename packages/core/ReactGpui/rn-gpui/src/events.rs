@@ -71,6 +71,9 @@ pub fn now_ms() -> f64 {
 pub struct Target {
     pub tag: i32,
     pub origin: Point<Pixels>,
+    /// How far the window's pointer positions run ahead of the surface's: the
+    /// menu bar GPUI draws above it, when the surface's origin does not hold it.
+    window_offset: f32,
     scale_x: f32,
     scale_y: f32,
     /// Inverses of the matrices GPUI draws the target under, outermost first.
@@ -85,6 +88,12 @@ pub fn active_touch_target(cx: &App) -> Option<Target> {
 }
 
 impl Target {
+    /// A pointer position of the window in the surface's space, which is where
+    /// React's page coordinates and the node origins are.
+    fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
+        point(position.x, position.y - px(self.window_offset))
+    }
+
     fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
         let position = self.inverses.iter().fold(position, |position, inverse| {
             inverse.transform_logical_point(position)
@@ -106,6 +115,7 @@ mod transform_tests {
         let target = Target {
             tag: 7,
             origin: point(px(30.0), px(40.0)),
+            window_offset: 0.0,
             scale_x: 2.0,
             scale_y: 0.5,
             inverses: Vec::new(),
@@ -127,6 +137,7 @@ mod transform_tests {
         let target = Target {
             tag: 7,
             origin: point(px(20.0), px(35.0)),
+            window_offset: 0.0,
             scale_x: 1.0,
             scale_y: 1.0,
             inverses: vec![about.inverse().unwrap()],
@@ -284,9 +295,15 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         )
     };
     let chain = steps[index..].iter().map(|step| step.tag).collect();
+    let placed = hit_node.surface_is_placed();
     Some(Target {
         tag: steps[index].tag,
         origin,
+        window_offset: if placed {
+            0.0
+        } else {
+            crate::desktop::gpui_menu::menu_bar_inset()
+        },
         scale_x,
         scale_y,
         inverses,
@@ -350,6 +367,7 @@ pub fn send_pointer(
         (store.host.clone(), store.frame_hook.clone())
     };
     let tag = target.tag;
+    let position = target.page(position);
     let location = target.local_position(position);
     let (name, event) = match phase {
         Phase::Start => (
@@ -522,6 +540,7 @@ pub fn send(
         });
     }
     let tag = target.tag;
+    let position = target.page(position);
     let location = target.local_position(position);
     log::debug!(
         "[events] {phase:?} tag={tag} position=({:.1},{:.1}) location=({:.1},{:.1})",
@@ -718,6 +737,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
                 Target {
                     tag: *tag,
                     origin: node.absolute_origin(cx),
+                    window_offset: 0.0,
                     scale_x: node.cumulative_scale(cx).0,
                     scale_y: node.cumulative_scale(cx).1,
                     inverses: node.transform_inverses(cx),

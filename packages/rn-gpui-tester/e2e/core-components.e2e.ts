@@ -382,9 +382,7 @@ describe('Transforms', () => {
     // 22 along the turned box's long side from its centre, on its axis.
     const [x, y] = (await text('rot-location')).split(',').map(Number);
     expect(y).toBe(15);
-    // Linux CI reports x 26 px off here (the title bar); only the axis is checked there until that is traced.
-    if (process.platform === 'linux') expect(x).toBeGreaterThanOrEqual(0);
-    else expect([8, 52]).toContain(x);
+    expect([8, 52]).toContain(x);
     // Inside the box as laid out but outside the turned shape.
     await click(75, 50);
     await app.waitForIdle();
