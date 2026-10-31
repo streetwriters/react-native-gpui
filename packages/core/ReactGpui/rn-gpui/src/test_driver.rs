@@ -1324,6 +1324,12 @@ async fn serve_commands(
                         .unwrap_or_else(|error| error.to_json_value())
                 })
             }
+            // What the window's close button does first when a Modal is shown.
+            "modalCloseRequest" => cx
+                .update_window(window, |_, window, app| {
+                    json!({"handled": crate::desktop::windows::request_modal_close(window, app)})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "osCloseWindow" => {
                 let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(0) as u32;
                 cx.update(|cx| json!({"closed": crate::desktop::windows::os_close(cx, key)}))

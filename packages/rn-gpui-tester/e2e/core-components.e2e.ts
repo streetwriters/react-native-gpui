@@ -1157,6 +1157,22 @@ describe('Modal', () => {
   });
 });
 
+describe('Modal and the window close button', () => {
+  test('the close button asks the shown modal to close, and none shown asks nothing', async () => {
+    expect(await app.modalCloseRequest()).toBe(false);
+    const before = Number(await text('modal-requests'));
+    await app.getByTestId('modal-open').click();
+    await desktopExpect(app.getByTestId('modal-body')).toBeVisible();
+    expect(await app.modalCloseRequest()).toBe(true);
+    await poll(async () => {
+      await app.waitForIdle();
+      return Number(await text('modal-requests')) === before + 1;
+    });
+    await desktopExpect(app.getByTestId('modal-body')).toBeVisible();
+    await app.getByTestId('modal-close').click();
+  });
+});
+
 describe('font scale', () => {
   let scaled: DesktopApp;
   beforeAll(async () => {

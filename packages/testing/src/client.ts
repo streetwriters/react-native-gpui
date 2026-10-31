@@ -870,6 +870,17 @@ export class DesktopApp {
    * goes away, the surface stops and `windowClosed` fires, but the veto path is
    * skipped (the OS already decided).
    */
+  /**
+   * Does what the window's close button does first when a Modal is shown:
+   * asks the Modal to close, as `onRequestClose`. Whether one was shown.
+   */
+  async modalCloseRequest(): Promise<boolean> {
+    const result = await this.request<{ handled: boolean }>(
+      'modalCloseRequest',
+    );
+    return result.handled;
+  }
+
   async osCloseWindow(windowId: number): Promise<boolean> {
     const result = await this.request<{ closed: boolean }>('osCloseWindow', {
       windowId,

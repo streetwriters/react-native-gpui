@@ -999,6 +999,42 @@ fn install_activation_observer(
     })
 }
 
+/// Asks the Modal shown last to close itself, as `onRequestClose`, and says
+/// whether one was shown.
+pub(crate) fn request_modal_close(window: &mut gpui::Window, cx: &mut gpui::App) -> bool {
+    let Some(store) = crate::store::store_from(cx) else {
+        return false;
+    };
+    let target = {
+        let store = store.read(cx);
+        store
+            .nodes
+            .iter()
+            .filter_map(|(tag, node)| {
+                let node = node.read(cx);
+                let portal = crate::extensions::component_portal(
+                    &node.component,
+                    &crate::extensions::parse_extension_props(&node.extension_props_json()),
+                )?;
+                portal
+                    .visible
+                    .then_some(portal.close_request_event)
+                    .flatten()
+                    .map(|event| (*tag, event))
+            })
+            .max_by_key(|(tag, _)| *tag)
+    };
+    let Some((tag, event)) = target else {
+        return false;
+    };
+    let store = store.read(cx);
+    store
+        .host
+        .dispatch_event(tag, &event, &serde_json::json!({}));
+    store.frame_hook.arm(window);
+    true
+}
+
 fn install_close_hook(
     window: &mut gpui::Window,
     cx: &mut gpui::Context<SurfaceRootView>,
@@ -1007,6 +1043,11 @@ fn install_close_hook(
     let last_request: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>> =
         std::rc::Rc::new(std::cell::Cell::new(None));
     window.on_window_should_close(cx, move |window, cx| {
+        // A visible Modal answers the close button first, as it answers the
+        // Escape key: `onRequestClose` decides, and the window stays.
+        if request_modal_close(window, cx) {
+            return false;
+        }
         let intercept = cx
             .try_global::<DesktopWindowsGlobal>()
             .and_then(|windows| windows.0.get(key).map(|entry| entry.intercept_close))
