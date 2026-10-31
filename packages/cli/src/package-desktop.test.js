@@ -12,6 +12,7 @@ import {
   releaseLibraryDirectories,
   resolveLinkedLibraryForTest,
   runtimeLibraries,
+  vcRuntimeLibraries,
   targetProfileDir,
   toPackagerConfig,
 } from './package-desktop.js';
@@ -695,4 +696,35 @@ test('a library reached by two paths is shipped once', () => {
     file => path.basename(file),
   );
   expect(names.filter(name => name === 'libfoo.dylib')).toHaveLength(1);
+});
+
+describe('vcRuntimeLibraries', () => {
+  it('finds the CRT DLLs of the newest installed toolset', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcredist-'));
+    const crt = version =>
+      path.join(
+        base,
+        'Microsoft Visual Studio',
+        '2022',
+        'Enterprise',
+        'VC',
+        'Redist',
+        'MSVC',
+        version,
+        'x64',
+        'Microsoft.VC143.CRT',
+      );
+    for (const version of ['14.40.1', '14.44.2']) {
+      fs.mkdirSync(crt(version), { recursive: true });
+      fs.writeFileSync(path.join(crt(version), 'vcruntime140.dll'), '');
+      fs.writeFileSync(path.join(crt(version), 'msvcp140.dll'), '');
+    }
+    const found = vcRuntimeLibraries({ arch: 'x64', env: {}, roots: [base] });
+    expect(found.map(file => path.basename(file))).toEqual([
+      'msvcp140.dll',
+      'vcruntime140.dll',
+    ]);
+    expect(found[0]).toContain('14.44.2');
+    expect(vcRuntimeLibraries({ arch: 'x64', env: {}, roots: [] })).toEqual([]);
+  });
 });
