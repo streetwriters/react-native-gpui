@@ -42,6 +42,9 @@ async function launch(
     disableAnimations: true,
     offscreen: !onScreen,
   });
+  // wgpu probes the GL backend before it settles on Vulkan, and a session
+  // without DRI (headless sway) logs that probe as an error.
+  app.allowErrors(/wgpu_hal::gles::egl\] EGL 'eglInitialize'/u);
   await app.setWindowSize(1024, 768);
   await app.waitForIdle();
   return app;
