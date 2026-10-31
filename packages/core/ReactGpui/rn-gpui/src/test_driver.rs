@@ -206,7 +206,11 @@ async fn serve_commands(
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
             "focusWindow" => cx
                 .update_window(window, |_, window, _| {
-                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() != Ok("1") { window.activate_window(); }
+                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() != Ok("1") {
+                        window.activate_window();
+                        #[cfg(target_os = "windows")]
+                        bring_to_front(window);
+                    }
                     json!({"focused":true})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
@@ -2157,6 +2161,38 @@ fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), Strin
         return Err("the window is not a Win32 window".into());
     };
     capture_client(handle.hwnd.get() as HWND)
+}
+
+/// Takes the foreground for the window. A new process is refused it by
+/// default, so an Alt key press, which Windows counts as input from the
+/// process, comes first; the window is then raised above the others.
+#[cfg(target_os = "windows")]
+fn bring_to_front(window: &gpui::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::UI::{
+        Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU},
+        WindowsAndMessaging::{
+            AllowSetForegroundWindow, SetForegroundWindow, SetWindowPos, ASFW_ANY, HWND_NOTOPMOST,
+            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+        },
+    };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = win32.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+    // SAFETY: `hwnd` is the live handle of this process's window; the calls only
+    // change its z-order and foreground state.
+    unsafe {
+        AllowSetForegroundWindow(ASFW_ANY);
+        keybd_event(VK_MENU as u8, 0, 0, 0);
+        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetForegroundWindow(hwnd);
+    }
 }
 
 #[cfg(target_os = "windows")]

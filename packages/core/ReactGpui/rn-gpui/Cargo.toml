@@ -104,6 +104,8 @@ windows-sys = { version = "0.59", features = [
     # `GetDpiForSystem`: the scale a tray icon's physical rectangle is divided by.
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
+    # `keybd_event`: the test driver takes the foreground for its window.
+    "Win32_UI_Input_KeyboardAndMouse",
     # `CreateNamedPipeW`: the single-instance pipe, with an owner-only access list.
     "Win32_System_Pipes",
     "Win32_System_IO",

@@ -174,9 +174,7 @@ test('Dimensions reports the screen, the font scale and each window', async () =
   expect(await text('dimensions-window-width')).toBe('1024');
 });
 
-// A hosted Windows session refuses the foreground to a new process, so the
-// window never reports focus there.
-test.runIf(windowActivation && process.platform !== 'win32')(
+test.runIf(windowActivation)(
   'AppState ignores focus moving between app windows',
   async () => {
     await launch({ offscreen: false });
