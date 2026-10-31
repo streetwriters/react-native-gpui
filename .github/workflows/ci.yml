@@ -461,6 +461,7 @@ jobs:
             $found = (Get-Command $name -ErrorAction SilentlyContinue).Source
             Write-Host ("{0,-45} {1}" -f $name, $(if ($found) { $found } else { 'NOT FOUND' }))
           }
+          Get-ChildItem -Path . , $env:RUNNER_TEMP -Recurse -Include hermesvm.dll, jsi.dll -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "on disk: $($_.FullName)" }
 
       - name: Build the tester
         env:
