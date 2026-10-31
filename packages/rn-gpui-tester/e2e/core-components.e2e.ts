@@ -1012,7 +1012,17 @@ describe('Touchpad momentum', () => {
         `${testID} did not end its momentum; state ${await text(`${testID}-state`)}: ${error}`,
       );
     }
-    return Number((await text(`${testID}-state`)).split('|')[0]);
+    // The last scroll events are still on their way to the page; wait for the
+    // offset to stop changing.
+    let offset = -1;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await app.waitForIdle();
+      const now = Number((await text(`${testID}-state`)).split('|')[0]);
+      if (now === offset) break;
+      offset = now;
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    return offset;
   };
 
   test.skipIf(process.platform === 'darwin')(
