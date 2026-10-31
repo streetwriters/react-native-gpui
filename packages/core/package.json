@@ -12,6 +12,7 @@
     "babel-plugin-node-addons.js",
     "polyfills",
     "metro.config.js",
+    "metro-babel-transformer.js",
     "metro-transform-worker.js",
     "setup-env.js",
     "src-gpui",

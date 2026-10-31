@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
+  unstable_VirtualView as VirtualView,
   ActivityIndicator,
   Appearance,
   DynamicColorIOS,
@@ -59,6 +60,7 @@ export default function CoreComponentsFixture() {
   const [normalFlick, setNormalFlick] = useState('0|');
   const [fastFlick, setFastFlick] = useState('0|');
   const [throttled, setThrottled] = useState('0|0');
+  const [virtualModes, setVirtualModes] = useState('');
   const [scrollOffsets, setScrollOffsets] = useState('');
   const [imageLog, setImageLog] = useState('');
   const [imageProgress, setImageProgress] = useState('');
@@ -262,6 +264,22 @@ export default function CoreComponentsFixture() {
           <View style={styles.flickContent} />
         </ScrollView>
         <Text testID="throttled-state">{throttled}</Text>
+        <ScrollView testID="virtual-scroll" style={styles.pager}>
+          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(index => (
+            <VirtualView
+              key={index}
+              style={styles.virtualRow}
+              onModeChange={event =>
+                setVirtualModes(
+                  previous => `${previous}${index}:${event.mode},`,
+                )
+              }
+            >
+              <Text>{`row ${index}`}</Text>
+            </VirtualView>
+          ))}
+        </ScrollView>
+        <Text testID="virtual-modes">{virtualModes}</Text>
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Switch</Text>
@@ -1111,6 +1129,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#eef',
   },
   flickContent: { height: 6000 },
+  virtualRow: { height: 100, justifyContent: 'center' },
   page: { height: 100, alignItems: 'center', justifyContent: 'center' },
   interval: { height: 80, alignItems: 'center', justifyContent: 'center' },
   fitSample: { fontSize: 30, color: '#000', width: 120, lineHeight: 36 },

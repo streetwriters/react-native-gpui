@@ -425,6 +425,10 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
   expect(openedItems).toContain('dev:openDevTools');
   expect(openedItems).toContain('Toggle Perf Monitor');
   expect(openedItems).toContain('Fast Refresh');
+  // `DevSettings.addMenuItem` puts its item at the bottom, and choosing it
+  // reaches the handler.
+  expect(openedItems).toContain('Show Secret Dev Screen');
+  expect(await rawTextOf('dev-menu-item')).toBe('not pressed');
 
   const idle = { ignore: ['timers', 'frames'] as const, timeout: 1500 };
   await app.devMenuPerform('dev:perfMonitor', idle);
@@ -437,6 +441,10 @@ test('the Dev Menu opens from its accelerator and runs items', async () => {
 
   await app.devMenuPerform('dev:perfMonitor', idle);
   expect((await app.getPerfMonitor()).enabled).toBe(false);
+
+  await app.devMenuPerform('dev:item:0', idle);
+  await app.waitForIdle();
+  expect(await rawTextOf('dev-menu-item')).toBe('pressed');
 
   await app.closeDevMenu();
   expect((await app.devMenuState()).open).toBe(false);

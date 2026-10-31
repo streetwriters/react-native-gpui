@@ -689,39 +689,91 @@ void GpuiMountingManager::setSchedulerTaskExecutor(
   }
 }
 
+namespace {
+
+std::mutex& knownComponentsMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_set<std::string>& knownComponents() {
+  static std::unordered_set<std::string> names;
+  return names;
+}
+
+void addProvider(
+    ComponentDescriptorProviderRegistry& registry,
+    const ComponentDescriptorProvider& provider) {
+  {
+    std::lock_guard<std::mutex> lock(knownComponentsMutex());
+    knownComponents().insert(provider.name);
+  }
+  registry.add(provider);
+}
+
+} // namespace
+
+// What `UIManager.hasViewManagerConfig` asks: React Native picks the stable
+// `VirtualView` over its experimental twin when the component is registered.
+bool GpuiMountingManager::hasComponent(const std::string& name) {
+  std::lock_guard<std::mutex> lock(knownComponentsMutex());
+  return knownComponents().count(name) > 0;
+}
+
 ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
   return [](const EventDispatcher::Weak& eventDispatcher,
             const std::shared_ptr<const ContextContainer>& contextContainer) {
     static auto registry = [] {
       auto result = std::make_shared<ComponentDescriptorProviderRegistry>();
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<ViewComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<TextComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<ImageComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
-      result->add(
+      addProvider(
+          *result,
           concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  GpuiModalHostViewComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  WindowControlComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  DesktopSwitchComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  ActivityIndicatorViewComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  DesktopContextMenuViewComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  ShortcutScopeComponentDescriptor>());
-      result->add(concreteComponentDescriptorProvider<
-                  VirtualViewComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              GpuiModalHostViewComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              WindowControlComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              DesktopSwitchComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              ActivityIndicatorViewComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              DesktopContextMenuViewComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              ShortcutScopeComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              VirtualViewComponentDescriptor>());
       result->setComponentDescriptorProviderRequest([](ComponentName name) {
         LOG(ERROR) << "Fabric component " << name
                    << " is not implemented on gpui";

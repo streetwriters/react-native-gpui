@@ -998,6 +998,29 @@ describe('Image events', () => {
   });
 });
 
+describe('VirtualView', () => {
+  test('reports a row as visible, prerender or hidden as the scroll view moves', async () => {
+    await reveal('virtual-scroll');
+    const [node] = await app.query('testID', 'virtual-scroll', true);
+    // Twelve rows of 100 points in a 100 point viewport: with the first in view,
+    // the next five are prerendered and the rest hidden.
+    await poll(async () => {
+      await app.waitForIdle();
+      return (await text('virtual-modes')).includes('11:2');
+    });
+    const first = await text('virtual-modes');
+    expect(first).toContain('0:0');
+    expect(first).toContain('3:1');
+    // Scrolled to row 8, row 0 is far behind and row 8 is in view.
+    await app.scroll(node.tag, 0, -800);
+    await poll(async () => {
+      await app.waitForIdle();
+      return (await text('virtual-modes')).includes('8:0');
+    });
+    expect(await text('virtual-modes')).toContain('0:2');
+  });
+});
+
 describe('scrollEventThrottle', () => {
   test('events more than a frame apart carry the offset they had when they went out', async () => {
     await reveal('throttled-scroll');

@@ -21,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace rngpui {
 extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept;
@@ -74,6 +75,7 @@ class GpuiMountingManager : public IMountingManager {
       const std::string& name,
       const folly::dynamic& args) override;
   ComponentRegistryFactory getComponentRegistryFactory() override;
+  bool hasComponent(const std::string& name) override;
   std::shared_ptr<IImageLoader> getImageLoader() noexcept override {
     return imageLoader_;
   }
