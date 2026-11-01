@@ -227,16 +227,20 @@ async fn serve_commands(
                 }
             }
             "focusReadout" => {
+                let mirror = crate::desktop::window_mirror::get(1)
+                    .and_then(|state| state.get("isFocused").cloned())
+                    .unwrap_or(Value::Null);
                 #[cfg(target_os = "windows")]
-                {
-                    cx.update_window(window, |_, window, _| window_hwnd(window))
-                        .ok()
-                        .flatten()
-                        .map(focus_readout)
-                        .unwrap_or(Value::Null)
-                }
+                let mut readout = cx
+                    .update_window(window, |_, window, _| window_hwnd(window))
+                    .ok()
+                    .flatten()
+                    .map(focus_readout)
+                    .unwrap_or_else(|| json!({}));
                 #[cfg(not(target_os = "windows"))]
-                Value::Null
+                let mut readout = json!({});
+                readout["mirrorIsFocused"] = mirror;
+                readout
             }
             "a11yTree" => {
                 let _ = cx.update_window(window, |_, window, _| {
@@ -2202,8 +2206,8 @@ fn window_hwnd(window: &gpui::Window) -> Option<isize> {
 #[cfg(target_os = "windows")]
 fn focus_readout(hwnd: isize) -> Value {
     use windows_sys::Win32::UI::{
-        Input::KeyboardAndMouse::GetFocus,
-        WindowsAndMessaging::{GetActiveWindow, GetForegroundWindow},
+        Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
+        WindowsAndMessaging::GetForegroundWindow,
     };
     // SAFETY: the calls only read the calling thread's input state.
     let (foreground, active, focus) = unsafe {
