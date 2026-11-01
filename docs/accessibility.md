@@ -51,4 +51,4 @@ To check whether a screen reader is running, see [AccessibilityInfo](accessibili
 
 ## Additional resources
 
-- [Accessibility on macOS](https://developer.apple.com/accessibility/), [on Windows](https://learn.microsoft.com/windows/apps/design/accessibility/) and [on Linux](https://developer.gnome.org/documentation/guidelines/accessibility.html)
+- [Accessibility on macOS](https://developer.apple.com/accessibility/), [on Windows](https://learn.microsoft.com/windows/apps/design/accessibility/accessibility-overview) and [on Linux](https://developer.gnome.org/documentation/guidelines/accessibility.html)

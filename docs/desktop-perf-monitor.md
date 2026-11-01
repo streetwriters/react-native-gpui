@@ -5,6 +5,8 @@ title: Perf monitor
 
 The perf monitor is an overlay with frame rates and memory use. It is painted by the renderer above every window, so it does not compete with the app it measures. It is also available from the [dev menu](debugging).
 
+![The Perf Monitor overlay in the corner of an app window](/docs/assets/desktop-perf-monitor.png)
+
 ```tsx
 import { PerfMonitor } from '@react-native-gpui/core/desktop';
 

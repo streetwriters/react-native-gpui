@@ -86,7 +86,7 @@ React Native for desktop needs Node.js 22.13 or newer. Check with `node --versio
 
 ## No transports available
 
-React Native implements a polyfill for WebSockets. These [polyfills](https://github.com/react/react-native/blob/main/packages/react-native/Libraries/Core/InitializeCore.js) are initialized as part of the react-native module that you include in your application through `import React from 'react'`. If you load another module that requires WebSockets, such as [Firebase](https://github.com/react/react-native/issues/3645), be sure to load/require it after react-native:
+React Native implements a polyfill for WebSockets. These [polyfills](https://github.com/react/react-native/blob/v0.87.1/packages/react-native/Libraries/Core/InitializeCore.js) are initialized as part of the react-native module that you include in your application through `import React from 'react'`. If you load another module that requires WebSockets, such as [Firebase](https://github.com/react/react-native/issues/3645), be sure to load/require it after react-native:
 
 ```
 import Firebase from 'firebase';

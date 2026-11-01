@@ -18,6 +18,8 @@ React Native provides an in-app developer menu providing access to debugging fea
 
 The menu is available in debug builds, and is turned off in release builds. To change that, set `devMenu` in [`desktop.json`](desktop-json), or call `dev_menu(bool)` on the app config in [`main.rs`](desktop-project#mainrs).
 
+![The Dev Menu open over an app window](/docs/assets/desktop-dev-menu.png)
+
 | Item                     | Action                                                                                                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
 | Reload                   | Reloads the JavaScript bundle.                                                                              |
@@ -39,6 +41,8 @@ To open DevTools, either:
 
 On first launch, DevTools will open to a welcome panel, along with an open console drawer where you can view logs and interact with the JavaScript runtime. From the top of the window, you can navigate to other panels, including the integrated React Components Inspector and Profiler.
 
+![React Native DevTools attached to the app, showing a console error](/docs/assets/desktop-devtools.png)
+
 Learn more in our [React Native DevTools guide](https://reactnative.dev/docs/0.87/react-native-devtools).
 
 ## LogBox
@@ -55,6 +59,12 @@ Console errors and warnings are displayed as on-screen notifications with a red 
 
 - **Errors** will display with a notification count. Click the notification to see an expanded view and to paginate through other logs.
 - **Warnings** will display a notification banner without details, prompting you to open React Native DevTools.
+
+![A LogBox notification banner for a console error](/docs/assets/desktop-logbox-notification.png)
+
+Clicking the notification opens the expanded view, with the source location and the component stack:
+
+![The LogBox expanded view of a console error](/docs/assets/desktop-logbox-error.png)
 
 When React Native DevTools is open, all errors except fatal errors will be hidden to LogBox. We recommend using the Console panel within React Native DevTools as a source of truth, due to various LogBox options which can hide or adjust the level of certain logs.
 
@@ -91,7 +101,7 @@ LogBox.ignoreLogs([
 
 :::note
 
-LogBox will treat certain errors from React as warnings, which will mean they don't display as an in-app error notification. Advanced users can change this behaviour by customising LogBox's warning filter using [`LogBoxData.setWarningFilter()`](https://github.com/react/react-native/blob/d334f4d77eea538dff87fdcf2ebc090246cfdbb0/packages/react-native/Libraries/LogBox/Data/LogBoxData.js#L338).
+LogBox will treat certain errors from React as warnings, which will mean they don't display as an in-app error notification. Advanced users can change this behaviour by customising LogBox's warning filter using [`LogBoxData.setWarningFilter()`](https://github.com/react/react-native/blob/v0.87.1/packages/react-native/Libraries/LogBox/Data/LogBoxData.js#L351).
 
 :::
 
@@ -100,6 +110,8 @@ LogBox will treat certain errors from React as warnings, which will mean they do
 ## Performance Monitor
 
 An in-app performance overlay shows the frame rates and memory use of the app. Toggle it by selecting **"Toggle Perf Monitor"** in the Dev Menu, or from code with [`PerfMonitor`](desktop-perf-monitor). It is painted by the renderer above every window, so it does not compete with the app it measures.
+
+![The Perf Monitor overlay in the corner of an app window](/docs/assets/desktop-perf-monitor.png)
 
 :::info
 The Performance Monitor runs in-app and is a guide. For accurate measurements, use the profiling tools of your operating system: Instruments on macOS, the Windows Performance Analyzer on Windows, and `perf` on Linux. See [Profiling](profiling).
