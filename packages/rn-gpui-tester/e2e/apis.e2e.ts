@@ -184,11 +184,6 @@ test.runIf(windowActivation)(
     await launch({ offscreen: false });
     await app.focusWindow();
     await poll(async () => (await text('appstate-current')) === 'active');
-    // A freshly started process can be refused the foreground until one of its
-    // windows has been activated, so focus goes to a child and back first.
-    await app.getByTestId('window-open-child').click();
-    await poll(async () => (await text('desktop-child-focus')) === 'true');
-    await app.focusWindow();
     try {
       await poll(async () => (await text('window-focus')) === 'true');
     } catch (error) {
@@ -203,6 +198,7 @@ test.runIf(windowActivation)(
     await settled(() => text('appstate-log'));
     const before = await text('appstate-log');
     await app.getByTestId('window-open-child').click();
+    await poll(async () => (await text('desktop-child-focus')) === 'true');
     await poll(async () => (await text('window-focus')) === 'false');
     await settled(() => text('appstate-log'));
     expect(await text('appstate-log')).toBe(before);
