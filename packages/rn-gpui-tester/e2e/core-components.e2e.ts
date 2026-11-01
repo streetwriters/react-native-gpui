@@ -1,7 +1,16 @@
+import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'vitest';
 import {
   launchApp,
   expect as desktopExpect,
@@ -17,6 +26,22 @@ const TITLE_BAR = process.platform === 'linux' ? 26 : 0;
 // The Xvfb session on Linux CI has no window manager to activate a window or
 // to own the clipboard; what needs either is not verified there.
 const windowActivation = process.platform !== 'linux';
+
+function frontmostApp() {
+  if (process.platform !== 'darwin') return 'another window';
+  try {
+    return execFileSync(
+      'osascript',
+      [
+        '-e',
+        'tell application "System Events" to name of first process whose frontmost is true',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  } catch {
+    return 'another application';
+  }
+}
 
 async function start(offscreen: boolean) {
   app = await launchApp({
@@ -1257,6 +1282,14 @@ describe.runIf(windowActivation)('with an active window', () => {
   afterAll(async () => {
     await app.close();
     await start(true);
+  });
+  beforeEach(async () => {
+    try {
+      await app.focusWindow();
+      await poll(async () => (await app.windowState(1)).isFocused, 5000);
+    } catch {
+      throw new Error(`the test window lost focus to ${frontmostApp()}`);
+    }
   });
 
   test('selectTextOnFocus selects all the text on focus', async () => {
