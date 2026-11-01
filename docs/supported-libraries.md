@@ -34,6 +34,8 @@ The desktop package lists the upstream library as a peer dependency with the ser
 
 Reanimated and Gesture Handler depend on Worklets, so install `react-native-worklets` and `@react-native-gpui/worklets` with them.
 
+Install the regular npm releases of Reanimated and Worklets. Their C++ sources need small fixes to compile with MSVC and on Linux, so `@react-native-gpui/reanimated` and `@react-native-gpui/worklets` apply those fixes to a copy in the desktop build directory. The files in `node_modules` are not changed. If the installed version is one the fixes don't apply to, the build stops and names the file.
+
 ## Navigation
 
 React Navigation and Expo Router are JavaScript on top of Screens and Gesture Handler, so there is nothing to port. They work once those libraries are installed. For apps that use a stack, `useDesktopForwardNavigation` from `@react-native-gpui/core/navigation` makes the mouse's forward button move forward in a React Navigation stack, and the back button already fires `BackHandler`.
