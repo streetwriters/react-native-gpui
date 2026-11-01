@@ -69,8 +69,8 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
     const rtlC = await frameOf('i18n-box-c');
     expect(rtlA.x).toBeGreaterThan(rtlC.x);
     // marginStart lands on the right: the gap sits between B and C's far side.
-    // Frame edges snap to device pixels one at a time, so at a fractional
-    // display scale the gap is off by up to one pixel.
+    // At a fractional display scale (125% on Windows) the reported gap can be a
+    // device pixel short; the cause is not found.
     expect(Math.abs(rtlB.x - (rtlC.x + rtlC.width) - 40)).toBeLessThanOrEqual(
       1,
     );
