@@ -61,6 +61,7 @@
   height: calc(100% + 4rem);
   position: relative;
   top: -2rem;
+  overflow: visible;
 }
 
 .foxFactContainer {

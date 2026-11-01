@@ -18,6 +18,7 @@ const SHADOW = { filter: 'drop-shadow(0 16px 16px rgb(0 0 0 / 0.1))' };
 export type Chrome = 'macos' | 'windows' | 'linux';
 
 const TITLE_BAR = 28;
+const COMPACT_TITLE_BAR = 18;
 
 type WindowProps = {
   x: number;
@@ -25,6 +26,7 @@ type WindowProps = {
   width: number;
   height: number;
   chrome: Chrome;
+  compact?: boolean;
   className?: string;
   children?: React.ReactNode;
 };
@@ -34,49 +36,68 @@ function TitleBar({
   x,
   y,
   width,
+  bar,
 }: {
   chrome: Chrome;
   x: number;
   y: number;
   width: number;
+  bar: number;
 }) {
-  const mid = y + TITLE_BAR / 2;
+  const mid = y + bar / 2;
+  const unit = bar / TITLE_BAR;
   switch (chrome) {
-    case 'macos':
+    case 'macos': {
+      const r = 5 * unit;
+      const gap = 16 * unit;
       return (
         <>
-          <circle cx={x + 16} cy={mid} r={5} fill="#ff5f57" />
-          <circle cx={x + 32} cy={mid} r={5} fill="#febc2e" />
-          <circle cx={x + 48} cy={mid} r={5} fill="#28c840" />
+          <circle cx={x + gap} cy={mid} r={r} fill="#ff5f57" />
+          <circle cx={x + gap * 2} cy={mid} r={r} fill="#febc2e" />
+          <circle cx={x + gap * 3} cy={mid} r={r} fill="#28c840" />
         </>
       );
+    }
     case 'windows': {
       const right = x + width;
+      const g = 8 * unit;
+      const step = 26 * unit;
       return (
-        <g stroke={ICON} strokeWidth={1.4} fill="none">
-          <path d={`M${right - 78} ${mid}h9`} />
-          <rect x={right - 49} y={mid - 4.5} width={9} height={9} />
-          <path d={`M${right - 22} ${mid - 4.5}l9 9m0 -9l-9 9`} />
+        <g stroke={ICON} strokeWidth={1.2} strokeLinecap="round" fill="none">
+          <path d={`M${right - step * 3} ${mid}h${g}`} />
+          <rect
+            x={right - step * 2}
+            y={mid - g / 2}
+            width={g}
+            height={g}
+            rx={1.5 * unit}
+          />
+          <path
+            d={`M${right - step} ${mid - g / 2}l${g} ${g}m0 -${g}l-${g} ${g}`}
+          />
         </g>
       );
     }
     case 'linux': {
       const right = x + width;
+      const r = 7 * unit;
+      const g = 2.5 * unit;
       return (
         <>
           <rect
-            x={x + width / 2 - 40}
-            y={mid - 4}
-            width={80}
-            height={8}
-            rx={4}
+            x={x + width / 2 - 36 * unit}
+            y={mid - 3.5 * unit}
+            width={72 * unit}
+            height={7 * unit}
+            rx={3.5 * unit}
             fill={SKELETON}
           />
-          <circle cx={right - 16} cy={mid} r={7} fill={SKELETON} />
+          <circle cx={right - 16 * unit} cy={mid} r={r} fill={SKELETON} />
           <path
-            d={`M${right - 18.5} ${mid - 2.5}l5 5m0 -5l-5 5`}
+            d={`M${right - 16 * unit - g} ${mid - g}l${g * 2} ${g * 2}m0 -${g * 2}l-${g * 2} ${g * 2}`}
             stroke={ICON}
-            strokeWidth={1.4}
+            strokeWidth={1.2}
+            strokeLinecap="round"
           />
         </>
       );
@@ -90,10 +111,13 @@ function Window({
   width,
   height,
   chrome,
+  compact = false,
   className,
   children,
 }: WindowProps) {
-  const radius = chrome === 'windows' ? 2 : 10;
+  const bar = compact ? COMPACT_TITLE_BAR : TITLE_BAR;
+  const radius = chrome === 'windows' ? 6 : compact ? 7 : 10;
+  const stroke = compact ? 1.5 : 3;
   return (
     <g className={className} style={SHADOW}>
       <rect
@@ -104,14 +128,14 @@ function Window({
         rx={radius}
         fill={BACKGROUND}
         stroke={BORDER}
-        strokeWidth={3}
+        strokeWidth={stroke}
       />
       <path
-        d={`M${x} ${y + TITLE_BAR}H${x + width}`}
+        d={`M${x + stroke / 2} ${y + bar}H${x + width - stroke / 2}`}
         stroke={SKELETON}
-        strokeWidth={1.5}
+        strokeWidth={1}
       />
-      <TitleBar chrome={chrome} x={x} y={y} width={width} />
+      <TitleBar chrome={chrome} x={x} y={y} width={width} bar={bar} />
       {children}
     </g>
   );
@@ -142,7 +166,7 @@ function Skeleton({
   );
 }
 
-/** A window body: a sidebar and a content area made of skeleton blocks. */
+/** A compact window body: a sidebar list and a content area of skeleton blocks. */
 function AppBody({
   x,
   y,
@@ -154,42 +178,53 @@ function AppBody({
   width: number;
   height: number;
 }) {
-  const top = y + TITLE_BAR + 12;
-  const side = Math.round(width * 0.26);
-  const contentX = x + side + 24;
-  const contentWidth = width - side - 36;
-  const rows = Math.floor((height - TITLE_BAR - 24) / 26);
+  const pad = 10;
+  const top = y + COMPACT_TITLE_BAR + pad;
+  const inner = height - COMPACT_TITLE_BAR - pad * 2;
+  const side = Math.round(width * 0.28);
+  const contentX = x + side + pad;
+  const contentWidth = width - side - pad * 2;
+  const hero = Math.round(inner * 0.5);
   return (
     <>
-      {Array.from({ length: Math.min(rows, 6) }, (_, row) => (
+      <rect
+        x={x + 0.75}
+        y={y + COMPACT_TITLE_BAR + 0.5}
+        width={side}
+        height={height - COMPACT_TITLE_BAR - 1.25}
+        fill={SKELETON}
+        opacity={0.25}
+      />
+      {[0, 1, 2, 3].map(row => (
         <Skeleton
           key={row}
-          x={x + 12}
-          y={top + row * 26}
-          width={side - (row % 3) * 10}
-          height={14}
-          radius={7}
+          x={x + pad}
+          y={top + row * 14}
+          width={side - pad * 2 - (row % 2) * 10}
+          height={6}
+          radius={3}
         />
       ))}
       <Skeleton
         x={contentX}
         y={top}
         width={contentWidth}
-        height={Math.round((height - TITLE_BAR - 24) * 0.5)}
+        height={hero}
+        radius={4}
       />
       <Skeleton
         x={contentX}
-        y={top + Math.round((height - TITLE_BAR - 24) * 0.5) + 12}
-        width={Math.round(contentWidth * 0.7)}
-        height={12}
-        radius={6}
+        y={top + hero + 9}
+        width={Math.round(contentWidth * 0.75)}
+        height={6}
+        radius={3}
       />
       <Skeleton
         x={contentX}
-        y={top + Math.round((height - TITLE_BAR - 24) * 0.5) + 32}
+        y={top + hero + 21}
         width={Math.round(contentWidth * 0.5)}
-        height={12}
-        radius={6}
+        height={6}
+        radius={3}
       />
     </>
   );
@@ -217,17 +252,17 @@ export function HelloWindow({ className }: { className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 360 260"
+      viewBox="10 10 340 228"
       fill="none"
       role="img"
       aria-label="A desktop window showing the React logo and the text Welcome to React Native on Desktop!"
       className={className}
     >
       <Window x={12} y={12} width={336} height={224} chrome="macos">
-        <ReactMark x={145} y={46} size={70} />
+        <ReactMark x={150} y={60} size={60} />
         <text
           x={180}
-          y={142}
+          y={146}
           textAnchor="middle"
           fontSize={19}
           fontWeight={700}
@@ -237,7 +272,7 @@ export function HelloWindow({ className }: { className?: string }) {
         </text>
         <text
           x={180}
-          y={165}
+          y={169}
           textAnchor="middle"
           fontSize={19}
           fontWeight={700}
@@ -247,7 +282,7 @@ export function HelloWindow({ className }: { className?: string }) {
         </text>
         <rect
           x={134}
-          y={184}
+          y={186}
           width={92}
           height={24}
           rx={12}
@@ -255,7 +290,7 @@ export function HelloWindow({ className }: { className?: string }) {
         />
         <text
           x={180}
-          y={200}
+          y={202}
           textAnchor="middle"
           fontSize={11}
           fontWeight={600}
@@ -285,7 +320,14 @@ function Callout({
         strokeWidth={1.5}
         strokeDasharray="4 4"
       />
-      <circle cx={fromX} cy={y} r={4} fill={BORDER} />
+      <circle
+        cx={fromX}
+        cy={y}
+        r={4}
+        fill={ICON}
+        stroke={BACKGROUND}
+        strokeWidth={2}
+      />
       <text x={462} y={y + 5} fontSize={15} fontFamily={MONO} fill={TEXT}>
         {label}
       </text>
@@ -314,52 +356,57 @@ export function ComponentAnatomy({ className }: { className?: string }) {
           stroke={BORDER}
           strokeDasharray="4 4"
         />
-        <Skeleton x={30} y={60} width={90} height={12} radius={6} />
-        <Skeleton x={30} y={84} width={70} height={12} radius={6} />
-        <Skeleton x={30} y={108} width={80} height={12} radius={6} />
-        <Skeleton x={146} y={48} width={268} height={90} />
-        <text x={160} y={162} fontSize={17} fontWeight={600} fill={TEXT}>
+        <Skeleton x={32} y={62} width={86} height={10} radius={5} />
+        <Skeleton x={32} y={84} width={66} height={10} radius={5} />
+        <Skeleton x={32} y={106} width={76} height={10} radius={5} />
+        <Skeleton x={146} y={48} width={270} height={86} radius={6} />
+        <text x={146} y={164} fontSize={17} fontWeight={600} fill={TEXT}>
           Meeting notes
         </text>
-        <Skeleton x={146} y={176} width={268} height={10} radius={5} />
-        <Skeleton x={146} y={194} width={210} height={10} radius={5} />
-        <Skeleton x={146} y={212} width={240} height={10} radius={5} />
-        <Skeleton x={146} y={230} width={180} height={10} radius={5} />
         <rect
           x={146}
-          y={262}
-          width={268}
-          height={40}
+          y={178}
+          width={270}
+          height={70}
+          rx={6}
+          stroke={BORDER}
+          strokeDasharray="4 4"
+        />
+        <Skeleton x={158} y={190} width={232} height={8} radius={4} />
+        <Skeleton x={158} y={204} width={190} height={8} radius={4} />
+        <Skeleton x={158} y={218} width={214} height={8} radius={4} />
+        <Skeleton x={158} y={232} width={150} height={8} radius={4} />
+        <rect
+          x={146}
+          y={266}
+          width={270}
+          height={38}
           rx={6}
           stroke={BORDER}
           strokeWidth={1.5}
         />
-        <text x={158} y={287} fontSize={14} fill={TEXT} opacity={0.6}>
+        <text x={160} y={290} fontSize={13} fill={TEXT} opacity={0.55}>
           Write something…
         </text>
-        <rect
-          x={146}
-          y={170}
-          width={268}
-          height={78}
-          rx={4}
-          stroke={BORDER}
-          strokeDasharray="4 4"
-        />
       </Window>
-      <Callout y={140} fromX={80} label="View" />
-      <Callout y={70} fromX={280} label="Image" />
-      <Callout y={163} fromX={265} label="Text" />
-      <Callout y={209} fromX={400} label="ScrollView" />
-      <Callout y={282} fromX={410} label="TextInput" />
+      <Callout y={91} fromX={392} label="Image" />
+      <Callout y={158} fromX={292} label="Text" />
+      <Callout y={213} fromX={404} label="ScrollView" />
+      <Callout y={257} fromX={75} label="View" />
+      <Callout y={285} fromX={404} label="TextInput" />
     </svg>
   );
 }
 
 const CARD = { viewBox: '0 0 284 148', fill: 'none', role: 'img' } as const;
 
-/** Card illustration: the desktop shell (menu bar, window, tray). */
+function CardBackground() {
+  return <rect width={284} height={148} fill={SKELETON} opacity={0.35} />;
+}
+
+/** Card illustration: the desktop shell (menu bar, window, context menu, tray). */
 export function ShellCard({ className }: { className?: string }) {
+  const menu = ['Copy', 'Paste', 'Inspect'];
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -367,54 +414,78 @@ export function ShellCard({ className }: { className?: string }) {
       aria-label="A window with an application menu, a context menu and a tray icon"
       className={className}
     >
-      <rect width={284} height={148} fill={SKELETON} opacity={0.35} />
-      <rect x={0} y={0} width={284} height={16} fill={BACKGROUND} />
-      <Skeleton x={10} y={5} width={28} height={6} radius={3} />
-      <Skeleton x={46} y={5} width={28} height={6} radius={3} />
-      <Skeleton x={82} y={5} width={28} height={6} radius={3} />
-      <circle cx={246} cy={8} r={4} fill={ICON} />
-      <rect x={256} y={4} width={18} height={8} rx={2} fill={SKELETON} />
-      <Window x={30} y={30} width={170} height={104} chrome="windows">
-        <AppBody x={30} y={30} width={170} height={104} />
+      <CardBackground />
+      <rect width={284} height={18} fill={BACKGROUND} opacity={0.9} />
+      <path d="M0 18H284" stroke={BORDER} strokeWidth={1} />
+      <circle cx={14} cy={9} r={3.5} fill={ICON} />
+      <Skeleton x={26} y={6.5} width={22} height={5} radius={2.5} />
+      <Skeleton x={56} y={6.5} width={18} height={5} radius={2.5} />
+      <Skeleton x={82} y={6.5} width={24} height={5} radius={2.5} />
+      <rect
+        x={232}
+        y={4}
+        width={12}
+        height={10}
+        rx={3}
+        fill="var(--ifm-color-primary)"
+      />
+      <Skeleton x={252} y={6.5} width={22} height={5} radius={2.5} />
+      <Window x={22} y={32} width={168} height={100} chrome="macos" compact>
+        <AppBody x={22} y={32} width={168} height={100} />
       </Window>
       <g style={SHADOW}>
         <rect
-          x={146}
-          y={70}
-          width={100}
-          height={64}
+          x={150}
+          y={72}
+          width={92}
+          height={58}
           rx={6}
           fill={BACKGROUND}
           stroke={BORDER}
-          strokeWidth={2}
+          strokeWidth={1.5}
         />
       </g>
-      <Skeleton x={156} y={80} width={60} height={8} radius={4} />
-      <Skeleton x={156} y={98} width={74} height={8} radius={4} />
-      <Skeleton x={156} y={116} width={50} height={8} radius={4} />
+      {menu.map((label, i) => (
+        <g key={label}>
+          {i === 1 && (
+            <rect
+              x={154}
+              y={77 + i * 16}
+              width={84}
+              height={15}
+              rx={4}
+              fill="var(--ifm-color-primary)"
+              opacity={0.3}
+            />
+          )}
+          <text x={162} y={88 + i * 16} fontSize={9} fill={TEXT}>
+            {label}
+          </text>
+        </g>
+      ))}
     </svg>
   );
 }
 
 /** Card illustration: JavaScript calling into Rust and C++ modules. */
 export function ModulesCard({ className }: { className?: string }) {
-  const chip = (x: number, y: number, label: string) => (
+  const chip = (cx: number, y: number, label: string, accent = false) => (
     <g>
       <rect
-        x={x}
+        x={cx - 40}
         y={y}
-        width={86}
-        height={34}
+        width={80}
+        height={30}
         rx={8}
         fill={BACKGROUND}
-        stroke={BORDER}
-        strokeWidth={2}
+        stroke={accent ? 'var(--ifm-color-primary)' : BORDER}
+        strokeWidth={1.5}
       />
       <text
-        x={x + 43}
-        y={y + 22}
+        x={cx}
+        y={y + 19.5}
         textAnchor="middle"
-        fontSize={14}
+        fontSize={12}
         fontFamily={MONO}
         fill={TEXT}
       >
@@ -429,16 +500,17 @@ export function ModulesCard({ className }: { className?: string }) {
       aria-label="JavaScript calling native modules written in Rust and C++"
       className={className}
     >
-      <rect width={284} height={148} fill={SKELETON} opacity={0.35} />
+      <CardBackground />
       <path
-        d="M129 57 L90 91 M155 57 L194 91"
+        d="M142 56V74M78 92V82a8 8 0 0 1 8 -8H198a8 8 0 0 1 8 8V92"
         stroke={BORDER}
-        strokeWidth={2}
-        strokeDasharray="4 4"
+        strokeWidth={1.5}
+        strokeLinecap="round"
       />
-      {chip(99, 24, 'JS')}
-      {chip(30, 88, 'Rust')}
-      {chip(168, 88, 'C++')}
+      <circle cx={142} cy={74} r={3} fill={BORDER} />
+      {chip(142, 26, 'JS', true)}
+      {chip(78, 92, 'Rust')}
+      {chip(206, 92, 'C++')}
     </svg>
   );
 }
@@ -452,55 +524,67 @@ export function ToolsCard({ className }: { className?: string }) {
       aria-label="The run-desktop command and a developer menu with toggles"
       className={className}
     >
-      <rect width={284} height={148} fill={SKELETON} opacity={0.35} />
-      <rect
-        x={16}
-        y={20}
-        width={140}
-        height={50}
-        rx={8}
-        fill={BACKGROUND}
-        stroke={BORDER}
-        strokeWidth={2}
-      />
-      <text x={28} y={50} fontSize={11} fontFamily={MONO} fill={TEXT}>
-        $ run-desktop
+      <CardBackground />
+      <Window x={16} y={18} width={150} height={74} chrome="macos" compact>
+        <text x={26} y={52} fontSize={9} fontFamily={MONO} fill={TEXT}>
+          <tspan fill="var(--home-code-green)">$</tspan> run-desktop
+        </text>
+        <text
+          x={26}
+          y={68}
+          fontSize={9}
+          fontFamily={MONO}
+          fill={TEXT}
+          opacity={0.55}
+        >
+          Metro ready
+        </text>
+        <rect x={26} y={74} width={6} height={10} fill={TEXT} opacity={0.7} />
+      </Window>
+      <g style={SHADOW}>
+        <rect
+          x={140}
+          y={50}
+          width={128}
+          height={84}
+          rx={7}
+          fill={BACKGROUND}
+          stroke={BORDER}
+          strokeWidth={1.5}
+        />
+      </g>
+      <text x={152} y={67} fontSize={9} fontWeight={600} fill={TEXT}>
+        Dev Menu
       </text>
-      <rect
-        x={128}
-        y={46}
-        width={140}
-        height={86}
-        rx={8}
-        fill={BACKGROUND}
-        stroke={BORDER}
-        strokeWidth={2}
-      />
-      {[0, 1, 2].map(row => (
-        <g key={row}>
-          <Skeleton
-            x={140}
-            y={60 + row * 22}
-            width={60 + row * 8}
-            height={8}
-            radius={4}
-          />
-          <rect
-            x={230}
-            y={56 + row * 22}
-            width={26}
-            height={14}
-            rx={7}
-            fill={row === 1 ? BORDER : SKELETON}
-          />
-          <circle
-            cx={row === 1 ? 249 : 237}
-            cy={63 + row * 22}
-            r={5}
-            fill={BACKGROUND}
-          />
-        </g>
-      ))}
+      {[0, 1, 2].map(row => {
+        const on = row !== 1;
+        const y = 80 + row * 17;
+        return (
+          <g key={row}>
+            <Skeleton
+              x={152}
+              y={y + 2}
+              width={52 - row * 8}
+              height={6}
+              radius={3}
+            />
+            <rect
+              x={234}
+              y={y}
+              width={22}
+              height={11}
+              rx={5.5}
+              fill={on ? 'var(--ifm-color-primary)' : SKELETON}
+            />
+            <circle
+              cx={on ? 250.5 : 239.5}
+              cy={y + 5.5}
+              r={4}
+              fill={on ? 'var(--home-button-primary-text)' : ICON}
+            />
+          </g>
+        );
+      })}
     </svg>
   );
 }

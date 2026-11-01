@@ -114,14 +114,6 @@ function MacWindow({ className }: { className?: string }) {
       >
         Inbox
       </text>
-      <rect
-        x={x + w - 92}
-        y={y + 9}
-        width={76}
-        height={16}
-        rx={8}
-        fill={SKELETON}
-      />
       <path
         d={`M${x + side} ${y + 32}H${x + w - 1.5}`}
         stroke={SKELETON}
@@ -151,7 +143,6 @@ function MacWindow({ className }: { className?: string }) {
               rx={3.5}
               fill={SKELETON}
             />
-            <Bar x={x + w - 44} y={y + 50 + i * 34} width={28} height={6} />
           </g>
         ))}
       </g>
@@ -215,30 +206,22 @@ function WindowsWindow() {
       <path
         d={`M${x + 1.5} ${y + 34}V${y + 9.5}a8 8 0 0 1 8 -8H${x + w - 9.5}a8 8 0 0 1 8 8V${y + 34}Z`}
         fill={SKELETON}
-        opacity={0.5}
+        opacity={0.6}
       />
       <path
-        d={`M${x + 12} ${y + 34}v-6a6 6 0 0 1 6 -6h112a6 6 0 0 1 6 6v6z`}
+        d={`M${x + 8} ${y + 34}V${y + 14}a6 6 0 0 1 6 -6H${x + 128}a6 6 0 0 1 6 6V${y + 34}Z`}
         fill={BACKGROUND}
       />
-      <circle cx={x + 26} cy={y + 24} r={5} fill={ACCENT} />
-      <text x={x + 38} y={y + 28} fontSize={11} fill={TEXT}>
+      <rect x={x + 18} y={y + 17} width={9} height={9} rx={2} fill={ACCENT} />
+      <text x={x + 34} y={y + 25} fontSize={10} fill={TEXT}>
         Dashboard
       </text>
-      <path
-        d={`M${x + 108} ${y + 21}l6 6m0 -6l-6 6`}
-        stroke={ICON}
-        strokeWidth={1.3}
-      />
-      <path
-        d={`M${x + 140} ${y + 24}h8m-4 -4v8`}
-        stroke={ICON}
-        strokeWidth={1.3}
-      />
-      <g stroke={ICON} strokeWidth={1.4} fill="none">
-        <path d={`M${x + w - 100} ${y + 17}h10`} />
-        <rect x={x + w - 70} y={y + 12} width={10} height={10} />
-        <path d={`M${x + w - 36} ${y + 12}l10 10m0 -10l-10 10`} />
+      <g stroke={ICON} strokeWidth={1.2} strokeLinecap="round" fill="none">
+        <path d={`M${x + 116} ${y + 18.5}l5 5m0 -5l-5 5`} />
+        <path d={`M${x + 146} ${y + 21}h8m-4 -4v8`} />
+        <path d={`M${x + w - 107} ${y + 17}h8`} />
+        <rect x={x + w - 71} y={y + 13} width={8} height={8} rx={1.5} />
+        <path d={`M${x + w - 35} ${y + 13}l8 8m0 -8l-8 8`} />
       </g>
       <rect
         x={x + 1.5}
@@ -251,12 +234,13 @@ function WindowsWindow() {
       {[0, 1, 2, 3].map(i => (
         <rect
           key={i}
-          x={x + 13}
-          y={y + 48 + i * 32}
-          width={20}
-          height={20}
-          rx={5}
+          x={x + 15}
+          y={y + 50 + i * 30}
+          width={16}
+          height={16}
+          rx={4}
           fill={i === 0 ? ACCENT : SKELETON}
+          opacity={i === 0 ? 1 : 0.8}
         />
       ))}
       <text x={x + 62} y={y + 62} fontSize={15} fontWeight={600} fill={TEXT}>
@@ -294,7 +278,8 @@ function WindowsWindow() {
             stroke={ACCENT}
             strokeWidth={2}
             strokeLinecap="round"
-            points={`${x + 118 + i * 126},108 ${x + 128 + i * 126},100 ${x + 138 + i * 126},104 ${x + 148 + i * 126},92 ${x + 158 + i * 126},96`}
+            strokeLinejoin="round"
+            points={`${x + 124 + i * 126},${y + 110} ${x + 133 + i * 126},${y + 102} ${x + 142 + i * 126},${y + 106} ${x + 151 + i * 126},${y + 95} ${x + 160 + i * 126},${y + 99}`}
           />
         </g>
       ))}
@@ -389,52 +374,47 @@ function LinuxWindow() {
       <path
         d={`M${x + 1.5} ${y + 40}V${y + 13.5}a12 12 0 0 1 12 -12H${x + w - 13.5}a12 12 0 0 1 12 12V${y + 40}Z`}
         fill={SKELETON}
-        opacity={0.55}
+        opacity={0.6}
       />
       <rect
-        x={x + 14}
-        y={y + 11}
-        width={26}
+        x={x + 10}
+        y={y + 10}
+        width={24}
         height={20}
-        rx={10}
+        rx={6}
         fill={BACKGROUND}
-      />
-      <path
-        d={`M${x + 27} ${y + 15}v12m-6 -6h12`}
-        stroke={ICON}
-        strokeWidth={1.5}
-        strokeLinecap="round"
+        opacity={0.7}
       />
       <text
         x={x + w / 2}
-        y={y + 25}
-        fontSize={12}
+        y={y + 24}
+        fontSize={11}
         fontWeight={600}
         textAnchor="middle"
         fill={TEXT}
       >
         App.tsx
       </text>
-      <circle cx={x + w - 54} cy={y + 21} r={10} fill={BACKGROUND} />
       <circle
-        cx={x + w - 56}
+        cx={x + w - 46}
         cy={y + 20}
-        r={3.5}
-        fill="none"
-        stroke={ICON}
-        strokeWidth={1.4}
+        r={8}
+        fill={BACKGROUND}
+        opacity={0.7}
       />
-      <path
-        d={`M${x + w - 53} ${y + 23}l3 3`}
-        stroke={ICON}
-        strokeWidth={1.4}
+      <circle
+        cx={x + w - 20}
+        cy={y + 20}
+        r={8}
+        fill={BACKGROUND}
+        opacity={0.7}
       />
-      <circle cx={x + w - 24} cy={y + 21} r={10} fill={BACKGROUND} />
-      <path
-        d={`M${x + w - 28} ${y + 17}l8 8m0 -8l-8 8`}
-        stroke={ICON}
-        strokeWidth={1.4}
-      />
+      <g stroke={ICON} strokeWidth={1.2} strokeLinecap="round" fill="none">
+        <path d={`M${x + 22} ${y + 16}v8m-4 -4h8`} />
+        <circle cx={x + w - 47} cy={y + 19} r={3} />
+        <path d={`M${x + w - 44.8} ${y + 21.2}l2.3 2.3`} />
+        <path d={`M${x + w - 23} ${y + 17}l6 6m0 -6l-6 6`} />
+      </g>
       <rect
         x={x + 1.5}
         y={y + 40}
