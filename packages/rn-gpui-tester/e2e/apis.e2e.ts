@@ -180,7 +180,11 @@ test.runIf(windowActivation)(
     await launch({ offscreen: false });
     await app.focusWindow();
     await poll(async () => (await text('appstate-current')) === 'active');
-    await poll(async () => (await text('window-focus')) === 'true');
+    // A window that is still appearing can refuse the first request.
+    await poll(async () => {
+      await app.focusWindow();
+      return (await text('window-focus')) === 'true';
+    });
     // Other applications can take and give back focus while the app starts, so
     // only what happens after the log has stopped changing counts.
     await settled(() => text('appstate-log'));
