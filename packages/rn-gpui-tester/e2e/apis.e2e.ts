@@ -69,8 +69,9 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
     const rtlC = await frameOf('i18n-box-c');
     expect(rtlA.x).toBeGreaterThan(rtlC.x);
     // marginStart lands on the right: the gap sits between B and C's far side.
-    // At a fractional display scale (125% on Windows) the reported gap can be a
-    // device pixel short; the cause is not found.
+    // Yoga rounds a node's position relative to its parent and its width from
+    // the absolute edges, so at a fractional display scale (125% on Windows)
+    // neighbouring edges can differ by a device pixel.
     expect(Math.abs(rtlB.x - (rtlC.x + rtlC.width) - 40)).toBeLessThanOrEqual(
       1,
     );
