@@ -69,7 +69,11 @@ test('forceRTL mirrors the layout after a reload and resets', async () => {
     const rtlC = await frameOf('i18n-box-c');
     expect(rtlA.x).toBeGreaterThan(rtlC.x);
     // marginStart lands on the right: the gap sits between B and C's far side.
-    expect(rtlB.x - (rtlC.x + rtlC.width)).toBe(40);
+    // Frame edges snap to device pixels one at a time, so at a fractional
+    // display scale the gap is off by up to one pixel.
+    expect(Math.abs(rtlB.x - (rtlC.x + rtlC.width) - 40)).toBeLessThanOrEqual(
+      1,
+    );
     // `textAlign: 'auto'` follows the writing direction.
     expect(await inkCentre('i18n-text')).toBeGreaterThan(0.7);
   } finally {
