@@ -132,7 +132,8 @@ function main([packageRoot, patchFile, outputDir]) {
     }
     fs.writeFileSync(stampFile, stamp);
   }
-  process.stdout.write(target);
+  // CMake reads backslashes as escapes.
+  process.stdout.write(target.split(path.sep).join('/'));
 }
 
 if (
