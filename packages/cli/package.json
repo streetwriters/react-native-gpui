@@ -26,7 +26,7 @@
     "!**/*.test.cjs"
   ],
   "bin": {
-    "react-native-gpui": "./bin/react-native-gpui.js"
+    "react-native-gpui": "bin/react-native-gpui.js"
   },
   "type": "module",
   "dependencies": {},
