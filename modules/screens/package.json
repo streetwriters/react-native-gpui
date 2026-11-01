@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/screens",
   "version": "4.28.0-alpha.0",
   "description": "GPUI platform integration for react-native-screens",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/screens"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "files": [
     "desktop",
     "react-native.config.js",
@@ -15,9 +25,8 @@
     "react-native": "0.87.x",
     "react-native-screens": "4.28.x"
   },
-  "license": "MIT",
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

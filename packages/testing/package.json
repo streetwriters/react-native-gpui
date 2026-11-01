@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/testing",
   "version": "0.87.0-alpha.0",
   "description": "Test presets and desktop test-driver client for React Native GPUI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "packages/testing"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -32,7 +42,6 @@
       "optional": true
     }
   },
-  "license": "MIT",
   "dependencies": {
     "pixelmatch": "^5.3.0",
     "pngjs": "^7.0.0"
@@ -59,6 +68,6 @@
   ],
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

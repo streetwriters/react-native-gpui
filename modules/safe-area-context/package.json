@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/safe-area-context",
   "version": "5.10.0-alpha.0",
   "description": "GPUI platform implementation for react-native-safe-area-context",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/safe-area-context"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "files": [
     "desktop",
     "react-native.config.js",
@@ -20,9 +30,8 @@
     "type": "modules",
     "jsSrcsDir": "src"
   },
-  "license": "MIT",
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

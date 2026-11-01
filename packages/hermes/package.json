@@ -8,6 +8,10 @@
     "url": "git+https://github.com/streetwriters/react-native-gpui.git",
     "directory": "packages/hermes"
   },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "hermes": {
     "repository": "https://github.com/facebook/hermes",
     "commit": "10a40b5f1de81d007cba6afe567c4ba7a0b45f5d",
@@ -44,6 +48,6 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

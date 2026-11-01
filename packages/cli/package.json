@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/cli",
   "version": "0.87.0-alpha.0",
   "description": "React Native CLI integration and project scaffolding for the React Native desktop platform.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "files": [
     "bin",
     "src",
@@ -21,6 +31,6 @@
   "dependencies": {},
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

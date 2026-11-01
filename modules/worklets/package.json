@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/worklets",
   "version": "0.13.0-alpha.0",
   "description": "GPUI platform bindings for react-native-worklets",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/worklets"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "files": [
     "desktop",
     "react-native.config.js",
@@ -20,9 +30,8 @@
     "type": "modules",
     "jsSrcsDir": "src"
   },
-  "license": "MIT",
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

@@ -12,7 +12,8 @@ on:
         default: true
 
 permissions:
-  contents: read
+  # The script creates a GitHub release for each package it publishes.
+  contents: write
   # npm provenance signs the packages with the workflow's identity.
   id-token: write
 
@@ -56,12 +57,15 @@ jobs:
           [ "$(echo "$runs" | jq 'length')" -gt 0 ]
           [ "$(echo "$runs" | jq '[.[] | select(.conclusion != "success")] | length')" = "0" ]
 
-      - name: Versions follow the React Native minor
+      - name: Versions, metadata, tarballs and releases
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/publish-npm.mjs --check-only
 
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then

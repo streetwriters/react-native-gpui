@@ -2,6 +2,16 @@
   "name": "@react-native-gpui/gesture-handler",
   "version": "3.3.0-alpha.0",
   "description": "Native GPUI gesture recognition for react-native-gesture-handler",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/gesture-handler"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
   "files": [
     "desktop",
     "react-native.config.js",
@@ -22,9 +32,8 @@
     "type": "modules",
     "jsSrcsDir": "src"
   },
-  "license": "MIT",
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "latest"
   }
 }

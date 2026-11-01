@@ -1,15 +1,22 @@
 #!/usr/bin/env node
-// Publishes the @react-native-gpui packages in dependency order.
+// Checks everything a release depends on, then publishes the @react-native-gpui
+// packages to npm and creates a GitHub release for each.
 //
-//   node scripts/ci/publish-npm.mjs [--dry-run] [--check-only]
+//   node scripts/ci/publish-npm.mjs [--check-only | --dry-run] [--local]
+//
+// --check-only runs the checks; --dry-run also packs and runs `npm publish
+// --dry-run`. --local publishes from a developer machine, without npm
+// provenance, which only CI can sign. Modules are published before packages,
+// each group in dependency order. A rerun skips what is already on npm and
+// already released.
 //
 // cli, codegen, core, hermes and testing are versioned
 // `0.<react-native minor>.<patch>[-alpha.N]`; a module takes the version of the
 // library it adapts, or `0.0.<patch>` when it is standalone. Dependencies between
-// our packages are exact. --check-only
-// runs the version rules without publishing anything.
+// our packages are exact.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -162,33 +169,351 @@ export function versionProblems(packages) {
   return problems;
 }
 
+const REPOSITORY = 'streetwriters/react-native-gpui';
+const DOCS = 'https://streetwriters.github.io/react-native-gpui/';
+
+/** Modules first, then packages, each group in dependency order. */
+export function publishOrder(packages) {
+  const isModule = entry =>
+    path.relative(repoRoot, entry.dir).split(path.sep)[0] === 'modules';
+  return [
+    ...dependencyOrder(packages.filter(isModule)),
+    ...dependencyOrder(packages.filter(entry => !isModule(entry))),
+  ];
+}
+
+/** The fields npm and the registry page need, as readable lines. */
+export function metadataProblems(packages) {
+  const problems = [];
+  for (const { manifest } of packages) {
+    const { name } = manifest;
+    if (!manifest.description) problems.push(`${name}: no description`);
+    if (!manifest.license) problems.push(`${name}: no license`);
+    if (!manifest.repository?.url) problems.push(`${name}: no repository`);
+    if (manifest.publishConfig?.access !== 'public') {
+      problems.push(`${name}: publishConfig.access is not public`);
+    }
+    if (manifest.publishConfig?.tag !== 'latest') {
+      problems.push(`${name}: publishConfig.tag is not latest`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * The problems with one package's tarball, given the paths `npm pack` would
+ * include: a license, no tests, and the native project its
+ * react-native.config.js points autolinking at.
+ */
+export function tarballProblems(manifest, files, desktop) {
+  const name = manifest.name;
+  const problems = [];
+  if (!files.some(file => /^LICEN[SC]E/iu.test(file))) {
+    problems.push(`${name}: the tarball has no LICENSE`);
+  }
+  for (const file of files) {
+    if (/\.test\.[cm]?[jt]sx?$/u.test(file)) {
+      problems.push(`${name}: the tarball includes the test ${file}`);
+    }
+  }
+  if (desktop?.cmake && !files.includes(`${desktop.cmake}/CMakeLists.txt`)) {
+    problems.push(
+      `${name}: the tarball has no ${desktop.cmake}/CMakeLists.txt for autolinking`,
+    );
+  }
+  if (desktop?.crate && !files.some(file => /(^|\/)Cargo\.toml$/u.test(file))) {
+    problems.push(
+      `${name}: the tarball has no Cargo.toml for ${desktop.crate}`,
+    );
+  }
+  return problems;
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    // npm is a .cmd script on Windows; gh is a real executable.
+    shell: process.platform === 'win32' && command === 'npm',
+    ...options,
+  });
+  return {
+    ok: result.status === 0,
+    stdout: (result.stdout ?? '').trim(),
+    stderr: (result.stderr ?? '').trim(),
+  };
+}
+
+function ghJson(args) {
+  const result = run('gh', args);
+  return result.ok ? JSON.parse(result.stdout) : null;
+}
+
+function gitProblems() {
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    return process.env.GITHUB_REF === 'refs/heads/main'
+      ? []
+      : [`git: the workflow runs on ${process.env.GITHUB_REF}, not main`];
+  }
+  const problems = [];
+  const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout;
+  if (branch !== 'main') problems.push(`git: on ${branch}, not main`);
+  if (run('git', ['status', '--porcelain']).stdout !== '') {
+    problems.push('git: the working tree has uncommitted changes');
+  }
+  run('git', ['fetch', '--quiet', 'origin', 'main']);
+  const head = run('git', ['rev-parse', 'HEAD']).stdout;
+  const remote = run('git', ['rev-parse', 'origin/main']).stdout;
+  if (head !== remote) problems.push('git: HEAD is not origin/main');
+  return problems;
+}
+
+function ciProblems(sha) {
+  const runs = ghJson([
+    'run',
+    'list',
+    '--repo',
+    REPOSITORY,
+    '--workflow',
+    'ci.yml',
+    '--commit',
+    sha,
+    '--json',
+    'status,conclusion,databaseId',
+  ]);
+  if (runs === null)
+    return ['ci: could not list the CI runs (is gh logged in?)'];
+  const done = runs.filter(entry => entry.status === 'completed');
+  if (done.length === 0)
+    return [`ci: no finished CI run on ${sha.slice(0, 7)}`];
+  return done[0].conclusion === 'success'
+    ? []
+    : [
+        `ci: the latest CI run on ${sha.slice(0, 7)} is ${done[0].conclusion} (${done[0].databaseId})`,
+      ];
+}
+
+function hermesProblems() {
+  const manifest = JSON.parse(
+    fs.readFileSync(
+      path.join(repoRoot, 'packages/hermes/package.json'),
+      'utf8',
+    ),
+  );
+  const tag = `@react-native-gpui/hermes@${manifest.hermes.engineRelease}`;
+  const release = ghJson([
+    'release',
+    'view',
+    tag,
+    '--repo',
+    REPOSITORY,
+    '--json',
+    'assets',
+  ]);
+  if (release === null)
+    return [`hermes: the engine release ${tag} does not exist`];
+  const zips = release.assets.filter(asset =>
+    /^hermes-.*\.zip$/u.test(asset.name),
+  );
+  return zips.length === 6
+    ? []
+    : [`hermes: ${tag} has ${zips.length} engine zips, expected 6`];
+}
+
+function prebuiltProblems() {
+  const pin = JSON.parse(
+    fs.readFileSync(
+      path.join(repoRoot, 'packages/core/prebuilt-binaries.json'),
+      'utf8',
+    ),
+  );
+  const problems = [];
+  const release = ghJson([
+    'release',
+    'view',
+    pin.tag,
+    '--repo',
+    REPOSITORY,
+    '--json',
+    'assets',
+  ]);
+  if (release === null)
+    return [`prebuilt: the release ${pin.tag} does not exist`];
+  const sums = run('gh', [
+    'release',
+    'download',
+    pin.tag,
+    '--repo',
+    REPOSITORY,
+    '--pattern',
+    'SHA256SUMS.txt',
+    '--output',
+    '-',
+  ]);
+  const checksums = new Map(
+    sums.stdout
+      .split('\n')
+      .map(line => line.trim().split(/\s+/u))
+      .filter(parts => parts.length === 2)
+      .map(([sum, file]) => [file, sum]),
+  );
+  for (const [platform, asset] of Object.entries(pin.assets)) {
+    const published = release.assets.find(entry => entry.name === asset.file);
+    if (published === undefined) {
+      problems.push(`prebuilt: ${pin.tag} has no ${asset.file} (${platform})`);
+    } else if (published.size !== asset.size) {
+      problems.push(
+        `prebuilt: ${asset.file} is ${published.size} bytes, the pin says ${asset.size}`,
+      );
+    }
+    if (checksums.get(asset.file) !== asset.sha256) {
+      problems.push(
+        `prebuilt: the checksum of ${asset.file} does not match the pin`,
+      );
+    }
+  }
+  const check = run('node', ['packages/core/scripts/check-prebuilt-pin.mjs']);
+  if (!check.ok) problems.push(`prebuilt: ${check.stderr || check.stdout}`);
+  return problems;
+}
+
+function packFiles(dir) {
+  const result = run(
+    'npm',
+    ['pack', '--dry-run', '--json', '--ignore-scripts'],
+    { cwd: dir },
+  );
+  if (!result.ok)
+    throw new Error(`npm pack failed in ${dir}: ${result.stderr}`);
+  return JSON.parse(result.stdout)[0].files.map(file => file.path);
+}
+
+function desktopConfig(dir) {
+  const file = path.join(dir, 'react-native.config.js');
+  if (!fs.existsSync(file)) return undefined;
+  return createRequire(file)(file).dependency?.platforms?.desktop;
+}
+
+function onNpm({ name, version }) {
+  return (
+    run('npm', ['view', `${name}@${version}`, 'version']).stdout === version
+  );
+}
+
+function releaseTag({ name, version }) {
+  return `${name}@${version}`;
+}
+
+function released(manifest) {
+  return run('gh', [
+    'release',
+    'view',
+    releaseTag(manifest),
+    '--repo',
+    REPOSITORY,
+  ]).ok;
+}
+
+function releaseNotes({ name, version, description }) {
+  return [
+    description,
+    '',
+    '```sh',
+    `npm install ${name}@${version}`,
+    '```',
+    '',
+    `npm: https://www.npmjs.com/package/${name}/v/${version}`,
+    `Documentation: ${DOCS}`,
+  ].join('\n');
+}
+
 function main(argv) {
+  const checkOnly = argv.includes('--check-only');
   const dryRun = argv.includes('--dry-run');
-  const packages = dependencyOrder(publishablePackages());
-  const problems = versionProblems(packages);
+  const local = argv.includes('--local');
+  const packages = publishOrder(publishablePackages());
+  const sha = run('git', ['rev-parse', 'HEAD']).stdout;
+
+  const problems = [
+    ...gitProblems(),
+    ...ciProblems(sha),
+    ...hermesProblems(),
+    ...prebuiltProblems(),
+    ...versionProblems(packages),
+    ...metadataProblems(packages),
+  ];
+  for (const { dir, manifest } of packages) {
+    problems.push(
+      ...tarballProblems(manifest, packFiles(dir), desktopConfig(dir)),
+    );
+  }
+  if (!checkOnly && !dryRun) {
+    if (!run('npm', ['whoami']).ok)
+      problems.push('npm: not logged in (npm login)');
+    if (!run('gh', ['auth', 'status']).ok)
+      problems.push('gh: not logged in (gh auth login)');
+  }
   if (problems.length > 0) {
     console.error(problems.join('\n'));
     process.exit(1);
   }
-  console.log(
-    `versions ok: ${packages.map(entry => entry.manifest.name).join(', ')}`,
-  );
-  if (argv.includes('--check-only')) return;
-  for (const { dir, manifest } of packages) {
-    const args = [
-      'publish',
-      '--provenance',
-      '--tag',
-      'alpha',
-      '--access',
-      'public',
-    ];
-    if (dryRun) args.push('--dry-run');
-    console.log(
-      `npm ${args.join(' ')}  # ${manifest.name}@${manifest.version}`,
+
+  console.log('checks passed. Order:');
+  const pending = packages.map(entry => ({
+    ...entry,
+    published: onNpm(entry.manifest),
+    released: released(entry.manifest),
+  }));
+  for (const { manifest, published, released: hasRelease } of pending) {
+    const state = [published && 'on npm', hasRelease && 'released'].filter(
+      Boolean,
     );
-    const result = spawnSync('npm', args, { cwd: dir, stdio: 'inherit' });
-    if (result.status !== 0) process.exit(result.status ?? 1);
+    console.log(
+      `  ${manifest.name}@${manifest.version}${state.length ? ` (${state.join(', ')})` : ''}`,
+    );
+  }
+  if (checkOnly) return;
+
+  for (const { dir, manifest, published, released: hasRelease } of pending) {
+    if (!published) {
+      const args = ['publish', '--access', 'public', '--tag', 'latest'];
+      if (!local) args.push('--provenance');
+      if (dryRun) args.push('--dry-run');
+      console.log(
+        `npm ${args.join(' ')}  # ${manifest.name}@${manifest.version}`,
+      );
+      const result = spawnSync('npm', args, {
+        cwd: dir,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+      });
+      if (result.status !== 0) process.exit(result.status ?? 1);
+    }
+    if (!hasRelease && !dryRun) {
+      const args = [
+        'release',
+        'create',
+        releaseTag(manifest),
+        '--repo',
+        REPOSITORY,
+        '--target',
+        sha,
+        '--title',
+        `${manifest.name} ${manifest.version}`,
+        '--notes',
+        releaseNotes(manifest),
+        '--latest=false',
+      ];
+      if (manifest.version.includes('-')) args.push('--prerelease');
+      const result = run('gh', args);
+      if (!result.ok) {
+        console.error(
+          `gh release create ${releaseTag(manifest)} failed: ${result.stderr}`,
+        );
+        process.exit(1);
+      }
+      console.log(`released ${releaseTag(manifest)}`);
+    }
   }
 }
 

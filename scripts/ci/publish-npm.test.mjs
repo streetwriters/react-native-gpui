@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import {
   dependencyOrder,
+  metadataProblems,
   publishablePackages,
+  publishOrder,
+  tarballProblems,
   versionProblems,
 } from './publish-npm.mjs';
 
@@ -92,5 +95,77 @@ describe('version rules', () => {
     expect(problems.join('\n')).toMatch(
       /peerDependencies.@react-native-gpui\/worklets is 0.87.0-alpha.0, expected 0.13.0-alpha.0/,
     );
+  });
+});
+
+describe('publish order of the repository', () => {
+  test('every module comes before every package', () => {
+    const order = publishOrder(publishablePackages()).map(
+      item => item.manifest.name,
+    );
+    expect(
+      order
+        .slice(0, 9)
+        .every(name => !/\/(cli|codegen|core|hermes|testing)$/u.test(name)),
+    ).toBe(true);
+    expect(order.indexOf('@react-native-gpui/worklets')).toBeLessThan(
+      order.indexOf('@react-native-gpui/reanimated'),
+    );
+    expect(order.indexOf('@react-native-gpui/codegen')).toBeLessThan(
+      order.indexOf('@react-native-gpui/core'),
+    );
+  });
+});
+
+describe('metadata', () => {
+  test('the repository has what npm needs', () => {
+    expect(metadataProblems(publishablePackages())).toEqual([]);
+  });
+
+  test('a package without a license or the latest tag is reported', () => {
+    const problems = metadataProblems([
+      entry('@react-native-gpui/x', {
+        description: 'x',
+        repository: { url: 'git+https://example.com/x.git' },
+        publishConfig: { access: 'public', tag: 'alpha' },
+      }),
+    ]);
+    expect(problems).toEqual([
+      '@react-native-gpui/x: no license',
+      '@react-native-gpui/x: publishConfig.tag is not latest',
+    ]);
+  });
+});
+
+describe('tarball contents', () => {
+  const manifest = { name: '@react-native-gpui/x' };
+
+  test('a module ships the native project autolinking points at', () => {
+    expect(
+      tarballProblems(
+        manifest,
+        [
+          'LICENSE',
+          'src/index.ts',
+          'desktop/CMakeLists.txt',
+          'desktop/Cargo.toml',
+        ],
+        { cmake: 'desktop', crate: 'rn-gpui-x' },
+      ),
+    ).toEqual([]);
+    expect(
+      tarballProblems(manifest, ['LICENSE', 'src/index.ts'], {
+        cmake: 'desktop',
+      }),
+    ).toEqual([
+      '@react-native-gpui/x: the tarball has no desktop/CMakeLists.txt for autolinking',
+    ]);
+  });
+
+  test('a tarball needs a license and no tests', () => {
+    expect(tarballProblems(manifest, ['src/a.test.ts'], undefined)).toEqual([
+      '@react-native-gpui/x: the tarball has no LICENSE',
+      '@react-native-gpui/x: the tarball includes the test src/a.test.ts',
+    ]);
   });
 });
