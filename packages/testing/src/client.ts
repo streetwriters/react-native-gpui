@@ -643,6 +643,14 @@ export class DesktopApp {
     await this.request('focusWindow');
   }
 
+  /** The foreground, active and focus windows next to this app's window; null off Windows. */
+  async focusReadout(): Promise<Record<string, unknown> | null> {
+    return (await this.request('focusReadout')) as Record<
+      string,
+      unknown
+    > | null;
+  }
+
   async a11yTree(): Promise<unknown> {
     return this.request('a11yTree');
   }

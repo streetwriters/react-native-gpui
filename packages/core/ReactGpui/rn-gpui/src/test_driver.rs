@@ -226,6 +226,18 @@ async fn serve_commands(
                     Err(error) => json!({"error":error.to_string()}),
                 }
             }
+            "focusReadout" => {
+                #[cfg(target_os = "windows")]
+                {
+                    cx.update_window(window, |_, window, _| window_hwnd(window))
+                        .ok()
+                        .flatten()
+                        .map(focus_readout)
+                        .unwrap_or(Value::Null)
+                }
+                #[cfg(not(target_os = "windows"))]
+                Value::Null
+            }
             "a11yTree" => {
                 let _ = cx.update_window(window, |_, window, _| {
                     #[cfg(target_os = "macos")]
@@ -2183,6 +2195,33 @@ fn window_hwnd(window: &gpui::Window) -> Option<isize> {
         RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
         _ => None,
     }
+}
+
+/// Which window holds the foreground, the active state and the keyboard focus,
+/// next to this process's window.
+#[cfg(target_os = "windows")]
+fn focus_readout(hwnd: isize) -> Value {
+    use windows_sys::Win32::UI::{
+        Input::KeyboardAndMouse::GetFocus,
+        WindowsAndMessaging::{GetActiveWindow, GetForegroundWindow},
+    };
+    // SAFETY: the calls only read the calling thread's input state.
+    let (foreground, active, focus) = unsafe {
+        (
+            GetForegroundWindow() as isize,
+            GetActiveWindow() as isize,
+            GetFocus() as isize,
+        )
+    };
+    json!({
+        "hwnd": hwnd,
+        "foreground": foreground,
+        "active": active,
+        "focus": focus,
+        "foregroundIsWindow": foreground == hwnd,
+        "activeIsWindow": active == hwnd,
+        "focusIsWindow": focus == hwnd,
+    })
 }
 
 /// Takes the foreground for the window. A new process is refused it by
