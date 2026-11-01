@@ -19,7 +19,7 @@ export function parsePatch(text) {
   // Lines still expected in the current hunk, from its header counts.
   let oldLeft = 0;
   let newLeft = 0;
-  for (const line of text.split('\n')) {
+  for (const line of text.replace(/\r\n/gu, '\n').split('\n')) {
     if (hunk !== null && (oldLeft > 0 || newLeft > 0)) {
       const kind = line.length === 0 ? ' ' : line[0];
       const body = line.slice(1);
@@ -65,12 +65,14 @@ function find(lines, block, expected) {
 }
 
 /**
- * Applies one file's hunks to its text. A hunk whose result is already present
+ * Applies one file's hunks to its text, keeping its line endings. A hunk whose
+ * result is already present
  * is skipped, so sources that carry the fix upstream still build; any other
  * mismatch throws.
  */
 export function applyHunks(text, hunks, name) {
-  const lines = text.split('\n');
+  const crlf = text.includes('\r\n');
+  const lines = text.replace(/\r\n/gu, '\n').split('\n');
   let offset = 0;
   for (const hunk of hunks) {
     const expected = Math.max(hunk.start - 1, 0) + offset;
@@ -86,7 +88,7 @@ export function applyHunks(text, hunks, name) {
     }
     offset = applied - (hunk.start - 1);
   }
-  return lines.join('\n');
+  return lines.join(crlf ? '\r\n' : '\n');
 }
 
 function main([packageRoot, patchFile, outputDir]) {

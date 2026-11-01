@@ -46,6 +46,13 @@ describe('applyHunks', () => {
     expect(applyHunks(patched, hunks, 'a')).toBe(patched);
   });
 
+  test('ignores CRLF in the patch and keeps CRLF in the source', () => {
+    const [{ hunks: crlfHunks }] = parsePatch(PATCH.replace(/\n/gu, '\r\n'));
+    expect(
+      applyHunks('#include <a>\r\n\r\nint main() {}\r\n', crlfHunks, 'a'),
+    ).toBe('#include <a>\r\n#include <b>\r\n\r\nint main() {}\r\n');
+  });
+
   test('rejects sources it does not match', () => {
     expect(() => applyHunks('int main() { return 1; }\n', hunks, 'a')).toThrow(
       'a: hunk at line 1 does not apply',
