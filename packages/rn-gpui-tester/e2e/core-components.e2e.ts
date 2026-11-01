@@ -36,7 +36,7 @@ function frontmostApp() {
         '-e',
         'tell application "System Events" to name of first process whose frontmost is true',
       ],
-      { encoding: 'utf8' },
+      { encoding: 'utf8', timeout: 3000 },
     ).trim();
   } catch {
     return 'another application';
