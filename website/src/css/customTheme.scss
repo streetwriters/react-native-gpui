@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-@use "shared";
+@use 'shared';
 
 :root {
   --brand: #61dafb;
@@ -40,7 +40,7 @@
   --docsearch-footer-height: 46px;
   --docsearch-soft-primary-color: var(--sidebar-active-item-background);
   --ifm-font-family-base:
-    "Optimistic Display", system-ui, -apple-system, sans-serif;
+    'Optimistic Display', system-ui, -apple-system, sans-serif;
   --ifm-background-color: white;
   --ifm-color-primary: #06bcee;
   --ifm-color-primary-75: #087ea4cc;
@@ -128,11 +128,11 @@ body {
   scrollbar-gutter: stable;
 }
 
-html[data-theme="light"] {
+html[data-theme='light'] {
   --ifm-link-color: #357da1;
 }
 
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   body {
     scrollbar-color: var(--subtle) var(--ifm-background-color);
   }
@@ -208,29 +208,29 @@ html[data-theme="dark"] {
 /* Font */
 
 @font-face {
-  font-family: "Optimistic Display";
-  src: url("/static/fonts/Optimistic-Display-Light.woff2") format("woff2");
+  font-family: 'Optimistic Display';
+  src: url('/static/fonts/Optimistic-Display-Light.woff2') format('woff2');
   font-weight: 300;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Optimistic Display";
-  src: url("/static/fonts/Optimistic-Display-Regular.woff2") format("woff2");
+  font-family: 'Optimistic Display';
+  src: url('/static/fonts/Optimistic-Display-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Optimistic Display";
-  src: url("/static/fonts/Optimistic-Display-Medium.woff2") format("woff2");
+  font-family: 'Optimistic Display';
+  src: url('/static/fonts/Optimistic-Display-Medium.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Optimistic Display";
-  src: url("/static/fonts/Optimistic-Display-Bold.woff2") format("woff2");
+  font-family: 'Optimistic Display';
+  src: url('/static/fonts/Optimistic-Display-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
 }
@@ -243,11 +243,11 @@ html[data-theme="dark"] {
   align-self: center;
   font-weight: 300;
 
-  div[class*="docRoot"] {
+  div[class*='docRoot'] {
     justify-content: center;
   }
 
-  h1[class^="docTitle"] {
+  h1[class^='docTitle'] {
     font-size: 2.8rem;
   }
 
@@ -263,12 +263,12 @@ Layer needed to override utility rules using !important in the Infima layer
 See also https://css-tricks.com/css-cascade-layers/#aa-important-layers
 */
 @layer docusaurus.infima.importantOverrides {
-  main[class^="docMainContainer"] > .container {
+  main[class^='docMainContainer'] > .container {
     padding-top: 2rem !important;
   }
 }
 
-div[class^="generatedIndexPage"] {
+div[class^='generatedIndexPage'] {
   max-width: 1080px !important;
 }
 
@@ -293,7 +293,7 @@ div[class^="generatedIndexPage"] {
 }
 
 @media (min-width: 997px) {
-  main[class^="docMainContainer"] {
+  main[class^='docMainContainer'] {
     max-width: calc(100% - var(--doc-sidebar-width) + 44px);
   }
 }
@@ -316,8 +316,8 @@ hr {
 // then .row > .col). Each defaults to min-width: auto, so a wide child forces
 // the whole layout past the viewport. Zeroing min-width lets them shrink so a
 // horizontally scrollable child can scroll instead of overflowing the page.
-[class*="docMainContainer"],
-[class*="docMainContainer"] .container {
+[class*='docMainContainer'],
+[class*='docMainContainer'] .container {
   min-width: 0;
 }
 
@@ -498,7 +498,7 @@ hr {
       border-bottom: 2px solid var(--ifm-table-border-color);
     }
 
-    div[class*="codeBlockContainer"] {
+    div[class*='codeBlockContainer'] {
       &,
       & pre {
         margin-bottom: 0;
@@ -538,7 +538,7 @@ hr {
     background-color: var(--light);
   }
 
-  div[class*="codeBlockContainer"] {
+  div[class*='codeBlockContainer'] {
     box-shadow: none;
     background: none;
     border: 1px solid var(--ifm-color-emphasis-300);
@@ -554,7 +554,7 @@ hr {
     }
   }
 
-  div[class*="codeBlockContent"] {
+  div[class*='codeBlockContent'] {
     display: grid;
     min-width: 100%;
 
@@ -563,11 +563,11 @@ hr {
     }
   }
 
-  div[class*="codeBlockLines"] {
+  div[class*='codeBlockLines'] {
     font-size: 80%;
   }
 
-  div[class*="codeBlockTitle"] {
+  div[class*='codeBlockTitle'] {
     color: var(--subtle);
     background-color: #f6f8fa;
     border-bottom: 1px solid var(--ifm-color-emphasis-300);
@@ -604,7 +604,7 @@ hr {
   }
 }
 
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   .markdown {
     a {
       @extend %link-style-dark;
@@ -620,11 +620,11 @@ html[data-theme="dark"] {
       }
     }
 
-    div[class*="codeBlockContainer"] {
+    div[class*='codeBlockContainer'] {
       border-color: rgb(225 227 230 / 0.15);
     }
 
-    div[class*="codeBlockTitle"] {
+    div[class*='codeBlockTitle'] {
       color: var(--docsearch-muted-color);
       background-color: #282c34;
       border-bottom-color: rgb(225 227 230 / 0.15);
@@ -633,7 +633,7 @@ html[data-theme="dark"] {
 }
 
 .hash-link,
-html[data-theme="dark"] .hash-link {
+html[data-theme='dark'] .hash-link {
   @extend %hash-link-style;
 }
 
@@ -643,7 +643,7 @@ article .badge {
   margin-bottom: 6px;
 }
 
-html[data-theme="dark"] article .badge {
+html[data-theme='dark'] article .badge {
   background: var(--deepdark);
   border-color: var(--deepdark);
   color: var(--ifm-font-color-base);
@@ -660,7 +660,7 @@ html[data-theme="dark"] article .badge {
   border: 1px solid var(--ifm-alert-background-color-highlight);
   box-shadow: none;
 
-  div[class^="admonitionContent"] {
+  div[class^='admonitionContent'] {
     a {
       border-bottom: 0;
       color: var(--ifm-font-color-base);
@@ -671,13 +671,13 @@ html[data-theme="dark"] article .badge {
     }
   }
 
-  span[class^="admonitionIcon"] svg {
+  span[class^='admonitionIcon'] svg {
     max-width: 20px;
     max-height: 20px;
     fill: hsl(from var(--ifm-alert-border-color) h calc(s + 30) calc(l - 20));
   }
 
-  div[class^="admonitionHeading"] {
+  div[class^='admonitionHeading'] {
     font-size: 18px;
     margin-bottom: 12px;
     color: hsl(from var(--ifm-alert-border-color) h calc(s + 30) calc(l - 20));
@@ -701,12 +701,12 @@ html[data-theme="dark"] article .badge {
   --ifm-alert-border-color: #e0cfff;
 }
 
-html[data-theme="dark"] {
-  span[class^="admonitionIcon"] svg {
+html[data-theme='dark'] {
+  span[class^='admonitionIcon'] svg {
     fill: hsl(from var(--ifm-alert-border-color) h calc(s - 10) calc(l + 10));
   }
 
-  div[class^="admonitionHeading"] {
+  div[class^='admonitionHeading'] {
     color: hsl(from var(--ifm-alert-border-color) h calc(s - 10) calc(l + 10));
   }
 
@@ -724,13 +724,13 @@ html[data-theme="dark"] {
   }
 }
 
-html[data-theme="light"] {
+html[data-theme='light'] {
   .alert--success {
-    span[class^="admonitionIcon"] svg {
+    span[class^='admonitionIcon'] svg {
       fill: hsl(from var(--ifm-alert-border-color) h calc(s + 20) calc(l - 10));
     }
 
-    div[class^="admonitionHeading"] {
+    div[class^='admonitionHeading'] {
       color: hsl(
         from var(--ifm-alert-border-color) h calc(s + 20) calc(l - 10)
       );
@@ -744,7 +744,7 @@ html[data-theme="light"] {
   width: 100%;
   max-width: 100%;
 
-  div[class*="codeBlockContainer"] {
+  div[class*='codeBlockContainer'] {
     margin-bottom: 0;
     overflow: visible;
 
@@ -753,13 +753,13 @@ html[data-theme="light"] {
     }
   }
 
-  a:not([class*="Button"]) {
+  a:not([class*='Button']) {
     @extend %link-style;
   }
 }
 
-html[data-theme="dark"] .homepage {
-  a:not([class*="Button"]) {
+html[data-theme='dark'] .homepage {
+  a:not([class*='Button']) {
     @extend %link-style-dark;
   }
 }
@@ -794,7 +794,7 @@ html[data-theme="dark"] .homepage {
 
 // Compact multi-author blog grid: two columns (one on the smallest screens),
 // capped to a narrow width on desktop rather than spanning the content.
-.col--6[class*="authorCol"] {
+.col--6[class*='authorCol'] {
   --ifm-avatar-intro-margin: 0.7rem;
 
   flex: 0 0 50%;
@@ -803,15 +803,15 @@ html[data-theme="dark"] .homepage {
     flex: 0 0 100%;
   }
 
-  [class*="authorImage"] {
+  [class*='authorImage'] {
     --ifm-avatar-photo-size: 1.75rem;
   }
 
-  [class*="authorName"] {
+  [class*='authorName'] {
     font-size: 0.9rem;
   }
 
-  [class*="authorTitle"] {
+  [class*='authorTitle'] {
     font-size: 0.75rem;
 
     // Don't truncate long titles.
@@ -824,7 +824,7 @@ html[data-theme="dark"] .homepage {
 
 // Cap the grid on desktop only; tablet keeps the full-width two columns.
 @media (min-width: 997px) {
-  .row:has(> [class*="authorCol"]) {
+  .row:has(> [class*='authorCol']) {
     max-width: 560px;
   }
 }
@@ -840,7 +840,7 @@ html[data-theme="dark"] .homepage {
   }
 }
 
-html[data-theme="dark"] .avatar__name a {
+html[data-theme='dark'] .avatar__name a {
   @extend %link-style-dark;
 }
 
@@ -870,7 +870,7 @@ article header h2 {
   }
 }
 
-div[class^="blogPostData"] {
+div[class^='blogPostData'] {
   color: var(--subtle);
 }
 
@@ -879,7 +879,7 @@ div[class^="blogPostData"] {
   border-radius: 32px;
 }
 
-a[class*="tagRegular"] {
+a[class*='tagRegular'] {
   padding: 6px 12px;
   border-radius: 32px;
 
@@ -946,7 +946,7 @@ a[class*="tagRegular"] {
   }
 
   .navbar-github-link,
-  button[class*="toggleButton"] {
+  button[class*='toggleButton'] {
     transition: scale 0.2s;
 
     &:hover {
@@ -1034,7 +1034,7 @@ a[class*="tagRegular"] {
     gap: 8px;
   }
 
-  .navbar__items div[class^="navbarSearchContainer"] {
+  .navbar__items div[class^='navbarSearchContainer'] {
     padding-left: 6px;
   }
 
@@ -1048,7 +1048,7 @@ a[class*="tagRegular"] {
 
     &:after {
       transition: opacity 0.2s;
-      content: "";
+      content: '';
       width: 20px;
       height: 20px;
       display: flex;
@@ -1063,7 +1063,7 @@ a[class*="tagRegular"] {
   }
 }
 
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   .navbar-sidebar {
     background: var(--ifm-background-color);
   }
@@ -1092,7 +1092,7 @@ So we need to "revert" some CSS vars to not enforce dark mode
       }
     }
 
-    .menu__list-item-collapsible a[class*="menuLinkText"] {
+    .menu__list-item-collapsible a[class*='menuLinkText'] {
       font-weight: 600;
       font-size: 14px;
       background: var(--ifm-background-color) !important;
@@ -1101,7 +1101,7 @@ So we need to "revert" some CSS vars to not enforce dark mode
 
   .navbar-github-link {
     &:after {
-      content: "GitHub";
+      content: 'GitHub';
       background-image: none;
       height: 20px;
     }
@@ -1143,7 +1143,7 @@ So we need to "revert" some CSS vars to not enforce dark mode
 }
 
 @media (max-width: 996px) {
-  .navbar__items div[class^="navbarSearchContainer"] {
+  .navbar__items div[class^='navbarSearchContainer'] {
     position: static;
     padding-left: 0;
   }
@@ -1257,7 +1257,7 @@ So we need to "revert" some CSS vars to not enforce dark mode
     color: var(--home-button-primary);
   }
 
-  &[aria-selected="true"] {
+  &[aria-selected='true'] {
     span,
     mark {
       color: white;
@@ -1298,7 +1298,7 @@ So we need to "revert" some CSS vars to not enforce dark mode
   }
 }
 
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   .DocSearch-Button:hover {
     .DocSearch-Search-Icon,
     .DocSearch-Button-Placeholder {
@@ -1334,7 +1334,7 @@ html[data-theme="dark"] {
 
 /* Sidebar */
 
-aside[class^="theme-doc-sidebar-container"] {
+aside[class^='theme-doc-sidebar-container'] {
   margin-right: 16px;
   border-right: 0;
 
@@ -1343,7 +1343,7 @@ aside[class^="theme-doc-sidebar-container"] {
   }
 
   .menu__list .menu__link--sublist,
-  a[class*="menu__link--sublist-caret"] {
+  a[class*='menu__link--sublist-caret'] {
     font-size: 16px !important;
     font-weight: 700 !important;
     color: var(--ifm-color-content-secondary) !important;
@@ -1361,7 +1361,7 @@ aside[class^="theme-doc-sidebar-container"] {
   }
 
   .menu__list .menu__list .menu__link--sublist,
-  a[class*="menu__link--sublist-caret"] {
+  a[class*='menu__link--sublist-caret'] {
     font-weight: 700 !important;
     font-size: 15px !important;
   }
@@ -1407,7 +1407,7 @@ aside[class^="theme-doc-sidebar-container"] {
 }
 
 @media only screen and (min-width: 997px) {
-  aside[class^="theme-doc-sidebar-container"] {
+  aside[class^='theme-doc-sidebar-container'] {
     .menu {
       padding: 12px;
     }
@@ -1415,7 +1415,7 @@ aside[class^="theme-doc-sidebar-container"] {
 }
 
 @media only screen and (max-width: 996px) {
-  aside[class^="theme-doc-sidebar-container"] {
+  aside[class^='theme-doc-sidebar-container'] {
     width: 0 !important;
     min-width: 0 !important;
     margin-right: 0;
@@ -1485,7 +1485,7 @@ aside[class^="theme-doc-sidebar-container"] {
     transition: none;
   }
 
-  a[href="#"].menu__link.menu__link--active {
+  a[href='#'].menu__link.menu__link--active {
     border-left-width: 0;
   }
 
@@ -1527,7 +1527,7 @@ aside[class^="theme-doc-sidebar-container"] {
   bottom: 1.3rem;
 }
 
-html[data-theme="dark"] .menu {
+html[data-theme='dark'] .menu {
   .menu__list > .menu__list-item > .menu__link--sublist {
     color: var(--ifm-color-emphasis-400);
   }
@@ -1539,7 +1539,7 @@ html[data-theme="dark"] .menu {
 
 /* TOC */
 
-div[class^="tableOfContents"] {
+div[class^='tableOfContents'] {
   min-width: 100%;
   width: 100%;
   top: calc(var(--ifm-navbar-height) + 34px);
@@ -1627,7 +1627,7 @@ div[class^="tableOfContents"] {
   }
 }
 
-div[class*="tocCollapsibleContent"] {
+div[class*='tocCollapsibleContent'] {
   ul {
     padding: 8px 0;
   }
@@ -1637,7 +1637,7 @@ div[class*="tocCollapsibleContent"] {
   }
 }
 
-button[class*="tocCollapsibleButton"] {
+button[class*='tocCollapsibleButton'] {
   color: var(--ifm-color-content-secondary);
 }
 
@@ -1708,13 +1708,13 @@ button[class*="tocCollapsibleButton"] {
 }
 
 @media only screen and (max-width: 996px) {
-  div[class^="lastUpdated"] {
+  div[class^='lastUpdated'] {
     text-align: end;
   }
 }
 
 @media only screen and (max-width: 539px) {
-  .theme-doc-footer-edit-meta-row div[class^="editButtons"] {
+  .theme-doc-footer-edit-meta-row div[class^='editButtons'] {
     flex-direction: column;
     row-gap: 8px;
     text-align: center;
@@ -1802,7 +1802,7 @@ button[class*="tocCollapsibleButton"] {
     font-size: 11px;
   }
 
-  svg[class^="iconExternalLink"] {
+  svg[class^='iconExternalLink'] {
     color: var(--subtle);
     bottom: -1px;
     position: relative;
@@ -1848,7 +1848,7 @@ button[class*="tocCollapsibleButton"] {
   }
 }
 
-div[class*="announcementBar"][role="banner"] {
+div[class*='announcementBar'][role='banner'] {
   border-bottom-color: var(--deepdark);
 
   button.close {
@@ -1858,7 +1858,7 @@ div[class*="announcementBar"][role="banner"] {
   }
 }
 
-div[class*="announcementBarContent"] {
+div[class*='announcementBarContent'] {
   line-height: 40px;
   font-size: 20px;
   font-weight: bold;
@@ -1876,13 +1876,13 @@ div[class*="announcementBarContent"] {
 }
 
 @media only screen and (max-width: 768px) {
-  div[class*="announcementBarContent"] {
+  div[class*='announcementBarContent'] {
     font-size: 18px;
   }
 }
 
 @media only screen and (max-width: 500px) {
-  div[class*="announcementBarContent"] {
+  div[class*='announcementBarContent'] {
     font-size: 15px;
     line-height: 22px;
     padding: 6px 30px;
@@ -1943,7 +1943,7 @@ div[class*="announcementBarContent"] {
     line-height: 32px;
 
     &:before {
-      content: " ";
+      content: ' ';
       float: left;
       width: 36px;
       height: 36px;
@@ -1967,7 +1967,7 @@ div[class*="announcementBarContent"] {
   }
 }
 
-html[data-theme="dark"] .banner-native-code-required {
+html[data-theme='dark'] .banner-native-code-required {
   background: #6979bf4a;
   border-color: #555b82;
 
@@ -2071,7 +2071,7 @@ td .color-box {
   }
 }
 
-html[data-theme="dark"] .label {
+html[data-theme='dark'] .label {
   color: var(--text);
 
   &:after {
@@ -2145,8 +2145,8 @@ td .label {
   - to restrict badge only to the next version use "next/PAGEID"
 */
 
-.menu__link[href*="NO_NEW_PAGES_CURRENTLY"]:after {
-  content: "new";
+.menu__link[href*='NO_NEW_PAGES_CURRENTLY']:after {
+  content: 'new';
   display: inline-block;
   position: relative;
   top: 1px;
@@ -2218,7 +2218,7 @@ article .component-grid {
   }
 }
 
-html[data-theme="dark"] .component {
+html[data-theme='dark'] .component {
   border: 1px solid var(--ifm-color-emphasis-200);
 }
 
@@ -2288,7 +2288,7 @@ html[data-theme="dark"] .component {
   }
 }
 
-html[data-theme="dark"] .docsRating {
+html[data-theme='dark'] .docsRating {
   color: #b8e0ef;
 }
 
@@ -2320,13 +2320,13 @@ html[data-theme="dark"] .docsRating {
 .two-columns {
   display: grid;
   gap: 0 2%;
-  grid-template: ". ." 1fr / 1fr 1fr;
+  grid-template: '. .' 1fr / 1fr 1fr;
 
-  div[class*="codeBlockContainer"] {
+  div[class*='codeBlockContainer'] {
     overflow: auto;
   }
 
-  div[class*="codeBlockLines"] {
+  div[class*='codeBlockLines'] {
     white-space: pre-wrap;
   }
 }
@@ -2334,7 +2334,7 @@ html[data-theme="dark"] .docsRating {
 @media only screen and (max-width: 996px) {
   .two-columns {
     gap: 0;
-    grid-template: "." 1fr "." 1fr / 1fr;
+    grid-template: '.' 1fr '.' 1fr / 1fr;
   }
 }
 
@@ -2346,11 +2346,11 @@ html.blog-wrapper {
 }
 
 .blog-wrapper .main-wrapper {
-  h3[class*="sidebarItemTitle"] {
+  h3[class*='sidebarItemTitle'] {
     color: var(--ifm-font-color-secondary);
   }
 
-  div[class*="tableOfContents"] {
+  div[class*='tableOfContents'] {
     top: calc(var(--ifm-navbar-height) + var(--rn-subnav-height));
     max-height: calc(
       100vh - (var(--ifm-navbar-height) + var(--rn-subnav-height) + 2rem)
@@ -2361,7 +2361,7 @@ html.blog-wrapper {
     margin-top: 28px;
   }
 
-  a[class*="sidebarItemLink"] {
+  a[class*='sidebarItemLink'] {
     border-left: 0 !important;
     padding: 4px 12px !important;
     border-radius: var(--ifm-global-radius);
@@ -2370,7 +2370,7 @@ html.blog-wrapper {
       background-color 0.15s;
   }
 
-  a[class*="sidebarItemLinkActive"] {
+  a[class*='sidebarItemLinkActive'] {
     background-color: var(--sidebar-active-item-background);
     color: var(--home-button-primary);
     font-weight: 500;
@@ -2439,7 +2439,7 @@ html.blog-wrapper {
   }
 }
 
-html[data-theme="light"].blog-wrapper {
+html[data-theme='light'].blog-wrapper {
   .main-wrapper {
     .container.margin-vert--lg {
       .col.text--right a:hover {

@@ -17,7 +17,7 @@
   color: var(--ifm-color-gray-700);
 }
 
-[data-theme="dark"] .container {
+[data-theme='dark'] .container {
   border: 1px solid var(--ifm-color-gray-700);
   color: var(--ifm-color-gray-500);
 }

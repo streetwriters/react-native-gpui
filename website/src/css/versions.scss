@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-@use "shared";
+@use 'shared';
 
 .versions-page {
   max-width: 1400px !important;
@@ -82,7 +82,7 @@
   }
 }
 
-html[data-theme="dark"] .versions-page {
+html[data-theme='dark'] .versions-page {
   p a,
   td a {
     @extend %link-style-dark;

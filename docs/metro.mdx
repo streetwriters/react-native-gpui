@@ -22,7 +22,7 @@ Below is the `desktop/metro.config.js` file of a new react-native-gpui project:
 
 ```js title="desktop/metro.config.js"
 const path = require('path');
-const {makeMetroConfig} = require('@react-native-gpui/core/metro.config');
+const { makeMetroConfig } = require('@react-native-gpui/core/metro.config');
 
 module.exports = makeMetroConfig({
   projectRoot: path.resolve(__dirname, '..'),
@@ -42,17 +42,17 @@ To customize the config, merge your own options into the result:
 
 ```js title="desktop/metro.config.js"
 const path = require('path');
-const {mergeConfig} = require('@react-native/metro-config');
-const {makeMetroConfig} = require('@react-native-gpui/core/metro.config');
+const { mergeConfig } = require('@react-native/metro-config');
+const { makeMetroConfig } = require('@react-native-gpui/core/metro.config');
 
 const config = {
   transformer: {
-    getTransformOptions: async () => ({transform: {inlineRequires: true}}),
+    getTransformOptions: async () => ({ transform: { inlineRequires: true } }),
   },
 };
 
 module.exports = mergeConfig(
-  makeMetroConfig({projectRoot: path.resolve(__dirname, '..')}),
+  makeMetroConfig({ projectRoot: path.resolve(__dirname, '..') }),
   config,
 );
 ```

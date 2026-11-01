@@ -13,11 +13,11 @@ npx react-native create-library AwesomeStorage            # a Rust module
 npx react-native create-library AwesomeStorage --type cpp # a C++ module
 ```
 
-| Option                  | Description                                              |
-| ----------------------- | -------------------------------------------------------- |
-| `--type <rust\|cpp>`    | The native language. Defaults to `rust`.                 |
-| `--directory <path>`    | Where to create the library. Defaults to the name.       |
-| `--module-name <name>`  | The native TurboModule name, in PascalCase.              |
+| Option                  | Description                                                       |
+| ----------------------- | ----------------------------------------------------------------- |
+| `--type <rust\|cpp>`    | The native language. Defaults to `rust`.                          |
+| `--directory <path>`    | Where to create the library. Defaults to the name.                |
+| `--module-name <name>`  | The native TurboModule name, in PascalCase.                       |
 | `--package-name <name>` | The npm package name. Defaults to `react-native-awesome-storage`. |
 
 ## Layout
@@ -73,7 +73,7 @@ The specification uses React Native's public `TurboModuleRegistry` API and TypeS
     "type": "modules",
     "jsSrcsDir": "src"
   },
-  "peerDependencies": {"react-native": ">=0.76"}
+  "peerDependencies": { "react-native": ">=0.76" }
 }
 ```
 
@@ -90,7 +90,7 @@ The specification uses React Native's public `TurboModuleRegistry` API and TypeS
 module.exports = {
   dependency: {
     platforms: {
-      desktop: {crate: 'rn-gpui-awesome-storage'},
+      desktop: { crate: 'rn-gpui-awesome-storage' },
     },
   },
 };
@@ -123,7 +123,10 @@ rn-gpui-module-build = "0.1"
 module.exports = {
   dependency: {
     platforms: {
-      desktop: {cmake: 'desktop', cppProvider: 'create_awesome_storage_module'},
+      desktop: {
+        cmake: 'desktop',
+        cppProvider: 'create_awesome_storage_module',
+      },
     },
   },
 };

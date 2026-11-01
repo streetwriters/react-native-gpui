@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-@use "shared";
+@use 'shared';
 
 /* Section */
 
@@ -37,7 +37,7 @@
   @extend %link-style;
 }
 
-html[data-theme="dark"] .Section p a {
+html[data-theme='dark'] .Section p a {
   @extend %link-style-dark;
 }
 
@@ -64,11 +64,11 @@ html[data-theme="dark"] .Section p a {
     max-width: 900px;
     margin: 0 auto;
     grid-template-columns: repeat(2, 1fr);
-    grid-template-areas: "first last";
+    grid-template-areas: 'first last';
   }
 
   .TwoColumns.reverse {
-    grid-template-areas: "last first";
+    grid-template-areas: 'last first';
   }
 
   .TwoColumns .column {
@@ -88,12 +88,12 @@ html[data-theme="dark"] .Section p a {
   .TwoColumns,
   .TwoColumns.reverse {
     grid-template-columns: 1fr;
-    grid-template-areas: "first" "last";
+    grid-template-areas: 'first' 'last';
   }
 
   .TwoColumns.TwoFigures {
     grid-template-columns: repeat(2, 1fr);
-    grid-template-areas: "first" "last";
+    grid-template-areas: 'first' 'last';
   }
 
   .TwoColumns .column {
@@ -108,6 +108,6 @@ html[data-theme="dark"] .Section p a {
 
   .TwoColumns.TwoFigures {
     grid-template-columns: 1fr;
-    grid-template-areas: "first" "last";
+    grid-template-areas: 'first' 'last';
   }
 }

@@ -26,11 +26,11 @@ html.plugin-docs {
   // nav. This keeps the first item's normal top spacing at every scroll
   // position (the negative-margin mechanism otherwise drifts once a second
   // sticky bar is added above it).
-  html.plugin-docs aside[class^="theme-doc-sidebar-container"] {
+  html.plugin-docs aside[class^='theme-doc-sidebar-container'] {
     margin-top: 0;
   }
 
-  html.plugin-docs aside[class^="theme-doc-sidebar-container"] > div {
+  html.plugin-docs aside[class^='theme-doc-sidebar-container'] > div {
     top: calc(var(--ifm-navbar-height) + var(--rn-subnav-height));
     max-height: calc(
       100vh - (var(--ifm-navbar-height) + var(--rn-subnav-height))
@@ -39,11 +39,11 @@ html.plugin-docs {
 
   // The viewport now clears both bars, so the content box no longer needs the
   // theme's navbar-height top padding.
-  html.plugin-docs aside[class^="theme-doc-sidebar-container"] > div > div {
+  html.plugin-docs aside[class^='theme-doc-sidebar-container'] > div > div {
     padding-top: 0;
   }
 
-  html.plugin-docs div[class^="tableOfContents"] {
+  html.plugin-docs div[class^='tableOfContents'] {
     top: calc(var(--ifm-navbar-height) + var(--rn-subnav-height) + 34px);
     max-height: calc(
       100vh - (var(--ifm-navbar-height) + var(--rn-subnav-height) + 2rem)
@@ -58,7 +58,7 @@ html.plugin-docs {
  * released versions use the same white/grey outline as the other dropdowns.
  */
 
-[class*="versionDropdown"] {
+[class*='versionDropdown'] {
   .navbar__item {
     // Keep it visible on mobile too — Infima hides navbar items below 996px.
     display: inline-flex;
@@ -101,7 +101,7 @@ html.plugin-docs {
   }
 }
 
-[class*="dropdown"] {
+[class*='dropdown'] {
   .dropdown__menu {
     border: 1px solid var(--ifm-table-border-color);
     transform: translateY(4px);
@@ -109,7 +109,7 @@ html.plugin-docs {
 
     // Make sure that menu does not close on hover, with dropdown portion detached via transform
     &:before {
-      content: "";
+      content: '';
       position: absolute;
       height: 5px;
       top: -5px;
@@ -119,7 +119,7 @@ html.plugin-docs {
   }
 }
 
-[data-theme="dark"] [class*="dropdown"] {
+[data-theme='dark'] [class*='dropdown'] {
   .dropdown__menu {
     background-color: color-mix(in srgb, var(--light), black 40%);
   }
@@ -127,7 +127,7 @@ html.plugin-docs {
 
 // Placed before the `[data-version-next]` block so the brand-blue "Next" state
 // still wins.
-[data-theme="dark"] [class*="versionDropdown"] .navbar__link {
+[data-theme='dark'] [class*='versionDropdown'] .navbar__link {
   background-color: color-mix(in srgb, var(--light), black 25%);
   border-color: var(--ifm-hr-border-color);
 
@@ -137,7 +137,7 @@ html.plugin-docs {
   }
 }
 
-[class*="versionDropdown"][data-version-next] .navbar__link {
+[class*='versionDropdown'][data-version-next] .navbar__link {
   color: var(--ifm-button-color, #fff);
   background-color: var(--ifm-color-primary);
   border-color: var(--ifm-color-primary);

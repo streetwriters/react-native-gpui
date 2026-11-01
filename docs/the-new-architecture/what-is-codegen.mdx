@@ -15,11 +15,11 @@ Codegen crawls the folders in your project, starting from a directory you specif
 
 Every time Codegen finds a spec file, it generates boilerplate code associated with it:
 
-| For                         | Generated                                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| A Rust native module        | A trait to implement, an events handle, and the structs and enums for the spec's types.                |
-| A C++ native module         | A spec class to derive from, and the structs for the spec's object types.                              |
-| A component's props         | React Native's C++ props, shadow node and component descriptor, as on every other platform.           |
-| A Rust host component       | A trait with typed props, events and commands, plus the glue that connects it to the renderer.         |
+| For                   | Generated                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| A Rust native module  | A trait to implement, an events handle, and the structs and enums for the spec's types.        |
+| A C++ native module   | A spec class to derive from, and the structs for the spec's object types.                      |
+| A component's props   | React Native's C++ props, shadow node and component descriptor, as on every other platform.    |
+| A Rust host component | A trait with typed props, events and commands, plus the glue that connects it to the renderer. |
 
 The generators live in the `@react-native-gpui/codegen` package, which is part of the platform and is used by the CLI.
