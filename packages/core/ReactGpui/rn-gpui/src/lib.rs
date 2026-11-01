@@ -5,7 +5,9 @@ pub(crate) mod counters;
 pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
+mod filter;
 pub(crate) mod frame;
+pub(crate) mod gradient;
 pub(crate) mod host;
 pub mod host_component;
 pub(crate) mod image_loader;
@@ -19,12 +21,16 @@ pub(crate) mod pointer_area;
 pub mod runtime;
 pub(crate) mod scroll_indicator;
 pub(crate) mod scroll_layers;
+pub(crate) mod scroll_momentum;
+pub(crate) mod scroll_snap;
 pub(crate) mod store;
 pub(crate) mod style;
 pub mod surface;
 #[cfg(feature = "test-driver")]
 mod test_driver;
 pub(crate) mod text;
+mod transform;
+pub(crate) mod virtual_view;
 
 mod bootstrap;
 mod http_client;

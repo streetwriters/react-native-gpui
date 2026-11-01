@@ -39,3 +39,6 @@ desktop/.cache/
 
 # Cargo ignores a dependency crate's lockfile, so a tracked one only goes stale.
 modules/*/desktop/Cargo.lock
+.docusaurus
+!docs
+.claude

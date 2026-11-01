@@ -1,0 +1,75 @@
+---
+id: using-codegen
+title: Using Codegen
+---
+
+This guide teaches how to:
+
+- Configure **Codegen**.
+- Find and use the generated code.
+
+## Prerequisites
+
+You always need a React Native app to generate the code properly. The **Codegen** process is tightly coupled with the build of the app, and the scripts are located in the `react-native` and `@react-native/codegen` NPM packages.
+
+**Codegen** is used to generate the glue-code for your custom modules or components. See the guides for [native modules](../turbo-native-modules) and [host components](../fabric-native-components) for more details on how to create them.
+
+## Configuring **Codegen**
+
+**Codegen** can be configured in your app or library by modifying the `package.json` file. **Codegen** is controlled by a custom field called `codegenConfig`.
+
+```json title="package.json"
+  "codegenConfig": {
+    "name": "<SpecName>",
+    "type": "<types>",
+    "jsSrcsDir": "<source_dir>"
+  },
+```
+
+You can add this snippet to your library and customize the various fields:
+
+- `name:` Name of the codegen config. This will customize the codegen output: the filenames, and the code. It is the base of the generated header names, such as `<name>JSI.h`.
+- `type:`
+  - `modules:` Only generate code for modules.
+  - `components:` Only generate code for components.
+  - `all`: Generate code for everything.
+- `jsSrcsDir`: The root folder where all your specs live. It defaults to `src`.
+
+The `android` and `ios` fields of React Native's `codegenConfig` configure those platforms and are ignored on desktop.
+
+When **Codegen** runs, it searches among all the dependencies of the app, looking for JS files that respects some specific conventions, and it generates the required code:
+
+- Turbo Native Modules require that the spec files are prefixed with `Native`. For example, `NativeLocalStorage.ts` is a valid name for a spec file.
+- Native Fabric Components require that the spec files are suffixed with `NativeComponent`. For example, `WebViewNativeComponent.ts` is a valid name for a spec file.
+
+## Running **Codegen**
+
+You do not need to run Codegen by hand. [Autolinking](../autolinking) runs it every time you run `npx react-native run-desktop`. To generate without building, run `npx react-native-gpui autolink`. See [The Codegen CLI](codegen-cli).
+
+## The Generated Code
+
+The code that Codegen generates depends on what the spec describes, and on the language of the implementation.
+
+### C++ output
+
+For every package, Codegen writes React Native's C++ output under `desktop/autolink/codegen/<name>/`:
+
+- `<name>JSI.h` and `<name>JSI-generated.cpp`: the base classes of the TurboModules, and the JSI glue.
+- `Props.h`, `ShadowNodes.h`, `ComponentDescriptors.h` and `EventEmitters.h`: the Fabric component classes.
+
+A [C++ module](pure-cxx-modules) derives from the spec class declared in `<name>.h`.
+
+### Rust output
+
+For a Rust module, `rn-gpui-module-build` generates a trait named after the spec file into the crate's `OUT_DIR`, which `rn_gpui_module::include_specs!()` includes:
+
+```rust
+pub trait NativeLocalStorageSpec: Sized + Send + Sync + 'static {
+    fn new(events: NativeLocalStorageEvents) -> Self;
+    fn set_item(&self, value: String, key: String);
+    fn get_item(&self, key: String) -> Result<Option<String>, ModuleError>;
+    // ...
+}
+```
+
+For a Rust host component, the generator writes a trait with typed props, a `Changed` mask, an events handle and typed commands. See [Rust modules](../native-modules-rust) and [Host components](../fabric-native-components).

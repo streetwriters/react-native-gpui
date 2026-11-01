@@ -73,6 +73,18 @@ function assertScreenIsUnlocked() {
   );
 }
 
+/**
+ * An idle Mac sleeps its display and then the system in the middle of a run,
+ * which stalls every app launch until it wakes. The assertion lasts as long as
+ * this process.
+ */
+function preventSleep() {
+  if (process.platform !== 'darwin') return;
+  spawn('caffeinate', ['-d', '-i', '-m', '-w', String(process.pid)], {
+    stdio: 'ignore',
+  }).unref();
+}
+
 function stopTestApps() {
   if (process.platform === 'win32') return stopTestAppsWindows();
   const candidates = new Set();
@@ -285,6 +297,7 @@ run(
   npxShell,
 );
 assertScreenIsUnlocked();
+preventSleep();
 
 run(
   npxCommand,

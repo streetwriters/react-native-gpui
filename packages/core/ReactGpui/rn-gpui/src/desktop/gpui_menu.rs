@@ -828,6 +828,17 @@ mod tests {
     use crate::desktop::menu_model;
     use serde_json::json;
 
+    /// The mode comes from the process's environment, which the tests run
+    /// in parallel in. A test that sets it, or reads the answer more than once,
+    /// holds this so that nothing changes it in between.
+    static ENVIRONMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn environment() -> std::sync::MutexGuard<'static, ()> {
+        ENVIRONMENT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn hiding_one_windows_bar_leaves_the_others_alone() {
         // The inset is per window: a hidden bar in one window must not shrink
@@ -842,8 +853,9 @@ mod tests {
 
     #[test]
     fn the_inset_follows_the_windows_own_visibility() {
-        // Both ids are put into a known state first: the hidden set is process
-        // wide, so another test may have hidden either of them already.
+        let _environment = environment();
+        // Both ids are put into a known state first: another test may have
+        // hidden either of them already.
         set_menu_bar_visible(9, true);
         set_menu_bar_visible(10, true);
 
@@ -951,6 +963,7 @@ mod tests {
 
     #[test]
     fn the_menu_bar_inset_follows_the_mode() {
+        let _environment = environment();
         std::env::set_var("RN_GPUI_MENU_BAR", "gpui");
         assert_eq!(menu_bar_inset(), MENU_BAR_HEIGHT);
         std::env::set_var("RN_GPUI_MENU_BAR", "native");
@@ -960,6 +973,7 @@ mod tests {
 
     #[test]
     fn the_mode_follows_the_environment() {
+        let _environment = environment();
         std::env::set_var("RN_GPUI_CONTEXT_MENU", "gpui");
         assert!(should_use_gpui());
         std::env::set_var("RN_GPUI_CONTEXT_MENU", "native");

@@ -238,6 +238,12 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
     watchFolders,
     // Leaves `Platform.OS` to the runtime: Metro would fold it to `desktop`.
     transformerPath: path.join(PACKAGE_DIR, 'metro-transform-worker.js'),
+    transformer: {
+      babelTransformerPath: path.join(
+        PACKAGE_DIR,
+        'metro-babel-transformer.js',
+      ),
+    },
     serializer: {
       // Ours, not RN's: the default names the RN beside @react-native/metro-config,
       // which is not in the app's graph when this package is linked.

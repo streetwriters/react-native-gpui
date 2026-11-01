@@ -5,6 +5,8 @@ fn main() {
         "../src/FixtureChartNativeComponent.ts",
         "../src/FixtureMeasuredLabelNativeComponent.ts",
         "../src/FixtureCardNativeComponent.ts",
+        "../src/FixtureNativeProbeNativeComponent.ts",
+        "../src/FixtureWebViewNativeComponent.ts",
     ]);
 
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");

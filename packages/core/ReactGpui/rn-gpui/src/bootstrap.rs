@@ -512,6 +512,12 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
+    BuiltinCommand {
+        tag: i32,
+        component: String,
+        name: String,
+        args: serde_json::Value,
+    },
     /// A command Fabric sent to a host component: its index in the spec's
     /// `COMMANDS` and its arguments, already validated by the generated C++
     /// dispatcher.
@@ -618,6 +624,10 @@ pub struct DesktopAppConfig {
     pub dev_menu: Option<bool>,
     pub tray: Option<crate::desktop::tray::TrayConfig>,
     pub traffic_light_position: Option<(f32, f32)>,
+    /// URL schemes that open this app.
+    pub url_schemes: Vec<String>,
+    /// Whether a second launch hands its arguments to the running copy.
+    pub single_instance: bool,
     /// Whether the main window shows a menu bar. Windows and Linux only.
     pub menu_bar: bool,
     pub configure_window: Option<WindowOptionsHook>,
@@ -650,6 +660,8 @@ impl DesktopAppConfig {
             dev_menu: None,
             tray: None,
             traffic_light_position: None,
+            url_schemes: Vec::new(),
+            single_instance: false,
             menu_bar: true,
             configure_window: None,
             on_app_ready: None,
@@ -667,6 +679,18 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn tray(mut self, config: crate::desktop::tray::TrayConfig) -> Self {
         self.tray = Some(config);
+        self
+    }
+
+    #[must_use]
+    pub fn url_schemes(mut self, schemes: &[&str]) -> Self {
+        self.url_schemes = schemes.iter().map(|scheme| (*scheme).to_string()).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn single_instance(mut self, enabled: bool) -> Self {
+        self.single_instance = enabled;
         self
     }
 
@@ -819,6 +843,33 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
+    let launch_args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(url) = crate::desktop::deep_link::url_in_args(&launch_args, &config.url_schemes) {
+        crate::desktop::deep_link::handle_url(url);
+    }
+    if config.single_instance {
+        let schemes = config.url_schemes.clone();
+        let instance = crate::desktop::deep_link::acquire(
+            &crate::desktop::app_dir::app_dir(),
+            &app_id,
+            &launch_args,
+            move |args| {
+                let url = crate::desktop::deep_link::url_in_args(&args, &schemes);
+                crate::desktop::post_to_main(Box::new(move |cx| {
+                    let _ = crate::desktop::windows::focus(
+                        cx,
+                        crate::desktop::windows::MAIN_WINDOW_KEY,
+                    );
+                    if let Some(url) = url {
+                        crate::desktop::deep_link::handle_url(url);
+                    }
+                }));
+            },
+        );
+        if matches!(instance, crate::desktop::deep_link::Instance::Forwarded) {
+            std::process::exit(0);
+        }
+    }
     let module = config.module.clone();
     let width = config.width;
     let height = config.height;
@@ -941,6 +992,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
+    let builtin_command_tx = tx.clone();
+    let _ =
+        rn_gpui_sys::BUILTIN_COMMAND_HANDLER.set(Box::new(move |tag, component, name, args| {
+            if crate::extensions::component_renderer(component).is_none() {
+                return;
+            }
+            let _ = builtin_command_tx.send_blocking(MainEvent::BuiltinCommand {
+                tag,
+                component: component.to_owned(),
+                name: name.to_owned(),
+                args: serde_json::from_str(args).unwrap_or(serde_json::Value::Null),
+            });
+        }));
     let desktop_tx = tx.clone();
     crate::desktop::set_command_sender(desktop_tx);
     let main_task_tx = tx.clone();
@@ -1027,6 +1091,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
     // this handler, and it is registered once.
     crate::http_client::install();
     application.on_reopen(crate::desktop::windows::reopen);
+    application.on_open_urls(|urls| {
+        for url in urls {
+            crate::desktop::deep_link::handle_url(url);
+        }
+    });
     application
         .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
         .run(move |cx: &mut App| {
@@ -1146,11 +1215,25 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
         startup_trace("host created");
         host.set_window_metrics(surface_width, surface_height, estimated_scale);
+        let screen = cx
+            .primary_display()
+            .map(|display| display.bounds().size)
+            .map(|size| (f32::from(size.width), f32::from(size.height)))
+            .unwrap_or((surface_width, surface_height));
+        host.set_display_metrics(
+            screen.0,
+            screen.1,
+            crate::desktop::display::system_font_scale(),
+        );
+        crate::desktop::memory_pressure::start(host.clone());
+        #[cfg(not(target_os = "macos"))]
+        crate::accessibility::install_announcer();
         startup_trace("bundle load start");
         if !host.load_script(&bundle, &source_url) {
             log::error!("load_script failed for {bundle}");
             std::process::exit(1);
         }
+        crate::desktop::deep_link::mark_ready(host.clone());
         startup_trace("bundle load end");
         log::info!("loaded {bundle}");
         // The surface starts now as well: mount batches queue on the main-thread
@@ -1322,12 +1405,15 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .unwrap_or(estimated_scale);
         let scale = scale_override.unwrap_or(window_scale);
 
-        let top_inset = window.update(cx, |_root, window, _cx| {
-            #[cfg(target_os = "macos")]
-            { crate::native_view::window_top_inset(window) }
-            #[cfg(not(target_os = "macos"))]
-            { 0.0 }
-        }).unwrap_or(0.0);
+        crate::desktop::windows::set_custom_title_bar(
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+            config.title_bar.is_custom(),
+        );
+        let top_inset = window
+            .update(cx, |_root, window, _cx| {
+                crate::desktop::windows::top_inset(window, crate::desktop::windows::MAIN_WINDOW_KEY)
+            })
+            .unwrap_or(0.0);
         host.set_window_top_inset(top_inset);
         log::info!("[window-inset] native window top inset={top_inset}");
         let appearance = match cx.window_appearance() {
@@ -1463,6 +1549,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 serde_json::json!({}),
                 crate::desktop::windows::WindowRole::Main,
             );
+
+        crate::desktop::windows::install_main_window_events(
+            cx,
+            (*window).into(),
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+        );
 
         // Without the close hook `closeRequested` never fires for the main window.
         crate::desktop::windows::install_close_hook_for(
@@ -1837,10 +1929,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         || (previous.2 - scale).abs() > 0.001;
                     let moved = (previous.3 - origin.0).abs() > 0.01
                         || (previous.4 - origin.1).abs() > 0.01;
-                    #[cfg(target_os = "macos")]
-                    let top = crate::native_view::window_top_inset(window);
-                    #[cfg(not(target_os = "macos"))]
-                    let top = 0.0;
+                    let top = crate::desktop::windows::top_inset(
+                        window,
+                        crate::desktop::windows::MAIN_WINDOW_KEY,
+                    );
                     let inset_changed = cx
                         .try_global::<StoreGlobal>()
                         .is_some_and(|global| (global.0.read(cx).top_inset - top).abs() > 0.01);
@@ -1850,6 +1942,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     last_surface_size.set((width, height, scale, origin.0, origin.1));
                     save_window_bounds(&window_state_path, bounds, size);
                     if inset_changed {
+                        crate::desktop::window_mirror::patch(
+                            crate::desktop::windows::MAIN_WINDOW_KEY,
+                            &[("topInset", serde_json::json!(top))],
+                        );
                         store.update(cx, |store, cx| {
                             store.top_inset = top;
                             store.host.set_window_top_inset(top);
@@ -2173,6 +2269,23 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 node.update(cx, |node, cx| {
                                     node.dispatch_host_command(command, &args, cx);
                                 });
+                            });
+                        }
+                    }
+                    MainEvent::BuiltinCommand { tag, component, name, args } => {
+                        let target = {
+                            let mut target = None;
+                            store.update(cx, |store, _cx| {
+                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                            });
+                            target
+                        };
+                        let handle = crate::extensions::StoreHandle::new(store.downgrade());
+                        if let Some((window_handle, node)) = target {
+                            let _ = cx.update_window(window_handle, move |_root, _window, cx| {
+                                crate::extensions::run_builtin_command(
+                                    &node, &component, &name, &args, &handle, cx,
+                                );
                             });
                         }
                     }

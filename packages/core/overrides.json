@@ -23,6 +23,44 @@
       "file": "src-gpui/Libraries/Modal/Modal.desktop.js"
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Settings/Settings.desktop.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Components/RefreshControl/RefreshControl.desktop.js"
+    },
+    {
+      "type": "derived",
+      "file": "src-gpui/Libraries/Components/ScrollView/ScrollView.desktop.js",
+      "baseFile": "packages/react-native/Libraries/Components/ScrollView/ScrollView.js",
+      "baseHash": "8f218c6e51209bbe56bba4d3fbb9b6320c718c29",
+      "issue": 0
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/StyleSheet/PlatformColorValueTypes.desktop.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/StyleSheet/PlatformColorValueTypesIOS.desktop.js"
+    },
+    {
+      "type": "derived",
+      "file": "src-gpui/Libraries/Components/TextInput/TextInputState.desktop.js",
+      "baseFile": "packages/react-native/Libraries/Components/TextInput/TextInputState.js",
+      "baseHash": "9ef598defeeaf109527f39b48f77564eba80129a",
+      "issue": 0
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Utilities/useWindowDimensions.desktop.js"
+    },
+    {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Share/Share.desktop.js"
+    },
+    {
       "type": "patch",
       "file": "ReactCommonOverrides/react/devsupport/DevServerHelper.cpp",
       "baseFile": "packages/react-native/ReactCxxPlatform/react/devsupport/DevServerHelper.cpp",
@@ -34,6 +72,13 @@
       "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp",
       "baseHash": "f52700da0048f7dce129267d9edbe8e9f724f955",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/TextLayoutManager.h",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.h",
+      "baseHash": "63f2c1afcbc99cde197f9b306bc56384fd6f2e6c",
       "issue": 0
     },
     {
@@ -181,6 +226,13 @@
     {
       "type": "platform",
       "file": "src-gpui/src/private/desktop/tray.ts"
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp",
+      "baseFile": "packages/react-native/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp",
+      "baseHash": "604eb031600c654f84bd021091e764fa107ddd86",
+      "issue": 0
     }
   ]
 }

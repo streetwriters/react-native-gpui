@@ -1,0 +1,25 @@
+---
+id: what-is-codegen
+title: What is Codegen?
+---
+
+**Codegen** is a tool to avoid writing a lot of repetitive code. Using Codegen **is not mandatory** for the JavaScript side of an app, but a native module or component for desktop needs the code that it generates: the traits and classes that your Rust or C++ implements are generated from your specification.
+
+On desktop you rarely run Codegen yourself. [Autolinking](../autolinking) runs it every time the app is built, for the app and for each library that declares a `codegenConfig`. Occasionally you would like to know which types and files are generated: this is a common scenario when developing [native modules](../turbo-native-modules) and [host components](../fabric-native-components).
+
+## How Codegen Works
+
+**Codegen** is a process that is tightly coupled with a React Native app. React Native's Codegen reads your specifications, and the generators of react-native-gpui turn them into Rust and C++ code.
+
+Codegen crawls the folders in your project, starting from a directory you specify in your `package.json`, looking for some specific JS files that contain the specification (or specs) for your custom modules and components. Spec files are JS files written in a typed dialect: React Native currently supports Flow and TypeScript.
+
+Every time Codegen finds a spec file, it generates boilerplate code associated with it:
+
+| For                   | Generated                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| A Rust native module  | A trait to implement, an events handle, and the structs and enums for the spec's types.        |
+| A C++ native module   | A spec class to derive from, and the structs for the spec's object types.                      |
+| A component's props   | React Native's C++ props, shadow node and component descriptor, as on every other platform.    |
+| A Rust host component | A trait with typed props, events and commands, plus the glue that connects it to the renderer. |
+
+The generators live in the `@react-native-gpui/codegen` package, which is part of the platform and is used by the CLI.

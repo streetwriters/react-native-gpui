@@ -8,6 +8,7 @@ module.exports = [
       '**/node_modules/',
       '**/target/',
       '**/build/',
+      'website/.docusaurus/',
       'packages/testing/dist/',
       '.local/',
       'desktop/',
@@ -17,6 +18,9 @@ module.exports = [
       // Vendored facebook/hermes sources, kept byte-identical to the pin.
       'packages/hermes/API/',
       'packages/hermes/include/',
+      'packages/hermes/third_party/',
+      // Runs in the Hermes CLI, not in Node.
+      'packages/hermes/scripts/intl-smoke.js',
       'packages/hermes/public/',
       'packages/rn-gpui-tester/desktop/autolink/',
     ],
@@ -66,6 +70,10 @@ module.exports = [
         Readonly: 'readonly',
         ReadonlyArray: 'readonly',
         Stringish: 'readonly',
+        $ReadOnly: 'readonly',
+        $ReadOnlyArray: 'readonly',
+        $FlowFixMe: 'readonly',
+        Omit: 'readonly',
       },
     },
     rules: {

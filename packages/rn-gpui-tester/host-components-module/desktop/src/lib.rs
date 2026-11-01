@@ -2,6 +2,8 @@
 
 rn_gpui_module::include_specs!();
 
+mod native;
+
 use std::rc::Rc;
 
 use gpui::{div, point, prelude::*, px, rgb, AnyElement, PathBuilder, Window};
@@ -287,6 +289,8 @@ pub fn rn_gpui_register() {
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());
+    register_component(fixture_native_probe_component::<native::NativeProbe>());
+    register_component(fixture_web_view_component::<native::WebView>());
 }
 
 #[cfg(test)]

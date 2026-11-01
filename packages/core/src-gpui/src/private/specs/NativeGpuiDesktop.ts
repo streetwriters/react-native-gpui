@@ -44,11 +44,17 @@ export type DesktopAppInfo = {
   capabilities: DesktopCapabilities;
 };
 
+export type PlatformConstants = {
+  osVersion: string;
+  isTesting: boolean;
+};
+
 export interface Spec extends TurboModule {
   /** Read synchronously; these never touch the GPUI main thread. */
   capabilities(): DesktopCapabilities;
   platform(): string;
   appId(): string;
+  platformConstants(): PlatformConstants;
 
   appInfo(): Promise<DesktopAppInfo>;
 

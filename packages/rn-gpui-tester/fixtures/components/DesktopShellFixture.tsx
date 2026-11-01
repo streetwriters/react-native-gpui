@@ -9,8 +9,18 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import {
+  DeviceEventEmitter,
+  Text,
+  TurboModuleRegistry,
+  View,
+} from 'react-native';
+import type { TurboModule } from 'react-native';
 import { Desktop, capabilities } from '@react-native-gpui/core/desktop';
+
+interface DevSettingsSpec extends TurboModule {
+  addMenuItem(title: string): void;
+}
 
 const styles = {
   page: {
@@ -36,6 +46,23 @@ function DesktopShellFixture() {
   const caps = capabilities();
   const [info, setInfo] = useState('pending');
   const [error, setError] = useState('');
+  const [devItem, setDevItem] = useState('not pressed');
+
+  // `DevSettings.addMenuItem` does nothing in a release bundle, which is what
+  // the e2e runs, so this makes the calls it makes in a dev bundle: the native
+  // module adds the item and the press arrives as `didPressMenuItem`.
+  useEffect(() => {
+    TurboModuleRegistry.get<DevSettingsSpec>('DevSettings')?.addMenuItem(
+      'Show Secret Dev Screen',
+    );
+    const subscription = DeviceEventEmitter.addListener(
+      'didPressMenuItem',
+      (event: { title: string }) => {
+        if (event.title === 'Show Secret Dev Screen') setDevItem('pressed');
+      },
+    );
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +88,9 @@ function DesktopShellFixture() {
       <Text testID="desktop-info" style={styles.row}>
         app.getInfo: {info}
         {error ? ` (error: ${error})` : ''}
+      </Text>
+      <Text testID="dev-menu-item" style={styles.row}>
+        {devItem}
       </Text>
       <Text testID="desktop-capabilities" style={styles.row}>
         {JSON.stringify(caps)}

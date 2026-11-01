@@ -334,6 +334,10 @@ jobs:
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          # The test binaries import msvcp140_2.dll, which the toolset ships in
+          # its redistributable folder and the system does not have.
+          $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+          if ($crt) { Add-Content -Path $env:GITHUB_PATH -Value $crt.FullName -Encoding utf8 }
           $link = (Get-Command link.exe -ErrorAction Stop).Source
           if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8
@@ -444,6 +448,26 @@ jobs:
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- \
             npm run test:rust
+      # A test binary that cannot start exits 0xC0000135 and says nothing
+      # about which DLL it was missing.
+      - name: Find the DLL a Windows test binary is missing
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dirs = @("$PWD/packages/hermes/bin/win32-x64") + (Get-ChildItem target/rn-gpui-cmake -Recurse -Filter jsi.dll -ErrorAction SilentlyContinue | ForEach-Object { $_.DirectoryName })
+          $env:PATH = (($dirs | Select-Object -Unique) -join ';') + ';' + $env:PATH
+          foreach ($prefix in 'react_native_gpui', 'rn_gpui_svg', 'rn_gpui_screens') {
+            $exe = Get-ChildItem target/debug/deps -Filter "$prefix-*.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
+            if (-not $exe) { continue }
+            Write-Host "== $($exe.Name)"
+            $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
+            $names = [regex]::Matches($text, '[A-Za-z0-9_\-\.]{3,40}\.dll') | ForEach-Object { $_.Value.ToLower() } | Sort-Object -Unique
+            foreach ($name in $names) {
+              $found = (Get-Command $name -ErrorAction SilentlyContinue).Source
+              if (-not $found) { Write-Host ("{0,-45} NOT FOUND" -f $name) }
+            }
+          }
+
       - name: Build the tester
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
@@ -495,6 +519,46 @@ jobs:
             node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
               npm run test:e2e -- --reporter=default --reporter=junit \
               --outputFile=ci-out/junit/e2e.xml
+          fi
+
+      # The native view probe draws into a wl_surface on Wayland, so it needs a
+      # Wayland session: headless sway, software rendered. (weston's headless
+      # backend has no input devices and so no wl_seat, which GPUI requires.)
+      - name: e2e native views on Wayland
+        if: runner.os == 'Linux'
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          RN_GPUI_ALLOW_LOCKED_SCREEN: '1'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends sway
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/wayland-runtime"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          : > "$RUNNER_TEMP/sway.conf"
+          # sway names its own socket (wayland-1 when another one is taken), so
+          # the name is read back instead of asked for.
+          env -u WAYLAND_DISPLAY -u DISPLAY \
+            WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
+            sway -c "$RUNNER_TEMP/sway.conf" > "$RUNNER_TEMP/sway.log" 2>&1 &
+          socket=
+          for _ in $(seq 75); do
+            socket=$(find "$XDG_RUNTIME_DIR" -mindepth 1 -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -printf '%f\n' | head -n 1)
+            [ -n "$socket" ] && break
+            sleep 0.2
+          done
+          echo "wayland socket: ${socket:-none}"
+          if ! env -u DISPLAY WAYLAND_DISPLAY="$socket" WGPU_BACKEND=vulkan \
+            node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e wayland" -- \
+            npm run test:e2e -- packages/rn-gpui-tester/e2e/native-views.e2e.ts; then
+            echo '--- sway'
+            cat "$RUNNER_TEMP/sway.log" || true
+            latest=$(ls -t "${TMPDIR:-/tmp}"/rn-gpui-test-*.log | head -n 3)
+            for log in $latest; do
+              echo "--- $log"
+              tail -n 40 "$log"
+            done
+            exit 1
           fi
 
       - name: Upload the new screenshot baselines
@@ -677,6 +741,10 @@ jobs:
           }
           $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
           if (-not $cl) { throw "cl.exe is not on PATH after vcvarsall x64" }
+          # The test binaries import msvcp140_2.dll, which the toolset ships in
+          # its redistributable folder and the system does not have.
+          $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+          if ($crt) { Add-Content -Path $env:GITHUB_PATH -Value $crt.FullName -Encoding utf8 }
           $link = (Get-Command link.exe -ErrorAction Stop).Source
           if ($link -notmatch 'MSVC') { throw "link.exe resolves to $link, not MSVC" }
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" -Encoding utf8

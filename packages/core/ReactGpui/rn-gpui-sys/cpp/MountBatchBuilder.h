@@ -20,5 +20,6 @@ TextFragmentFlat flattenTextFragment(
     const std::string& text);
 
 void installGpuiTextMeasureTable();
+void installGpuiImageLoadTable();
 
 } // namespace rngpui

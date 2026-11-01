@@ -1,9 +1,25 @@
+const { doctor, reactNativeHealthChecks } = require('./src/doctor.cjs');
+
 module.exports = {
+  healthChecks: reactNativeHealthChecks(),
   commands: [
     {
-      name: 'run-desktop',
+      name: 'doctor-desktop',
       description:
-        'Run the GPUI desktop target with Metro or as a release build',
+        'Check that the tools needed to build a desktop app are installed',
+      func: async () => {
+        process.exitCode = doctor();
+      },
+      examples: [
+        {
+          desc: 'Check this machine',
+          cmd: 'npx react-native doctor-desktop',
+        },
+      ],
+    },
+    {
+      name: 'run-desktop',
+      description: 'Run the desktop app with Metro or as a release build',
       func: async (_argv, _config, options) => {
         const { runDesktop } = await import('./src/commands.js');
         await runDesktop({
@@ -108,7 +124,7 @@ module.exports = {
     },
     {
       name: 'init-desktop',
-      description: 'Add GPUI desktop support to an existing React Native app',
+      description: 'Add desktop support to an existing React Native app',
       func: async (_argv, _config, options) => {
         const { initDesktop } = await import('./src/commands.js');
         initDesktop({
@@ -135,7 +151,7 @@ module.exports = {
     },
     {
       name: 'create-library <name>',
-      description: 'Create a GPUI TurboModule library in a new directory',
+      description: 'Create a desktop TurboModule library in a new directory',
       func: async (argv, _config, options) => {
         const { createLibrary } = await import('./src/commands.js');
         createLibrary({

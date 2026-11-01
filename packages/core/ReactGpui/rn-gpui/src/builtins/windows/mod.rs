@@ -125,6 +125,12 @@ impl NativeGpuiWindowsSpec for WindowsModule {
         typed("windowList", result)
     }
 
+    fn window_get_state_sync(&self, window_id: i32) -> Result<WindowState, ModuleError> {
+        let state = crate::desktop::window_mirror::get(window_key(window_id))
+            .ok_or_else(|| ModuleError::new(format!("window {window_id} is not open")))?;
+        typed("windowGetStateSync", Ok(state))
+    }
+
     async fn window_get_state(&self, window_id: i32) -> Result<WindowState, ModuleError> {
         let result = on_main(move |cx| windows::window_state(cx, window_key(window_id))).await?;
         typed("windowGetState", result)

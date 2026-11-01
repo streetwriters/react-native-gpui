@@ -55,10 +55,6 @@ module.exports = {
           'src-gpui/Libraries/NativeComponent/BaseViewConfig.desktop.ts',
         ),
       },
-      {
-        find: /^@react-native-gpui\/NativeViewHost$/,
-        replacement: path.join(__dirname, 'vitest/NativeViewHostMock.tsx'),
-      },
     ],
   },
   optimizeDeps: {

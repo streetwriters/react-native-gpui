@@ -8,7 +8,7 @@ use gpui::{
     canvas, font, point, prelude::*, px, App, ContentMask, Font, FontStyle, FontWeight,
     IntoElement, SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, WrappedLine,
 };
-use rn_gpui_sys::ffi::{MeasureResult, ParagraphFlat, TextFragmentFlat};
+use rn_gpui_sys::ffi::{LineFlat, MeasureResult, ParagraphFlat, TextFragmentFlat};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -29,6 +29,8 @@ struct FragmentKey {
     letter_spacing: u32,
     underline: bool,
     strikethrough: bool,
+    text_transform: u8,
+    font_variant: u32,
 }
 
 impl From<&TextFragmentFlat> for FragmentKey {
@@ -44,6 +46,8 @@ impl From<&TextFragmentFlat> for FragmentKey {
             letter_spacing: fragment.letter_spacing.to_bits(),
             underline: fragment.underline,
             strikethrough: fragment.strikethrough,
+            text_transform: fragment.text_transform,
+            font_variant: fragment.font_variant,
         }
     }
 }
@@ -55,6 +59,7 @@ struct ParagraphKey {
     max_lines: i32,
     text_align: u8,
     ellipsize: u8,
+    fit: Option<u32>,
 }
 
 impl ParagraphKey {
@@ -63,8 +68,11 @@ impl ParagraphKey {
             fragments: paragraph.fragments.iter().map(FragmentKey::from).collect(),
             width: width.to_bits(),
             max_lines: paragraph.max_lines,
-            text_align: paragraph.text_align,
+            text_align: resolve_alignment(paragraph.text_align),
             ellipsize: paragraph.ellipsize,
+            fit: paragraph
+                .adjusts_to_fit
+                .then_some(paragraph.min_font_scale.to_bits()),
         }
     }
 }
@@ -74,6 +82,7 @@ struct ShapedParagraph {
     line_heights: Vec<f32>,
     width: f32,
     height: f32,
+    visual_lines: usize,
     text_align: TextAlign,
 }
 
@@ -349,6 +358,52 @@ fn font_size_of(size: f32) -> f32 {
     }
 }
 
+/// The OpenType features `fontVariant` asks for.
+fn variant_features(variant: u32) -> Vec<(String, u32)> {
+    const TAGS: [(u32, &str); 5] = [
+        (1 << 1, "smcp"),
+        (1 << 2, "onum"),
+        (1 << 3, "lnum"),
+        (1 << 4, "tnum"),
+        (1 << 5, "pnum"),
+    ];
+    let mut features: Vec<(String, u32)> = TAGS
+        .iter()
+        .filter(|(bit, _)| variant & bit != 0)
+        .map(|(_, tag)| ((*tag).to_owned(), 1))
+        .collect();
+    // `stylistic-one` to `stylistic-twenty` are `ss01` to `ss20`.
+    for set in 1..=20u32 {
+        if variant & (1 << (5 + set)) != 0 {
+            features.push((format!("ss{set:02}"), 1));
+        }
+    }
+    features
+}
+
+/// The fragment's text with its `textTransform` applied.
+pub(crate) fn fragment_text(fragment: &TextFragmentFlat) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    match fragment.text_transform {
+        1 => Cow::Owned(fragment.text.to_uppercase()),
+        2 => Cow::Owned(fragment.text.to_lowercase()),
+        3 => {
+            let mut out = String::with_capacity(fragment.text.len());
+            let mut word_start = true;
+            for ch in fragment.text.chars() {
+                if word_start && ch.is_alphabetic() {
+                    out.extend(ch.to_uppercase());
+                } else {
+                    out.push(ch);
+                }
+                word_start = ch.is_whitespace();
+            }
+            Cow::Owned(out)
+        }
+        _ => Cow::Borrowed(fragment.text.as_str()),
+    }
+}
+
 fn font_of(fragment: &TextFragmentFlat) -> Font {
     let family = font_aliases()
         .read()
@@ -365,6 +420,10 @@ fn font_of(fragment: &TextFragmentFlat) -> Font {
     font.weight = FontWeight(f32::from(fragment.font_weight));
     if fragment.italic {
         font.style = FontStyle::Italic;
+    }
+    if fragment.font_variant != 0 {
+        font.features =
+            gpui::FontFeatures(std::sync::Arc::new(variant_features(fragment.font_variant)));
     }
     font
 }
@@ -439,8 +498,9 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
         } else {
             fragment.color
         });
+        let shown = fragment_text(fragment);
         runs.push(TextRun {
-            len: fragment.text.len(),
+            len: shown.len(),
             font: font_of(fragment),
             color,
             background_color: None,
@@ -454,9 +514,22 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
                 color: None,
             }),
         });
-        text.push_str(&fragment.text);
+        text.push_str(&shown);
     }
     (text, runs)
+}
+
+/// `natural` and `start` follow the trailing edge's mirror in a right-to-left
+/// layout, `end` the leading one; `left` and `right` stay literal.
+fn resolve_alignment(value: u8) -> u8 {
+    if !crate::builtins::i18n::rtl_active() {
+        return value;
+    }
+    match value {
+        0 | 5 => 3,
+        6 => 1,
+        other => other,
+    }
 }
 
 fn text_align(value: u8) -> TextAlign {
@@ -467,7 +540,41 @@ fn text_align(value: u8) -> TextAlign {
     }
 }
 
+/// `paragraph` with every font size and line height multiplied by `scale`.
+fn scaled(paragraph: &ParagraphFlat, scale: f32) -> ParagraphFlat {
+    let mut next = paragraph.clone();
+    for fragment in &mut next.fragments {
+        fragment.font_size = font_size_of(fragment.font_size) * scale;
+        fragment.line_height *= scale;
+    }
+    next
+}
+
 impl TextService {
+    /// The largest scale, down to the paragraph's minimum, at which the text
+    /// fits in `max_lines`; the paragraph at that scale, without the fit flag.
+    fn fit_paragraph(&self, paragraph: &ParagraphFlat, width: f32) -> ParagraphFlat {
+        let floor = if paragraph.min_font_scale > 0.0 {
+            paragraph.min_font_scale.min(1.0)
+        } else {
+            0.1
+        };
+        let mut probe = paragraph.clone();
+        probe.adjusts_to_fit = false;
+        probe.max_lines = 0;
+        let mut scale = 1.0f32;
+        loop {
+            let shaped = self.shape(&scaled(&probe, scale), width);
+            if shaped.visual_lines <= paragraph.max_lines as usize || scale <= floor {
+                break;
+            }
+            scale = (scale * 0.95).max(floor);
+        }
+        let mut fitted = scaled(paragraph, scale);
+        fitted.adjusts_to_fit = false;
+        fitted
+    }
+
     fn shape(&self, paragraph: &ParagraphFlat, width: f32) -> Arc<ShapedParagraph> {
         let width = if width.is_finite() && width > 0.0 {
             width
@@ -482,6 +589,16 @@ impl TextService {
             .get(&key)
             .cloned()
         {
+            return shaped;
+        }
+
+        if paragraph.adjusts_to_fit && paragraph.max_lines > 0 && width < f32::MAX {
+            let fitted = self.fit_paragraph(paragraph, width);
+            let shaped = self.shape(&fitted, width);
+            self.cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(key, shaped.clone());
             return shaped;
         }
 
@@ -552,12 +669,17 @@ impl TextService {
             line_heights.push(line_height);
         }
 
+        let visual_lines = lines
+            .iter()
+            .map(|line| line.wrap_boundaries.len() + 1)
+            .sum();
         let shaped = Arc::new(ShapedParagraph {
             lines,
             line_heights,
             width: measured_width.min(width),
             height: measured_height,
-            text_align: text_align(paragraph.text_align),
+            visual_lines,
+            text_align: text_align(resolve_alignment(paragraph.text_align)),
         });
         let mut cache = self
             .cache
@@ -577,6 +699,10 @@ pub fn install_measure_handler(cx: &mut App) {
         cache: Mutex::new(HashMap::new()),
     });
     let _ = TEXT_SERVICE.set(service.clone());
+    let lines_service = service.clone();
+    let _ = rn_gpui_sys::LINES_HANDLER.set(Box::new(move |paragraph, width| {
+        measure_lines(&lines_service, paragraph, width)
+    }));
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
         MeasureResult {
@@ -584,6 +710,58 @@ pub fn install_measure_handler(cx: &mut App) {
             height: shaped.height.ceil(),
         }
     }));
+}
+
+/// The height of the paragraph laid out on one line, or 0 when it is empty.
+pub(crate) fn single_line_height(paragraph: &ParagraphFlat) -> f32 {
+    TEXT_SERVICE
+        .get()
+        .map_or(0.0, |service| service.shape(paragraph, f32::MAX).height)
+}
+
+/// Every laid-out row of the paragraph, as `onTextLayout` reports them.
+fn measure_lines(service: &TextService, paragraph: &ParagraphFlat, width: f32) -> Vec<LineFlat> {
+    let shaped = service.shape(paragraph, width);
+    let mut rows = Vec::with_capacity(shaped.visual_lines);
+    let mut top = 0.0f32;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let lh = px(*line_height);
+        let count = line.wrap_boundaries.len() + 1;
+        let starts: Vec<usize> = (0..count)
+            .map(|row| {
+                if row == 0 {
+                    return 0;
+                }
+                let probe = point(px(0.0), lh * row as f32 + lh * 0.5);
+                line.closest_index_for_position(probe, lh)
+                    .unwrap_or_else(|nearest| nearest)
+                    .min(line.len())
+            })
+            .collect();
+        for (row, start) in starts.iter().enumerate() {
+            let end = starts.get(row + 1).copied().unwrap_or_else(|| line.len());
+            let from = f32::from(line.position_for_index(*start, lh).unwrap_or_default().x);
+            let to = f32::from(line.position_for_index(end, lh).unwrap_or_default().x);
+            let ascent = f32::from(line.ascent());
+            rows.push(LineFlat {
+                text: line.text.get(*start..end).unwrap_or_default().to_string(),
+                x: from,
+                y: top + row as f32 * line_height,
+                width: if row + 1 == count {
+                    f32::from(line.width()) - from
+                } else {
+                    (to - from).max(0.0)
+                },
+                height: *line_height,
+                ascender: ascent,
+                descender: f32::from(line.descent()),
+                cap_height: ascent * 0.7,
+                x_height: ascent * 0.5,
+            });
+        }
+        top += line_height * count as f32;
+    }
+    rows
 }
 
 pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> impl IntoElement {
@@ -594,9 +772,10 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
             Arc::new(ShapedParagraph {
                 lines: Vec::new(),
                 line_heights: Vec::new(),
+                visual_lines: 0,
                 width,
                 height,
-                text_align: text_align(paragraph.text_align),
+                text_align: text_align(resolve_alignment(paragraph.text_align)),
             })
         });
     let align = shaped.text_align;
@@ -609,32 +788,215 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
         height,
         shaped.lines.len()
     );
+    let shadow = (paragraph.shadow_color >> 24 != 0).then(|| shadow_layers(paragraph, width));
+    let reach =
+        paragraph.shadow_radius.max(0.0) + paragraph.shadow_dx.abs().max(paragraph.shadow_dy.abs());
     canvas(
         |_, _, _| (),
         move |bounds, (), window, cx| {
-            let mut y = bounds.origin.y;
-            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
-                for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
-                    if line
-                        .paint(
-                            point(bounds.origin.x, y),
-                            px(*line_height),
-                            align,
-                            Some(bounds),
-                            window,
-                            cx,
-                        )
-                        .is_err()
-                    {
-                        log::error!("failed to paint a shaped React Native text line");
+            if let Some(layers) = shadow.as_ref() {
+                let wide = gpui::Bounds {
+                    origin: bounds.origin - point(px(reach), px(reach)),
+                    size: gpui::size(
+                        bounds.size.width + px(reach * 2.0),
+                        bounds.size.height + px(reach * 2.0),
+                    ),
+                };
+                window.with_content_mask(Some(ContentMask::new(wide)), |window| {
+                    for layer in layers {
+                        for (dx, dy) in &layer.offsets {
+                            let origin = bounds.origin
+                                + point(px(paragraph_dx(layer, *dx)), px(paragraph_dy(layer, *dy)));
+                            paint_lines(&layer.shaped, origin, wide, window, cx);
+                        }
                     }
-                    y += px(*line_height * (line.wrap_boundaries.len() + 1) as f32);
-                }
+                });
+            }
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
+                paint_lines(&shaped, bounds.origin, bounds, window, cx);
             });
         },
     )
     .w(px(width.max(0.0)))
     .h(px(height.max(0.0)))
+}
+
+/// The paragraph's text as the shaper sees it, fragments joined.
+pub(crate) fn paragraph_text(paragraph: &ParagraphFlat) -> String {
+    paragraph.fragments.iter().map(fragment_text).collect()
+}
+
+/// The byte offset in the paragraph's text closest to a point in its box.
+pub(crate) fn text_index_at(
+    paragraph: &ParagraphFlat,
+    width: f32,
+    x: f32,
+    y: f32,
+) -> Option<usize> {
+    let shaped = TEXT_SERVICE.get()?.shape(paragraph, width);
+    let mut top = 0.0f32;
+    let mut offset = 0usize;
+    let last = shaped.lines.len().checked_sub(1)?;
+    for (index, (line, line_height)) in shaped.lines.iter().zip(&shaped.line_heights).enumerate() {
+        let height = line_height * (line.wrap_boundaries.len() + 1) as f32;
+        if y < top + height || index == last {
+            let local = point(px(x), px((y - top).max(0.0)));
+            let within = line
+                .closest_index_for_position(local, px(*line_height))
+                .unwrap_or_else(|nearest| nearest);
+            return Some(offset + within.min(line.len()));
+        }
+        top += height;
+        offset += line.len() + 1;
+    }
+    None
+}
+
+/// The rectangles `(x, y, width, height)` a byte range covers, row by row.
+pub(crate) fn text_range_rects(
+    paragraph: &ParagraphFlat,
+    width: f32,
+    range: std::ops::Range<usize>,
+) -> Vec<(f32, f32, f32, f32)> {
+    let mut rects = Vec::new();
+    let Some(shaped) = TEXT_SERVICE
+        .get()
+        .map(|service| service.shape(paragraph, width))
+    else {
+        return rects;
+    };
+    let mut top = 0.0f32;
+    let mut offset = 0usize;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let rows = line.wrap_boundaries.len() + 1;
+        let start = range.start.max(offset);
+        let end = range.end.min(offset + line.len());
+        if start < end || (range.start <= offset + line.len() && range.end > offset + line.len()) {
+            let from = start.saturating_sub(offset).min(line.len());
+            let to = end.saturating_sub(offset).min(line.len());
+            let lh = px(*line_height);
+            let a = line.position_for_index(from, lh).unwrap_or_default();
+            let b = line.position_for_index(to, lh).unwrap_or_default();
+            let row_a = (f32::from(a.y) / line_height).floor() as usize;
+            let row_b = (f32::from(b.y) / line_height).floor() as usize;
+            // A selection that runs on past this line's end covers its newline.
+            let newline = range.end > offset + line.len();
+            for row in row_a..=row_b.min(rows - 1) {
+                let x0 = if row == row_a { f32::from(a.x) } else { 0.0 };
+                let x1 = if row == row_b && !newline {
+                    f32::from(b.x)
+                } else if row == row_b {
+                    f32::from(b.x).max(shaped.width) + 4.0
+                } else {
+                    shaped.width.max(f32::from(a.x))
+                };
+                if x1 > x0 {
+                    rects.push((x0, top + row as f32 * line_height, x1 - x0, *line_height));
+                }
+            }
+        }
+        top += line_height * rows as f32;
+        offset += line.len() + 1;
+    }
+    rects
+}
+
+/// One alpha of a blurred shadow: the shaped text in that alpha and the offsets
+/// it is painted at.
+struct ShadowLayer {
+    shaped: Arc<ShapedParagraph>,
+    offsets: Vec<(f32, f32)>,
+    base: (f32, f32),
+}
+
+fn paragraph_dx(layer: &ShadowLayer, offset: f32) -> f32 {
+    layer.base.0 + offset
+}
+
+fn paragraph_dy(layer: &ShadowLayer, offset: f32) -> f32 {
+    layer.base.1 + offset
+}
+
+/// A Gaussian-weighted blur of the text's shadow, drawn as the text repeated on
+/// rings around the shadow's position. Each ring is painted in the alpha that,
+/// composited over every sample, leaves the shadow's own alpha where all of
+/// them overlap, so a thick glyph keeps its colour and a thin one fades out.
+fn shadow_layers(paragraph: &ParagraphFlat, width: f32) -> Vec<ShadowLayer> {
+    let Some(service) = TEXT_SERVICE.get() else {
+        return Vec::new();
+    };
+    let alpha = ((paragraph.shadow_color >> 24) as f32 / 255.0).min(0.999);
+    let rgb = paragraph.shadow_color & 0x00FF_FFFF;
+    let radius = paragraph.shadow_radius.max(0.0);
+    let base = (paragraph.shadow_dx, paragraph.shadow_dy);
+    // (distance from the centre, number of samples on that ring)
+    let mut rings: Vec<(f32, usize)> = vec![(0.0, 1)];
+    if radius > 0.0 {
+        const RINGS: usize = 4;
+        for ring in 1..=RINGS {
+            rings.push((radius * ring as f32 / RINGS as f32, 6 * ring));
+        }
+    }
+    let sigma = (radius / 2.0).max(0.001);
+    let weight = |distance: f32| (-(distance * distance) / (2.0 * sigma * sigma)).exp();
+    let total: f32 = rings
+        .iter()
+        .map(|(distance, count)| weight(*distance) * *count as f32)
+        .sum();
+    rings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (distance, count))| {
+            let ring_alpha = if radius > 0.0 {
+                1.0 - (1.0 - alpha).powf(weight(*distance) / total)
+            } else {
+                alpha
+            };
+            let color = (((ring_alpha * 255.0).round().max(1.0) as u32) << 24) | rgb;
+            let mut flat = paragraph.clone();
+            for fragment in &mut flat.fragments {
+                fragment.color = color;
+            }
+            let offsets = (0..*count)
+                .map(|point_index| {
+                    let angle = std::f32::consts::TAU * point_index as f32 / *count as f32
+                        + index as f32 * 0.5;
+                    (distance * angle.cos(), distance * angle.sin())
+                })
+                .collect();
+            Some(ShadowLayer {
+                shaped: service.shape(&flat, width),
+                offsets,
+                base,
+            })
+        })
+        .collect()
+}
+
+fn paint_lines(
+    shaped: &ShapedParagraph,
+    origin: gpui::Point<gpui::Pixels>,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    window: &mut gpui::Window,
+    cx: &mut App,
+) {
+    let mut y = origin.y;
+    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        if line
+            .paint(
+                point(origin.x, y),
+                px(*line_height),
+                shaped.text_align,
+                Some(bounds),
+                window,
+                cx,
+            )
+            .is_err()
+        {
+            log::error!("failed to paint a shaped React Native text line");
+        }
+        y += px(*line_height * (line.wrap_boundaries.len() + 1) as f32);
+    }
 }
 
 #[cfg(test)]

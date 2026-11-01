@@ -1357,7 +1357,22 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
         let Some(window) = handle.or_else(|| cx.active_window()) else {
             return;
         };
-        let Some(node) = focused_text_input(cx, window) else {
+        let focused =
+            focused_text_input(cx, window).filter(|node| node.read(cx).component == "TextInput");
+        let Some(node) = focused else {
+            // Selected `Text` takes Copy and Select All when no input is focused.
+            if let Some(selected) = crate::builtins::text_select::active_node(cx) {
+                match kind.as_str() {
+                    "copy" => {
+                        crate::builtins::text_select::copy_active(cx);
+                    }
+                    "selectAll" => selected.update(cx, |node, cx| {
+                        crate::builtins::text_select::select_all(node, cx)
+                    }),
+                    _ => {}
+                }
+                return;
+            }
             if debug {
                 log::info!("[desktop][menu] edit {kind}: no focused text input");
             }

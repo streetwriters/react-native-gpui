@@ -16,6 +16,7 @@ export type WindowState = {
   isFocused: boolean;
   isMinimized: boolean;
   scaleFactor: number;
+  topInset: number;
 };
 
 export type WindowHandle = {
@@ -54,6 +55,7 @@ export interface Spec extends TurboModule {
   windowOpen(options: WindowOpenOptions): Promise<WindowHandle>;
   windowList(): Promise<WindowList>;
   windowGetState(windowId: CodegenTypes.Int32): Promise<WindowState>;
+  windowGetStateSync(windowId: CodegenTypes.Int32): WindowState;
   windowClose(windowId: CodegenTypes.Int32, force: boolean): Promise<void>;
   windowFocus(windowId: CodegenTypes.Int32): Promise<void>;
   windowSetTitle(windowId: CodegenTypes.Int32, title: string): Promise<void>;

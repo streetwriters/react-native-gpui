@@ -4,6 +4,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("GpuiImageLoader.h");
         fn rn_gpui_on_image_load_result(request_id: u64, width: f64, height: f64, error: String);
+        fn rn_gpui_on_image_progress(request_id: u64, loaded: i64, total: i64);
     }
 
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -65,8 +66,16 @@ pub mod ffi {
         pub pointer_events: u8, // 0 auto, 1 none, 2 box-none, 3 box-only
         pub cursor: u8,         // RN's `Cursor` ordinal; 0 = auto
         pub shadows: Vec<ShadowF>,
-        pub transform: [f32; 16], // column-major 4x4, resolved with layout
+        pub background_json: String, // gradients with their size, position and repeat; empty = none
+        pub filter_json: String,     // `[[name, amount], ...]` from `filter`; empty = none
+        pub mix_blend_mode: u8,      // RN's `BlendMode` ordinal; 0 = normal
+        pub isolate: bool,           // `isolation: 'isolate'`
+        pub hit_slop: [f32; 4],      // `hitSlop`: left, top, right, bottom
+        pub transform: [f32; 16],    // column-major 4x4, resolved with layout
         pub has_transform: bool,
+        pub backface_hidden: bool, // `backfaceVisibility: 'hidden'`
+        /// Whether `transformOrigin` is in the matrix; when it is not, the view turns about its centre.
+        pub transform_origin_set: bool,
         pub test_id: String,
         pub accessibility_label: String,
         pub accessibility_hint: String,
@@ -120,6 +129,8 @@ pub mod ffi {
         pub letter_spacing: f32,
         pub underline: bool,
         pub strikethrough: bool,
+        pub text_transform: u8, // 0 none, 1 uppercase, 2 lowercase, 3 capitalize
+        pub font_variant: u32,  // RN's FontVariant bitmask
     }
 
     #[derive(Clone, Debug, Default)]
@@ -128,6 +139,13 @@ pub mod ffi {
         pub max_lines: i32, // 0 = unlimited
         pub text_align: u8, // 0 natural, 1 left, 2 center, 3 right, 4 justify, 5 start, 6 end
         pub ellipsize: u8,  // 0 tail, 1 head, 2 middle, 3 clip
+        pub adjusts_to_fit: bool,
+        pub selectable: bool,
+        pub min_font_scale: f32, // 0 = no lower bound
+        pub shadow_color: u32,   // ARGB, 0 = none
+        pub shadow_dx: f32,
+        pub shadow_dy: f32,
+        pub shadow_radius: f32,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,12 +174,10 @@ pub mod ffi {
     pub struct MountOp {
         pub kind: MountKind,
         pub tag: i32,
-        pub parent_tag: i32,           // Insert/Remove/Update, else -1
-        pub index: i32,                // Insert/Remove, else -1
-        pub component: String,         // "View", "Paragraph", "Image", "ScrollView", ...
-        pub native_view_name: String,  // Registered NativeViewFactory key
-        pub native_view_props: String, // JSON object supplied to the native view factory
-        pub frame: RectF,              // layoutMetrics.frame, relative to parent, DIPs
+        pub parent_tag: i32,   // Insert/Remove/Update, else -1
+        pub index: i32,        // Insert/Remove, else -1
+        pub component: String, // "View", "Paragraph", "Image", "ScrollView", ...
+        pub frame: RectF,      // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
@@ -238,6 +254,20 @@ pub mod ffi {
         pub height: f32,
     }
 
+    /// One laid-out row of a paragraph, for `onTextLayout`.
+    #[derive(Default)]
+    pub struct LineFlat {
+        pub text: String,
+        pub x: f32,
+        pub y: f32,
+        pub width: f32,
+        pub height: f32,
+        pub ascender: f32,
+        pub descender: f32,
+        pub cap_height: f32,
+        pub x_height: f32,
+    }
+
     extern "Rust" {
         fn rn_gpui_load_image(uri: String, request_id: u64);
         fn rn_gpui_image_is_cached(uri: &str) -> bool;
@@ -254,6 +284,13 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
+        /// Whether surfaces start right to left, and whether left and right
+        /// swap in that direction.
+        fn rn_gpui_layout_direction_rtl() -> bool;
+        fn rn_gpui_swap_left_and_right_in_rtl() -> bool;
+        /// A command Fabric dispatched to a built-in component other than
+        /// `TextInput`; `args_json` is the JSON array of its arguments.
+        fn rn_gpui_on_builtin_command(tag: i32, component: &str, name: &str, args_json: &str);
         /// A command Fabric dispatched to a host component. The generated C++
         /// dispatcher already validated the arguments against the spec and
         /// resolved the command to its index in the spec's `COMMANDS`.
@@ -273,6 +310,8 @@ pub mod ffi {
             max_width: f32,
             max_height: f32,
         ) -> MeasureResult;
+        /// Called on the JS/Fabric thread when a paragraph asks for `onTextLayout`.
+        fn rn_gpui_measure_lines(p: &ParagraphFlat, max_width: f32) -> Vec<LineFlat>;
         fn rn_gpui_log(level: i32, message: &str);
         fn rn_gpui_on_surface_stopped(surface_id: i32);
     }
@@ -489,7 +528,15 @@ pub mod ffi {
             scale: f32,
         );
         fn set_window_top_inset(self: Pin<&mut GpuiHost>, top: f32);
+        fn set_app_state(self: Pin<&mut GpuiHost>, state: &str);
+        fn emit_memory_warning(self: &GpuiHost);
         fn set_window_metrics(self: Pin<&mut GpuiHost>, width: f32, height: f32, scale: f32);
+        fn set_display_metrics(
+            self: Pin<&mut GpuiHost>,
+            screen_width: f32,
+            screen_height: f32,
+            font_scale: f32,
+        );
         fn set_system_appearance(self: Pin<&mut GpuiHost>, appearance: &str);
         fn rn_gpui_run_main_task(id: u64);
         fn stop_surface(self: Pin<&mut GpuiHost>, surface_id: i32);
@@ -532,8 +579,8 @@ pub use rust_module::{
 use std::sync::OnceLock;
 
 pub use ffi::{
-    CornersF, EdgesF, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat, RectF, ShadowF,
-    TextFragmentFlat, ViewPropsFlat,
+    CornersF, EdgesF, LineFlat, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat,
+    RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
 };
 
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
@@ -544,17 +591,24 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type LayoutDirectionHandler = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
+pub static LAYOUT_DIRECTION_HANDLER: OnceLock<LayoutDirectionHandler> = OnceLock::new();
+pub type BuiltinCommandHandler = Box<dyn Fn(i32, &str, &str, &str) + Send + Sync>;
 /// One command for one tag: the command's index and its validated arguments.
 /// Called on the JS/Fabric thread.
 pub type HostCommandHandler = Box<dyn Fn(i32, u32, Vec<ffi::HostCommandArg>) + Send + Sync>;
 pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
+pub type LinesHandler = Box<dyn Fn(&ffi::ParagraphFlat, f32) -> Vec<ffi::LineFlat> + Send + Sync>;
+
+pub static LINES_HANDLER: OnceLock<LinesHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
 pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::new();
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static BUILTIN_COMMAND_HANDLER: OnceLock<BuiltinCommandHandler> = OnceLock::new();
 pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
 pub type MainTaskHandler = Box<dyn Fn(u64) + Send + Sync>;
@@ -690,6 +744,24 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
     }
 }
 
+fn rn_gpui_layout_direction_rtl() -> bool {
+    LAYOUT_DIRECTION_HANDLER
+        .get()
+        .is_some_and(|handler| handler().0)
+}
+
+fn rn_gpui_swap_left_and_right_in_rtl() -> bool {
+    LAYOUT_DIRECTION_HANDLER
+        .get()
+        .map_or(true, |handler| handler().1)
+}
+
+fn rn_gpui_on_builtin_command(tag: i32, component: &str, name: &str, args_json: &str) {
+    if let Some(handler) = BUILTIN_COMMAND_HANDLER.get() {
+        handler(tag, component, name, args_json);
+    }
+}
+
 fn rn_gpui_on_host_command(tag: i32, command: u32, args: Vec<ffi::HostCommandArg>) {
     if let Some(handler) = HOST_COMMAND_HANDLER.get() {
         handler(tag, command, args);
@@ -742,6 +814,13 @@ fn rn_gpui_measure_text(
     match MEASURE_HANDLER.get() {
         Some(handler) => handler(p, max_width, max_height),
         None => ffi::MeasureResult::default(),
+    }
+}
+
+fn rn_gpui_measure_lines(p: &ffi::ParagraphFlat, max_width: f32) -> Vec<ffi::LineFlat> {
+    match LINES_HANDLER.get() {
+        Some(handler) => handler(p, max_width),
+        None => Vec::new(),
     }
 }
 

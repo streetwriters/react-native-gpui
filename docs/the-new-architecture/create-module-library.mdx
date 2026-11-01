@@ -1,0 +1,152 @@
+---
+id: create-module-library
+title: Create a library
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+A library packages native modules and components so that other apps can install them with npm. The CLI creates one for the desktop:
+
+```shell
+npx react-native create-library AwesomeStorage            # a Rust module
+npx react-native create-library AwesomeStorage --type cpp # a C++ module
+```
+
+| Option                  | Description                                                       |
+| ----------------------- | ----------------------------------------------------------------- |
+| `--type <rust\|cpp>`    | The native language. Defaults to `rust`.                          |
+| `--directory <path>`    | Where to create the library. Defaults to the name.                |
+| `--module-name <name>`  | The native TurboModule name, in PascalCase.                       |
+| `--package-name <name>` | The npm package name. Defaults to `react-native-awesome-storage`. |
+
+## Layout
+
+<Tabs groupId="language" queryString defaultValue="rust" values={[{label: 'Rust', value: 'rust'}, {label: 'C++', value: 'cpp'}]}>
+<TabItem value="rust">
+
+```
+react-native-awesome-storage/
+├── package.json
+├── react-native.config.js
+├── src/
+│   ├── NativeAwesomeStorage.ts   # the specification
+│   └── index.ts                  # the JavaScript API
+└── desktop/
+    ├── Cargo.toml
+    ├── build.rs
+    └── src/lib.rs                # the implementation
+```
+
+</TabItem>
+<TabItem value="cpp">
+
+```
+react-native-awesome-storage/
+├── package.json
+├── react-native.config.js
+├── src/
+│   ├── NativeAwesomeStorage.ts   # the specification
+│   └── index.ts                  # the JavaScript API
+└── desktop/
+    ├── CMakeLists.txt
+    └── cpp/
+        ├── RNAwesomeStorageModule.hpp
+        └── RNAwesomeStorageModule.cpp
+```
+
+</TabItem>
+</Tabs>
+
+The specification uses React Native's public `TurboModuleRegistry` API and TypeScript, so the same file also works for iOS and Android implementations. The JavaScript lives in `src/`, and everything native for desktop in `desktop/`.
+
+## package.json and the Codegen configuration
+
+```json title="package.json"
+{
+  "name": "react-native-awesome-storage",
+  "version": "0.1.0",
+  "main": "src/index.ts",
+  "files": ["src", "desktop", "react-native.config.js", "README.md"],
+  "codegenConfig": {
+    "name": "RNAwesomeStorageModuleSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
+  "peerDependencies": { "react-native": ">=0.76" }
+}
+```
+
+`codegenConfig` is React Native's, and is what tells Codegen where the specifications are. Set `type` to `components` for a library with host components, or `all` for both.
+
+## The desktop platform entry
+
+`react-native.config.js` tells autolinking how to build the desktop side:
+
+<Tabs groupId="language" queryString defaultValue="rust" values={[{label: 'Rust', value: 'rust'}, {label: 'C++', value: 'cpp'}]}>
+<TabItem value="rust">
+
+```js title="react-native.config.js"
+module.exports = {
+  dependency: {
+    platforms: {
+      desktop: { crate: 'rn-gpui-awesome-storage' },
+    },
+  },
+};
+```
+
+The crate is in `desktop/`, and autolinking adds it to the app. It registers its modules in a function called `rn_gpui_register`:
+
+```rust title="desktop/src/lib.rs"
+rn_gpui_module::include_specs!();
+
+pub fn rn_gpui_register() {
+    rn_gpui_module::register(native_awesome_storage_module::<AwesomeStorage>());
+}
+```
+
+The library's `Cargo.toml` names core's crates by version, as in any Rust module:
+
+```toml title="desktop/Cargo.toml"
+[dependencies]
+rn-gpui-module = "0.1"
+
+[build-dependencies]
+rn-gpui-module-build = "0.1"
+```
+
+</TabItem>
+<TabItem value="cpp">
+
+```js title="react-native.config.js"
+module.exports = {
+  dependency: {
+    platforms: {
+      desktop: {
+        cmake: 'desktop',
+        cppProvider: 'create_awesome_storage_module',
+      },
+    },
+  },
+};
+```
+
+`cmake` is the folder that holds `CMakeLists.txt`, and `cppProvider` names the function that creates the module.
+
+</TabItem>
+</Tabs>
+
+See [Autolinking](../autolinking) for every key.
+
+## Adding desktop to a library that supports iOS and Android
+
+You do not need a new library. Add a `desktop/` folder and a `platforms.desktop` entry to the `react-native.config.js` you already have, next to the `ios` and `android` entries. The specification and the JavaScript are shared, and only the native implementation is new.
+
+## Testing
+
+Test the JavaScript API with your usual unit tests. To test the native side, run the library in an app and drive it with the end-to-end test driver from `@react-native-gpui/testing`. See [Testing](https://reactnative.dev/docs/0.87/testing-overview).
+
+## Publishing
+
+Publish the package to npm like any other. Because the Rust crates and the C++ sources are part of the package (`files` lists `desktop`), the app that installs it builds the native code with its own toolchain. An app picks the library up with autolinking, so users need no setup beyond installing it.

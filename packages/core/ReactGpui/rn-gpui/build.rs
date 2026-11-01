@@ -18,6 +18,8 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
         "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
         "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiI18nManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiShare.ts",
         "../../src-gpui/src/private/specs/NativeGpuiPerfMonitor.ts",
         "../../src-gpui/src/private/specs/NativeGpuiTray.ts",
         "../../src-gpui/src/private/specs/NativeGpuiWindows.ts",
@@ -25,6 +27,8 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiContextMenu.ts",
         "../../src-gpui/src/private/specs/NativeGpuiDevMenu.ts",
         "../../src-gpui/src/private/specs/NativeGpuiShortcuts.ts",
+        "../../src-gpui/src/private/specs/NativeVibration.ts",
+        "../../src-gpui/src/private/specs/NativeSettingsManager.ts",
     ]);
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_CORE_RPATHS");

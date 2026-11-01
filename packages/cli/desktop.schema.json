@@ -112,6 +112,19 @@
         }
       }
     },
+    "urlSchemes": {
+      "description": "URL schemes that open this app, e.g. [\"myapp\"]. Packaging registers them with the operating system, and Linking delivers the opened URL as getInitialURL() or a url event.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9+.-]*$"
+      }
+    },
+    "singleInstance": {
+      "description": "Whether launching the app again hands its URL to the running copy and exits, instead of starting a second one. Defaults to true when urlSchemes is set.",
+      "type": "boolean"
+    },
     "devMenu": {
       "description": "Whether the development menu is available. Defaults to true in development builds.",
       "type": "boolean"

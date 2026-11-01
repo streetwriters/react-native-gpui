@@ -30,6 +30,8 @@ export type {
 export {
   DesktopWindow,
   useDesktopWindow,
+  useWindowFocus,
+  useWindowState,
 } from './src-gpui/src/private/desktop/windows';
 
 export type {

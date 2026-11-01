@@ -445,7 +445,14 @@ function main() {
  * The formats are this phase's alpha set for each OS. Each is installed the way
  * a user would install it, not run from `dist/`.
  */
+const URL_SCHEME = 'rngpuismoke';
+
 function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
+  // The installers register the scheme; the checks below read it back.
+  const configPath = path.join(projectRoot, 'desktop', 'desktop.json');
+  const desktopConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  desktopConfig.urlSchemes = [URL_SCHEME];
+  fs.writeFileSync(configPath, `${JSON.stringify(desktopConfig, null, 2)}\n`);
   run('npx', ['react-native', 'package-desktop'], {
     cwd: projectRoot,
     shell: process.platform === 'win32',
@@ -529,6 +536,7 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
       throw new Error(`the installer did not place a binary at ${installed}`);
     }
     checkLinkage(target, `${binaryName(manifest.name)}.exe`);
+    checkWindowsUrlScheme(installed);
     smokeInstalled({
       command: installed,
       cwd: target,
@@ -557,6 +565,7 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     throw new Error(`the deb did not place a binary at ${installed}`);
   }
   checkLinkage(extracted, path.join('usr', 'bin', binaryName(manifest.name)));
+  checkDesktopEntry(path.join(extracted, 'usr', 'share', 'applications'));
   // The libraries have to be in the directory the binary's rpath names. Asking
   // the loader rather than parsing ELF here: `ldd` reports a missing library as
   // "not found", which names the file instead of failing later with
@@ -602,6 +611,7 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
   if (!fs.existsSync(squashfs)) {
     throw new Error(`the AppImage did not extract to ${squashfs}`);
   }
+  checkDesktopEntry(squashfs);
   smokeInstalled({
     command: 'xvfb-run',
     args: ['-a', '-s', '-screen 0 1280x900x24', path.join(squashfs, 'AppRun')],
@@ -611,6 +621,71 @@ function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
     installRoot: squashfs,
     label: 'Linux AppImage',
   });
+}
+
+/**
+ * The NSIS installer registers the scheme under HKCU or HKLM, with a command
+ * that starts the installed executable and passes the URL.
+ */
+function checkWindowsUrlScheme(installedExe) {
+  const hives = ['HKCU', 'HKLM'];
+  for (const hive of hives) {
+    const key = `${hive}\\Software\\Classes\\${URL_SCHEME}`;
+    const found = spawnSync('reg', ['query', key, '/s'], { encoding: 'utf8' });
+    if (found.status !== 0) continue;
+    if (!/URL Protocol/u.test(found.stdout)) {
+      throw new Error(`${key} has no URL Protocol value:\n${found.stdout}`);
+    }
+    if (
+      !found.stdout
+        .toLowerCase()
+        .includes(path.basename(installedExe).toLowerCase())
+    ) {
+      throw new Error(
+        `${key} does not start ${installedExe}:\n${found.stdout}`,
+      );
+    }
+    process.stderr.write(`url scheme registered under ${hive}\n`);
+    return;
+  }
+  throw new Error(`the installer did not register ${URL_SCHEME}:// anywhere`);
+}
+
+/**
+ * A Linux package declares the scheme in its desktop entry, which is how a
+ * desktop environment learns the app opens those links.
+ */
+function checkDesktopEntry(root) {
+  const entries = listFiles(root).filter(name => name.endsWith('.desktop'));
+  if (entries.length === 0) {
+    throw new Error(`no desktop entry under ${root}`);
+  }
+  const registered = entries.some(entry => {
+    const text = fs.readFileSync(entry, 'utf8');
+    return (
+      new RegExp(`^MimeType=.*x-scheme-handler/${URL_SCHEME}`, 'mu').test(
+        text,
+      ) && /^Exec=.*%[uU]/mu.test(text)
+    );
+  });
+  if (!registered) {
+    throw new Error(
+      `no desktop entry under ${root} handles ${URL_SCHEME}:// with an %u argument:\n${entries.join('\n')}`,
+    );
+  }
+}
+
+function listFiles(root) {
+  const found = [];
+  const walk = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else found.push(full);
+    }
+  };
+  if (fs.existsSync(root)) walk(root);
+  return found;
 }
 
 /**
@@ -718,7 +793,7 @@ function checkRuntimeDlls(root) {
 /// `kernel32.dll` and friends live in Windows itself; the runtime's own
 /// libraries are distinctive enough to name.
 const RUNTIME_DLL =
-  /^(?:hermesvm|jsi|reactnative|rn_gpui|folly|glog|double-conversion)/iu;
+  /^(?:hermesvm|jsi|reactnative|rn_gpui|folly|glog|double-conversion|vcruntime|msvcp|concrt)/iu;
 
 /// Every `.dll` directly in one directory, as file names.
 function listDlls(directory) {
@@ -742,23 +817,28 @@ function listDlls(directory) {
 /// `objdump` is on the runner because the Rust toolchain brings it. A missing
 /// `objdump` is not a failure: the expected names below still have to be there.
 function importedDlls(root) {
-  let binary;
+  let binaries;
   try {
-    binary = fs
+    binaries = fs
       .readdirSync(root)
-      .find(name => name.toLowerCase().endsWith('.exe'));
+      .filter(name => /\.(?:exe|dll)$/iu.test(name));
   } catch {
     return [];
   }
-  if (binary === undefined) return [];
-  try {
-    const output = execFileSync('objdump', ['-p', path.join(root, binary)], {
-      encoding: 'utf8',
-    });
-    return [...output.matchAll(/DLL Name:\s*(\S+)/gu)].map(match => match[1]);
-  } catch {
-    return [];
+  const imports = new Set();
+  for (const binary of binaries) {
+    try {
+      const output = execFileSync('objdump', ['-p', path.join(root, binary)], {
+        encoding: 'utf8',
+      });
+      for (const match of output.matchAll(/DLL Name:\s*(\S+)/gu)) {
+        imports.add(match[1]);
+      }
+    } catch {
+      // Not a PE file objdump reads, or objdump is missing.
+    }
   }
+  return [...imports];
 }
 
 /// Where cargo puts the app's binaries: `CARGO_TARGET_DIR` when set (CI keeps

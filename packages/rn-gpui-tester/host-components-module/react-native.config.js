@@ -7,6 +7,8 @@ module.exports = {
           { name: 'FixtureChart' },
           { name: 'FixtureMeasuredLabel', measured: true },
           { name: 'FixtureCard', container: true },
+          { name: 'FixtureNativeProbe', nativeSurface: true },
+          { name: 'FixtureWebView', nativeSurface: true },
         ],
       },
     },

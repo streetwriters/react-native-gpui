@@ -61,6 +61,12 @@ sudo dnf install gcc-c++ make cmake pkgconf perl \
 sudo pacman -S base-devel cmake perl libxkbcommon libxkbcommon-x11 libxcb
 ```
 
+Check that everything is installed:
+
+```sh
+npx @react-native-gpui/cli doctor
+```
+
 ## Create an app
 
 ```sh

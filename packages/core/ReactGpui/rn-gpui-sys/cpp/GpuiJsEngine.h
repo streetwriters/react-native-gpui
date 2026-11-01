@@ -31,6 +31,12 @@ class GpuiFeatureFlagsOverrides
   bool cxxNativeAnimatedEnabled() override {
     return true;
   }
+
+  // Pressability's onHoverIn/onHoverOut ride on pointer enter and leave, which
+  // GPUI delivers. The mouse-event path it otherwise takes is for web.
+  bool shouldPressibilityUseW3CPointerEventsForHover() override {
+    return true;
+  }
 };
 
 struct GpuiJsEngineInfo {

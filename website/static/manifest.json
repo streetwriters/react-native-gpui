@@ -1,0 +1,84 @@
+{
+  "name": "react-native-gpui \u00b7 React Native for macOS, Windows and Linux",
+  "short_name": "react-native-gpui",
+  "description": "A framework for building native desktop apps for macOS, Windows and Linux using React",
+  "theme_color": "#20232a",
+  "background_color": "#20232a",
+  "display": "minimal-ui",
+  "orientation": "any",
+  "scope": "./",
+  "start_url": "./index.html",
+  "id": "./index.html",
+  "shortcuts": [
+    {
+      "name": "Documentation",
+      "short_name": "Docs",
+      "url": "/docs/getting-started",
+      "icons": [
+        {
+          "src": "img/pwa/manifest-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Core Components",
+      "short_name": "Components",
+      "url": "/docs/components-and-apis",
+      "icons": [
+        {
+          "src": "img/pwa/manifest-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Core APIs",
+      "short_name": "APIs",
+      "url": "/docs/accessibilityinfo",
+      "icons": [
+        {
+          "src": "img/pwa/manifest-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Blog",
+      "short_name": "Blog",
+      "url": "/blog",
+      "icons": [
+        {
+          "src": "img/pwa/manifest-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "icons": [
+    {
+      "src": "img/pwa/manifest-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "img/pwa/manifest-icon-192.maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "img/pwa/manifest-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "img/pwa/manifest-icon-512.maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

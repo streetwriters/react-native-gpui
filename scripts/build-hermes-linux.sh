@@ -37,7 +37,7 @@ if [[ -d "$patches_dir" ]]; then
     if git -C "$hermes_source" apply --reverse --check "$patch" >/dev/null 2>&1; then
       echo "Patch already applied: $(basename "$patch")"
     else
-      git -C "$hermes_source" apply "$patch"
+      git -C "$hermes_source" apply --whitespace=nowarn "$patch"
       echo "Applied patch: $(basename "$patch")"
     fi
   done
@@ -48,8 +48,9 @@ cmake -S "$hermes_source" -B "$hermes_build" -G Ninja \
   -DHERMES_ENABLE_NAPI=ON \
   -DHERMES_ENABLE_DEBUGGER=ON \
   -DHERMES_ENABLE_TEST_SUITE=OFF \
-  -DHERMES_ENABLE_INTL=OFF \
-  -DHERMES_ICU_RUNTIME_LOAD=ON
+  -DHERMES_ENABLE_INTL=ON \
+  -DHERMES_ICU_RUNTIME_LOAD=ON \
+  -DHERMES_ICU_HEADERS_DIR="$hermes_package/third_party/icu"
 cmake --build "$hermes_build" --target hermesvm hermesc -j "$jobs"
 
 mkdir -p "$platform_bin_root/$platform"

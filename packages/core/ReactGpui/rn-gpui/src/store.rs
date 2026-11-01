@@ -318,15 +318,17 @@ impl ViewStore {
         }
     }
 
-    /// Carries `delta` from `parent_tag` up to the surface root.
+    /// Carries `native` more native surfaces and `effects` more nodes painted
+    /// as groups from `parent_tag` up to the surface root.
     fn carry_native_surface_delta(
         &mut self,
         surface_id: i32,
         parent_tag: Option<i32>,
-        delta: i64,
+        native: i64,
+        effects: i64,
         cx: &mut Context<Self>,
     ) {
-        if delta == 0 {
+        if native == 0 && effects == 0 {
             return;
         }
         let mut parent = parent_tag;
@@ -338,23 +340,32 @@ impl ViewStore {
             let mut next = None;
             node.update(cx, |node, cx| {
                 next = node.parent_tag_cached();
-                let crossed = if delta > 0 {
-                    node.add_native_surface_descendants(delta as u32)
-                } else {
-                    node.sub_native_surface_descendants((-delta) as u32)
-                };
+                let mut crossed = false;
+                if native > 0 {
+                    crossed |= node.add_native_surface_descendants(native as u32);
+                } else if native < 0 {
+                    crossed |= node.sub_native_surface_descendants((-native) as u32);
+                }
+                if effects > 0 {
+                    crossed |= node.add_effect_group_descendants(effects as u32);
+                } else if effects < 0 {
+                    crossed |= node.sub_effect_group_descendants((-effects) as u32);
+                }
                 if crossed {
                     cx.notify();
                 }
             });
             parent = next;
         }
+        if native == 0 {
+            return;
+        }
         if let Some(root) = self.roots.get(&surface_id).cloned() {
             root.update(cx, |root, cx| {
-                let crossed = if delta > 0 {
-                    root.add_native_surfaces(delta as u32)
+                let crossed = if native > 0 {
+                    root.add_native_surfaces(native as u32)
                 } else {
-                    root.sub_native_surfaces((-delta) as u32)
+                    root.sub_native_surfaces((-native) as u32)
                 };
                 if crossed {
                     cx.notify();
@@ -363,22 +374,31 @@ impl ViewStore {
         }
     }
 
-    /// Claims what `tag`'s subtree owes, so it is counted exactly once.
-    fn claim_native_surface_contribution(&mut self, tag: i32, cx: &mut Context<Self>) -> u32 {
+    /// Claims what `tag`'s subtree owes, so it is counted exactly once: its
+    /// native surfaces and its nodes painted as groups.
+    fn claim_native_surface_contribution(
+        &mut self,
+        tag: i32,
+        cx: &mut Context<Self>,
+    ) -> (u32, u32) {
         let Some(node) = self.nodes.get(&tag).cloned() else {
-            return 0;
+            return (0, 0);
         };
-        let (counted, descendants) = {
+        let (counted, native, effects) = {
             let node = node.read(cx);
-            (node.native_surface_counted, node.native_surface_descendants)
+            (
+                node.native_surface_counted,
+                node.native_surface_descendants,
+                node.effect_group_descendants,
+            )
         };
         if !counted {
-            return 0;
+            return (0, 0);
         }
         node.update(cx, |node, _cx| {
             node.take_native_surface_contribution();
         });
-        descendants
+        (native, effects)
     }
 
     /// Adds what `tag`'s subtree contributes to its ancestors.
@@ -392,15 +412,25 @@ impl ViewStore {
         let Some(node) = self.nodes.get(&tag).cloned() else {
             return;
         };
-        let (counted, descendants) = {
+        let (counted, native, effects) = {
             let node = node.read(cx);
-            (node.native_surface_counted, node.native_surface_descendants)
+            (
+                node.native_surface_counted,
+                node.native_surface_descendants,
+                node.effect_group_descendants,
+            )
         };
         if counted {
             return;
         }
         node.update(cx, |node, _cx| node.mark_native_surface_counted());
-        self.carry_native_surface_delta(surface_id, parent_tag, i64::from(descendants), cx);
+        self.carry_native_surface_delta(
+            surface_id,
+            parent_tag,
+            i64::from(native),
+            i64::from(effects),
+            cx,
+        );
     }
 
     /// Takes what `tag`'s subtree contributes back off its ancestors.
@@ -411,13 +441,20 @@ impl ViewStore {
         parent_tag: Option<i32>,
         cx: &mut Context<Self>,
     ) {
-        let contribution = self.claim_native_surface_contribution(tag, cx);
-        self.carry_native_surface_delta(surface_id, parent_tag, -i64::from(contribution), cx);
+        let (native, effects) = self.claim_native_surface_contribution(tag, cx);
+        self.carry_native_surface_delta(
+            surface_id,
+            parent_tag,
+            -i64::from(native),
+            -i64::from(effects),
+            cx,
+        );
     }
 
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
     /// so a parent always exists when its children arrive.
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
+        self.install_report_waker(cx);
         let surface_id = batch.surface_id;
         if batch.has_content_size {
             let size = (batch.content_width, batch.content_height);
@@ -477,6 +514,7 @@ impl ViewStore {
                 self.retain_subtree(tag, cx);
             }
         }
+        let anchors = self.capture_scroll_anchors(cx);
         for op in batch.ops.iter() {
             match op.kind {
                 MountKind::Create | MountKind::Update => {
@@ -501,14 +539,6 @@ impl ViewStore {
             }
             match op.kind {
                 MountKind::Create => {
-                    if op.component == "NativeViewHost" {
-                        log::info!(
-                            "[native-view] Fabric created tag={} factory='{}' props={}",
-                            op.tag,
-                            op.native_view_name,
-                            op.native_view_props
-                        );
-                    }
                     let host_reports = host_reports.clone();
                     let origin = self.origin_for(surface_id);
                     let node = cx.new(|_| {
@@ -537,14 +567,15 @@ impl ViewStore {
                     }
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let parent_tag = node.read(cx).parent_tag_cached();
-                        let contribution = self.claim_native_surface_contribution(op.tag, cx);
+                        let (native, effects) = self.claim_native_surface_contribution(op.tag, cx);
                         self.carry_native_surface_delta(
                             surface_id,
                             parent_tag,
-                            -i64::from(contribution),
+                            -i64::from(native),
+                            -i64::from(effects),
                             cx,
                         );
-                        if contribution > 0 {
+                        if native + effects > 0 {
                             if let Some(parent) =
                                 parent_tag.and_then(|tag| self.nodes.get(&tag).cloned())
                             {
@@ -709,21 +740,33 @@ impl ViewStore {
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
                         let previous_node = node.read(cx).component_node(cx);
-                        let (counted, before) = {
+                        let (counted, before, effects_before) = {
                             let node = node.read(cx);
-                            (node.native_surface_counted, node.native_surface_descendants)
+                            (
+                                node.native_surface_counted,
+                                node.native_surface_descendants,
+                                node.effect_group_descendants,
+                            )
                         };
                         node.update(cx, |node, cx| {
                             node.update_from_op(op);
+                            node.sync_effect_group();
                             cx.notify();
                         });
-                        let after = node.read(cx).native_surface_descendants;
-                        if counted && after != before {
+                        let (after, effects_after) = {
+                            let node = node.read(cx);
+                            (
+                                node.native_surface_descendants,
+                                node.effect_group_descendants,
+                            )
+                        };
+                        if counted && (after != before || effects_after != effects_before) {
                             let parent_tag = node.read(cx).parent_tag_cached();
                             self.carry_native_surface_delta(
                                 surface_id,
                                 parent_tag,
                                 i64::from(after) - i64::from(before),
+                                i64::from(effects_after) - i64::from(effects_before),
                                 cx,
                             );
                         }
@@ -770,6 +813,7 @@ impl ViewStore {
                 );
             }
         }
+        self.restore_scroll_anchors(anchors, cx);
         for observer in &observers {
             let tree = self.tree_view(cx);
             observer.after_batch(&tree, &handle, cx);
@@ -778,12 +822,45 @@ impl ViewStore {
         self.refresh_inherited(surface_id, cx);
         self.flush_host_reports(cx);
         self.host.on_render();
+        // A mount moves views against their scroll views; the store is borrowed
+        // here, so the modes are looked at once it is not.
+        cx.defer(crate::virtual_view::update);
         let hook = self.frame_hook.clone();
         let target = self.window_for(surface_id).unwrap_or(self.window);
         let _ = cx.update_window(target, |_root, window, _cx| {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+    }
+
+    /// The scroll views that keep their visible content in place, with the
+    /// item each is anchored to before a batch moves things.
+    fn capture_scroll_anchors(&self, cx: &Context<Self>) -> Vec<ScrollAnchor> {
+        self.nodes
+            .iter()
+            .filter_map(|(tag, node)| {
+                let node = node.read(cx);
+                let (min_index, threshold) = node.maintain_visible()?;
+                let (anchor, start) = node.visible_anchor(min_index, cx)?;
+                Some(ScrollAnchor {
+                    scroll: *tag,
+                    anchor,
+                    start,
+                    threshold,
+                })
+            })
+            .collect()
+    }
+
+    fn restore_scroll_anchors(&mut self, anchors: Vec<ScrollAnchor>, cx: &mut Context<Self>) {
+        let host = self.host.clone();
+        for anchor in anchors {
+            if let Some(node) = self.nodes.get(&anchor.scroll).cloned() {
+                node.update(cx, |node, cx| {
+                    node.keep_anchor(anchor.anchor, anchor.start, anchor.threshold, &host, cx);
+                });
+            }
+        }
     }
 
     /// Applies every host component report queued so far, in order.
@@ -793,11 +870,16 @@ impl ViewStore {
         }
         self.host_reports.release_flush();
         let reports = self.host_reports.take();
-        crate::counters::add(
-            crate::counters::Counter::HostReportsDelivered,
-            reports.len() as u64,
-        );
+        let mut delivered = 0;
         for report in reports {
+            // An event for a node that unmounted since it was sent has no one to
+            // receive it.
+            if let crate::host_component::HostReport::Event { tag, .. } = &report {
+                if !self.nodes.contains_key(tag) {
+                    continue;
+                }
+            }
+            delivered += 1;
             match report {
                 crate::host_component::HostReport::Size { tag, width, height } => {
                     crate::host_component::apply_size(tag, width, height);
@@ -815,6 +897,33 @@ impl ViewStore {
                 crate::host_component::HostReport::Event { send, .. } => send(),
             }
         }
+        crate::counters::add(crate::counters::Counter::HostReportsDelivered, delivered);
+    }
+
+    /// Lets an event sent outside a host call ask for its own delivery.
+    fn install_report_waker(&self, cx: &mut Context<Self>) {
+        let queue = std::rc::Rc::downgrade(&self.host_reports);
+        let app = cx.to_async();
+        self.host_reports.install_waker(move || {
+            let (queue, app) = (queue.clone(), app.clone());
+            app.foreground_executor()
+                .clone()
+                .spawn(async move {
+                    app.update(|cx| {
+                        let Some(queue) = queue.upgrade() else { return };
+                        queue.release_flush();
+                        if let Some(store) = store_from(cx) {
+                            store.update(cx, |store, cx| {
+                                store.flush_host_reports(cx);
+                                // React Native buffers events until its next
+                                // event beat; nothing else is about to tick it.
+                                store.host.on_render();
+                            });
+                        }
+                    });
+                })
+                .detach();
+        });
     }
 
     fn apply_commands(
@@ -1208,8 +1317,6 @@ mod test_app_context_tests {
             parent_tag: -1,
             index: 0,
             component: "View".into(),
-            native_view_name: String::new(),
-            native_view_props: "{}".into(),
             frame: RectF {
                 x: 10.0,
                 y: 12.0,
@@ -1365,6 +1472,78 @@ mod test_app_context_tests {
     /// The surface root's own count.
     fn root_count(cx: &mut TestAppContext, root: &gpui::Entity<SurfaceRootView>) -> u32 {
         root.read_with(cx, |root, _| root.native_surfaces)
+    }
+
+    /// The effect-group count read off one node.
+    fn effect_count_of(
+        cx: &mut TestAppContext,
+        store: &gpui::Entity<ViewStore>,
+        tag: i32,
+    ) -> Option<u32> {
+        cx.read_entity(store, |store, app| {
+            store
+                .nodes
+                .get(&tag)
+                .map(|node| node.read(app).effect_group_descendants)
+        })
+    }
+
+    fn translucent(mut create: MountOp) -> MountOp {
+        create.view.opacity = 0.5;
+        create
+    }
+
+    #[gpui::test]
+    fn a_translucent_node_is_counted_up_the_parent_chain_and_off_again(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                create(2, "View"),
+                insert(2, 1),
+                translucent(create(3, "View")),
+                insert(3, 2),
+            ],
+        );
+        assert_eq!(effect_count_of(cx, &store, 3), Some(1), "its own");
+        assert_eq!(effect_count_of(cx, &store, 2), Some(1));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
+
+        apply(cx, &store, vec![remove(3, 2)]);
+        assert_eq!(effect_count_of(cx, &store, 2), Some(0));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(0));
+    }
+
+    #[gpui::test]
+    fn a_node_that_becomes_opaque_gives_its_count_back(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        apply(
+            cx,
+            &store,
+            vec![
+                create(1, "View"),
+                insert(1, -1),
+                translucent(create(2, "View")),
+                insert(2, 1),
+            ],
+        );
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
+
+        let mut opaque = op(MountKind::Update);
+        opaque.tag = 2;
+        opaque.view.opacity = 1.0;
+        apply(cx, &store, vec![opaque]);
+        assert_eq!(effect_count_of(cx, &store, 2), Some(0));
+        assert_eq!(effect_count_of(cx, &store, 1), Some(0));
+
+        let mut faded = op(MountKind::Update);
+        faded.tag = 2;
+        faded.view.opacity = 0.25;
+        apply(cx, &store, vec![faded]);
+        assert_eq!(effect_count_of(cx, &store, 1), Some(1));
     }
 
     #[gpui::test]
@@ -1566,33 +1745,29 @@ mod test_app_context_tests {
     }
 
     #[gpui::test]
-    fn a_native_view_host_counts_only_once_it_has_a_factory(cx: &mut TestAppContext) {
-        let (store, root) = store_with_root(cx);
+    fn an_event_sent_after_its_node_unmounted_is_dropped(cx: &mut TestAppContext) {
+        let (store, _root) = store_with_root(cx);
+        register_native_component("EventSenderProbe");
+        apply(cx, &store, vec![create(1, "View"), insert(1, -1)]);
 
-        let mut create_host = create(1, "NativeViewHost");
-        create_host.native_view_name = String::new();
-        apply(cx, &store, vec![create_host, insert(1, -1)]);
-        assert_eq!(
-            count_of(cx, &store, 1),
-            Some(0),
-            "a host with no factory composites nothing"
-        );
-        assert_eq!(root_count(cx, &root), 0);
+        let delivered = std::rc::Rc::new(std::cell::Cell::new(0));
+        let (sender, queue) = store.read_with(cx, |store, _| {
+            let context = crate::host_component::HostContext::queued(1, store.host_reports.clone());
+            (context.event_sender(), store.host_reports.clone())
+        });
+        for _ in 0..2 {
+            let delivered = delivered.clone();
+            sender.send(move || delivered.set(delivered.get() + 1));
+        }
+        store.update(cx, |store, cx| store.flush_host_reports(cx));
+        assert_eq!(delivered.get(), 2, "the node is mounted");
 
-        let mut update = op(MountKind::Update);
-        update.tag = 1;
-        update.component = "NativeViewHost".into();
-        update.native_view_name = "MapView".into();
-        apply(cx, &store, vec![update]);
-        assert_eq!(count_of(cx, &store, 1), Some(1));
-        assert_eq!(root_count(cx, &root), 1, "the update reached the root");
-
-        let mut update = op(MountKind::Update);
-        update.tag = 1;
-        update.component = "NativeViewHost".into();
-        apply(cx, &store, vec![update]);
-        assert_eq!(count_of(cx, &store, 1), Some(0));
-        assert_eq!(root_count(cx, &root), 0);
+        apply(cx, &store, vec![remove(1, -1), delete(1)]);
+        let late = delivered.clone();
+        sender.send(move || late.set(late.get() + 1));
+        store.update(cx, |store, cx| store.flush_host_reports(cx));
+        assert_eq!(delivered.get(), 2, "the node is gone");
+        assert!(queue.is_empty());
     }
 
     #[gpui::test]
@@ -1797,7 +1972,8 @@ mod test_app_context_tests {
         let transformed = cx.read_entity(&store, |store, app| {
             crate::test_driver::node_frame(store, 101, app).expect("mounted frame")
         });
-        assert_eq!((transformed.x, transformed.y), (18.0, 18.0));
+        // Scaled about the centre of the 40 x 30 box at (10, 12), then moved by (8, 6).
+        assert_eq!((transformed.x, transformed.y), (-2.0, 25.5));
         assert_eq!((transformed.w, transformed.h), (80.0, 15.0));
 
         let clipped = cx.read_entity(&store, |store, app| {
@@ -1807,15 +1983,15 @@ mod test_app_context_tests {
                 RectF {
                     x: 0.0,
                     y: 0.0,
-                    w: 20.0,
-                    h: 20.0,
+                    w: 40.0,
+                    h: 30.0,
                 },
                 app,
             )
         });
         let clipped = clipped.expect("transformed frame intersects viewport");
-        assert_eq!((clipped.x, clipped.y), (18.0, 18.0));
-        assert_eq!((clipped.w, clipped.h), (2.0, 2.0));
+        assert_eq!((clipped.x, clipped.y), (0.0, 25.5));
+        assert_eq!((clipped.w, clipped.h), (40.0, 4.5));
 
         let outside = cx.read_entity(&store, |store, app| {
             crate::test_driver::node_visible_frame(
@@ -2433,6 +2609,43 @@ impl Render for SurfaceRootView {
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            // A press that started on a node follows the pointer wherever it
+            // goes: over a node, the node moves and ends it first; anywhere
+            // else it moves and ends here, so a drag that left every touchable
+            // still reaches React, which decides from it whether the press
+            // is kept.
+            .on_mouse_move(|event, window, cx| {
+                if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
+                    return;
+                }
+                if let Some(target) = crate::events::active_touch_target(cx) {
+                    crate::events::send(
+                        window,
+                        cx,
+                        &target,
+                        event.position,
+                        crate::events::Phase::Move,
+                        None,
+                        crate::node_view::modifier_state(event.modifiers),
+                    );
+                }
+            })
+            .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
+                if crate::events::press_belongs_to_window() {
+                    return;
+                }
+                if let Some(target) = crate::events::active_touch_target(cx) {
+                    crate::events::send(
+                        window,
+                        cx,
+                        &target,
+                        event.position,
+                        crate::events::Phase::End,
+                        Some(crate::events::Button::Left),
+                        crate::node_view::modifier_state(event.modifiers),
+                    );
+                }
+            })
             .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
@@ -2458,6 +2671,11 @@ impl Render for SurfaceRootView {
         }
         if let Some(monitor) = self.perf_monitor.clone() {
             root = root.child(monitor);
+        }
+        if _window.is_a11y_active() {
+            if let Some(announcement) = crate::accessibility::current_announcement() {
+                root = root.child(crate::accessibility::announcement_element(announcement));
+            }
         }
         // The hardware navigation buttons belong to the window, not the
         // surface: the handlers go on the outermost element so the in-window
@@ -2534,6 +2752,14 @@ impl Render for SurfaceRootView {
         }
         window_root.into_any_element()
     }
+}
+
+/// An item a scroll view keeps at the same place across a batch.
+struct ScrollAnchor {
+    scroll: i32,
+    anchor: i32,
+    start: f32,
+    threshold: Option<f32>,
 }
 
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {

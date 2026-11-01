@@ -11,6 +11,10 @@ packages/core/ReactGpui/rn-gpui-sys/cpp/third_party/
 # (the hermes-engine workflow diffs them against upstream).
 packages/hermes/API/
 packages/hermes/include/
+packages/hermes/third_party/
+# Runs in Hermes, not Node; the patches are diffs.
+packages/hermes/scripts/intl-smoke.js
+packages/hermes/patches/
 packages/hermes/public/
 examples/*/android/
 examples/*/ios/
