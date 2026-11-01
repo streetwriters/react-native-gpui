@@ -204,16 +204,28 @@ async fn serve_commands(
                     json!({"width": f32::from(size.width), "height":f32::from(size.height)})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
-            "focusWindow" => cx
-                .update_window(window, |_, window, _| {
-                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() != Ok("1") {
-                        window.activate_window();
-                        #[cfg(target_os = "windows")]
-                        bring_to_front(window);
+            "focusWindow" => {
+                let hwnd = cx.update_window(window, |_, window, _| {
+                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1") {
+                        return None;
                     }
-                    json!({"focused":true})
-                })
-                .unwrap_or_else(|error| json!({"error":error.to_string()})),
+                    window.activate_window();
+                    #[cfg(target_os = "windows")]
+                    return window_hwnd(window);
+                    #[cfg(not(target_os = "windows"))]
+                    None::<isize>
+                });
+                // The calls send activation messages that re-enter the window
+                // procedure, so they run after the window update has returned.
+                #[cfg(target_os = "windows")]
+                if let Ok(Some(hwnd)) = hwnd {
+                    bring_to_front(hwnd);
+                }
+                match hwnd {
+                    Ok(_) => json!({"focused":true}),
+                    Err(error) => json!({"error":error.to_string()}),
+                }
+            }
             "a11yTree" => {
                 let _ = cx.update_window(window, |_, window, _| {
                     #[cfg(target_os = "macos")]
@@ -2163,12 +2175,21 @@ fn composite_png(window: &gpui::Window) -> Result<(Vec<u8>, usize, usize), Strin
     capture_client(handle.hwnd.get() as HWND)
 }
 
+#[cfg(target_os = "windows")]
+fn window_hwnd(window: &gpui::Window) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    match HasWindowHandle::window_handle(window).ok()?.as_raw() {
+        RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
+        _ => None,
+    }
+}
+
 /// Takes the foreground for the window. A new process is refused it by
 /// default, so an Alt key press, which Windows counts as input from the
 /// process, comes first; the window is then raised above the others.
 #[cfg(target_os = "windows")]
-fn bring_to_front(window: &gpui::Window) {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+fn bring_to_front(hwnd: isize) {
     use windows_sys::Win32::UI::{
         Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU},
         WindowsAndMessaging::{
@@ -2176,13 +2197,7 @@ fn bring_to_front(window: &gpui::Window) {
             HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
         },
     };
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-        return;
-    };
-    let hwnd = win32.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
     // SAFETY: `hwnd` is the live handle of this process's window; the calls only
     // change its z-order and foreground state.
     unsafe {
