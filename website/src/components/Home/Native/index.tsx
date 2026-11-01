@@ -8,8 +8,8 @@
 import React from 'react';
 
 import Section from '../Section';
-import { ComponentAnatomy } from '../Illustrations';
 import SectionTitle from '../SectionTitle';
+import Anatomy from './Anatomy';
 
 import styles from './styles.module.css';
 
@@ -28,7 +28,7 @@ function Native() {
           </>
         }
       />
-      <ComponentAnatomy className={styles.flyoutIllustration} />
+      <Anatomy className={styles.flyoutIllustration} />
     </Section>
   );
 }

@@ -105,7 +105,7 @@ function TitleBar({
   }
 }
 
-function Window({
+export function Window({
   x,
   y,
   width,
@@ -141,7 +141,7 @@ function Window({
   );
 }
 
-function Skeleton({
+export function Skeleton({
   x,
   y,
   width,
@@ -299,101 +299,6 @@ export function HelloWindow({ className }: { className?: string }) {
           Get started
         </text>
       </Window>
-    </svg>
-  );
-}
-
-function Callout({
-  y,
-  fromX,
-  label,
-}: {
-  y: number;
-  fromX: number;
-  label: string;
-}) {
-  return (
-    <>
-      <path
-        d={`M${fromX} ${y}H452`}
-        stroke={BORDER}
-        strokeWidth={1.5}
-        strokeDasharray="4 4"
-      />
-      <circle
-        cx={fromX}
-        cy={y}
-        r={4}
-        fill={ICON}
-        stroke={BACKGROUND}
-        strokeWidth={2}
-      />
-      <text x={462} y={y + 5} fontSize={15} fontFamily={MONO} fill={TEXT}>
-        {label}
-      </text>
-    </>
-  );
-}
-
-/** A window with its UI pointed out as core components. */
-export function ComponentAnatomy({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 600 340"
-      fill="none"
-      role="img"
-      aria-label="A desktop window with its elements labelled View, Text, Image, ScrollView and TextInput"
-      className={className}
-    >
-      <Window x={8} y={8} width={420} height={320} chrome="macos">
-        <rect
-          x={20}
-          y={48}
-          width={110}
-          height={268}
-          rx={6}
-          stroke={BORDER}
-          strokeDasharray="4 4"
-        />
-        <Skeleton x={32} y={62} width={86} height={10} radius={5} />
-        <Skeleton x={32} y={84} width={66} height={10} radius={5} />
-        <Skeleton x={32} y={106} width={76} height={10} radius={5} />
-        <Skeleton x={146} y={48} width={270} height={86} radius={6} />
-        <text x={146} y={164} fontSize={17} fontWeight={600} fill={TEXT}>
-          Meeting notes
-        </text>
-        <rect
-          x={146}
-          y={178}
-          width={270}
-          height={70}
-          rx={6}
-          stroke={BORDER}
-          strokeDasharray="4 4"
-        />
-        <Skeleton x={158} y={190} width={232} height={8} radius={4} />
-        <Skeleton x={158} y={204} width={190} height={8} radius={4} />
-        <Skeleton x={158} y={218} width={214} height={8} radius={4} />
-        <Skeleton x={158} y={232} width={150} height={8} radius={4} />
-        <rect
-          x={146}
-          y={266}
-          width={270}
-          height={38}
-          rx={6}
-          stroke={BORDER}
-          strokeWidth={1.5}
-        />
-        <text x={160} y={290} fontSize={13} fill={TEXT} opacity={0.55}>
-          Write something…
-        </text>
-      </Window>
-      <Callout y={91} fromX={392} label="Image" />
-      <Callout y={158} fromX={292} label="Text" />
-      <Callout y={213} fromX={404} label="ScrollView" />
-      <Callout y={257} fromX={75} label="View" />
-      <Callout y={285} fromX={404} label="TextInput" />
     </svg>
   );
 }

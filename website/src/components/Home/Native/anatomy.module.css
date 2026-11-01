@@ -1,0 +1,124 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/* One 6 s loop; each element starts at its own --delay into the loop. */
+.anatomy {
+  overflow: visible;
+}
+
+.glow,
+.flash,
+.dropX,
+.dropY {
+  opacity: 0;
+  animation-duration: 6s;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  animation-delay: var(--delay, 0s);
+  animation-fill-mode: backwards;
+}
+
+.glow {
+  animation-name: glow;
+}
+
+@keyframes glow {
+  0% {
+    opacity: 0;
+  }
+  4%,
+  14% {
+    opacity: 1;
+  }
+  22%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.flash {
+  animation-name: flash;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0;
+  }
+  4%,
+  22% {
+    opacity: 1;
+  }
+  30%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.dropX,
+.dropY {
+  filter: drop-shadow(0 0 4px var(--ifm-color-primary));
+}
+
+.dropX {
+  animation-name: dropX;
+}
+
+.dropY {
+  animation-name: dropY;
+}
+
+@keyframes dropX {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  2% {
+    opacity: 1;
+  }
+  7% {
+    opacity: 1;
+    transform: translateX(var(--distance));
+  }
+  9%,
+  100% {
+    opacity: 0;
+    transform: translateX(var(--distance));
+  }
+}
+
+@keyframes dropY {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  2% {
+    opacity: 1;
+  }
+  6% {
+    opacity: 1;
+    transform: translateY(var(--distance));
+  }
+  8%,
+  100% {
+    opacity: 0;
+    transform: translateY(var(--distance));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow,
+  .flash,
+  .dropX,
+  .dropY {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+.code {
+  white-space: pre;
+}
