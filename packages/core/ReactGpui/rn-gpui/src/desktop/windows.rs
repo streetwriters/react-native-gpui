@@ -1015,57 +1015,74 @@ pub(crate) fn install_state_observer<T: 'static>(
     })
 }
 
+/// Reports focus changes to the mirror and to JS. JS can mount before the
+/// window's state is published and then holds no state, so the window counts as
+/// not focused until it is reported: one check runs once the install has
+/// finished and reports a window that is already active.
 fn install_activation_observer(
     window: &mut gpui::Window,
     cx: &mut gpui::Context<SurfaceRootView>,
     key: u32,
 ) -> Subscription {
-    let mut last = window.is_window_active();
+    let last = std::rc::Rc::new(std::cell::Cell::new(false));
+    window.defer(cx, {
+        let last = last.clone();
+        move |window, cx| report_activation(window, cx, key, &last)
+    });
     cx.observe_window_activation(window, move |_root, window, cx| {
-        let active = window.is_window_active();
-        if active == last {
-            return;
-        }
-        last = active;
-        super::window_mirror::patch(key, &[("isFocused", json!(active))]);
-        super::app_state::schedule(cx);
-        let Some(store) = cx.try_global::<StoreGlobal>() else {
-            return;
-        };
-        let host = store.0.read(cx).host.clone();
-        if active && key == MAIN_WINDOW_KEY {
-            // The text scale is changed in system settings, outside the app.
-            super::display::report(window, cx, &host);
-        }
-        let name = if active {
-            "gpuiDesktop:windowFocus"
-        } else {
-            "gpuiDesktop:windowBlur"
-        };
-        host.emit_device_event_json(name, &json!({"windowId": key}).to_string());
-        if !active {
-            let is_popover = cx
-                .try_global::<crate::desktop::tray::TrayGlobal>()
-                .is_some_and(|tray| {
-                    let mut tray = tray.0.borrow_mut();
-                    if tray.popover == Some(key) {
-                        tray.popover = None;
-                        tray.popover_dismissed_at = Some(std::time::Instant::now());
-                        true
-                    } else {
-                        false
-                    }
-                });
-            if is_popover {
-                // Deferred: this observer runs inside the activation change's
-                // window update, and closing a window from there re-enters it,
-                // which GPUI reports as "RefCell already borrowed".
-                cx.defer(move |cx| {
-                    let _ = close_window(cx, key, true);
-                });
-            }
-        }
+        report_activation(window, cx, key, &last);
     })
+}
+
+fn report_activation(
+    window: &mut gpui::Window,
+    cx: &mut App,
+    key: u32,
+    last: &std::cell::Cell<bool>,
+) {
+    let active = window.is_window_active();
+    if active == last.get() {
+        return;
+    }
+    last.set(active);
+    super::window_mirror::patch(key, &[("isFocused", json!(active))]);
+    super::app_state::schedule(cx);
+    let Some(store) = cx.try_global::<StoreGlobal>() else {
+        return;
+    };
+    let host = store.0.read(cx).host.clone();
+    if active && key == MAIN_WINDOW_KEY {
+        // The text scale is changed in system settings, outside the app.
+        super::display::report(window, cx, &host);
+    }
+    let name = if active {
+        "gpuiDesktop:windowFocus"
+    } else {
+        "gpuiDesktop:windowBlur"
+    };
+    host.emit_device_event_json(name, &json!({"windowId": key}).to_string());
+    if !active {
+        let is_popover = cx
+            .try_global::<crate::desktop::tray::TrayGlobal>()
+            .is_some_and(|tray| {
+                let mut tray = tray.0.borrow_mut();
+                if tray.popover == Some(key) {
+                    tray.popover = None;
+                    tray.popover_dismissed_at = Some(std::time::Instant::now());
+                    true
+                } else {
+                    false
+                }
+            });
+        if is_popover {
+            // Deferred: this runs inside the activation change's window update,
+            // and closing a window from there re-enters it, which GPUI reports
+            // as "RefCell already borrowed".
+            cx.defer(move |cx| {
+                let _ = close_window(cx, key, true);
+            });
+        }
+    }
 }
 
 /// Asks the Modal shown last to close itself, as `onRequestClose`, and says
