@@ -5,6 +5,22 @@ react-native-gpui, packaged the way React Native ships its own engine: the
 public headers we compile against, plus the prebuilt VM and `hermesc` compiler
 for every platform we support.
 
+Part of [react-native-gpui](https://github.com/streetwriters/react-native-gpui), React Native for macOS, Windows and Linux.
+
+## Install
+
+Apps created with `npx @react-native-gpui/cli init` already depend on it. In an existing app:
+
+```sh
+npm install @react-native-gpui/hermes
+```
+
+The engine binaries for your platform are downloaded from the matching GitHub release the first time the app is built.
+
+The rest of this file describes how the package is built and maintained.
+
+## Build
+
 Everything here is built from one commit, recorded in `package.json`:
 
 ```json
@@ -180,3 +196,7 @@ grouping, compact and scientific notation, `signDisplay`, `roundingMode` and
 
 `scripts/intl-smoke.js` holds the assertions the `hermes-engine` workflow runs
 on every platform, and on Linux against ICU 70, ICU 74 and no ICU.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Hermes is MIT-licensed by Meta Platforms, Inc.
