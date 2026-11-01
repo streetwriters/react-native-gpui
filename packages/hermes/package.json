@@ -37,6 +37,7 @@
     "react-native.config.js",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
     "!**/*.test.js",
     "!**/*.test.mjs",
     "!**/*.test.ts",

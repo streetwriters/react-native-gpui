@@ -16,6 +16,7 @@
     "desktop",
     "react-native.config.js",
     "src",
+    "CHANGELOG.md",
     "!**/*.test.js",
     "!**/*.test.mjs",
     "!**/*.test.ts",

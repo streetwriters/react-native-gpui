@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import {
+  changelogProblems,
+  changelogSection,
   dependencyOrder,
   metadataProblems,
   publishablePackages,
   publishOrder,
+  releaseNotes,
   tarballProblems,
   versionProblems,
 } from './publish-npm.mjs';
@@ -146,6 +149,7 @@ describe('tarball contents', () => {
         manifest,
         [
           'LICENSE',
+          'CHANGELOG.md',
           'src/index.ts',
           'desktop/CMakeLists.txt',
           'desktop/Cargo.toml',
@@ -154,7 +158,7 @@ describe('tarball contents', () => {
       ),
     ).toEqual([]);
     expect(
-      tarballProblems(manifest, ['LICENSE', 'src/index.ts'], {
+      tarballProblems(manifest, ['LICENSE', 'CHANGELOG.md', 'src/index.ts'], {
         cmake: 'desktop',
       }),
     ).toEqual([
@@ -165,7 +169,60 @@ describe('tarball contents', () => {
   test('a tarball needs a license and no tests', () => {
     expect(tarballProblems(manifest, ['src/a.test.ts'], undefined)).toEqual([
       '@react-native-gpui/x: the tarball has no LICENSE',
+      '@react-native-gpui/x: the tarball has no CHANGELOG.md',
       '@react-native-gpui/x: the tarball includes the test src/a.test.ts',
     ]);
+  });
+});
+
+describe('changelogs', () => {
+  const CHANGELOG = `# Changelog
+
+## 0.87.1-alpha.0 - 2026-12-01
+
+- Fixed a thing.
+
+## 0.87.0-alpha.0 - 2026-11-01
+
+- First release.
+`;
+
+  test('a section is the lines under its heading', () => {
+    expect(changelogSection(CHANGELOG, '0.87.0-alpha.0')).toBe(
+      '- First release.',
+    );
+    expect(changelogSection(CHANGELOG, '0.87.1-alpha.0')).toBe(
+      '- Fixed a thing.',
+    );
+    expect(changelogSection(CHANGELOG, '0.87.2')).toBeUndefined();
+  });
+
+  test('the version must match exactly', () => {
+    expect(changelogSection(CHANGELOG, '0.87.0')).toBeUndefined();
+  });
+
+  test('every package in the repository has entries for its version', () => {
+    expect(changelogProblems(publishablePackages())).toEqual([]);
+  });
+
+  test('a missing file or section is reported', () => {
+    const packages = [
+      entry('@react-native-gpui/a'),
+      entry('@react-native-gpui/b'),
+    ];
+    const read = dir => (dir.endsWith('/a') ? undefined : '# Changelog\n');
+    expect(changelogProblems(packages, read)).toEqual([
+      '@react-native-gpui/a: no CHANGELOG.md',
+      '@react-native-gpui/b: CHANGELOG.md has no entries for 0.87.0-alpha.0',
+    ]);
+  });
+
+  test('the release notes start with the section', () => {
+    const notes = releaseNotes(
+      { name: '@react-native-gpui/x', version: '0.87.0-alpha.0' },
+      CHANGELOG,
+    );
+    expect(notes.startsWith('- First release.\n')).toBe(true);
+    expect(notes).toContain('npm install @react-native-gpui/x@0.87.0-alpha.0');
   });
 });

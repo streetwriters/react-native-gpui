@@ -211,6 +211,9 @@ export function tarballProblems(manifest, files, desktop) {
   if (!files.some(file => /^LICEN[SC]E/iu.test(file))) {
     problems.push(`${name}: the tarball has no LICENSE`);
   }
+  if (!files.includes('CHANGELOG.md')) {
+    problems.push(`${name}: the tarball has no CHANGELOG.md`);
+  }
   for (const file of files) {
     if (/\.test\.[cm]?[jt]sx?$/u.test(file)) {
       problems.push(`${name}: the tarball includes the test ${file}`);
@@ -414,9 +417,50 @@ function released(manifest) {
   ]).ok;
 }
 
-function releaseNotes({ name, version, description }) {
+/**
+ * The body of a version's section in a CHANGELOG.md: the lines after its
+ * `## <version>` heading, up to the next `## ` heading. Undefined when the
+ * version has no section or the section is empty.
+ */
+export function changelogSection(text, version) {
+  const lines = text.replace(/\r\n/gu, '\n').split('\n');
+  const heading = new RegExp(
+    `^## \\[?${version.replace(/[.+]/gu, '\\$&')}\\]?(\\s|$)`,
+    'u',
+  );
+  const start = lines.findIndex(line => heading.test(line));
+  if (start === -1) return undefined;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex(line => line.startsWith('## '));
+  const body = (end === -1 ? rest : rest.slice(0, end)).join('\n').trim();
+  return body === '' ? undefined : body;
+}
+
+function readChangelog(dir) {
+  const file = path.join(dir, 'CHANGELOG.md');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined;
+}
+
+/** Every package needs a CHANGELOG.md with a section for its version. */
+export function changelogProblems(packages, read = readChangelog) {
+  const problems = [];
+  for (const { dir, manifest } of packages) {
+    const text = read(dir);
+    if (text === undefined) {
+      problems.push(`${manifest.name}: no CHANGELOG.md`);
+    } else if (changelogSection(text, manifest.version) === undefined) {
+      problems.push(
+        `${manifest.name}: CHANGELOG.md has no entries for ${manifest.version}`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** A release's notes: its changelog section, then how to install it. */
+export function releaseNotes({ name, version }, changelog) {
   return [
-    description,
+    changelogSection(changelog, version),
     '',
     '```sh',
     `npm install ${name}@${version}`,
@@ -441,6 +485,7 @@ function main(argv) {
     ...prebuiltProblems(),
     ...versionProblems(packages),
     ...metadataProblems(packages),
+    ...changelogProblems(packages),
   ];
   for (const { dir, manifest } of packages) {
     problems.push(
@@ -501,7 +546,7 @@ function main(argv) {
         '--title',
         `${manifest.name} ${manifest.version}`,
         '--notes',
-        releaseNotes(manifest),
+        releaseNotes(manifest, readChangelog(dir)),
         '--latest=false',
       ];
       if (manifest.version.includes('-')) args.push('--prerelease');

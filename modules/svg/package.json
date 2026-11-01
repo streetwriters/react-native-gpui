@@ -15,6 +15,7 @@
   "files": [
     "desktop",
     "react-native.config.js",
+    "CHANGELOG.md",
     "!**/*.test.js",
     "!**/*.test.mjs",
     "!**/*.test.ts",

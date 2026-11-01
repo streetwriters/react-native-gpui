@@ -19,6 +19,7 @@
     "assets",
     "react-native.config.cjs",
     "desktop.schema.json",
+    "CHANGELOG.md",
     "!**/*.test.js",
     "!**/*.test.mjs",
     "!**/*.test.ts",
