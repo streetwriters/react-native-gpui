@@ -34,7 +34,7 @@ A `'transparent'` or `'hidden'` title bar leaves the window's content behind the
 
 ## Drag regions
 
-With a transparent or hidden title bar, mark the view that acts as the bar with `desktopDragRegion`. Pressing it drags the window, and double-clicking it zooms or maximizes the window. Children that handle presses themselves, such as buttons, keep working.
+A transparent or hidden title bar has no area that drags the window until the app provides one: without it the window cannot be moved. Use [`TitleBar`](#titlebar), or mark the view that acts as the bar with `desktopDragRegion`. Pressing it drags the window, and double-clicking it zooms or maximizes the window. Children that handle presses themselves, such as buttons, keep working.
 
 ```tsx
 <View desktopDragRegion style={{ height: 40, flexDirection: 'row' }}>
