@@ -142,6 +142,10 @@
       "description": "Whether launching the app again hands its URL to the running copy and exits, instead of starting a second one. Defaults to true when urlSchemes is set.",
       "type": "boolean"
     },
+    "accessory": {
+      "description": "Whether the app runs with no Dock icon (macOS), as a launcher or a menu bar app does. Only an accessory app's windows can show over another app's full-screen Space. The tray block's accessory sets this too. Defaults to false.",
+      "type": "boolean"
+    },
     "devMenu": {
       "description": "Whether the development menu is available. Defaults to true in development builds.",
       "type": "boolean"

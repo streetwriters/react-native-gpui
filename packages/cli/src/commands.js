@@ -764,6 +764,9 @@ export function desktopLaunchConfig(config, configPath) {
     }
     chain.push(`    .traffic_light_position(${asFloat(x)}, ${asFloat(y)})`);
   }
+  if (config.accessory === true) {
+    chain.push('    .accessory(true)');
+  }
   chain.push(`    .dev_menu(${config.devMenu})`);
   if ((config.urlSchemes ?? []).length > 0) {
     const schemes = config.urlSchemes.map(scheme => JSON.stringify(scheme));

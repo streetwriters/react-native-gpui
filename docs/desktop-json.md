@@ -30,15 +30,16 @@ The `$schema` line gives your editor completion and validation.
 
 ## App
 
-| Key              | Type       | Description                                                                                                                                                     |
-| ---------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `productName`    | `string`   | The name people see: the title bar, the Dock, the menu bar and installers. Defaults to the app's `displayName`, then its `name`.                                |
-| `identifier`     | `string`   | The reverse-DNS bundle id, such as `com.example.myapp`. Defaults to an id derived from the app name.                                                            |
-| `version`        | `string`   | The app version. Defaults to the version in `package.json`.                                                                                                     |
-| `icon`           | `string`   | One square PNG, recommended 1024×1024, relative to `desktop/`. The icon of each operating system is generated from it. Without one, a placeholder icon is used. |
-| `urlSchemes`     | `string[]` | URL schemes that open the app, such as `["myapp"]`. Packaging registers them with the operating system, and [`Linking`](linking) delivers the URL.              |
-| `singleInstance` | `boolean`  | Whether opening the app again hands its URL to the running copy and exits. Defaults to `true` when `urlSchemes` is set.                                         |
-| `devMenu`        | `boolean`  | Whether the [development menu](debugging) is available. Defaults to `true` in development builds.                                                               |
+| Key              | Type       | Description                                                                                                                                                             |
+| ---------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `productName`    | `string`   | The name people see: the title bar, the Dock, the menu bar and installers. Defaults to the app's `displayName`, then its `name`.                                        |
+| `identifier`     | `string`   | The reverse-DNS bundle id, such as `com.example.myapp`. Defaults to an id derived from the app name.                                                                    |
+| `version`        | `string`   | The app version. Defaults to the version in `package.json`.                                                                                                             |
+| `icon`           | `string`   | One square PNG, recommended 1024×1024, relative to `desktop/`. The icon of each operating system is generated from it. Without one, a placeholder icon is used.         |
+| `urlSchemes`     | `string[]` | URL schemes that open the app, such as `["myapp"]`. Packaging registers them with the operating system, and [`Linking`](linking) delivers the URL.                      |
+| `singleInstance` | `boolean`  | Whether opening the app again hands its URL to the running copy and exits. Defaults to `true` when `urlSchemes` is set.                                                 |
+| `devMenu`        | `boolean`  | Whether the [development menu](debugging) is available. Defaults to `true` in development builds.                                                                       |
+| `accessory`      | `boolean`  | Whether the app runs with no Dock icon (macOS), as a launcher does. Only an accessory app's windows can show over another app's full-screen Space. Defaults to `false`. |
 
 ## window
 

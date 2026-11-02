@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `desktop.json` accepts `accessory`.
 - `desktop.json` accepts `window.titleBar: "none"`.
 - `desktop.json` accepts `window.windowButtons` and `window.shadow`.
 - `desktop.json` accepts `window.background`: `opaque`, `transparent`, `blurred` or `mica`.

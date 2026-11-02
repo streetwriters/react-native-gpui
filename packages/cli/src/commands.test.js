@@ -292,6 +292,18 @@ test('a window background reaches the launch chain, and opaque adds nothing', ()
   ).toThrow(/window.background must be/u);
 });
 
+test('an accessory app reaches the launch chain, and a regular one adds nothing', () => {
+  expect(
+    desktopLaunchConfig(
+      { accessory: true, devMenu: true },
+      'desktop/desktop.json',
+    ),
+  ).toContain('.accessory(true)');
+  expect(
+    desktopLaunchConfig({ devMenu: true }, 'desktop/desktop.json'),
+  ).not.toContain('.accessory(');
+});
+
 test('hiding the window buttons and the shadow reaches the launch chain', () => {
   const bare = desktopLaunchConfig(
     { window: { windowButtons: false, shadow: false }, devMenu: true },

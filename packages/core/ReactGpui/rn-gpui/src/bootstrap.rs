@@ -668,6 +668,9 @@ pub struct DesktopAppConfig {
     /// Whether the Dev Menu is available. `None` follows the build: on in a
     /// debug build, off in a release build.
     pub dev_menu: Option<bool>,
+    /// Whether the app runs with no Dock icon (macOS), which is also what lets a
+    /// window show over another app's full-screen Space.
+    pub accessory: bool,
     pub tray: Option<crate::desktop::tray::TrayConfig>,
     pub traffic_light_position: Option<(f32, f32)>,
     /// URL schemes that open this app.
@@ -707,6 +710,7 @@ impl DesktopAppConfig {
             window_buttons: true,
             shadow: true,
             dev_menu: None,
+            accessory: false,
             tray: None,
             traffic_light_position: None,
             url_schemes: Vec::new(),
@@ -740,6 +744,13 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn single_instance(mut self, enabled: bool) -> Self {
         self.single_instance = enabled;
+        self
+    }
+
+    /// Runs the app with no Dock icon. macOS only.
+    #[must_use]
+    pub fn accessory(mut self, accessory: bool) -> Self {
+        self.accessory = accessory;
         self
     }
 
@@ -1183,10 +1194,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
             crate::desktop::platform_window::set_dock_icon(std::path::Path::new(&icon));
         }
         // Has to happen before the first window opens.
-        if let Some(tray) = &config.tray {
-            if tray.accessory {
-                crate::desktop::platform_window::set_accessory_app(true);
-            }
+        if config.accessory || config.tray.as_ref().is_some_and(|tray| tray.accessory) {
+            crate::desktop::platform_window::set_accessory_app(true);
         }
         if let Some(on_app_ready) = config.on_app_ready.take() {
             on_app_ready(cx);

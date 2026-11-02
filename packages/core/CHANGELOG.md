@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `DesktopAppConfig::accessory` runs the app with no Dock icon on macOS, which lets its windows show over another app's full-screen Space.
 - A shortcut with `global: true` fires while no window of the app has focus, on macOS, Windows and X11. `Shortcuts.onFailure` reports keys the system refused.
 - `visibleOnAllWorkspaces` shows a window on every Space on macOS, over full-screen apps when it is also `alwaysOnTop`, as an option of `DesktopWindow.open` and as `setVisibleOnAllWorkspaces`.
 - A press on the empty part of a `pointerEvents="box-none"` view now reaches the view behind it, as in React Native, instead of stopping at the nearest ancestor.

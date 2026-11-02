@@ -67,6 +67,17 @@ For a palette or a HUD that looks like nothing but its own content, also set `wi
 
 Set them for the main window in [`desktop.json`](desktop-json#window), or per window in `DesktopWindow.open`.
 
+## Launcher windows
+
+A window that appears on demand, like a command palette, combines a few options so it shows on whatever the user is doing, including a full-screen app:
+
+- Set [`accessory`](desktop-json#app) in `desktop.json`, so the app has no Dock icon. This is what lets its windows show over another app's full-screen Space.
+- Open the window with `alwaysOnTop` and `visibleOnAllWorkspaces`, or call `setAlwaysOnTop` and `setVisibleOnAllWorkspaces` on the main window.
+- Use a [`'none'` title bar](desktop-title-bar) with a `'transparent'` or `'blurred'` background, and `windowButtons` and `shadow` set to `false`, so the window has no chrome of its own.
+- Summon it with a [global shortcut](desktop-keyboard-shortcuts#global-shortcuts), and hide it with `hide()` when the user dismisses it.
+
+A click outside a window goes to whatever is behind it, and macOS can treat a click on the desktop as "show the desktop". To catch the click, make the window as large as the screen and its background a nearly invisible, clickable layer, with the visible panel inside it. Closing on focus loss with `useWindowFocus()` is the simpler option where clicks can reach another app.
+
 ## The current window
 
 Inside a component, `useDesktopWindow()` returns the `DesktopWindow` that component is rendered in, and `useDesktopWindowId()` returns just its id. The main window has the id `MAIN_WINDOW_ID`.
