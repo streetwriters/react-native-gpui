@@ -14,4 +14,5 @@ None. This page has no props of its own on desktop.
 - `decelerationRate` applies to a touchpad flick on Windows and Linux: the fraction of its speed it keeps each millisecond, `0.998` for `'normal'` and `0.99` for `'fast'`. A mouse wheel has no momentum. On macOS the momentum comes from the system and the value has no effect.
 - `snapToInterval`, `snapToOffsets`, `snapToStart`, `snapToEnd` and `pagingEnabled` settle on the nearest point once a wheel, trackpad or drag scroll comes to rest.
 - `scrollEventThrottle` above one frame sends one event per interval, and the last one carries the offset the scroll ended at.
+- The scroll indicator appears when the pointer reaches the edge of a scrollable view, and its thumb can be dragged. `showsVerticalScrollIndicator` and `showsHorizontalScrollIndicator` turn it off.
 - `RefreshControl` shows progress but has no pull gesture.

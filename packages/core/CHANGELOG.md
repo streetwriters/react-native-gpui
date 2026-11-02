@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- The scroll indicator can be dragged, and appears when the pointer reaches the edge of a scrollable view.
 - The prebuilt runtime download reports its progress and where it was installed.
 - Fixed a view with a `borderWidth` and a `borderRadius` drawing a square border over its rounded background, as on the `NewAppScreen` cards.
 - Fixed a scroll view jumping up when a press re-rendered it after a trackpad flick had carried it past the end.

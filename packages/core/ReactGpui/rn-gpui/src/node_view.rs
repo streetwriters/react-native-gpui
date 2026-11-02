@@ -4091,6 +4091,7 @@ impl Render for RNNodeView {
             let strategy = crate::scroll_layers::scroll_strategy(
                 self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
             );
+            let mut thumb_apply: Option<crate::scroll_indicator::ApplyOffset> = None;
             if scroll.enabled {
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
@@ -4111,6 +4112,17 @@ impl Render for RNNodeView {
                     gesture: self.scroll_gesture.clone(),
                     deceleration: scroll.deceleration,
                 });
+                // A manual-offset container only follows its node's own render.
+                let manual = matches!(strategy, crate::scroll_layers::ScrollStrategy::ManualOffset);
+                let view = cx.entity();
+                let dragged = scroller.clone();
+                thumb_apply = Some(Rc::new(move |offset, window, cx| {
+                    dragged.handle.set_offset(offset);
+                    dragged.sync(window, cx);
+                    if manual {
+                        let _ = view.update(cx, |_, cx| cx.notify());
+                    }
+                }));
                 content =
                     content.on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
                         scroller.on_wheel(event, window, cx);
@@ -4201,6 +4213,9 @@ impl Render for RNNodeView {
                     self.scroll_indicator = Some(cx.new(|_| {
                         crate::scroll_indicator::ScrollIndicator::new(handle, horizontal)
                     }));
+                }
+                if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
+                    indicator.update(cx, |indicator, _| indicator.set_apply(apply));
                 }
                 element = element.children(self.scroll_indicator.clone());
             } else {
