@@ -3719,7 +3719,13 @@ impl Render for RNNodeView {
                     }));
             }
         }
-        if self.view.pointer_events != crate::events::POINTER_EVENTS_NONE {
+        // `none` and `box-none` never take a press for themselves: the press falls
+        // through to what is behind them, or to the nearest ancestor that takes it,
+        // and a child of a `box-none` view still takes its own.
+        if !matches!(
+            self.view.pointer_events,
+            crate::events::POINTER_EVENTS_NONE | crate::events::POINTER_EVENTS_BOX_NONE
+        ) {
             let node = cx.entity().downgrade();
             let down_node = node.clone();
             handlers
