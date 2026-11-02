@@ -572,6 +572,7 @@ test('scaffolding writes the matching range for every package it adds', () => {
     expect(result.devDependencies['@react-native-gpui/cli']).toBe(
       '~0.87.0-alpha.0',
     );
+    expect(result.scripts.desktop).toBe('react-native run-desktop');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

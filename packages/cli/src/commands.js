@@ -926,6 +926,7 @@ export function scaffoldDesktop(
     },
     scripts: {
       ...packageJson.scripts,
+      desktop: packageJson.scripts?.desktop ?? 'react-native run-desktop',
       'test:e2e':
         packageJson.scripts?.['test:e2e'] ??
         'vitest run --config desktop/vitest.e2e.config.ts',

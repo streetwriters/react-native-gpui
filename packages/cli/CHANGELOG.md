@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- `init` and `init-desktop` add a `desktop` script to `package.json`, so `npm run desktop` starts the app.
+
 ## 0.87.0-alpha.0 - 2026-11-01
 
 - First release.
