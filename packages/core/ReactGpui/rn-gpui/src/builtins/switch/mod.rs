@@ -350,6 +350,8 @@ mod tests {
             },
             false,
         );
+        // `flip` stamps the change with its own clock reading, so read after it.
+        let now = Instant::now();
         let (value, position, _) = sync(tag, &json!({"value": false}), false, now);
         assert!(
             value && position > 0.99,
