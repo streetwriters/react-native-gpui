@@ -4543,7 +4543,12 @@ impl Render for RNNodeView {
                 self.view.outline_style,
             ));
         }
+        // A text input shows its caret, and an app that sets an outline draws its
+        // own ring; the keyboard focus ring is for everything else.
+        let app_outline = self.view.outline_color != 0 && self.view.outline_width > 0.0;
         if window.last_input_was_keyboard()
+            && self.component != "TextInput"
+            && !app_outline
             && self
                 .focus_handle
                 .as_ref()
