@@ -109,6 +109,8 @@ impl NativeGpuiWindowsSpec for WindowsModule {
                     .as_deref()
                     .map(WindowBackground::from_name)
                     .unwrap_or_default(),
+                window_buttons: options.window_buttons,
+                shadow: options.shadow,
                 traffic_light_position: options
                     .traffic_light_position
                     .map(|position| (position.x as f32, position.y as f32)),

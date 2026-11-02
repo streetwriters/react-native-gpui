@@ -747,6 +747,12 @@ export function desktopLaunchConfig(config, configPath) {
       `    .background(react_native_gpui::WindowBackground::${variant})`,
     );
   }
+  if (settings.windowButtons === false) {
+    chain.push('    .window_buttons(false)');
+  }
+  if (settings.shadow === false) {
+    chain.push('    .shadow(false)');
+  }
   if (settings.trafficLightPosition !== undefined) {
     const { x, y } = settings.trafficLightPosition;
     if (x === undefined || y === undefined) {

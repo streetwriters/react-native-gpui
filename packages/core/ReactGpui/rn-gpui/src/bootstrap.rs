@@ -655,6 +655,10 @@ pub struct DesktopAppConfig {
     pub quit_on_last_window_closed: bool,
     pub title_bar: WindowTitleBar,
     pub background: WindowBackground,
+    /// Whether macOS draws the traffic lights.
+    pub window_buttons: bool,
+    /// Whether the window has the system shadow.
+    pub shadow: bool,
     /// Whether the Dev Menu is available. `None` follows the build: on in a
     /// debug build, off in a release build.
     pub dev_menu: Option<bool>,
@@ -694,6 +698,8 @@ impl DesktopAppConfig {
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
             background: WindowBackground::Opaque,
+            window_buttons: true,
+            shadow: true,
             dev_menu: None,
             tray: None,
             traffic_light_position: None,
@@ -777,6 +783,20 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn background(mut self, background: WindowBackground) -> Self {
         self.background = background;
+        self
+    }
+
+    /// Whether macOS draws the traffic lights. Other systems ignore it.
+    #[must_use]
+    pub fn window_buttons(mut self, show: bool) -> Self {
+        self.window_buttons = show;
+        self
+    }
+
+    /// Whether the window has the system shadow. Only macOS draws one yet.
+    #[must_use]
+    pub fn shadow(mut self, shadow: bool) -> Self {
+        self.shadow = shadow;
         self
     }
 
@@ -1307,6 +1327,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     resizable: true,
                     title_bar: config.title_bar,
                     background: config.background,
+                    window_buttons: Some(config.window_buttons),
+                    shadow: Some(config.shadow),
                     traffic_light_position: config.traffic_light_position,
                     ..Default::default()
                 },
@@ -1449,6 +1471,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .update(cx, |_root, window, _cx| window.scale_factor())
             .unwrap_or(estimated_scale);
         let scale = scale_override.unwrap_or(window_scale);
+        let _ = window.update(cx, |_root, window, _cx| {
+            crate::desktop::platform_window::style_window(
+                window,
+                config.window_buttons,
+                config.shadow,
+            )
+        });
 
         crate::desktop::windows::set_custom_title_bar(
             crate::desktop::windows::MAIN_WINDOW_KEY,

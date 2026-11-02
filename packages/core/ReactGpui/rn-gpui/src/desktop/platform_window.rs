@@ -948,6 +948,46 @@ pub fn style_as_popover(window: &mut gpui::Window) {
 #[cfg(not(target_os = "macos"))]
 pub fn style_as_popover(_window: &mut gpui::Window) {}
 
+/// The parts of a window's chrome AppKit draws itself: the traffic lights and
+/// the shadow. A window the app styles entirely draws its own.
+#[cfg(target_os = "macos")]
+pub fn style_window(window: &mut gpui::Window, buttons: bool, shadow: bool) {
+    use cocoa::base::{id, NO, YES};
+    use objc::{msg_send, sel, sel_impl};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    if buttons && shadow {
+        return;
+    }
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+        // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
+        unsafe {
+            let native: id = msg_send![appkit.ns_view.as_ptr() as id, window];
+            if native.is_null() {
+                return;
+            }
+            if !shadow {
+                let _: () = msg_send![native, setHasShadow: NO];
+            }
+            if !buttons {
+                // NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton.
+                for button in 0..3u64 {
+                    let button: id = msg_send![native, standardWindowButton: button];
+                    if !button.is_null() {
+                        let _: () = msg_send![button, setHidden: YES];
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn style_window(_window: &mut gpui::Window, _buttons: bool, _shadow: bool) {}
+
 /// `tray-icon` reports physical pixels; windows and menus are placed in points.
 #[cfg(target_os = "macos")]
 pub fn primary_screen_scale() -> f32 {

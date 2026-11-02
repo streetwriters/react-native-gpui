@@ -151,6 +151,9 @@ pub struct OpenWindowOptions {
     /// otherwise.
     pub title_bar: WindowTitleBar,
     pub background: WindowBackground,
+    /// `None` keeps the traffic lights and the shadow.
+    pub window_buttons: Option<bool>,
+    pub shadow: Option<bool>,
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
     pub popup: bool,
@@ -301,6 +304,13 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     let subscriptions = handle
         .update(cx, |_root, window, cx| {
             let mut subscriptions = Vec::new();
+            if !options.popup {
+                crate::desktop::platform_window::style_window(
+                    window,
+                    options.window_buttons.unwrap_or(true),
+                    options.shadow.unwrap_or(true),
+                );
+            }
             if options.popup {
                 crate::desktop::platform_window::style_as_popover(window);
                 // Set the popover's window hints while it is still unmapped,

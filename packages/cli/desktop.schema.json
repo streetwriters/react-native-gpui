@@ -95,6 +95,14 @@
           "default": "opaque",
           "enum": ["opaque", "transparent", "blurred", "mica"]
         },
+        "windowButtons": {
+          "description": "Whether macOS draws the traffic lights. Set it to false for a window the app styles entirely. Windows and Linux ignore it. Defaults to true.",
+          "type": "boolean"
+        },
+        "shadow": {
+          "description": "Whether the window has the system shadow. Only macOS draws one yet. Defaults to true.",
+          "type": "boolean"
+        },
         "trafficLightPosition": {
           "description": "Where the macOS traffic lights sit inside a transparent or hidden title bar, in points from the window's top-left corner. Ignored on Windows and Linux, which have no traffic lights. Defaults to the platform's own position.",
           "type": "object",

@@ -53,6 +53,8 @@ The main window.
 | `restoreState`         | `boolean`                                          | Whether the window remembers its size and position between launches. Defaults to `true`.                                      |
 | `titleBar`             | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar). Defaults to `'default'`.                                      |
 | `background`           | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](desktop-windows#transparent-windows). Defaults to `'opaque'`.        |
+| `windowButtons`        | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.                                          |
+| `shadow`               | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`; only macOS draws one yet.                                       |
 | `trafficLightPosition` | `{x, y}`                                           | Where the macOS traffic lights sit in a transparent or hidden title bar. Ignored elsewhere.                                   |
 | `menuBar`              | `boolean`                                          | Whether the main window shows a menu bar. Windows and Linux only; on macOS the bar belongs to the system. Defaults to `true`. |
 

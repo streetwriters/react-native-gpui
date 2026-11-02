@@ -292,6 +292,21 @@ test('a window background reaches the launch chain, and opaque adds nothing', ()
   ).toThrow(/window.background must be/u);
 });
 
+test('hiding the window buttons and the shadow reaches the launch chain', () => {
+  const bare = desktopLaunchConfig(
+    { window: { windowButtons: false, shadow: false }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(bare).toContain('.window_buttons(false)');
+  expect(bare).toContain('.shadow(false)');
+  const plain = desktopLaunchConfig(
+    { window: { windowButtons: true, shadow: true }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(plain).not.toContain('.window_buttons(');
+  expect(plain).not.toContain('.shadow(');
+});
+
 test('a traffic light position without both coordinates is rejected', () => {
   // The schema says `x` and `y` are both required; a launcher that silently used
   // the origin would move the traffic lights to the corner of the window.

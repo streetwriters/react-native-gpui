@@ -60,6 +60,10 @@ export interface OpenWindowOptions {
    * is the Windows 11 material and leaves the window opaque elsewhere.
    */
   background?: 'opaque' | 'transparent' | 'blurred' | 'mica';
+  /** Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it. */
+  windowButtons?: boolean;
+  /** Whether the window has the system shadow. Defaults to `true`; only macOS draws one yet. */
+  shadow?: boolean;
   trafficLightPosition?: { x: number; y: number };
   resizable?: boolean;
   alwaysOnTop?: boolean;
