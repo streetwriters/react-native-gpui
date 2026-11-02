@@ -212,6 +212,19 @@ function download(url, dest, redirects = 0, headers = {}) {
         res.resume();
         return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
       }
+      const total = Number(res.headers['content-length']);
+      let received = 0;
+      let reported = 0;
+      if (total > 0) {
+        res.on('data', chunk => {
+          received += chunk.length;
+          const percent = Math.floor((received / total) * 10) * 10;
+          if (percent > reported) {
+            reported = percent;
+            log(`downloaded ${percent}%`);
+          }
+        });
+      }
       const out = createWriteStream(dest);
       res.pipe(out);
       out.on('finish', () => resolve());
@@ -332,6 +345,7 @@ async function ensureDir(triple, { allowNetwork = true } = {}) {
     }
     rmSync(dir, { recursive: true, force: true });
     renameSync(stage, dir);
+    log(`installed ${platform} runtime in ${dir}`);
     return dir;
   } finally {
     if (temp) rmSync(temp, { force: true });
