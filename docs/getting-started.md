@@ -26,7 +26,7 @@ cd MyApp
 npm install
 ```
 
-The new app is a regular React Native app: it keeps its `ios/` and `android/` folders, and gets a `desktop/` folder for the desktop target.
+The new app is a regular React Native app with React Native's own starter screen: it keeps its `ios/` and `android/` folders, and gets a `desktop/` folder for the desktop target. The starter uses `react-native-safe-area-context`, so the app also gets `@react-native-gpui/safe-area-context` and that library pinned to the version it supports.
 
 </TabItem>
 <TabItem value="existing">

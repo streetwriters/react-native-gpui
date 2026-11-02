@@ -578,6 +578,28 @@ test('scaffolding writes the matching range for every package it adds', () => {
   }
 });
 
+test('scaffolding adds the desktop module of a library the app uses', () => {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rn-gpui-scaffold-'));
+  try {
+    fs.writeFileSync(nodePath.join(root, 'app.json'), '{"name":"App"}');
+    const result = scaffoldDesktop(root, {
+      name: 'app',
+      dependencies: {
+        'react-native': '0.87.1',
+        'react-native-safe-area-context': '^5.5.2',
+      },
+    });
+    expect(result.dependencies['react-native-safe-area-context']).toBe(
+      '~5.10.0',
+    );
+    expect(result.dependencies['@react-native-gpui/safe-area-context']).toBe(
+      '~5.10.0-alpha.0',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a React Native minor without a release is refused with a clear message', () => {
   const view = result => () => result;
   expect(() =>

@@ -877,6 +877,15 @@ function npmView(spec) {
   );
 }
 
+/// Libraries whose desktop side is a separate package, and the library
+/// `<major>.<minor>` that package supports.
+const desktopLibraryModules = {
+  'react-native-safe-area-context': {
+    module: '@react-native-gpui/safe-area-context',
+    version: '5.10',
+  },
+};
+
 export function scaffoldDesktop(
   projectRoot,
   packageJson,
@@ -970,6 +979,17 @@ export function scaffoldDesktop(
         packageJson.devDependencies?.['@react-native-gpui/cli'] ?? range,
     },
   };
+  for (const [library, { module, version }] of Object.entries(
+    desktopLibraryModules,
+  )) {
+    const declared = updatedPackageJson.dependencies[library];
+    if (declared === undefined) continue;
+    // The module's peer is the library's own `<major>.<minor>`.
+    if (!new RegExp(`^[~^]?${version.replace('.', '\\.')}\\b`).test(declared)) {
+      updatedPackageJson.dependencies[library] = `~${version}.0`;
+    }
+    updatedPackageJson.dependencies[module] ??= `~${version}.0-alpha.0`;
+  }
   return updatedPackageJson;
 }
 
@@ -1162,10 +1182,6 @@ export function initProject({ appName, destination, initArgs = [] }) {
     fs.writeFileSync(
       packagePath,
       `${JSON.stringify(scaffoldDesktop(destination, packageJson), null, 2)}\n`,
-    );
-    fs.copyFileSync(
-      path.join(templatesDir, 'app/App.tsx'),
-      path.join(destination, 'App.tsx'),
     );
     console.log(
       `Created standard React Native project ${appName} (iOS, Android and desktop) in ${destination}. Run npm install, then npx react-native run-desktop.`,
