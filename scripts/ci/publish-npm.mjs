@@ -2,13 +2,16 @@
 // Checks everything a release depends on, then publishes the @react-native-gpui
 // packages to npm and creates a GitHub release for each.
 //
-//   node scripts/ci/publish-npm.mjs [--check-only | --dry-run] [--local]
+//   node scripts/ci/publish-npm.mjs [--check-only | --dry-run] [--local] [--stage]
 //
 // --check-only runs the checks; --dry-run also packs and runs `npm publish
 // --dry-run`. --local publishes from a developer machine, without npm
-// provenance, which only CI can sign. Modules are published before packages,
-// each group in dependency order. A rerun skips what is already on npm and
-// already released.
+// provenance, which only CI can sign. --stage uses `npm stage publish`: each
+// version waits for a maintainer to approve it with 2FA (`npm stage approve
+// <id>` or npmjs.com), and no GitHub releases are created; run again without
+// --stage after approval to create them. Modules are published before
+// packages, each group in dependency order. A rerun skips what is already on
+// npm, already staged and already released.
 //
 // cli, codegen, core, hermes and testing are versioned
 // `0.<react-native minor>.<patch>[-alpha.N]`; a module takes the version of the
@@ -471,10 +474,24 @@ export function releaseNotes({ name, version }, changelog) {
   ].join('\n');
 }
 
+/** `name@version` of every version waiting in the npm stage queue. */
+function stagedVersions() {
+  const result = run('npm', ['stage', 'list', '--json']);
+  if (!result.ok) return new Set();
+  return new Set(
+    JSON.parse(result.stdout)
+      .filter(
+        item => !['approved', 'rejected', 'published'].includes(item.status),
+      )
+      .map(item => `${item.packageName}@${item.version}`),
+  );
+}
+
 function main(argv) {
   const checkOnly = argv.includes('--check-only');
   const dryRun = argv.includes('--dry-run');
   const local = argv.includes('--local');
+  const stage = argv.includes('--stage');
   const packages = publishOrder(publishablePackages());
   const sha = run('git', ['rev-parse', 'HEAD']).stdout;
 
@@ -492,10 +509,15 @@ function main(argv) {
       ...tarballProblems(manifest, packFiles(dir), desktopConfig(dir)),
     );
   }
+  if (stage && !run('npm', ['stage', '--help']).ok) {
+    problems.push(
+      `npm: ${run('npm', ['--version']).stdout} has no \`npm stage\`; install npm 11 or newer`,
+    );
+  }
   if (!checkOnly && !dryRun) {
     if (!run('npm', ['whoami']).ok)
       problems.push('npm: not logged in (npm login)');
-    if (!run('gh', ['auth', 'status']).ok)
+    if (!stage && !run('gh', ['auth', 'status']).ok)
       problems.push('gh: not logged in (gh auth login)');
   }
   if (problems.length > 0) {
@@ -504,24 +526,45 @@ function main(argv) {
   }
 
   console.log('checks passed. Order:');
+  const staged = stage ? stagedVersions() : new Set();
   const pending = packages.map(entry => ({
     ...entry,
     published: onNpm(entry.manifest),
+    staged: staged.has(`${entry.manifest.name}@${entry.manifest.version}`),
     released: released(entry.manifest),
   }));
-  for (const { manifest, published, released: hasRelease } of pending) {
-    const state = [published && 'on npm', hasRelease && 'released'].filter(
-      Boolean,
-    );
+  for (const {
+    manifest,
+    published,
+    staged: isStaged,
+    released: hasRelease,
+  } of pending) {
+    const state = [
+      published && 'on npm',
+      isStaged && 'staged',
+      hasRelease && 'released',
+    ].filter(Boolean);
     console.log(
       `  ${manifest.name}@${manifest.version}${state.length ? ` (${state.join(', ')})` : ''}`,
     );
   }
   if (checkOnly) return;
 
-  for (const { dir, manifest, published, released: hasRelease } of pending) {
-    if (!published) {
-      const args = ['publish', '--access', 'public', '--tag', 'latest'];
+  for (const {
+    dir,
+    manifest,
+    published,
+    staged: isStaged,
+    released: hasRelease,
+  } of pending) {
+    if (!published && !isStaged) {
+      const args = [
+        ...(stage ? ['stage', 'publish'] : ['publish']),
+        '--access',
+        'public',
+        '--tag',
+        'latest',
+      ];
       if (!local) args.push('--provenance');
       if (dryRun) args.push('--dry-run');
       console.log(
@@ -534,7 +577,7 @@ function main(argv) {
       });
       if (result.status !== 0) process.exit(result.status ?? 1);
     }
-    if (!hasRelease && !dryRun) {
+    if (!hasRelease && !dryRun && !stage) {
       const args = [
         'release',
         'create',
@@ -559,6 +602,11 @@ function main(argv) {
       }
       console.log(`released ${releaseTag(manifest)}`);
     }
+  }
+  if (stage && !dryRun) {
+    console.log(
+      'Staged. Approve each version with `npm stage approve <id>` (ids: `npm stage list`) or on npmjs.com, then run again without --stage to create the GitHub releases.',
+    );
   }
 }
 
