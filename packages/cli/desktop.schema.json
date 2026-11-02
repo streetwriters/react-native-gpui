@@ -90,6 +90,11 @@
             }
           ]
         },
+        "background": {
+          "description": "What shows through the window where the app draws nothing opaque. 'transparent' is plain alpha transparency, so the app's own colors decide how much of the desktop shows; 'blurred' blurs what is behind the window; 'mica' is the Windows 11 material and leaves the window opaque elsewhere. The root view of the app has to be transparent too. Defaults to 'opaque'.",
+          "default": "opaque",
+          "enum": ["opaque", "transparent", "blurred", "mica"]
+        },
         "trafficLightPosition": {
           "description": "Where the macOS traffic lights sit inside a transparent or hidden title bar, in points from the window's top-left corner. Ignored on Windows and Linux, which have no traffic lights. Defaults to the platform's own position.",
           "type": "object",

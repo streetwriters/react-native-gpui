@@ -44,16 +44,17 @@ The `$schema` line gives your editor completion and validation.
 
 The main window.
 
-| Key                    | Type                                     | Description                                                                                                                   |
-| ---------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `title`                | `string`                                 | The title bar text. Defaults to `productName`.                                                                                |
-| `width`, `height`      | `number`                                 | The size in points. Defaults to 1024 × 768.                                                                                   |
-| `position`             | `{x, y}`                                 | Where the window opens. Omit it to let the platform place the window.                                                         |
-| `resizable`            | `boolean`                                | Whether the window can be resized. Defaults to `true`.                                                                        |
-| `restoreState`         | `boolean`                                | Whether the window remembers its size and position between launches. Defaults to `true`.                                      |
-| `titleBar`             | `'default' \| 'transparent' \| 'hidden'` | How the title bar is drawn. See [Title bar](desktop-title-bar). Defaults to `'default'`.                                      |
-| `trafficLightPosition` | `{x, y}`                                 | Where the macOS traffic lights sit in a transparent or hidden title bar. Ignored elsewhere.                                   |
-| `menuBar`              | `boolean`                                | Whether the main window shows a menu bar. Windows and Linux only; on macOS the bar belongs to the system. Defaults to `true`. |
+| Key                    | Type                                               | Description                                                                                                                   |
+| ---------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `title`                | `string`                                           | The title bar text. Defaults to `productName`.                                                                                |
+| `width`, `height`      | `number`                                           | The size in points. Defaults to 1024 × 768.                                                                                   |
+| `position`             | `{x, y}`                                           | Where the window opens. Omit it to let the platform place the window.                                                         |
+| `resizable`            | `boolean`                                          | Whether the window can be resized. Defaults to `true`.                                                                        |
+| `restoreState`         | `boolean`                                          | Whether the window remembers its size and position between launches. Defaults to `true`.                                      |
+| `titleBar`             | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar). Defaults to `'default'`.                                      |
+| `background`           | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](desktop-windows#transparent-windows). Defaults to `'opaque'`.        |
+| `trafficLightPosition` | `{x, y}`                                           | Where the macOS traffic lights sit in a transparent or hidden title bar. Ignored elsewhere.                                   |
+| `menuBar`              | `boolean`                                          | Whether the main window shows a menu bar. Windows and Linux only; on macOS the bar belongs to the system. Defaults to `true`. |
 
 ## tray
 

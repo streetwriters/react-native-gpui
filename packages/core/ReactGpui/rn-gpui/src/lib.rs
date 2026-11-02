@@ -35,7 +35,7 @@ pub(crate) mod virtual_view;
 mod bootstrap;
 mod http_client;
 mod resources;
-pub use bootstrap::{run, run_with, DesktopAppConfig, WindowTitleBar};
+pub use bootstrap::{run, run_with, DesktopAppConfig, WindowBackground, WindowTitleBar};
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.
 pub use http_client::RnHttpClient;

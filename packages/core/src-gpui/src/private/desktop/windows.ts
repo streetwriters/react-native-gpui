@@ -55,6 +55,11 @@ export interface OpenWindowOptions {
   x?: number;
   y?: number;
   titleBar?: 'default' | 'transparent' | 'hidden';
+  /**
+   * What shows through the window where the app draws nothing opaque. `'mica'`
+   * is the Windows 11 material and leaves the window opaque elsewhere.
+   */
+  background?: 'opaque' | 'transparent' | 'blurred' | 'mica';
   trafficLightPosition?: { x: number; y: number };
   resizable?: boolean;
   alwaysOnTop?: boolean;

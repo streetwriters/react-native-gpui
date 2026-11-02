@@ -288,6 +288,7 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         resizable: false,
         // A popover has no title bar at all; `popup` is what makes it frameless.
         title_bar: WindowTitleBar::Default,
+        background: Default::default(),
         traffic_light_position: None,
         role: WindowRoleOverride::TrayPopover,
         popup: true,

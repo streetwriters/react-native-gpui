@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `desktop.json` accepts `window.background`: `opaque`, `transparent`, `blurred` or `mica`.
 - `init` keeps React Native's own `App.tsx` and its new app screen instead of replacing it.
 - `init` and `init-desktop` add `@react-native-gpui/safe-area-context` to an app that uses `react-native-safe-area-context`, and pin that library to the version the module supports.
 - `run-desktop` downloads the prebuilt runtime before building, so its progress shows in the terminal instead of Cargo looking stuck.

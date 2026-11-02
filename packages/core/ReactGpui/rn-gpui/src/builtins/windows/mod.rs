@@ -1,6 +1,6 @@
 use rn_gpui_module::{FromValue, ModuleError, ModuleThread, Path, Value};
 
-use crate::bootstrap::WindowTitleBar;
+use crate::bootstrap::{WindowBackground, WindowTitleBar};
 use crate::builtins::main_thread::on_main;
 use crate::builtins::rn_gpui_specs::{
     NativeGpuiWindowsEvents, NativeGpuiWindowsSpec, WindowHandle, WindowList, WindowOpenOptions,
@@ -103,6 +103,11 @@ impl NativeGpuiWindowsSpec for WindowsModule {
                     .title_bar
                     .as_deref()
                     .map(WindowTitleBar::from_name)
+                    .unwrap_or_default(),
+                background: options
+                    .background
+                    .as_deref()
+                    .map(WindowBackground::from_name)
                     .unwrap_or_default(),
                 traffic_light_position: options
                     .traffic_light_position

@@ -586,6 +586,41 @@ impl WindowTitleBar {
     }
 }
 
+/// What shows through a window where the app draws nothing opaque.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowBackground {
+    #[default]
+    Opaque,
+    /// Plain alpha transparency: the app's own colors decide how much shows.
+    Transparent,
+    /// Transparency with what is behind the window blurred.
+    Blurred,
+    /// The Windows 11 Mica material; elsewhere the window stays opaque.
+    Mica,
+}
+
+impl WindowBackground {
+    /// What a `desktop.json` value or a `background` prop names. An unknown name
+    /// keeps the window opaque, for the same reason as [`WindowTitleBar::from_name`].
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "transparent" => Self::Transparent,
+            "blurred" => Self::Blurred,
+            "mica" => Self::Mica,
+            _ => Self::Opaque,
+        }
+    }
+
+    pub fn appearance(self) -> gpui::WindowBackgroundAppearance {
+        match self {
+            Self::Opaque => gpui::WindowBackgroundAppearance::Opaque,
+            Self::Transparent => gpui::WindowBackgroundAppearance::Transparent,
+            Self::Blurred => gpui::WindowBackgroundAppearance::Blurred,
+            Self::Mica => gpui::WindowBackgroundAppearance::MicaBackdrop,
+        }
+    }
+}
+
 /// Keeps the traffic lights inside the window they belong to.
 ///
 /// A position from `desktop.json` is app-authored, so it can name somewhere the
@@ -619,6 +654,7 @@ pub struct DesktopAppConfig {
     pub restore_window_state: bool,
     pub quit_on_last_window_closed: bool,
     pub title_bar: WindowTitleBar,
+    pub background: WindowBackground,
     /// Whether the Dev Menu is available. `None` follows the build: on in a
     /// debug build, off in a release build.
     pub dev_menu: Option<bool>,
@@ -657,6 +693,7 @@ impl DesktopAppConfig {
             restore_window_state: true,
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
+            background: WindowBackground::Opaque,
             dev_menu: None,
             tray: None,
             traffic_light_position: None,
@@ -734,6 +771,12 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn title_bar(mut self, title_bar: WindowTitleBar) -> Self {
         self.title_bar = title_bar;
+        self
+    }
+
+    #[must_use]
+    pub fn background(mut self, background: WindowBackground) -> Self {
+        self.background = background;
         self
     }
 
@@ -1263,6 +1306,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     height: Some(height),
                     resizable: true,
                     title_bar: config.title_bar,
+                    background: config.background,
                     traffic_light_position: config.traffic_light_position,
                     ..Default::default()
                 },
@@ -1272,6 +1316,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         startup_trace("opening GPUI window");
         let mut window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_background: config.background.appearance(),
             ..Default::default()
         };
         if config.title_bar.is_custom() {

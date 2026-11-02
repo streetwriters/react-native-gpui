@@ -732,6 +732,21 @@ export function desktopLaunchConfig(config, configPath) {
     const variant = settings.titleBar === 'hidden' ? 'Hidden' : 'Transparent';
     chain.push(`    .title_bar(react_native_gpui::WindowTitleBar::${variant})`);
   }
+  if (settings.background !== undefined && settings.background !== 'opaque') {
+    const variant = {
+      transparent: 'Transparent',
+      blurred: 'Blurred',
+      mica: 'Mica',
+    }[settings.background];
+    if (variant === undefined) {
+      throw new Error(
+        `desktop/desktop.json window.background must be opaque, transparent, blurred or mica: ${configPath}`,
+      );
+    }
+    chain.push(
+      `    .background(react_native_gpui::WindowBackground::${variant})`,
+    );
+  }
   if (settings.trafficLightPosition !== undefined) {
     const { x, y } = settings.trafficLightPosition;
     if (x === undefined || y === undefined) {

@@ -271,6 +271,27 @@ test('a custom title bar and the traffic light position reach the launch chain',
   expect(plain).not.toContain('.traffic_light_position(');
 });
 
+test('a window background reaches the launch chain, and opaque adds nothing', () => {
+  const blurred = desktopLaunchConfig(
+    { window: { background: 'blurred' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(blurred).toContain(
+    '.background(react_native_gpui::WindowBackground::Blurred)',
+  );
+  const opaque = desktopLaunchConfig(
+    { window: { background: 'opaque' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(opaque).not.toContain('.background(');
+  expect(() =>
+    desktopLaunchConfig(
+      { window: { background: 'glass' }, devMenu: true },
+      'desktop/desktop.json',
+    ),
+  ).toThrow(/window.background must be/u);
+});
+
 test('a traffic light position without both coordinates is rejected', () => {
   // The schema says `x` and `y` are both required; a launcher that silently used
   // the origin would move the traffic lights to the corner of the window.

@@ -1,7 +1,7 @@
 //! One `ViewStore` owns every window: Fabric tags are unique across the
 //! surfaces of a React instance, so nodes stay in one map.
 
-use crate::bootstrap::WindowTitleBar;
+use crate::bootstrap::{WindowBackground, WindowTitleBar};
 use crate::desktop::errors::{DesktopError, DesktopResult};
 use crate::desktop::platform_window;
 use crate::store::{store_from, StoreGlobal, SurfaceRootView};
@@ -150,6 +150,7 @@ pub struct OpenWindowOptions {
     /// platform's, which is what a secondary window gets unless it says
     /// otherwise.
     pub title_bar: WindowTitleBar,
+    pub background: WindowBackground,
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
     pub popup: bool,
@@ -217,6 +218,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             }),
         }),
         is_resizable: options.resizable,
+        window_background: options.background.appearance(),
         is_movable: !options.popup,
         window_min_size: Some(size(px(120.0), px(120.0))),
         // The tray popover is a normal, undecorated window on every platform,
