@@ -4344,8 +4344,25 @@ impl Render for RNNodeView {
                 true,
             ),
         ];
+        let radii = self.view.border_radii;
+        let rounded = radii.tl > 0.0 || radii.tr > 0.0 || radii.br > 0.0 || radii.bl > 0.0;
+        let uniform_border = rounded
+            && self.view.border_colors[0] != 0
+            && self
+                .view
+                .border_colors
+                .iter()
+                .all(|c| *c == self.view.border_colors[0])
+            && self.view.border_styles.iter().all(|s| *s == 0)
+            && self.view.border_widths.left > 0.0
+            && self.view.border_widths.left == self.view.border_widths.top
+            && self.view.border_widths.left == self.view.border_widths.right
+            && self.view.border_widths.left == self.view.border_widths.bottom;
         let mut border_rules = Vec::new();
         for (edge, x, y, length, thickness, horizontal) in edges {
+            if uniform_border {
+                break;
+            }
             let color = self.view.border_colors[edge];
             if color != 0 && thickness > 0.0 {
                 border_rules.extend(rule_segments(
@@ -4358,6 +4375,23 @@ impl Render for RNNodeView {
                     self.view.border_styles[edge],
                 ));
             }
+        }
+        if uniform_border {
+            // Strips cannot follow a rounded corner; GPUI paints a rounded border itself.
+            let mut ring = div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .border(px(self.view.border_widths.left * scale_x.min(scale_y)))
+                .border_color(style::color(self.view.border_colors[0]));
+            let radii = &mut ring.style().corner_radii;
+            let scale = scale_x.min(scale_y);
+            radii.top_left = Some(px(self.view.border_radii.tl * scale).into());
+            radii.top_right = Some(px(self.view.border_radii.tr * scale).into());
+            radii.bottom_right = Some(px(self.view.border_radii.br * scale).into());
+            radii.bottom_left = Some(px(self.view.border_radii.bl * scale).into());
+            element = element.child(ring);
         }
         if !border_rules.is_empty() {
             let mut border_clip = div()

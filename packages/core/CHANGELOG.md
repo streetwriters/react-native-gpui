@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Fixed a view with a `borderWidth` and a `borderRadius` drawing a square border over its rounded background, as on the `NewAppScreen` cards.
 - Fixed a scroll view jumping up when a press re-rendered it after a trackpad flick had carried it past the end.
 
 ## 0.87.0-alpha.0 - 2026-11-01
