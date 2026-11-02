@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `run-desktop` downloads the prebuilt runtime before building, so its progress shows in the terminal instead of Cargo looking stuck.
 - `init` and `init-desktop` add a `desktop` script to `package.json`, so `npm run desktop` starts the app.
 
 ## 0.87.0-alpha.0 - 2026-11-01

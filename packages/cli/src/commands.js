@@ -101,6 +101,32 @@ const run = (bin, args, options = {}) =>
     shell: options.shell ?? false,
   });
 
+/**
+ * Downloads the prebuilt runtime before Cargo runs, so the progress reaches the
+ * terminal: Cargo hides a build script's output until the script finishes. A
+ * failure is left to the build script, which falls back to building from source.
+ */
+function fetchPrebuiltRuntime(projectRoot, autolinkManifest) {
+  if (
+    process.env.RN_GPUI_BUILD_FROM_SOURCE ||
+    process.env.RN_GPUI_PREBUILT_DIR
+  ) {
+    return;
+  }
+  try {
+    const manifest = JSON.parse(fs.readFileSync(autolinkManifest, 'utf8'));
+    if (manifest.prebuilt === 'never') return;
+    const appRequire = createRequire(path.join(projectRoot, 'package.json'));
+    const script = path.join(
+      path.dirname(appRequire.resolve('@react-native-gpui/core/package.json')),
+      'scripts/prebuilt-binaries.mjs',
+    );
+    spawnSync(process.execPath, [script, 'ensure'], {
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+  } catch {}
+}
+
 function loadEngineBundle(projectRoot) {
   const appRequire = createRequire(path.join(projectRoot, 'package.json'));
   let platformPackageJson;
@@ -541,6 +567,10 @@ export async function runDesktop({
   if (!fs.existsSync(appCargoManifest)) {
     throw new Error(`missing desktop Cargo manifest: ${appCargoManifest}`);
   }
+  fetchPrebuiltRuntime(
+    projectRoot,
+    path.join(desktopRoot, 'autolink/autolink.json'),
+  );
   const cargoArgs = [noLaunch ? 'build' : 'run'];
   if (release) cargoArgs.push('--release');
   const cargoFeatures = (features ?? '')
