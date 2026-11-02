@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- Fixed a scroll view jumping up when a press re-rendered it after a trackpad flick had carried it past the end.
+
 ## 0.87.0-alpha.0 - 2026-11-01
 
 - First release of the React Native desktop platform for macOS, Windows and Linux, for React Native 0.87.

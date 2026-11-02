@@ -5506,7 +5506,14 @@ impl Scroller {
     }
 
     fn sync(&self, window: &mut Window, cx: &mut App) {
+        // The handle only clamps while painting, so a wheel event past the end
+        // leaves an offset beyond the content until the next frame.
+        let max = self.handle.max_offset();
         let scrolled = self.handle.offset();
+        let scrolled = point(
+            scrolled.x.clamp(-max.x, px(0.0)),
+            scrolled.y.clamp(-max.y, px(0.0)),
+        );
         let offset = point(
             -f32::from(scrolled.x) / self.scale.0.max(f32::EPSILON),
             -f32::from(scrolled.y) / self.scale.1.max(f32::EPSILON),
