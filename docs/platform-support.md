@@ -73,6 +73,7 @@ Every React Native 0.87 component and API is listed. "Supported" means it behave
 | [SafeAreaView](safeareaview)                                               | Supported | Insets for a title bar the app draws.                             |
 | [ScrollView](scrollview)                                                   | Supported | Momentum on Windows and Linux is simulated at `decelerationRate`. |
 | [SectionList](https://reactnative.dev/docs/0.87/sectionlist)               | Supported |                                                                   |
+| StatusBar                                                                  | Partial   | Desktop windows have no status bar: it renders nothing.           |
 | [Switch](switch)                                                           | Supported | Drawn in the style of each operating system.                      |
 | [Text](text)                                                               | Supported | `fontVariationSettings` is not in React Native 0.87.              |
 | [TextInput](textinput)                                                     | Partial   | IME composition is untested.                                      |

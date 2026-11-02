@@ -31,6 +31,10 @@
       "file": "src-gpui/Libraries/Components/RefreshControl/RefreshControl.desktop.js"
     },
     {
+      "type": "platform",
+      "file": "src-gpui/Libraries/Components/StatusBar/StatusBar.desktop.js"
+    },
+    {
       "type": "derived",
       "file": "src-gpui/Libraries/Components/ScrollView/ScrollView.desktop.js",
       "baseFile": "packages/react-native/Libraries/Components/ScrollView/ScrollView.js",

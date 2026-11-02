@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `StatusBar` renders nothing and its methods do nothing on desktop, so the default React Native app no longer fails on a missing native module.
 - `ScrollBar` styles the scrollbar of the nearest `ScrollView`, including a list's: thickness, colors, radius, margin, visibility, auto-hide, and drag events. It needs a new prebuilt runtime.
 - The scroll indicator can be dragged, and appears when the pointer reaches the edge of a scrollable view.
 - The prebuilt runtime download reports its progress and where it was installed.
