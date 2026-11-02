@@ -1187,6 +1187,11 @@ if(MSVC)
 
   if(RN_GPUI_UNITY_BUILD)
     rn_gpui_disable_unity_for_vendored("${CMAKE_CURRENT_BINARY_DIR}")
+    # The app's library sources come from several packages, whose file-scope
+    # names can collide once merged into one translation unit.
+    if(TARGET rn_gpui_app_turbo_modules)
+      set_target_properties(rn_gpui_app_turbo_modules PROPERTIES UNITY_BUILD OFF)
+    endif()
   endif()
 
   # RN's jsi CMakeLists globs every jsi/*.cpp, which drags in the POSIX memory
