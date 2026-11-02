@@ -3,6 +3,7 @@
 // packages to npm and creates a GitHub release for each.
 //
 //   node scripts/ci/publish-npm.mjs [--check-only | --dry-run] [--local] [--stage]
+//     [--skip-ci]
 //
 // --check-only runs the checks; --dry-run also packs and runs `npm publish
 // --dry-run`. --local publishes from a developer machine, without npm
@@ -11,7 +12,8 @@
 // <id>` or npmjs.com), and no GitHub releases are created; run again without
 // --stage after approval to create them. Modules are published before
 // packages, each group in dependency order. A rerun skips what is already on
-// npm, already staged and already released.
+// npm, already staged and already released. --skip-ci publishes without a
+// green CI run on HEAD.
 //
 // cli, codegen, core, hermes and testing are versioned
 // `0.<react-native minor>.<patch>[-alpha.N]`; a module takes the version of the
@@ -492,12 +494,13 @@ function main(argv) {
   const dryRun = argv.includes('--dry-run');
   const local = argv.includes('--local');
   const stage = argv.includes('--stage');
+  const skipCi = argv.includes('--skip-ci');
   const packages = publishOrder(publishablePackages());
   const sha = run('git', ['rev-parse', 'HEAD']).stdout;
 
   const problems = [
     ...gitProblems(),
-    ...ciProblems(sha),
+    ...(skipCi ? [] : ciProblems(sha)),
     ...hermesProblems(),
     ...prebuiltProblems(),
     ...versionProblems(packages),
@@ -523,6 +526,9 @@ function main(argv) {
   if (problems.length > 0) {
     console.error(problems.join('\n'));
     process.exit(1);
+  }
+  if (skipCi) {
+    console.warn(`warning: the CI check on ${sha.slice(0, 7)} was skipped`);
   }
 
   console.log('checks passed. Order:');
