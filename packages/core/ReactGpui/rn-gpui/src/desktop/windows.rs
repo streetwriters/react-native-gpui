@@ -309,6 +309,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                     window,
                     options.window_buttons.unwrap_or(true),
                     options.shadow.unwrap_or(true),
+                    options.title_bar,
                 );
             }
             if options.popup {

@@ -563,6 +563,10 @@ pub enum WindowTitleBar {
     /// No system title bar at all. GPUI only has "transparent" on macOS, so
     /// this is the same as [`WindowTitleBar::Transparent`] there.
     Hidden,
+    /// No system chrome at all. On macOS the window is borderless: no title bar,
+    /// border line or system corners, so the app draws every edge. Elsewhere this
+    /// is the same as [`WindowTitleBar::Hidden`].
+    Borderless,
 }
 
 impl WindowTitleBar {
@@ -575,6 +579,7 @@ impl WindowTitleBar {
         match name {
             "transparent" => Self::Transparent,
             "hidden" => Self::Hidden,
+            "none" => Self::Borderless,
             _ => Self::Default,
         }
     }
@@ -1476,6 +1481,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 window,
                 config.window_buttons,
                 config.shadow,
+                config.title_bar,
             )
         });
 
@@ -2467,6 +2473,10 @@ mod tests {
             WindowTitleBar::Transparent
         );
         assert_eq!(WindowTitleBar::from_name("hidden"), WindowTitleBar::Hidden);
+        assert_eq!(
+            WindowTitleBar::from_name("none"),
+            WindowTitleBar::Borderless
+        );
     }
 
     #[test]
@@ -2488,6 +2498,7 @@ mod tests {
         assert!(!WindowTitleBar::Default.is_custom());
         assert!(WindowTitleBar::Transparent.is_custom());
         assert!(WindowTitleBar::Hidden.is_custom());
+        assert!(WindowTitleBar::Borderless.is_custom());
     }
 
     #[test]

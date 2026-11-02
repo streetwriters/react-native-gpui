@@ -9,11 +9,12 @@ By default a window has the platform's title bar. To draw your own, hide or blen
 
 The `titleBar` option decides how the title bar is drawn. Set it for the main window in [`desktop.json`](desktop-json#window), or per window in `DesktopWindow.open`.
 
-| Value           | Result                                                                                                                       |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `'default'`     | The platform's own title bar.                                                                                                |
-| `'transparent'` | The window keeps its chrome, but the app draws under the title bar. On macOS the traffic lights stay on top of your own bar. |
-| `'hidden'`      | No title bar at all. The app draws and moves its own bar.                                                                    |
+| Value           | Result                                                                                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `'default'`     | The platform's own title bar.                                                                                                              |
+| `'transparent'` | The window keeps its chrome, but the app draws under the title bar. On macOS the traffic lights stay on top of your own bar.               |
+| `'hidden'`      | No title bar at all. The app draws and moves its own bar.                                                                                  |
+| `'none'`        | No system chrome at all. On macOS the window is borderless, with no border line or system corners; elsewhere it is the same as `'hidden'`. |
 
 On Linux, `'transparent'` and `'hidden'` both ask the compositor for client-side decorations. A window manager that refuses leaves the native title bar in place, so check `capabilities().clientDecorations` before relying on it.
 

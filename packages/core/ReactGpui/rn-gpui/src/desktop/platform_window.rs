@@ -948,15 +948,22 @@ pub fn style_as_popover(window: &mut gpui::Window) {
 #[cfg(not(target_os = "macos"))]
 pub fn style_as_popover(_window: &mut gpui::Window) {}
 
-/// The parts of a window's chrome AppKit draws itself: the traffic lights and
-/// the shadow. A window the app styles entirely draws its own.
+/// The parts of a window's chrome AppKit draws itself: the traffic lights, the
+/// shadow and the line under the title bar. A window the app styles entirely
+/// draws its own.
 #[cfg(target_os = "macos")]
-pub fn style_window(window: &mut gpui::Window, buttons: bool, shadow: bool) {
+pub fn style_window(
+    window: &mut gpui::Window,
+    buttons: bool,
+    shadow: bool,
+    title_bar: crate::bootstrap::WindowTitleBar,
+) {
     use cocoa::base::{id, NO, YES};
     use objc::{msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    if buttons && shadow {
+    let custom_bar = title_bar.is_custom();
+    if buttons && shadow && !custom_bar {
         return;
     }
     let Ok(handle) = HasWindowHandle::window_handle(window) else {
@@ -965,12 +972,25 @@ pub fn style_window(window: &mut gpui::Window, buttons: bool, shadow: bool) {
     if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
         // SAFETY: `ns_view` comes from the window's raw handle, which GPUI keeps valid while the window lives.
         unsafe {
-            let native: id = msg_send![appkit.ns_view.as_ptr() as id, window];
+            let ns_view = appkit.ns_view.as_ptr() as id;
+            let native: id = msg_send![ns_view, window];
             if native.is_null() {
                 return;
             }
             if !shadow {
                 let _: () = msg_send![native, setHasShadow: NO];
+            }
+            if custom_bar {
+                // NSTitlebarSeparatorStyleNone: the app draws what is under the bar.
+                let _: () = msg_send![native, setTitlebarSeparatorStyle: 1i64];
+            }
+            if title_bar == crate::bootstrap::WindowTitleBar::Borderless {
+                // NSWindowStyleMaskBorderless: no title bar, border line or system
+                // corners. GPUI's window class still becomes key, so it takes input.
+                let _: () = msg_send![native, setStyleMask: 0u64];
+                // Changing the mask resets the first responder, and key events
+                // go to it.
+                let _: () = msg_send![native, makeFirstResponder: ns_view];
             }
             if !buttons {
                 // NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton.
@@ -986,7 +1006,13 @@ pub fn style_window(window: &mut gpui::Window, buttons: bool, shadow: bool) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn style_window(_window: &mut gpui::Window, _buttons: bool, _shadow: bool) {}
+pub fn style_window(
+    _window: &mut gpui::Window,
+    _buttons: bool,
+    _shadow: bool,
+    _title_bar: crate::bootstrap::WindowTitleBar,
+) {
+}
 
 /// `tray-icon` reports physical pixels; windows and menus are placed in points.
 #[cfg(target_os = "macos")]

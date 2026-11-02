@@ -729,7 +729,9 @@ export function desktopLaunchConfig(config, configPath) {
     // The default is the platform's own bar, so only the two custom kinds are
     // emitted. The enum is spelled out in full because the generated file has no
     // `use` lines to import it with.
-    const variant = settings.titleBar === 'hidden' ? 'Hidden' : 'Transparent';
+    const variant =
+      { hidden: 'Hidden', none: 'Borderless' }[settings.titleBar] ??
+      'Transparent';
     chain.push(`    .title_bar(react_native_gpui::WindowTitleBar::${variant})`);
   }
   if (settings.background !== undefined && settings.background !== 'opaque') {

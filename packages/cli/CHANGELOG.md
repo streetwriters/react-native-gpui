@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `desktop.json` accepts `window.titleBar: "none"`.
 - `desktop.json` accepts `window.windowButtons` and `window.shadow`.
 - `desktop.json` accepts `window.background`: `opaque`, `transparent`, `blurred` or `mica`.
 - `init` keeps React Native's own `App.tsx` and its new app screen instead of replacing it.

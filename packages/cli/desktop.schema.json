@@ -73,7 +73,7 @@
           "type": "boolean"
         },
         "titleBar": {
-          "description": "How the window's title bar is drawn. 'default' keeps the platform's; 'transparent' keeps the window's chrome but lets the app draw under it, which on macOS leaves the traffic lights over the app's own bar; 'hidden' removes it entirely, and the app must draw and move its own bar. On Linux 'transparent' and 'hidden' both ask the compositor for client-side decorations, and a window manager that refuses leaves the native title bar in place. Defaults to 'default'.",
+          "description": "How the window's title bar is drawn. 'default' keeps the platform's; 'transparent' keeps the window's chrome but lets the app draw under it, which on macOS leaves the traffic lights over the app's own bar; 'hidden' removes it entirely, and the app must draw and move its own bar; 'none' removes all system chrome, which on macOS means a borderless window with no border line or system corners. On Linux 'transparent' and 'hidden' both ask the compositor for client-side decorations, and a window manager that refuses leaves the native title bar in place. Defaults to 'default'.",
           "default": "default",
           "oneOf": [
             {
@@ -87,6 +87,10 @@
             {
               "type": "string",
               "enum": ["hidden"]
+            },
+            {
+              "type": "string",
+              "enum": ["none"]
             }
           ]
         },
