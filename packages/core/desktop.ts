@@ -89,6 +89,7 @@ export type {
   InstalledShortcut,
   ShortcutDefinition,
   ShortcutEvent,
+  ShortcutFailure,
   ShortcutHandler,
   ShortcutResolution,
 } from './src-gpui/src/private/desktop/shortcuts';

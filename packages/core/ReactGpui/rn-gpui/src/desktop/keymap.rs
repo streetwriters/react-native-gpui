@@ -56,6 +56,9 @@ pub struct Shortcut {
     pub scope: Option<String>,
     pub enabled: bool,
     pub allow_in_text_input: bool,
+    /// Registered with the operating system, so it fires with no window of the
+    /// app focused. Such a shortcut has no scope and is not part of the keymap.
+    pub global: bool,
 }
 
 impl Shortcut {
@@ -426,6 +429,10 @@ pub fn parse_shortcuts(value: &Value) -> Result<Vec<Shortcut>, String> {
                 .get("allowInTextInput")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            global: object
+                .get("global")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         });
     }
     Ok(shortcuts)
@@ -443,6 +450,7 @@ pub fn shortcuts_json(cx: &App) -> Value {
                     "scope": shortcut.scope,
                     "enabled": shortcut.enabled,
                     "allowInTextInput": shortcut.allow_in_text_input,
+                    "global": shortcut.global,
                 })
             })
             .collect(),
@@ -491,14 +499,23 @@ impl Default for ShortcutGlobal {
 /// `scope_tags` is the set of mounted scope tags in the focused surface: a
 /// binding is only useful where its scope element exists, so this is part of the
 /// signature that decides whether to rebuild.
-pub fn install(cx: &mut App, shortcuts: Vec<Shortcut>) {
+///
+/// Returns the global shortcuts the system would not register. An unchanged list
+/// returns none: JS was told about them the first time.
+pub fn install(
+    cx: &mut App,
+    shortcuts: Vec<Shortcut>,
+) -> Vec<crate::desktop::global_shortcut::Failure> {
     let signature = signature(&shortcuts);
     let state = &mut ensure_global(cx).0;
     if state.built == signature {
-        return;
+        return Vec::new();
     }
+    let failures = crate::desktop::global_shortcut::install(cx, &shortcuts);
+    let state = &mut ensure_global(cx).0;
     state.shortcuts = shortcuts;
     schedule_rebuild(cx);
+    failures
 }
 
 /// The shortcuts currently installed.
@@ -595,7 +612,7 @@ pub fn dispatch_to(cx: &mut App, tag: i32, id: &str, window: Option<&mut gpui::W
 
 /// Sends `gpuiDesktop:shortcut` for a shortcut with no scope element, which is
 /// the window/app scope and any shortcut whose scope has not mounted.
-fn emit_app_shortcut(cx: &mut App, id: &str, scope: Option<&str>) {
+pub(crate) fn emit_app_shortcut(cx: &mut App, id: &str, scope: Option<&str>) {
     let Some(store) = store_from(cx) else {
         return;
     };
@@ -619,12 +636,13 @@ fn signature(shortcuts: &[Shortcut]) -> String {
         .iter()
         .map(|shortcut| {
             format!(
-                "{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}",
                 shortcut.id,
                 shortcut.keys,
                 shortcut.scope.as_deref().unwrap_or(""),
                 shortcut.enabled,
-                shortcut.allow_in_text_input
+                shortcut.allow_in_text_input,
+                shortcut.global
             )
         })
         .collect();
@@ -688,7 +706,7 @@ fn rebuild_now(cx: &mut App) {
 
     let mut bindings = Vec::with_capacity(shortcuts.len());
     for shortcut in &shortcuts {
-        if !shortcut.enabled {
+        if !shortcut.enabled || shortcut.global {
             continue;
         }
         // `KeyBinding::new` panics on a malformed context, and a scope name is
@@ -847,6 +865,7 @@ mod tests {
             scope: Some("editor".to_string()),
             enabled: true,
             allow_in_text_input: false,
+            global: false,
         };
         assert_eq!(shortcut.context(), "rn-scope-editor && !rn-text-input");
 
@@ -865,6 +884,7 @@ mod tests {
             scope: None,
             enabled: true,
             allow_in_text_input: true,
+            global: false,
         };
         // The root context, which is the weakest binding in the keymap: any
         // scope overrides it.
@@ -896,6 +916,7 @@ mod tests {
             scope: None,
             enabled: true,
             allow_in_text_input: false,
+            global: false,
         };
         let binding = KeyBinding::new(
             &shortcut.keys,
@@ -1134,6 +1155,7 @@ mod tests {
             scope: None,
             enabled: true,
             allow_in_text_input: false,
+            global: false,
         };
         let two = Shortcut {
             id: "b".to_string(),
@@ -1141,6 +1163,7 @@ mod tests {
             scope: Some("editor".to_string()),
             enabled: true,
             allow_in_text_input: false,
+            global: false,
         };
         assert_eq!(
             signature(&[one.clone(), two.clone()]),

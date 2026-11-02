@@ -33,6 +33,7 @@ Keys are written as modifiers and a key joined by `+`: `mod+s`, `shift+alt+left`
 | `allowInTextInput` | Whether it still fires while a text input has focus. Defaults to `false`, which leaves typing to the input. |
 | `repeat`           | Whether a held key fires repeatedly. Defaults to `false`, so a save or an open runs once per press.         |
 | `description`      | Text for a menu or a settings list.                                                                         |
+| `global`           | Register it with the system, so it fires with no window of the app focused. See below.                      |
 
 The handler is kept in a ref, so a handler that closes over changing state does not re-register the shortcut on every render. The handler receives an event with the shortcut `id`, the `keys` it fired on and its `scope`.
 
@@ -54,6 +55,23 @@ The order in which a key press is handled is:
 2. The innermost `ShortcutScope`, then the scopes around it.
 3. Shortcuts with no scope, which belong to the window.
 4. Menu accelerators.
+
+## Global shortcuts
+
+A shortcut with `global: true` is registered with the operating system, so it fires while no window of your app has focus. That is what a launcher or a quick-capture window needs. Register it where there is no component, such as the app's entry file:
+
+```ts
+Shortcut.register({ id: 'palette.toggle', keys: 'alt+space', global: true });
+Shortcut.addHandler('palette.toggle', togglePalette);
+Shortcuts.onFailure(({ id, reason }) => console.warn(id, reason));
+```
+
+A global shortcut has the same ids, key syntax, handlers and user remapping as any other, with these differences:
+
+- It needs a modifier key, unless it is a function key, and it cannot be a chord.
+- It cannot have `when` or `allowInTextInput`; registering it with either throws.
+- The system may refuse the keys, because another app owns them or because the platform cannot do global shortcuts. `Shortcuts.onFailure` reports each refusal with a reason; without a listener it is logged as a warning.
+- macOS and Windows support it, and Linux supports it on X11 only. Wayland has no way for an app to register one, so every global shortcut fails there.
 
 ## Shortcuts outside components
 

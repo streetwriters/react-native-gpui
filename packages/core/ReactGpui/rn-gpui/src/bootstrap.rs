@@ -540,6 +540,7 @@ pub(crate) enum MainEvent {
         button: u8,
     },
     TrayMenuPerform(String),
+    GlobalShortcut(u32),
     MenuBarPerform(String),
     /// One desktop-shell command, run with the app context the main loop holds.
     /// It answers through the channel it was built with, which may be later:
@@ -1107,6 +1108,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
             height,
             button,
         });
+    }));
+    let global_shortcut_tx = tx.clone();
+    let _ = crate::desktop::global_shortcut::PRESS_HANDLER.set(Box::new(move |hotkey| {
+        let _ = global_shortcut_tx.send_blocking(MainEvent::GlobalShortcut(hotkey));
     }));
     let menu_bar_tx = tx.clone();
     let _ = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.set(Box::new(move |id| {
@@ -2213,6 +2218,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 },
                             )
                         });
+                    }
+                    MainEvent::GlobalShortcut(hotkey) => {
+                        cx.update(|cx| crate::desktop::global_shortcut::fire(cx, hotkey));
                     }
                     MainEvent::MenuBarPerform(id) => {
                         cx.update(|cx| crate::desktop::app_menu::trigger_item(cx, &id));

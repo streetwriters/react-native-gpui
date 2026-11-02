@@ -8,6 +8,7 @@ pub mod deep_link;
 pub mod dev_menu;
 pub mod display;
 pub mod errors;
+pub mod global_shortcut;
 pub mod gpui_menu;
 pub mod icon;
 pub mod keyboard;

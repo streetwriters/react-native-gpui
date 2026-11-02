@@ -43,6 +43,8 @@ sys-locale = "0.3"
 # would keep the GTK backend enabled no matter what the target block asked for).
 # macOS and Windows backends are not feature-gated, so they are unaffected.
 tray-icon = { version = "0.26", default-features = false }
+# Shortcuts that fire while no window of the app has focus.
+global-hotkey = "0.9"
 tungstenite = { version = "0.26", default-features = false, features = ["handshake"], optional = true }
 
 [lints.rust]
