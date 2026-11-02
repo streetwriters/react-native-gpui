@@ -2,6 +2,7 @@
 #include <react/runtime/GpuiDebug.h>
 
 #include <react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.h>
+#include <react/renderer/components/desktopscrollbar/DesktopScrollBar.h>
 #include <react/renderer/components/desktopswitch/DesktopSwitch.h>
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
@@ -770,6 +771,10 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
           *result,
           concreteComponentDescriptorProvider<
               ShortcutScopeComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<
+              DesktopScrollBarComponentDescriptor>());
       addProvider(
           *result,
           concreteComponentDescriptorProvider<

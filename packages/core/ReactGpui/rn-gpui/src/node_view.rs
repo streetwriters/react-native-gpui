@@ -140,6 +140,11 @@ pub struct RNNodeView {
     scroll_position: Rc<Cell<Point<f32>>>,
     pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
+    /// The settings of the `ScrollBar` inside this scroll view and the tag its
+    /// events go out on, handed over by that node when it renders.
+    scrollbar: crate::scroll_indicator::ScrollbarSpec,
+    scrollbar_tag: Option<i32>,
+    scrollbar_release: Option<(gpui::EntityId, Subscription)>,
     scroll_sync_generation: Rc<Cell<u64>>,
     /// Whether Fabric's copy of the offset is behind the node's own.
     scroll_sync_pending: Rc<Cell<bool>>,
@@ -932,6 +937,9 @@ impl RNNodeView {
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
             ),
             scroll_indicator: None,
+            scrollbar: crate::scroll_indicator::ScrollbarSpec::default(),
+            scrollbar_tag: None,
+            scrollbar_release: None,
             scroll_sync_generation: Rc::new(Cell::new(0)),
             scroll_sync_pending: Rc::new(Cell::new(false)),
             virtual_view_mode: Cell::new(None),
@@ -2616,10 +2624,56 @@ fn schedule_frame_host_report_flush(
     });
 }
 
+impl RNNodeView {
+    /// A `ScrollBar` styles the nearest scroll view above it. It renders when it
+    /// mounts and when its props change, which is when the scroll view needs to
+    /// hear about it.
+    fn hand_scrollbar_to_scroll_view(&self, cx: &mut Context<Self>) {
+        let spec = crate::scroll_indicator::ScrollbarSpec::from_props(&self.extension_props);
+        let (bar, tag) = (cx.entity(), self.tag);
+        let mut ancestor = self.parent.clone();
+        while let Some(node) = ancestor.and_then(|weak| weak.upgrade()) {
+            if node.read(cx).scroll.is_some() {
+                node.update(cx, |scroll_view, cx| {
+                    scroll_view.take_scrollbar(spec, &bar, tag, cx)
+                });
+                return;
+            }
+            ancestor = node.read(cx).parent.clone();
+        }
+    }
+
+    fn take_scrollbar(
+        &mut self,
+        spec: crate::scroll_indicator::ScrollbarSpec,
+        bar: &Entity<RNNodeView>,
+        tag: i32,
+        cx: &mut Context<Self>,
+    ) {
+        if self.scrollbar_release.as_ref().map(|(id, _)| *id) != Some(bar.entity_id()) {
+            let release = cx.observe_release(bar, |scroll_view, _, cx| {
+                scroll_view.scrollbar = Default::default();
+                scroll_view.scrollbar_tag = None;
+                scroll_view.scrollbar_release = None;
+                cx.notify();
+            });
+            self.scrollbar_release = Some((bar.entity_id(), release));
+        }
+        if self.scrollbar != spec || self.scrollbar_tag != Some(tag) {
+            self.scrollbar = spec;
+            self.scrollbar_tag = Some(tag);
+            cx.notify();
+        }
+    }
+}
+
 impl Render for RNNodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.render_count += 1;
+        if self.component == crate::builtins::desktop_scroll_bar::COMPONENT {
+            self.hand_scrollbar_to_scroll_view(cx);
+        }
         let accessibility_active = window.is_a11y_active();
         let was_initialized = ACCESSIBILITY_ACTIVE_INITIALIZED.swap(true, Ordering::Relaxed);
         let previous_accessibility_active =
@@ -4215,7 +4269,25 @@ impl Render for RNNodeView {
                     }));
                 }
                 if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
-                    indicator.update(cx, |indicator, _| indicator.set_apply(apply));
+                    let (tag, position) = (
+                        self.scrollbar_tag.unwrap_or(self.tag),
+                        self.scroll_position.clone(),
+                    );
+                    let emit: crate::scroll_indicator::EmitEvent = Rc::new(move |event, cx| {
+                        let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
+                            return;
+                        };
+                        let offset = position.get();
+                        store.0.read(cx).host.dispatch_event(
+                            tag,
+                            event,
+                            &serde_json::json!({
+                                "contentOffset": {"x": offset.x, "y": offset.y},
+                            }),
+                        );
+                    });
+                    let spec = self.scrollbar.clone();
+                    indicator.update(cx, |indicator, _| indicator.configure(spec, apply, emit));
                 }
                 element = element.children(self.scroll_indicator.clone());
             } else {

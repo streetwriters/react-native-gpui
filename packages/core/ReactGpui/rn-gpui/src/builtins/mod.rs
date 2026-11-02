@@ -6,6 +6,7 @@ pub mod app_menu;
 pub mod clipboard;
 pub mod context_menu;
 pub mod context_menu_view;
+pub mod desktop_scroll_bar;
 pub mod dev_menu;
 pub mod i18n;
 pub mod image;
@@ -42,6 +43,7 @@ pub fn register() {
     scrollview::register();
     settings::register();
     share::register();
+    desktop_scroll_bar::register();
     shortcut_scope::register();
     shortcuts::register();
     switch::register();
