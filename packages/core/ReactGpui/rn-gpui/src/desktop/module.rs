@@ -30,6 +30,7 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
             tray_popover_anchored: capabilities::tray_popover_anchored(),
             window_position: capabilities::window_position(),
             always_on_top: capabilities::always_on_top(),
+            visible_on_all_workspaces: capabilities::visible_on_all_workspaces(),
             transparent_titlebar: capabilities::transparent_titlebar(),
             menu_bar_in_window: capabilities::menu_bar_in_window(),
             client_decorations: capabilities::client_decorations(),

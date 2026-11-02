@@ -27,6 +27,8 @@ export type DesktopCapabilities = {
   trayPopoverAnchored: boolean;
   windowPosition: boolean;
   alwaysOnTop: boolean;
+  /** Whether a window can be shown on every Space or workspace. */
+  visibleOnAllWorkspaces: boolean;
   transparentTitlebar: boolean;
   /**
    * Whether a frameless window can still be resized, so an app may draw its own

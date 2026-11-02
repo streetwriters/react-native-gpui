@@ -36,21 +36,22 @@ async function openPreferences() {
 
 `open` resolves with a `DesktopWindow` for the new window. These are the options:
 
-| Option                 | Type                                               | Description                                                                             |
-| ---------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `component`            | `string`                                           | The name registered with `AppRegistry`. Required.                                       |
-| `props`                | `Record<string, unknown>`                          | Initial props for the component.                                                        |
-| `title`                | `string`                                           | The title bar text.                                                                     |
-| `width`, `height`      | `number`                                           | The size in points.                                                                     |
-| `x`, `y`               | `number`                                           | The position. Omit both to let the platform place the window.                           |
-| `titleBar`             | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar).                         |
-| `background`           | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](#transparent-windows).         |
-| `windowButtons`        | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.    |
-| `shadow`               | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`; only macOS draws one yet. |
-| `trafficLightPosition` | `{x: number, y: number}`                           | Where the macOS traffic lights sit in a transparent or hidden title bar.                |
-| `resizable`            | `boolean`                                          | Whether the window can be resized.                                                      |
-| `alwaysOnTop`          | `boolean`                                          | Keeps the window above others. Check `capabilities().alwaysOnTop`.                      |
-| `parent`               | `number`                                           | The id of a parent window.                                                              |
+| Option                   | Type                                               | Description                                                                             |
+| ------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `component`              | `string`                                           | The name registered with `AppRegistry`. Required.                                       |
+| `props`                  | `Record<string, unknown>`                          | Initial props for the component.                                                        |
+| `title`                  | `string`                                           | The title bar text.                                                                     |
+| `width`, `height`        | `number`                                           | The size in points.                                                                     |
+| `x`, `y`                 | `number`                                           | The position. Omit both to let the platform place the window.                           |
+| `titleBar`               | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar).                         |
+| `background`             | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](#transparent-windows).         |
+| `windowButtons`          | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.    |
+| `shadow`                 | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`; only macOS draws one yet. |
+| `trafficLightPosition`   | `{x: number, y: number}`                           | Where the macOS traffic lights sit in a transparent or hidden title bar.                |
+| `resizable`              | `boolean`                                          | Whether the window can be resized.                                                      |
+| `alwaysOnTop`            | `boolean`                                          | Keeps the window above others. Check `capabilities().alwaysOnTop`.                      |
+| `visibleOnAllWorkspaces` | `boolean`                                          | Shows the window on every Space. Check `capabilities().visibleOnAllWorkspaces`.         |
+| `parent`                 | `number`                                           | The id of a parent window.                                                              |
 
 ## Transparent windows
 
@@ -85,23 +86,24 @@ function CloseButton() {
 
 Every method returns a promise. A method the operating system cannot perform rejects with a [`DesktopError`](desktop-app-info) whose `code` is `unsupported`.
 
-| Method                                 | Description                                          |
-| -------------------------------------- | ---------------------------------------------------- |
-| `getState()`                           | Resolves with a `WindowState`.                       |
-| `setTitle(title)`                      | Changes the title.                                   |
-| `setSize({width, height})`             | Resizes the window.                                  |
-| `setPosition({x, y})`                  | Moves the window.                                    |
-| `setMinSize(size)`, `setMaxSize(size)` | Limits how far the user can resize it.               |
-| `setResizable(resizable)`              | Allows or forbids resizing.                          |
-| `minimize()`                           | Minimizes the window.                                |
-| `maximize()`, `unmaximize()`           | Maximizes the window or restores it.                 |
-| `toggleMaximize()`                     | Switches between the two.                            |
-| `setFullscreen(fullscreen)`            | Enters or leaves full screen.                        |
-| `setAlwaysOnTop(onTop)`                | Keeps the window above others.                       |
-| `show()`, `hide()`                     | Shows or hides the window without closing it.        |
-| `focus()`                              | Brings the window to the front.                      |
-| `startDragging()`                      | Starts moving the window with the pointer.           |
-| `close({force})`                       | Closes the window. See [Closing](#closing-a-window). |
+| Method                                 | Description                                                                                        |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `getState()`                           | Resolves with a `WindowState`.                                                                     |
+| `setTitle(title)`                      | Changes the title.                                                                                 |
+| `setSize({width, height})`             | Resizes the window.                                                                                |
+| `setPosition({x, y})`                  | Moves the window.                                                                                  |
+| `setMinSize(size)`, `setMaxSize(size)` | Limits how far the user can resize it.                                                             |
+| `setResizable(resizable)`              | Allows or forbids resizing.                                                                        |
+| `minimize()`                           | Minimizes the window.                                                                              |
+| `maximize()`, `unmaximize()`           | Maximizes the window or restores it.                                                               |
+| `toggleMaximize()`                     | Switches between the two.                                                                          |
+| `setFullscreen(fullscreen)`            | Enters or leaves full screen.                                                                      |
+| `setAlwaysOnTop(onTop)`                | Keeps the window above others.                                                                     |
+| `setVisibleOnAllWorkspaces(visible)`   | Shows the window on every Space, over full-screen apps when it is also on top. macOS only for now. |
+| `show()`, `hide()`                     | Shows or hides the window without closing it.                                                      |
+| `focus()`                              | Brings the window to the front.                                                                    |
+| `startDragging()`                      | Starts moving the window with the pointer.                                                         |
+| `close({force})`                       | Closes the window. See [Closing](#closing-a-window).                                               |
 
 `WindowState` holds the `windowId`, the `bounds` (`x`, `y`, `width`, `height`), `isMaximized`, `isFullscreen`, `isFocused`, `isMinimized`, the `scaleFactor` and the `topInset`: the height of the title bar that the window's content is drawn under, which is `0` unless the window has a [`'transparent'` title bar](desktop-title-bar) on macOS (Windows and Linux always report `0`). `SafeAreaView` pads its top by `topInset`, so content inside it stays clear of the bar.
 

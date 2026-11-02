@@ -122,6 +122,7 @@ const NO_CAPABILITIES: DesktopCapabilities = {
   trayPopoverAnchored: false,
   windowPosition: false,
   alwaysOnTop: false,
+  visibleOnAllWorkspaces: false,
   transparentTitlebar: false,
   clientDecorations: false,
   menuBarInWindow: false,

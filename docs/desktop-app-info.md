@@ -27,17 +27,18 @@ const { platform, arch, capabilities } = await Desktop.getInfo();
 
 `capabilities()` reads the capabilities synchronously and never touches the main thread. Without a desktop shell every capability is `false`.
 
-| Capability            | Meaning                                                                                                                                                               |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nativeAppMenu`       | The application menu is the platform's own.                                                                                                                           |
-| `nativeContextMenu`   | The platform can show its own context menu.                                                                                                                           |
-| `tray`                | Tray icons are supported.                                                                                                                                             |
-| `trayPopoverAnchored` | A tray popover is anchored to the icon.                                                                                                                               |
-| `windowPosition`      | Windows can be positioned from code.                                                                                                                                  |
-| `alwaysOnTop`         | A window can stay above others.                                                                                                                                       |
-| `transparentTitlebar` | A window can draw under its title bar.                                                                                                                                |
-| `clientDecorations`   | A frameless window can still be resized, so you can draw your own caption buttons. Always true on macOS and Windows; on Linux it follows what the compositor granted. |
-| `menuBarInWindow`     | The menu bar is drawn in the window, so hiding it has an effect.                                                                                                      |
+| Capability               | Meaning                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nativeAppMenu`          | The application menu is the platform's own.                                                                                                                           |
+| `nativeContextMenu`      | The platform can show its own context menu.                                                                                                                           |
+| `tray`                   | Tray icons are supported.                                                                                                                                             |
+| `trayPopoverAnchored`    | A tray popover is anchored to the icon.                                                                                                                               |
+| `windowPosition`         | Windows can be positioned from code.                                                                                                                                  |
+| `alwaysOnTop`            | A window can stay above others.                                                                                                                                       |
+| `visibleOnAllWorkspaces` | A window can be shown on every Space or workspace. macOS only for now.                                                                                                |
+| `transparentTitlebar`    | A window can draw under its title bar.                                                                                                                                |
+| `clientDecorations`      | A frameless window can still be resized, so you can draw your own caption buttons. Always true on macOS and Windows; on Linux it follows what the compositor granted. |
+| `menuBarInWindow`        | The menu bar is drawn in the window, so hiding it has an effect.                                                                                                      |
 
 ```tsx
 if (capabilities().menuBarInWindow) {

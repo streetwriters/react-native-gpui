@@ -60,6 +60,11 @@ pub fn always_on_top() -> bool {
     !is_wayland()
 }
 
+/// Whether a window can be shown on every Space or workspace, which only macOS does yet.
+pub fn visible_on_all_workspaces() -> bool {
+    cfg!(target_os = "macos")
+}
+
 /// Whether a window can have its title bar removed while keeping the traffic
 /// lights or the app's own caption buttons.
 ///

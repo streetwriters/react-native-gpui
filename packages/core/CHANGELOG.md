@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `visibleOnAllWorkspaces` shows a window on every Space on macOS, over full-screen apps when it is also `alwaysOnTop`, as an option of `DesktopWindow.open` and as `setVisibleOnAllWorkspaces`.
 - A press on the empty part of a `pointerEvents="box-none"` view now reaches the view behind it, as in React Native, instead of stopping at the nearest ancestor.
 - The keyboard focus ring is no longer drawn around a `TextInput`, or around a view that sets its own outline.
 - `titleBar: 'none'` removes all system chrome: on macOS a borderless window with no border line or system corners.

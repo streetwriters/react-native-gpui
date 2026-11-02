@@ -673,6 +673,13 @@ pub fn set_always_on_top(cx: &mut App, key: u32, on: bool) -> DesktopResult {
     })
 }
 
+pub fn set_visible_on_all_workspaces(cx: &mut App, key: u32, visible: bool) -> DesktopResult {
+    with_window(cx, key, move |window| {
+        platform_window::set_visible_on_all_workspaces(window, visible)
+            .map_err(DesktopError::unsupported)
+    })
+}
+
 pub fn minimize(cx: &mut App, key: u32) -> DesktopResult {
     with_window(cx, key, |window| {
         window.minimize_window();

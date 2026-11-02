@@ -74,6 +74,33 @@ mod imp {
         Ok(())
     }
 
+    /// NSWindowCollectionBehavior bits. `FullScreenPrimary` and
+    /// `MoveToActiveSpace` each conflict with what is set here, and AppKit raises
+    /// an exception when they are combined.
+    const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
+    const MOVE_TO_ACTIVE_SPACE: u64 = 1 << 1;
+    const FULL_SCREEN_PRIMARY: u64 = 1 << 7;
+    const FULL_SCREEN_AUXILIARY: u64 = 1 << 8;
+
+    pub fn set_visible_on_all_workspaces(
+        window: &mut gpui::Window,
+        visible: bool,
+    ) -> Result<(), String> {
+        let native = ns_window(window)?;
+        // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+        unsafe {
+            let current: u64 = msg_send![native, collectionBehavior];
+            let wanted = CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY;
+            let next = if visible {
+                (current & !(MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_PRIMARY)) | wanted
+            } else {
+                current & !wanted
+            };
+            let _: () = msg_send![native, setCollectionBehavior: next];
+        }
+        Ok(())
+    }
+
     pub fn set_min_size(window: &mut gpui::Window, width: f32, height: f32) -> Result<(), String> {
         let native = ns_window(window)?;
         let size = NSSize::new(f64::from(width), f64::from(height));
@@ -229,6 +256,13 @@ mod imp {
         } else {
             Ok(())
         }
+    }
+
+    pub fn set_visible_on_all_workspaces(
+        _window: &mut Window,
+        _visible: bool,
+    ) -> Result<(), String> {
+        Err("showing a window on every virtual desktop is not supported yet".to_string())
     }
 
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
@@ -468,6 +502,13 @@ mod imp {
             (xlib.XMoveWindow)(display, id, x.round() as i32, y.round() as i32);
             (xlib.XFlush)(display);
         })
+    }
+
+    pub fn set_visible_on_all_workspaces(
+        _window: &mut Window,
+        _visible: bool,
+    ) -> Result<(), String> {
+        Err("showing a window on every workspace is not supported yet".to_string())
     }
 
     /// Raising is the part of always-on-top X11 itself can do, so `on == true`
@@ -723,6 +764,12 @@ mod imp {
         Err(UNSUPPORTED.to_string())
     }
     pub fn set_always_on_top(_window: &mut Window, _on: bool) -> Result<(), String> {
+        Err(UNSUPPORTED.to_string())
+    }
+    pub fn set_visible_on_all_workspaces(
+        _window: &mut Window,
+        _visible: bool,
+    ) -> Result<(), String> {
         Err(UNSUPPORTED.to_string())
     }
     pub fn set_min_size(_window: &mut Window, _w: f32, _h: f32) -> Result<(), String> {

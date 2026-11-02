@@ -52,6 +52,7 @@ export type WindowOpenOptions = {
   trafficLightPosition?: WindowTrafficLights;
   resizable?: boolean;
   alwaysOnTop?: boolean;
+  visibleOnAllWorkspaces?: boolean;
 };
 
 export interface Spec extends TurboModule {
@@ -93,6 +94,10 @@ export interface Spec extends TurboModule {
   windowSetAlwaysOnTop(
     windowId: CodegenTypes.Int32,
     onTop: boolean,
+  ): Promise<void>;
+  windowSetVisibleOnAllWorkspaces(
+    windowId: CodegenTypes.Int32,
+    visible: boolean,
   ): Promise<void>;
   windowMinimize(windowId: CodegenTypes.Int32): Promise<void>;
   windowMaximize(windowId: CodegenTypes.Int32): Promise<void>;

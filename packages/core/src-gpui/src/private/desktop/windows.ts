@@ -67,6 +67,11 @@ export interface OpenWindowOptions {
   trafficLightPosition?: { x: number; y: number };
   resizable?: boolean;
   alwaysOnTop?: boolean;
+  /**
+   * Shows the window on every Space, over full-screen apps when it is also
+   * `alwaysOnTop`. Check `capabilities().visibleOnAllWorkspaces`.
+   */
+  visibleOnAllWorkspaces?: boolean;
   parent?: number;
 }
 
@@ -203,6 +208,12 @@ export class DesktopWindow {
 
   setAlwaysOnTop(onTop: boolean): Promise<void> {
     return request(native => native.windowSetAlwaysOnTop(this.id, onTop));
+  }
+
+  setVisibleOnAllWorkspaces(visible: boolean): Promise<void> {
+    return request(native =>
+      native.windowSetVisibleOnAllWorkspaces(this.id, visible),
+    );
   }
 
   show(): Promise<void> {

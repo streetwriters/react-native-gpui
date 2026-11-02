@@ -85,6 +85,7 @@ impl NativeGpuiWindowsSpec for WindowsModule {
     async fn window_open(&self, options: WindowOpenOptions) -> Result<WindowHandle, ModuleError> {
         let result = on_main(move |cx| -> DesktopResult {
             let always_on_top = options.always_on_top.unwrap_or(false);
+            let on_all_workspaces = options.visible_on_all_workspaces.unwrap_or(false);
             let open = windows::OpenWindowOptions {
                 component: options.component,
                 props: options
@@ -120,6 +121,9 @@ impl NativeGpuiWindowsSpec for WindowsModule {
             let key = windows::open_window(cx, open)?;
             if always_on_top {
                 windows::set_always_on_top(cx, key, true)?;
+            }
+            if on_all_workspaces {
+                windows::set_visible_on_all_workspaces(cx, key, true)?;
             }
             Ok(serde_json::json!({ "windowId": key }))
         })
@@ -240,6 +244,19 @@ impl NativeGpuiWindowsSpec for WindowsModule {
             .await?
             .map(|_| ())
             .map_err(module_error)
+    }
+
+    async fn window_set_visible_on_all_workspaces(
+        &self,
+        window_id: i32,
+        visible: bool,
+    ) -> Result<(), ModuleError> {
+        on_main(move |cx| {
+            windows::set_visible_on_all_workspaces(cx, window_key(window_id), visible)
+        })
+        .await?
+        .map(|_| ())
+        .map_err(module_error)
     }
 
     async fn window_minimize(&self, window_id: i32) -> Result<(), ModuleError> {
