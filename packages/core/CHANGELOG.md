@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Fixed an empty `TextInput` drawing its placeholder at a different size than typed text and its caret in the wrong color, which flickered when the text was cleared.
 - Windows take `windowButtons` and `shadow` options to hide the macOS traffic lights and the system shadow.
 - Windows can be `transparent`, `blurred` or `mica` with the `background` window option, in `desktop.json` and in `DesktopWindow.open`.
 - `StatusBar` renders nothing and its methods do nothing on desktop, so the default React Native app no longer fails on a missing native module.

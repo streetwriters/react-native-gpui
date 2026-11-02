@@ -623,6 +623,16 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
         op.paragraph =
             flattenInputText(state->getData().attributedStringBox.getValue());
       }
+      // An empty input has no fragment, so the placeholder and the caret would
+      // not know the font and color the typed text will have.
+      if (op.paragraph.fragments.empty()) {
+        if (auto inputProps = std::dynamic_pointer_cast<const TextInputProps>(
+                shadowView.props)) {
+          op.has_paragraph = true;
+          op.paragraph.fragments.push_back(flattenTextFragment(
+              inputProps->getEffectiveTextAttributes(1.f), ""));
+        }
+      }
     }
   }
   return op;
