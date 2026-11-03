@@ -311,8 +311,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         })
         .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
 
-    let (w, h, scale) = handle
+    let (w, h, scale, gave_back) = handle
         .update(cx, |_root, window, _cx| {
+            let mut gave_back = false;
             // A compositor can refuse the decorations request for one window and
             // grant it for another, so the capability follows the newest window.
             crate::desktop::capabilities::note_window_decorations(window.window_decorations());
@@ -326,6 +327,11 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                     && crate::desktop::window_frame::insets_of(surface_id).horizontal() == 0.0
                 {
                     window.resize(size(px(width), px(height)));
+                    if let (Some(x), Some(y)) = (options.x, options.y) {
+                        // The window was created `margin` up and to the left.
+                        let _ = platform_window::set_position(window, x, y);
+                    }
+                    gave_back = true;
                 }
             }
             let size = window.viewport_size();
@@ -334,9 +340,10 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 (f32::from(size.width) - frame.horizontal()).max(1.0),
                 (f32::from(size.height) - frame.vertical()).max(1.0),
                 window.scale_factor(),
+                gave_back,
             )
         })
-        .unwrap_or((width, height, 2.0));
+        .unwrap_or((width, height, 2.0, false));
     // A popover is created hidden, and a window that has not been shown has not
     // had its first `WM_SIZE`, so what `viewport_size` reports for it is not
     // something to start a surface from. The popover's own size is known, so the
@@ -384,12 +391,29 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 // not fatal: a platform that needs none of this (or a Wayland
                 // session, which has no absolute placement) still gets a working
                 // window, just placed by the compositor.
+                // A popover whose frame margin was given back is placed by its
+                // content, which is where the margin had put the window's corner.
+                let (hint_x, hint_y, hint_width, hint_height) = if gave_back {
+                    (
+                        placed_origin.0 + margin,
+                        placed_origin.1 + margin,
+                        width,
+                        height,
+                    )
+                } else {
+                    (
+                        placed_origin.0,
+                        placed_origin.1,
+                        window_width,
+                        window_height,
+                    )
+                };
                 if let Err(error) = crate::desktop::platform_window::prepare_popover(
                     window,
-                    placed_origin.0,
-                    placed_origin.1,
-                    window_width,
-                    window_height,
+                    hint_x,
+                    hint_y,
+                    hint_width,
+                    hint_height,
                 ) {
                     log::debug!("[desktop] popover window hints: {error}");
                 }

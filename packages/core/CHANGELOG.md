@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On X11 a window with a `'none'` title bar no longer keeps the window manager's title bar when the window manager cannot leave the decorations to the app (Openbox, and any without `_GTK_FRAME_EXTENTS`). The frame is removed with the Motif hint, so a palette is frameless there, and translucent with a compositing manager.
+- On X11 a tray popover whose frame margin is given back is placed by its content, so it opens where the icon puts it and not a margin up and to the left.
 - The app no longer panics at startup on a Wayland compositor that settles a window's decorations after it opens (sway). The title-bar inset changed inside the window-bounds observer and refreshed the surface while the root view was borrowed (`cannot read SurfaceRootView while it is already being updated`); the refresh now runs after the observer returns.
 - Global shortcuts work on Wayland. They are bound through the desktop's `GlobalShortcuts` portal, which the user allows once, and a press arrives as the portal's `Activated` signal. They used to register through XWayland, which succeeded and never fired. `Shortcuts.onFailure` now also reports a refusal that arrives later, such as the user declining, and a desktop with no portal. The portal knows an app by an installed `<identifier>.desktop` file, which the app writes into `~/.local/share/applications` when there is none.
 - `DesktopWindow.open` with `alwaysOnTop` or `visibleOnAllWorkspaces` no longer rejects where the platform cannot do it. On Wayland it failed with `the session is not X11` and the window was left in a half-opened state; the window now opens and the request is skipped, with a warning in the log.

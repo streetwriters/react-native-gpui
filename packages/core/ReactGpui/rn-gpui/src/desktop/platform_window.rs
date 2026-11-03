@@ -496,6 +496,32 @@ mod imp {
         with_display(|xlib, display| f(xlib, display, id as xlib::Window))
     }
 
+    /// Asks the window manager not to decorate the window: `_MOTIF_WM_HINTS` with
+    /// no decorations, which Openbox, Xfwm, Mutter, KWin and most others honour.
+    /// For a window that asked for no chrome at all where the window manager
+    /// cannot leave the drawing to the app (no `_GTK_FRAME_EXTENTS`), so it would
+    /// otherwise keep its title bar.
+    pub fn remove_server_frame(window: &Window) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
+        with_window(window, |xlib, display, id| unsafe {
+            let motif = (xlib.XInternAtom)(display, b"_MOTIF_WM_HINTS\0".as_ptr() as *const _, 0);
+            if motif != 0 {
+                let data: [u32; 5] = [1 << 1, 0, 0, 0, 0];
+                (xlib.XChangeProperty)(
+                    display,
+                    id,
+                    motif,
+                    motif,
+                    32,
+                    xlib::PropModeReplace,
+                    data.as_ptr() as *const std::os::raw::c_uchar,
+                    5,
+                );
+                (xlib.XFlush)(display);
+            }
+        })
+    }
+
     pub fn set_position(window: &mut Window, x: f32, y: f32) -> Result<(), String> {
         // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
@@ -1079,6 +1105,15 @@ pub fn style_window(
     _shadow: bool,
     _title_bar: crate::bootstrap::WindowTitleBar,
 ) {
+    // A window that asked for no chrome whose frame the window manager kept
+    // anyway (it cannot leave the drawing to the app) is stripped of it.
+    #[cfg(target_os = "linux")]
+    if _title_bar == crate::bootstrap::WindowTitleBar::Borderless
+        && !crate::desktop::capabilities::is_wayland()
+        && matches!(_window.window_decorations(), gpui::Decorations::Server)
+    {
+        let _ = remove_server_frame(_window);
+    }
 }
 
 /// `tray-icon` reports physical pixels; windows and menus are placed in points.
