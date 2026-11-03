@@ -308,7 +308,10 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     );
     let (x, y) = popover_origin(rect, config.width, config.height, work_area);
     #[cfg(target_os = "linux")]
-    let overlay = wayland_overlay(&config, rect);
+    #[cfg(target_os = "linux")]
+    let scale = display_scale(cx);
+    #[cfg(target_os = "linux")]
+    let overlay = wayland_overlay(&config, rect, scale);
     let options = OpenWindowOptions {
         component,
         props: None,
@@ -344,6 +347,15 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     }
 }
 
+/// The scale of the display the app's windows are on.
+#[cfg(target_os = "linux")]
+fn display_scale(cx: &mut App) -> f32 {
+    cx.windows()
+        .first()
+        .and_then(|handle| handle.update(cx, |_, window, _| window.scale_factor()).ok())
+        .unwrap_or(1.0)
+}
+
 /// Where the popover is drawn on Wayland, which neither says where the icon is nor
 /// lets an app place a window: in a corner of a window covering the work area. The
 /// corner is the app's choice or the user's, and otherwise the end of the edge a
@@ -353,6 +365,7 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
 fn wayland_overlay(
     config: &TrayConfig,
     rect: TrayRect,
+    scale: f32,
 ) -> Option<crate::desktop::window_frame::Placement> {
     use crate::desktop::popover_placement::{self, Anchor};
     if !crate::desktop::capabilities::is_wayland() {
@@ -369,6 +382,15 @@ fn wayland_overlay(
     // coordinates, which is where the work area is read from as well. A click at
     // the origin is a panel that sent nothing.
     let click = (rect.x != 0.0 || rect.y != 0.0).then_some((rect.x, rect.y));
+    let click = match (click, work) {
+        (Some(click), Some(work)) => Some(popover_placement::logical_click(
+            click,
+            scale,
+            work.screen,
+            reserved.unwrap_or_default(),
+        )),
+        (click, _) => click,
+    };
     Some(crate::desktop::window_frame::Placement {
         anchor,
         offset,

@@ -99,6 +99,38 @@ pub fn tray_edge(reserved: Reserved) -> Option<Edge> {
     .map(|(_, edge)| *edge)
 }
 
+/// A click's position in logical points. Panels disagree about the units they
+/// send: GNOME sends logical points, and KDE sends device pixels, which at a
+/// scale of 2 are twice the logical values. The icon that was clicked is on a
+/// panel, so the reading that lands inside the screen, on a strip a panel
+/// reserves, is the right one; when neither does, a click outside the screen
+/// can only be in device pixels.
+pub fn logical_click(
+    click: (f32, f32),
+    scale: f32,
+    screen: (f32, f32),
+    reserved: Reserved,
+) -> (f32, f32) {
+    if scale <= 1.0 {
+        return click;
+    }
+    let device = (click.0 / scale, click.1 / scale);
+    let on_screen = |p: (f32, f32)| p.0 >= 0.0 && p.1 >= 0.0 && p.0 <= screen.0 && p.1 <= screen.1;
+    let on_panel = |p: (f32, f32)| {
+        on_screen(p)
+            && (p.0 <= reserved.left
+                || p.0 >= screen.0 - reserved.right
+                || p.1 <= reserved.top
+                || p.1 >= screen.1 - reserved.bottom)
+    };
+    match (on_panel(click), on_panel(device)) {
+        (true, false) => click,
+        (false, true) => device,
+        _ if !on_screen(click) => device,
+        _ => click,
+    }
+}
+
 /// The origin, in the work area's own coordinates, of a popover of `size` when the
 /// click on the icon said where it is: against the panel's edge and centred on the
 /// click along it. Without a panel edge there is nothing to rest against, and the
@@ -288,6 +320,29 @@ mod tests {
         assert_eq!(
             place_near((0.0, 900.0), left, (1872.0, 1080.0), size, 8.0, (0.0, 0.0)),
             (8.0, 800.0)
+        );
+    }
+
+    #[test]
+    fn a_click_in_device_pixels_is_brought_to_logical_points() {
+        // A 1920x1080 screen at a scale of 2, with a 46-point panel on the left.
+        let screen = (960.0, 540.0);
+        let panel = reserved(screen, (46.0, 0.0, 914.0, 540.0));
+        // KDE: the click on the panel's icon, in device pixels.
+        assert_eq!(
+            logical_click((46.0, 618.0), 2.0, screen, panel),
+            (23.0, 309.0)
+        );
+        // GNOME: already in points, and on the top panel.
+        let top = reserved(screen, (0.0, 32.0, 960.0, 508.0));
+        assert_eq!(
+            logical_click((900.0, 12.0), 2.0, screen, top),
+            (900.0, 12.0)
+        );
+        // At a scale of 1 nothing changes.
+        assert_eq!(
+            logical_click((46.0, 618.0), 1.0, screen, panel),
+            (46.0, 618.0)
         );
     }
 
