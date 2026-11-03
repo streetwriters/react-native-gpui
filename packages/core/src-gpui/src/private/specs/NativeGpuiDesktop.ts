@@ -55,6 +55,12 @@ export interface Spec extends TurboModule {
   /** Read synchronously; these never touch the GPUI main thread. */
   capabilities(): DesktopCapabilities;
   platform(): string;
+  /**
+   * Where the window's caption buttons sit, as a GTK `button-layout` string such
+   * as `appmenu:minimize,maximize,close`. Linux reads it from the desktop; other
+   * platforms answer the GTK default.
+   */
+  windowButtonLayout(): string;
   appId(): string;
   platformConstants(): PlatformConstants;
 

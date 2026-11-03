@@ -27,7 +27,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import type { ColorValue, StyleProp, ViewStyle } from 'react-native';
-import { capabilities } from './index';
+import { capabilities, windowButtonLayout } from './index';
 import { Menu, useMenuBarVisible } from './menu';
 import { WindowControl } from './WindowControl';
 import type { WindowControlAction, WindowControlState } from './WindowControl';
@@ -59,6 +59,27 @@ const CAPTION_ACTIONS: WindowControlAction[] = [
   'maximize',
   'close',
 ];
+
+/**
+ * The buttons a GTK `button-layout` puts on each side of the bar, in order.
+ * Names that are not caption buttons (`appmenu`, `menu`, `icon`) are skipped.
+ */
+export function parseButtonLayout(layout: string): {
+  left: WindowControlAction[];
+  right: WindowControlAction[];
+} {
+  const side = (names: string) =>
+    names
+      .split(',')
+      .map(name => name.trim())
+      .filter((name): name is WindowControlAction =>
+        CAPTION_ACTIONS.includes(name as WindowControlAction),
+      );
+  const [left = '', right = ''] = layout.includes(':')
+    ? layout.split(':')
+    : ['', layout];
+  return { left: side(left), right: side(right) };
+}
 
 /** The colors of one appearance, as Windows draws its own caption buttons. */
 const PALETTE = {
@@ -146,6 +167,54 @@ export function TitleBar({
       Menu.clearMenuBarSlot().catch(() => {});
     };
   }, [menuSlot, measureSlot]);
+  const buttons = React.useMemo(
+    () =>
+      isLinux
+        ? parseButtonLayout(windowButtonLayout())
+        : { left: [], right: CAPTION_ACTIONS },
+    [isLinux],
+  );
+  const renderButtons = (actions: WindowControlAction[]) => (
+    <View
+      style={[styles.captionButtons, isLinux && styles.captionButtonsLinux]}
+    >
+      {actions.map(action => (
+        <WindowControl
+          key={action}
+          action={action}
+          testID={`titlebar-${action}`}
+          style={({ hovered, pressed }) => [
+            styles.captionButton,
+            isLinux && styles.captionButtonLinux,
+            hovered && {
+              backgroundColor:
+                action === 'close' && !isLinux ? CLOSE_HOVER : palette.hover,
+            },
+            pressed && {
+              backgroundColor:
+                action === 'close' && !isLinux
+                  ? CLOSE_PRESSED
+                  : palette.pressed,
+            },
+          ]}
+        >
+          {state => (
+            <CaptionGlyph
+              action={action}
+              state={state}
+              color={
+                action === 'close' &&
+                !isLinux &&
+                (state.hovered || state.pressed)
+                  ? CLOSE_FOREGROUND
+                  : palette.foreground
+              }
+            />
+          )}
+        </WindowControl>
+      ))}
+    </View>
+  );
   return (
     <>
       <View
@@ -157,9 +226,13 @@ export function TitleBar({
             (isLinux
               ? styles.barWithRoundCaptionButtons
               : styles.barWithCaptionButtons),
+          captionButtons && buttons.left.length > 0 && styles.barLeftButtons,
           style,
         ]}
       >
+        {captionButtons && buttons.left.length > 0
+          ? renderButtons(buttons.left)
+          : null}
         {title != null ? (
           <Text
             numberOfLines={1}
@@ -171,52 +244,9 @@ export function TitleBar({
         <View style={styles.spacer} pointerEvents="box-none">
           {children}
         </View>
-        {captionButtons ? (
-          <View
-            style={[
-              styles.captionButtons,
-              isLinux && styles.captionButtonsLinux,
-            ]}
-          >
-            {CAPTION_ACTIONS.map(action => (
-              <WindowControl
-                key={action}
-                action={action}
-                testID={`titlebar-${action}`}
-                style={({ hovered, pressed }) => [
-                  styles.captionButton,
-                  isLinux && styles.captionButtonLinux,
-                  hovered && {
-                    backgroundColor:
-                      action === 'close' && !isLinux
-                        ? CLOSE_HOVER
-                        : palette.hover,
-                  },
-                  pressed && {
-                    backgroundColor:
-                      action === 'close' && !isLinux
-                        ? CLOSE_PRESSED
-                        : palette.pressed,
-                  },
-                ]}
-              >
-                {state => (
-                  <CaptionGlyph
-                    action={action}
-                    state={state}
-                    color={
-                      action === 'close' &&
-                      !isLinux &&
-                      (state.hovered || state.pressed)
-                        ? CLOSE_FOREGROUND
-                        : palette.foreground
-                    }
-                  />
-                )}
-              </WindowControl>
-            ))}
-          </View>
-        ) : null}
+        {captionButtons && buttons.right.length > 0
+          ? renderButtons(buttons.right)
+          : null}
       </View>
       {menuSlot ? (
         <View
@@ -327,6 +357,9 @@ const styles = StyleSheet.create({
   captionButtons: {
     flexDirection: 'row',
     alignSelf: 'stretch',
+  },
+  barLeftButtons: {
+    paddingLeft: 8,
   },
   captionButtonsLinux: {
     alignSelf: 'center',

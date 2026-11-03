@@ -41,6 +41,10 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
         Ok(super::snapshot_platform())
     }
 
+    fn window_button_layout(&self) -> Result<String, ModuleError> {
+        Ok(super::button_layout::button_layout())
+    }
+
     fn platform_constants(&self) -> Result<PlatformConstants, ModuleError> {
         Ok(PlatformConstants {
             os_version: super::os_version::os_version(),

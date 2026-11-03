@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Linux the `TitleBar` caption buttons follow the desktop's button layout: the side they sit on, their order, and which of them exist. GNOME and other GTK desktops are read through `gsettings`, KDE from `kwinrc`, and anything else gets minimize, maximize and close on the right. Windows and macOS are unchanged.
 - On Linux a `TitleBar` keeps a row for the in-window menu bar just under the bar, and the menu bar is drawn there in the bar's colors, instead of as a strip above the whole window. `TitleBar` takes `menuBar={false}` to keep the strip. `Menu.setMenuBarSlot` and `Menu.clearMenuBarSlot` let a custom bar do the same.
 - `Menu.setMenuBarVisible` now removes the in-window menu bar on Linux. It used to resize the content and leave the bar drawn.
 - The drawn menu shows accelerators as `Ctrl+Shift+Z` and no longer reads `secondary-shift-z`.

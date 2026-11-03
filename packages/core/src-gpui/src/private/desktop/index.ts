@@ -133,6 +133,11 @@ export function capabilities(): DesktopCapabilities {
   return NativeGpuiDesktop?.capabilities() ?? NO_CAPABILITIES;
 }
 
+/** The caption button layout of the desktop, in GTK `button-layout` syntax. */
+export function windowButtonLayout(): string {
+  return NativeGpuiDesktop?.windowButtonLayout() ?? ':minimize,maximize,close';
+}
+
 /** The host platform, or `null` without a desktop shell. */
 export function platform(): string | null {
   return NativeGpuiDesktop?.platform() ?? null;
