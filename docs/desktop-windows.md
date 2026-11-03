@@ -135,7 +135,7 @@ Linux has no application menu bar of its own, so the menu from [`Menu`](desktop-
 | Opening a window at `x`, `y`        | Asked of the window manager, which may ignore it. | Ignored: the compositor places windows.               |
 | `alwaysOnTop`                       | Supported (`_NET_WM_STATE_ABOVE`).                | Not supported. `capabilities().alwaysOnTop` is false. |
 | `visibleOnAllWorkspaces`            | Ignored.                                          | Ignored.                                              |
-| Global shortcuts                    | Supported.                                        | Not supported; registration reports a failure.        |
+| Global shortcuts                    | Supported.                                        | Bound through the desktop portal; the user allows it. |
 | Transparent and blurred backgrounds | Need a compositing manager.                       | Transparency works; blur is not applied.              |
 
 Check `capabilities().windowPosition`, `capabilities().alwaysOnTop` and `capabilities().visibleOnAllWorkspaces` before offering a control that depends on them.

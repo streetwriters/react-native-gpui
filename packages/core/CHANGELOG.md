@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Global shortcuts work on Wayland. They are bound through the desktop's `GlobalShortcuts` portal, which the user allows once, and a press arrives as the portal's `Activated` signal. They used to register through XWayland, which succeeded and never fired. `Shortcuts.onFailure` now also reports a refusal that arrives later, such as the user declining, and a desktop with no portal. The portal knows an app by an installed `<identifier>.desktop` file, which the app writes into `~/.local/share/applications` when there is none.
 - `DesktopWindow.open` with `alwaysOnTop` or `visibleOnAllWorkspaces` no longer rejects where the platform cannot do it. On Wayland it failed with `the session is not X11` and the window was left in a half-opened state; the window now opens and the request is skipped, with a warning in the log.
 - On Linux a window with a see-through `background`, `shadow: false` or a `'none'` title bar gets no frame. The frame's shadow was painted under the window's content, so a translucent palette showed over a dark block.
 - `TrayConfig::popover_anchor_name` sets the popover corner from text, which is how `tray.popoverAnchor` in `desktop.json` reaches it.

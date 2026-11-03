@@ -60,7 +60,8 @@ A global shortcut has the same ids, key syntax, handlers and user remapping as a
 - It needs a modifier key, unless it is a function key, and it cannot be a chord.
 - It cannot have `when` or `allowInTextInput`; registering it with either throws.
 - The system may refuse the keys, because another app owns them or because the platform cannot do global shortcuts. `Shortcuts.onFailure` reports each refusal with a reason; without a listener it is logged as a warning.
-- macOS and Windows support it, and Linux supports it on X11 only. Wayland has no way for an app to register one, so every global shortcut fails there.
+- macOS and Windows register it with the system, and so does Linux on X11. On Wayland an app cannot grab keys, so the shortcut is bound through the desktop's `GlobalShortcuts` portal (GNOME, KDE and others). The desktop asks the user once to allow it and owns the final key, so the user can change it in system settings. `Shortcuts.onFailure` reports a refusal, including a desktop with no such portal.
+- The portal identifies an app by an installed desktop file named after its [`identifier`](desktop-json#identifier). A packaged app normally has one; where there is none, the app writes a minimal `<identifier>.desktop` into the user's `~/.local/share/applications` the first time a global shortcut is needed on Wayland.
 
 ## Shortcuts outside components
 

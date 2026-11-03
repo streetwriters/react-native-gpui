@@ -500,6 +500,16 @@ export function installBridge(): void {
   }
   nativeBridgeInstalled = true;
   const { DeviceEventEmitter } = require('react-native');
+  // A global shortcut the desktop refused after the install call returned, as
+  // the Wayland portal does when the user declines the binding.
+  DeviceEventEmitter.addListener(
+    'gpuiDesktop:shortcutFailure',
+    (event: { id?: string; reason?: string }) => {
+      if (typeof event?.id === 'string') {
+        reportFailures([{ id: event.id, reason: String(event.reason ?? '') }]);
+      }
+    },
+  );
   DeviceEventEmitter.addListener(
     'gpuiDesktop:shortcut',
     (event: { id?: string }) => {

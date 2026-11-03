@@ -541,6 +541,8 @@ pub(crate) enum MainEvent {
     },
     TrayMenuPerform(String),
     GlobalShortcut(u32),
+    GlobalShortcutNamed(String),
+    GlobalShortcutRefused(String, String),
     MenuBarPerform(String),
     /// One desktop-shell command, run with the app context the main loop holds.
     /// It answers through the channel it was built with, which may be later:
@@ -1154,6 +1156,18 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = crate::desktop::global_shortcut::PRESS_HANDLER.set(Box::new(move |hotkey| {
         let _ = global_shortcut_tx.send_blocking(MainEvent::GlobalShortcut(hotkey));
     }));
+    #[cfg(target_os = "linux")]
+    {
+        let pressed_tx = tx.clone();
+        let _ = crate::desktop::portal_shortcuts::ACTIVATED_HANDLER.set(Box::new(move |id| {
+            let _ = pressed_tx.send_blocking(MainEvent::GlobalShortcutNamed(id));
+        }));
+        let refused_tx = tx.clone();
+        let _ =
+            crate::desktop::portal_shortcuts::FAILURE_HANDLER.set(Box::new(move |id, reason| {
+                let _ = refused_tx.send_blocking(MainEvent::GlobalShortcutRefused(id, reason));
+            }));
+    }
     let menu_bar_tx = tx.clone();
     let _ = rn_gpui_sys::MENU_BAR_PERFORM_HANDLER.set(Box::new(move |id| {
         let _ = menu_bar_tx.send_blocking(MainEvent::MenuBarPerform(id));
@@ -2321,6 +2335,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     }
                     MainEvent::GlobalShortcut(hotkey) => {
                         cx.update(|cx| crate::desktop::global_shortcut::fire(cx, hotkey));
+                    }
+                    MainEvent::GlobalShortcutNamed(id) => {
+                        cx.update(|cx| crate::desktop::global_shortcut::fire_named(cx, &id));
+                    }
+                    MainEvent::GlobalShortcutRefused(id, reason) => {
+                        cx.update(|cx| {
+                            crate::desktop::global_shortcut::report_failure(cx, &id, &reason)
+                        });
                     }
                     MainEvent::MenuBarPerform(id) => {
                         cx.update(|cx| crate::desktop::app_menu::trigger_item(cx, &id));

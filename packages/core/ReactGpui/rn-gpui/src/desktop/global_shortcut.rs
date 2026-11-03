@@ -50,6 +50,11 @@ pub fn install(cx: &mut App, shortcuts: &[Shortcut]) -> Vec<Failure> {
         .iter()
         .filter(|shortcut| shortcut.enabled && shortcut.global)
         .collect();
+    // Wayland has no key grabs for a client: the desktop portal binds them.
+    #[cfg(target_os = "linux")]
+    if crate::desktop::capabilities::is_wayland() {
+        return install_with_portal(cx, &wanted);
+    }
     if wanted.is_empty() && cx.try_global::<GlobalState>().is_none() {
         return Vec::new();
     }
@@ -134,6 +139,153 @@ pub fn install(cx: &mut App, shortcuts: &[Shortcut]) -> Vec<Failure> {
         }
     }
     failures
+}
+
+/// The connection to the desktop portal, once a global shortcut needed it.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct PortalGlobal(Option<crate::desktop::portal_shortcuts::Portal>);
+
+#[cfg(target_os = "linux")]
+impl gpui::Global for PortalGlobal {}
+
+/// Asks the portal for the shortcuts, and returns the ones it can already tell
+/// are impossible. A refusal from the user or the desktop arrives later, through
+/// `report_failure`.
+#[cfg(target_os = "linux")]
+fn install_with_portal(cx: &mut App, wanted: &[&Shortcut]) -> Vec<Failure> {
+    use crate::desktop::portal_shortcuts::{self, Binding};
+
+    if wanted.is_empty() && cx.try_global::<PortalGlobal>().is_none() {
+        return Vec::new();
+    }
+    if cx.try_global::<PortalGlobal>().is_none() {
+        cx.set_global(PortalGlobal::default());
+    }
+    if cx.global::<PortalGlobal>().0.is_none() {
+        match portal_shortcuts::start(&crate::desktop::snapshot_app_id()) {
+            Ok(portal) => cx.global_mut::<PortalGlobal>().0 = Some(portal),
+            Err(reason) => {
+                return wanted
+                    .iter()
+                    .map(|shortcut| Failure {
+                        id: shortcut.id.clone(),
+                        reason: reason.clone(),
+                    })
+                    .collect()
+            }
+        }
+    }
+    let mut failures = Vec::new();
+    let mut bindings = Vec::new();
+    for shortcut in wanted {
+        match portal_trigger(&shortcut.keys) {
+            Ok(trigger) => bindings.push(Binding {
+                id: shortcut.id.clone(),
+                description: shortcut.id.clone(),
+                trigger,
+            }),
+            Err(reason) => failures.push(Failure {
+                id: shortcut.id.clone(),
+                reason,
+            }),
+        }
+    }
+    if let Some(portal) = &cx.global::<PortalGlobal>().0 {
+        portal.set(bindings);
+    }
+    failures
+}
+
+/// Sends a failure the portal reported after the fact to the app.
+pub fn report_failure(cx: &mut App, id: &str, reason: &str) {
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let host = store.read(cx).host.clone();
+    host.emit_device_event_json(
+        "gpuiDesktop:shortcutFailure",
+        &serde_json::json!({ "id": id, "reason": reason }).to_string(),
+    );
+}
+
+/// Sends the shortcut with this id, which the portal reported pressed.
+pub fn fire_named(cx: &mut App, id: &str) {
+    crate::desktop::keymap::emit_app_shortcut(cx, id, None);
+}
+
+/// A shortcut's keys in the portal's spelling: modifiers in capitals joined by
+/// `+`, then the key's X keysym name, as in `ALT+space` or `CTRL+SHIFT+k`.
+pub fn portal_trigger(keys: &str) -> Result<String, String> {
+    if keys.split_whitespace().count() > 1 {
+        return Err("a global shortcut cannot be a chord".to_string());
+    }
+    let keystroke = gpui::Keystroke::parse(keys).map_err(|error| error.to_string())?;
+    if keystroke.modifiers.function {
+        return Err("a global shortcut cannot use the fn key".to_string());
+    }
+    let key = keysym_for(&keystroke.key)
+        .ok_or_else(|| format!("{:?} cannot be the key of a global shortcut", keystroke.key))?;
+    let mut parts = Vec::new();
+    if keystroke.modifiers.control {
+        parts.push("CTRL".to_string());
+    }
+    if keystroke.modifiers.alt {
+        parts.push("ALT".to_string());
+    }
+    if keystroke.modifiers.shift {
+        parts.push("SHIFT".to_string());
+    }
+    if keystroke.modifiers.platform {
+        parts.push("LOGO".to_string());
+    }
+    let function_key = matches!(keystroke.key.as_bytes(), [b'f', b'1'..=b'9', ..]);
+    if parts.is_empty() && !function_key {
+        return Err("a global shortcut needs a modifier key".to_string());
+    }
+    parts.push(key);
+    Ok(parts.join("+"))
+}
+
+fn keysym_for(key: &str) -> Option<String> {
+    let key = key.to_ascii_lowercase();
+    if let [letter @ b'a'..=b'z'] | [letter @ b'0'..=b'9'] = key.as_bytes() {
+        return Some((*letter as char).to_string());
+    }
+    if let Some(number) = key.strip_prefix('f').and_then(|n| n.parse::<usize>().ok()) {
+        return (1..=24).contains(&number).then(|| format!("F{number}"));
+    }
+    Some(
+        match key.as_str() {
+            "space" => "space",
+            "enter" => "Return",
+            "tab" => "Tab",
+            "escape" => "Escape",
+            "backspace" => "BackSpace",
+            "delete" => "Delete",
+            "left" => "Left",
+            "right" => "Right",
+            "up" => "Up",
+            "down" => "Down",
+            "home" => "Home",
+            "end" => "End",
+            "pageup" => "Page_Up",
+            "pagedown" => "Page_Down",
+            "-" => "minus",
+            "=" => "equal",
+            "[" => "bracketleft",
+            "]" => "bracketright",
+            ";" => "semicolon",
+            "'" => "apostrophe",
+            "," => "comma",
+            "." => "period",
+            "/" => "slash",
+            "\\" => "backslash",
+            "`" => "grave",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 /// Sends the shortcut a system hotkey press belongs to.
@@ -246,6 +398,19 @@ mod tests {
             hotkey,
             HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyK)
         );
+    }
+
+    #[test]
+    fn a_keystroke_is_spelled_the_way_the_portal_asks() {
+        assert_eq!(portal_trigger("alt-space").unwrap(), "ALT+space");
+        assert_eq!(portal_trigger("ctrl-shift-k").unwrap(), "CTRL+SHIFT+k");
+        assert_eq!(portal_trigger("super-f5").unwrap(), "LOGO+F5");
+        assert_eq!(portal_trigger("f5").unwrap(), "F5");
+        assert_eq!(portal_trigger("alt-pageup").unwrap(), "ALT+Page_Up");
+        assert!(portal_trigger("k").unwrap_err().contains("modifier"));
+        assert!(portal_trigger("ctrl-k ctrl-s")
+            .unwrap_err()
+            .contains("chord"));
     }
 
     #[test]
