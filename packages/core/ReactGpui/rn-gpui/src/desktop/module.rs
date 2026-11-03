@@ -23,6 +23,7 @@ impl NativeGpuiDesktopSpec for GpuiDesktopModule {
     }
 
     fn capabilities(&self) -> Result<DesktopCapabilities, ModuleError> {
+        capabilities::wait_for_window_decorations();
         Ok(DesktopCapabilities {
             native_app_menu: capabilities::native_app_menu(),
             native_context_menu: capabilities::native_context_menu(),

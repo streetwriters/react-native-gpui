@@ -2641,10 +2641,11 @@ fn framed(
     .when(!tiling.is_tiled() && frame.shadow_alpha > 0.0, |element| {
         element.shadow(vec![gpui::BoxShadow::new(
             px(0.0),
-            px(0.0),
+            px(frame.shadow_dy),
             gpui::hsla(0.0, 0.0, 0.0, frame.shadow_alpha),
         )
-        .blur_radius(px(frame.shadow_extent))])
+        .blur_radius(px(frame.shadow_blur))
+        .spread_radius(px(frame.shadow_spread))])
     })
     .child(content);
     if !tiling.is_tiled() {

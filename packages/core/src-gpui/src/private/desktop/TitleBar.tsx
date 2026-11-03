@@ -28,7 +28,12 @@ import {
   useColorScheme,
 } from 'react-native';
 import type { ColorValue, StyleProp, ViewStyle } from 'react-native';
-import { capabilities, windowButtonIcon, windowButtonLayout } from './index';
+import {
+  capabilities,
+  useClientDecorations,
+  windowButtonIcon,
+  windowButtonLayout,
+} from './index';
 import { Menu, useMenuBarVisible } from './menu';
 import { WindowControl } from './WindowControl';
 import type { WindowControlAction, WindowControlState } from './WindowControl';
@@ -136,7 +141,11 @@ export function TitleBar({
   // second set would only ever be wrong. `clientDecorations` is the capability
   // that says whether the window is really frameless, which on Linux depends on
   // what the compositor granted.
-  const frameless = capabilities().clientDecorations;
+  const frameless = useClientDecorations();
+  // The compositor draws the frame (Linux with server-side decorations): its bar
+  // already has the title and the buttons, so only the app's own controls stay,
+  // as a toolbar row.
+  const nativeFrame = isLinux && !frameless;
   const inset = trafficLightInset ?? (isMac ? 78 : 0);
   const captionButtons = showCaptionButtons ?? (frameless && !isMac);
   const resolved =
@@ -218,37 +227,39 @@ export function TitleBar({
   );
   return (
     <>
-      <View
-        desktopDragRegion
-        style={[
-          styles.bar,
-          { paddingLeft: inset },
-          captionButtons &&
-            (isLinux
-              ? styles.barWithRoundCaptionButtons
-              : styles.barWithCaptionButtons),
-          captionButtons && buttons.left.length > 0 && styles.barLeftButtons,
-          style,
-        ]}
-      >
-        {captionButtons && buttons.left.length > 0
-          ? renderButtons(buttons.left)
-          : null}
-        {title != null ? (
-          <Text
-            numberOfLines={1}
-            style={[styles.title, { color: palette.foreground }]}
-          >
-            {title}
-          </Text>
-        ) : null}
-        <View style={styles.spacer} pointerEvents="box-none">
-          {children}
+      {nativeFrame && React.Children.toArray(children).length === 0 ? null : (
+        <View
+          desktopDragRegion={!nativeFrame}
+          style={[
+            styles.bar,
+            { paddingLeft: inset },
+            captionButtons &&
+              (isLinux
+                ? styles.barWithRoundCaptionButtons
+                : styles.barWithCaptionButtons),
+            captionButtons && buttons.left.length > 0 && styles.barLeftButtons,
+            style,
+          ]}
+        >
+          {captionButtons && buttons.left.length > 0
+            ? renderButtons(buttons.left)
+            : null}
+          {title != null && !nativeFrame ? (
+            <Text
+              numberOfLines={1}
+              style={[styles.title, { color: palette.foreground }]}
+            >
+              {title}
+            </Text>
+          ) : null}
+          <View style={styles.spacer} pointerEvents="box-none">
+            {children}
+          </View>
+          {captionButtons && buttons.right.length > 0
+            ? renderButtons(buttons.right)
+            : null}
         </View>
-        {captionButtons && buttons.right.length > 0
-          ? renderButtons(buttons.right)
-          : null}
-      </View>
+      )}
       {menuSlot ? (
         <View
           ref={slotRef}

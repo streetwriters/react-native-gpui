@@ -65,6 +65,81 @@ fn fit_radius(offsets: &[f32]) -> f32 {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct Shadow {
+    alpha: f32,
+    blur: f32,
+    spread: f32,
+    dy: f32,
+}
+
+/// The standard normal's cumulative distribution (Abramowitz and Stegun 7.1.26).
+fn normal_cdf(x: f32) -> f32 {
+    let t = 1.0 / (1.0 + 0.327_591_1 * (x.abs() / std::f32::consts::SQRT_2));
+    let poly = t
+        * (0.254_829_6
+            + t * (-0.284_496_74 + t * (1.421_413_7 + t * (-1.453_152_1 + t * 1.061_405_4))));
+    let erf = 1.0 - poly * (-(x * x) / 2.0).exp();
+    0.5 * (1.0 + erf.copysign(x))
+}
+
+/// The opacity of a blurred shadow `distance` outside the edge of a box whose
+/// shadow is grown by `spread` and shifted `shift` toward that edge.
+fn shadow_at(distance: f32, alpha: f32, blur: f32, spread: f32, shift: f32) -> f32 {
+    alpha * (1.0 - normal_cdf((distance - spread - shift) / blur))
+}
+
+/// The one shadow, as GPUI draws it (opacity, blur as a standard deviation,
+/// spread and a downward shift), that best explains how the opacity falls off
+/// beside the left edge (no shift) and above and below the window (shifted).
+/// Each slice starts one pixel outside its edge.
+fn fit_shadow(left: &[f32], top: &[f32], bottom: &[f32]) -> Shadow {
+    let reach = left.len() as f32;
+    let mut best = (f32::MAX, Shadow::default());
+    let mut blur = 0.5;
+    while blur <= reach {
+        let mut spread = -reach / 2.0;
+        while spread <= reach / 2.0 {
+            let mut dy = 0.0;
+            while dy <= reach / 2.0 {
+                let shapes: Vec<(f32, f32)> = [(left, 0.0), (top, dy), (bottom, -dy)]
+                    .iter()
+                    .flat_map(|(profile, shift)| {
+                        profile.iter().enumerate().map(move |(at, observed)| {
+                            let distance = at as f32 + 0.5;
+                            (*observed, shadow_at(distance, 1.0, blur, spread, *shift))
+                        })
+                    })
+                    .collect();
+                let dot: f32 = shapes.iter().map(|(seen, shape)| seen * shape).sum();
+                let norm: f32 = shapes.iter().map(|(_, shape)| shape * shape).sum();
+                if norm > 1e-6 {
+                    let alpha = (dot / norm).clamp(0.0, 1.0);
+                    let error: f32 = shapes
+                        .iter()
+                        .map(|(seen, shape)| (seen - alpha * shape).powi(2))
+                        .sum();
+                    if error < best.0 {
+                        best = (
+                            error,
+                            Shadow {
+                                alpha,
+                                blur,
+                                spread,
+                                dy,
+                            },
+                        );
+                    }
+                }
+                dy += 0.5;
+            }
+            spread += 0.5;
+        }
+        blur += 0.5;
+    }
+    best.1
+}
+
 /// Reads the frame out of a rendering of an empty client-decorated window.
 pub fn analyze(image: &Image) -> Option<Frame> {
     if image.width < 16 || image.height < 16 {
@@ -101,10 +176,27 @@ pub fn analyze(image: &Image) -> Option<Frame> {
     let extent = reach(left, -1, left).max(reach(image.width - 1 - right, 1, right));
     let _ = (top, bottom);
 
-    let shadow_alpha = if extent == 0 {
-        0.0
+    let shadow = if extent == 0 {
+        Shadow::default()
     } else {
-        (f32::from(image.alpha(left - 1, mid_y)) / 255.0 * 2.0).min(1.0)
+        let beyond = |edge: usize, step: isize, horizontal: bool| -> Vec<f32> {
+            (1..=extent)
+                .map(|distance| {
+                    let at = (edge as isize + step * distance as isize).max(0) as usize;
+                    let (x, y) = if horizontal {
+                        (at.min(image.width - 1), mid_y)
+                    } else {
+                        (mid_x, at.min(image.height - 1))
+                    };
+                    f32::from(image.alpha(x, y)) / 255.0
+                })
+                .collect()
+        };
+        fit_shadow(
+            &beyond(left, -1, true),
+            &beyond(top, -1, false),
+            &beyond(image.height - 1 - bottom, 1, false),
+        )
     };
 
     let offsets: Vec<f32> = (0..12)
@@ -138,7 +230,10 @@ pub fn analyze(image: &Image) -> Option<Frame> {
         radius,
         shadow_extent: extent as f32,
         border,
-        shadow_alpha,
+        shadow_alpha: shadow.alpha,
+        shadow_blur: shadow.blur,
+        shadow_spread: shadow.spread,
+        shadow_dy: shadow.dy,
     })
 }
 
@@ -430,6 +525,9 @@ mod gtk {
                 "shadow_extent": frame.shadow_extent,
                 "border": frame.border,
                 "shadow_alpha": frame.shadow_alpha,
+                "shadow_blur": frame.shadow_blur,
+                "shadow_spread": frame.shadow_spread,
+                "shadow_dy": frame.shadow_dy,
             }),
             None => serde_json::Value::Null,
         };
@@ -489,7 +587,7 @@ mod tests {
             "radius {}",
             frame.radius
         );
-        assert!(frame.shadow_alpha > 0.4 && frame.shadow_alpha <= 0.8);
+        assert!(frame.shadow_alpha > 0.1 && frame.shadow_alpha <= 1.0);
         assert!(frame.border & 0xFF > 0, "a darker edge reads as a border");
     }
 
@@ -515,6 +613,21 @@ mod tests {
             frame.radius
         );
         assert_eq!(frame.border, 0);
+    }
+
+    #[test]
+    fn a_blurred_offset_shadow_is_recovered_from_its_profile() {
+        let (alpha, blur, spread, dy) = (0.5_f32, 4.0_f32, 1.0_f32, 3.0_f32);
+        let profile = |shift: f32| -> Vec<f32> {
+            (0..20)
+                .map(|at| shadow_at(at as f32 + 0.5, alpha, blur, spread, shift))
+                .collect()
+        };
+        let fit = fit_shadow(&profile(0.0), &profile(dy), &profile(-dy));
+        assert!((fit.alpha - alpha).abs() < 0.05, "{fit:?}");
+        assert!((fit.blur - blur).abs() <= 1.0, "{fit:?}");
+        assert!((fit.spread - spread).abs() <= 1.0, "{fit:?}");
+        assert!((fit.dy - dy).abs() <= 1.0, "{fit:?}");
     }
 
     #[test]

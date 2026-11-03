@@ -8,6 +8,7 @@
  * @format
  */
 
+import React from 'react';
 import { TurboModuleRegistry } from 'react-native';
 import type { DesktopCapabilities, Spec } from '../specs/NativeGpuiDesktop';
 
@@ -131,6 +132,25 @@ const NO_CAPABILITIES: DesktopCapabilities = {
 /** Read synchronously; never touches the GPUI main thread. */
 export function capabilities(): DesktopCapabilities {
   return NativeGpuiDesktop?.capabilities() ?? NO_CAPABILITIES;
+}
+
+/**
+ * Whether the window is frameless, so the app draws its own caption buttons.
+ * Follows the compositor: on Linux it can settle after the window opens.
+ */
+export function useClientDecorations(): boolean {
+  return React.useSyncExternalStore(
+    onChange => {
+      // Resolved here: the module loads before React Native has finished starting.
+      const { DeviceEventEmitter } = require('react-native');
+      const subscription = DeviceEventEmitter.addListener(
+        'gpuiDesktop:windowDecorations',
+        onChange,
+      );
+      return () => subscription.remove();
+    },
+    () => capabilities().clientDecorations,
+  );
 }
 
 /** The caption button layout of the desktop, in GTK `button-layout` syntax. */

@@ -35,8 +35,14 @@ pub struct Frame {
     pub shadow_extent: f32,
     /// `0xRRGGBBAA`, painted as a one-point line just inside the edge.
     pub border: u32,
-    /// Peak opacity of the shadow, 0 to 1.
+    /// Opacity of the shadow at its densest, 0 to 1.
     pub shadow_alpha: f32,
+    /// Standard deviation of the shadow's blur, in points.
+    pub shadow_blur: f32,
+    /// How far the shadow grows beyond the window before it blurs, in points.
+    pub shadow_spread: f32,
+    /// How far the shadow is shifted down, in points.
+    pub shadow_dy: f32,
 }
 
 /// Used where the desktop's own frame has not been measured.
@@ -45,6 +51,9 @@ const DEFAULT: Frame = Frame {
     shadow_extent: 14.0,
     border: 0x0000_0040,
     shadow_alpha: 0.35,
+    shadow_blur: 7.0,
+    shadow_spread: 0.0,
+    shadow_dy: 0.0,
 };
 
 static FALLBACK_RADIUS: AtomicU32 = AtomicU32::new(0);
@@ -67,6 +76,9 @@ pub fn frame() -> Frame {
     if !FRAME_ENABLED.load(Ordering::Relaxed) {
         frame.shadow_extent = 0.0;
         frame.shadow_alpha = 0.0;
+        frame.shadow_blur = 0.0;
+        frame.shadow_spread = 0.0;
+        frame.shadow_dy = 0.0;
     }
     frame
 }
@@ -189,7 +201,7 @@ mod cache {
             files
         };
         format!(
-            "{}|{theme}|{scheme}|gtk:{}|adw:{}|css:{}",
+            "v2|{}|{theme}|{scheme}|gtk:{}|adw:{}|css:{}",
             env!("CARGO_PKG_VERSION"),
             stamp(&find("libgtk-4.so.1")),
             stamp(&find("libadwaita-1.so.0")),
@@ -209,7 +221,10 @@ mod cache {
         if value.get("key")?.as_str()? != key {
             return None;
         }
-        Some(value.get("frame").and_then(parse))
+        match value.get("frame")? {
+            serde_json::Value::Null => Some(None),
+            frame => parse(frame).map(Some),
+        }
     }
 
     pub fn write(key: &str, frame: Option<Frame>) {
@@ -221,6 +236,9 @@ mod cache {
                 "shadow_extent": frame.shadow_extent,
                 "border": frame.border,
                 "shadow_alpha": frame.shadow_alpha,
+                "shadow_blur": frame.shadow_blur,
+                "shadow_spread": frame.shadow_spread,
+                "shadow_dy": frame.shadow_dy,
             })),
         });
         if let Some(parent) = path.parent() {
@@ -235,6 +253,9 @@ mod cache {
             shadow_extent: value.get("shadow_extent")?.as_f64()? as f32,
             border: u32::try_from(value.get("border")?.as_u64()?).ok()?,
             shadow_alpha: value.get("shadow_alpha")?.as_f64()? as f32,
+            shadow_blur: value.get("shadow_blur")?.as_f64()? as f32,
+            shadow_spread: value.get("shadow_spread")?.as_f64()? as f32,
+            shadow_dy: value.get("shadow_dy")?.as_f64()? as f32,
         })
     }
 

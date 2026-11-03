@@ -1637,6 +1637,20 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         _ => "light",
                     };
                     appearance_host.set_system_appearance(appearance);
+                    // The compositor can settle the decorations after the window
+                    // exists (a Wayland `configure`), so a change is passed on to
+                    // the app, which draws its caption buttons by it.
+                    #[cfg(target_os = "linux")]
+                    {
+                        let before = crate::desktop::capabilities::observed_client_decorations();
+                        crate::desktop::capabilities::note_window_decorations(
+                            window.window_decorations(),
+                        );
+                        if crate::desktop::capabilities::observed_client_decorations() != before {
+                            appearance_host
+                                .emit_device_event_json("gpuiDesktop:windowDecorations", "{}");
+                        }
+                    }
                 })
             })
             .expect("failed to observe window appearance");
