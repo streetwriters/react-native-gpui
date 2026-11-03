@@ -317,11 +317,7 @@ impl ViewStore {
         // shown in another, so the inset has to follow the window the surface
         // belongs to.
         for surface_id in self.surfaces_in_window(window) {
-            let frame = if surface_id == APP_SURFACE_ID {
-                crate::desktop::window_frame::main_insets()
-            } else {
-                Default::default()
-            };
+            let frame = crate::desktop::window_frame::insets_of(surface_id);
             let width = (width - frame.horizontal()).max(1.0);
             let height = (height
                 - frame.vertical()
@@ -2609,11 +2605,16 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
 /// window, and the corners there are square, which is how a maximized window
 /// looks.
 #[cfg(target_os = "linux")]
-fn framed(content: gpui::Div, tiling: gpui::Tiling, window: &mut Window) -> gpui::AnyElement {
+fn framed(
+    content: gpui::Div,
+    tiling: gpui::Tiling,
+    surface_id: i32,
+    window: &mut Window,
+) -> gpui::AnyElement {
     use crate::desktop::window_frame;
 
     let frame = window_frame::frame();
-    let insets = window_frame::insets_for(window);
+    let insets = window_frame::insets_of(surface_id);
     let radius = px(frame.radius);
     let round = |element: gpui::Div| {
         element
@@ -2842,9 +2843,9 @@ impl Render for SurfaceRootView {
         // Last, so the border paints in front of the app: whichever edge the
         // pointer is nearest is what a press there resizes.
         #[cfg(target_os = "linux")]
-        if self.surface_id == APP_SURFACE_ID {
+        if crate::desktop::window_frame::is_framed(self.surface_id) {
             if let gpui::Decorations::Client { tiling } = _window.window_decorations() {
-                return framed(window_root, tiling, _window);
+                return framed(window_root, tiling, self.surface_id, _window);
             }
         }
         #[cfg(target_os = "linux")]

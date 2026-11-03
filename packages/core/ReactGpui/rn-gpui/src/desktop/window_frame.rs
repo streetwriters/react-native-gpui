@@ -168,21 +168,36 @@ mod cache {
                 .map(|dir| format!("/usr/{dir}/{name}"))
                 .collect()
         };
-        let theme_css: Vec<String> = {
+        let theme_files: Vec<String> = {
             let name = theme.trim_matches('\'');
             let home = std::env::var("HOME").unwrap_or_default();
-            vec![
-                format!("{home}/.themes/{name}/gtk-4.0/gtk.css"),
-                format!("{home}/.local/share/themes/{name}/gtk-4.0/gtk.css"),
-                format!("/usr/share/themes/{name}/gtk-4.0/gtk.css"),
-            ]
+            let roots = [
+                format!("{home}/.themes"),
+                format!("{home}/.local/share/themes"),
+                "/usr/share/themes".to_string(),
+            ];
+            let mut files = Vec::new();
+            for version in ["gtk-4.0", "gtk-3.0"] {
+                for file in ["gtk.css", "gtk.gresource"] {
+                    files.extend(
+                        roots
+                            .iter()
+                            .map(|root| format!("{root}/{name}/{version}/{file}")),
+                    );
+                }
+            }
+            files
         };
         format!(
             "{}|{theme}|{scheme}|gtk:{}|adw:{}|css:{}",
             env!("CARGO_PKG_VERSION"),
             stamp(&find("libgtk-4.so.1")),
             stamp(&find("libadwaita-1.so.0")),
-            stamp(&theme_css),
+            theme_files
+                .iter()
+                .map(|file| stamp(std::slice::from_ref(file)))
+                .collect::<Vec<_>>()
+                .join(","),
         )
     }
 
@@ -260,19 +275,39 @@ pub use linux::*;
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::cell::Cell;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
 
     use gpui::{Decorations, Window};
 
     use super::{frame, Insets};
 
     thread_local! {
-        static MAIN_INSETS: Cell<Insets> = const { Cell::new(Insets { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }) };
+        /// The windows that draw a frame, by surface id, and their current margin.
+        static WINDOWS: RefCell<HashMap<i32, Insets>> = RefCell::new(HashMap::new());
     }
 
-    /// The margin around the main window's content as last synced.
-    pub fn main_insets() -> Insets {
-        MAIN_INSETS.with(Cell::get)
+    /// Makes the window of `surface_id` draw the frame.
+    pub fn enroll(surface_id: i32) {
+        WINDOWS.with(|windows| {
+            windows.borrow_mut().entry(surface_id).or_default();
+        });
+    }
+
+    pub fn is_framed(surface_id: i32) -> bool {
+        WINDOWS.with(|windows| windows.borrow().contains_key(&surface_id))
+    }
+
+    /// The margin around a window's content as last synced; none for a window
+    /// that draws no frame.
+    pub fn insets_of(surface_id: i32) -> Insets {
+        WINDOWS.with(|windows| {
+            windows
+                .borrow()
+                .get(&surface_id)
+                .copied()
+                .unwrap_or_default()
+        })
     }
 
     /// The margin a window gets: the shadow's reach on every side it does not
@@ -292,15 +327,18 @@ mod linux {
         }
     }
 
-    /// Records the main window's margin; true when it changed.
-    pub fn sync_main(window: &Window) -> bool {
+    /// Records the margin of an enrolled window; true when it changed.
+    pub fn sync(window: &Window, surface_id: i32) -> bool {
+        if !is_framed(surface_id) {
+            return false;
+        }
         let insets = insets_for(window);
-        MAIN_INSETS.with(|cell| cell.replace(insets)) != insets
+        WINDOWS.with(|windows| windows.borrow_mut().insert(surface_id, insets)) != Some(insets)
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn main_insets() -> Insets {
+pub fn insets_of(_surface_id: i32) -> Insets {
     Insets::default()
 }
 

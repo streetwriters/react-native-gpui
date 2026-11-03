@@ -923,6 +923,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
     if std::env::args().nth(1).as_deref() == Some("--rn-gpui-probe-frame") {
         crate::desktop::frame_probe::run_and_exit();
     }
+    crate::desktop::window_frame::configure(config.corner_radius, config.shadow);
+    crate::desktop::window_frame::load();
 
     #[cfg(not(feature = "test-driver"))]
     if std::env::var_os("RN_GPUI_TEST_DRIVER").is_some_and(|value| value != "0") {
@@ -1352,7 +1354,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
         // Before the window exists the compositor's answer is unknown; a custom
         // title bar asks for client decorations, which is what gets the margin.
-        let estimated_frame = if cfg!(target_os = "linux") && config.title_bar.is_custom() {
+        #[cfg(target_os = "linux")]
+        crate::desktop::window_frame::enroll(APP_SURFACE_ID);
+        let estimated_frame = if cfg!(target_os = "linux")
+            && (config.title_bar.is_custom() || crate::desktop::capabilities::is_wayland())
+        {
             let extent = crate::desktop::window_frame::frame().shadow_extent;
             crate::desktop::window_frame::Insets {
                 left: extent,
@@ -1576,9 +1582,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // state, and a window manager can override either.
         #[cfg(target_os = "linux")]
         let _ = window.update(cx, |_root, window, _cx| {
-            crate::desktop::window_frame::sync_main(window)
+            crate::desktop::window_frame::sync(window, APP_SURFACE_ID)
         });
-        let frame_insets = crate::desktop::window_frame::main_insets();
+        let frame_insets = crate::desktop::window_frame::insets_of(APP_SURFACE_ID);
         let size_moved = (width - surface_width).abs() > f32::EPSILON
             || (height - surface_height).abs() > f32::EPSILON
             || frame_insets != estimated_frame;
@@ -1666,8 +1672,6 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // `window.menuBar: false` hides the bar before it is ever drawn, so the
         // window opens at the right size instead of shrinking once the bar goes.
         crate::desktop::button_layout::set_fallback_left(config.window_controls_left);
-        crate::desktop::window_frame::configure(config.corner_radius, config.shadow);
-        crate::desktop::window_frame::load();
         if !config.menu_bar {
             crate::desktop::gpui_menu::set_menu_bar_visible(
                 crate::desktop::windows::MAIN_WINDOW_KEY,
@@ -2077,7 +2081,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         f32::from(bounds.origin.y),
                     );
                     #[cfg(target_os = "linux")]
-                    let frame_changed = crate::desktop::window_frame::sync_main(window);
+                    let frame_changed = crate::desktop::window_frame::sync(window, APP_SURFACE_ID);
                     #[cfg(not(target_os = "linux"))]
                     let frame_changed = false;
                     let previous = last_surface_size.get();

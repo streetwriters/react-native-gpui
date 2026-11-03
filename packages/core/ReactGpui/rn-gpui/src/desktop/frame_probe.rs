@@ -71,17 +71,23 @@ pub fn analyze(image: &Image) -> Option<Frame> {
         return None;
     }
     let (mid_x, mid_y) = (image.width / 2, image.height / 2);
-    let solid = |alpha: u8| alpha >= 250;
-    let left = (0..mid_x).find(|&x| solid(image.alpha(x, mid_y)))?;
-    let top = (0..mid_y).find(|&y| solid(image.alpha(mid_x, y)))?;
-    let right = (mid_x..image.width)
-        .rev()
-        .find(|&x| solid(image.alpha(x, mid_y)))
-        .map(|x| image.width - 1 - x)?;
-    let bottom = (mid_y..image.height)
-        .rev()
-        .find(|&y| solid(image.alpha(mid_x, y)))
-        .map(|y| image.height - 1 - y)?;
+    // The window is either painted solid, or only its shadow is and the window
+    // is the hole inside it. The centre says which.
+    let hollow = image.alpha(mid_x, mid_y) <= 2;
+    let in_body = |alpha: u8| if hollow { alpha <= 2 } else { alpha >= 250 };
+    let left = (1..=mid_x)
+        .find(|&step| !in_body(image.alpha(mid_x - step, mid_y)))
+        .map(|step| mid_x - step + 1)?;
+    let top = (1..=mid_y)
+        .find(|&step| !in_body(image.alpha(mid_x, mid_y - step)))
+        .map(|step| mid_y - step + 1)?;
+    let right = (1..image.width - mid_x)
+        .find(|&step| !in_body(image.alpha(mid_x + step, mid_y)))
+        .map(|step| image.width - (mid_x + step))?;
+    let bottom = (1..image.height - mid_y)
+        .find(|&step| !in_body(image.alpha(mid_x, mid_y + step)))
+        .map(|step| image.height - (mid_y + step))?;
+
     // The margin is the canvas the window was drawn into; what matters is how
     // far the shadow visibly reaches beyond the edge.
     let reach = |from: usize, step: isize, limit: usize| -> usize {
@@ -105,7 +111,14 @@ pub fn analyze(image: &Image) -> Option<Frame> {
         .map_while(|row| {
             let y = top + row;
             (left..left + 48)
-                .find(|&x| image.alpha(x, y) >= 128)
+                .find(|&x| {
+                    let alpha = image.alpha(x, y);
+                    if hollow {
+                        alpha <= 2
+                    } else {
+                        alpha >= 128
+                    }
+                })
                 .map(|x| (x - left) as f32)
         })
         .collect();
@@ -115,9 +128,11 @@ pub fn analyze(image: &Image) -> Option<Frame> {
         fit_radius(&offsets)
     };
 
-    let edge = image.pixel(left, mid_y);
-    let inside = image.pixel(left + 4, mid_y);
-    let border = border_over(edge, inside);
+    let border = if hollow {
+        0
+    } else {
+        border_over(image.pixel(left, mid_y), image.pixel(left + 4, mid_y))
+    };
 
     Some(Frame {
         radius,
@@ -175,7 +190,11 @@ mod gtk {
         debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*mut c_void>());
         let name = CString::new(name).ok()?;
         let address = libc::dlsym(library, name.as_ptr());
-        (!address.is_null()).then(|| std::mem::transmute_copy(&address))
+        if address.is_null() {
+            trace(&format!("missing symbol {name:?}"));
+            return None;
+        }
+        Some(std::mem::transmute_copy(&address))
     }
 
     fn trace(message: &str) {
@@ -184,8 +203,8 @@ mod gtk {
         }
     }
 
-    /// Renders an empty window with GTK and measures it.
-    unsafe fn measure() -> Option<crate::desktop::window_frame::Frame> {
+    /// Renders the window node with GTK 4, and libadwaita's stylesheet when asked.
+    unsafe fn measure_gtk4(use_adwaita: bool) -> Option<crate::desktop::window_frame::Frame> {
         let gtk = open("libgtk-4.so.1");
         if gtk.is_null() {
             trace("libgtk-4 not found");
@@ -196,7 +215,11 @@ mod gtk {
             trace("gtk_init_check failed");
             return None;
         }
-        let adwaita = open("libadwaita-1.so.0");
+        let adwaita = if use_adwaita {
+            open("libadwaita-1.so.0")
+        } else {
+            std::ptr::null_mut()
+        };
         if !adwaita.is_null() {
             if let Some(init) = symbol::<unsafe extern "C" fn()>(adwaita, "adw_init") {
                 init();
@@ -292,11 +315,115 @@ mod gtk {
         })
     }
 
+    /// Renders a GTK 3 client-decorated window's `decoration` node with cairo.
+    unsafe fn measure_gtk3() -> Option<crate::desktop::window_frame::Frame> {
+        let gtk = open("libgtk-3.so.0");
+        if gtk.is_null() {
+            trace("libgtk-3 not found");
+            return None;
+        }
+        let cairo = open("libcairo.so.2");
+        if cairo.is_null() {
+            trace("libcairo not found");
+            return None;
+        }
+        let init_check: unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int =
+            symbol(gtk, "gtk_init_check")?;
+        if init_check(std::ptr::null_mut(), std::ptr::null_mut()) == 0 {
+            trace("gtk_init_check failed");
+            return None;
+        }
+        let window_type: unsafe extern "C" fn() -> usize = symbol(gtk, "gtk_window_get_type")?;
+        let path_new: unsafe extern "C" fn() -> *mut c_void = symbol(gtk, "gtk_widget_path_new")?;
+        let append_type: unsafe extern "C" fn(*mut c_void, usize) -> c_int =
+            symbol(gtk, "gtk_widget_path_append_type")?;
+        let set_object_name: unsafe extern "C" fn(*mut c_void, c_int, *const c_char) =
+            symbol(gtk, "gtk_widget_path_iter_set_object_name")?;
+        let add_class: unsafe extern "C" fn(*mut c_void, c_int, *const c_char) =
+            symbol(gtk, "gtk_widget_path_iter_add_class")?;
+        let context_new: unsafe extern "C" fn() -> *mut c_void =
+            symbol(gtk, "gtk_style_context_new")?;
+        let set_path: unsafe extern "C" fn(*mut c_void, *mut c_void) =
+            symbol(gtk, "gtk_style_context_set_path")?;
+        let render_background: unsafe extern "C" fn(
+            *mut c_void,
+            *mut c_void,
+            c_double,
+            c_double,
+            c_double,
+            c_double,
+        ) = symbol(gtk, "gtk_render_background")?;
+        let render_frame: unsafe extern "C" fn(
+            *mut c_void,
+            *mut c_void,
+            c_double,
+            c_double,
+            c_double,
+            c_double,
+        ) = symbol(gtk, "gtk_render_frame")?;
+        let surface_create: unsafe extern "C" fn(c_int, c_int, c_int) -> *mut c_void =
+            symbol(cairo, "cairo_image_surface_create")?;
+        let cairo_create: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
+            symbol(cairo, "cairo_create")?;
+        let flush: unsafe extern "C" fn(*mut c_void) = symbol(cairo, "cairo_surface_flush")?;
+        let data: unsafe extern "C" fn(*mut c_void) -> *const u8 =
+            symbol(cairo, "cairo_image_surface_get_data")?;
+        let stride: unsafe extern "C" fn(*mut c_void) -> c_int =
+            symbol(cairo, "cairo_image_surface_get_stride")?;
+
+        let path = path_new();
+        let cstr = |text: &str| CString::new(text).unwrap_or_default();
+        let (window_name, decoration_name) = (cstr("window"), cstr("decoration"));
+        append_type(path, window_type());
+        set_object_name(path, -1, window_name.as_ptr());
+        for class in ["background", "csd"] {
+            add_class(path, -1, cstr(class).as_ptr());
+        }
+        append_type(path, window_type());
+        set_object_name(path, -1, decoration_name.as_ptr());
+        let context = context_new();
+        set_path(context, path);
+
+        const MARGIN: f64 = 64.0;
+        const SIDE: f64 = 240.0;
+        let canvas = (SIDE + 2.0 * MARGIN) as c_int;
+        let surface = surface_create(0, canvas, canvas);
+        let cr = cairo_create(surface);
+        render_background(context, cr, MARGIN, MARGIN, SIDE, SIDE);
+        render_frame(context, cr, MARGIN, MARGIN, SIDE, SIDE);
+        flush(surface);
+        let (width, height) = (canvas as usize, canvas as usize);
+        let stride = stride(surface) as usize;
+        let pixels = std::slice::from_raw_parts(data(surface), stride * height);
+        let covered = pixels.chunks_exact(4).filter(|pixel| pixel[3] > 0).count();
+        trace(&format!(
+            "gtk3 canvas {width}x{height}, {covered} covered pixels"
+        ));
+        analyze(&Image {
+            width,
+            height,
+            stride,
+            data: pixels,
+        })
+    }
+
+    /// Tries the toolkits in turn: GTK 4 with libadwaita, GTK 4 alone, GTK 3. The
+    /// first that renders gives the answer.
+    unsafe fn measure(toolkit: &str) -> Option<crate::desktop::window_frame::Frame> {
+        match toolkit {
+            "gtk4" => measure_gtk4(true),
+            "gtk4-plain" => measure_gtk4(false),
+            "gtk3" => measure_gtk3(),
+            _ => measure_gtk4(true).or_else(|| measure_gtk3()),
+        }
+    }
+
     /// Prints the measured frame as JSON (or `null`) and ends the process.
     pub fn run_and_exit() -> ! {
         // SAFETY: plain C calls into GTK, made once from a process that exists
         // only to make them.
-        let frame = unsafe { measure() };
+        let toolkit = std::env::args().nth(2).unwrap_or_default();
+        let frame = unsafe { measure(&toolkit) };
         let json = match frame {
             Some(frame) => serde_json::json!({
                 "radius": frame.radius,
@@ -364,6 +491,30 @@ mod tests {
         );
         assert!(frame.shadow_alpha > 0.4 && frame.shadow_alpha <= 0.8);
         assert!(frame.border & 0xFF > 0, "a darker edge reads as a border");
+    }
+
+    #[test]
+    fn a_window_drawn_as_a_hole_in_its_shadow_measures_the_same() {
+        let mut data = render(120, 14, 12.0, false);
+        for pixel in data.chunks_exact_mut(4) {
+            if pixel[3] == 255 {
+                pixel.copy_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+        let frame = analyze(&Image {
+            width: 120,
+            height: 120,
+            stride: 480,
+            data: &data,
+        })
+        .unwrap();
+        assert!((frame.shadow_extent - 14.0).abs() <= 2.0);
+        assert!(
+            (frame.radius - 12.0).abs() <= 2.0,
+            "radius {}",
+            frame.radius
+        );
+        assert_eq!(frame.border, 0);
     }
 
     #[test]

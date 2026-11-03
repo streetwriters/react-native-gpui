@@ -192,6 +192,10 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         (windows.alloc_key(), windows.alloc_surface())
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
+    #[cfg(target_os = "linux")]
+    if !options.popup {
+        crate::desktop::window_frame::enroll(surface_id);
+    }
 
     let width = options.width.unwrap_or(800.0).max(120.0);
     let height = options.height.unwrap_or(600.0).max(120.0);
@@ -221,7 +225,17 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             }),
         }),
         is_resizable: options.resizable,
-        window_background: options.background.appearance(),
+        window_background: if cfg!(target_os = "linux")
+            && options.title_bar.is_custom()
+            && !options.popup
+            && matches!(
+                options.background,
+                crate::bootstrap::WindowBackground::Opaque
+            ) {
+            gpui::WindowBackgroundAppearance::Transparent
+        } else {
+            options.background.appearance()
+        },
         is_movable: !options.popup,
         window_min_size: Some(size(px(120.0), px(120.0))),
         // The tray popover is a normal, undecorated window on every platform,
@@ -264,10 +278,13 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             // A compositor can refuse the decorations request for one window and
             // grant it for another, so the capability follows the newest window.
             crate::desktop::capabilities::note_window_decorations(window.window_decorations());
+            #[cfg(target_os = "linux")]
+            crate::desktop::window_frame::sync(window, surface_id);
             let size = window.viewport_size();
+            let frame = crate::desktop::window_frame::insets_of(surface_id);
             (
-                f32::from(size.width),
-                f32::from(size.height),
+                (f32::from(size.width) - frame.horizontal()).max(1.0),
+                (f32::from(size.height) - frame.vertical()).max(1.0),
                 window.scale_factor(),
             )
         })
@@ -336,7 +353,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 platform_window::apply_app_icon(window);
             }
             frame_hook.arm(window);
-            subscriptions.push(install_bounds_observer(window, cx));
+            subscriptions.push(install_bounds_observer(window, cx, surface_id));
             subscriptions.push(install_state_observer(window, cx));
             subscriptions.push(install_activation_observer(window, cx, key));
             install_close_hook(window, cx, key);
@@ -918,6 +935,7 @@ pub fn list_windows(cx: &App) -> DesktopResult {
 fn install_bounds_observer(
     window: &mut gpui::Window,
     cx: &mut gpui::Context<SurfaceRootView>,
+    surface_id: i32,
 ) -> Subscription {
     let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
     cx.observe_window_bounds(window, move |_root, window, cx| {
@@ -926,7 +944,14 @@ fn install_bounds_observer(
         let (width, height) = (f32::from(size.width), f32::from(size.height));
         let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
         let scale = window.scale_factor();
-        if last.get() == Some((x, y, width, height)) {
+        #[cfg(target_os = "linux")]
+        let frame_changed = crate::desktop::window_frame::sync(window, surface_id);
+        #[cfg(not(target_os = "linux"))]
+        let frame_changed = {
+            let _ = surface_id;
+            false
+        };
+        if !frame_changed && last.get() == Some((x, y, width, height)) {
             return;
         }
         last.set(Some((x, y, width, height)));
