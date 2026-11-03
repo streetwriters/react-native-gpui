@@ -924,7 +924,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         crate::desktop::frame_probe::run_and_exit();
     }
     crate::desktop::window_frame::configure(config.corner_radius, config.shadow);
-    crate::desktop::window_frame::load();
+    crate::desktop::window_frame::load(&config.app_id);
 
     #[cfg(not(feature = "test-driver"))]
     if std::env::var_os("RN_GPUI_TEST_DRIVER").is_some_and(|value| value != "0") {

@@ -92,7 +92,11 @@ fn measured() -> Option<Frame> {
 /// Measures the desktop's frame, or reads the last measurement while nothing it
 /// depends on has changed. Runs once, before the first window, and costs a
 /// child process only on a first launch or after a theme or library update.
-pub fn load() {
+pub fn load(app_id: &str) {
+    #[cfg(target_os = "linux")]
+    cache::name_for(app_id);
+    #[cfg(not(target_os = "linux"))]
+    let _ = app_id;
     MEASURED.get_or_init(measure_or_cached);
 }
 
@@ -128,11 +132,36 @@ mod cache {
 
     const PROBE_TIMEOUT: Duration = Duration::from_millis(2500);
 
+    static APP_DIRECTORY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+    /// The app's own folder in the cache: its id, with anything a file name should
+    /// not hold replaced, so each app keeps its own measurement.
+    pub fn name_for(app_id: &str) {
+        let name: String = app_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let _ = APP_DIRECTORY.set(if name.trim_matches('.').is_empty() {
+            "react-native-gpui".to_string()
+        } else {
+            name
+        });
+    }
+
     fn path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
-        Some(base.join("react-native-gpui").join("window-frame.json"))
+        let directory = APP_DIRECTORY
+            .get()
+            .map_or("react-native-gpui", String::as_str);
+        Some(base.join(directory).join("window-frame.json"))
     }
 
     fn setting(schema: &str, key: &str) -> String {

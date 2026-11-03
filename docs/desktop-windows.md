@@ -106,7 +106,7 @@ The values are measured from the desktop's own toolkit and not assumed, so they 
 
 1. On the first launch a short-lived child process of the app renders a window frame off-screen with the toolkit that is installed: GTK 4 with libadwaita, then GTK 4 alone, then GTK 3. The first that works gives the answer, so a desktop with only plain GTK gets its own theme's frame and not libadwaita's.
 2. The corner radius, border and shadow are read from the pixels. The shadow is fitted to the measured falloff on three edges, which gives its opacity, blur, spread and downward offset.
-3. The result is kept in `~/.cache/react-native-gpui/window-frame.json`. It is measured again only when the GTK theme, the colour scheme, GTK or libadwaita, the theme's stylesheet or the runtime changes. A first launch can wait for the measurement for up to two and a half seconds; later launches read the file.
+3. The result is kept in `window-frame.json` in the app's own cache folder (`~/.cache/<app id>/`), written on the user's machine at run time and not part of the package. It is measured again only when the GTK theme, the colour scheme, GTK or libadwaita, the theme's stylesheet or the runtime changes. A first launch can wait for the measurement for up to two and a half seconds; later launches read the file.
 
 The app never loads GTK itself, and no GTK window is ever shown.
 
