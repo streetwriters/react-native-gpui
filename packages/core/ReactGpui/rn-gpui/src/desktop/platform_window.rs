@@ -511,17 +511,37 @@ mod imp {
         Ok(())
     }
 
-    /// Raising is the part of always-on-top X11 itself can do, so `on == true`
-    /// only raises the window once and `on == false` is a no-op.
-    ///
-    /// TODO: set the `_NET_WM_STATE_ABOVE` hint so the window stays above.
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
         // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {
+            let root = (xlib.XDefaultRootWindow)(display);
+            let state = (xlib.XInternAtom)(display, b"_NET_WM_STATE\0".as_ptr() as *const _, 0);
+            let above =
+                (xlib.XInternAtom)(display, b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const _, 0);
+            let mut event: xlib::XEvent = std::mem::zeroed();
+            {
+                let message = &mut event.client_message;
+                message.type_ = xlib::ClientMessage;
+                message.display = display;
+                message.window = id;
+                message.message_type = state;
+                message.format = 32;
+                // data = [action (1 adds, 0 removes), property, 0, source indication]
+                message.data.set_long(0, i64::from(on));
+                message.data.set_long(1, above as i64);
+                message.data.set_long(3, 1);
+            }
+            (xlib.XSendEvent)(
+                display,
+                root,
+                0,
+                xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+                &mut event,
+            );
             if on {
                 (xlib.XRaiseWindow)(display, id);
-                (xlib.XFlush)(display);
             }
+            (xlib.XFlush)(display);
         })
     }
 
