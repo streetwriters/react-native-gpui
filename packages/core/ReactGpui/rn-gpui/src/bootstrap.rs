@@ -2145,19 +2145,30 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             crate::desktop::windows::MAIN_WINDOW_KEY,
                             &[("topInset", serde_json::json!(top))],
                         );
-                        store.update(cx, |store, cx| {
+                        store.update(cx, |store, _cx| {
                             store.top_inset = top;
                             store.host.set_window_top_inset(top);
                             store.frame_hook.arm(window);
-                            for node in store.nodes.values() {
-                                let component = node.read(cx).component.clone();
-                                let depends = crate::extensions::component_renderer(&component)
-                                    .is_some_and(|renderer| renderer.depends_on_window_insets());
-                                if depends {
-                                    node.update(cx, |_, cx| cx.notify());
+                        });
+                        // Deferred: this observer runs with the window's root view
+                        // borrowed, and refreshing the surface reads it. A compositor
+                        // that settles the decorations after the window opens (sway)
+                        // changes the inset right here.
+                        let deferred_store = store.clone();
+                        cx.defer(move |cx| {
+                            deferred_store.update(cx, |store, cx| {
+                                for node in store.nodes.values() {
+                                    let component = node.read(cx).component.clone();
+                                    let depends = crate::extensions::component_renderer(&component)
+                                        .is_some_and(|renderer| {
+                                            renderer.depends_on_window_insets()
+                                        });
+                                    if depends {
+                                        node.update(cx, |_, cx| cx.notify());
+                                    }
                                 }
-                            }
-                            store.refresh_inherited(1, cx);
+                                store.refresh_inherited(1, cx);
+                            });
                         });
                         log::info!(
                             "[window-inset] native window top inset={top} fullscreen={}",
