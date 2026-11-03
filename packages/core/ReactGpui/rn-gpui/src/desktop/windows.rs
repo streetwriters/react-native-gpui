@@ -319,6 +319,13 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             crate::desktop::capabilities::note_window_decorations(window.window_decorations());
             #[cfg(target_os = "linux")]
             {
+                // X11 window managers place a window as they like unless told its
+                // position was the user's, so the position asked for (or centred)
+                // is applied directly. Wayland has no such thing, and the call
+                // is refused there.
+                if !options.popup {
+                    let _ = platform_window::set_position(window, placed_origin.0, placed_origin.1);
+                }
                 crate::desktop::window_frame::sync(window, surface_id);
                 // A compositor that left the decorations to itself draws no
                 // frame, so the margin the popover was grown by is given back.
