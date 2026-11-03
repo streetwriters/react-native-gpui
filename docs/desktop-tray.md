@@ -74,4 +74,4 @@ A tray can also be set up without code. The `tray` block of [`desktop.json`](des
 ## Platform notes
 
 - **Windows** has no anchored popover. The window is placed at the click point.
-- **Linux on GNOME** supports tray menus but not click-to-popover: its panel only shows a menu, so the built-in Open item opens the popover, in the middle of the screen. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.
+- **Linux on GNOME** has no click-to-popover: its tray extension shows an icon's menu on a single click and sends the click to the app only for a double click. A double click opens the popover, and so does the built-in Open item of the menu. The popover opens in the middle of the screen. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.
