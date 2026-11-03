@@ -35,7 +35,7 @@ const { platform, arch, capabilities } = await Desktop.getInfo();
 | `trayPopoverAnchored`    | A tray popover is anchored to the icon.                                                                                                                               |
 | `windowPosition`         | Windows can be positioned from code.                                                                                                                                  |
 | `alwaysOnTop`            | A window can stay above others.                                                                                                                                       |
-| `visibleOnAllWorkspaces` | A window can be shown on every Space or workspace. macOS only for now.                                                                                                |
+| `visibleOnAllWorkspaces` | A window can be shown on every Space or workspace. macOS only for now; elsewhere the option is ignored.                                                               |
 | `transparentTitlebar`    | A window can draw under its title bar.                                                                                                                                |
 | `clientDecorations`      | A frameless window can still be resized, so you can draw your own caption buttons. Always true on macOS and Windows; on Linux it follows what the compositor granted. |
 | `menuBarInWindow`        | The menu bar is drawn in the window, so hiding it has an effect.                                                                                                      |

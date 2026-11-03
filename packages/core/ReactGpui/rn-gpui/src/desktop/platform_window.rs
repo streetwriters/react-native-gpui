@@ -262,7 +262,7 @@ mod imp {
         _window: &mut Window,
         _visible: bool,
     ) -> Result<(), String> {
-        Err("showing a window on every virtual desktop is not supported yet".to_string())
+        Ok(())
     }
 
     pub fn set_always_on_top(window: &mut Window, on: bool) -> Result<(), String> {
@@ -508,7 +508,7 @@ mod imp {
         _window: &mut Window,
         _visible: bool,
     ) -> Result<(), String> {
-        Err("showing a window on every workspace is not supported yet".to_string())
+        Ok(())
     }
 
     /// Raising is the part of always-on-top X11 itself can do, so `on == true`

@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `visibleOnAllWorkspaces` and `setVisibleOnAllWorkspaces` are ignored on Windows and Linux instead of failing, so a window opened with them still opens without an error.
 - Fixed the Windows build failing with C2084 when two libraries in an app define the same file-local function, such as `react-native-screens` with `react-native-safe-area-context`.
 - `DesktopAppConfig::accessory` runs the app with no Dock icon on macOS, which lets its windows show over another app's full-screen Space.
 - A shortcut with `global: true` fires while no window of the app has focus, on macOS, Windows and X11. `Shortcuts.onFailure` reports keys the system refused.

@@ -73,6 +73,7 @@ A window that appears on demand, like a command palette, combines a few options 
 
 - Set [`accessory`](desktop-json#app) in `desktop.json`, so the app has no Dock icon. This is what lets its windows show over another app's full-screen Space.
 - Open the window with `alwaysOnTop` and `visibleOnAllWorkspaces`, or call `setAlwaysOnTop` and `setVisibleOnAllWorkspaces` on the main window.
+  Only macOS shows a window on every Space; on Windows and Linux `visibleOnAllWorkspaces` is ignored.
 - Use a [`'none'` title bar](desktop-title-bar) with a `'transparent'` or `'blurred'` background, and `windowButtons` and `shadow` set to `false`, so the window has no chrome of its own.
 - Summon it with a [global shortcut](desktop-keyboard-shortcuts#global-shortcuts), and hide it with `hide()` when the user dismisses it.
 
