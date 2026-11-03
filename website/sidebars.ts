@@ -589,18 +589,6 @@ export default {
           },
         ],
       },
-      {
-        type: 'category',
-        label: 'Desktop APIs',
-        collapsed: false,
-        items: [
-          {
-            type: 'link',
-            label: 'BackHandler',
-            href: 'https://reactnative.dev/docs/0.87/backhandler',
-          },
-        ],
-      },
     ],
     'Desktop APIs': [
       'desktop',
@@ -610,6 +598,11 @@ export default {
       'contextmenu',
       'shortcuts',
       'perfmonitor',
+      {
+        type: 'link',
+        label: 'BackHandler',
+        href: 'https://reactnative.dev/docs/0.87/backhandler',
+      },
     ],
   },
   components: {
