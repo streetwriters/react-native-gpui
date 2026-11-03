@@ -120,11 +120,18 @@ impl NativeGpuiWindowsSpec for WindowsModule {
                 ..Default::default()
             };
             let key = windows::open_window(cx, open)?;
+            // Both are requests the platform may not grant (Wayland has no
+            // raise-above, and only macOS has Spaces). A window that was asked
+            // for them opens anyway; `capabilities()` says what is honoured.
             if always_on_top {
-                windows::set_always_on_top(cx, key, true)?;
+                if let Err(error) = windows::set_always_on_top(cx, key, true) {
+                    log::warn!("[desktop] alwaysOnTop was not applied: {error}");
+                }
             }
             if on_all_workspaces {
-                windows::set_visible_on_all_workspaces(cx, key, true)?;
+                if let Err(error) = windows::set_visible_on_all_workspaces(cx, key, true) {
+                    log::warn!("[desktop] visibleOnAllWorkspaces was not applied: {error}");
+                }
             }
             Ok(serde_json::json!({ "windowId": key }))
         })

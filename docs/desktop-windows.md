@@ -100,7 +100,7 @@ Every `TitleBar` in every window uses the same layout and icons.
 
 ### The window frame
 
-A client-decorated window draws its own frame: rounded corners, a hairline border and a shadow, in a see-through margin around the content. This applies to every window, popovers included, and all of them use the same values. The margin and the rounding go away while the window is maximized, fullscreen or tiled, and nothing is drawn where the compositor draws the frame itself.
+A client-decorated window draws its own frame: rounded corners, a hairline border and a shadow, in a see-through margin around the content. This applies to every window, popovers included, and all of them use the same values. A window that asks for no `shadow`, a `'none'` title bar or a see-through `background` draws its own look instead and gets no frame, because the frame's shadow sits under the content and would show through. The margin and the rounding go away while the window is maximized, fullscreen or tiled, and nothing is drawn where the compositor draws the frame itself.
 
 The values are measured from the desktop's own toolkit and not assumed, so they follow the distro and its theme:
 

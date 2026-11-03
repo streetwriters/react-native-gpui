@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `DesktopWindow.open` with `alwaysOnTop` or `visibleOnAllWorkspaces` no longer rejects where the platform cannot do it. On Wayland it failed with `the session is not X11` and the window was left in a half-opened state; the window now opens and the request is skipped, with a warning in the log.
+- On Linux a window with a see-through `background`, `shadow: false` or a `'none'` title bar gets no frame. The frame's shadow was painted under the window's content, so a translucent palette showed over a dark block.
 - `TrayConfig::popover_anchor_name` sets the popover corner from text, which is how `tray.popoverAnchor` in `desktop.json` reaches it.
 - `Tray.showPopover()`, `Tray.hidePopover()` and `Tray.togglePopover()` open and close the tray's popover from code, for example from an item of the tray's menu, and `Tray.setPopoverPosition({anchor, offset})` changes where it opens next time.
 - A tray popover on Linux with Wayland opens at the end of the panel's edge instead of in the middle of the screen. The panel is found from the screen's work area, which XWayland publishes as `_NET_WORKAREA`, and the popover is drawn inside a transparent window that covers it; a press outside the popover closes it. `Tray.install` takes `popoverAnchor` and `popoverOffset` to choose the corner, and `RN_GPUI_TRAY_POPOVER_ANCHOR` and `RN_GPUI_TRAY_POPOVER_OFFSET` override them. A panel that reports the click position (KDE on a click, GNOME on a double-click) puts the popover centred on the icon. On X11 the popover now also stays inside the work area.

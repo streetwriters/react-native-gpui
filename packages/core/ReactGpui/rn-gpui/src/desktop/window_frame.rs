@@ -59,6 +59,14 @@ const DEFAULT: Frame = Frame {
 static FALLBACK_RADIUS: AtomicU32 = AtomicU32::new(0);
 static FRAME_ENABLED: AtomicBool = AtomicBool::new(true);
 
+/// Whether a window gets the frame at all. A window that asked for no shadow, for
+/// no system chrome, or for a see-through background draws its own look: the
+/// frame's shadow sits under the content, so it would show through, and its
+/// rounding and margin are not what such a window wants.
+pub fn wanted(opaque: bool, shadow: bool, borderless: bool) -> bool {
+    opaque && shadow && !borderless
+}
+
 /// Applies the `desktop.json` window options: the radius to use when the
 /// desktop's cannot be measured, and whether to draw the shadow.
 pub fn configure(fallback_radius: Option<f32>, shadow: bool) {
@@ -455,6 +463,14 @@ pub fn insets_of(_surface_id: i32) -> Insets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_that_draws_its_own_look_gets_no_frame() {
+        assert!(wanted(true, true, false));
+        assert!(!wanted(false, true, false));
+        assert!(!wanted(true, false, false));
+        assert!(!wanted(true, true, true));
+    }
 
     #[test]
     fn the_options_shape_the_unmeasured_frame() {

@@ -1355,7 +1355,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Before the window exists the compositor's answer is unknown; a custom
         // title bar asks for client decorations, which is what gets the margin.
         #[cfg(target_os = "linux")]
-        crate::desktop::window_frame::enroll(APP_SURFACE_ID);
+        if crate::desktop::window_frame::wanted(
+            matches!(config.background, WindowBackground::Opaque),
+            config.shadow,
+            config.title_bar == WindowTitleBar::Borderless,
+        ) {
+            crate::desktop::window_frame::enroll(APP_SURFACE_ID);
+        }
         let estimated_frame = if cfg!(target_os = "linux")
             && (config.title_bar.is_custom() || crate::desktop::capabilities::is_wayland())
         {
@@ -1429,10 +1435,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
             // The frame's shadow is drawn in a margin of the window itself, which
             // has to be see-through for the shadow to show over the desktop.
             #[cfg(target_os = "linux")]
-            if matches!(
-                window_options.window_background,
-                gpui::WindowBackgroundAppearance::Opaque
-            ) {
+            if config.shadow
+                && config.title_bar != WindowTitleBar::Borderless
+                && matches!(
+                    window_options.window_background,
+                    gpui::WindowBackgroundAppearance::Opaque
+                )
+            {
                 window_options.window_background = gpui::WindowBackgroundAppearance::Transparent;
             }
         }

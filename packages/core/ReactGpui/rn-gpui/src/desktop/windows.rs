@@ -196,10 +196,19 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         (windows.alloc_key(), windows.alloc_surface())
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
+    let framed = crate::desktop::window_frame::wanted(
+        matches!(
+            options.background,
+            crate::bootstrap::WindowBackground::Opaque
+        ),
+        options.shadow.unwrap_or(true),
+        options.title_bar == crate::bootstrap::WindowTitleBar::Borderless,
+    );
     #[cfg(target_os = "linux")]
     match options.overlay {
         Some(placement) => crate::desktop::window_frame::place(surface_id, placement),
-        None => crate::desktop::window_frame::enroll(surface_id),
+        None if framed || options.popup => crate::desktop::window_frame::enroll(surface_id),
+        None => {}
     }
 
     let width = options.width.unwrap_or(800.0).max(120.0);
@@ -256,6 +265,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         is_resizable: options.resizable,
         window_background: if cfg!(target_os = "linux")
             && (options.title_bar.is_custom() || options.popup)
+            && (framed || options.popup)
             && matches!(
                 options.background,
                 crate::bootstrap::WindowBackground::Opaque

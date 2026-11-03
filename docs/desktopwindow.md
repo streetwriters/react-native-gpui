@@ -408,7 +408,7 @@ Whether the window can be resized.
 
 ### `alwaysOnTop`
 
-Keeps the window above others. Check `capabilities().alwaysOnTop`.
+Keeps the window above others. Check `capabilities().alwaysOnTop`. Where the platform cannot do it (Wayland) the window still opens, and the request is skipped.
 
 | Type    | Default |
 | ------- | ------- |
@@ -418,7 +418,7 @@ Keeps the window above others. Check `capabilities().alwaysOnTop`.
 
 ### `visibleOnAllWorkspaces`
 
-Shows the window on every Space. Check `capabilities().visibleOnAllWorkspaces`.
+Shows the window on every Space. Check `capabilities().visibleOnAllWorkspaces`. Where the platform cannot do it the window still opens, and the request is skipped.
 
 | Type    | Default |
 | ------- | ------- |
