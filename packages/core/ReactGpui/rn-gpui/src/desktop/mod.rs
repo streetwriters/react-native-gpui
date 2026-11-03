@@ -22,6 +22,7 @@ pub mod os_version;
 pub mod perf_monitor;
 pub mod platform_window;
 pub mod tray;
+pub mod window_icons;
 pub mod window_mirror;
 pub mod windows;
 

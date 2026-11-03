@@ -138,6 +138,19 @@ export function windowButtonLayout(): string {
   return NativeGpuiDesktop?.windowButtonLayout() ?? ':minimize,maximize,close';
 }
 
+const iconCache = new Map<string, string | null>();
+
+/** The icon theme's caption button icon as an SVG data URI, or `null`. */
+export function windowButtonIcon(action: string, color: string): string | null {
+  const key = `${action}:${color}`;
+  let icon = iconCache.get(key);
+  if (icon === undefined) {
+    icon = NativeGpuiDesktop?.windowButtonIcon(action, color) || null;
+    iconCache.set(key, icon);
+  }
+  return icon;
+}
+
 /** The host platform, or `null` without a desktop shell. */
 export function platform(): string | null {
   return NativeGpuiDesktop?.platform() ?? null;

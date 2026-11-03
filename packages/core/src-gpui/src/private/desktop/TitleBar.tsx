@@ -19,6 +19,7 @@
 
 import React from 'react';
 import {
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -27,7 +28,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import type { ColorValue, StyleProp, ViewStyle } from 'react-native';
-import { capabilities, windowButtonLayout } from './index';
+import { capabilities, windowButtonIcon, windowButtonLayout } from './index';
 import { Menu, useMenuBarVisible } from './menu';
 import { WindowControl } from './WindowControl';
 import type { WindowControlAction, WindowControlState } from './WindowControl';
@@ -297,6 +298,15 @@ function CaptionGlyph({
         : WINDOWS_GLYPHS[action];
     return <Text style={[styles.windowsGlyph, { color }]}>{glyph}</Text>;
   }
+  if (Platform.OS !== 'macos') {
+    const uri = windowButtonIcon(
+      action === 'maximize' && state.maximized ? 'restore' : action,
+      color,
+    );
+    if (uri != null) {
+      return <Image source={{ uri }} style={styles.themeIcon} />;
+    }
+  }
   if (action === 'minimize') {
     return (
       <View style={styles.glyph}>
@@ -374,6 +384,10 @@ const styles = StyleSheet.create({
     width: 46,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  themeIcon: {
+    width: 16,
+    height: 16,
   },
   glyph: {
     width: GLYPH,

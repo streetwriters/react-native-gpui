@@ -61,6 +61,12 @@ export interface Spec extends TurboModule {
    * platforms answer the GTK default.
    */
   windowButtonLayout(): string;
+  /**
+   * The icon theme's caption button icon (`close`, `minimize`, `maximize` or
+   * `restore`) as an SVG data URI painted in `color` (`#rrggbb`), or an empty
+   * string when the theme has none. Linux only.
+   */
+  windowButtonIcon(action: string, color: string): string;
   appId(): string;
   platformConstants(): PlatformConstants;
 
