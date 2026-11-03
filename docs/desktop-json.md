@@ -30,77 +30,342 @@ The `$schema` line gives your editor completion and validation.
 
 ## App
 
-| Key              | Type       | Description                                                                                                                                                             |
-| ---------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `productName`    | `string`   | The name people see: the title bar, the Dock, the menu bar and installers. Defaults to the app's `displayName`, then its `name`.                                        |
-| `identifier`     | `string`   | The reverse-DNS bundle id, such as `com.example.myapp`. Defaults to an id derived from the app name.                                                                    |
-| `version`        | `string`   | The app version. Defaults to the version in `package.json`.                                                                                                             |
-| `icon`           | `string`   | One square PNG, recommended 1024×1024, relative to `desktop/`. The icon of each operating system is generated from it. Without one, a placeholder icon is used.         |
-| `urlSchemes`     | `string[]` | URL schemes that open the app, such as `["myapp"]`. Packaging registers them with the operating system, and [`Linking`](linking) delivers the URL.                      |
-| `singleInstance` | `boolean`  | Whether opening the app again hands its URL to the running copy and exits. Defaults to `true` when `urlSchemes` is set.                                                 |
-| `devMenu`        | `boolean`  | Whether the [development menu](debugging) is available. Defaults to `true` in development builds.                                                                       |
-| `accessory`      | `boolean`  | Whether the app runs with no Dock icon (macOS), as a launcher does. Only an accessory app's windows can show over another app's full-screen Space. Defaults to `false`. |
+### `productName`
+
+The name people see: the title bar, the Dock, the menu bar and installers. Defaults to the app's `displayName`, then its `name`.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `identifier`
+
+The reverse-DNS bundle id, such as `com.example.myapp`. Defaults to an id derived from the app name.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `version`
+
+The app version. Defaults to the version in `package.json`.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `icon`
+
+One square PNG, recommended 1024×1024, relative to `desktop/`. The icon of each operating system is generated from it. Without one, a placeholder icon is used.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `urlSchemes`
+
+URL schemes that open the app, such as `["myapp"]`. Packaging registers them with the operating system, and [`Linking`](linking) delivers the URL.
+
+| Type       |
+| ---------- |
+| `string[]` |
+
+---
+
+### `singleInstance`
+
+Whether opening the app again hands its URL to the running copy and exits. Defaults to `true` when `urlSchemes` is set.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `devMenu`
+
+Whether the [development menu](debugging) is available. Defaults to `true` in development builds.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `accessory`
+
+Whether the app runs with no Dock icon (macOS), as a launcher does. Only an accessory app's windows can show over another app's full-screen Space. Defaults to `false`.
+
+| Type      |
+| --------- |
+| `boolean` |
 
 ## window
 
 The main window.
 
-| Key                      | Type                                               | Description                                                                                                                                                                                 |
-| ------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`                  | `string`                                           | The title bar text. Defaults to `productName`.                                                                                                                                              |
-| `width`, `height`        | `number`                                           | The size in points. Defaults to 1024 × 768.                                                                                                                                                 |
-| `position`               | `{x, y}`                                           | Where the window opens. Omit it to let the platform place the window.                                                                                                                       |
-| `resizable`              | `boolean`                                          | Whether the window can be resized. Defaults to `true`.                                                                                                                                      |
-| `restoreState`           | `boolean`                                          | Whether the window remembers its size and position between launches. Defaults to `true`.                                                                                                    |
-| `titleBar`               | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar). Defaults to `'default'`.                                                                                                    |
-| `background`             | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](desktop-windows#transparent-windows). Defaults to `'opaque'`.                                                                      |
-| `windowButtons`          | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.                                                                                                        |
-| `shadow`                 | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`. On Linux it is the shadow a client-decorated window draws around itself.                                                      |
-| `trafficLightPosition`   | `{x, y}`                                           | Where the macOS traffic lights sit in a transparent or hidden title bar. Ignored elsewhere.                                                                                                 |
-| `cornerRadius`           | `number`                                           | The corner radius, in points, of a client-decorated window on Linux when the desktop's own cannot be measured. Ignored on Windows and macOS.                                                |
-| `windowControlsPosition` | `'left' \| 'right'`                                | The side of the title bar the window controls (minimize, maximize, close) use on Linux when the desktop does not say where its own go. Defaults to `'right'`. Ignored on Windows and macOS. |
-| `menuBar`                | `boolean`                                          | Whether the main window shows a menu bar. Windows and Linux only; on macOS the bar belongs to the system. Defaults to `true`.                                                               |
+### `title`
+
+The title bar text. Defaults to `productName`.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `width`, `height`
+
+The size in points. Defaults to 1024 × 768.
+
+| Type     |
+| -------- |
+| `number` |
+
+---
+
+### `position`
+
+Where the window opens. Omit it to let the platform place the window.
+
+| Type     |
+| -------- |
+| `{x, y}` |
+
+---
+
+### `resizable`
+
+Whether the window can be resized. Defaults to `true`.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `restoreState`
+
+Whether the window remembers its size and position between launches. Defaults to `true`.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `titleBar`
+
+How the title bar is drawn. See [Title bar](desktop-title-bar). Defaults to `'default'`.
+
+| Type       |
+| ---------- |
+| `'default' | 'transparent' | 'hidden'` |
+
+---
+
+### `background`
+
+What shows through the window. See [Transparent windows](desktop-windows#transparent-windows). Defaults to `'opaque'`.
+
+| Type      |
+| --------- |
+| `'opaque' | 'transparent' | 'blurred' | 'mica'` |
+
+---
+
+### `windowButtons`
+
+Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `shadow`
+
+Whether the window has the system shadow. Defaults to `true`. On Linux it is the shadow a client-decorated window draws around itself.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `trafficLightPosition`
+
+Where the macOS traffic lights sit in a transparent or hidden title bar. Ignored elsewhere.
+
+| Type     |
+| -------- |
+| `{x, y}` |
+
+---
+
+### `cornerRadius`
+
+The corner radius, in points, of a client-decorated window on Linux when the desktop's own cannot be measured. Ignored on Windows and macOS.
+
+| Type     |
+| -------- |
+| `number` |
+
+---
+
+### `windowControlsPosition`
+
+The side of the title bar the window controls (minimize, maximize, close) use on Linux when the desktop does not say where its own go. Defaults to `'right'`. Ignored on Windows and macOS.
+
+| Type    |
+| ------- |
+| `'left' | 'right'` |
+
+---
+
+### `menuBar`
+
+Whether the main window shows a menu bar. Windows and Linux only; on macOS the bar belongs to the system. Defaults to `true`.
+
+| Type      |
+| --------- |
+| `boolean` |
 
 ## tray
 
 A menu-bar or notification-area icon. See [Tray](desktop-tray).
 
-| Key            | Type      | Description                                                                        |
-| -------------- | --------- | ---------------------------------------------------------------------------------- |
-| `component`    | `string`  | The React component rendered as the tray popover.                                  |
-| `tooltip`      | `string`  | The tooltip text.                                                                  |
-| `icon`         | `string`  | A PNG or JPEG path relative to `desktop/`. Without one, a built-in glyph is shown. |
-| `iconTemplate` | `boolean` | macOS: draw the icon as a template the menu bar tints. Defaults to `false`.        |
-| `accessory`    | `boolean` | Run the app without a Dock icon. Defaults to `true`.                               |
+### `component`
+
+The React component rendered as the tray popover.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `tooltip`
+
+The tooltip text.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `icon`
+
+A PNG or JPEG path relative to `desktop/`. Without one, a built-in glyph is shown.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `iconTemplate`
+
+macOS: draw the icon as a template the menu bar tints. Defaults to `false`.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `accessory`
+
+Run the app without a Dock icon. Defaults to `true`.
+
+| Type      |
+| --------- |
+| `boolean` |
 
 ## bundle
 
 How the app is packaged by [`package-desktop`](publishing-desktop).
 
-| Key         | Type                  | Description                                                                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `targets`   | `'all'` or `string[]` | The formats to build: `app`, `dmg`, `nsis`, `deb`, `appimage`. `'all'` means every format the current OS can build. |
-| `resources` | `string[]`            | Extra files to ship, relative to `desktop/`.                                                                        |
-| `copyright` | `string`              | The copyright line shown by installers.                                                                             |
-| `category`  | `string`              | The app category, for the Linux desktop entry.                                                                      |
+### `targets`
+
+The formats to build: `app`, `dmg`, `nsis`, `deb`, `appimage`. `'all'` means every format the current OS can build.
+
+| Type                  |
+| --------------------- |
+| `'all'` or `string[]` |
+
+---
+
+### `resources`
+
+Extra files to ship, relative to `desktop/`.
+
+| Type       |
+| ---------- |
+| `string[]` |
+
+---
+
+### `copyright`
+
+The copyright line shown by installers.
+
+| Type     |
+| -------- |
+| `string` |
+
+---
+
+### `category`
+
+The app category, for the Linux desktop entry.
+
+| Type     |
+| -------- |
+| `string` |
 
 ### bundle.macos
 
-| Key                    | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| `minimumSystemVersion` | The oldest macOS the app supports. Defaults to `13.0`.   |
-| `entitlements`         | A path to an entitlements plist, relative to `desktop/`. |
-| `infoPlist`            | Extra keys merged into the generated `Info.plist`.       |
+#### `minimumSystemVersion`
+
+The oldest macOS the app supports. Defaults to `13.0`.
+
+---
+
+#### `entitlements`
+
+A path to an entitlements plist, relative to `desktop/`.
+
+---
+
+#### `infoPlist`
+
+Extra keys merged into the generated `Info.plist`.
 
 ### bundle.windows
 
-| Key                | Description                                                                    |
-| ------------------ | ------------------------------------------------------------------------------ |
-| `nsis.installMode` | `currentUser`, `perMachine` or `both`: who the installer installs the app for. |
+#### `nsis.installMode`
+
+`currentUser`, `perMachine` or `both`: who the installer installs the app for.
 
 ### bundle.linux
 
-| Key           | Description                               |
-| ------------- | ----------------------------------------- |
-| `deb.depends` | Extra Debian package dependencies.        |
-| `appimage`    | AppImage options. None are available yet. |
+#### `deb.depends`
+
+Extra Debian package dependencies.
+
+---
+
+#### `appimage`
+
+AppImage options. None are available yet.

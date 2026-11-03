@@ -37,25 +37,7 @@ await Tray.install({
 });
 ```
 
-### Options
-
-| Option                   | Description                                                                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                     | A stable id. Defaults to `tray`.                                                                                                             |
-| `tooltip`                | The tooltip text.                                                                                                                            |
-| `title`                  | Text beside the icon. macOS and Linux only; Windows trays have no title.                                                                     |
-| `icon`                   | The icon, as an `<Image source>` or a path. Without one, the app's icon, else a built-in glyph.                                              |
-| `iconTemplate`           | macOS: draw the icon as a template that the menu bar tints for light and dark mode. Use it for monochrome icons.                             |
-| `component`              | An `AppRegistry` component to render in a popover on click.                                                                                  |
-| `size`                   | The size of the popover.                                                                                                                     |
-| `menu`                   | A [menu](desktop-application-menu#menu-items) shown instead of the popover.                                                                  |
-| `menuOnLeftClick`        | Shows the menu on a left click as well.                                                                                                      |
-| `quitOnLastWindowClosed` | Quits when the last window closes. Defaults to `false`: a tray app keeps running without a window.                                           |
-| `hideWindowOnClose`      | Hides the last window on close instead of closing it, so it reopens in the same state. Defaults to `false`.                                  |
-| `popoverAnchor`          | Linux on Wayland: the corner of the screen's work area the popover is drawn in. See [Popover position on Linux](#popover-position-on-linux). |
-| `popoverOffset`          | Linux on Wayland: moves the popover from its corner, as `{x, y}` in points.                                                                  |
-
-With `hideWindowOnClose` off, reopening the app from the tray starts from the first screen. With it on, the window and its state are kept, at the cost of the hidden React tree staying alive.
+The options `Tray.install` takes, and every method of `Tray`, are in the [`Tray`](tray) reference.
 
 ## Popover position on Linux
 
@@ -78,36 +60,7 @@ Without a reported click the popover is near the icon, not on it: where along th
 
 ## Changing it later
 
-| Method                                      | Description                                                                                                                                                                       |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Tray.setTooltip(text)`                     | Changes the tooltip. `null` clears it.                                                                                                                                            |
-| `Tray.setTitle(text)`                       | Changes the title. `null` clears it.                                                                                                                                              |
-| `Tray.setIcon(icon, {template})`            | Replaces the icon.                                                                                                                                                                |
-| `Tray.setMenu(items)`                       | Replaces the menu. `null` removes it.                                                                                                                                             |
-| `Tray.setVisible(visible)`                  | Shows or hides the icon.                                                                                                                                                          |
-| `Tray.showPopover()`                        | Opens the popover, as a click on the icon does. Rejects when the tray has no `component`.                                                                                         |
-| `Tray.hidePopover()`                        | Closes the popover.                                                                                                                                                               |
-| `Tray.togglePopover()`                      | Opens it, or closes it when it is open.                                                                                                                                           |
-| `Tray.setPopoverPosition({anchor, offset})` | Changes where the popover opens next time on a desktop that leaves it to the app (see [Popover position on Linux](#popover-position-on-linux)). What is left out stays as it was. |
-| `Tray.getState()`                           | Resolves with the current state.                                                                                                                                                  |
-| `Tray.destroy()`                            | Removes the tray icon.                                                                                                                                                            |
-
-`showPopover` is how a menu item opens the popover, which GNOME's single click needs:
-
-```ts
-await Tray.install({
-  component: 'MenuBarPanel',
-  menu: [
-    { id: 'open', label: 'Open panel' },
-    { id: 'quit', label: 'Quit' },
-  ],
-});
-Tray.onMenuPress(id => {
-  if (id === 'open') {
-    Tray.showPopover();
-  }
-});
-```
+`Tray.setTooltip`, `setTitle`, `setIcon`, `setMenu` and `setVisible` change the icon after it is installed, and `Tray.showPopover`, `hidePopover`, `togglePopover` and `setPopoverPosition` control the popover. See [`Tray`](tray#methods).
 
 ## Configuring it in desktop.json
 

@@ -119,7 +119,7 @@ Returns a string with the operating system the app runs on. The same JavaScript 
 static Version: string;
 ```
 
-The version of the operating system: the product version on macOS (`15.1`), `major.minor.build` on Windows (`10.0.26100`), and the distribution's `VERSION_ID` on Linux (`24.04`), falling back to the kernel release. To branch on what the platform can do, check [`capabilities()`](desktop-app-info#capabilities) instead.
+The version of the operating system: the product version on macOS (`15.1`), `major.minor.build` on Windows (`10.0.26100`), and the distribution's `VERSION_ID` on Linux (`24.04`), falling back to the kernel release. To branch on what the platform can do, check [`capabilities()`](desktop#capabilities) instead.
 
 | Type   |
 | ------ |

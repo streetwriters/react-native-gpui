@@ -29,16 +29,7 @@ import { ContextMenuView } from '@react-native-gpui/core/desktop';
 </ContextMenuView>
 ```
 
-`items` use the same shape as the [application menu](desktop-application-menu#menu-items). It is a `View`, so it takes all of a view's props, and it adds:
-
-| Prop           | Description                                                              |
-| -------------- | ------------------------------------------------------------------------ |
-| `items`        | The menu entries.                                                        |
-| `onSelect`     | Called with the id of the chosen item.                                   |
-| `onOpen`       | Called after the menu is up, with the position and how it was triggered. |
-| `onDismiss`    | Called when the menu closes with nothing chosen.                         |
-| `presentation` | `'default'`, `'native'` or `'custom'`. See below.                        |
-| `disabled`     | Turns the menu off.                                                      |
+`items` use the same shape as the [application menu](applicationmenu#items). It is a `View`, so it takes all of a view's props. The props it adds are in the [`ContextMenuView`](contextmenuview) reference.
 
 ## ContextMenu.show
 
@@ -48,17 +39,11 @@ import { ContextMenuView } from '@react-native-gpui/core/desktop';
 const id = await ContextMenu.show(items, { x: 120, y: 80 });
 ```
 
-The options are `x`, `y` (window coordinates), `windowId` and `presentation`.
+The options and the rest of the API are in the [`ContextMenu`](contextmenu) reference.
 
 ## Presentations
 
-| Presentation | Description                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------- |
-| `'native'`   | The platform's own menu. It opens without JavaScript, so it works while JavaScript is busy.             |
-| `'custom'`   | A menu drawn by React in the window, which looks the same on every platform and can be themed.          |
-| `'default'`  | Whatever the app chose with `ContextMenu.setPresentation`, and the native menu when nothing was chosen. |
-
-`ContextMenu.setPresentation`, `ContextMenu.setTheme` and `ContextMenu.setRenderers` set the app-wide presentation, the colors of the custom menu, and its building blocks. A replacement renderer only draws: placement, keyboard handling and dismissal stay with the host.
+A menu is `'native'` (the platform's own, which opens without JavaScript), `'custom'` (drawn by React in the window, the same on every platform and themeable) or `'default'` (whatever the app chose with `ContextMenu.setPresentation`, and native when nothing was chosen). `ContextMenu.setTheme` and `ContextMenu.setRenderers` set the colours of the custom menu and its building blocks.
 
 ## Handling the event yourself
 

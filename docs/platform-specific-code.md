@@ -74,7 +74,7 @@ const Component = Platform.select({
 
 ### Detecting the operating system version
 
-`Platform.Version` is the operating system version string. It is a placeholder on desktop at the moment, so do not branch on it. Check for a feature instead, with [`capabilities()`](desktop-app-info#capabilities).
+`Platform.Version` is the operating system version string. It is a placeholder on desktop at the moment, so do not branch on it. Check for a feature instead, with [`capabilities()`](desktop#capabilities).
 
 ## Platform-specific extensions
 

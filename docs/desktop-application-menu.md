@@ -45,45 +45,13 @@ function App() {
 
 Pass `items={null}` to go back to the default menu.
 
-## Menu items
+## Menu items and roles
 
-A menu is an array of `MenuItemSpec` values:
-
-| Kind      | Shape                                                                                         |
-| --------- | --------------------------------------------------------------------------------------------- |
-| Item      | `{id, label, accelerator?, enabled?, checked?, role?, icon?}`. `type: 'item'` is the default. |
-| Submenu   | `{type: 'submenu', label, items, enabled?, icon?}`                                            |
-| Separator | `{type: 'separator'}`                                                                         |
-| Role      | `{type: 'role', role, label?, enabled?}`                                                      |
-
-- `accelerator` is a key combination such as `mod+s`. `mod` is Command on macOS and Control on Windows and Linux. See [Keyboard shortcuts](desktop-keyboard-shortcuts).
-- A `checked` item shows a check mark instead of its icon.
-- `icon` takes anything `<Image source>` takes, or a path string.
-
-### Roles
-
-A role asks the host to perform a standard action, so you do not implement it. A `role` item gets its label from the role; set `label` to override it.
-
-| Group  | Roles                                                                               |
-| ------ | ----------------------------------------------------------------------------------- |
-| Edit   | `undo`, `redo`, `cut`, `copy`, `paste`, `selectAll`                                 |
-| Window | `minimize`, `zoom`, `toggleFullscreen`, `close`                                     |
-| App    | `about`, `services`, `hide`, `hideOthers`, `showAll`, `quit`                        |
-| Help   | `help`                                                                              |
-| Menus  | `appMenu`, `editMenu`, `windowMenu`, `helpMenu`: a whole standard menu in one entry |
+A menu is an array of items, submenus, separators and roles. A role asks the host to perform a standard action, such as `copy` or `quit`, so you do not implement it. The full shape, and the list of roles, are in the [`ApplicationMenu`](applicationmenu#items) reference.
 
 ## The `Menu` module
 
-`Menu` is the imperative counterpart of `ApplicationMenu`:
-
-| Method                                       | Description                                                                       |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| `Menu.setApplicationMenu(items)`             | Replaces the menu. `null` restores the default.                                   |
-| `Menu.update(id, {label, enabled, checked})` | Changes one item without rebuilding the menu.                                     |
-| `Menu.get()`                                 | Resolves with the current menu, the app name and whether the menu bar is visible. |
-| `Menu.performRole(role)`                     | Runs a standard role, for menus you draw yourself.                                |
-| `Menu.setMenuBarVisible(visible, windowId?)` | Hides or shows the in-window bar.                                                 |
-| `Menu.addListener('press', listener)`        | Listens for item presses. The event has the item `id` and the `windowId`.         |
+[`Menu`](menu) is the imperative counterpart of `ApplicationMenu`: it replaces the menu, patches one item, runs a role, hides the in-window bar and listens for presses.
 
 ## Windows and Linux
 

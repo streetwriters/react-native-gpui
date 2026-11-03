@@ -3,7 +3,7 @@ id: performance
 title: Performance Overview
 ---
 
-React Native's [performance guide](https://reactnative.dev/docs/0.87/performance) applies to desktop apps. This page lists what is different on desktop. To measure, see [Profiling](profiling) and the [Perf Monitor](desktop-perf-monitor).
+React Native's [performance guide](https://reactnative.dev/docs/0.87/performance) applies to desktop apps. This page lists what is different on desktop. To measure, see [Profiling](profiling) and the [Perf Monitor](perfmonitor).
 
 ## Threads
 
@@ -17,6 +17,6 @@ JavaScript runs much slower in development mode. Test performance in a release b
 
 ## Expensive styles
 
-Large translucent areas, large blurred shadows, `filter` and `mixBlendMode` cost more to draw than opaque views. A view with `opacity` below 1 that draws more than one shape is drawn into an offscreen texture first. If a view that moves has an expensive style, simplify the style or limit its size, and check the frame rate with the [Perf Monitor](desktop-perf-monitor).
+Large translucent areas, large blurred shadows, `filter` and `mixBlendMode` cost more to draw than opaque views. A view with `opacity` below 1 that draws more than one shape is drawn into an offscreen texture first. If a view that moves has an expensive style, simplify the style or limit its size, and check the frame rate with the [Perf Monitor](perfmonitor).
 
 A `ScrollView` whose content contains a native view or one of the effects above scrolls on a slower path, which redraws the content on each frame instead of moving cached tiles.

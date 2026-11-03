@@ -7,15 +7,73 @@ All upstream props work as documented in the [React Native View reference](https
 
 ## Desktop props
 
-| Name                                                                                                                                    | Type                                       | Behaviour                                                                                                                                                                                                                                      |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `desktopDragRegion`                                                                                                                     | `boolean`                                  | Marks the view as part of a custom title bar: pressing it drags the window and double-clicking zooms or maximizes it. See [Title bar](desktop-title-bar).                                                                                      |
-| `focusable`                                                                                                                             | `boolean`                                  | Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `onFocus` and `onBlur`.                                                                                                                                         |
-| `onFocus`, `onBlur`                                                                                                                     | `(event) => void`                          | The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`. |
-| `onKeyDown`, `onKeyUp`                                                                                                                  | `(event: KeyEvent) => void`                | A key was pressed or released while the view has focus. The event has `key`, `code`, `keyCode`, `repeat` and the modifier flags.                                                                                                               |
-| `onContextMenu`                                                                                                                         | `(event: DesktopContextMenuEvent) => void` | A context menu was requested: right click, Control + click on macOS, or the Menu key or Shift + F10 on Windows and Linux. See [Context menus](desktop-context-menus).                                                                          |
-| `onPointerDown`, `onPointerUp`, `onPointerMove`, `onPointerEnter`, `onPointerLeave`, `onPointerOver`, `onPointerOut`, `onPointerCancel` | `(event: PointerEvent) => void`            | The pointer events of the web, for the mouse and trackpad, including buttons other than the left one and hovering. Each has a capturing variant. See [Mouse and keyboard input](desktop-input).                                                |
-| `tabIndex`                                                                                                                              | `number`                                   | Includes the view in, or excludes it from, keyboard tab navigation.                                                                                                                                                                            |
+### `desktopDragRegion`
+
+Marks the view as part of a custom title bar: pressing it drags the window and double-clicking zooms or maximizes it. See [Title bar](desktop-title-bar).
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `focusable`
+
+Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `onFocus` and `onBlur`.
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `onFocus`, `onBlur`
+
+The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`.
+
+| Type              |
+| ----------------- |
+| `(event) => void` |
+
+---
+
+### `onKeyDown`, `onKeyUp`
+
+A key was pressed or released while the view has focus. The event has `key`, `code`, `keyCode`, `repeat` and the modifier flags.
+
+| Type                        |
+| --------------------------- |
+| `(event: KeyEvent) => void` |
+
+---
+
+### `onContextMenu`
+
+A context menu was requested: right click, Control + click on macOS, or the Menu key or Shift + F10 on Windows and Linux. See [Context menus](desktop-context-menus).
+
+| Type                                       |
+| ------------------------------------------ |
+| `(event: DesktopContextMenuEvent) => void` |
+
+---
+
+### `onPointerDown`, `onPointerUp`, `onPointerMove`, `onPointerEnter`, `onPointerLeave`, `onPointerOver`, `onPointerOut`, `onPointerCancel`
+
+The pointer events of the web, for the mouse and trackpad, including buttons other than the left one and hovering. Each has a capturing variant. See [Mouse and keyboard input](desktop-input).
+
+| Type                            |
+| ------------------------------- |
+| `(event: PointerEvent) => void` |
+
+---
+
+### `tabIndex`
+
+Includes the view in, or excludes it from, keyboard tab navigation.
+
+| Type     |
+| -------- |
+| `number` |
 
 ## Differences
 

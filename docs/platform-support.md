@@ -19,7 +19,7 @@ Prebuilt copies of React Native's C++ runtime exist for every platform and archi
 
 ## Desktop features
 
-Check these at run time with [`capabilities()`](desktop-app-info#capabilities) instead of assuming them.
+Check these at run time with [`capabilities()`](desktop#capabilities) instead of assuming them.
 
 | Feature                                      | macOS                              | Windows                                 | Linux                                                   |
 | -------------------------------------------- | ---------------------------------- | --------------------------------------- | ------------------------------------------------------- |

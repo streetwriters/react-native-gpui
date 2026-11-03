@@ -46,8 +46,6 @@ export default {
       'desktop-input',
       'desktop-keyboard-shortcuts',
       'desktop-tray',
-      'desktop-app-info',
-      'desktop-perf-monitor',
     ],
     Workflow: [
       {
@@ -604,6 +602,15 @@ export default {
         ],
       },
     ],
+    'Desktop APIs': [
+      'desktop',
+      'desktopwindow',
+      'tray',
+      'menu',
+      'contextmenu',
+      'shortcuts',
+      'perfmonitor',
+    ],
   },
   components: {
     'Core Components': [
@@ -656,6 +663,14 @@ export default {
         label: 'VirtualizedList',
         href: 'https://reactnative.dev/docs/0.87/virtualizedlist',
       },
+    ],
+    'Desktop Components': [
+      'titlebar',
+      'windowcontrol',
+      'contextmenuview',
+      'applicationmenu',
+      'shortcutscope',
+      'scrollbar',
     ],
     Refs: [
       {

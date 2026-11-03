@@ -18,7 +18,7 @@ An app has three places that take time, and a different tool for each:
 | Where                | Tool                                                                                                                     |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | JavaScript and React | The Performance and Profiler panels of [React Native DevTools](https://reactnative.dev/docs/0.87/react-native-devtools). |
-| Frames and memory    | The [Perf Monitor](desktop-perf-monitor), which shows the frame rates of the renderer and of JavaScript.                 |
+| Frames and memory    | The [Perf Monitor](perfmonitor), which shows the frame rates of the renderer and of JavaScript.                          |
 | Native code          | The profiler of your operating system, below.                                                                            |
 
 ## Profiling JavaScript
@@ -27,7 +27,7 @@ Open [React Native DevTools](https://reactnative.dev/docs/0.87/react-native-devt
 
 ## Reading the Perf Monitor
 
-Turn the Perf Monitor on from the dev menu, or with [`PerfMonitor`](desktop-perf-monitor). It shows:
+Turn the Perf Monitor on from the dev menu, or with [`PerfMonitor`](perfmonitor). It shows:
 
 - **UI FPS**: the frames the renderer draws per second. A drop here means painting or layout is too slow.
 - **JS FPS**: the tasks the JavaScript thread runs per second. A drop here means JavaScript is busy, for example because of a long render.

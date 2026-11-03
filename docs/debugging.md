@@ -109,7 +109,7 @@ LogBox will treat certain errors from React as warnings, which will mean they do
 
 ## Performance Monitor
 
-An in-app performance overlay shows the frame rates and memory use of the app. Toggle it by selecting **"Toggle Perf Monitor"** in the Dev Menu, or from code with [`PerfMonitor`](desktop-perf-monitor). It is painted by the renderer above every window, so it does not compete with the app it measures.
+An in-app performance overlay shows the frame rates and memory use of the app. Toggle it by selecting **"Toggle Perf Monitor"** in the Dev Menu, or from code with [`PerfMonitor`](perfmonitor). It is painted by the renderer above every window, so it does not compete with the app it measures.
 
 ![The Perf Monitor overlay in the corner of an app window](/docs/assets/desktop-perf-monitor.png)
 

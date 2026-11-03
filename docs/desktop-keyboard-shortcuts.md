@@ -24,22 +24,11 @@ function Editor() {
 
 Keys are written as modifiers and a key joined by `+`: `mod+s`, `shift+alt+left`. `mod` is Command on macOS and Control on Windows and Linux, so one definition covers every platform. A chord is several keystrokes separated by a space, as in `mod+k mod+s`. Case and the spaces around `+` do not matter.
 
-### Options
-
-| Option             | Description                                                                                                 |
-| ------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `when`             | Register in this scope instead of the nearest one.                                                          |
-| `enabled`          | Whether the shortcut is live. Defaults to `true`.                                                           |
-| `allowInTextInput` | Whether it still fires while a text input has focus. Defaults to `false`, which leaves typing to the input. |
-| `repeat`           | Whether a held key fires repeatedly. Defaults to `false`, so a save or an open runs once per press.         |
-| `description`      | Text for a menu or a settings list.                                                                         |
-| `global`           | Register it with the system, so it fires with no window of the app focused. See below.                      |
-
-The handler is kept in a ref, so a handler that closes over changing state does not re-register the shortcut on every render. The handler receives an event with the shortcut `id`, the `keys` it fired on and its `scope`.
+The options `useShortcut` takes, such as `when`, `allowInTextInput`, `repeat` and `global`, are in the [`Shortcuts`](shortcuts#options) reference. The handler is kept in a ref, so a handler that closes over changing state does not re-register the shortcut on every render.
 
 ## Scopes
 
-`ShortcutScope` names part of the tree. A shortcut registered inside it only fires while focus is inside that scope, and an inner scope overrides an outer one.
+[`ShortcutScope`](shortcutscope) names part of the tree. A shortcut registered inside it only fires while focus is inside that scope, and an inner scope overrides an outer one.
 
 ```tsx
 <ShortcutScope name="editor">
@@ -82,13 +71,4 @@ Shortcut.register({ id: 'file.save', keys: 'mod+s', description: 'Save' });
 const off = Shortcut.addHandler('file.save', save);
 ```
 
-`Shortcuts` is the whole registry. Besides `register`, `unregister` and `addHandler` it has:
-
-| Method                           | Description                                                                     |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `Shortcuts.list()`, `describe()` | The installed shortcuts, and their definitions with descriptions.               |
-| `Shortcuts.setUserBindings(map)` | Applies the user's keymap: an id mapped to new keys, or to `null` to unbind it. |
-| `Shortcuts.reset()`              | Removes every user binding.                                                     |
-| `Shortcuts.resolve(keys)`        | Which shortcut owns `keys`, without pressing them.                              |
-| `Shortcuts.keysFor(id)`          | The keys bound to an id after any remap.                                        |
-| `Shortcuts.fire(id)`             | Runs the handlers of a shortcut.                                                |
+`Shortcuts` is the whole registry: it lists, describes, remaps and resolves shortcuts, and fires them. See the [`Shortcuts`](shortcuts#methods) reference.
