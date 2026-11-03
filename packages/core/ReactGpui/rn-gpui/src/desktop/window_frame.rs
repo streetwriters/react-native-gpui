@@ -124,7 +124,8 @@ fn measure_or_cached() -> Option<Frame> {
     if let Some(cached) = cache::read(&key) {
         return cached;
     }
-    let frame = cache::probe();
+    // A probe that could not run is not kept: the next launch tries again.
+    let frame = cache::probe()?;
     cache::write(&key, frame);
     frame
 }
@@ -298,7 +299,11 @@ mod cache {
 
     /// Runs this executable as the probe and reads what it prints, giving up
     /// after a short while so a toolkit that hangs cannot hold the app back.
-    pub fn probe() -> Option<Frame> {
+    ///
+    /// `None` means the probe could not be run or did not finish, which says
+    /// nothing about the toolkit; `Some(None)` is the probe's own answer that
+    /// there is nothing to measure.
+    pub fn probe() -> Option<Option<Frame>> {
         let mut child = Command::new(std::env::current_exe().ok()?)
             .arg("--rn-gpui-probe-frame")
             .env("GSK_RENDERER", "cairo")
@@ -323,8 +328,11 @@ mod cache {
         }
         let mut output = String::new();
         child.stdout.take()?.read_to_string(&mut output).ok()?;
-        let line = output.lines().last()?;
-        parse(&serde_json::from_str(line).ok()?)
+        let value: serde_json::Value = serde_json::from_str(output.lines().last()?).ok()?;
+        match value {
+            serde_json::Value::Null => Some(None),
+            frame => parse(&frame).map(Some),
+        }
     }
 }
 
