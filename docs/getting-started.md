@@ -16,7 +16,7 @@ An app is drawn by [GPUI](https://github.com/zed-industries/zed/tree/main/crates
 react-native-gpui is React Native with a desktop target, so most of what you need is the React Native documentation, and it applies as written. This site covers what is new or different on desktop and does not repeat the rest.
 
 - **Pages on this site** are about desktop. A core component or API that behaves differently has a page that lists only its desktop props and the differences, and the rest is the upstream reference. Everything the desktop shell adds lives here too: windows, the title bar, menus, shortcuts and the tray, along with setup, packaging and native development.
-- **Sidebar entries that open reactnative.dev**, such as _Style_, _Layout with Flexbox_, _Animated_ or _FlatList_, are React Native pages that work on desktop unchanged. The sidebar links straight to the React Native 0.87 documentation, which is a different site, so use your browser's back button to return here.
+- **Sidebar entries that open reactnative.dev**, such as _Style_, _Layout with Flexbox_, _Animated_ or _FlatList_, are React Native pages that work on desktop unchanged. They open the React Native documentation, a different site, in a new tab.
 - **Where to look.** _Guides_ explain concepts and the workflow, with the desktop topics under **Desktop**. _Components_ and _APIs_ are the reference, and each has a **Desktop** category for what the shell adds, imported from `@react-native-gpui/core/desktop`. _Architecture_ describes how the renderer works.
 - **Not sure it works on desktop?** [Platform support](platform-support) lists every component and API as supported, partial or not supported, with a note for each.
 
