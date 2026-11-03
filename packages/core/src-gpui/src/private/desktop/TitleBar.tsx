@@ -28,6 +28,7 @@ import {
 } from 'react-native';
 import type { ColorValue, StyleProp, ViewStyle } from 'react-native';
 import { capabilities } from './index';
+import { Menu, useMenuBarVisible } from './menu';
 import { WindowControl } from './WindowControl';
 import type { WindowControlAction, WindowControlState } from './WindowControl';
 
@@ -41,6 +42,14 @@ export interface TitleBarProps {
    * `backgroundColor`, or to the system appearance when the bar has none.
    */
   appearance?: 'light' | 'dark';
+  /**
+   * Whether to keep a row under the bar for the window's menu bar, where the
+   * menu bar is drawn in the window (Linux). Defaults to `true`; without the
+   * row the menu bar is a strip above the whole window, title bar included.
+   * Hide the menu bar itself with `window.menuBar` in `desktop.json` or
+   * `Menu.setMenuBarVisible`.
+   */
+  menuBar?: boolean;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
 }
@@ -92,6 +101,7 @@ export function TitleBar({
   trafficLightInset,
   showCaptionButtons,
   appearance,
+  menuBar,
   style,
   children,
 }: TitleBarProps) {
@@ -112,74 +122,114 @@ export function TitleBar({
     appearanceOf(StyleSheet.flatten(style)?.backgroundColor) ??
     (systemScheme === 'dark' ? 'dark' : 'light');
   const palette = PALETTE[resolved];
+  const menuBarVisible = useMenuBarVisible();
+  const menuSlot =
+    menuBar !== false && capabilities().menuBarInWindow && menuBarVisible;
+  const slotRef = React.useRef<React.ElementRef<typeof View>>(null);
+  const measureSlot = React.useCallback(() => {
+    slotRef.current?.measureInWindow((x, y, width, height) => {
+      Menu.setMenuBarSlot(
+        { x, y, width, height },
+        {
+          foreground: processColor(palette.foreground) as number,
+          hover: processColor(palette.hover) as number,
+        },
+      ).catch(() => {});
+    });
+  }, [palette.foreground, palette.hover]);
+  React.useEffect(() => {
+    if (!menuSlot) {
+      return undefined;
+    }
+    measureSlot();
+    return () => {
+      Menu.clearMenuBarSlot().catch(() => {});
+    };
+  }, [menuSlot, measureSlot]);
   return (
-    <View
-      desktopDragRegion
-      style={[
-        styles.bar,
-        { paddingLeft: inset },
-        captionButtons &&
-          (isLinux
-            ? styles.barWithRoundCaptionButtons
-            : styles.barWithCaptionButtons),
-        style,
-      ]}
-    >
-      {title != null ? (
-        <Text
-          numberOfLines={1}
-          style={[styles.title, { color: palette.foreground }]}
-        >
-          {title}
-        </Text>
-      ) : null}
-      <View style={styles.spacer} pointerEvents="box-none">
-        {children}
-      </View>
-      {captionButtons ? (
-        <View
-          style={[styles.captionButtons, isLinux && styles.captionButtonsLinux]}
-        >
-          {CAPTION_ACTIONS.map(action => (
-            <WindowControl
-              key={action}
-              action={action}
-              testID={`titlebar-${action}`}
-              style={({ hovered, pressed }) => [
-                styles.captionButton,
-                isLinux && styles.captionButtonLinux,
-                hovered && {
-                  backgroundColor:
-                    action === 'close' && !isLinux
-                      ? CLOSE_HOVER
-                      : palette.hover,
-                },
-                pressed && {
-                  backgroundColor:
-                    action === 'close' && !isLinux
-                      ? CLOSE_PRESSED
-                      : palette.pressed,
-                },
-              ]}
-            >
-              {state => (
-                <CaptionGlyph
-                  action={action}
-                  state={state}
-                  color={
-                    action === 'close' &&
-                    !isLinux &&
-                    (state.hovered || state.pressed)
-                      ? CLOSE_FOREGROUND
-                      : palette.foreground
-                  }
-                />
-              )}
-            </WindowControl>
-          ))}
+    <>
+      <View
+        desktopDragRegion
+        style={[
+          styles.bar,
+          { paddingLeft: inset },
+          captionButtons &&
+            (isLinux
+              ? styles.barWithRoundCaptionButtons
+              : styles.barWithCaptionButtons),
+          style,
+        ]}
+      >
+        {title != null ? (
+          <Text
+            numberOfLines={1}
+            style={[styles.title, { color: palette.foreground }]}
+          >
+            {title}
+          </Text>
+        ) : null}
+        <View style={styles.spacer} pointerEvents="box-none">
+          {children}
         </View>
+        {captionButtons ? (
+          <View
+            style={[
+              styles.captionButtons,
+              isLinux && styles.captionButtonsLinux,
+            ]}
+          >
+            {CAPTION_ACTIONS.map(action => (
+              <WindowControl
+                key={action}
+                action={action}
+                testID={`titlebar-${action}`}
+                style={({ hovered, pressed }) => [
+                  styles.captionButton,
+                  isLinux && styles.captionButtonLinux,
+                  hovered && {
+                    backgroundColor:
+                      action === 'close' && !isLinux
+                        ? CLOSE_HOVER
+                        : palette.hover,
+                  },
+                  pressed && {
+                    backgroundColor:
+                      action === 'close' && !isLinux
+                        ? CLOSE_PRESSED
+                        : palette.pressed,
+                  },
+                ]}
+              >
+                {state => (
+                  <CaptionGlyph
+                    action={action}
+                    state={state}
+                    color={
+                      action === 'close' &&
+                      !isLinux &&
+                      (state.hovered || state.pressed)
+                        ? CLOSE_FOREGROUND
+                        : palette.foreground
+                    }
+                  />
+                )}
+              </WindowControl>
+            ))}
+          </View>
+        ) : null}
+      </View>
+      {menuSlot ? (
+        <View
+          ref={slotRef}
+          pointerEvents="none"
+          onLayout={measureSlot}
+          style={[
+            styles.menuSlot,
+            { backgroundColor: StyleSheet.flatten(style)?.backgroundColor },
+          ]}
+        />
       ) : null}
-    </View>
+    </>
   );
 }
 
@@ -245,6 +295,9 @@ function CaptionGlyph({
 const GLYPH = 10;
 
 const styles = StyleSheet.create({
+  menuSlot: {
+    height: 26,
+  },
   bar: {
     height: 38,
     flexDirection: 'row',

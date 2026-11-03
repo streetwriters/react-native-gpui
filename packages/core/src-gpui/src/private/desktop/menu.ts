@@ -140,6 +140,32 @@ export function nativeMenuItems(items: MenuItemSpec[]): Object[] {
   });
 }
 
+/** Hearers of `Menu.setMenuBarVisible` for the main window. */
+const menuBarVisibility = new Set<(visible: boolean) => void>();
+
+/**
+ * Whether the main window's in-window menu bar is shown, following
+ * `Menu.setMenuBarVisible` and the `window.menuBar` setting.
+ */
+export function useMenuBarVisible(): boolean {
+  const [visible, setVisible] = React.useState(true);
+  React.useEffect(() => {
+    let alive = true;
+    Menu.get().then(
+      description => {
+        if (alive) setVisible(description.menuBarVisible);
+      },
+      () => {},
+    );
+    menuBarVisibility.add(setVisible);
+    return () => {
+      alive = false;
+      menuBarVisibility.delete(setVisible);
+    };
+  }, []);
+  return visible;
+}
+
 export const Menu = {
   /**
    * Replace the application menu. `null` restores the default menu (app menu,
@@ -178,7 +204,41 @@ export const Menu = {
   },
 
   setMenuBarVisible(visible: boolean, windowId?: number): Promise<void> {
-    return request(native => native.menuSetMenuBarVisible(visible, windowId));
+    return request(native =>
+      native.menuSetMenuBarVisible(visible, windowId),
+    ).then(() => {
+      if (windowId == null) {
+        menuBarVisibility.forEach(listener => listener(visible));
+      }
+    });
+  },
+
+  /**
+   * Draws the in-window menu bar over a room your layout keeps for it, in
+   * window coordinates, in place of the strip at the top of the window.
+   * `TitleBar` does this for you. A no-op where the bar is the system's.
+   */
+  setMenuBarSlot(
+    slot: { x: number; y: number; width: number; height: number },
+    colors: { foreground: number; hover: number },
+    windowId?: number,
+  ): Promise<void> {
+    return request(native =>
+      native.menuSetMenuBarSlot(
+        slot.x,
+        slot.y,
+        slot.width,
+        slot.height,
+        colors.foreground,
+        colors.hover,
+        windowId,
+      ),
+    );
+  },
+
+  /** Gives the menu bar its own strip at the top of the window again. */
+  clearMenuBarSlot(windowId?: number): Promise<void> {
+    return request(native => native.menuClearMenuBarSlot(windowId));
   },
 
   addListener(

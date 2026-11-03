@@ -247,6 +247,19 @@ pub fn set_menu_bar_visible(cx: &mut gpui::App, window_id: u32, visible: bool) -
     Ok(json!({"windowId": window_id, "menuBarVisible": visible}))
 }
 
+/// Reserves, or with `None` gives back, the room a window's React tree keeps for
+/// the menu bar. The bar is then drawn there, and the top of the window stops
+/// being a strip of its own.
+pub fn set_menu_bar_slot(
+    cx: &mut gpui::App,
+    window_id: u32,
+    slot: Option<crate::desktop::gpui_menu::MenuBarSlot>,
+) -> DesktopResult {
+    crate::desktop::gpui_menu::set_menu_bar_slot(window_id, slot);
+    crate::desktop::gpui_menu::resize_surfaces_for_menu_bar(cx, window_id);
+    Ok(json!({"windowId": window_id, "slot": slot.is_some()}))
+}
+
 pub fn menu_json(cx: &App) -> Value {
     let state = &cx.global::<AppMenuGlobal>().0;
     json!({

@@ -87,4 +87,4 @@ A role asks the host to perform a standard action, so you do not implement it. A
 
 ## Windows and Linux
 
-On Windows and Linux the menu is drawn inside the window. To hide it, set `window.menuBar` to `false` in [`desktop.json`](desktop-json#window) or call `Menu.setMenuBarVisible(false)`. Accelerators keep working when the bar is hidden. On macOS the bar belongs to the system and cannot be hidden, so check `capabilities().menuBarInWindow` before showing a control for it.
+On Windows and Linux the menu is drawn inside the window; with a [`TitleBar`](desktop-title-bar#the-menu-bar) it sits in a row under the bar. To hide it, set `window.menuBar` to `false` in [`desktop.json`](desktop-json#window) or call `Menu.setMenuBarVisible(false)`. Accelerators keep working when the bar is hidden. On macOS the bar belongs to the system and cannot be hidden, so check `capabilities().menuBarInWindow` before showing a control for it.

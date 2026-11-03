@@ -62,7 +62,12 @@ import { TitleBar } from '@react-native-gpui/core/desktop';
 | `trafficLightInset`  | `number`               | Space to leave for the macOS traffic lights, so your content does not sit under them. |
 | `showCaptionButtons` | `boolean`              | Whether to draw minimize, maximize and close buttons where the platform expects them. |
 | `appearance`         | `'light' \| 'dark'`    | The color scheme of the buttons.                                                      |
+| `menuBar`            | `boolean`              | Whether to keep a row under the bar for the in-window menu bar. Defaults to `true`.   |
 | `style`              | `StyleProp<ViewStyle>` | Styles for the bar.                                                                   |
+
+### The menu bar
+
+Where the menu bar is drawn in the window (Linux), a `TitleBar` keeps a row for it just under the bar, in the bar's colors, so the menu is not a strip above the title bar. Set `menuBar={false}` to keep the strip at the top of the window instead. To hide the menu bar, set `window.menuBar` to `false` in [`desktop.json`](desktop-json#window) or call `Menu.setMenuBarVisible(false)`; the row goes with it. A window without a `TitleBar` keeps the strip at the top.
 
 ## WindowControl
 

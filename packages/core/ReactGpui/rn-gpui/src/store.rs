@@ -304,6 +304,14 @@ impl ViewStore {
         cx.notify();
     }
 
+    /// Redraws the surfaces of a window whose layout changed outside React.
+    pub fn notify_window_roots(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) {
+        for surface_id in self.surfaces_in_window(window) {
+            let root = self.root_for(surface_id, cx);
+            root.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
         // Per surface, not per call: the menu bar can be hidden in one window and
         // shown in another, so the inset has to follow the window the surface
@@ -2703,21 +2711,34 @@ impl Render for SurfaceRootView {
         // "innermost wins, window scope last" order.
         let app_context =
             gpui::KeyContext::parse(crate::desktop::keymap::APP_CONTEXT).unwrap_or_default();
-        let mut window_root = if let Some(menu_bar) = self.menu_bar.clone() {
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .key_context(app_context)
-                .child(menu_bar)
-                .child(content)
-        } else {
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .key_context(app_context)
-                .child(content)
+        let window_id = self.surface_id as u32;
+        let menu_bar = self
+            .menu_bar
+            .clone()
+            .filter(|_| crate::desktop::gpui_menu::menu_bar_in_window(window_id));
+        let mut window_root = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .relative()
+            .key_context(app_context);
+        window_root = match (
+            menu_bar,
+            crate::desktop::gpui_menu::menu_bar_slot(window_id),
+        ) {
+            // The bar has its own row above everything else.
+            (Some(menu_bar), None) => window_root.child(menu_bar).child(content),
+            // The React tree reserved room for it, so it is drawn over that room.
+            (Some(menu_bar), Some(slot)) => window_root.child(content).child(
+                div()
+                    .absolute()
+                    .left(px(slot.x))
+                    .top(px(slot.y))
+                    .w(px(slot.width))
+                    .h(px(slot.height))
+                    .child(menu_bar),
+            ),
+            (None, _) => window_root.child(content),
         };
         if self.surface_id == APP_SURFACE_ID {
             for (button, event_name) in [

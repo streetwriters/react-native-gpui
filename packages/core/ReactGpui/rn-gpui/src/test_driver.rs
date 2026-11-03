@@ -1280,7 +1280,9 @@ async fn serve_commands(
             "menuBarState" => cx.update(|cx| {
                 json!({
                     "enabled": crate::desktop::gpui_menu::should_use_gpui_menu_bar(),
-                    "inset": crate::desktop::gpui_menu::menu_bar_inset(),
+                    "inset": crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
+        crate::desktop::windows::MAIN_WINDOW_KEY,
+    ),
                     "titles": crate::desktop::gpui_menu::menu_bar_entries(cx)
                         .into_iter()
                         .map(|(label, _)| label)
@@ -1764,7 +1766,9 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
 /// surface starts below it: surface frames become window coordinates by adding
 /// the inset. It is zero on platforms whose menu bar is native.
 fn menu_bar_offset() -> f32 {
-    crate::desktop::gpui_menu::menu_bar_inset()
+    crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
+        crate::desktop::windows::MAIN_WINDOW_KEY,
+    )
 }
 
 /// Asks GPUI to start publishing accessibility data on Windows.

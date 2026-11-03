@@ -4,6 +4,9 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Linux a `TitleBar` keeps a row for the in-window menu bar just under the bar, and the menu bar is drawn there in the bar's colors, instead of as a strip above the whole window. `TitleBar` takes `menuBar={false}` to keep the strip. `Menu.setMenuBarSlot` and `Menu.clearMenuBarSlot` let a custom bar do the same.
+- `Menu.setMenuBarVisible` now removes the in-window menu bar on Linux. It used to resize the content and leave the bar drawn.
+- The drawn menu shows accelerators as `Ctrl+Shift+Z` and no longer reads `secondary-shift-z`.
 - `TitleBar` draws small round caption buttons on Linux, in place of the full-height rectangles of Windows with a red close button.
 - A popover tray's built-in Open item opens the popover. On GNOME the panel shows only the menu and never reports a click, so the popover could not be reached.
 - A tray with no icon and an app with no icon now shows a filled round glyph on Windows and Linux, which can be seen on a dark panel. It used to be a black outline that was hardly visible.
