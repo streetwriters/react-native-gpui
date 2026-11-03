@@ -99,6 +99,34 @@ pub fn tray_edge(reserved: Reserved) -> Option<Edge> {
     .map(|(_, edge)| *edge)
 }
 
+/// The work area in logical points. XWayland reports it in device pixels on some
+/// compositors (GNOME) and in logical points on others (KDE), so it is compared
+/// with the logical size of the screen that GPUI reports, and divided by the ratio
+/// when it is larger.
+pub fn logical_work_area(
+    screen: (f32, f32),
+    area: (f32, f32, f32, f32),
+    logical_screen: (f32, f32),
+) -> ((f32, f32), (f32, f32, f32, f32)) {
+    let ratio = if logical_screen.0 > 0.0 {
+        screen.0 / logical_screen.0
+    } else {
+        1.0
+    };
+    if ratio < 1.05 {
+        return (screen, area);
+    }
+    (
+        (screen.0 / ratio, screen.1 / ratio),
+        (
+            area.0 / ratio,
+            area.1 / ratio,
+            area.2 / ratio,
+            area.3 / ratio,
+        ),
+    )
+}
+
 /// A click's position in logical points. Panels disagree about the units they
 /// send: GNOME sends logical points, and KDE sends device pixels, which at a
 /// scale of 2 are twice the logical values. The icon that was clicked is on a
@@ -321,6 +349,21 @@ mod tests {
             place_near((0.0, 900.0), left, (1872.0, 1080.0), size, 8.0, (0.0, 0.0)),
             (8.0, 800.0)
         );
+    }
+
+    #[test]
+    fn a_work_area_in_device_pixels_is_brought_to_logical_points() {
+        // GNOME at a scale of 2: the screen and the work area are doubled.
+        let (screen, area) = logical_work_area(
+            (1920.0, 1080.0),
+            (134.0, 64.0, 1786.0, 1016.0),
+            (960.0, 540.0),
+        );
+        assert_eq!(screen, (960.0, 540.0));
+        assert_eq!(area, (67.0, 32.0, 893.0, 508.0));
+        // KDE already reports points, so nothing changes.
+        let same = logical_work_area((960.0, 540.0), (46.0, 0.0, 914.0, 540.0), (960.0, 540.0));
+        assert_eq!(same.1, (46.0, 0.0, 914.0, 540.0));
     }
 
     #[test]

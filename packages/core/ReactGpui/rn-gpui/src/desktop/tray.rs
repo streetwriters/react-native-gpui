@@ -309,9 +309,14 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     let (x, y) = popover_origin(rect, config.width, config.height, work_area);
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "linux")]
-    let scale = display_scale(cx);
-    #[cfg(target_os = "linux")]
-    let overlay = wayland_overlay(&config, rect, scale);
+    let overlay = {
+        let scale = display_scale(cx);
+        let logical = cx.primary_display().map(|display| {
+            let size = display.bounds().size;
+            (f32::from(size.width), f32::from(size.height))
+        });
+        wayland_overlay(&config, rect, scale, logical)
+    };
     let options = OpenWindowOptions {
         component,
         props: None,
@@ -366,6 +371,7 @@ fn wayland_overlay(
     config: &TrayConfig,
     rect: TrayRect,
     scale: f32,
+    logical_screen: Option<(f32, f32)>,
 ) -> Option<crate::desktop::window_frame::Placement> {
     use crate::desktop::popover_placement::{self, Anchor};
     if !crate::desktop::capabilities::is_wayland() {
@@ -373,7 +379,13 @@ fn wayland_overlay(
     }
     let (anchor, offset) =
         popover_placement::with_environment(config.popover_anchor, config.popover_offset);
-    let work = crate::desktop::work_area::read();
+    let work = crate::desktop::work_area::read().map(|work| {
+        let (screen, area) = match logical_screen {
+            Some(logical) => popover_placement::logical_work_area(work.screen, work.area, logical),
+            None => (work.screen, work.area),
+        };
+        crate::desktop::work_area::WorkArea { screen, area }
+    });
     let reserved = work.map(|work| popover_placement::reserved(work.screen, work.area));
     if reserved.is_none() && anchor == Anchor::Auto {
         return None;
