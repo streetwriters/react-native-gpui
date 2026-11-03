@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A tray popover on Linux is drawn with the same measured frame as other windows, rounded and with a shadow, and its content has the size you asked for: the window is grown by the frame's margin. On GNOME, where the compositor places the window, it still closes when it loses focus.
+- A window with no menu bar no longer reserves room for one on Linux. A secondary window or a popover lost the menu bar's 26 points of height, and pointer positions in it were offset by them.
 - On Linux the first `capabilities()` call waits until the window has reported whether the compositor gave it client-side decorations. `TitleBar` used to read the answer while the window was still opening, took the guess, and drew caption buttons next to the title bar KWin draws. The change is also sent to the app as `gpuiDesktop:windowDecorations`, and the new `useClientDecorations()` hook, exported from `@react-native-gpui/core/desktop`, follows it.
 - A `TitleBar` in a window whose frame the compositor draws shows only its children as a toolbar row, with no title, caption buttons or drag area, and nothing when it has no children.
 - The Linux window frame's shadow is fitted to the toolkit's measured shadow (opacity, blur, spread and downward offset) instead of one symmetric blur, and its blur no longer ends in a visible step at the edge of the margin.

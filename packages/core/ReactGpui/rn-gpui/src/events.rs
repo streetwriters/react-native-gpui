@@ -308,9 +308,8 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         window_offset: if placed {
             0.0
         } else {
-            crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
-                crate::desktop::windows::MAIN_WINDOW_KEY,
-            ) + crate::desktop::window_frame::insets_of(hit_node.surface_id).top
+            crate::desktop::gpui_menu::menu_bar_inset_for_window_id(hit_node.surface_id as u32)
+                + crate::desktop::window_frame::insets_of(hit_node.surface_id).top
         },
         window_offset_x: if placed {
             0.0

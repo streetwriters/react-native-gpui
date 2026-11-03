@@ -206,7 +206,7 @@ Every `TitleBar` in every window uses the same layout and icons.
 
 ### The window frame
 
-A client-decorated window draws its own frame: rounded corners, a hairline border and a shadow, in a see-through margin around the content. This applies to every window except popovers, and all of them use the same values. The margin and the rounding go away while the window is maximized, fullscreen or tiled, and nothing is drawn where the compositor draws the frame itself.
+A client-decorated window draws its own frame: rounded corners, a hairline border and a shadow, in a see-through margin around the content. This applies to every window, popovers included, and all of them use the same values. The margin and the rounding go away while the window is maximized, fullscreen or tiled, and nothing is drawn where the compositor draws the frame itself.
 
 The values are measured from the desktop's own toolkit and not assumed, so they follow the distro and its theme:
 
@@ -252,7 +252,7 @@ A client-decorated window has no frame to grab, so the app draws an invisible ei
 
 ### Tray icons
 
-See [Tray](desktop-tray#platform-notes) for how a tray icon and its popover behave on GNOME and KDE.
+A tray popover is a window like the others here: no title bar, the same frame, and a size that is the size of its content. Where the compositor lets the app place windows (X11) it opens at the icon; elsewhere (GNOME on Wayland) the compositor places it. See [Tray](desktop-tray#platform-notes) for how a tray icon and its popover behave on GNOME and KDE.
 
 ## Main window options
 

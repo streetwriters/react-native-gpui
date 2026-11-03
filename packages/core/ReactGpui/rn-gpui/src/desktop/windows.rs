@@ -193,15 +193,24 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
     #[cfg(target_os = "linux")]
-    if !options.popup {
-        crate::desktop::window_frame::enroll(surface_id);
-    }
+    crate::desktop::window_frame::enroll(surface_id);
 
     let width = options.width.unwrap_or(800.0).max(120.0);
     let height = options.height.unwrap_or(600.0).max(120.0);
+    // A popover's content is the size the app asked for, so on Linux the window
+    // is grown by the margin its frame needs, and placed that much earlier.
+    let margin = if cfg!(target_os = "linux") && options.popup {
+        crate::desktop::window_frame::frame().shadow_extent
+    } else {
+        0.0
+    };
+    let (window_width, window_height) = (width + 2.0 * margin, height + 2.0 * margin);
     let bounds = match (options.x, options.y) {
-        (Some(x), Some(y)) => Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
-        _ => Bounds::centered(None, size(px(width), px(height)), cx),
+        (Some(x), Some(y)) => Bounds::new(
+            point(px(x - margin), px(y - margin)),
+            size(px(window_width), px(window_height)),
+        ),
+        _ => Bounds::centered(None, size(px(window_width), px(window_height)), cx),
     };
     // The placed origin, in points: what the popover's own window hints use.
     let placed_origin = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
@@ -226,8 +235,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         }),
         is_resizable: options.resizable,
         window_background: if cfg!(target_os = "linux")
-            && options.title_bar.is_custom()
-            && !options.popup
+            && (options.title_bar.is_custom() || options.popup)
             && matches!(
                 options.background,
                 crate::bootstrap::WindowBackground::Opaque
@@ -279,7 +287,17 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             // grant it for another, so the capability follows the newest window.
             crate::desktop::capabilities::note_window_decorations(window.window_decorations());
             #[cfg(target_os = "linux")]
-            crate::desktop::window_frame::sync(window, surface_id);
+            {
+                crate::desktop::window_frame::sync(window, surface_id);
+                // A compositor that left the decorations to itself draws no
+                // frame, so the margin the popover was grown by is given back.
+                if options.popup
+                    && margin > 0.0
+                    && crate::desktop::window_frame::insets_of(surface_id).horizontal() == 0.0
+                {
+                    window.resize(size(px(width), px(height)));
+                }
+            }
             let size = window.viewport_size();
             let frame = crate::desktop::window_frame::insets_of(surface_id);
             (
@@ -293,7 +311,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     // had its first `WM_SIZE`, so what `viewport_size` reports for it is not
     // something to start a surface from. The popover's own size is known, so the
     // surface starts at that, and `prepare_popover` gives the window the same one.
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let (w, h) = if options.popup {
         (width, height)
     } else {
@@ -340,8 +358,8 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                     window,
                     placed_origin.0,
                     placed_origin.1,
-                    width,
-                    height,
+                    window_width,
+                    window_height,
                 ) {
                     log::debug!("[desktop] popover window hints: {error}");
                 }

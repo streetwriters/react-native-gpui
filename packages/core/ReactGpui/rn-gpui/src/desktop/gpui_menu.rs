@@ -91,6 +91,7 @@ pub fn menu_bar_inset_for_window_id(window_id: u32) -> f32 {
     // A bar placed in a slot of the React tree takes its space from the tree,
     // so nothing is reserved at the top of the window.
     if !should_use_gpui_menu_bar()
+        || !has_menu_bar(window_id)
         || menu_bar_hidden(window_id)
         || menu_bar_slot(window_id).is_some()
     {
@@ -158,6 +159,17 @@ thread_local! {
     /// has one, but the JS getter and the tests do not.
     static HIDDEN_MENU_BARS: std::cell::RefCell<std::collections::HashSet<u32>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
+
+    /// Windows that carry a menu bar: the main window from the start, and any
+    /// other once its bar is prepared. A window without one reserves no room.
+    static BAR_WINDOWS: std::cell::RefCell<std::collections::HashSet<u32>> =
+        std::cell::RefCell::new(std::collections::HashSet::from([
+            crate::desktop::windows::MAIN_WINDOW_KEY,
+        ]));
+}
+
+fn has_menu_bar(window_id: u32) -> bool {
+    BAR_WINDOWS.with(|windows| windows.borrow().contains(&window_id))
 }
 
 /// Re-applies the surface size after the inset changed.
@@ -237,6 +249,7 @@ pub fn prepare(window: &mut gpui::Window, cx: &mut App, window_id: u32) -> Optio
     if !should_use_gpui_menu_bar() {
         return None;
     }
+    BAR_WINDOWS.with(|windows| windows.borrow_mut().insert(window_id));
     let menu_bar = cx.new(|_| MenuBar::new(window_id));
     let subscription = menu_bar.update(cx, |_menu_bar, cx| {
         cx.observe_window_activation(window, |_menu_bar, window, cx| {
@@ -944,6 +957,7 @@ mod tests {
         // hidden either of them already.
         set_menu_bar_visible(9, true);
         set_menu_bar_visible(10, true);
+        BAR_WINDOWS.with(|windows| windows.borrow_mut().extend([9, 10]));
 
         set_menu_bar_visible(9, false);
         assert_eq!(menu_bar_inset_for_window_id(9), 0.0);
@@ -960,6 +974,18 @@ mod tests {
     }
 
     #[test]
+    fn a_window_without_a_menu_bar_reserves_no_room_for_one() {
+        let _environment = environment();
+        std::env::set_var("RN_GPUI_MENU_BAR", "gpui");
+        assert_eq!(menu_bar_inset_for_window_id(13), 0.0);
+        assert_eq!(
+            menu_bar_inset_for_window_id(crate::desktop::windows::MAIN_WINDOW_KEY),
+            MENU_BAR_HEIGHT
+        );
+        std::env::remove_var("RN_GPUI_MENU_BAR");
+    }
+
+    #[test]
     fn an_accelerator_is_shown_the_way_a_menu_writes_it() {
         assert_eq!(accelerator_label("secondary-shift-z"), "Ctrl+Shift+Z");
         assert_eq!(accelerator_label("secondary-c"), "Ctrl+C");
@@ -973,6 +999,7 @@ mod tests {
         std::env::set_var("RN_GPUI_MENU_BAR", "gpui");
         set_menu_bar_visible(11, true);
         set_menu_bar_visible(12, true);
+        BAR_WINDOWS.with(|windows| windows.borrow_mut().extend([11, 12]));
         set_menu_bar_slot(
             11,
             Some(MenuBarSlot {

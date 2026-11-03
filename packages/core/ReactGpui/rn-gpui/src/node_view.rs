@@ -213,9 +213,8 @@ fn run_component_hook(
         let offset = if node.surface_is_placed() {
             0.0
         } else {
-            crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
-                crate::desktop::windows::MAIN_WINDOW_KEY,
-            ) + crate::desktop::window_frame::insets_of(node.surface_id).top
+            crate::desktop::gpui_menu::menu_bar_inset_for_window_id(node.surface_id as u32)
+                + crate::desktop::window_frame::insets_of(node.surface_id).top
         };
         (node.absolute_origin(cx), offset)
     };
