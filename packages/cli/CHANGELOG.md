@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `desktop.json` accepts `window.windowControlsPosition` (`"left"` or `"right"`), the side the window controls use on Linux when the desktop gives none.
+
 - `desktop.json` accepts `accessory`.
 - `desktop.json` accepts `window.titleBar: "none"`.
 - `desktop.json` accepts `window.windowButtons` and `window.shadow`.

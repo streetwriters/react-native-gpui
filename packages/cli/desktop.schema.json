@@ -123,6 +123,10 @@
             }
           }
         },
+        "windowControlsPosition": {
+          "description": "The side of the title bar the window controls (minimize, maximize, close) use on Linux when the desktop does not say where its own go. Defaults to right. Ignored on Windows and macOS.",
+          "enum": ["left", "right"]
+        },
         "menuBar": {
           "description": "Whether the main window shows a menu bar. Windows and Linux draw one inside the window; on macOS this does nothing, because the bar belongs to the system. Defaults to true.",
           "type": "boolean"

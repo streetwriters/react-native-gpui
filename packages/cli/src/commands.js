@@ -725,6 +725,11 @@ export function desktopLaunchConfig(config, configPath) {
     // and the `menuBarInWindow` capability says so.
     chain.push('    .menu_bar(false)');
   }
+  if (settings.windowControlsPosition === 'left') {
+    // Right is the default, and only consulted on Linux where the desktop gives
+    // no layout of its own.
+    chain.push('    .window_controls_position("left")');
+  }
   if (settings.titleBar !== undefined && settings.titleBar !== 'default') {
     // The default is the platform's own bar, so only the two custom kinds are
     // emitted. The enum is spelled out in full because the generated file has no

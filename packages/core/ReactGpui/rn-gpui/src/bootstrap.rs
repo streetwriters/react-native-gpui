@@ -679,6 +679,8 @@ pub struct DesktopAppConfig {
     pub single_instance: bool,
     /// Whether the main window shows a menu bar. Windows and Linux only.
     pub menu_bar: bool,
+    /// Whether the caption buttons go on the left where the desktop does not say.
+    pub window_controls_left: bool,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
 
@@ -716,6 +718,7 @@ impl DesktopAppConfig {
             url_schemes: Vec::new(),
             single_instance: false,
             menu_bar: true,
+            window_controls_left: false,
             configure_window: None,
             on_app_ready: None,
             on_window_opened: None,
@@ -827,6 +830,15 @@ impl DesktopAppConfig {
     ///
     /// Only Windows and Linux draw one inside the window; on macOS the bar is the
     /// system's, so this is ignored there.
+    /// The side of the title bar the caption buttons use on Linux when neither
+    /// the desktop's settings nor its theme say. `"left"` puts them there;
+    /// anything else keeps them on the right.
+    #[must_use]
+    pub fn window_controls_position(mut self, side: &str) -> Self {
+        self.window_controls_left = side == "left";
+        self
+    }
+
     #[must_use]
     pub fn menu_bar(mut self, visible: bool) -> Self {
         self.menu_bar = visible;
@@ -1609,6 +1621,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // outside any update that has already leased the root.
         // `window.menuBar: false` hides the bar before it is ever drawn, so the
         // window opens at the right size instead of shrinking once the bar goes.
+        crate::desktop::button_layout::set_fallback_left(config.window_controls_left);
         if !config.menu_bar {
             crate::desktop::gpui_menu::set_menu_bar_visible(
                 crate::desktop::windows::MAIN_WINDOW_KEY,

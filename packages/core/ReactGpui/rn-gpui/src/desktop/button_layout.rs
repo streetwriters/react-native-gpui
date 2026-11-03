@@ -6,15 +6,28 @@
 
 /// GTK's own default, used where the desktop states nothing.
 pub const DEFAULT_LAYOUT: &str = ":minimize,maximize,close";
+const DEFAULT_LAYOUT_LEFT: &str = "close,minimize,maximize:";
+
+static FALLBACK_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Puts the buttons on the left where the desktop states no layout. Must run
+/// before the first [`button_layout`] call.
+pub fn set_fallback_left(left: bool) {
+    FALLBACK_LEFT.store(left, std::sync::atomic::Ordering::Relaxed);
+}
 
 #[cfg(target_os = "linux")]
 pub fn button_layout() -> String {
     static LAYOUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     LAYOUT
         .get_or_init(|| {
-            gnome_layout()
-                .or_else(kde_layout)
-                .unwrap_or_else(|| DEFAULT_LAYOUT.to_string())
+            gnome_layout().or_else(kde_layout).unwrap_or_else(|| {
+                if FALLBACK_LEFT.load(std::sync::atomic::Ordering::Relaxed) {
+                    DEFAULT_LAYOUT_LEFT.to_string()
+                } else {
+                    DEFAULT_LAYOUT.to_string()
+                }
+            })
         })
         .clone()
 }

@@ -237,6 +237,19 @@ test('menuBar: false asks the host for no menu bar, and its absence does not', (
   expect(shown).not.toContain('.menu_bar(');
 });
 
+test('windowControlsPosition: left reaches the launch chain, and right does not', () => {
+  const left = desktopLaunchConfig(
+    { window: { windowControlsPosition: 'left' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(left).toContain('.window_controls_position("left")');
+  const right = desktopLaunchConfig(
+    { window: { windowControlsPosition: 'right' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(right).not.toContain('.window_controls_position(');
+});
+
 test('a custom title bar and the traffic light position reach the launch chain', () => {
   const hidden = desktopLaunchConfig(
     {

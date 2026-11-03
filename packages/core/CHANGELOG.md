@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `window.windowControlsPosition` in `desktop.json` (`"left"` or `"right"`) sets the side of the title bar the window controls use on Linux when neither the desktop's settings nor its theme say. The host config has a matching `window_controls_position` builder method. Defaults to right.
 - On Linux the `TitleBar` caption buttons draw the icon theme's own `window-close-symbolic`, `window-minimize-symbolic`, `window-maximize-symbolic` and `window-restore-symbolic` icons, found through the theme and the themes it inherits, in the bar's text colour. They fall back to the drawn glyphs when no theme has them.
 - On Linux the `TitleBar` caption buttons follow the desktop's button layout: the side they sit on, their order, and which of them exist. GNOME and other GTK desktops are read through `gsettings`, KDE from `kwinrc`, and anything else gets minimize, maximize and close on the right. Windows and macOS are unchanged.
 - On Linux a `TitleBar` keeps a row for the in-window menu bar just under the bar, and the menu bar is drawn there in the bar's colors, instead of as a strip above the whole window. `TitleBar` takes `menuBar={false}` to keep the strip. `Menu.setMenuBarSlot` and `Menu.clearMenuBarSlot` let a custom bar do the same.
