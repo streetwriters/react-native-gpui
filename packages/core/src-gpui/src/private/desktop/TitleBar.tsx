@@ -99,6 +99,7 @@ export function TitleBar({
   // `Platform.OS` is the host, reported by the desktop module, so it needs no
   // fallback: it is `macos`, `windows` or `linux` on a desktop build.
   const isMac = Platform.OS === 'macos';
+  const isLinux = !isMac && Platform.OS !== 'windows';
   // A window that kept its native title bar already has buttons, so drawing a
   // second set would only ever be wrong. `clientDecorations` is the capability
   // that says whether the window is really frameless, which on Linux depends on
@@ -117,7 +118,10 @@ export function TitleBar({
       style={[
         styles.bar,
         { paddingLeft: inset },
-        captionButtons && styles.barWithCaptionButtons,
+        captionButtons &&
+          (isLinux
+            ? styles.barWithRoundCaptionButtons
+            : styles.barWithCaptionButtons),
         style,
       ]}
     >
@@ -133,7 +137,9 @@ export function TitleBar({
         {children}
       </View>
       {captionButtons ? (
-        <View style={styles.captionButtons}>
+        <View
+          style={[styles.captionButtons, isLinux && styles.captionButtonsLinux]}
+        >
           {CAPTION_ACTIONS.map(action => (
             <WindowControl
               key={action}
@@ -141,13 +147,18 @@ export function TitleBar({
               testID={`titlebar-${action}`}
               style={({ hovered, pressed }) => [
                 styles.captionButton,
+                isLinux && styles.captionButtonLinux,
                 hovered && {
                   backgroundColor:
-                    action === 'close' ? CLOSE_HOVER : palette.hover,
+                    action === 'close' && !isLinux
+                      ? CLOSE_HOVER
+                      : palette.hover,
                 },
                 pressed && {
                   backgroundColor:
-                    action === 'close' ? CLOSE_PRESSED : palette.pressed,
+                    action === 'close' && !isLinux
+                      ? CLOSE_PRESSED
+                      : palette.pressed,
                 },
               ]}
             >
@@ -156,7 +167,9 @@ export function TitleBar({
                   action={action}
                   state={state}
                   color={
-                    action === 'close' && (state.hovered || state.pressed)
+                    action === 'close' &&
+                    !isLinux &&
+                    (state.hovered || state.pressed)
                       ? CLOSE_FOREGROUND
                       : palette.foreground
                   }
@@ -244,6 +257,10 @@ const styles = StyleSheet.create({
   barWithCaptionButtons: {
     paddingRight: 0,
   },
+  // Linux draws the buttons compact and round, inset from the window edge.
+  barWithRoundCaptionButtons: {
+    paddingRight: 8,
+  },
   title: {
     fontSize: 13,
     fontWeight: '600',
@@ -257,6 +274,15 @@ const styles = StyleSheet.create({
   captionButtons: {
     flexDirection: 'row',
     alignSelf: 'stretch',
+  },
+  captionButtonsLinux: {
+    alignSelf: 'center',
+    gap: 6,
+  },
+  captionButtonLinux: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   captionButton: {
     width: 46,

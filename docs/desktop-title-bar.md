@@ -46,7 +46,7 @@ A transparent or hidden title bar has no area that drags the window until the ap
 
 ## TitleBar
 
-`TitleBar` is a ready-made bar that already handles dragging, the traffic-light inset on macOS, and the caption buttons on Windows and Linux.
+`TitleBar` is a ready-made bar that already handles dragging, the traffic-light inset on macOS, and the caption buttons on Windows and Linux. On Windows the caption buttons are the full-height rectangles of the system, with a red close button; on Linux they are small round buttons with a soft hover.
 
 ```tsx
 import { TitleBar } from '@react-native-gpui/core/desktop';
