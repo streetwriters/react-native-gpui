@@ -208,10 +208,18 @@ fn run_component_hook(
     let Some(renderer) = crate::extensions::component_renderer(&component) else {
         return;
     };
-    let frame = captured.frame;
+    let (origin, window_offset) = {
+        let node = node.read(cx);
+        let offset = if node.surface_is_placed() {
+            0.0
+        } else {
+            crate::desktop::gpui_menu::menu_bar_inset()
+        };
+        (node.absolute_origin(cx), offset)
+    };
     let local = gpui::point(
-        position.x - gpui::px(frame.x),
-        position.y - gpui::px(frame.y),
+        position.x - origin.x,
+        position.y - origin.y - gpui::px(window_offset),
     );
     let event = crate::extensions::input::MouseEvent {
         position,
@@ -3722,10 +3730,25 @@ impl Render for RNNodeView {
         // `none` and `box-none` never take a press for themselves: the press falls
         // through to what is behind them, or to the nearest ancestor that takes it,
         // and a child of a `box-none` view still takes its own.
-        if !matches!(
-            self.view.pointer_events,
-            crate::events::POINTER_EVENTS_NONE | crate::events::POINTER_EVENTS_BOX_NONE
-        ) {
+        // The glyph inside a caption button is part of the button: the press has
+        // to reach the button's own hook, so it must not start a touch and stop
+        // there. Windows hands these presses to the OS instead.
+        let inside_caption_button = !cfg!(target_os = "windows")
+            && matches!(self.window_control_role(), WindowControlRole::Passive)
+            && matches!(
+                self.inherited.window_control_area,
+                Some(
+                    gpui::WindowControlArea::Min
+                        | gpui::WindowControlArea::Max
+                        | gpui::WindowControlArea::Close
+                )
+            );
+        if !inside_caption_button
+            && !matches!(
+                self.view.pointer_events,
+                crate::events::POINTER_EVENTS_NONE | crate::events::POINTER_EVENTS_BOX_NONE
+            )
+        {
             let node = cx.entity().downgrade();
             let down_node = node.clone();
             handlers
