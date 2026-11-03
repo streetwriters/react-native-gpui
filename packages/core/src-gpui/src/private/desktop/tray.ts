@@ -145,6 +145,39 @@ export const Tray = {
     );
   },
 
+  /**
+   * Opens the popover, as a click on the icon does. Use it to open the popover
+   * from something else, such as an item of the tray's menu. Rejects when the tray
+   * has no `component`.
+   */
+  showPopover(): Promise<void> {
+    return request(native => native.trayShowPopover());
+  },
+
+  hidePopover(): Promise<void> {
+    return request(native => native.trayHidePopover());
+  },
+
+  togglePopover(): Promise<void> {
+    return request(native => native.trayTogglePopover());
+  },
+
+  /**
+   * Changes where the popover opens next time, as `popoverAnchor` and
+   * `popoverOffset` in {@link TrayOptions} do. What is left out stays as it was.
+   */
+  setPopoverPosition(position: {
+    anchor?: TrayOptions['popoverAnchor'];
+    offset?: TrayOptions['popoverOffset'];
+  }): Promise<void> {
+    return request(native =>
+      native.traySetPopoverPosition(
+        position.anchor ?? null,
+        position.offset ?? null,
+      ),
+    );
+  },
+
   getState(): Promise<TrayState> {
     return request(native => native.trayGetState()) as Promise<TrayState>;
   },

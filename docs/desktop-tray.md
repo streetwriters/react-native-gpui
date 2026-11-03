@@ -78,15 +78,36 @@ Without a reported click the popover is near the icon, not on it: where along th
 
 ## Changing it later
 
-| Method                           | Description                            |
-| -------------------------------- | -------------------------------------- |
-| `Tray.setTooltip(text)`          | Changes the tooltip. `null` clears it. |
-| `Tray.setTitle(text)`            | Changes the title. `null` clears it.   |
-| `Tray.setIcon(icon, {template})` | Replaces the icon.                     |
-| `Tray.setMenu(items)`            | Replaces the menu. `null` removes it.  |
-| `Tray.setVisible(visible)`       | Shows or hides the icon.               |
-| `Tray.getState()`                | Resolves with the current state.       |
-| `Tray.destroy()`                 | Removes the tray icon.                 |
+| Method                                      | Description                                                                                                                                                                       |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Tray.setTooltip(text)`                     | Changes the tooltip. `null` clears it.                                                                                                                                            |
+| `Tray.setTitle(text)`                       | Changes the title. `null` clears it.                                                                                                                                              |
+| `Tray.setIcon(icon, {template})`            | Replaces the icon.                                                                                                                                                                |
+| `Tray.setMenu(items)`                       | Replaces the menu. `null` removes it.                                                                                                                                             |
+| `Tray.setVisible(visible)`                  | Shows or hides the icon.                                                                                                                                                          |
+| `Tray.showPopover()`                        | Opens the popover, as a click on the icon does. Rejects when the tray has no `component`.                                                                                         |
+| `Tray.hidePopover()`                        | Closes the popover.                                                                                                                                                               |
+| `Tray.togglePopover()`                      | Opens it, or closes it when it is open.                                                                                                                                           |
+| `Tray.setPopoverPosition({anchor, offset})` | Changes where the popover opens next time on a desktop that leaves it to the app (see [Popover position on Linux](#popover-position-on-linux)). What is left out stays as it was. |
+| `Tray.getState()`                           | Resolves with the current state.                                                                                                                                                  |
+| `Tray.destroy()`                            | Removes the tray icon.                                                                                                                                                            |
+
+`showPopover` is how a menu item opens the popover, which GNOME's single click needs:
+
+```ts
+await Tray.install({
+  component: 'MenuBarPanel',
+  menu: [
+    { id: 'open', label: 'Open panel' },
+    { id: 'quit', label: 'Quit' },
+  ],
+});
+Tray.onMenuPress(id => {
+  if (id === 'open') {
+    Tray.showPopover();
+  }
+});
+```
 
 ## Configuring it in desktop.json
 

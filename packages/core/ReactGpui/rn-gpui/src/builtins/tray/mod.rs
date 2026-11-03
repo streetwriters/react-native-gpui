@@ -191,6 +191,36 @@ impl NativeGpuiTraySpec for TrayModule {
             .and_then(void)
     }
 
+    async fn tray_show_popover(&self) -> Result<(), ModuleError> {
+        on_main(tray::open_popover).await.and_then(void)
+    }
+
+    async fn tray_hide_popover(&self) -> Result<(), ModuleError> {
+        on_main(tray::close_popover).await.and_then(void)
+    }
+
+    async fn tray_toggle_popover(&self) -> Result<(), ModuleError> {
+        on_main(tray::flip_popover).await.and_then(void)
+    }
+
+    async fn tray_set_popover_position(
+        &self,
+        anchor: Option<String>,
+        offset: Option<crate::builtins::TrayOffset>,
+    ) -> Result<(), ModuleError> {
+        let anchor = match anchor.as_deref() {
+            Some(name) => Some(
+                crate::desktop::popover_placement::Anchor::parse(name)
+                    .ok_or_else(|| ModuleError::new(format!("unknown popover anchor {name:?}")))?,
+            ),
+            None => None,
+        };
+        let offset = offset.map(|offset| (offset.x as f32, offset.y as f32));
+        on_main(move |cx| tray::set_popover_position(cx, anchor, offset))
+            .await
+            .and_then(void)
+    }
+
     fn add_listener(&self, _event_name: String) {}
 
     fn remove_listeners(&self, _count: f64) {}

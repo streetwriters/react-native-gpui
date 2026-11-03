@@ -454,6 +454,74 @@ pub fn set_tooltip(cx: &mut App, tooltip: Option<&str>) -> DesktopResult {
     Ok(json!({"tooltip": tooltip}))
 }
 
+/// Where the icon is, for a popover the app asks for rather than one a click
+/// opened: the platform's own answer where it has one (macOS and Windows), and
+/// otherwise what a click would have given.
+fn icon_rect(cx: &App) -> TrayRect {
+    let rect = cx
+        .try_global::<TrayGlobal>()
+        .and_then(|tray| tray.0.borrow().icon.as_ref().and_then(|icon| icon.rect()))
+        .unwrap_or(tray_icon::Rect {
+            position: tray_icon::dpi::PhysicalPosition::new(0.0, 0.0),
+            size: tray_icon::dpi::PhysicalSize::new(0, 0),
+        });
+    let scale = f64::from(crate::desktop::platform_window::primary_screen_scale());
+    tray_click_rect(rect, tray_icon::dpi::PhysicalPosition::new(0.0, 0.0), scale)
+}
+
+/// The tray's popover, or an error when the tray has none to show.
+fn popover_ready(cx: &App) -> DesktopResult {
+    let tray = installed(cx)?;
+    if tray.0.borrow().config.component.is_none() {
+        return Err(DesktopError::invalid_argument(
+            "the tray has no popover component",
+        ));
+    }
+    Ok(json!({}))
+}
+
+/// Opens the popover when the app asks, the same way a click on the icon does.
+pub fn open_popover(cx: &mut App) -> DesktopResult {
+    popover_ready(cx)?;
+    let open = installed(cx)?.0.borrow().popover.is_some();
+    if !open {
+        let rect = icon_rect(cx);
+        show_popover(cx, rect);
+    }
+    Ok(json!({"shown": true}))
+}
+
+pub fn close_popover(cx: &mut App) -> DesktopResult {
+    installed(cx)?;
+    hide_popover(cx);
+    Ok(json!({"shown": false}))
+}
+
+pub fn flip_popover(cx: &mut App) -> DesktopResult {
+    popover_ready(cx)?;
+    let rect = icon_rect(cx);
+    toggle_popover(cx, rect);
+    Ok(json!({}))
+}
+
+/// Changes where the popover is drawn the next time it opens, on desktops that
+/// leave that to the app (Wayland).
+pub fn set_popover_position(
+    cx: &mut App,
+    anchor: Option<crate::desktop::popover_placement::Anchor>,
+    offset: Option<(f32, f32)>,
+) -> DesktopResult {
+    let tray = installed(cx)?;
+    let mut tray = tray.0.borrow_mut();
+    if let Some(anchor) = anchor {
+        tray.config.popover_anchor = anchor;
+    }
+    if let Some(offset) = offset {
+        tray.config.popover_offset = offset;
+    }
+    Ok(json!({}))
+}
+
 pub fn set_visible(cx: &mut App, visible: bool) -> DesktopResult {
     let tray = installed(cx)?;
     let icon = tray.0.borrow().icon.clone();

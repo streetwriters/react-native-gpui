@@ -60,6 +60,13 @@ export interface Spec extends TurboModule {
   traySetIcon(icon: string, template: boolean): Promise<void>;
   traySetTitle(title: string | null): Promise<void>;
   traySetMenu(items: Array<Object> | null): Promise<void>;
+  trayShowPopover(): Promise<void>;
+  trayHidePopover(): Promise<void>;
+  trayTogglePopover(): Promise<void>;
+  traySetPopoverPosition(
+    anchor: string | null,
+    offset: TrayOffset | null,
+  ): Promise<void>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;
