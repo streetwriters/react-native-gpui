@@ -215,12 +215,17 @@ fn run_component_hook(
         } else {
             crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
                 crate::desktop::windows::MAIN_WINDOW_KEY,
-            )
+            ) + crate::desktop::window_frame::main_insets().top
         };
         (node.absolute_origin(cx), offset)
     };
+    let offset_x = if node.read(cx).surface_is_placed() {
+        0.0
+    } else {
+        crate::desktop::window_frame::main_insets().left
+    };
     let local = gpui::point(
-        position.x - origin.x,
+        position.x - origin.x - gpui::px(offset_x),
         position.y - origin.y - gpui::px(window_offset),
     );
     let event = crate::extensions::input::MouseEvent {

@@ -104,7 +104,7 @@
           "type": "boolean"
         },
         "shadow": {
-          "description": "Whether the window has the system shadow. Only macOS draws one yet. Defaults to true.",
+          "description": "Whether the window has a shadow: the system's on macOS, and the one a client-decorated window draws around itself on Linux. Defaults to true.",
           "type": "boolean"
         },
         "trafficLightPosition": {
@@ -122,6 +122,11 @@
               "minimum": 0
             }
           }
+        },
+        "cornerRadius": {
+          "description": "The corner radius, in points, of a client-decorated window on Linux when the desktop's own cannot be measured. Ignored on Windows and macOS.",
+          "type": "number",
+          "minimum": 0
         },
         "windowControlsPosition": {
           "description": "The side of the title bar the window controls (minimize, maximize, close) use on Linux when the desktop does not say where its own go. Defaults to right. Ignored on Windows and macOS.",

@@ -36,22 +36,22 @@ async function openPreferences() {
 
 `open` resolves with a `DesktopWindow` for the new window. These are the options:
 
-| Option                   | Type                                               | Description                                                                             |
-| ------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `component`              | `string`                                           | The name registered with `AppRegistry`. Required.                                       |
-| `props`                  | `Record<string, unknown>`                          | Initial props for the component.                                                        |
-| `title`                  | `string`                                           | The title bar text.                                                                     |
-| `width`, `height`        | `number`                                           | The size in points.                                                                     |
-| `x`, `y`                 | `number`                                           | The position. Omit both to let the platform place the window.                           |
-| `titleBar`               | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar).                         |
-| `background`             | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](#transparent-windows).         |
-| `windowButtons`          | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.    |
-| `shadow`                 | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`; only macOS draws one yet. |
-| `trafficLightPosition`   | `{x: number, y: number}`                           | Where the macOS traffic lights sit in a transparent or hidden title bar.                |
-| `resizable`              | `boolean`                                          | Whether the window can be resized.                                                      |
-| `alwaysOnTop`            | `boolean`                                          | Keeps the window above others. Check `capabilities().alwaysOnTop`.                      |
-| `visibleOnAllWorkspaces` | `boolean`                                          | Shows the window on every Space. Check `capabilities().visibleOnAllWorkspaces`.         |
-| `parent`                 | `number`                                           | The id of a parent window.                                                              |
+| Option                   | Type                                               | Description                                                                                                                            |
+| ------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `component`              | `string`                                           | The name registered with `AppRegistry`. Required.                                                                                      |
+| `props`                  | `Record<string, unknown>`                          | Initial props for the component.                                                                                                       |
+| `title`                  | `string`                                           | The title bar text.                                                                                                                    |
+| `width`, `height`        | `number`                                           | The size in points.                                                                                                                    |
+| `x`, `y`                 | `number`                                           | The position. Omit both to let the platform place the window.                                                                          |
+| `titleBar`               | `'default' \| 'transparent' \| 'hidden'`           | How the title bar is drawn. See [Title bar](desktop-title-bar).                                                                        |
+| `background`             | `'opaque' \| 'transparent' \| 'blurred' \| 'mica'` | What shows through the window. See [Transparent windows](#transparent-windows).                                                        |
+| `windowButtons`          | `boolean`                                          | Whether macOS draws the traffic lights. Defaults to `true`; other systems ignore it.                                                   |
+| `shadow`                 | `boolean`                                          | Whether the window has the system shadow. Defaults to `true`. On Linux it is the shadow a client-decorated window draws around itself. |
+| `trafficLightPosition`   | `{x: number, y: number}`                           | Where the macOS traffic lights sit in a transparent or hidden title bar.                                                               |
+| `resizable`              | `boolean`                                          | Whether the window can be resized.                                                                                                     |
+| `alwaysOnTop`            | `boolean`                                          | Keeps the window above others. Check `capabilities().alwaysOnTop`.                                                                     |
+| `visibleOnAllWorkspaces` | `boolean`                                          | Shows the window on every Space. Check `capabilities().visibleOnAllWorkspaces`.                                                        |
+| `parent`                 | `number`                                           | The id of a parent window.                                                                                                             |
 
 ## Transparent windows
 

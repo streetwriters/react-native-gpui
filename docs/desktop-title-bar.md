@@ -65,7 +65,13 @@ import { TitleBar } from '@react-native-gpui/core/desktop';
 | `menuBar`            | `boolean`              | Whether to keep a row under the bar for the in-window menu bar. Defaults to `true`.   |
 | `style`              | `StyleProp<ViewStyle>` | Styles for the bar.                                                                   |
 
-### The menu bar
+### The window frame on Linux
+
+A window that draws its own title bar also draws its own frame on Linux: rounded corners, a hairline border and a shadow, in a see-through margin around the content. The compositor draws none of it for such a window. The frame follows the desktop: on first launch GTK 4 (with libadwaita where installed) renders a window frame off-screen in a short-lived child process, and the corner radius, shadow reach and border are measured from the pixels. The result is kept in `~/.cache/react-native-gpui/window-frame.json` and measured again only when the GTK theme, colour scheme, GTK or libadwaita version, theme stylesheet or the runtime changes. The app never loads GTK itself.
+
+Where nothing can be measured (no GTK 4, a headless session), a 12-point radius and a 14-point shadow are used. Set [`window.cornerRadius`](desktop-json#window) to change the radius there, and `window.shadow` to `false` to draw no shadow and no margin. The margin and the rounding go away while the window is maximized, fullscreen or tiled. `RN_GPUI_FRAME_PROBE=off` skips the measurement.
+
+## The menu bar
 
 Where the menu bar is drawn in the window (Linux), a `TitleBar` keeps a row for it just under the bar, in the bar's colors, so the menu is not a strip above the title bar. Set `menuBar={false}` to keep the strip at the top of the window instead. To hide the menu bar, set `window.menuBar` to `false` in [`desktop.json`](desktop-json#window) or call `Menu.setMenuBarVisible(false)`; the row goes with it. A window without a `TitleBar` keeps the strip at the top.
 

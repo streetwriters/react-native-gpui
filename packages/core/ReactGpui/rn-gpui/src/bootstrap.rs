@@ -681,6 +681,8 @@ pub struct DesktopAppConfig {
     pub menu_bar: bool,
     /// Whether the caption buttons go on the left where the desktop does not say.
     pub window_controls_left: bool,
+    /// Corner radius on Linux where the desktop's own cannot be measured.
+    pub corner_radius: Option<f32>,
     pub configure_window: Option<WindowOptionsHook>,
     pub on_app_ready: Option<AppReadyHook>,
 
@@ -719,6 +721,7 @@ impl DesktopAppConfig {
             single_instance: false,
             menu_bar: true,
             window_controls_left: false,
+            corner_radius: None,
             configure_window: None,
             on_app_ready: None,
             on_window_opened: None,
@@ -833,6 +836,14 @@ impl DesktopAppConfig {
     /// The side of the title bar the caption buttons use on Linux when neither
     /// the desktop's settings nor its theme say. `"left"` puts them there;
     /// anything else keeps them on the right.
+    /// The corner radius, in points, of a client-decorated window on Linux when
+    /// the desktop's own frame cannot be measured.
+    #[must_use]
+    pub fn corner_radius(mut self, radius: f32) -> Self {
+        self.corner_radius = Some(radius);
+        self
+    }
+
     #[must_use]
     pub fn window_controls_position(mut self, side: &str) -> Self {
         self.window_controls_left = side == "left";
@@ -908,6 +919,11 @@ pub fn run() {
 }
 
 pub fn run_with(mut config: DesktopAppConfig) {
+    #[cfg(target_os = "linux")]
+    if std::env::args().nth(1).as_deref() == Some("--rn-gpui-probe-frame") {
+        crate::desktop::frame_probe::run_and_exit();
+    }
+
     #[cfg(not(feature = "test-driver"))]
     if std::env::var_os("RN_GPUI_TEST_DRIVER").is_some_and(|value| value != "0") {
         panic!("RN_GPUI_TEST_DRIVER is enabled, but this app was not built with --features test-driver");
@@ -1334,6 +1350,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // channel until the store and its window exist, which is the same path a
         // background surface already uses.
         let menu_bar_inset = crate::desktop::gpui_menu::menu_bar_inset();
+        // Before the window exists the compositor's answer is unknown; a custom
+        // title bar asks for client decorations, which is what gets the margin.
+        let estimated_frame = if cfg!(target_os = "linux") && config.title_bar.is_custom() {
+            let extent = crate::desktop::window_frame::frame().shadow_extent;
+            crate::desktop::window_frame::Insets {
+                left: extent,
+                top: extent,
+                right: extent,
+                bottom: extent,
+            }
+        } else {
+            crate::desktop::window_frame::Insets::default()
+        };
         let gpui_first = config.gpui_root.is_some();
         if let Some(build) = config.gpui_root.take() {
             let view = build(cx, crate::runtime::ReactRuntime::new(estimated_scale));
@@ -1342,8 +1371,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
             host.start_surface(
                 1,
                 &module,
-                surface_width,
-                (surface_height - menu_bar_inset).max(1.0),
+                (surface_width - estimated_frame.horizontal()).max(1.0),
+                (surface_height - menu_bar_inset - estimated_frame.vertical()).max(1.0),
                 estimated_scale,
             );
         }
@@ -1391,6 +1420,15 @@ pub fn run_with(mut config: DesktopAppConfig) {
             // client-side decorations falls back to the server's, and
             // `window.window_decorations()` then says so.
             window_options.window_decorations = Some(gpui::WindowDecorations::Client);
+            // The frame's shadow is drawn in a margin of the window itself, which
+            // has to be see-through for the shadow to show over the desktop.
+            #[cfg(target_os = "linux")]
+            if matches!(
+                window_options.window_background,
+                gpui::WindowBackgroundAppearance::Opaque
+            ) {
+                window_options.window_background = gpui::WindowBackgroundAppearance::Transparent;
+            }
         }
         #[cfg(feature = "test-driver")]
         if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
@@ -1536,8 +1574,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // because they are wrong for different reasons — the scale is a guess from
         // the platform, the size comes from the config or the restored window
         // state, and a window manager can override either.
+        #[cfg(target_os = "linux")]
+        let _ = window.update(cx, |_root, window, _cx| {
+            crate::desktop::window_frame::sync_main(window)
+        });
+        let frame_insets = crate::desktop::window_frame::main_insets();
         let size_moved = (width - surface_width).abs() > f32::EPSILON
-            || (height - surface_height).abs() > f32::EPSILON;
+            || (height - surface_height).abs() > f32::EPSILON
+            || frame_insets != estimated_frame;
         if size_moved || (window_scale - estimated_scale).abs() > f32::EPSILON {
             log::info!(
                 "surface corrected {surface_width}x{surface_height}@{estimated_scale}x -> \
@@ -1556,8 +1600,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 // what a resize calls, and it updates `Dimensions` as well.
                 host.set_surface_size(
                     APP_SURFACE_ID,
-                    width,
-                    (height - menu_bar_inset).max(1.0),
+                    (width - frame_insets.horizontal()).max(1.0),
+                    (height - menu_bar_inset - frame_insets.vertical()).max(1.0),
                     scale,
                 );
             }
@@ -1622,6 +1666,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // `window.menuBar: false` hides the bar before it is ever drawn, so the
         // window opens at the right size instead of shrinking once the bar goes.
         crate::desktop::button_layout::set_fallback_left(config.window_controls_left);
+        crate::desktop::window_frame::configure(config.corner_radius, config.shadow);
+        crate::desktop::window_frame::load();
         if !config.menu_bar {
             crate::desktop::gpui_menu::set_menu_bar_visible(
                 crate::desktop::windows::MAIN_WINDOW_KEY,
@@ -2030,8 +2076,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         f32::from(bounds.origin.x),
                         f32::from(bounds.origin.y),
                     );
+                    #[cfg(target_os = "linux")]
+                    let frame_changed = crate::desktop::window_frame::sync_main(window);
+                    #[cfg(not(target_os = "linux"))]
+                    let frame_changed = false;
                     let previous = last_surface_size.get();
-                    let resized = (previous.0 - width).abs() > 0.01
+                    let resized = frame_changed
+                        || (previous.0 - width).abs() > 0.01
                         || (previous.1 - height).abs() > 0.01
                         || (previous.2 - scale).abs() > 0.001;
                     let moved = (previous.3 - origin.0).abs() > 0.01

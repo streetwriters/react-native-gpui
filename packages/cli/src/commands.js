@@ -725,6 +725,9 @@ export function desktopLaunchConfig(config, configPath) {
     // and the `menuBarInWindow` capability says so.
     chain.push('    .menu_bar(false)');
   }
+  if (settings.cornerRadius !== undefined) {
+    chain.push(`    .corner_radius(${asFloat(settings.cornerRadius)})`);
+  }
   if (settings.windowControlsPosition === 'left') {
     // Right is the default, and only consulted on Linux where the desktop gives
     // no layout of its own.

@@ -317,8 +317,16 @@ impl ViewStore {
         // shown in another, so the inset has to follow the window the surface
         // belongs to.
         for surface_id in self.surfaces_in_window(window) {
-            let height =
-                height - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32);
+            let frame = if surface_id == APP_SURFACE_ID {
+                crate::desktop::window_frame::main_insets()
+            } else {
+                Default::default()
+            };
+            let width = (width - frame.horizontal()).max(1.0);
+            let height = (height
+                - frame.vertical()
+                - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32))
+            .max(1.0);
             log::info!(
                 "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
             );
@@ -2593,6 +2601,72 @@ fn resize_border(window: &mut Window) -> Option<gpui::AnyElement> {
     Some(border.into_any_element())
 }
 
+/// The window's content inside the frame a client-decorated window draws for
+/// itself: a see-through margin that carries the shadow, then the content with
+/// rounded corners and a hairline border.
+///
+/// The margin shrinks to nothing on a side that touches the screen or another
+/// window, and the corners there are square, which is how a maximized window
+/// looks.
+#[cfg(target_os = "linux")]
+fn framed(content: gpui::Div, tiling: gpui::Tiling, window: &mut Window) -> gpui::AnyElement {
+    use crate::desktop::window_frame;
+
+    let frame = window_frame::frame();
+    let insets = window_frame::insets_for(window);
+    let radius = px(frame.radius);
+    let round = |element: gpui::Div| {
+        element
+            .when(!(tiling.top || tiling.left), |element| {
+                element.rounded_tl(radius)
+            })
+            .when(!(tiling.top || tiling.right), |element| {
+                element.rounded_tr(radius)
+            })
+            .when(!(tiling.bottom || tiling.left), |element| {
+                element.rounded_bl(radius)
+            })
+            .when(!(tiling.bottom || tiling.right), |element| {
+                element.rounded_br(radius)
+            })
+    };
+    let mut body = round(
+        div()
+            .size_full()
+            .relative()
+            .overflow_hidden()
+            .overflow_clips_corners(),
+    )
+    .when(!tiling.is_tiled() && frame.shadow_alpha > 0.0, |element| {
+        element.shadow(vec![gpui::BoxShadow::new(
+            px(0.0),
+            px(0.0),
+            gpui::hsla(0.0, 0.0, 0.0, frame.shadow_alpha),
+        )
+        .blur_radius(px(frame.shadow_extent))])
+    })
+    .child(content);
+    if !tiling.is_tiled() {
+        body = body.child(
+            round(div().absolute().inset_0())
+                .border_1()
+                .border_color(gpui::rgba(frame.border)),
+        );
+    }
+    let mut shell = div()
+        .size_full()
+        .relative()
+        .pl(px(insets.left))
+        .pt(px(insets.top))
+        .pr(px(insets.right))
+        .pb(px(insets.bottom))
+        .child(body);
+    if let Some(border) = resize_border(window) {
+        shell = shell.child(border);
+    }
+    shell.into_any_element()
+}
+
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.kind == SurfaceKind::Embedded {
@@ -2767,6 +2841,12 @@ impl Render for SurfaceRootView {
         }
         // Last, so the border paints in front of the app: whichever edge the
         // pointer is nearest is what a press there resizes.
+        #[cfg(target_os = "linux")]
+        if self.surface_id == APP_SURFACE_ID {
+            if let gpui::Decorations::Client { tiling } = _window.window_decorations() {
+                return framed(window_root, tiling, _window);
+            }
+        }
         #[cfg(target_os = "linux")]
         if let Some(border) = resize_border(_window) {
             window_root = window_root.child(border);

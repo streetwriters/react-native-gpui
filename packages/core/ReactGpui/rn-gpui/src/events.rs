@@ -74,6 +74,7 @@ pub struct Target {
     /// How far the window's pointer positions run ahead of the surface's: the
     /// menu bar GPUI draws above it, when the surface's origin does not hold it.
     window_offset: f32,
+    window_offset_x: f32,
     scale_x: f32,
     scale_y: f32,
     /// Inverses of the matrices GPUI draws the target under, outermost first.
@@ -91,7 +92,10 @@ impl Target {
     /// A pointer position of the window in the surface's space, which is where
     /// React's page coordinates and the node origins are.
     fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
-        point(position.x, position.y - px(self.window_offset))
+        point(
+            position.x - px(self.window_offset_x),
+            position.y - px(self.window_offset),
+        )
     }
 
     fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
@@ -116,6 +120,7 @@ mod transform_tests {
             tag: 7,
             origin: point(px(30.0), px(40.0)),
             window_offset: 0.0,
+            window_offset_x: 0.0,
             scale_x: 2.0,
             scale_y: 0.5,
             inverses: Vec::new(),
@@ -138,6 +143,7 @@ mod transform_tests {
             tag: 7,
             origin: point(px(20.0), px(35.0)),
             window_offset: 0.0,
+            window_offset_x: 0.0,
             scale_x: 1.0,
             scale_y: 1.0,
             inverses: vec![about.inverse().unwrap()],
@@ -304,7 +310,12 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         } else {
             crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
                 crate::desktop::windows::MAIN_WINDOW_KEY,
-            )
+            ) + crate::desktop::window_frame::main_insets().top
+        },
+        window_offset_x: if placed {
+            0.0
+        } else {
+            crate::desktop::window_frame::main_insets().left
         },
         scale_x,
         scale_y,
@@ -740,6 +751,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
                     tag: *tag,
                     origin: node.absolute_origin(cx),
                     window_offset: 0.0,
+                    window_offset_x: 0.0,
                     scale_x: node.cumulative_scale(cx).0,
                     scale_y: node.cumulative_scale(cx).1,
                     inverses: node.transform_inverses(cx),
