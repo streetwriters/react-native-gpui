@@ -44,7 +44,7 @@ await Tray.install({
 | `id`                     | A stable id. Defaults to `tray`.                                                                                 |
 | `tooltip`                | The tooltip text.                                                                                                |
 | `title`                  | Text beside the icon. macOS and Linux only; Windows trays have no title.                                         |
-| `icon`                   | The icon, as an `<Image source>` or a path. Without one the tray shows a built-in glyph.                         |
+| `icon`                   | The icon, as an `<Image source>` or a path. Without one, the app's icon, else a built-in glyph.                  |
 | `iconTemplate`           | macOS: draw the icon as a template that the menu bar tints for light and dark mode. Use it for monochrome icons. |
 | `component`              | An `AppRegistry` component to render in a popover on click.                                                      |
 | `size`                   | The size of the popover.                                                                                         |
@@ -74,4 +74,4 @@ A tray can also be set up without code. The `tray` block of [`desktop.json`](des
 ## Platform notes
 
 - **Windows** has no anchored popover. The window is placed at the click point.
-- **Linux on GNOME** supports tray menus but not click-to-popover. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.
+- **Linux on GNOME** supports tray menus but not click-to-popover: its panel only shows a menu, so the built-in Open item opens the popover, in the middle of the screen. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.

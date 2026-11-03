@@ -880,12 +880,8 @@ fn build_tray_menu(
 }
 
 /// The icon for a tray that was not given one: the app's own where the platform
-/// draws a tray icon as-is, and the built-in glyph where it does not.
-///
-/// The glyph is a macOS template — a black outline the menu bar tints for light
-/// and dark — so anywhere else it is an empty black rectangle, which on a dark
-/// taskbar is hardly there at all. The app's icon is what a user expects to see
-/// for the app.
+/// draws a tray icon as-is, and the built-in glyph where it does not or the app
+/// has none.
 fn fallback_icon() -> Result<tray_icon::Icon, String> {
     #[cfg(not(target_os = "macos"))]
     if let Some(icon) = crate::desktop::icon::app_icon() {
@@ -895,19 +891,36 @@ fn fallback_icon() -> Result<tray_icon::Icon, String> {
     default_icon()
 }
 
+/// The glyph a tray shows when the app has no icon: an outline a macOS menu bar
+/// tints for light and dark, and elsewhere a filled disc that shows on a dark
+/// and on a light panel alike.
 fn default_icon() -> Result<tray_icon::Icon, String> {
     const SIZE: u32 = 22;
     let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let outer = x >= 3 && x < SIZE - 3 && y >= 4 && y < SIZE - 4;
-            let inner = x >= 6 && x < SIZE - 6 && y >= 7 && y < SIZE - 7;
-            if outer && !inner {
-                let index = ((y * SIZE + x) * 4) as usize;
-                rgba[index] = 0;
-                rgba[index + 1] = 0;
-                rgba[index + 2] = 0;
-                rgba[index + 3] = 255;
+            let index = ((y * SIZE + x) * 4) as usize;
+            #[cfg(target_os = "macos")]
+            {
+                let outer = x >= 3 && x < SIZE - 3 && y >= 4 && y < SIZE - 4;
+                let inner = x >= 6 && x < SIZE - 6 && y >= 7 && y < SIZE - 7;
+                if outer && !inner {
+                    rgba[index..index + 4].copy_from_slice(&[0, 0, 0, 255]);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let dx = x as f32 + 0.5 - SIZE as f32 / 2.0;
+                let dy = y as f32 + 0.5 - SIZE as f32 / 2.0;
+                let distance = (dx * dx + dy * dy).sqrt();
+                if distance <= 9.0 {
+                    let pixel: [u8; 4] = if distance <= 3.5 {
+                        [255, 255, 255, 255]
+                    } else {
+                        [124, 139, 161, 255]
+                    };
+                    rgba[index..index + 4].copy_from_slice(&pixel);
+                }
             }
         }
     }
@@ -916,6 +929,11 @@ fn default_icon() -> Result<tray_icon::Icon, String> {
 
 fn wants_menu(has_menu: bool, menu_on_left_click: bool, button: TrayButton) -> bool {
     has_menu && (button == TrayButton::Right || menu_on_left_click)
+}
+
+fn has_popover(cx: &App) -> bool {
+    cx.try_global::<TrayGlobal>()
+        .is_some_and(|tray| tray.0.borrow().config.component.is_some())
 }
 
 /// Whether the installed tray asked for the last window to be hidden, not
@@ -966,6 +984,13 @@ fn default_menu_applies() -> bool {
 /// is the app's, and reaches JavaScript.
 pub fn perform_menu(cx: &mut App, id: &str) {
     match id {
+        DEFAULT_OPEN_ID if has_popover(cx) => {
+            // A panel that shows only the menu, such as GNOME's, never reports
+            // a click, so the menu is the way to the popover.
+            if let Some(handler) = rn_gpui_sys::TRAY_CLICK_HANDLER.get() {
+                handler(0.0, 0.0, 0.0, 0.0, TrayButton::Left as u8);
+            }
+        }
         DEFAULT_OPEN_ID => windows::reopen(cx),
         DEFAULT_EXIT_ID => cx.quit(),
         _ => emit_menu_press(cx, id),

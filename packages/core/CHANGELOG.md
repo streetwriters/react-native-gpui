@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A popover tray's built-in Open item opens the popover. On GNOME the panel shows only the menu and never reports a click, so the popover could not be reached.
+- A tray with no icon and an app with no icon now shows a filled round glyph on Windows and Linux, which can be seen on a dark panel. It used to be a black outline that was hardly visible.
 - The title bar's minimize, maximize and close buttons now act on Linux. A press on the button's glyph used to be taken by a plain view inside it, and the button's own pointer position was measured against its parent.
 - `alwaysOnTop` keeps a window above others on X11, as `_NET_WM_STATE_ABOVE`. It used to raise the window once.
 - `visibleOnAllWorkspaces` and `setVisibleOnAllWorkspaces` are ignored on Windows and Linux instead of failing, so a window opened with them still opens without an error.
