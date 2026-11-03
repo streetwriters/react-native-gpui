@@ -157,6 +157,10 @@ pub struct OpenWindowOptions {
     pub traffic_light_position: Option<(f32, f32)>,
     pub role: WindowRoleOverride,
     pub popup: bool,
+    /// Draw a popover at a corner of a window that covers the work area, for a
+    /// compositor that will not place it (Wayland).
+    #[cfg(target_os = "linux")]
+    pub overlay: Option<crate::desktop::window_frame::Placement>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -193,18 +197,30 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
     #[cfg(target_os = "linux")]
-    crate::desktop::window_frame::enroll(surface_id);
+    match options.overlay {
+        Some(placement) => crate::desktop::window_frame::place(surface_id, placement),
+        None => crate::desktop::window_frame::enroll(surface_id),
+    }
 
     let width = options.width.unwrap_or(800.0).max(120.0);
     let height = options.height.unwrap_or(600.0).max(120.0);
     // A popover's content is the size the app asked for, so on Linux the window
     // is grown by the margin its frame needs, and placed that much earlier.
-    let margin = if cfg!(target_os = "linux") && options.popup {
+    #[cfg(target_os = "linux")]
+    let overlay = options.overlay;
+    #[cfg(not(target_os = "linux"))]
+    let overlay: Option<()> = None;
+    let margin = if cfg!(target_os = "linux") && options.popup && overlay.is_none() {
         crate::desktop::window_frame::frame().shadow_extent
     } else {
         0.0
     };
-    let (window_width, window_height) = (width + 2.0 * margin, height + 2.0 * margin);
+    let (window_width, window_height) = if overlay.is_some() {
+        // Only a size to restore to: the window is maximized to the work area.
+        (1024.0, 768.0)
+    } else {
+        (width + 2.0 * margin, height + 2.0 * margin)
+    };
     let bounds = match (options.x, options.y) {
         (Some(x), Some(y)) => Bounds::new(
             point(px(x - margin), px(y - margin)),
@@ -219,7 +235,11 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         .clone()
         .unwrap_or_else(|| options.component.clone());
     let window_options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_bounds: Some(if overlay.is_some() {
+            WindowBounds::Maximized(bounds)
+        } else {
+            WindowBounds::Windowed(bounds)
+        }),
         // A popup (a tray popover) is a bare panel: with a title bar it is
         // just another window that happens to open under the icon.
         titlebar: (!options.popup).then(|| TitlebarOptions {
@@ -261,7 +281,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         // The popover is mapped after it is prepared: the X11 window manager
         // reads `_NET_WM_WINDOW_TYPE`, `_NET_WM_STATE` and the size hints when
         // the window is mapped, so they are set on it while it is still hidden.
-        show: !options.popup,
+        show: !options.popup || overlay.is_some(),
         // A custom title bar means the app draws and moves the bar itself.
         app_owns_titlebar_drag: options.title_bar.is_custom(),
         ..Default::default()

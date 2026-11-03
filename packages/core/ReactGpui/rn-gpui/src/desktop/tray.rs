@@ -29,6 +29,12 @@ pub struct TrayConfig {
     /// default: a closed window is gone and a reopened one starts fresh.
     pub hide_window_on_close: bool,
     pub accessory: bool,
+    /// Where the popover is drawn when the desktop will not place it at the icon
+    /// (Wayland): a corner of the screen's work area, `Auto` meaning the end of
+    /// the panel's edge.
+    pub popover_anchor: crate::desktop::popover_placement::Anchor,
+    /// Moves the popover from its corner, in points.
+    pub popover_offset: (f32, f32),
 }
 
 impl Default for TrayConfig {
@@ -47,6 +53,8 @@ impl Default for TrayConfig {
             quit_on_last_window_closed: false,
             hide_window_on_close: false,
             accessory: true,
+            popover_anchor: Default::default(),
+            popover_offset: (0.0, 0.0),
         }
     }
 }
@@ -55,6 +63,18 @@ impl TrayConfig {
     #[must_use]
     pub fn hide_window_on_close(mut self, hide: bool) -> Self {
         self.hide_window_on_close = hide;
+        self
+    }
+
+    #[must_use]
+    pub fn popover_anchor(mut self, anchor: crate::desktop::popover_placement::Anchor) -> Self {
+        self.popover_anchor = anchor;
+        self
+    }
+
+    #[must_use]
+    pub fn popover_offset(mut self, x: f32, y: f32) -> Self {
+        self.popover_offset = (x, y);
         self
     }
 
@@ -277,13 +297,21 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         rect.y + rect.height / 2.0,
     );
     let (x, y) = popover_origin(rect, config.width, config.height, work_area);
+    #[cfg(target_os = "linux")]
+    let overlay = wayland_overlay(&config);
     let options = OpenWindowOptions {
         component,
         props: None,
         title: Some(config.tooltip.clone().unwrap_or_else(|| config.id.clone())),
         width: Some(config.width),
         height: Some(config.height),
+        #[cfg(target_os = "linux")]
+        x: if overlay.is_some() { None } else { Some(x) },
+        #[cfg(not(target_os = "linux"))]
         x: Some(x),
+        #[cfg(target_os = "linux")]
+        y: if overlay.is_some() { None } else { Some(y) },
+        #[cfg(not(target_os = "linux"))]
         y: Some(y),
         resizable: false,
         // A popover has no title bar at all; `popup` is what makes it frameless.
@@ -294,6 +322,8 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         traffic_light_position: None,
         role: WindowRoleOverride::TrayPopover,
         popup: true,
+        #[cfg(target_os = "linux")]
+        overlay,
     };
     match windows::open_window(cx, options) {
         Ok(key) => {
@@ -302,6 +332,32 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
         }
         Err(error) => log::error!("[desktop][tray] could not open the popover: {error}"),
     }
+}
+
+/// Where the popover is drawn on Wayland, which neither says where the icon is nor
+/// lets an app place a window: in a corner of a window covering the work area. The
+/// corner is the app's choice or the user's, and otherwise the end of the edge a
+/// panel reserves, when the work area can be read. Without it, and with no choice
+/// made, the compositor places an ordinary window.
+#[cfg(target_os = "linux")]
+fn wayland_overlay(config: &TrayConfig) -> Option<crate::desktop::window_frame::Placement> {
+    use crate::desktop::popover_placement::{self, Anchor};
+    if !crate::desktop::capabilities::is_wayland() {
+        return None;
+    }
+    let (anchor, offset) =
+        popover_placement::with_environment(config.popover_anchor, config.popover_offset);
+    let reserved = crate::desktop::work_area::read()
+        .map(|work| popover_placement::reserved(work.screen, work.area));
+    if reserved.is_none() && anchor == Anchor::Auto {
+        return None;
+    }
+    Some(crate::desktop::window_frame::Placement {
+        anchor,
+        offset,
+        reserved: reserved.unwrap_or_default(),
+        size: (config.width, config.height),
+    })
 }
 
 /// Where a popover of `width` x `height` goes, in points: centred on the icon,

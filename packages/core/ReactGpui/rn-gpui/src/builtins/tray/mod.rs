@@ -123,6 +123,16 @@ impl NativeGpuiTraySpec for TrayModule {
                 if let Some(hide) = options.hide_window_on_close {
                     config.hide_window_on_close = hide;
                 }
+                if let Some(anchor) = options
+                    .popover_anchor
+                    .as_deref()
+                    .and_then(crate::desktop::popover_placement::Anchor::parse)
+                {
+                    config.popover_anchor = anchor;
+                }
+                if let Some(offset) = options.popover_offset {
+                    config = config.popover_offset(offset.x as f32, offset.y as f32);
+                }
                 tray::install(cx, config)
             },
         )

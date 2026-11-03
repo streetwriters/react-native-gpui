@@ -302,10 +302,33 @@ mod linux {
     use gpui::{Decorations, Window};
 
     use super::{frame, Insets};
+    use crate::desktop::popover_placement::{self, Anchor, Reserved};
+
+    /// A popover drawn at a corner of a window that covers the work area, instead
+    /// of being a window the compositor places.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Placement {
+        pub anchor: Anchor,
+        pub offset: (f32, f32),
+        pub reserved: Reserved,
+        /// The popover's own size, which is the size of its content.
+        pub size: (f32, f32),
+    }
 
     thread_local! {
         /// The windows that draw a frame, by surface id, and their current margin.
         static WINDOWS: RefCell<HashMap<i32, Insets>> = RefCell::new(HashMap::new());
+        static PLACEMENTS: RefCell<HashMap<i32, Placement>> = RefCell::new(HashMap::new());
+    }
+
+    /// Makes the window of `surface_id` an overlay with the popover placed in it.
+    pub fn place(surface_id: i32, placement: Placement) {
+        enroll(surface_id);
+        PLACEMENTS.with(|placements| placements.borrow_mut().insert(surface_id, placement));
+    }
+
+    pub fn placement_of(surface_id: i32) -> Option<Placement> {
+        PLACEMENTS.with(|placements| placements.borrow().get(&surface_id).copied())
     }
 
     /// Makes the window of `surface_id` draw the frame.
@@ -334,7 +357,25 @@ mod linux {
     /// The margin a window gets: the shadow's reach on every side it does not
     /// share with the screen or a neighbour, none while the compositor draws the
     /// frame.
-    pub fn insets_for(window: &Window) -> Insets {
+    pub fn insets_for(window: &Window, surface_id: i32) -> Insets {
+        if let Some(placement) = placement_of(surface_id) {
+            let view = window.viewport_size();
+            let (width, height) = (f32::from(view.width), f32::from(view.height));
+            let (x, y) = popover_placement::place(
+                placement.anchor,
+                placement.reserved,
+                (width, height),
+                placement.size,
+                popover_placement::MARGIN,
+                placement.offset,
+            );
+            return Insets {
+                left: x,
+                top: y,
+                right: (width - x - placement.size.0).max(0.0),
+                bottom: (height - y - placement.size.1).max(0.0),
+            };
+        }
         let Decorations::Client { tiling } = window.window_decorations() else {
             return Insets::default();
         };
@@ -353,7 +394,7 @@ mod linux {
         if !is_framed(surface_id) {
             return false;
         }
-        let insets = insets_for(window);
+        let insets = insets_for(window, surface_id);
         WINDOWS.with(|windows| windows.borrow_mut().insert(surface_id, insets)) != Some(insets)
     }
 }

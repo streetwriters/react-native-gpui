@@ -22,11 +22,14 @@ pub mod module;
 pub mod os_version;
 pub mod perf_monitor;
 pub mod platform_window;
+pub mod popover_placement;
 pub mod tray;
 pub mod window_frame;
 pub mod window_icons;
 pub mod window_mirror;
 pub mod windows;
+#[cfg(target_os = "linux")]
+pub mod work_area;
 
 use gpui::App;
 use std::sync::OnceLock;

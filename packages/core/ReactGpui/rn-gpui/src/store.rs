@@ -2615,6 +2615,14 @@ fn framed(
 
     let frame = window_frame::frame();
     let insets = window_frame::insets_of(surface_id);
+    let placement = window_frame::placement_of(surface_id);
+    // An overlay is maximized so it can cover the work area, but what it shows is
+    // a popover, which keeps its corners and its shadow.
+    let tiling = if placement.is_some() {
+        gpui::Tiling::default()
+    } else {
+        tiling
+    };
     let radius = px(frame.radius);
     let round = |element: gpui::Div| {
         element
@@ -2661,8 +2669,24 @@ fn framed(
         .pl(px(insets.left))
         .pt(px(insets.top))
         .pr(px(insets.right))
-        .pb(px(insets.bottom))
-        .child(body);
+        .pb(px(insets.bottom));
+    if let Some(placement) = placement {
+        // A press anywhere but on the popover dismisses it, as outside a native
+        // popup. It is tested by position: the popover's own presses pass
+        // through here as well.
+        let (left, top) = (insets.left, insets.top);
+        let (width, height) = placement.size;
+        shell = shell.capture_any_mouse_down(move |event, _window, cx| {
+            let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
+            let inside = x >= left && x < left + width && y >= top && y < top + height;
+            if !inside {
+                // Deferred: closing a window from its own event handler leaves
+                // it behind, as `RefCell already borrowed` is avoided elsewhere.
+                cx.defer(crate::desktop::tray::hide_popover);
+            }
+        });
+    }
+    shell = shell.child(body);
     if let Some(border) = resize_border(window) {
         shell = shell.child(border);
     }

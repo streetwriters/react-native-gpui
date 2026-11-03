@@ -117,6 +117,7 @@ impl NativeGpuiWindowsSpec for WindowsModule {
                     .map(|position| (position.x as f32, position.y as f32)),
                 role: windows::WindowRoleOverride::Secondary,
                 popup: false,
+                ..Default::default()
             };
             let key = windows::open_window(cx, open)?;
             if always_on_top {

@@ -6,6 +6,11 @@ export type TraySize = {
   height: number;
 };
 
+export type TrayOffset = {
+  x: number;
+  y: number;
+};
+
 export type TrayOptions = {
   id?: string;
   tooltip?: string;
@@ -18,6 +23,8 @@ export type TrayOptions = {
   menuOnLeftClick?: boolean;
   quitOnLastWindowClosed?: boolean;
   hideWindowOnClose?: boolean;
+  popoverAnchor?: string;
+  popoverOffset?: TrayOffset;
 };
 
 export type TrayHandle = {

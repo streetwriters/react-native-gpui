@@ -1159,7 +1159,12 @@ pub fn work_area_at(x: f32, y: f32) -> Option<(f32, f32, f32, f32)> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+pub fn work_area_at(_x: f32, _y: f32) -> Option<(f32, f32, f32, f32)> {
+    crate::desktop::work_area::read().map(|work| work.area)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub fn work_area_at(_x: f32, _y: f32) -> Option<(f32, f32, f32, f32)> {
     None
 }

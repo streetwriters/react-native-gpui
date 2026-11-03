@@ -252,7 +252,7 @@ A client-decorated window has no frame to grab, so the app draws an invisible ei
 
 ### Tray icons
 
-A tray popover is a window like the others here: no title bar, the same frame, and a size that is the size of its content. Where the compositor lets the app place windows (X11) it opens at the icon; elsewhere (GNOME on Wayland) the compositor places it. See [Tray](desktop-tray#platform-notes) for how a tray icon and its popover behave on GNOME and KDE.
+A tray popover is a window like the others here: no title bar, the same frame, and a size that is the size of its content. Where the compositor lets the app place windows (X11) it opens at the icon; on Wayland it is drawn at the end of the panel's edge, in a transparent window over the work area. See [Tray](desktop-tray#platform-notes) for how a tray icon and its popover behave on GNOME and KDE.
 
 ## Main window options
 

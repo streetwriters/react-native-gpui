@@ -39,21 +39,41 @@ await Tray.install({
 
 ### Options
 
-| Option                   | Description                                                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `id`                     | A stable id. Defaults to `tray`.                                                                                 |
-| `tooltip`                | The tooltip text.                                                                                                |
-| `title`                  | Text beside the icon. macOS and Linux only; Windows trays have no title.                                         |
-| `icon`                   | The icon, as an `<Image source>` or a path. Without one, the app's icon, else a built-in glyph.                  |
-| `iconTemplate`           | macOS: draw the icon as a template that the menu bar tints for light and dark mode. Use it for monochrome icons. |
-| `component`              | An `AppRegistry` component to render in a popover on click.                                                      |
-| `size`                   | The size of the popover.                                                                                         |
-| `menu`                   | A [menu](desktop-application-menu#menu-items) shown instead of the popover.                                      |
-| `menuOnLeftClick`        | Shows the menu on a left click as well.                                                                          |
-| `quitOnLastWindowClosed` | Quits when the last window closes. Defaults to `false`: a tray app keeps running without a window.               |
-| `hideWindowOnClose`      | Hides the last window on close instead of closing it, so it reopens in the same state. Defaults to `false`.      |
+| Option                   | Description                                                                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                     | A stable id. Defaults to `tray`.                                                                                                             |
+| `tooltip`                | The tooltip text.                                                                                                                            |
+| `title`                  | Text beside the icon. macOS and Linux only; Windows trays have no title.                                                                     |
+| `icon`                   | The icon, as an `<Image source>` or a path. Without one, the app's icon, else a built-in glyph.                                              |
+| `iconTemplate`           | macOS: draw the icon as a template that the menu bar tints for light and dark mode. Use it for monochrome icons.                             |
+| `component`              | An `AppRegistry` component to render in a popover on click.                                                                                  |
+| `size`                   | The size of the popover.                                                                                                                     |
+| `menu`                   | A [menu](desktop-application-menu#menu-items) shown instead of the popover.                                                                  |
+| `menuOnLeftClick`        | Shows the menu on a left click as well.                                                                                                      |
+| `quitOnLastWindowClosed` | Quits when the last window closes. Defaults to `false`: a tray app keeps running without a window.                                           |
+| `hideWindowOnClose`      | Hides the last window on close instead of closing it, so it reopens in the same state. Defaults to `false`.                                  |
+| `popoverAnchor`          | Linux on Wayland: the corner of the screen's work area the popover is drawn in. See [Popover position on Linux](#popover-position-on-linux). |
+| `popoverOffset`          | Linux on Wayland: moves the popover from its corner, as `{x, y}` in points.                                                                  |
 
 With `hideWindowOnClose` off, reopening the app from the tray starts from the first screen. With it on, the window and its state are kept, at the cost of the hidden React tree staying alive.
+
+## Popover position on Linux
+
+X11 reports where the icon is, so the popover opens at it. Wayland does not, and it does not let an app place a window either, so a Wayland popover is drawn another way: in a transparent window that covers the screen's work area (the screen less what panels and docks reserve), with the popover inside it at a corner.
+
+- **Finding the corner.** The work area is read from the compositor's XWayland, which publishes it as the standard `_NET_WORKAREA`. The edge a panel reserves shows where the tray is: with several reserved edges the thinnest wins, since a panel is thinner than a dock, and the popover goes at that edge's end, which is the right end of a horizontal panel and the bottom of a vertical one. On GNOME that is the top right, under the panel; with a taskbar at the bottom, as on KDE, it is the bottom right.
+- **When it cannot be found.** Without XWayland, or with nothing reserved, the compositor places an ordinary window, as before.
+- **Choosing it yourself.** An app can set `popoverAnchor` (`'auto'`, `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'` or `'center'`) and `popoverOffset`, and a user can override both with `RN_GPUI_TRAY_POPOVER_ANCHOR` and `RN_GPUI_TRAY_POPOVER_OFFSET` (`x,y`), for a desktop where the automatic corner is wrong. The environment wins over the app.
+
+```ts
+await Tray.install({
+  component: 'MenuBarPanel',
+  popoverAnchor: 'top-left',
+  popoverOffset: { x: 0, y: 4 },
+});
+```
+
+The popover is near the icon, not on it: where along the panel the icon sits is not known. A press anywhere outside the popover closes it, and so does it losing focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
 
 ## Changing it later
 
@@ -74,4 +94,4 @@ A tray can also be set up without code. The `tray` block of [`desktop.json`](des
 ## Platform notes
 
 - **Windows** has no anchored popover. The window is placed at the click point.
-- **Linux on GNOME** has no click-to-popover: its tray extension shows an icon's menu on a single click and sends the click to the app only for a double click. A double click opens the popover, and so does the built-in Open item of the menu. The popover is an ordinary window that GNOME places itself, over the app's other windows or in the middle of the screen, because GNOME has no way for an app to anchor a window to a panel icon (it offers no layer-shell and the tray gives the app no icon position). On every Linux desktop it is drawn without a title bar, with the same [rounded frame and shadow](desktop-windows#the-window-frame) as other windows, and it closes when it loses focus. The size you set is the size of its content. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.
+- **Linux on GNOME** has no click-to-popover: its tray extension shows an icon's menu on a single click and sends the click to the app only for a double click. A double click opens the popover, and so does the built-in Open item of the menu. GNOME gives an app no icon position and no way to place a window, so the popover is drawn at the end of the panel's edge instead; see [Popover position on Linux](#popover-position-on-linux). On every Linux desktop it is drawn without a title bar, with the same [rounded frame and shadow](desktop-windows#the-window-frame) as other windows, and it closes when it loses focus. The size you set is the size of its content. Check `capabilities().tray` and `capabilities().trayPopoverAnchored`.

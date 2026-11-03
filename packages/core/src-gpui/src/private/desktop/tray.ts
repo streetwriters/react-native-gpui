@@ -64,6 +64,21 @@ export interface TrayOptions {
    * effect together with `quitOnLastWindowClosed`, which ends the app instead.
    */
   hideWindowOnClose?: boolean;
+  /**
+   * Where the popover is drawn on a Linux desktop that will not place it at the
+   * icon (Wayland). `'auto'` (the default) puts it at the end of the panel's edge,
+   * found from the screen's work area; the others name a corner of the work area,
+   * and `'center'` its middle. Ignored where the popover opens at the icon.
+   */
+  popoverAnchor?:
+    | 'auto'
+    | 'top-left'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-right'
+    | 'center';
+  /** Moves the popover from its corner, in points. Same cases as `popoverAnchor`. */
+  popoverOffset?: { x: number; y: number };
 }
 
 export interface TrayState {
