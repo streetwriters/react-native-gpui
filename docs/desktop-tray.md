@@ -62,6 +62,7 @@ With `hideWindowOnClose` off, reopening the app from the tray starts from the fi
 X11 reports where the icon is, so the popover opens at it. Wayland does not, and it does not let an app place a window either, so a Wayland popover is drawn another way: in a transparent window that covers the screen's work area (the screen less what panels and docks reserve), with the popover inside it at a corner.
 
 - **Finding the corner.** The work area is read from the compositor's XWayland, which publishes it as the standard `_NET_WORKAREA`. The edge a panel reserves shows where the tray is: with several reserved edges the thinnest wins, since a panel is thinner than a dock, and the popover goes at that edge's end, which is the right end of a horizontal panel and the bottom of a vertical one. On GNOME that is the top right, under the panel; with a taskbar at the bottom, as on KDE, it is the bottom right.
+- **The click.** A panel that reports where the icon was clicked, as KDE does on a click and GNOME does on a double-click, puts the popover against the panel's edge and centred on that click, so it sits over the icon. The popover is then kept a margin inside the screen. Without a click position, or with `popoverAnchor` set, the corner is used.
 - **When it cannot be found.** Without XWayland, or with nothing reserved, the compositor places an ordinary window, as before.
 - **Choosing it yourself.** An app can set `popoverAnchor` (`'auto'`, `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'` or `'center'`) and `popoverOffset`, and a user can override both with `RN_GPUI_TRAY_POPOVER_ANCHOR` and `RN_GPUI_TRAY_POPOVER_OFFSET` (`x,y`), for a desktop where the automatic corner is wrong. The environment wins over the app.
 
@@ -73,7 +74,7 @@ await Tray.install({
 });
 ```
 
-The popover is near the icon, not on it: where along the panel the icon sits is not known. A press anywhere outside the popover closes it, and so does it losing focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
+Without a reported click the popover is near the icon, not on it: where along the panel the icon sits is not known. A press anywhere outside the popover closes it, and so does it losing focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
 
 ## Changing it later
 

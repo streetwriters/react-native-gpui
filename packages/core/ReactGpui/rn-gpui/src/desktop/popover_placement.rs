@@ -76,6 +76,58 @@ pub fn auto_anchor(reserved: Reserved) -> Anchor {
         .map_or(Anchor::Center, |(_, anchor)| *anchor)
 }
 
+/// The edge of the screen a panel is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+/// The thinnest edge that reserves anything, which is the panel's.
+pub fn tray_edge(reserved: Reserved) -> Option<Edge> {
+    [
+        (reserved.top, Edge::Top),
+        (reserved.bottom, Edge::Bottom),
+        (reserved.left, Edge::Left),
+        (reserved.right, Edge::Right),
+    ]
+    .iter()
+    .filter(|(thickness, _)| *thickness >= 1.0)
+    .min_by(|a, b| a.0.total_cmp(&b.0))
+    .map(|(_, edge)| *edge)
+}
+
+/// The origin, in the work area's own coordinates, of a popover of `size` when the
+/// click on the icon said where it is: against the panel's edge and centred on the
+/// click along it. Without a panel edge there is nothing to rest against, and the
+/// popover is centred.
+pub fn place_near(
+    click: (f32, f32),
+    reserved: Reserved,
+    area: (f32, f32),
+    size: (f32, f32),
+    margin: f32,
+    offset: (f32, f32),
+) -> (f32, f32) {
+    let (area_width, area_height) = area;
+    let (width, height) = size;
+    let (x, y) = match tray_edge(reserved) {
+        Some(Edge::Top) => (click.0 - width / 2.0, margin),
+        Some(Edge::Bottom) => (click.0 - width / 2.0, area_height - height - margin),
+        Some(Edge::Left) => (margin, click.1 - height / 2.0),
+        Some(Edge::Right) => (area_width - width - margin, click.1 - height / 2.0),
+        None => ((area_width - width) / 2.0, (area_height - height) / 2.0),
+    };
+    let max_x = (area_width - width - margin).max(0.0);
+    let max_y = (area_height - height - margin).max(0.0);
+    (
+        (x + offset.0).clamp(margin.min(max_x), max_x),
+        (y + offset.1).clamp(margin.min(max_y), max_y),
+    )
+}
+
 /// The origin, in the work area's own coordinates, of a popover of `size` in a
 /// work area of `area`, `margin` away from the edges it is anchored to and moved
 /// by `offset`. The result is kept inside the area.
@@ -200,6 +252,42 @@ mod tests {
                 (0.0, 0.0)
             ),
             (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_click_centres_the_popover_along_the_panel() {
+        let top = reserved((1920.0, 1080.0), (67.0, 32.0, 1853.0, 1048.0));
+        let area = (1853.0, 1048.0);
+        let size = (320.0, 200.0);
+        // A click in the middle of the panel centres the popover on it.
+        assert_eq!(
+            place_near((1000.0, 0.0), top, area, size, 8.0, (0.0, 0.0)),
+            (840.0, 8.0)
+        );
+        // Near the right end, where a tray is, it is held a margin inside the edge.
+        assert_eq!(
+            place_near((1730.0, 0.0), top, area, size, 8.0, (0.0, 0.0)),
+            (1525.0, 8.0)
+        );
+        // A taskbar at the bottom: the popover rests on it.
+        let bottom = reserved((1920.0, 1080.0), (0.0, 0.0, 1920.0, 1034.0));
+        assert_eq!(
+            place_near(
+                (1659.0, 0.0),
+                bottom,
+                (1920.0, 1034.0),
+                size,
+                8.0,
+                (0.0, 0.0)
+            ),
+            (1499.0, 826.0)
+        );
+        // A panel on the left: centred on the click down it.
+        let left = reserved((1920.0, 1080.0), (48.0, 0.0, 1872.0, 1080.0));
+        assert_eq!(
+            place_near((0.0, 900.0), left, (1872.0, 1080.0), size, 8.0, (0.0, 0.0)),
+            (8.0, 800.0)
         );
     }
 

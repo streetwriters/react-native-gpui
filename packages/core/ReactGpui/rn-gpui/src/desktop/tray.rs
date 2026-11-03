@@ -298,7 +298,7 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
     );
     let (x, y) = popover_origin(rect, config.width, config.height, work_area);
     #[cfg(target_os = "linux")]
-    let overlay = wayland_overlay(&config);
+    let overlay = wayland_overlay(&config, rect);
     let options = OpenWindowOptions {
         component,
         props: None,
@@ -340,23 +340,32 @@ pub fn show_popover(cx: &mut App, rect: TrayRect) {
 /// panel reserves, when the work area can be read. Without it, and with no choice
 /// made, the compositor places an ordinary window.
 #[cfg(target_os = "linux")]
-fn wayland_overlay(config: &TrayConfig) -> Option<crate::desktop::window_frame::Placement> {
+fn wayland_overlay(
+    config: &TrayConfig,
+    rect: TrayRect,
+) -> Option<crate::desktop::window_frame::Placement> {
     use crate::desktop::popover_placement::{self, Anchor};
     if !crate::desktop::capabilities::is_wayland() {
         return None;
     }
     let (anchor, offset) =
         popover_placement::with_environment(config.popover_anchor, config.popover_offset);
-    let reserved = crate::desktop::work_area::read()
-        .map(|work| popover_placement::reserved(work.screen, work.area));
+    let work = crate::desktop::work_area::read();
+    let reserved = work.map(|work| popover_placement::reserved(work.screen, work.area));
     if reserved.is_none() && anchor == Anchor::Auto {
         return None;
     }
+    // Some panels send where the icon was clicked, in the screen's own
+    // coordinates, which is where the work area is read from as well. A click at
+    // the origin is a panel that sent nothing.
+    let click = (rect.x != 0.0 || rect.y != 0.0).then_some((rect.x, rect.y));
     Some(crate::desktop::window_frame::Placement {
         anchor,
         offset,
         reserved: reserved.unwrap_or_default(),
         size: (config.width, config.height),
+        click: click.filter(|_| work.is_some()),
+        work_origin: work.map_or((0.0, 0.0), |work| (work.area.0, work.area.1)),
     })
 }
 
@@ -702,7 +711,13 @@ fn tray_click_rect(
     let (x, y) = if position.x != 0.0 || position.y != 0.0 {
         (position.x, position.y)
     } else {
-        pointer_position().unwrap_or((0.0, 0.0))
+        // XWayland only follows the pointer over X windows, so on Wayland the
+        // answer would be stale: no position is better than a wrong one.
+        if crate::desktop::capabilities::is_wayland() {
+            (0.0, 0.0)
+        } else {
+            pointer_position().unwrap_or((0.0, 0.0))
+        }
     };
     TrayRect {
         x: (x / scale) as f32,

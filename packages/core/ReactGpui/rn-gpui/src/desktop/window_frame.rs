@@ -313,6 +313,10 @@ mod linux {
         pub reserved: Reserved,
         /// The popover's own size, which is the size of its content.
         pub size: (f32, f32),
+        /// Where the click on the icon was, on the screen, when the desktop said,
+        /// and where the work area starts on it.
+        pub click: Option<(f32, f32)>,
+        pub work_origin: (f32, f32),
     }
 
     thread_local! {
@@ -361,14 +365,29 @@ mod linux {
         if let Some(placement) = placement_of(surface_id) {
             let view = window.viewport_size();
             let (width, height) = (f32::from(view.width), f32::from(view.height));
-            let (x, y) = popover_placement::place(
-                placement.anchor,
-                placement.reserved,
-                (width, height),
-                placement.size,
-                popover_placement::MARGIN,
-                placement.offset,
-            );
+            let (x, y) = match placement.click {
+                Some((click_x, click_y)) if placement.anchor == Anchor::Auto => {
+                    popover_placement::place_near(
+                        (
+                            click_x - placement.work_origin.0,
+                            click_y - placement.work_origin.1,
+                        ),
+                        placement.reserved,
+                        (width, height),
+                        placement.size,
+                        popover_placement::MARGIN,
+                        placement.offset,
+                    )
+                }
+                _ => popover_placement::place(
+                    placement.anchor,
+                    placement.reserved,
+                    (width, height),
+                    placement.size,
+                    popover_placement::MARGIN,
+                    placement.offset,
+                ),
+            };
             return Insets {
                 left: x,
                 top: y,
