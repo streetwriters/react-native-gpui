@@ -796,6 +796,18 @@ export function desktopLaunchConfig(config, configPath) {
       trayChain += `.icon_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), ${iconPath})))`;
       trayChain += `.icon_template(${tray.iconTemplate === true})`;
     }
+    if (tray.popoverAnchor !== undefined && tray.popoverAnchor !== 'auto') {
+      trayChain += `.popover_anchor_name(${JSON.stringify(tray.popoverAnchor)})`;
+    }
+    if (tray.popoverOffset !== undefined) {
+      const { x, y } = tray.popoverOffset;
+      if (x === undefined || y === undefined) {
+        throw new Error(
+          `desktop/desktop.json tray.popoverOffset needs x and y: ${configPath}`,
+        );
+      }
+      trayChain += `.popover_offset(${asFloat(x)}, ${asFloat(y)})`;
+    }
     if (tray.accessory === false) {
       trayChain += '.accessory(false)';
     }

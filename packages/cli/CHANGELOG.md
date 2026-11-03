@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `desktop.json` accepts `tray.popoverAnchor` and `tray.popoverOffset`, the corner and offset of a tray popover on Linux with Wayland.
 - `desktop.json` accepts `window.cornerRadius`, the corner radius of a client-decorated window on Linux where the desktop's cannot be measured.
 - `desktop.json` accepts `window.windowControlsPosition` (`"left"` or `"right"`), the side the window controls use on Linux when the desktop gives none.
 

@@ -185,6 +185,27 @@
         "accessory": {
           "description": "Whether the app runs as an accessory, with no Dock icon. Defaults to true.",
           "type": "boolean"
+        },
+        "popoverAnchor": {
+          "description": "Linux on Wayland: the corner of the screen's work area the popover is drawn in. 'auto' puts it at the end of the panel's edge, or centred on the click when the panel reports one. Ignored where the popover opens at the icon. Defaults to 'auto'.",
+          "enum": [
+            "auto",
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right",
+            "center"
+          ]
+        },
+        "popoverOffset": {
+          "description": "Linux on Wayland: moves the popover from its corner, in points.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
         }
       }
     },

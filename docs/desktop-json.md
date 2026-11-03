@@ -292,6 +292,26 @@ Run the app without a Dock icon. Defaults to `true`.
 | --------- |
 | `boolean` |
 
+---
+
+### `popoverAnchor`
+
+Linux on Wayland: the corner of the screen's work area the popover is drawn in. `'auto'` puts it at the end of the panel's edge, or centred on the click when the panel reports one. Ignored where the popover opens at the icon. See [Popover position on Linux](desktop-tray#popover-position-on-linux).
+
+| Type                                                                                 | Default  |
+| ------------------------------------------------------------------------------------ | -------- |
+| `'auto' \| 'top-left' \| 'top-right' \| 'bottom-left' \| 'bottom-right' \| 'center'` | `'auto'` |
+
+---
+
+### `popoverOffset`
+
+Linux on Wayland: moves the popover from its corner, in points.
+
+| Type     |
+| -------- |
+| `{x, y}` |
+
 ## bundle
 
 How the app is packaged by [`package-desktop`](publishing-desktop).

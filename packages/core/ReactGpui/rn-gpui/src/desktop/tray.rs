@@ -72,6 +72,16 @@ impl TrayConfig {
         self
     }
 
+    /// The corner by name (`"top-right"`, `"center"`, …), for configuration that
+    /// is text. An unknown name leaves the anchor as it was.
+    #[must_use]
+    pub fn popover_anchor_name(mut self, name: &str) -> Self {
+        if let Some(anchor) = crate::desktop::popover_placement::Anchor::parse(name) {
+            self.popover_anchor = anchor;
+        }
+        self
+    }
+
     #[must_use]
     pub fn popover_offset(mut self, x: f32, y: f32) -> Self {
         self.popover_offset = (x, y);

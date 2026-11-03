@@ -684,3 +684,26 @@ test('a React Native minor without a release is refused with a clear message', (
     }),
   ).not.toThrow();
 });
+
+test('the tray popover position reaches the launch chain', () => {
+  const placed = desktopLaunchConfig(
+    {
+      tray: {
+        component: 'Panel',
+        popoverAnchor: 'top-left',
+        popoverOffset: { x: 4, y: -2 },
+      },
+      devMenu: true,
+    },
+    'desktop/desktop.json',
+  );
+  expect(placed).toContain('.popover_anchor_name("top-left")');
+  expect(placed).toContain('.popover_offset(4.0, -2.0)');
+
+  // 'auto' is the default, so no call is emitted for it.
+  const auto = desktopLaunchConfig(
+    { tray: { component: 'Panel', popoverAnchor: 'auto' }, devMenu: true },
+    'desktop/desktop.json',
+  );
+  expect(auto).not.toContain('popover_anchor_name');
+});
