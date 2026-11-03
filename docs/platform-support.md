@@ -35,6 +35,7 @@ Check these at run time with [`capabilities()`](desktop-app-info#capabilities) i
 
 ## Known limitations
 
+- **Linux windowing.** Who draws the title bar, where the caption buttons go, the window's corners and shadow, and what an app may place or raise differ between GNOME, KDE, X11 and Wayland. The app follows the desktop where it can; see [Windowing on Linux](desktop-windows#windowing-on-linux). It has been checked on Ubuntu's GNOME and on KDE Plasma, on Wayland.
 - **IME.** Text composition with an input method has not been tested.
 - **Screen readers.** VoiceOver on macOS is the supported path. Accessibility on Windows and Linux has not been validated.
 - **Offscreen effects.** A view with `opacity` below 1, a `blur` or `dropShadow` filter, a `mixBlendMode` or `isolation` is painted into a picture of its own. The picture is as large as the part of the view that is inside the window, so a blur does not take in content outside it. A scroll view that holds such a view does not cache its content between scroll frames, so it repaints on each one. Native surfaces are not part of the picture. See [`filter`](view-style-props#differences) and [`mixBlendMode`](view-style-props#differences).

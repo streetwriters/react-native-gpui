@@ -20,6 +20,7 @@ export {
   isDesktopAvailable,
   platform,
   request,
+  useClientDecorations,
 } from './src-gpui/src/private/desktop';
 
 export type {

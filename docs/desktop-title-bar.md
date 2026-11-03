@@ -67,11 +67,7 @@ import { TitleBar } from '@react-native-gpui/core/desktop';
 
 ### The window frame on Linux
 
-A window that draws its own decorations also draws its own frame on Linux: rounded corners, a hairline border and a shadow, in a see-through margin around the content. This applies to every window of the app except popovers, and all of them use the same measured values. The compositor draws none of it for such a window, and where the compositor draws the frame itself (KDE and most X11 window managers) the app draws nothing and the margin is zero.
-
-The frame follows the desktop. On first launch a short-lived child process renders a window frame off-screen with the toolkit that is installed and reads the corner radius, border and shadow from the pixels. The shadow is fitted to the measured falloff on all three edges, which gives its opacity, blur, spread and downward offset, so the drawn shadow follows the toolkit's own rather than one fixed look. It tries GTK 4 with libadwaita, then GTK 4 alone, then GTK 3, and uses the first that renders, so desktops with only plain GTK get their own theme's frame rather than libadwaita's. The result is kept in `~/.cache/react-native-gpui/window-frame.json` and measured again only when the GTK theme, colour scheme, GTK or libadwaita library, theme stylesheet or the runtime changes. The app itself never loads GTK.
-
-Where nothing can be measured (a Qt-only system, a headless session), a 12-point radius and a 14-point shadow are used. Set [`window.cornerRadius`](desktop-json#window) to change the radius there, and `window.shadow` to `false` to draw no shadow and no margin. The margin and the rounding go away while the window is maximized, fullscreen or tiled. `RN_GPUI_FRAME_PROBE=off` skips the measurement.
+A client-decorated window draws its own rounded corners, border and shadow, measured from the desktop's toolkit. See [Windowing on Linux](desktop-windows#the-window-frame).
 
 ## The menu bar
 
