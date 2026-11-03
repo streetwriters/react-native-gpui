@@ -11,6 +11,15 @@ import TabItem from '@theme/TabItem';
 
 An app is drawn by [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), a GPU-accelerated renderer written in Rust, and talks to the operating system through native modules. The React Native platform is called `desktop`: that is the Metro platform and file extension (`*.desktop.tsx`), the Codegen platform, and the key a library declares in its `react-native.config.js`. `Platform.OS` stays the operating system: `macos`, `windows` or `linux`.
 
+## How these docs work
+
+react-native-gpui is React Native with a desktop target, so most of what you need is the React Native documentation, and it applies as written. This site covers what is new or different on desktop and does not repeat the rest.
+
+- **Pages on this site** are about desktop. A core component or API that behaves differently has a page that lists only its desktop props and the differences, and the rest is the upstream reference. Everything the desktop shell adds lives here too: windows, the title bar, menus, shortcuts and the tray, along with setup, packaging and native development.
+- **Sidebar entries that open reactnative.dev**, such as _Style_, _Layout with Flexbox_, _Animated_ or _FlatList_, are React Native pages that work on desktop unchanged. The sidebar links straight to the React Native 0.87 documentation, which is a different site, so use your browser's back button to return here.
+- **Where to look.** _Guides_ explain concepts and the workflow, with the desktop topics under **Desktop**. _Components_ and _APIs_ are the reference, and each has a **Desktop** category for what the shell adds, imported from `@react-native-gpui/core/desktop`. _Architecture_ describes how the renderer works.
+- **Not sure it works on desktop?** [Platform support](platform-support) lists every component and API as supported, partial or not supported, with a note for each.
+
 ## Before you begin
 
 [Set up your environment](set-up-your-environment) first. You need Node.js, Rust, CMake and the compiler for your operating system.
