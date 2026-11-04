@@ -56,7 +56,7 @@ await Tray.install({
 });
 ```
 
-Without a reported click the popover is near the icon, not on it: where along the panel the icon sits is not known. A press anywhere outside the popover closes it, and so does it losing focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
+Without a reported click the popover is near the icon, not on it: where along the panel the icon sits is not known. Only the popover takes clicks: a click anywhere else reaches the window or the desktop underneath, and the popover closes because it loses focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
 
 ## Changing it later
 

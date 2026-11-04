@@ -2671,20 +2671,12 @@ fn framed(
         .pr(px(insets.right))
         .pb(px(insets.bottom));
     if let Some(placement) = placement {
-        // A press anywhere but on the popover dismisses it, as outside a native
-        // popup. It is tested by position: the popover's own presses pass
-        // through here as well.
-        let (left, top) = (insets.left, insets.top);
-        let (width, height) = placement.size;
-        shell = shell.capture_any_mouse_down(move |event, _window, cx| {
-            let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
-            let inside = x >= left && x < left + width && y >= top && y < top + height;
-            if !inside {
-                // Deferred: closing a window from its own event handler leaves
-                // it behind, as `RefCell already borrowed` is avoided elsewhere.
-                cx.defer(crate::desktop::tray::hide_popover);
-            }
-        });
+        // Only the popover takes input; a press anywhere else reaches the window
+        // under the overlay, and the popover closes when it loses focus.
+        window.set_input_region(Some(&[gpui::Bounds {
+            origin: gpui::point(px(insets.left), px(insets.top)),
+            size: gpui::size(px(placement.size.0), px(placement.size.1)),
+        }]));
     }
     shell = shell.child(body);
     if let Some(border) = resize_border(window) {
