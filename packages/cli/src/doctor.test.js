@@ -22,8 +22,8 @@ function fakeProbe(outputs, nodeVersion = '22.20.0') {
 }
 
 const common = {
-  'rustc --version': 'rustc 1.96.0 (ac68faa20 2026-05-25)',
-  'cargo --version': 'cargo 1.96.0 (a1b2c3d 2026-05-20)',
+  'rustc --version': 'rustc 1.98.1 (0123abcde 2026-10-20)',
+  'cargo --version': 'cargo 1.98.1 (a1b2c3d 2026-10-20)',
   'cmake --version':
     'cmake version 3.31.4\n\nCMake suite maintained by Kitware',
 };

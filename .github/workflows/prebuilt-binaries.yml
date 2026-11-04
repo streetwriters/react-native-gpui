@@ -158,7 +158,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1
         if: "!startsWith(matrix.platform, 'linux-')"
 
       - name: Install Rust (Linux container)

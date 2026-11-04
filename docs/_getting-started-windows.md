@@ -2,7 +2,7 @@
 
 You will need Node, Rust, CMake, Perl, NASM and the Visual Studio C++ build tools.
 
-React Native needs **Node.js 22.13 or newer**, and the desktop renderer is written in Rust, so you need a **stable Rust toolchain** installed with [rustup](https://rustup.rs).
+React Native needs **Node.js 22.13 or newer**, and the desktop renderer is written in Rust, so you need **Rust 1.98 or newer** installed with [rustup](https://rustup.rs).
 
 ### Install the tools
 
@@ -66,8 +66,8 @@ It checks every tool on this page and prints how to fix each one that is missing
 ```text
 Desktop development on Windows
  ✓ Node.js 22.20.0
- ✓ Rust 1.96.0
- ✓ Cargo 1.96.0
+ ✓ Rust 1.98.1
+ ✓ Cargo 1.98.1
  ✓ CMake 3.31.4
  ✓ MSVC compiler
  ✖ Strawberry Perl: perl resolves to C:\Program Files\Git\usr\bin\perl.exe, not to Strawberry Perl

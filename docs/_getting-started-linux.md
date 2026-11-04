@@ -5,7 +5,7 @@ import TabItem from '@theme/TabItem';
 
 You will need Node, Rust, CMake, a C++ compiler and a few development packages.
 
-React Native needs **Node.js 22.13 or newer**, and the desktop renderer is written in Rust, so you need a **stable Rust toolchain** installed with [rustup](https://rustup.rs).
+React Native needs **Node.js 22.13 or newer**, and the desktop renderer is written in Rust, so you need **Rust 1.98 or newer** installed with [rustup](https://rustup.rs).
 
 ### System packages
 
@@ -66,8 +66,8 @@ It checks every tool on this page and prints how to fix each one that is missing
 ```text
 Desktop development on Linux
  ✓ Node.js 22.20.0
- ✓ Rust 1.96.0
- ✓ Cargo 1.96.0
+ ✓ Rust 1.98.1
+ ✓ Cargo 1.98.1
  ✓ CMake 3.28.3
  ✓ C++ compiler 13.2.0
  ✓ pkg-config 1.8.1
