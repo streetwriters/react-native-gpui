@@ -11,8 +11,13 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `48ef745` (`rn-gpui-linux`, 2026-10-30: `8da7d89` plus the
-  per-frame transform table, colour filters, effect groups on Metal, the sRGB-tagged Metal layer and shadow dithering below)
+- Commit: `807f4e5` (`rn-gpui-linux`, 2026-11-04: `48ef745` merged with longbridge/gpui-fast
+  `main` at `36956df`, which is zed `decd2399b1` plus dynamic textures, rounded clip groups and
+  Windows/Metal fixes, and the follow-ups that merge needed)
+- Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
+- Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
+  `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and
+  `packages/rn-gpui-tester/host-components-module/desktop`
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
@@ -241,3 +246,13 @@ views; that is out of scope for now.
   the same per-frame table as transforms (the wgpu storage buffer holds both; DirectX reads
   the matrices at `t3`; Metal binds them at fragment buffer 9). Each primitive is filtered on its
   own, so overlapping content is not filtered as a group. Paths and surfaces are not filtered.
+
+## API changes at `807f4e5`
+
+- `Keystroke::parse` takes a `&'static str` with explicit modifiers; dynamic text, and the
+  `secondary-` alias, goes through `Keystroke::parse_with_os` and `KeyBinding::load(.., cx)`.
+  `Keystroke` has no `Display`; use `unparse(os)`. `Modifiers::secondary` takes `&App`.
+- `PlatformInput::ScrollWheel` and `ScrollWheelEvent` are `PlatformInput::Scroll` and
+  `ScrollEvent` (with a `source`); `on_scroll_wheel` is `on_scroll`.
+- Effect groups use atlas texture ids from `0xE000_0000` and dynamic textures from `0xE800_0000`.
+- Dynamic textures carry their version in `AtlasTile::padding`.

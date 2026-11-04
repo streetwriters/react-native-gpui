@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Builds against gpui-fast `807f4e5`, which brings in longbridge/gpui-fast and zed `decd2399b1`. It needs Rust 1.98 or newer, so CI and the setup docs use 1.98.1 now. The host keeps its effect groups, colour filters and transforms.
 - On Linux a window with a `'none'` title bar and a `'transparent'` or `'blurred'` background, opened with no `x` and `y`, is centred and closes when it loses focus, such as on Alt+Tab or a click elsewhere. On X11 it is kept out of the taskbar and the pager. Wayland ignores the position the app asks for, so it opened in the top-left corner on GNOME 46; the window is now drawn in the middle of a click-through window over the work area, on the monitor the compositor chooses, and `getState()` reports that window's size.
 - On Wayland a click outside a tray popover goes to the window or desktop under the overlay. The overlay took it before and closed the popover with it, so the app behind needed a second click. Only the popover's own area takes input now, and the popover closes when it loses focus.
 - On X11 a window with a `'none'` title bar no longer keeps the window manager's title bar when the window manager cannot leave the decorations to the app (Openbox, and any without `_GTK_FRAME_EXTENTS`). The frame is removed with the Motif hint, so a palette is frameless there, and translucent with a compositing manager.
