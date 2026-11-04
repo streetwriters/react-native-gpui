@@ -1237,7 +1237,19 @@ fn report_activation(
                     false
                 }
             });
-        if is_popover {
+        // A launcher drawn in an overlay cannot stay on top of the window that took
+        // focus, so it would be left behind it, invisible and still open.
+        #[cfg(target_os = "linux")]
+        let is_launcher = cx
+            .try_global::<DesktopWindowsGlobal>()
+            .and_then(|windows| windows.0.get(key))
+            .is_some_and(|entry| {
+                entry.role != WindowRole::TrayPopover
+                    && crate::desktop::window_frame::placement_of(entry.surface_id).is_some()
+            });
+        #[cfg(not(target_os = "linux"))]
+        let is_launcher = false;
+        if is_popover || is_launcher {
             // Deferred: this runs inside the activation change's window update,
             // and closing a window from there re-enters it, which GPUI reports
             // as "RefCell already borrowed".

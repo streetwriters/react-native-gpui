@@ -144,7 +144,7 @@ Check `capabilities().windowPosition`, `capabilities().alwaysOnTop` and `capabil
 
 Wayland will not let an app place a window, so a palette would open wherever the compositor likes: the top-left corner on GNOME 46, for one. A window with a [`'none'` title bar](desktop-title-bar) and a `'transparent'` or `'blurred'` background, opened without `x` and `y`, is therefore drawn in the middle of a transparent window that covers the work area. The compositor puts that window on the monitor it chooses for a new window, which is normally the one in use, and the palette is centred on it.
 
-Only the palette takes clicks. A click anywhere else goes to the window or the desktop underneath, so close the window when it loses focus, with `useWindowFocus()`.
+Only the palette takes clicks. A click anywhere else goes to the window or the desktop underneath. The window closes when it loses focus, as when the user switches window with Alt+Tab or clicks another app, because it cannot stay above the window that took focus and would be left behind it, invisible.
 
 Two things show that the window is bigger than the palette: `getState()` reports the size of the work area and not of the palette, and the window shows in Alt+Tab and the overview as a blank, screen-sized entry. Pass `x` and `y` to place the window yourself on X11 instead.
 
