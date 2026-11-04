@@ -63,6 +63,30 @@ A global shortcut has the same ids, key syntax, handlers and user remapping as a
 - macOS and Windows register it with the system, and so does Linux on X11. On Wayland an app cannot grab keys, so the shortcut is bound through the desktop's `GlobalShortcuts` portal (GNOME, KDE and others). The desktop asks the user once to allow it and owns the final key, so the user can change it in system settings. `Shortcuts.onFailure` reports a refusal, including a desktop with no such portal, as GNOME before version 48 (Ubuntu 24.04 ships 46) has none.
 - The portal identifies an app by an installed desktop file named after its [`identifier`](desktop-json#identifier). A packaged app normally has one; where there is none, the app writes a minimal `<identifier>.desktop` into the user's `~/.local/share/applications` the first time a global shortcut is needed on Wayland.
 
+### Where the desktop has no global shortcuts
+
+GNOME before version 48 (Ubuntu 24.04 ships 46) has no `GlobalShortcuts` portal, so `global: true` reports a failure there. The user can still bind a key by hand, in the desktop's own keyboard settings, to a command that opens the app with a link. The app is already running, so the link is handed to it and it reacts, whether or not it has a window focused.
+
+For the app:
+
+1. Set `urlSchemes` in [`desktop.json`](desktop-json#app), which also turns on single-instance, so a second launch hands its link to the running copy and exits.
+2. Handle the link, for example by opening a window:
+
+```tsx
+useEffect(() => {
+  const subscription = Linking.addEventListener('url', ({ url }) => {
+    if (url === 'myapp://palette') {
+      DesktopWindow.open({ component: 'Palette', titleBar: 'none' });
+    }
+  });
+  return () => subscription.remove();
+}, []);
+```
+
+3. Tell the user how to bind it. In GNOME this is Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts. Add a shortcut whose command is the app's executable followed by the link, such as `myapp myapp://palette`, and choose the keys.
+
+If the app is not running, the same command starts it, and the link is then its launch URL (`Linking.getInitialURL()`). A press has no release event, because each press starts a short process, and a packaged app needs the full path to its executable in the command (for an AppImage, the AppImage file). Check `Shortcuts.onFailure` for the failure to know when to show these steps.
+
 ## Shortcuts outside components
 
 `Shortcut` registers a shortcut under a stable id that a menu item or a user keymap can refer to:
