@@ -4212,12 +4212,11 @@ impl Render for RNNodeView {
                         let _ = view.update(cx, |_, cx| cx.notify());
                     }
                 }));
-                content =
-                    content.on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
-                        scroller.on_wheel(event, window, cx);
-                        let scroller = scroller.clone();
-                        window.defer(cx, move |window, cx| scroller.sync(window, cx));
-                    });
+                content = content.on_scroll(move |event: &gpui::ScrollEvent, window, cx| {
+                    scroller.on_wheel(event, window, cx);
+                    let scroller = scroller.clone();
+                    window.defer(cx, move |window, cx| scroller.sync(window, cx));
+                });
             }
             // The scrolling container is a child filling this node, not the
             // node's own element: whatever sits inside a scrolling container
@@ -4257,8 +4256,8 @@ impl Render for RNNodeView {
                         let handle = self.scroll_handle.clone();
                         let scale = (scale_x, scale_y);
                         let view = cx.entity();
-                        scroller = scroller.on_scroll_wheel(
-                            move |event: &gpui::ScrollWheelEvent, _window, _cx| {
+                        scroller =
+                            scroller.on_scroll(move |event: &gpui::ScrollEvent, _window, _cx| {
                                 let delta = event.delta.pixel_delta(px(20.));
                                 let (dx, dy) = if horizontal {
                                     (f32::from(delta.x) + f32::from(delta.y), 0.0)
@@ -4281,8 +4280,7 @@ impl Render for RNNodeView {
                                     px(-next.y * scale.1),
                                 ));
                                 let _ = view.update(_cx, |_, cx| cx.notify());
-                            },
-                        );
+                            });
                     }
                     scroller = scroller.overflow_hidden().child(moved);
                     element = element
@@ -4364,8 +4362,8 @@ impl Render for RNNodeView {
             };
             element = element.children(painted);
             if self.component == "TextInput" && self.input_multiline {
-                element = element.on_scroll_wheel(cx.listener(
-                    |this, event: &gpui::ScrollWheelEvent, _window, cx| {
+                element = element.on_scroll(cx.listener(
+                    |this, event: &gpui::ScrollEvent, _window, cx| {
                         let delta = match &event.delta {
                             gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y),
                             gpui::ScrollDelta::Lines(lines) => lines.y * 40.0,
@@ -4383,8 +4381,8 @@ impl Render for RNNodeView {
                 ));
             }
             if self.component == "TextInput" && !self.input_multiline {
-                element = element.on_scroll_wheel(cx.listener(
-                    |this, event: &gpui::ScrollWheelEvent, window, cx| {
+                element = element.on_scroll(cx.listener(
+                    |this, event: &gpui::ScrollEvent, window, cx| {
                         let delta = match &event.delta {
                             gpui::ScrollDelta::Pixels(delta) => {
                                 let x = f32::from(delta.x);
@@ -5452,12 +5450,7 @@ impl Scroller {
 
     /// Reports the drag and momentum a wheel event is part of, and snaps once
     /// the scroll has come to rest.
-    fn on_wheel(
-        self: &Rc<Self>,
-        event: &gpui::ScrollWheelEvent,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
+    fn on_wheel(self: &Rc<Self>, event: &gpui::ScrollEvent, window: &mut Window, cx: &mut App) {
         let generation = {
             let mut gesture = self.gesture.borrow_mut();
             gesture.generation += 1;

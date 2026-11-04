@@ -656,7 +656,7 @@ async fn serve_commands(
                                 .update_window(window, |_root, window, app| {
                                     draw_frame(window, app);
                                     window.dispatch_event(
-                                        gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                                        gpui::PlatformInput::Scroll(gpui::ScrollEvent {
                                             position,
                                             delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
                                             touch_phase,
@@ -673,8 +673,8 @@ async fn serve_commands(
                                         }
                                         if step > 0 {
                                             window.dispatch_event(
-                                                gpui::PlatformInput::ScrollWheel(
-                                                    gpui::ScrollWheelEvent {
+                                                gpui::PlatformInput::Scroll(
+                                                    gpui::ScrollEvent {
                                                         position,
                                                         delta: gpui::ScrollDelta::Pixels(point(
                                                             px(dx),
@@ -804,7 +804,7 @@ async fn serve_commands(
                         "ctrl-"
                     },
                 );
-                match gpui::Keystroke::parse(&key) {
+                match gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os()) {
                     Ok(keystroke) => {
                         let dispatched = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);

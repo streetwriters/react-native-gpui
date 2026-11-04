@@ -44,6 +44,20 @@ pub const APP_CONTEXT: &str = "rn-app";
 /// context core or a library already uses.
 const SCOPE_PREFIX: &str = "rn-scope-";
 
+/// The operating system whose spelling `secondary-` resolves to in keystroke
+/// text parsed outside a context that has an `App` to ask.
+pub fn host_os() -> gpui::OperatingSystem {
+    if cfg!(target_os = "macos") {
+        gpui::OperatingSystem::Mac
+    } else if cfg!(target_os = "windows") {
+        gpui::OperatingSystem::Windows
+    } else if cfg!(target_os = "freebsd") {
+        gpui::OperatingSystem::FreeBsd
+    } else {
+        gpui::OperatingSystem::Linux
+    }
+}
+
 /// One shortcut, as JS declares it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shortcut {
@@ -64,7 +78,7 @@ pub struct Shortcut {
 impl Shortcut {
     /// Whether `keystroke` is the (first, for a chord) key this shortcut binds.
     pub fn key_matches(&self, keystroke: &gpui::Keystroke) -> bool {
-        match gpui::Keystroke::parse(&self.keys) {
+        match gpui::Keystroke::parse_with_os(&self.keys, host_os()) {
             Ok(parsed) => parsed.should_match(&gpui::KeybindingKeystroke::from_keystroke(
                 keystroke.clone(),
             )),
@@ -737,7 +751,7 @@ fn rebuild_now(cx: &mut App) {
             predicate,
             false,
             None,
-            &gpui::DummyKeyboardMapper,
+            cx,
         ) else {
             log::warn!(
                 "[shortcut] {} has unparseable keys {:?}; skipped",
@@ -919,7 +933,7 @@ mod tests {
             global: false,
         };
         let binding = KeyBinding::new(
-            &shortcut.keys,
+            "ctrl-s",
             ShortcutAction {
                 id: shortcut.id.clone(),
             },
@@ -927,7 +941,7 @@ mod tests {
         );
         let mut keymap = gpui::Keymap::default();
         keymap.add_bindings([binding]);
-        let keystroke = Keystroke::parse("secondary-s").unwrap();
+        let keystroke = Keystroke::parse("ctrl-s").unwrap();
 
         // No root context at all: nothing matches. This is why `rn-app` exists.
         let (bindings, _) = keymap.bindings_for_input(&[keystroke.clone()], &[]);
@@ -946,14 +960,14 @@ mod tests {
     #[test]
     fn a_scope_outranks_the_app_context() {
         let window = KeyBinding::new(
-            "secondary-j",
+            "ctrl-j",
             ShortcutAction {
                 id: "window".to_string(),
             },
             Some(APP_CONTEXT),
         );
         let scoped = KeyBinding::new(
-            "secondary-j",
+            "ctrl-j",
             ShortcutAction {
                 id: "scoped".to_string(),
             },
@@ -966,7 +980,7 @@ mod tests {
             gpui::KeyContext::parse("rn-scope-editor").unwrap(),
         ];
         let (bindings, _) =
-            keymap.bindings_for_input(&[Keystroke::parse("secondary-j").unwrap()], &contexts);
+            keymap.bindings_for_input(&[Keystroke::parse("ctrl-j").unwrap()], &contexts);
         assert_eq!(
             bindings[0]
                 .action()
@@ -984,14 +998,14 @@ mod tests {
     #[test]
     fn an_inner_scope_outranks_an_outer_one() {
         let outer = KeyBinding::new(
-            "secondary-s",
+            "ctrl-s",
             ShortcutAction {
                 id: "outer".to_string(),
             },
             Some("rn-scope-outer"),
         );
         let inner = KeyBinding::new(
-            "secondary-s",
+            "ctrl-s",
             ShortcutAction {
                 id: "inner".to_string(),
             },
@@ -1005,7 +1019,7 @@ mod tests {
             gpui::KeyContext::parse("rn-scope-inner").unwrap(),
         ];
         let (bindings, pending) =
-            keymap.bindings_for_input(&[Keystroke::parse("secondary-s").unwrap()], &contexts);
+            keymap.bindings_for_input(&[Keystroke::parse("ctrl-s").unwrap()], &contexts);
         assert!(!pending);
         assert_eq!(bindings.len(), 2);
         // Innermost first: dispatch runs them in this order and stops at the
@@ -1026,7 +1040,7 @@ mod tests {
     #[test]
     fn a_text_input_disables_a_shortcut_that_opts_out() {
         let binding = KeyBinding::new(
-            "secondary-a",
+            "ctrl-a",
             ShortcutAction {
                 id: "select.all".to_string(),
             },
@@ -1040,7 +1054,7 @@ mod tests {
             gpui::KeyContext::parse("rn-text-input").unwrap(),
         ];
         let (bindings, _) =
-            keymap.bindings_for_input(&[Keystroke::parse("secondary-a").unwrap()], &in_editor);
+            keymap.bindings_for_input(&[Keystroke::parse("ctrl-a").unwrap()], &in_editor);
         assert!(
             bindings.is_empty(),
             "a text input must keep a key the shortcut opted out of"
@@ -1048,14 +1062,14 @@ mod tests {
 
         let outside = vec![gpui::KeyContext::parse("rn-scope-editor").unwrap()];
         let (bindings, _) =
-            keymap.bindings_for_input(&[Keystroke::parse("secondary-a").unwrap()], &outside);
+            keymap.bindings_for_input(&[Keystroke::parse("ctrl-a").unwrap()], &outside);
         assert_eq!(bindings.len(), 1);
     }
 
     #[test]
     fn a_chord_needs_both_keys() {
         let binding = KeyBinding::new(
-            "secondary-k secondary-s",
+            "ctrl-k ctrl-s",
             ShortcutAction {
                 id: "chord".to_string(),
             },
@@ -1063,8 +1077,8 @@ mod tests {
         );
         let mut keymap = gpui::Keymap::default();
         keymap.add_bindings([binding]);
-        let first = Keystroke::parse("secondary-k").unwrap();
-        let second = Keystroke::parse("secondary-s").unwrap();
+        let first = Keystroke::parse("ctrl-k").unwrap();
+        let second = Keystroke::parse("ctrl-s").unwrap();
 
         let (bindings, pending) = keymap.bindings_for_input(&[first.clone()], &[]);
         assert!(bindings.is_empty());

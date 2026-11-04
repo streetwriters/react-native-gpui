@@ -154,11 +154,11 @@ pub fn handle_accelerator(
             .0
             .accelerators
             .iter()
-            .map(|(bound, _)| bound.to_string())
+            .map(|(bound, _)| bound.unparse(crate::desktop::keymap::host_os()))
             .collect::<Vec<_>>();
         log::info!(
             "[desktop] keystroke {} matched={} installed=[{}]",
-            keystroke,
+            keystroke.unparse(crate::desktop::keymap::host_os()),
             action.is_some(),
             installed.join(", ")
         );
@@ -1023,8 +1023,13 @@ fn replace_accelerator_bindings(
             continue;
         }
         let action = accelerator_action(id);
-        new_bindings.push(binding_for(keystroke, &action));
-        if let Ok(parsed) = gpui::Keystroke::parse(keystroke) {
+        match binding_for(keystroke, &action, cx) {
+            Ok(binding) => new_bindings.push(binding),
+            Err(error) => log::warn!("[menu] {id} has unparseable keys {keystroke:?}: {error}"),
+        }
+        if let Ok(parsed) =
+            gpui::Keystroke::parse_with_os(keystroke, crate::desktop::keymap::host_os())
+        {
             accelerators.push((parsed, action));
         }
     }
@@ -1072,23 +1077,23 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
 /// shortcut consumes the key first and the menu item never runs. Without a
 /// context the accelerator would tie with the window scope and win by being
 /// added later, which is the behaviour this work set out to fix.
-fn binding_for(keystroke: &str, action: &AcceleratorAction) -> KeyBinding {
-    let context = crate::desktop::keymap::APP_CONTEXT;
-    match action {
+fn binding_for(
+    keystroke: &str,
+    action: &AcceleratorAction,
+    cx: &App,
+) -> Result<KeyBinding, gpui::InvalidKeystrokeError> {
+    let context = std::rc::Rc::new(
+        gpui::KeyBindingContextPredicate::parse(crate::desktop::keymap::APP_CONTEXT)
+            .expect("the app context is a valid predicate"),
+    );
+    let action: Box<dyn gpui::Action> = match action {
         AcceleratorAction::Press(id) | AcceleratorAction::Dev(id) => {
-            KeyBinding::new(keystroke, MenuAccelerator { id: id.clone() }, Some(context))
+            Box::new(MenuAccelerator { id: id.clone() })
         }
-        AcceleratorAction::Edit(kind) => KeyBinding::new(
-            keystroke,
-            MenuEditAction { kind: kind.clone() },
-            Some(context),
-        ),
-        AcceleratorAction::Host(kind) => KeyBinding::new(
-            keystroke,
-            MenuHostAction { kind: kind.clone() },
-            Some(context),
-        ),
-    }
+        AcceleratorAction::Edit(kind) => Box::new(MenuEditAction { kind: kind.clone() }),
+        AcceleratorAction::Host(kind) => Box::new(MenuHostAction { kind: kind.clone() }),
+    };
+    KeyBinding::load(keystroke, action, Some(context), false, None, cx)
 }
 
 fn build_menus(model: &MenuModel, app_name: &str, dev_menu: bool) -> Vec<Menu> {

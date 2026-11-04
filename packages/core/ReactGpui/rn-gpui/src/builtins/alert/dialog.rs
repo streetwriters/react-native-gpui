@@ -5,9 +5,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::AppContext as _;
 use gpui::{
     div, px, rgb, size, App, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBounds, WindowKind,
-    WindowOptions,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, SharedString, Styled,
+    TitlebarOptions, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -212,7 +211,7 @@ impl Dialog {
                     field.value.pop();
                 }
             }
-            "v" if keystroke.modifiers.secondary() => {
+            "v" if keystroke.modifiers.secondary(cx) => {
                 if let (Some(field), Some(text)) = (
                     self.fields.get_mut(self.focused_field),
                     cx.read_from_clipboard().and_then(|item| item.text()),

@@ -1965,7 +1965,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             let arena_clear_needed = window.draw(cx);
                             arena_clear_needed.clear(cx);
                             window.dispatch_event(
-                                gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                                gpui::PlatformInput::Scroll(gpui::ScrollEvent {
                                     position,
                                     delta: gpui::ScrollDelta::Pixels(gpui::point(px(dx), px(dy))),
                                     ..Default::default()
@@ -1993,7 +1993,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     cx.background_executor()
                         .timer(Duration::from_millis(u64::from(key_ms)))
                         .await;
-                    let Ok(keystroke) = gpui::Keystroke::parse(&key) else {
+                    let Ok(keystroke) = gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os()) else {
                         log::warn!("invalid synthetic keystroke: {key}");
                         continue;
                     };

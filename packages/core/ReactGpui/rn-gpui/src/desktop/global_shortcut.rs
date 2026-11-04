@@ -220,7 +220,8 @@ pub fn portal_trigger(keys: &str) -> Result<String, String> {
     if keys.split_whitespace().count() > 1 {
         return Err("a global shortcut cannot be a chord".to_string());
     }
-    let keystroke = gpui::Keystroke::parse(keys).map_err(|error| error.to_string())?;
+    let keystroke = gpui::Keystroke::parse_with_os(keys, crate::desktop::keymap::host_os())
+        .map_err(|error| error.to_string())?;
     if keystroke.modifiers.function {
         return Err("a global shortcut cannot use the fn key".to_string());
     }
@@ -303,7 +304,8 @@ fn hotkey_for(keys: &str) -> Result<HotKey, String> {
     if keys.split_whitespace().count() > 1 {
         return Err("a global shortcut cannot be a chord".to_string());
     }
-    let keystroke = gpui::Keystroke::parse(keys).map_err(|error| error.to_string())?;
+    let keystroke = gpui::Keystroke::parse_with_os(keys, crate::desktop::keymap::host_os())
+        .map_err(|error| error.to_string())?;
     let mut modifiers = Modifiers::empty();
     if keystroke.modifiers.control {
         modifiers |= Modifiers::CONTROL;

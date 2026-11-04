@@ -38,7 +38,6 @@ impl PointerButton {
                 NavigationDirection::Back => PointerButton::Back,
                 NavigationDirection::Forward => PointerButton::Forward,
             }),
-            _ => None,
         }
     }
 
@@ -238,7 +237,6 @@ mod hover_tests {
     /// Mounts a pointer area filling the window, draws one frame, then moves the
     /// pointer to `position` and reads what the listener saw.
     fn move_pointer(cx: &mut gpui::TestAppContext, handlers: PointerHandlers, x: f32, y: f32) {
-        use gpui::prelude::*;
         let window = cx.open_window(gpui::size(gpui::px(200.0), gpui::px(200.0)), move |_, _| {
             HoverProbe {
                 handlers: RefCell::new(Some(handlers)),
@@ -284,7 +282,6 @@ mod hover_tests {
         // listener, and GPUI registers fresh listeners on every paint, so a
         // repaint reset it to `false` and the leave edge was never seen — the
         // hovered state stayed on forever.
-        use gpui::prelude::*;
         let (seen, handler) = recorder();
         let handlers = PointerHandlers {
             hover: vec![handler],
@@ -297,7 +294,7 @@ mod hover_tests {
         });
         window
             .update(cx, |_, window, app| {
-                let mut draw_and_move = |window: &mut gpui::Window, app: &mut gpui::App, x, y| {
+                let draw_and_move = |window: &mut gpui::Window, app: &mut gpui::App, x, y| {
                     let needs_clear = window.draw(app);
                     needs_clear.clear(app);
                     window.dispatch_event(
