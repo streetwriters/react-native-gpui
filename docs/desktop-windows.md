@@ -140,13 +140,16 @@ Linux has no application menu bar of its own, so the menu from [`Menu`](desktop-
 
 Check `capabilities().windowPosition`, `capabilities().alwaysOnTop` and `capabilities().visibleOnAllWorkspaces` before offering a control that depends on them.
 
-### Launcher windows on Wayland
+### Launcher windows on Linux
 
-Wayland will not let an app place a window, so a palette would open wherever the compositor likes: the top-left corner on GNOME 46, for one. A window with a [`'none'` title bar](desktop-title-bar) and a `'transparent'` or `'blurred'` background, opened without `x` and `y`, is therefore drawn in the middle of a transparent window that covers the work area. The compositor puts that window on the monitor it chooses for a new window, which is normally the one in use, and the palette is centred on it.
+A window with a [`'none'` title bar](desktop-title-bar) and a `'transparent'` or `'blurred'` background, opened without `x` and `y`, is a launcher or a palette. On Linux it is centred, it closes when it loses focus, and on X11 it stays out of the taskbar and the pager.
 
-Only the palette takes clicks. A click anywhere else goes to the window or the desktop underneath. The window closes when it loses focus, as when the user switches window with Alt+Tab or clicks another app, because it cannot stay above the window that took focus and would be left behind it, invisible.
+Closing on focus loss covers a click on another window, Alt+Tab and a click on the desktop. The window is closed, not hidden, so open it again when it is wanted.
 
-Two things show that the window is bigger than the palette: `getState()` reports the size of the work area and not of the palette, and the window shows in Alt+Tab and the overview as a blank, screen-sized entry. Pass `x` and `y` to place the window yourself on X11 instead.
+- **X11** centres it exactly, as the window manager is asked to place it. It stays on top if it has `alwaysOnTop`.
+- **Wayland** will not place a window, so a palette would open wherever the compositor likes: the top-left corner on GNOME 46, for one. The palette is drawn in the middle of a transparent window that covers the work area, and the compositor puts that window on the monitor it chooses for a new window, which is normally the one in use. Only the palette takes clicks, and a click anywhere else goes to the window or the desktop underneath. Two things show that the window is bigger than the palette: `getState()` reports the size of the work area, and the window shows in Alt+Tab and the overview as a blank, screen-sized entry.
+
+Pass `x` and `y` to place the window yourself on X11.
 
 ### Resizing
 

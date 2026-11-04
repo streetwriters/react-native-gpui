@@ -571,6 +571,40 @@ mod imp {
         })
     }
 
+    /// Keeps a mapped window out of the taskbar and the pager.
+    pub fn skip_taskbar(window: &mut Window) -> Result<(), String> {
+        // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
+        with_window(window, |xlib, display, id| unsafe {
+            let root = (xlib.XDefaultRootWindow)(display);
+            let atom = |name: &[u8]| (xlib.XInternAtom)(display, name.as_ptr() as *const _, 0);
+            let mut event: xlib::XEvent = std::mem::zeroed();
+            {
+                let message = &mut event.client_message;
+                message.type_ = xlib::ClientMessage;
+                message.display = display;
+                message.window = id;
+                message.message_type = atom(b"_NET_WM_STATE\0");
+                message.format = 32;
+                message.data.set_long(0, 1);
+                message
+                    .data
+                    .set_long(1, atom(b"_NET_WM_STATE_SKIP_TASKBAR\0") as i64);
+                message
+                    .data
+                    .set_long(2, atom(b"_NET_WM_STATE_SKIP_PAGER\0") as i64);
+                message.data.set_long(3, 1);
+            }
+            (xlib.XSendEvent)(
+                display,
+                root,
+                0,
+                xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+                &mut event,
+            );
+            (xlib.XFlush)(display);
+        })
+    }
+
     pub fn set_min_size(window: &mut Window, width: f32, height: f32) -> Result<(), String> {
         // SAFETY: `display` is an open connection and `id` a window id for the whole closure; `with_display` closes the connection afterwards.
         with_window(window, |xlib, display, id| unsafe {

@@ -370,6 +370,17 @@ mod linux {
         /// The windows that draw a frame, by surface id, and their current margin.
         static WINDOWS: RefCell<HashMap<i32, Insets>> = RefCell::new(HashMap::new());
         static PLACEMENTS: RefCell<HashMap<i32, Placement>> = RefCell::new(HashMap::new());
+        static LAUNCHERS: RefCell<std::collections::HashSet<i32>> = RefCell::new(Default::default());
+    }
+
+    /// Records the window of `surface_id` as a launcher, which closes when it
+    /// loses focus.
+    pub fn mark_launcher(surface_id: i32) {
+        LAUNCHERS.with(|launchers| launchers.borrow_mut().insert(surface_id));
+    }
+
+    pub fn is_launcher(surface_id: i32) -> bool {
+        LAUNCHERS.with(|launchers| launchers.borrow().contains(&surface_id))
     }
 
     /// Makes the window of `surface_id` an overlay with the popover placed in it.

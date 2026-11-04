@@ -164,24 +164,30 @@ pub struct OpenWindowOptions {
 }
 
 /// A window that is nothing but its own content (no system chrome, a see-through
-/// background) and asks for no position is a launcher or a palette, which belongs
-/// in the middle of the screen. Wayland will not place a window, so it is drawn
-/// in the middle of a window covering the work area, which the compositor puts on
-/// the monitor it chooses for a new window.
+/// background) and asks for no position is a launcher or a palette: it belongs in
+/// the middle of the screen, and it goes away when the user turns to something
+/// else.
 #[cfg(target_os = "linux")]
-fn launcher_overlay(
-    options: &OpenWindowOptions,
-) -> Option<crate::desktop::window_frame::Placement> {
-    use crate::desktop::popover_placement::{Anchor, Reserved};
-    let launcher = !options.popup
+fn is_launcher(options: &OpenWindowOptions) -> bool {
+    !options.popup
         && options.x.is_none()
         && options.y.is_none()
         && options.title_bar == crate::bootstrap::WindowTitleBar::Borderless
         && !matches!(
             options.background,
             crate::bootstrap::WindowBackground::Opaque
-        );
-    if !launcher || !crate::desktop::capabilities::is_wayland() {
+        )
+}
+
+/// Wayland will not place a window, so a launcher is drawn in the middle of a
+/// window covering the work area, which the compositor puts on the monitor it
+/// chooses for a new window.
+#[cfg(target_os = "linux")]
+fn launcher_overlay(
+    options: &OpenWindowOptions,
+) -> Option<crate::desktop::window_frame::Placement> {
+    use crate::desktop::popover_placement::{Anchor, Reserved};
+    if !is_launcher(options) || !crate::desktop::capabilities::is_wayland() {
         return None;
     }
     Some(crate::desktop::window_frame::Placement {
@@ -232,8 +238,13 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
     #[cfg(target_os = "linux")]
-    if options.overlay.is_none() {
-        options.overlay = launcher_overlay(&options);
+    {
+        if options.overlay.is_none() {
+            options.overlay = launcher_overlay(&options);
+        }
+        if is_launcher(&options) {
+            crate::desktop::window_frame::mark_launcher(surface_id);
+        }
     }
     let framed = crate::desktop::window_frame::wanted(
         matches!(
@@ -364,6 +375,9 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 // is refused there.
                 if !options.popup {
                     let _ = platform_window::set_position(window, placed_origin.0, placed_origin.1);
+                }
+                if is_launcher(&options) {
+                    let _ = platform_window::skip_taskbar(window);
                 }
                 crate::desktop::window_frame::sync(window, surface_id);
                 // A compositor that left the decorations to itself draws no
@@ -1237,16 +1251,14 @@ fn report_activation(
                     false
                 }
             });
-        // A launcher drawn in an overlay cannot stay on top of the window that took
-        // focus, so it would be left behind it, invisible and still open.
+        // A launcher closes when the user turns to another window. On Wayland it
+        // could not stay above that window anyway, and would be left behind it,
+        // invisible and still open.
         #[cfg(target_os = "linux")]
         let is_launcher = cx
             .try_global::<DesktopWindowsGlobal>()
             .and_then(|windows| windows.0.get(key))
-            .is_some_and(|entry| {
-                entry.role != WindowRole::TrayPopover
-                    && crate::desktop::window_frame::placement_of(entry.surface_id).is_some()
-            });
+            .is_some_and(|entry| crate::desktop::window_frame::is_launcher(entry.surface_id));
         #[cfg(not(target_os = "linux"))]
         let is_launcher = false;
         if is_popover || is_launcher {
