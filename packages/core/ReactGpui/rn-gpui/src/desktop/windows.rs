@@ -163,6 +163,41 @@ pub struct OpenWindowOptions {
     pub overlay: Option<crate::desktop::window_frame::Placement>,
 }
 
+/// A window that is nothing but its own content (no system chrome, a see-through
+/// background) and asks for no position is a launcher or a palette, which belongs
+/// in the middle of the screen. Wayland will not place a window, so it is drawn
+/// in the middle of a window covering the work area, which the compositor puts on
+/// the monitor it chooses for a new window.
+#[cfg(target_os = "linux")]
+fn launcher_overlay(
+    options: &OpenWindowOptions,
+) -> Option<crate::desktop::window_frame::Placement> {
+    use crate::desktop::popover_placement::{Anchor, Reserved};
+    let launcher = !options.popup
+        && options.x.is_none()
+        && options.y.is_none()
+        && options.title_bar == crate::bootstrap::WindowTitleBar::Borderless
+        && !matches!(
+            options.background,
+            crate::bootstrap::WindowBackground::Opaque
+        );
+    if !launcher || !crate::desktop::capabilities::is_wayland() {
+        return None;
+    }
+    Some(crate::desktop::window_frame::Placement {
+        anchor: Anchor::Center,
+        offset: (0.0, 0.0),
+        reserved: Reserved::default(),
+        size: (
+            options.width.unwrap_or(800.0).max(120.0),
+            options.height.unwrap_or(600.0).max(120.0),
+        ),
+        click: None,
+        work_origin: (0.0, 0.0),
+        bare: true,
+    })
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WindowRoleOverride {
     #[default]
@@ -196,6 +231,10 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         (windows.alloc_key(), windows.alloc_surface())
     };
     set_custom_title_bar(key, options.title_bar.is_custom());
+    #[cfg(target_os = "linux")]
+    if options.overlay.is_none() {
+        options.overlay = launcher_overlay(&options);
+    }
     let framed = crate::desktop::window_frame::wanted(
         matches!(
             options.background,
@@ -274,7 +313,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         } else {
             options.background.appearance()
         },
-        is_movable: !options.popup,
+        is_movable: !options.popup && overlay.is_none(),
         window_min_size: Some(size(px(120.0), px(120.0))),
         // The tray popover is a normal, undecorated window on every platform,
         // not `WindowKind::PopUp`: GPUI makes that override-redirect on X11, so
@@ -356,7 +395,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
     // something to start a surface from. The popover's own size is known, so the
     // surface starts at that, and `prepare_popover` gives the window the same one.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let (w, h) = if options.popup {
+    let (w, h) = if options.popup || overlay.is_some() {
         (width, height)
     } else {
         (w, h)

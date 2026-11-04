@@ -2623,7 +2623,8 @@ fn framed(
     } else {
         tiling
     };
-    let radius = px(frame.radius);
+    let bare = placement.is_some_and(|placement| placement.bare);
+    let radius = px(if bare { 0.0 } else { frame.radius });
     let round = |element: gpui::Div| {
         element
             .when(!(tiling.top || tiling.left), |element| {
@@ -2646,17 +2647,20 @@ fn framed(
             .overflow_hidden()
             .overflow_clips_corners(),
     )
-    .when(!tiling.is_tiled() && frame.shadow_alpha > 0.0, |element| {
-        element.shadow(vec![gpui::BoxShadow::new(
-            px(0.0),
-            px(frame.shadow_dy),
-            gpui::hsla(0.0, 0.0, 0.0, frame.shadow_alpha),
-        )
-        .blur_radius(px(frame.shadow_blur))
-        .spread_radius(px(frame.shadow_spread))])
-    })
+    .when(
+        !bare && !tiling.is_tiled() && frame.shadow_alpha > 0.0,
+        |element| {
+            element.shadow(vec![gpui::BoxShadow::new(
+                px(0.0),
+                px(frame.shadow_dy),
+                gpui::hsla(0.0, 0.0, 0.0, frame.shadow_alpha),
+            )
+            .blur_radius(px(frame.shadow_blur))
+            .spread_radius(px(frame.shadow_spread))])
+        },
+    )
     .child(content);
-    if !tiling.is_tiled() {
+    if !bare && !tiling.is_tiled() {
         body = body.child(
             round(div().absolute().inset_0())
                 .border_1()

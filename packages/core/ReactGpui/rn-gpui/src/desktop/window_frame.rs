@@ -362,6 +362,8 @@ mod linux {
         /// and where the work area starts on it.
         pub click: Option<(f32, f32)>,
         pub work_origin: (f32, f32),
+        /// The window draws its own look, so the overlay adds no frame to it.
+        pub bare: bool,
     }
 
     thread_local! {

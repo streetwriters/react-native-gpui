@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Wayland a window with a `'none'` title bar and a `'transparent'` or `'blurred'` background, opened with no `x` and `y`, is centred on the monitor the compositor puts it on. Wayland ignores the position the app asks for, so it opened in the top-left corner on GNOME 46. The palette is drawn in the middle of a click-through window over the work area, and `getState()` reports that window's size.
 - On Wayland a click outside a tray popover goes to the window or desktop under the overlay. The overlay took it before and closed the popover with it, so the app behind needed a second click. Only the popover's own area takes input now, and the popover closes when it loses focus.
 - On X11 a window with a `'none'` title bar no longer keeps the window manager's title bar when the window manager cannot leave the decorations to the app (Openbox, and any without `_GTK_FRAME_EXTENTS`). The frame is removed with the Motif hint, so a palette is frameless there, and translucent with a compositing manager.
 - On X11 a window opened with `DesktopWindow.open` is placed at the position asked for, or centred, instead of wherever the window manager puts it (Openbox opened it in the top-left corner).

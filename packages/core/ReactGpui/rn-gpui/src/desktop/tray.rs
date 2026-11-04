@@ -410,6 +410,7 @@ fn wayland_overlay(
         size: (config.width, config.height),
         click: click.filter(|_| work.is_some()),
         work_origin: work.map_or((0.0, 0.0), |work| (work.area.0, work.area.1)),
+        bare: false,
     })
 }
 
