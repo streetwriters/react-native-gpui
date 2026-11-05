@@ -61,7 +61,8 @@ pub fn can_open(url: &str) -> bool {
     let Some(scheme) = scheme_of(url) else {
         return false;
     };
-    let output = if matches!(scheme.as_str(), "http" | "https") {
+    let web = matches!(scheme.as_str(), "http" | "https");
+    let output = if web {
         Command::new("xdg-settings")
             .args(["get", "default-web-browser"])
             .output()
@@ -70,9 +71,20 @@ pub fn can_open(url: &str) -> bool {
             .args(["query", "default", &format!("x-scheme-handler/{scheme}")])
             .output()
     };
-    output
+    let registered = output
         .map(|output| output.status.success() && !output.stdout.iter().all(u8::is_ascii_whitespace))
-        .unwrap_or(false)
+        .unwrap_or(false);
+    registered || web && web_browser_fallback()
+}
+
+/// `xdg-open` opens a web address with `$BROWSER` or the distribution's
+/// `x-www-browser` when no desktop entry is the default browser.
+#[cfg(target_os = "linux")]
+fn web_browser_fallback() -> bool {
+    std::env::var_os("BROWSER").is_some_and(|browser| !browser.is_empty())
+        || std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| dir.join("x-www-browser").is_file())
+        })
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
