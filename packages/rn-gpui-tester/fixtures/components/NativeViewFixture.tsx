@@ -176,7 +176,7 @@ export default function NativeViewFixture({
         {mounted ? (
           scrolled ? (
             <ScrollView testID="native-scroll" style={{ flex: 1 }}>
-              <View style={{ height: 120 }} />
+              <View style={{ height: 300 }} />
               <View style={{ height: 240 }}>{nativeView}</View>
               <View style={{ height: 600 }} />
             </ScrollView>
