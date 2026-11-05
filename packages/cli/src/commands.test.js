@@ -15,6 +15,7 @@ import {
   linuxBuildDependencyProblem,
   metroProjectRoot,
   metroTerminal,
+  runPackager,
   scanNodeAddonCalls,
   scaffoldDesktop,
   stageBundle,
@@ -707,3 +708,43 @@ test('the tray popover position reaches the launch chain', () => {
   );
   expect(auto).not.toContain('popover_anchor_name');
 });
+
+test.skipIf(process.platform === 'win32')(
+  'cargo-packager is run again when hdiutil reports the volume busy',
+  () => {
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'packager-'));
+    const counter = nodePath.join(dir, 'runs');
+    const cargo = nodePath.join(dir, 'cargo');
+    fs.writeFileSync(
+      cargo,
+      `#!/bin/sh\necho x >> "${counter}"\nif [ "$(wc -l < "${counter}")" -lt 3 ]; then echo 'stderr: hdiutil: create failed - Resource busy' >&2; exit 1; fi\n`,
+      { mode: 0o755 },
+    );
+    const path = process.env.PATH;
+    process.env.PATH = `${dir}${nodePath.delimiter}${path}`;
+    const waits = [];
+    try {
+      runPackager(['packager'], {
+        cwd: dir,
+        retryBusyDiskImage: true,
+        wait: ms => waits.push(ms),
+      });
+      expect(waits).toEqual([5000, 10000]);
+      expect(fs.readFileSync(counter, 'utf8').trim().split('\n')).toHaveLength(
+        3,
+      );
+      fs.rmSync(counter);
+      expect(() =>
+        runPackager(['packager'], {
+          cwd: dir,
+          retryBusyDiskImage: true,
+          attempts: 2,
+          wait: () => {},
+        }),
+      ).toThrow(/Command failed/u);
+    } finally {
+      process.env.PATH = path;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

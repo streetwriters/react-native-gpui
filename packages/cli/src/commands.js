@@ -1731,10 +1731,9 @@ export async function packageDesktop({
   fs.writeFileSync(configPath, `${JSON.stringify(packagerConfig, null, 2)}\n`);
 
   ensureCargoPackager();
-  run(
-    'cargo',
+  runPackager(
     ['packager', '--config', 'packager.json', '--formats', formats.join(',')],
-    { cwd: crateDir },
+    { cwd: crateDir, retryBusyDiskImage: formats.includes('dmg') },
   );
 
   fs.rmSync(configPath, { force: true });
@@ -1744,6 +1743,49 @@ export async function packageDesktop({
   copyDebugSymbols({ crateDir, binaryName, outDir: packagerConfig.outDir });
   for (const file of produced) console.log(file);
   return produced;
+}
+
+/**
+ * `hdiutil`, which cargo-packager runs for a dmg, fails with "Resource busy"
+ * while macOS still holds the volume it just wrote (Spotlight, XProtect), and
+ * works a few seconds later.
+ */
+export function isDiskImageBusy(output) {
+  return /hdiutil: create failed - Resource busy/u.test(output);
+}
+
+/**
+ * Runs cargo-packager. A busy disk image is tried again after a short wait; the
+ * output is shown as it arrives only when no retry is possible, because
+ * detecting the failure needs the error stream.
+ */
+export function runPackager(
+  args,
+  { cwd, retryBusyDiskImage = false, attempts = 4, wait = defaultWait } = {},
+) {
+  if (!retryBusyDiskImage) {
+    run('cargo', args, { cwd });
+    return;
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    const result = spawnSync('cargo', args, {
+      cwd,
+      stdio: ['inherit', 'inherit', 'pipe'],
+      encoding: 'utf8',
+    });
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.status === 0) return;
+    if (attempt < attempts && isDiskImageBusy(result.stderr ?? '')) {
+      console.log(`hdiutil was busy; trying again in ${attempt * 5} s`);
+      wait(attempt * 5000);
+      continue;
+    }
+    throw new Error(`Command failed: cargo ${args.join(' ')}`);
+  }
+}
+
+function defaultWait(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
