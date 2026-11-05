@@ -20,9 +20,11 @@ import {
 let app: DesktopApp;
 afterAll(() => app?.disconnect());
 
-// Linux draws its own title bar above the layout, so a window point is the
-// layout point moved down by it.
-const TITLE_BAR = process.platform === 'linux' ? 26 : 0;
+// Where the surface starts in the window: below the in-window menu bar when
+// the host reserves room for one, at the top otherwise.
+async function surfaceTop() {
+  return (await app.menuBarState()).inset;
+}
 // The Xvfb session on Linux CI has no window manager to activate a window or
 // to own the clipboard; what needs either is not verified there.
 const windowActivation = process.platform !== 'linux';
@@ -403,7 +405,10 @@ describe('Transforms', () => {
     expect(red(30, 50)).toBe(false);
     const [area] = await app.query('testID', 'rot-area', true);
     const click = async (x: number, y: number) => {
-      const at = { x: area.frame.x + x, y: area.frame.y + y + TITLE_BAR };
+      const at = {
+        x: area.frame.x + x,
+        y: area.frame.y + y + (await surfaceTop()),
+      };
       await app.mouseDown(at);
       await app.mouseUp(at);
       await app.waitForIdle();
@@ -655,7 +660,7 @@ describe('hitSlop and pressRetentionOffset', () => {
   }
 
   async function click(frame: { x: number; y: number }, x: number, y: number) {
-    const at = { x: frame.x + x, y: frame.y + y + TITLE_BAR };
+    const at = { x: frame.x + x, y: frame.y + y + (await surfaceTop()) };
     await app.mouseDown(at);
     await app.mouseUp(at);
     await app.waitForIdle();
@@ -666,8 +671,9 @@ describe('hitSlop and pressRetentionOffset', () => {
     from: [number, number],
     to: [number, number],
   ) {
-    const start = { x: frame.x + from[0], y: frame.y + from[1] + TITLE_BAR };
-    const end = { x: frame.x + to[0], y: frame.y + to[1] + TITLE_BAR };
+    const top = await surfaceTop();
+    const start = { x: frame.x + from[0], y: frame.y + from[1] + top };
+    const end = { x: frame.x + to[0], y: frame.y + to[1] + top };
     await app.mouseDown(start);
     await app.mouseMove(end, { button: 'left' });
     await app.mouseUp(end);
@@ -828,7 +834,7 @@ describe('Text', () => {
     async () => {
       await reveal('select-text');
       const frame = await box('select-text');
-      const y = frame.y + frame.height / 2 + TITLE_BAR;
+      const y = frame.y + frame.height / 2 + (await surfaceTop());
       await app.setClipboardText('');
       await app.mouseDown({ x: frame.x + 1, y });
       await app.mouseMove(
