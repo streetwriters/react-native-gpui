@@ -49,6 +49,6 @@ react-native-gpui = { path = "../../../packages/core/ReactGpui/rn-gpui" }
 rn-gpui-sys = { path = "../../../packages/core/ReactGpui/rn-gpui-sys" }
 rn-gpui-module = { path = "../../../packages/core/ReactGpui/rn-gpui-module" }
 rn-gpui-module-build = { path = "../../../packages/core/ReactGpui/rn-gpui-module-build" }
-gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "807f4e5" }
-gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "807f4e5" }
+gpui = { git = "https://github.com/streetwriters/gpui-fast", rev = "6a311b9" }
+gpui_platform = { git = "https://github.com/streetwriters/gpui-fast", rev = "6a311b9" }
 # End managed by autolink.

@@ -1329,3 +1329,36 @@ describe.runIf(windowActivation)('with an active window', () => {
     }, 15000);
   });
 });
+
+describe('Image box', () => {
+  const reddish = ([r, g, b]: number[]) => r > 150 && g < 130 && b < 130;
+  const blue = ([r, g, b]: number[]) => r < 60 && g < 60 && b > 200;
+
+  beforeAll(async () => {
+    app.allowErrors(/gpui::asset_cache/);
+    await reveal('image-show');
+    await app.getByTestId('image-show').click();
+  });
+
+  test('fills the border box inside its border and radius', async () => {
+    await reveal('image-boxed');
+    const [node] = await app.query('testID', 'image-boxed', true);
+    expect(node.frame.width).toBe(60);
+    expect(node.frame.height).toBe(60);
+    expect(reddish(await pixel('image-boxed', 0.5, 0.5))).toBe(true);
+    expect(blue(await pixel('image-boxed', 0.04, 0.5))).toBe(true);
+    expect(reddish(await pixel('image-boxed', 0.16, 0.5))).toBe(true);
+  });
+
+  test('follows a size that changes at runtime', async () => {
+    await reveal('image-resized');
+    expect(reddish(await pixel('image-resized', 0.95, 0.5))).toBe(true);
+    await app.getByTestId('image-widen').click();
+    await poll(async () => {
+      const [node] = await app.query('testID', 'image-resized', true);
+      return node.frame.width === 80;
+    });
+    expect(reddish(await pixel('image-resized', 0.95, 0.5))).toBe(true);
+    expect(reddish(await pixel('image-resized', 0.05, 0.5))).toBe(true);
+  });
+});

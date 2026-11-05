@@ -11,9 +11,11 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `807f4e5` (`rn-gpui-linux`, 2026-11-04: `48ef745` merged with longbridge/gpui-fast
-  `main` at `36956df`, which is zed `decd2399b1` plus dynamic textures, rounded clip groups and
-  Windows/Metal fixes, and the follow-ups that merge needed)
+- Commit: `6a311b9` (`rn-gpui-linux`, 2026-11-05: `807f4e5` plus path textures sized to the frame's
+  paths, images decoded at their display size, instance buffer shrinking, one atlas and set of
+  pipelines per Metal or DirectX device, a scroll layer budget that follows the window, CPU
+  colour glyph compositing on Windows, rounded clips kept inside effect groups, and the named GPU
+  adapter tried first on Linux)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
   `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and

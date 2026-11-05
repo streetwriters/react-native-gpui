@@ -55,6 +55,7 @@ export default function CoreComponentsFixture() {
   const [imagePrefetch, setImagePrefetch] = useState('none');
   const [showImages, setShowImages] = useState(false);
   const [showStyled, setShowStyled] = useState(false);
+  const [wideImage, setWideImage] = useState(false);
   const [intervalOffset, setIntervalOffset] = useState('');
   const [scrollLog, setScrollLog] = useState('');
   const [normalFlick, setNormalFlick] = useState('0|');
@@ -627,6 +628,21 @@ export default function CoreComponentsFixture() {
             >
               measure
             </Text>
+            <Image
+              testID="image-boxed"
+              source={{ uri: RED_2X3 }}
+              resizeMode="stretch"
+              style={styles.imageBoxed}
+            />
+            <Image
+              testID="image-resized"
+              source={{ uri: RED_2X3 }}
+              resizeMode="stretch"
+              style={{ width: wideImage ? 80 : 40, height: 40 }}
+            />
+            <Text testID="image-widen" onPress={() => setWideImage(true)}>
+              widen
+            </Text>
             <Text testID="image-size">{imageSize}</Text>
             <Text testID="image-prefetch">{imagePrefetch}</Text>
           </>
@@ -1121,6 +1137,14 @@ const styles = StyleSheet.create({
   clipChild: { width: 60, height: 60, backgroundColor: '#ff0000' },
   swatch: { width: 40, height: 40 },
   imageSample: { width: 40, height: 40, backgroundColor: '#ddd' },
+  imageBoxed: {
+    width: 60,
+    height: 60,
+    borderWidth: 6,
+    borderColor: '#0000ff',
+    padding: 10,
+    borderRadius: 12,
+  },
   pager: {
     height: 100,
     width: 200,

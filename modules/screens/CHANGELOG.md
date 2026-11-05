@@ -4,7 +4,7 @@ All notable changes to `@react-native-gpui/screens` are listed here. Each versio
 
 ## Unreleased
 
-- Builds against gpui-fast `807f4e5`, which needs Rust 1.98 or newer.
+- Builds against gpui-fast `6a311b9`, which needs Rust 1.98 or newer.
 
 ## 4.28.0-alpha.0 - 2026-11-01
 

@@ -14,7 +14,7 @@ impl ComponentRenderer for ImageRenderer {
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<AnyElement> {
-        paint(&node.props)
+        paint(&node.props, (node.frame.w, node.frame.h))
     }
 
     fn render(
@@ -93,7 +93,7 @@ fn tiled(uri: String, tint: u32, blur: f32) -> AnyElement {
     .into_any_element()
 }
 
-fn paint(props: &Value) -> Option<AnyElement> {
+fn paint(props: &Value, size: (f32, f32)) -> Option<AnyElement> {
     let uri = props.get("uri")?.as_str()?;
     let resize_mode = props.get("resizeMode").and_then(Value::as_str);
     let tint = props.get("tintColor").and_then(Value::as_u64).unwrap_or(0) as u32;
@@ -126,7 +126,14 @@ fn paint(props: &Value) -> Option<AnyElement> {
                 .unwrap_or_else(|| gpui::Empty.into_any_element())
         });
     }
-    Some(image.size_full().object_fit(fit).into_any_element())
+    // The node's size in points, not 100%: the decoder reads it before the
+    // image has loaded to know how big a picture to make.
+    let image = if size.0 > 0.0 && size.1 > 0.0 {
+        image.w(gpui::px(size.0)).h(gpui::px(size.1))
+    } else {
+        image.size_full()
+    };
+    Some(image.object_fit(fit).into_any_element())
 }
 
 pub fn register() {
