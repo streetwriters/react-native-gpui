@@ -19,10 +19,10 @@ pub fn window_icon(action: &str, color: &str) -> Option<String> {
         return None;
     }
     let file = find_icon(&format!("window-{action}-symbolic.svg"))?;
-    let svg = recolored(&std::fs::read_to_string(file).ok()?, color);
+    let icon = recolored(&std::fs::read_to_string(file).ok()?, color);
     Some(format!(
         "data:image/svg+xml;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(svg)
+        base64::engine::general_purpose::STANDARD.encode(icon)
     ))
 }
 
@@ -139,8 +139,8 @@ fn kde_theme() -> Option<String> {
 
 /// Paints every fill of a symbolic icon in `color`, in attributes and in `style`
 /// declarations, and gives the root a fill for shapes that have none.
-fn recolored(svg: &str, color: &str) -> String {
-    let mut out = replace_values(svg, "fill=\"", '"', color);
+fn recolored(source: &str, color: &str) -> String {
+    let mut out = replace_values(source, "fill=\"", '"', color);
     out = replace_values(&out, "fill:", ';', color);
     match out.find("<svg") {
         Some(at) => {
@@ -179,8 +179,8 @@ mod tests {
 
     #[test]
     fn every_fill_takes_the_colour_but_none() {
-        let svg = r#"<svg viewBox="0 0 16 16"><path d="m0 0" fill="gray" style="fill-rule:evenodd;fill:#808080;stroke:none"/><path fill="none"/></svg>"#;
-        let out = recolored(svg, "#fff");
+        let source = r#"<svg viewBox="0 0 16 16"><path d="m0 0" fill="gray" style="fill-rule:evenodd;fill:#808080;stroke:none"/><path fill="none"/></svg>"#;
+        let out = recolored(source, "#fff");
         assert!(out.starts_with(r##"<svg fill="#fff" viewBox"##));
         assert!(out.contains(r##"fill="#fff" style"##));
         assert!(out.contains("fill:#fff;stroke:none"));

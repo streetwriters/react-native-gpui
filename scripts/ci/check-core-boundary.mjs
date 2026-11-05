@@ -46,8 +46,10 @@ export const ALLOW_LIST = [
   { name: 'RN_GPUI_SCREENSHOT' },
   { name: 'RN_GPUI_SCREENSHOT_DELAY_MS' },
   { name: 'RN_GPUI_SCREENSHOTS' },
-  { name: 'svg', line: /["']svg["']|svg\+xml|ImageFormat::Svg/u },
-  { name: 'Svg', line: /ImageFormat::Svg/u },
+  {
+    name: 'svg',
+    line: /["']svg["']|svg\+xml|ImageFormat::Svg|\.svg|<svg|SVG data URI/u,
+  },
 ];
 
 const ALLOWED = new Map(
