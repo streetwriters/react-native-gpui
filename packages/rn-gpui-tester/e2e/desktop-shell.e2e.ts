@@ -159,10 +159,17 @@ test('the caption buttons are the native WindowControl component', async () => {
   await app.waitForIdle();
   expect(await textOf('desktop-window-count')).toBe('open windows: 2');
 
-  // Each must resolve, which it can only do if the component rendered.
+  // Each must resolve, which it can only do if the component rendered. A Linux
+  // desktop shows the buttons its own layout names (GNOME's default is just
+  // `close`), so there only the close button is certain.
   for (const action of ['minimize', 'maximize', 'close']) {
     const button = app.getByTestId(`titlebar-${action}`);
-    expect(await button.count()).toBe(1);
+    const count = await button.count();
+    if (process.platform === 'linux' && action !== 'close') {
+      expect(count).toBeLessThanOrEqual(1);
+    } else {
+      expect(count).toBe(1);
+    }
   }
 
   // Rendering alone would pass with a descriptor and no props reader. The probe
