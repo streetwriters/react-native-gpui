@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.1 - 2026-11-05
 
 - Scrolling a list or `ScrollView` in a window the app decorates itself on Linux (a title bar with caption buttons) is composited from cached tiles again. The window is transparent for its shadow, and the scroll layer refused to cache content over a transparent window even where an opaque panel covered it, so every row was rebuilt on every frame.
 - Images decode at the size they are shown and keep only their encoded bytes, so a screen of large photos no longer holds every full-size bitmap (a grid of 24 photos of 4000 x 3000 went from about 3 GB to 0.6 GB on macOS). `Image` is sized from its layout frame.
