@@ -11,7 +11,7 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main`;
   Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `797681a` (`rn-gpui-linux`, 2026-11-05: `807f4e5` plus scroll layers in a transparent window (a client-decorated one), plus path textures sized to the frame's
+- Commit: `9e455ae` (`rn-gpui-linux`, 2026-11-05: `807f4e5` plus scroll layers in a transparent window off Metal (a client-decorated one on Linux), plus path textures sized to the frame's
   paths, images decoded at their display size, instance buffer shrinking, one atlas and set of
   pipelines per Metal or DirectX device, a scroll layer budget that follows the window, CPU
   colour glyph compositing on Windows, rounded clips kept inside effect groups, and the named GPU
