@@ -1731,9 +1731,9 @@ export async function packageDesktop({
   fs.writeFileSync(configPath, `${JSON.stringify(packagerConfig, null, 2)}\n`);
 
   ensureCargoPackager();
-  runPackager(
+  await runPackager(
     ['packager', '--config', 'packager.json', '--formats', formats.join(',')],
-    { cwd: crateDir, retryBusyDiskImage: formats.includes('dmg') },
+    { cwd: crateDir },
   );
 
   fs.rmSync(configPath, { force: true });
@@ -1746,38 +1746,48 @@ export async function packageDesktop({
 }
 
 /**
- * `hdiutil`, which cargo-packager runs for a dmg, fails with "Resource busy"
- * while macOS still holds the volume it just wrote (Spotlight, XProtect), and
- * works a few seconds later.
+ * Failures of cargo-packager that a second try gets past: `hdiutil`, which it
+ * runs for a dmg, reports "Resource busy" while macOS still holds the volume it
+ * just wrote, and the installers it downloads (NSIS and its plugins, the
+ * AppImage tools) come from servers that answer 5xx or time out now and then.
  */
-export function isDiskImageBusy(output) {
-  return /hdiutil: create failed - Resource busy/u.test(output);
+export function isTransientPackagerFailure(output) {
+  return (
+    /hdiutil: create failed - Resource busy/u.test(output) ||
+    /status code (5\d\d|429)\b/u.test(output) ||
+    /(timed out|connection (reset|refused|closed|failed))/iu.test(output)
+  );
 }
 
 /**
- * Runs cargo-packager. A busy disk image is tried again after a short wait; the
- * output is shown as it arrives only when no retry is possible, because
- * detecting the failure needs the error stream.
+ * Runs cargo-packager and runs it again, up to `attempts` times with a growing
+ * pause, when it failed in a way `isTransientPackagerFailure` names. Its error
+ * stream is shown as it arrives.
  */
-export function runPackager(
+export async function runPackager(
   args,
-  { cwd, retryBusyDiskImage = false, attempts = 4, wait = defaultWait } = {},
+  { cwd, attempts = 4, wait = defaultWait } = {},
 ) {
-  if (!retryBusyDiskImage) {
-    run('cargo', args, { cwd });
-    return;
-  }
   for (let attempt = 1; ; attempt += 1) {
-    const result = spawnSync('cargo', args, {
-      cwd,
-      stdio: ['inherit', 'inherit', 'pipe'],
-      encoding: 'utf8',
+    const { status, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn('cargo', args, {
+        cwd,
+        stdio: ['inherit', 'inherit', 'pipe'],
+      });
+      let text = '';
+      child.stderr.on('data', chunk => {
+        process.stderr.write(chunk);
+        text += chunk.toString();
+      });
+      child.on('error', reject);
+      child.on('close', code => resolve({ status: code, stderr: text }));
     });
-    if (result.stderr) process.stderr.write(result.stderr);
-    if (result.status === 0) return;
-    if (attempt < attempts && isDiskImageBusy(result.stderr ?? '')) {
-      console.log(`hdiutil was busy; trying again in ${attempt * 5} s`);
-      wait(attempt * 5000);
+    if (status === 0) return;
+    if (attempt < attempts && isTransientPackagerFailure(stderr)) {
+      console.log(
+        `cargo packager hit a passing failure; trying again in ${attempt * 5} s`,
+      );
+      await wait(attempt * 5000);
       continue;
     }
     throw new Error(`Command failed: cargo ${args.join(' ')}`);
@@ -1785,7 +1795,7 @@ export function runPackager(
 }
 
 function defaultWait(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
