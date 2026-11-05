@@ -105,6 +105,29 @@ test.skipIf(!probeOs)(
   },
 );
 
+test.skipIf(!probeOs)(
+  'a node stops being hovered when the pointer moves onto a native view',
+  async () => {
+    await launch('NativeViewFixture');
+    const [toggle] = await app.query('testID', 'native-scroll-toggle', true);
+    await app.hover((toggle as { tag: number }).tag);
+    await app.waitForIdle();
+    expect(await app.getByTestId('native-hover').textContent()).toBe(
+      'hover:true',
+    );
+    const host = await frameOf('native-view-host');
+    const { inset } = await app.menuBarState();
+    await app.mouseMove({
+      x: host.x + host.width / 2,
+      y: host.y + host.height / 2 + inset,
+    });
+    await app.waitForIdle();
+    expect(await app.getByTestId('native-hover').textContent()).toBe(
+      'hover:false',
+    );
+  },
+);
+
 test.skipIf(!probeOs)('a native view follows a scroll', async () => {
   await launch('NativeViewFixture');
   await click('native-scroll-toggle');

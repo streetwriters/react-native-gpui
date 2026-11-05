@@ -20,15 +20,19 @@ function Button({
   testID,
   label,
   onPress,
+  onHover,
 }: {
   testID: string;
   label: string;
   onPress: () => void;
+  onHover?: (hovered: boolean) => void;
 }) {
   return (
     <Pressable
       testID={testID}
       onPress={onPress}
+      onHoverIn={onHover && (() => onHover(true))}
+      onHoverOut={onHover && (() => onHover(false))}
       style={{
         padding: 10,
         backgroundColor: '#5865f2',
@@ -54,6 +58,7 @@ export default function NativeViewFixture({
   const [orange, setOrange] = useState(false);
   const [second, setSecond] = useState(false);
   const [counts, setCounts] = useState('no report');
+  const [hovered, setHovered] = useState(false);
   const [events, setEvents] = useState<string[]>([]);
   const probe = useRef<React.ElementRef<FixtureNativeProbeType>>(null);
   const web = useRef<React.ElementRef<FixtureWebViewType>>(null);
@@ -122,6 +127,7 @@ export default function NativeViewFixture({
           testID="native-scroll-toggle"
           label={scrolled ? 'Unscroll' : 'Scroll'}
           onPress={() => setScrolled(value => !value)}
+          onHover={setHovered}
         />
         {webView ? (
           <>
@@ -158,6 +164,9 @@ export default function NativeViewFixture({
       </View>
       <Text testID="native-status" style={{ color: '#fff' }}>
         {webView ? events.join(',') : counts}
+      </Text>
+      <Text testID="native-hover" style={{ color: '#fff' }}>
+        {`hover:${hovered}`}
       </Text>
       <View testID="native-area" style={{ flex: 1 }}>
         {underlay ? (

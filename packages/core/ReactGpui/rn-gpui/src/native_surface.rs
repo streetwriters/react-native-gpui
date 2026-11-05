@@ -502,12 +502,24 @@ impl Element for NativeSurfaceElement {
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&gpui::InspectorElementId>,
-        _bounds: Bounds<gpui::Pixels>,
+        bounds: Bounds<gpui::Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _prepaint: &mut Self::PrepaintState,
-        _window: &mut Window,
+        window: &mut Window,
         _cx: &mut App,
     ) {
+        // Over the native view the pointer belongs to it, so the nodes under it
+        // hear nothing more and the one the pointer came from stays hovered.
+        let surface = self.surface.clone();
+        window.on_mouse_event(move |event: &gpui::MouseMoveEvent, phase, window, cx| {
+            if phase == gpui::DispatchPhase::Capture
+                && event.pressed_button.is_none()
+                && surface.is_visible()
+                && bounds.contains(&event.position)
+            {
+                crate::events::leave_root(window, cx);
+            }
+        });
     }
 }
 
