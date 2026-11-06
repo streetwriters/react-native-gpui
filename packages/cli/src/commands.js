@@ -571,7 +571,14 @@ export async function runDesktop({
     projectRoot,
     path.join(desktopRoot, 'autolink/autolink.json'),
   );
-  const cargoArgs = [noLaunch ? 'build' : 'run'];
+  // Each build of an ad-hoc signed binary is a new app to the keychain, which
+  // then asks again for every item the app stored. Signed with a certificate
+  // under the app's identifier, every build is the same app.
+  const signingIdentity =
+    process.platform === 'darwin' && !packaging && !noLaunch
+      ? process.env.APPLE_SIGNING_IDENTITY
+      : undefined;
+  const cargoArgs = [noLaunch || signingIdentity ? 'build' : 'run'];
   if (release) cargoArgs.push('--release');
   const cargoFeatures = (features ?? '')
     .split(',')
@@ -623,7 +630,7 @@ export async function runDesktop({
       env: cargoEnv,
       targetDir,
     });
-    if (!noLaunch) {
+    if (!noLaunch && !signingIdentity) {
       run('cargo', cargoArgs, { cwd: projectRoot, env: cargoEnv });
     }
   } else {
@@ -631,6 +638,29 @@ export async function runDesktop({
       cwd: projectRoot,
       env: cargoEnv,
     });
+  }
+  if (signingIdentity) {
+    const targetDir = cargoTargetDirectory(appCargoManifest, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+    if (!targetDir)
+      throw new Error('cargo did not report its target directory');
+    const binary = path.join(
+      targetDir,
+      release ? 'release' : 'debug',
+      desktopCrateName(desktopRoot),
+    );
+    const { identifier } = loadDesktopConfig(projectRoot, process.platform);
+    run('codesign', [
+      '--force',
+      '--sign',
+      signingIdentity,
+      '--identifier',
+      identifier,
+      binary,
+    ]);
+    run(binary, [], { cwd: projectRoot, env: cargoEnv });
   }
 
   // The file the runtime was told to load: the engine's compiled output in a

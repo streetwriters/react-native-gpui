@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- `run-desktop` on macOS signs the app with `APPLE_SIGNING_IDENTITY` when it is set, so the keychain keeps the access it granted across rebuilds instead of asking for every item again.
+
 ## 0.87.0-alpha.1 - 2026-11-05
 
 - `package-desktop` tries `cargo packager` again, up to four times with a growing pause, when it fails because `hdiutil` reports `create failed - Resource busy` while building a disk image, or because a download it needs answers with a 5xx status or times out. Packaging failed at random on these.

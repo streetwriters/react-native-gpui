@@ -61,6 +61,13 @@ npx react-native run-desktop --release
 | `--terminal <app>`    | The terminal app Metro opens in. Defaults to `$REACT_TERMINAL`, then the platform default. |
 | `--packager-log`      | Runs Metro in the background and logs to `desktop/build/metro.log`.                        |
 
+On macOS, each build is signed ad hoc, and the keychain treats every rebuilt app as a new one: it asks again for each item the app stored. Set `APPLE_SIGNING_IDENTITY` to a signing identity, such as your Apple Development certificate, and `run-desktop` signs the app with it under the identifier from `desktop.json`. Choose "Always Allow" once and later builds keep that access.
+
+```shell
+security find-identity -v -p codesigning
+APPLE_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" npx react-native run-desktop
+```
+
 ## package-desktop
 
 Builds installable packages for the current operating system. See [Publishing your app](publishing-desktop).
