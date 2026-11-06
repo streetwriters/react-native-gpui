@@ -9,13 +9,13 @@ so we pin by commit SHA and bump on purpose.
 ## Pinned
 
 - Repository: https://github.com/streetwriters/gpui-fast
-- Branch: `rn-gpui-linux` (tracks upstream `main`;
-  Linux fixes are commits on top so each one can become an upstream pull request)
-- Commit: `9e455ae` (`rn-gpui-linux`, 2026-11-05: `807f4e5` plus scroll layers in a transparent window off Metal (a client-decorated one on Linux), plus path textures sized to the frame's
-  paths, images decoded at their display size, instance buffer shrinking, one atlas and set of
-  pipelines per Metal or DirectX device, a scroll layer budget that follows the window, CPU
-  colour glyph compositing on Windows, rounded clips kept inside effect groups, and the named GPU
-  adapter tried first on Linux)
+- Branch: `notesnook-rendering` (`rn-gpui-linux`, which tracks upstream `main` with Linux fixes on
+  top so each one can become an upstream pull request, plus fixes for content drawn under a
+  transform)
+- Commit: `f64287a` (`notesnook-rendering`, 2026-11-07: `9e455ae` from `rn-gpui-linux` plus content
+  masks carried into a transformed space, layers ordered where they land on screen, also when
+  replayed or rebuilt around a rounded clip, and a view drawn under a transform built with the
+  view around it)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
   `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and
