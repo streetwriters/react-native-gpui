@@ -5,10 +5,14 @@
 import * as React from 'react';
 import View from '../View/View';
 import StyleSheet from '../../StyleSheet/StyleSheet';
-import { useWindowState } from '@react-native-gpui/core/desktop';
+import { useDesktopWindowId } from '@react-native-gpui/core/desktop';
+import { useWindowStateSelector } from '@react-native-gpui/core/src-gpui/src/private/desktop/windows';
 
 const SafeAreaView = React.forwardRef(function SafeAreaView(props, ref) {
-  const inset = useWindowState()?.topInset ?? 0;
+  const inset = useWindowStateSelector(
+    useDesktopWindowId(),
+    state => state?.topInset ?? 0,
+  );
   if (inset === 0) {
     return <View {...props} ref={ref} />;
   }

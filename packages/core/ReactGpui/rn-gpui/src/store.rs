@@ -21,6 +21,9 @@ pub(crate) fn benchmark_mode() -> Option<&'static str> {
 pub const APP_SURFACE_ID: i32 = 1;
 
 pub struct StoreGlobal(pub Entity<ViewStore>);
+
+/// How often a surface is sent a new size during a live resize.
+const RESIZE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 impl Global for StoreGlobal {}
 
 /// The queue every host component report goes into, and the store's one
@@ -92,6 +95,10 @@ pub struct ViewStore {
     pub navigation_keyboard_subscription: Option<Subscription>,
     /// Every host component report waiting to be applied, in order.
     pub(crate) host_reports: HostReportQueue,
+    /// When each surface was last sent a size.
+    resizes_in_flight: HashMap<i32, std::time::Instant>,
+    /// The latest size of each surface held back until then.
+    pending_resizes: HashMap<i32, (f32, f32, f32)>,
 }
 
 impl ViewStore {
@@ -127,6 +134,8 @@ impl ViewStore {
             window_appearance_subscription: None,
             navigation_keyboard_subscription: None,
             host_reports: std::rc::Rc::new(crate::host_component::HostReports::default()),
+            resizes_in_flight: HashMap::new(),
+            pending_resizes: HashMap::new(),
         }
     }
 
@@ -312,7 +321,19 @@ impl ViewStore {
         }
     }
 
-    pub fn resize_window(&mut self, window: AnyWindowHandle, width: f32, height: f32, scale: f32) {
+    /// Sizes each surface of `window`. A live resize reports a size every
+    /// frame, faster than React commits the layout of a large tree, and the
+    /// queued commits trip React's nested update limit; so a surface gets a
+    /// new size at most every [`RESIZE_INTERVAL`], and the latest one waits
+    /// for the end of it.
+    pub fn resize_window(
+        &mut self,
+        window: AnyWindowHandle,
+        width: f32,
+        height: f32,
+        scale: f32,
+        cx: &mut Context<Self>,
+    ) {
         // Per surface, not per call: the menu bar can be hidden in one window and
         // shown in another, so the inset has to follow the window the surface
         // belongs to.
@@ -323,11 +344,57 @@ impl ViewStore {
                 - frame.vertical()
                 - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32))
             .max(1.0);
-            log::info!(
-                "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
-            );
-            self.host.set_surface_size(surface_id, width, height, scale);
+            let busy = self
+                .resizes_in_flight
+                .get(&surface_id)
+                .is_some_and(|sent| sent.elapsed() < RESIZE_INTERVAL);
+            if busy {
+                let waiting = self
+                    .pending_resizes
+                    .insert(surface_id, (width, height, scale))
+                    .is_some();
+                if !waiting {
+                    self.flush_resize_later(surface_id, cx);
+                }
+                continue;
+            }
+            self.send_surface_size(surface_id, width, height, scale);
         }
+    }
+
+    fn send_surface_size(&mut self, surface_id: i32, width: f32, height: f32, scale: f32) {
+        log::info!(
+            "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
+        );
+        self.pending_resizes.remove(&surface_id);
+        self.resizes_in_flight
+            .insert(surface_id, std::time::Instant::now());
+        self.host.set_surface_size(surface_id, width, height, scale);
+    }
+
+    /// Sends the size held back for `surface_id`, if any.
+    fn flush_resize(&mut self, surface_id: i32) {
+        self.resizes_in_flight.remove(&surface_id);
+        if let Some((width, height, scale)) = self.pending_resizes.remove(&surface_id) {
+            self.send_surface_size(surface_id, width, height, scale);
+        }
+    }
+
+    /// Sends the size held back for `surface_id` once the interval is over.
+    fn flush_resize_later(&mut self, surface_id: i32, cx: &mut Context<Self>) {
+        cx.spawn(async move |store, cx| {
+            cx.background_executor().timer(RESIZE_INTERVAL).await;
+            let _ = store.update(cx, |store, _cx| {
+                let expired = store
+                    .resizes_in_flight
+                    .get(&surface_id)
+                    .is_none_or(|sent| sent.elapsed() >= RESIZE_INTERVAL);
+                if expired {
+                    store.flush_resize(surface_id);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Carries `native` more native surfaces and `effects` more nodes painted

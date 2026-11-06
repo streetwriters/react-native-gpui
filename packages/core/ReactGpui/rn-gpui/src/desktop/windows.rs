@@ -654,10 +654,10 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
                 f32::from(bounds.size.width),
                 f32::from(bounds.size.height),
             );
-            if last.get() == Some(now) {
+            let previous = last.replace(Some(now));
+            if previous == Some(now) {
                 return;
             }
-            last.set(Some(now));
             super::window_mirror::patch(
                 key,
                 &[
@@ -676,14 +676,7 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
             if key == MAIN_WINDOW_KEY {
                 super::display::report(window, cx, &host);
             }
-            host.emit_device_event_json(
-                "gpuiDesktop:windowResize",
-                &json!({"windowId": key, "width": now.2, "height": now.3}).to_string(),
-            );
-            host.emit_device_event_json(
-                "gpuiDesktop:windowMove",
-                &json!({"windowId": key, "x": now.0, "y": now.1}).to_string(),
-            );
+            emit_geometry(&host, key, previous, now);
         })
         .detach();
         install_activation_observer(window, cx, key).detach();
@@ -1083,17 +1076,17 @@ fn install_bounds_observer(
             let _ = surface_id;
             false
         };
-        if !frame_changed && last.get() == Some((x, y, width, height)) {
+        let previous = last.replace(Some((x, y, width, height)));
+        if !frame_changed && previous == Some((x, y, width, height)) {
             return;
         }
-        last.set(Some((x, y, width, height)));
         let handle: AnyWindowHandle = window.window_handle().into();
         let Some(store) = cx.try_global::<StoreGlobal>() else {
             return;
         };
         let store = store.0.clone();
-        store.update(cx, |store, _cx| {
-            store.resize_window(handle, width, height, scale)
+        store.update(cx, |store, cx| {
+            store.resize_window(handle, width, height, scale, cx)
         });
         let frame_hook = store.read(cx).frame_hook.clone();
         frame_hook.arm(window);
@@ -1115,16 +1108,33 @@ fn install_bounds_observer(
                 ],
             );
             let host = store.read(cx).host.clone();
-            host.emit_device_event_json(
-                "gpuiDesktop:windowResize",
-                &json!({"windowId": key, "width": width, "height": height}).to_string(),
-            );
-            host.emit_device_event_json(
-                "gpuiDesktop:windowMove",
-                &json!({"windowId": key, "x": x, "y": y}).to_string(),
-            );
+            emit_geometry(&host, key, previous, (x, y, width, height));
         }
     })
+}
+
+/// Sends `windowResize` and `windowMove` for what changed between two
+/// `(x, y, width, height)` bounds: a drag only moves, a resize from the
+/// bottom-right edge only resizes.
+fn emit_geometry(
+    host: &crate::host::Host,
+    key: u32,
+    previous: Option<(f32, f32, f32, f32)>,
+    now: (f32, f32, f32, f32),
+) {
+    let (x, y, width, height) = now;
+    if previous.is_none_or(|(_, _, w, h)| (w, h) != (width, height)) {
+        host.emit_device_event_json(
+            "gpuiDesktop:windowResize",
+            &json!({"windowId": key, "width": width, "height": height}).to_string(),
+        );
+    }
+    if previous.is_none_or(|(px, py, _, _)| (px, py) != (x, y)) {
+        host.emit_device_event_json(
+            "gpuiDesktop:windowMove",
+            &json!({"windowId": key, "x": x, "y": y}).to_string(),
+        );
+    }
 }
 
 pub(crate) fn window_key_for_handle(cx: &gpui::App, handle: AnyWindowHandle) -> Option<u32> {

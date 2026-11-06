@@ -37,6 +37,14 @@ class GpuiFeatureFlagsOverrides
   bool shouldPressibilityUseW3CPointerEventsForHover() override {
     return true;
   }
+
+  // Events without a priority of their own, such as onLayout, render at
+  // default priority instead of synchronously. A live resize fires them every
+  // frame, and as sync work they keep React committing until it trips its
+  // nested update limit.
+  bool fixMappingOfEventPrioritiesBetweenFabricAndReact() override {
+    return true;
+  }
 };
 
 struct GpuiJsEngineInfo {

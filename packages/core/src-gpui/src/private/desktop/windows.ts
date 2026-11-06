@@ -7,7 +7,7 @@
  * @format
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import NativeGpuiWindows from '../specs/NativeGpuiWindows';
 import { nativeRequest } from './index';
@@ -280,6 +280,23 @@ function readStateSync(windowId: number): WindowState | null {
   }
 }
 
+function sameState(a: WindowState | null, b: WindowState | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.windowId === b.windowId &&
+    a.bounds.x === b.bounds.x &&
+    a.bounds.y === b.bounds.y &&
+    a.bounds.width === b.bounds.width &&
+    a.bounds.height === b.bounds.height &&
+    a.isMaximized === b.isMaximized &&
+    a.isFullscreen === b.isFullscreen &&
+    a.isFocused === b.isFocused &&
+    a.isMinimized === b.isMinimized &&
+    a.scaleFactor === b.scaleFactor &&
+    a.topInset === b.topInset
+  );
+}
+
 /**
  * The state of a window, kept current as it moves, resizes, changes state,
  * gains or loses focus. The first render already has real values; `null` only
@@ -287,21 +304,54 @@ function readStateSync(windowId: number): WindowState | null {
  */
 export function useWindowState(windowIdOverride?: number): WindowState | null {
   const contextId = useDesktopWindowId();
-  const windowId = windowIdOverride ?? contextId;
-  const [state, setState] = useState(() => readStateSync(windowId));
+  return useWindowStateSelector(
+    windowIdOverride ?? contextId,
+    state => state,
+    sameState,
+  );
+}
+
+/**
+ * A value derived from a window's state. It re-renders only when the value
+ * changes, so a field that a drag or resize leaves alone costs nothing while
+ * the window moves. A `null` window is not subscribed to.
+ */
+export function useWindowStateSelector<T>(
+  windowId: number | null,
+  select: (state: WindowState | null) => T,
+  equal: (a: T, b: T) => boolean = Object.is,
+): T {
+  const [value, setValue] = useState(() =>
+    select(windowId === null ? null : readStateSync(windowId)),
+  );
+  const latest = useRef({ value, select, equal });
+  latest.current = { value, select, equal };
   useEffect(() => {
+    const update = () => {
+      const current = latest.current;
+      const next = current.select(
+        windowId === null ? null : readStateSync(windowId),
+      );
+      if (!current.equal(current.value, next)) {
+        current.value = next;
+        setValue(() => next);
+      }
+    };
+    update();
+    if (windowId === null) {
+      return;
+    }
     const refresh = (event: WindowEvent) => {
       if (event.windowId === windowId) {
-        setState(readStateSync(windowId));
+        update();
       }
     };
     const subscriptions = (
       ['focus', 'blur', 'resize', 'move', 'stateChange'] as const
     ).map(name => DeviceEventEmitter.addListener(EVENT_NAMES[name], refresh));
-    setState(readStateSync(windowId));
     return () => subscriptions.forEach(subscription => subscription.remove());
   }, [windowId]);
-  return state;
+  return value;
 }
 
 /** Whether a window has focus. It does not re-render when the window moves. */

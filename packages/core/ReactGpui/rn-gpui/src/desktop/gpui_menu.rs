@@ -199,7 +199,13 @@ pub fn resize_surfaces_for_menu_bar(cx: &mut gpui::App, window_id: u32) {
         .update(cx, |_, window, _| window.scale_factor())
         .unwrap_or(1.0);
     store.update(cx, |store, cx| {
-        store.resize_window(handle, f32::from(size.width), f32::from(size.height), scale);
+        store.resize_window(
+            handle,
+            f32::from(size.width),
+            f32::from(size.height),
+            scale,
+            cx,
+        );
         store.notify_window_roots(handle, cx);
     });
 }

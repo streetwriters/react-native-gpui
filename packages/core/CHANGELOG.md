@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- Resizing a window continuously no longer crashes a large app with "Maximum update depth exceeded". `useWindowDimensions` in the main window no longer re-renders on every frame of a move or resize, `SafeAreaView` re-renders only when the title bar inset changes, a surface gets a new size at most every 50 ms during a live resize (the last size always arrives), events such as `onLayout` render at default priority instead of synchronously, and `windowResize` and `windowMove` fire only for what changed.
+
 ## 0.87.0-alpha.1 - 2026-11-05
 
 - Scrolling a list or `ScrollView` in a window the app decorates itself on Linux (a title bar with caption buttons) is composited from cached tiles again. The window is transparent for its shadow, and the scroll layer refused to cache content over a transparent window even where an opaque panel covered it, so every row was rebuilt on every frame.

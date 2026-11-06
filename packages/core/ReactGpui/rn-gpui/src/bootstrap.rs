@@ -2178,8 +2178,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     if resized {
                         log::info!("window resized to {width}x{height}@{scale}x");
                         let handle: gpui::AnyWindowHandle = window.window_handle().into();
-                        store.update(cx, |store, _cx| {
-                            store.resize_window(handle, width, height, scale)
+                        store.update(cx, |store, cx| {
+                            store.resize_window(handle, width, height, scale, cx)
                         });
                         frame_hook.arm(window);
                     }
