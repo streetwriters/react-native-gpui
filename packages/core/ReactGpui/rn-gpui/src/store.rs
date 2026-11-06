@@ -2514,9 +2514,10 @@ impl Render for OverlayHost {
         if self.overlays.is_empty() && self.portals.is_empty() {
             host
         } else {
+            // LogBox is painted last: it stays above the app's portals.
             host.size_full()
-                .children(self.overlays.iter().map(|(_, overlay)| overlay.clone()))
                 .children(self.portals.iter().map(|(_, portal)| portal.clone()))
+                .children(self.overlays.iter().map(|(_, overlay)| overlay.clone()))
         }
     }
 }

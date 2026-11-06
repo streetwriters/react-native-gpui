@@ -5,6 +5,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 ## Unreleased
 
 - Resizing a window continuously no longer crashes a large app with "Maximum update depth exceeded". `useWindowDimensions` in the main window no longer re-renders on every frame of a move or resize, `SafeAreaView` re-renders only when the title bar inset changes, a surface gets a new size at most every 50 ms during a live resize (the last size always arrives), events such as `onLayout` render at default priority instead of synchronously, and `windowResize` and `windowMove` fire only for what changed.
+- LogBox is drawn above the app's portals, so it no longer overlaps an error screen the app shows in a modal.
 
 ## 0.87.0-alpha.1 - 2026-11-05
 
