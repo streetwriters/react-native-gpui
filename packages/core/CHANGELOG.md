@@ -7,6 +7,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - Resizing a window continuously no longer crashes a large app with "Maximum update depth exceeded". `useWindowDimensions` in the main window no longer re-renders on every frame of a move or resize, `SafeAreaView` re-renders only when the title bar inset changes, a surface gets a new size at most every 50 ms during a live resize (the last size always arrives), events such as `onLayout` render at default priority instead of synchronously, and `windowResize` and `windowMove` fire only for what changed.
 - LogBox is drawn above the app's portals, so it no longer overlaps an error screen the app shows in a modal.
 - A view moved by a transform, such as a panel being swiped in or a sheet sliding up, draws its content correctly: clips move with the view, single-line text and icons are no longer hidden behind their own background, and the view no longer jumps for a frame while it moves. Builds against gpui-fast `f64287a`.
+- A list scrolled fast with the mouse wheel or the scroll bar no longer stays blank until it moves again. React Native held scroll and pointer events until its next event beat, which nothing else might tick, and a list ignored the offsets that arrived while it adjusted for rows above it changing size; events now go out at once, and the offset a wheel or scroll bar stops at is reported once more after it rests.
 
 ## 0.87.0-alpha.1 - 2026-11-05
 

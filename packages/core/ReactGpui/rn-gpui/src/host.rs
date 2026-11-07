@@ -275,7 +275,10 @@ impl Host {
         #[cfg(test)]
         let _ = (self, tag, ty, payload);
         #[cfg(not(test))]
-        self.lock().dispatch_event(tag, ty, &payload.to_string())
+        self.lock().dispatch_event(tag, ty, &payload.to_string());
+        // React Native holds events until its next event beat, and nothing
+        // else may be about to tick it.
+        self.on_render();
     }
 
     pub fn emit_device_event(&self, event_name: &str) {
@@ -318,6 +321,7 @@ impl Host {
             self.lock()
                 .dispatch_pointer_event(&target_chain, x, y, phase, timestamp);
         }
+        self.on_render();
     }
 
     pub fn set_scroll_offset(&self, tag: i32, x: f32, y: f32) {

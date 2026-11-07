@@ -4895,6 +4895,45 @@ mod border_segment_tests {
 
 const SCROLL_STATE_SYNC_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
+fn scroll_payload(
+    offset: Point<f32>,
+    content: (f32, f32),
+    viewport: (f32, f32),
+) -> serde_json::Value {
+    serde_json::json!({
+        "contentOffset": {"x": offset.x, "y": offset.y},
+        "contentSize": {"width": content.0, "height": content.1},
+        "layoutMeasurement": {"width": viewport.0, "height": viewport.1},
+        "zoomScale": 1
+    })
+}
+
+/// How long an offset rests before `onScroll` hears it once more.
+const SCROLL_REST_REPORT_DELAY: Duration = Duration::from_millis(150);
+
+/// Sends the offset in `position` once more when nothing has moved it, as
+/// `generation` counts, for [`SCROLL_REST_REPORT_DELAY`]. A wheel or a
+/// scrollbar stops without the momentum events a fling ends with, so an offset
+/// a list ignored while it adjusted for items above it changing size would
+/// otherwise stay its last.
+fn report_rest(
+    cx: &App,
+    generation: Rc<Cell<u64>>,
+    position: Rc<Cell<Point<f32>>>,
+    send: impl FnOnce(Point<f32>) + 'static,
+) {
+    let expected = generation.get();
+    let executor = cx.background_executor().clone();
+    cx.foreground_executor()
+        .spawn(async move {
+            executor.timer(SCROLL_REST_REPORT_DELAY).await;
+            if generation.get() == expected {
+                send(position.get());
+            }
+        })
+        .detach();
+}
+
 impl RNNodeView {
     /// The intrinsic size Fabric last reported, if the component measures.
     pub fn intrinsic_size(&self) -> Option<(f32, f32)> {
@@ -5139,6 +5178,17 @@ impl RNNodeView {
         let generation = self.scroll_sync_generation.get() + 1;
         self.scroll_sync_generation.set(generation);
         self.scroll_sync_pending.set(true);
+        if let Some(event) = self.scroll.as_ref().and_then(|s| s.event.clone()) {
+            let (host, tag, viewport) = (host.clone(), self.tag, (self.frame.w, self.frame.h));
+            report_rest(
+                cx,
+                self.scroll_sync_generation.clone(),
+                self.scroll_position.clone(),
+                move |offset| {
+                    host.dispatch_event(tag, &event, &scroll_payload(offset, content, viewport))
+                },
+            );
+        }
         let (tag, position, sync_generation, pending) = (
             self.tag,
             self.scroll_position.clone(),
@@ -5738,6 +5788,18 @@ impl Scroller {
         let generation = self.sync_generation.get() + 1;
         self.sync_generation.set(generation);
         self.sync_pending.set(true);
+        if let Some(event) = self.event.clone() {
+            let (host, tag) = (host.clone(), self.tag);
+            let (content, viewport) = (self.content_size, self.viewport);
+            report_rest(
+                cx,
+                self.sync_generation.clone(),
+                self.position.clone(),
+                move |offset| {
+                    host.dispatch_event(tag, &event, &scroll_payload(offset, content, viewport))
+                },
+            );
+        }
         let (tag, position, sync_generation, pending) = (
             self.tag,
             self.position.clone(),
