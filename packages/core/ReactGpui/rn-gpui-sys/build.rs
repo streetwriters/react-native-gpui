@@ -337,6 +337,12 @@ fn main() {
     }
     if let Some(dir) = &prebuilt_dir {
         defines.push(("RN_GPUI_PREBUILT_DIR", cmake_path(dir)));
+        // find_package caches the directory it found, so a new pin would
+        // otherwise keep linking the previous runtime.
+        defines.push((
+            "react-native-gpui-prebuilt_DIR",
+            cmake_path(&dir.join("cmake")),
+        ));
         defines.push(("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir)));
     }
 
