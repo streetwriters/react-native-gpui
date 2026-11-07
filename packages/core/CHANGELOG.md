@@ -8,6 +8,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - LogBox is drawn above the app's portals, so it no longer overlaps an error screen the app shows in a modal.
 - A view moved by a transform, such as a panel being swiped in or a sheet sliding up, draws its content correctly: clips move with the view, single-line text and icons are no longer hidden behind their own background, and the view no longer jumps for a frame while it moves. Builds against gpui-fast `f64287a`.
 - A list scrolled fast with the mouse wheel or the scroll bar no longer stays blank until it moves again. React Native held scroll and pointer events until its next event beat, which nothing else might tick, and a list ignored the offsets that arrived while it adjusted for rows above it changing size; events now go out at once, and the offset a wheel or scroll bar stops at is reported once more after it rests.
+- Fewer allocations while drawing: a component renderer gets its node's subtree only when it reads it (`ComponentRenderer::reads_children`), mount observers get a node without its subtree, a node's pointer listeners are built once rather than on every render and registered without copying, a node without a component renderer finds its frame without snapshotting itself, and a node without a filter no longer parses one.
 
 ## 0.87.0-alpha.1 - 2026-11-05
 

@@ -27,6 +27,10 @@ pub(crate) enum Step {
 /// `{x, y, blur, color}` for its amount. Functions that change nothing are
 /// left out.
 pub(crate) fn parse(json: &str) -> Vec<Step> {
+    // No filter, on nearly every node: not worth the error serde allocates.
+    if json.is_empty() {
+        return Vec::new();
+    }
     let Ok(functions) = serde_json::from_str::<Vec<(String, serde_json::Value)>>(json) else {
         return Vec::new();
     };

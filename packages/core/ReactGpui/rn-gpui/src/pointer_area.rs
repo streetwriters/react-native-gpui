@@ -117,7 +117,7 @@ impl PointerHandlers {
 /// bottom. Only presses use it: hover and moves are over the box itself.
 pub(crate) type HitSlop = [f32; 4];
 
-pub(crate) fn pointer_area(handlers: PointerHandlers, slop: HitSlop) -> impl IntoElement {
+pub(crate) fn pointer_area(handlers: Rc<PointerHandlers>, slop: HitSlop) -> impl IntoElement {
     canvas(
         move |bounds, window, _cx| {
             let reach = Bounds {
@@ -135,37 +135,39 @@ pub(crate) fn pointer_area(handlers: PointerHandlers, slop: HitSlop) -> impl Int
             )
         },
         move |_bounds, (press_box, hitbox), window, _cx| {
+            // A listener per handler, each holding the shared handlers and its
+            // index, so GPUI stops between them when one stops propagation.
             // Every button, including the ones nothing currently registers, so
             // adding a listener for a middle click needs no change here.
             for button in POINTER_BUTTONS {
-                for handler in handlers.down(button).clone() {
-                    let hitbox = press_box.clone();
+                for index in 0..handlers.down(button).len() {
+                    let (handlers, hitbox) = (handlers.clone(), press_box.clone());
                     window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                         if phase == DispatchPhase::Bubble
                             && PointerButton::from_gpui(event.button) == Some(button)
                             && hitbox.is_hovered(window)
                         {
-                            handler(event, window, cx);
+                            handlers.down(button)[index](event, window, cx);
                         }
                     });
                 }
-                for handler in handlers.up(button).clone() {
-                    let hitbox = press_box.clone();
+                for index in 0..handlers.up(button).len() {
+                    let (handlers, hitbox) = (handlers.clone(), press_box.clone());
                     window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
                         if phase == DispatchPhase::Bubble
                             && PointerButton::from_gpui(event.button) == Some(button)
                             && hitbox.is_hovered(window)
                         {
-                            handler(event, window, cx);
+                            handlers.up(button)[index](event, window, cx);
                         }
                     });
                 }
             }
-            for handler in handlers.mouse_move {
-                let hitbox = hitbox.clone();
+            for index in 0..handlers.mouse_move.len() {
+                let (handlers, hitbox) = (handlers.clone(), hitbox.clone());
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                     if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
-                        handler(event, window, cx);
+                        handlers.mouse_move[index](event, window, cx);
                     }
                 });
             }
@@ -175,14 +177,14 @@ pub(crate) fn pointer_area(handlers: PointerHandlers, slop: HitSlop) -> impl Int
             // closure: GPUI clears `mouse_listeners` on every frame, so a
             // `was_hovered` local here would reset at each paint and the leave edge
             // would never fire.
-            for handler in handlers.hover {
-                let hitbox = hitbox.clone();
+            for index in 0..handlers.hover.len() {
+                let (handlers, hitbox) = (handlers.clone(), hitbox.clone());
                 window.on_mouse_event(move |_event: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble {
                         return;
                     }
-                    let h = hitbox.is_hovered(window);
-                    handler(h, window, cx);
+                    let hovered = hitbox.is_hovered(window);
+                    handlers.hover[index](hovered, window, cx);
                 });
             }
         },
@@ -214,7 +216,7 @@ mod hover_tests {
             let handlers = self.handlers.borrow_mut().take().unwrap_or_default();
             gpui::div()
                 .size_full()
-                .child(pointer_area(handlers, [0.0; 4]))
+                .child(pointer_area(Rc::new(handlers), [0.0; 4]))
         }
     }
 

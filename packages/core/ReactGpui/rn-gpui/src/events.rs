@@ -224,7 +224,7 @@ fn node_wants_context_menu(cx: &App, node: &RNNodeView) -> bool {
     let Some(renderer) = crate::extensions::component_renderer(&node.component) else {
         return false;
     };
-    let component_node = node.component_node(cx);
+    let component_node = node.renderer_node(&*renderer, cx);
     renderer.input(&component_node).context_menu
 }
 

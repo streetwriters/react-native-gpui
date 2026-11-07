@@ -626,9 +626,11 @@ impl ViewStore {
                     });
                     self.nodes.insert(op.tag, node.clone());
                     self.record_subtree_nodes(&[op.tag], cx);
-                    let component_node = node.read(cx).component_node(cx);
+                    let component_node =
+                        (!observers.is_empty()).then(|| node.read(cx).component_node_shallow());
                     for observer in &observers {
-                        observer.on_mount(&component_node, &handle, cx);
+                        let component_node = component_node.as_ref().expect("observers");
+                        observer.on_mount(component_node, &handle, cx);
                         self.apply_commands(&commands, cx);
                     }
                 }
@@ -818,7 +820,8 @@ impl ViewStore {
                 }
                 MountKind::Update => {
                     if let Some(node) = self.nodes.get(&op.tag).cloned() {
-                        let previous_node = node.read(cx).component_node(cx);
+                        let previous_node =
+                            (!observers.is_empty()).then(|| node.read(cx).component_node_shallow());
                         let (counted, before, effects_before) = {
                             let node = node.read(cx);
                             (
@@ -849,11 +852,17 @@ impl ViewStore {
                                 cx,
                             );
                         }
-                        let updated_node = node.read(cx).component_node(cx);
+                        let updated_node = previous_node
+                            .as_ref()
+                            .map(|_| node.read(cx).component_node_shallow());
                         self.record_subtree_nodes(&[op.tag], cx);
-                        for observer in &observers {
-                            observer.on_update(&updated_node, &previous_node, &handle, cx);
-                            self.apply_commands(&commands, cx);
+                        if let (Some(updated_node), Some(previous_node)) =
+                            (&updated_node, &previous_node)
+                        {
+                            for observer in &observers {
+                                observer.on_update(updated_node, previous_node, &handle, cx);
+                                self.apply_commands(&commands, cx);
+                            }
                         }
                         if let Some(portal) = crate::extensions::component_portal(
                             &op.component,

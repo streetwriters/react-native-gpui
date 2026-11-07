@@ -615,6 +615,14 @@ pub trait ComponentRenderer: Send + Sync + 'static {
     fn render(&self, node: &ComponentNode, window: &mut Window, cx: &mut App)
         -> Option<AnyElement>;
 
+    /// Whether the nodes this renderer is handed carry their whole subtree in
+    /// `children`. Copying it walks the subtree on every render, so only a
+    /// renderer that draws its descendants itself asks for it; the others read
+    /// the tree through `TreeView` when they need to.
+    fn reads_children(&self) -> bool {
+        false
+    }
+
     /// Which input this component wants.
     ///
     /// Read when the node is built, so core only installs listeners a component

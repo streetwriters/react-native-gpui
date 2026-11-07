@@ -32,6 +32,11 @@ const COMPONENTS: &[&str] = &[
 struct SvgRenderer;
 
 impl ComponentRenderer for SvgRenderer {
+    // The SVG document is drawn from the shapes under its root.
+    fn reads_children(&self) -> bool {
+        true
+    }
+
     fn render(
         &self,
         node: &ComponentNode,
