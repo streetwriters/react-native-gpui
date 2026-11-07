@@ -1060,6 +1060,44 @@ endif()
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/link_libs-$<CONFIG>.txt" CONTENT "${RN_GPUI_LINK_LIBS}")
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/rpath_dirs-$<CONFIG>.txt" CONTENT "${RN_GPUI_RPATH_DIRS}")
 
+# --- C++ standard for C++ only -------------------------------------------
+# The same flag list passes -std=c++20 on to every target that links a
+# ReactCommon target, and clang rejects it for C sources ("invalid argument
+# '-std=c++20' not allowed with 'C'"), such as sqlite3.c in an app's TurboModule.
+# The flag is kept for C++ sources only.
+if(NOT MSVC)
+  function(rn_gpui_cxx_standard_for_cxx_only directory)
+    get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+      foreach(_property IN ITEMS COMPILE_OPTIONS INTERFACE_COMPILE_OPTIONS)
+        get_target_property(_options "${_target}" "${_property}")
+        if(NOT _options)
+          continue()
+        endif()
+        set(_rewritten "")
+        set(_changed FALSE)
+        foreach(_option IN LISTS _options)
+          if(_option MATCHES "^-std=(c|gnu)\\+\\+")
+            list(APPEND _rewritten "$<$<COMPILE_LANGUAGE:CXX>:${_option}>")
+            set(_changed TRUE)
+          else()
+            list(APPEND _rewritten "${_option}")
+          endif()
+        endforeach()
+        if(_changed)
+          set_target_properties("${_target}" PROPERTIES "${_property}" "${_rewritten}")
+        endif()
+      endforeach()
+    endforeach()
+    get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdirectory IN LISTS _subdirectories)
+      rn_gpui_cxx_standard_for_cxx_only("${_subdirectory}")
+    endforeach()
+  endfunction()
+
+  rn_gpui_cxx_standard_for_cxx_only("${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+
 # --- MSVC compile-flag cleanup -------------------------------------------
 # React Native's shared flag list (cmake-utils/react-native-flags.cmake) is
 # written for clang/gcc and is applied to every ReactCommon target as
