@@ -11,11 +11,13 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `notesnook-rendering` (`rn-gpui-linux`, which tracks upstream `main` with Linux fixes on
   top so each one can become an upstream pull request, plus fixes for content drawn under a
-  transform)
-- Commit: `f64287a` (`notesnook-rendering`, 2026-11-07: `9e455ae` from `rn-gpui-linux` plus content
+  transform and allocation cuts)
+- Commit: `ac7018a` (`notesnook-rendering`, 2026-11-07: `9e455ae` from `rn-gpui-linux` plus content
   masks carried into a transformed space, layers ordered where they land on screen, also when
-  replayed or rebuilt around a rounded clip, and a view drawn under a transform built with the
-  view around it)
+  replayed or rebuilt around a rounded clip, a view drawn under a transform built with the view
+  around it, transforms kept for content painted into a scroll layer, retained views that no
+  longer allocate placeholders and empty lists every frame, and tab stops sorted only when focus
+  moves by keyboard)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
   `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and
