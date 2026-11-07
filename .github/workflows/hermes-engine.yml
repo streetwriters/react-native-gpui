@@ -197,6 +197,20 @@ jobs:
             -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
             ${{ matrix.configure }}
 
+      # The VM release builds link: the same build without the debugger.
+      - name: Configure the release VM
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S hermes -B hermes-build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHERMES_ENABLE_NAPI=ON \
+            -DHERMES_ENABLE_DEBUGGER=OFF \
+            -DHERMES_ENABLE_TEST_SUITE=OFF \
+            -DHERMES_ENABLE_INTL=ON \
+            -DHERMES_ICU_HEADERS_DIR="$GITHUB_WORKSPACE/rn-gpui/packages/hermes/third_party/icu" \
+            -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
+            ${{ matrix.configure }}
+
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -219,9 +233,27 @@ jobs:
           Select-String -Path hermes-build/CMakeCache.txt -Pattern '^CMAKE_(C|CXX)_COMPILER:' |
             ForEach-Object { Write-Host $_.Line }
 
+      - name: Configure the release VM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S hermes -B hermes-build-release -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DHERMES_ENABLE_NAPI=ON `
+            -DHERMES_ENABLE_DEBUGGER=OFF `
+            -DHERMES_ENABLE_TEST_SUITE=OFF `
+            -DHERMES_ENABLE_INTL=ON `
+            "-DHERMES_ICU_HEADERS_DIR=$env:GITHUB_WORKSPACE/rn-gpui/packages/hermes/third_party/icu" `
+            ${{ matrix.configure }}
+          if ($LASTEXITCODE -ne 0) { throw "Hermes release VM configure failed ($LASTEXITCODE)" }
+
       - name: Build
         if: runner.os != 'Windows'
-        run: cmake --build hermes-build --target hermesvm hermesc hermes --parallel
+        run: |
+          cmake --build hermes-build --target hermesvm hermesc hermes --parallel
+          cmake --build hermes-build-release --target hermesvm --parallel
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -229,23 +261,27 @@ jobs:
         run: |
           cmake --build hermes-build --target hermesvm hermesc hermes --parallel
           if ($LASTEXITCODE -ne 0) { throw "Hermes build failed ($LASTEXITCODE)" }
+          cmake --build hermes-build-release --target hermesvm --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Hermes release VM build failed ($LASTEXITCODE)" }
 
       - name: Check that the library links no ICU
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          lib="$(find hermes-build -name 'libhermesvm.*' \( -name '*.so' -o -name '*.dylib' \) -type f -print -quit)"
-          if [ "$RUNNER_OS" = macOS ]; then
-            deps="$(otool -L "$lib")"
-          else
-            deps="$(readelf -d "$lib")"
-          fi
-          if printf '%s' "$deps" | grep -qi 'icu'; then
-            echo "$lib depends on ICU:" >&2
-            printf '%s\n' "$deps" | grep -i icu >&2
-            exit 1
-          fi
+          for build in hermes-build hermes-build-release; do
+            lib="$(find "$build" -name 'libhermesvm.*' \( -name '*.so' -o -name '*.dylib' \) -type f -print -quit)"
+            if [ "$RUNNER_OS" = macOS ]; then
+              deps="$(otool -L "$lib")"
+            else
+              deps="$(readelf -d "$lib")"
+            fi
+            if printf '%s' "$deps" | grep -qi 'icu'; then
+              echo "$lib depends on ICU:" >&2
+              printf '%s\n' "$deps" | grep -i icu >&2
+              exit 1
+            fi
+          done
 
       - name: Intl smoke test
         if: runner.os != 'Windows'
@@ -297,8 +333,9 @@ jobs:
             linux-*)  library='libhermesvm.so' ;;
             *) echo "Unsupported platform: $platform" >&2; exit 1 ;;
           esac
-          mkdir -p "bin/$platform"
+          mkdir -p "bin/$platform/release"
           cp "$(find hermes-build -name "$library" -type f -print -quit)" "bin/$platform/$library"
+          cp "$(find hermes-build-release -name "$library" -type f -print -quit)" "bin/$platform/release/$library"
           cp "$(find hermes-build -name hermesc -type f -print -quit)" "bin/$platform/hermesc"
           chmod +x "bin/$platform/hermesc"
           "bin/$platform/hermesc" -version
@@ -308,28 +345,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          lib="bin/${{ matrix.platform }}/libhermesvm.so"
-          if readelf -d "$lib" | grep -q 'NEEDED.*libicu'; then
-            echo "$lib still links ICU:" >&2
-            readelf -d "$lib" | grep libicu >&2
-            exit 1
-          fi
-          highest="$(objdump -T "$lib" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -uV | tail -1)"
-          echo "Highest GLIBC symbol: $highest"
-          if [ "$(printf '%s\nGLIBC_2.35\n' "$highest" | sort -V | tail -1)" != "GLIBC_2.35" ]; then
-            echo "glibc floor $highest is above 2.35" >&2
-            exit 1
-          fi
+          for lib in "bin/${{ matrix.platform }}/libhermesvm.so" "bin/${{ matrix.platform }}/release/libhermesvm.so"; do
+            if readelf -d "$lib" | grep -q 'NEEDED.*libicu'; then
+              echo "$lib still links ICU:" >&2
+              readelf -d "$lib" | grep libicu >&2
+              exit 1
+            fi
+            highest="$(objdump -T "$lib" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -uV | tail -1)"
+            echo "$lib: highest GLIBC symbol $highest"
+            if [ "$(printf '%s\nGLIBC_2.35\n' "$highest" | sort -V | tail -1)" != "GLIBC_2.35" ]; then
+              echo "glibc floor $highest is above 2.35" >&2
+              exit 1
+            fi
+          done
 
       - name: Check that the library imports no ICU
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $vm = Get-ChildItem -Path hermes-build -Filter hermesvm.dll -Recurse -File | Select-Object -First 1
-          $deps = & dumpbin /dependents $vm.FullName | Out-String
-          Write-Host $deps
-          if ($deps -match '(?i)icu') {
-            throw "$($vm.Name) imports an ICU library"
+          foreach ($build in 'hermes-build', 'hermes-build-release') {
+            $vm = Get-ChildItem -Path $build -Filter hermesvm.dll -Recurse -File | Select-Object -First 1
+            $deps = & dumpbin /dependents $vm.FullName | Out-String
+            Write-Host $deps
+            if ($deps -match '(?i)icu') {
+              throw "$($vm.FullName) imports an ICU library"
+            }
           }
 
       - name: Intl smoke test (Windows)
@@ -362,6 +402,14 @@ jobs:
           Copy-Item $vm.FullName "$target/hermesvm.dll"
           Copy-Item $importLibrary.FullName "$target/hermesvm.lib"
           Copy-Item $compiler.FullName "$target/hermesc.exe"
+          $releaseVm = Get-ChildItem -Path hermes-build-release -Filter hermesvm.dll -Recurse -File | Select-Object -First 1
+          $releaseImportLibrary = Get-ChildItem -Path hermes-build-release -Filter hermesvm.lib -Recurse -File | Select-Object -First 1
+          if (-not $releaseVm -or -not $releaseImportLibrary) {
+            throw 'Could not find hermesvm.dll and hermesvm.lib under hermes-build-release.'
+          }
+          New-Item -ItemType Directory -Force -Path "$target/release" | Out-Null
+          Copy-Item $releaseVm.FullName "$target/release/hermesvm.dll"
+          Copy-Item $releaseImportLibrary.FullName "$target/release/hermesvm.lib"
           Get-ChildItem -Path (Split-Path $compiler.FullName) -Filter *.dll |
             Copy-Item -Destination $target -Force
           & "$target/hermesc.exe" -version
@@ -397,5 +445,5 @@ jobs:
           gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 ||
             gh release create "$tag" --repo "${{ github.repository }}" \
               --title "${tag%@*} ${tag##*@}" \
-              --notes "Prebuilt Hermes VM and compiler binaries for react-native-gpui (facebook/hermes@$commit)."
+              --notes "Prebuilt Hermes VM and compiler binaries for react-native-gpui (facebook/hermes@$commit): the VM with the debugger for debug builds, and under release/ the VM without it for release builds."
           gh release upload "$tag" hermes-*.zip --repo "${{ github.repository }}" --clobber

@@ -224,6 +224,16 @@ if ($cache -notmatch "cl\.exe") {
 & cmake --build $HermesBuild --config Release --target hermesvm hermesc hermes --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw "Hermes build failed ($LASTEXITCODE)." }
 
+# The VM release builds link: the same build without the debugger.
+$releaseBuild = "$HermesBuild-nodebugger"
+$releaseArgs = $configureArgs.Clone()
+$releaseArgs[[array]::IndexOf($releaseArgs, $HermesBuild)] = $releaseBuild
+$releaseArgs[[array]::IndexOf($releaseArgs, "-DHERMES_ENABLE_DEBUGGER=ON")] = "-DHERMES_ENABLE_DEBUGGER=OFF"
+& cmake @releaseArgs
+if ($LASTEXITCODE -ne 0) { throw "Hermes release VM configuration failed ($LASTEXITCODE)." }
+& cmake --build $releaseBuild --config Release --target hermesvm --parallel $Jobs
+if ($LASTEXITCODE -ne 0) { throw "Hermes release VM build failed ($LASTEXITCODE)." }
+
 # CMake puts the shared runtime in lib/ and command-line tools in bin/<config>
 # for multi-config generators (or directly in bin/ with Ninja).
 $vm = Get-ChildItem -Path $HermesBuild -Filter "hermesvm.dll" -File -Recurse | Select-Object -First 1
@@ -233,13 +243,22 @@ if (-not $vm -or -not $importLib -or -not $hermesc) {
   throw "Could not find hermesvm.dll, hermesvm.lib, and hermesc.exe under $HermesBuild."
 }
 
-New-Item -ItemType Directory -Force -Path $platformBin | Out-Null
+$releaseVm = Get-ChildItem -Path $releaseBuild -Filter "hermesvm.dll" -File -Recurse | Select-Object -First 1
+$releaseImportLib = Get-ChildItem -Path $releaseBuild -Filter "hermesvm.lib" -File -Recurse | Select-Object -First 1
+if (-not $releaseVm -or -not $releaseImportLib) {
+  throw "Could not find hermesvm.dll and hermesvm.lib under $releaseBuild."
+}
+
+$releaseBin = Join-Path $platformBin "release"
+New-Item -ItemType Directory -Force -Path $releaseBin | Out-Null
 Copy-Item $vm.FullName (Join-Path $platformBin "hermesvm.dll") -Force
 Copy-Item $importLib.FullName (Join-Path $platformBin "hermesvm.lib") -Force
+Copy-Item $releaseVm.FullName (Join-Path $releaseBin "hermesvm.dll") -Force
+Copy-Item $releaseImportLib.FullName (Join-Path $releaseBin "hermesvm.lib") -Force
 Copy-Item $hermesc.FullName (Join-Path $platformBin "hermesc.exe") -Force
 Get-ChildItem -Path (Split-Path $hermesc.FullName) -Filter "*.dll" |
   Copy-Item -Destination $platformBin -Force
 & (Join-Path $platformBin "hermesc.exe") -version
 if ($LASTEXITCODE -ne 0) { throw "The staged hermesc failed its version check ($LASTEXITCODE)." }
 
-Write-Host "Artifacts: $platformBin\{hermesvm.dll,hermesvm.lib,hermesc.exe}"
+Write-Host "Artifacts: $platformBin\{hermesvm.dll,hermesvm.lib,hermesc.exe,release\hermesvm.dll,release\hermesvm.lib}"

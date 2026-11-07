@@ -147,7 +147,7 @@ export function runtimeLibraries(
       let files;
       try {
         const resolve = require(engine.runtimeFiles);
-        files = resolve(platform, architecture) ?? [];
+        files = resolve(platform, architecture, { release }) ?? [];
       } catch {
         continue;
       }

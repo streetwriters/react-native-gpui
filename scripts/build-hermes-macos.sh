@@ -51,19 +51,34 @@ cmake -S "$hermes_source" -B "$hermes_build" -G Ninja \
   -DHERMES_BUILD_APPLE_FRAMEWORK=OFF
 cmake --build "$hermes_build" --target hermesvm hermesc -j "$jobs"
 
+# The VM release builds link: the same build without the debugger.
+cmake -S "$hermes_source" -B "$hermes_build-nodebugger" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES='arm64;x86_64' \
+  -DHERMES_ENABLE_NAPI=ON \
+  -DHERMES_ENABLE_DEBUGGER=OFF \
+  -DHERMES_ENABLE_TEST_SUITE=OFF \
+  -DHERMES_ENABLE_INTL=ON \
+  -DHERMES_ICU_RUNTIME_LOAD=ON \
+  -DHERMES_ICU_HEADERS_DIR="$hermes_package/third_party/icu" \
+  -DHERMES_BUILD_APPLE_FRAMEWORK=OFF
+cmake --build "$hermes_build-nodebugger" --target hermesvm -j "$jobs"
+
 for arch in arm64 x86_64; do
   if [[ "$arch" == "arm64" ]]; then
     platform=darwin-arm64
   else
     platform=darwin-x64
   fi
-  mkdir -p "$platform_bin_root/$platform"
+  mkdir -p "$platform_bin_root/$platform/release"
   lipo -thin "$arch" "$hermes_build/lib/libhermesvm.dylib" \
     -output "$platform_bin_root/$platform/libhermesvm.dylib"
+  lipo -thin "$arch" "$hermes_build-nodebugger/lib/libhermesvm.dylib" \
+    -output "$platform_bin_root/$platform/release/libhermesvm.dylib"
   lipo -thin "$arch" "$hermes_build/bin/hermesc" \
     -output "$platform_bin_root/$platform/hermesc"
   chmod +x "$platform_bin_root/$platform/hermesc"
   echo "Staged $platform Hermes VM and hermesc ($("$platform_bin_root/$platform/hermesc" -version | sed -n '5p'))"
 done
 
-echo "Artifacts: $platform_bin_root/darwin-{arm64,x64}/{libhermesvm.dylib,hermesc}"
+echo "Artifacts: $platform_bin_root/darwin-{arm64,x64}/{libhermesvm.dylib,hermesc,release/libhermesvm.dylib}"

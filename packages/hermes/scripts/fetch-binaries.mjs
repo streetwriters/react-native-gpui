@@ -28,13 +28,27 @@ export function binRootFrom(env = process.env) {
 
 const binRoot = binRootFrom();
 
+// Each platform holds two VMs: the one with the debugger, which debug builds
+// link, and under `release/` the one without, which release builds link.
 const PLATFORMS = {
-  'darwin-arm64': ['libhermesvm.dylib', 'hermesc'],
-  'darwin-x64': ['libhermesvm.dylib', 'hermesc'],
-  'linux-x64': ['libhermesvm.so', 'hermesc'],
-  'linux-arm64': ['libhermesvm.so', 'hermesc'],
-  'win32-x64': ['hermesvm.dll', 'hermesvm.lib', 'hermesc.exe'],
-  'win32-arm64': ['hermesvm.dll', 'hermesvm.lib', 'hermesc.exe'],
+  'darwin-arm64': ['libhermesvm.dylib', 'hermesc', 'release/libhermesvm.dylib'],
+  'darwin-x64': ['libhermesvm.dylib', 'hermesc', 'release/libhermesvm.dylib'],
+  'linux-x64': ['libhermesvm.so', 'hermesc', 'release/libhermesvm.so'],
+  'linux-arm64': ['libhermesvm.so', 'hermesc', 'release/libhermesvm.so'],
+  'win32-x64': [
+    'hermesvm.dll',
+    'hermesvm.lib',
+    'hermesc.exe',
+    'release/hermesvm.dll',
+    'release/hermesvm.lib',
+  ],
+  'win32-arm64': [
+    'hermesvm.dll',
+    'hermesvm.lib',
+    'hermesc.exe',
+    'release/hermesvm.dll',
+    'release/hermesvm.lib',
+  ],
 };
 
 function usage() {

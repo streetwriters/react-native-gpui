@@ -23,7 +23,7 @@ Platform.constants.jsEngine; // {name: 'hermes', version: '…'}
 
 `@react-native-gpui/hermes` packages [Hermes](https://github.com/facebook/hermes), pinned to one commit, with the public headers and the prebuilt VM and `hermesc` compiler for every platform. It provides:
 
-- the runtime, with the debugger;
+- the runtime: a debug build links the VM with the debugger, and a release build the VM without it, which is smaller and keeps no debugger state;
 - bytecode compilation for release builds. A release build ships the JavaScript compiled to Hermes bytecode, so the app starts faster;
 - [Node-API](native-modules-node-addons), for `.node` addons;
 - the Metro transform profile that Hermes needs.
@@ -94,4 +94,4 @@ The module named by `bundle` may export:
 
 ### Runtime files
 
-`runtimeFiles` is `(platform, arch) => [absolute paths]`. The paths are shared libraries that packaging and the build copy next to the executable, so core does not need to know the names of an engine's libraries.
+`runtimeFiles` is `(platform, arch, { release }) => [absolute paths]`. The paths are shared libraries that packaging copies next to the executable, so core does not need to know the names of an engine's libraries. `release` says which build is being packaged, for an engine that ships a different library for each, as Hermes does: release builds get the VM without the debugger.

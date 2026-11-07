@@ -53,8 +53,20 @@ cmake -S "$hermes_source" -B "$hermes_build" -G Ninja \
   -DHERMES_ICU_HEADERS_DIR="$hermes_package/third_party/icu"
 cmake --build "$hermes_build" --target hermesvm hermesc -j "$jobs"
 
-mkdir -p "$platform_bin_root/$platform"
+# The VM release builds link: the same build without the debugger.
+cmake -S "$hermes_source" -B "$hermes_build-nodebugger" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHERMES_ENABLE_NAPI=ON \
+  -DHERMES_ENABLE_DEBUGGER=OFF \
+  -DHERMES_ENABLE_TEST_SUITE=OFF \
+  -DHERMES_ENABLE_INTL=ON \
+  -DHERMES_ICU_RUNTIME_LOAD=ON \
+  -DHERMES_ICU_HEADERS_DIR="$hermes_package/third_party/icu"
+cmake --build "$hermes_build-nodebugger" --target hermesvm -j "$jobs"
+
+mkdir -p "$platform_bin_root/$platform/release"
 install -m 755 "$hermes_build/lib/libhermesvm.so" "$platform_bin_root/$platform/libhermesvm.so"
+install -m 755 "$hermes_build-nodebugger/lib/libhermesvm.so" "$platform_bin_root/$platform/release/libhermesvm.so"
 install -m 755 "$hermes_build/bin/hermesc" "$platform_bin_root/$platform/hermesc"
 "$platform_bin_root/$platform/hermesc" -version
-echo "Artifacts: $platform_bin_root/$platform/{libhermesvm.so,hermesc}"
+echo "Artifacts: $platform_bin_root/$platform/{libhermesvm.so,hermesc,release/libhermesvm.so}"

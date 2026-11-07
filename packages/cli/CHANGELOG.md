@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.
 - `run-desktop` on macOS signs the app with `APPLE_SIGNING_IDENTITY` when it is set, so the keychain keeps the access it granted across rebuilds instead of asking for every item again.
 
 ## 0.87.0-alpha.1 - 2026-11-05

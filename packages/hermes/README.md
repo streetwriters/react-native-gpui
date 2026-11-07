@@ -32,13 +32,13 @@ Everything here is built from one commit, recorded in `package.json`:
 
 ## Layout
 
-| Path                           | Contents                                                       |
-| ------------------------------ | -------------------------------------------------------------- |
-| `API/`, `public/`, `include/`  | The upstream headers we compile against, byte for byte (below) |
-| `bin/<platform>-<arch>/`       | The prebuilt VM and compiler (not committed; fetched or built) |
-| `desktop/node-api-exports.txt` | Every `napi_*`/`node_api_*` name the VM exports, one per line  |
-| `patches/`                     | Patches applied to the pinned commit before building           |
-| `scripts/fetch-binaries.mjs`   | Downloads a CI artifact or release into `bin/` and verifies it |
+| Path                           | Contents                                                        |
+| ------------------------------ | --------------------------------------------------------------- |
+| `API/`, `public/`, `include/`  | The upstream headers we compile against, byte for byte (below)  |
+| `bin/<platform>-<arch>/`       | The prebuilt VMs and compiler (not committed; fetched or built) |
+| `desktop/node-api-exports.txt` | Every `napi_*`/`node_api_*` name the VM exports, one per line   |
+| `patches/`                     | Patches applied to the pinned commit before building            |
+| `scripts/fetch-binaries.mjs`   | Downloads a CI artifact or release into `bin/` and verifies it  |
 
 `desktop/node-api-exports.txt` lists the Node-API names the VM exports. On Windows
 an addon cannot resolve those symbols from a global scope — a DLL import names
@@ -111,11 +111,20 @@ matches the pinned commit plus these changes.
 
 `bin/` is gitignored, so a fresh clone has the headers but no binaries:
 
-| Platform                     | Files                                         |
-| ---------------------------- | --------------------------------------------- |
-| `darwin-arm64`, `darwin-x64` | `libhermesvm.dylib`, `hermesc`                |
-| `linux-x64`, `linux-arm64`   | `libhermesvm.so`, `hermesc`                   |
-| `win32-x64`, `win32-arm64`   | `hermesvm.dll`, `hermesvm.lib`, `hermesc.exe` |
+| Platform                     | Files                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `darwin-arm64`, `darwin-x64` | `libhermesvm.dylib`, `hermesc`, `release/libhermesvm.dylib`                                   |
+| `linux-x64`, `linux-arm64`   | `libhermesvm.so`, `hermesc`, `release/libhermesvm.so`                                         |
+| `win32-x64`, `win32-arm64`   | `hermesvm.dll`, `hermesvm.lib`, `hermesc.exe`, `release/hermesvm.dll`, `release/hermesvm.lib` |
+
+Each platform has two VMs. The one in the platform folder is built with the
+debugger (`HERMES_ENABLE_DEBUGGER=ON`), and debug builds link it. The one under
+`release/` is built without it, and release builds link that one: it is smaller,
+and keeps no debugger state, which with the debugger compiled in included the
+compiler state of every `eval` (about 22 MB in an app whose worklets are made
+with `eval`). The choice follows React Native's Hermes glue, which compiles its
+debugger support for a `Debug` CMake build or with `REACT_NATIVE_DEBUG_OPTIMIZED`,
+so the VM and the code driving it always agree. Both are optimized builds.
 
 ## Fetching the binaries
 
