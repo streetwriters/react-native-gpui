@@ -1777,7 +1777,6 @@ impl RNNodeView {
         InheritInput {
             origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
-            border: (self.view.border_widths.left, self.view.border_widths.top),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
@@ -2272,7 +2271,6 @@ pub(crate) struct Inherited {
     pub(crate) parent_scale: (f32, f32),
     pub(crate) scale: (f32, f32),
     pub(crate) origin_unscrolled: (f32, f32),
-    pub(crate) parent_border: (f32, f32),
     pub(crate) scrollers: Rc<[ScrollLink]>,
     pub(crate) accessible_ancestor: bool,
     pub(crate) hidden_by_accessible_ancestor: bool,
@@ -2289,7 +2287,6 @@ impl Default for Inherited {
             parent_scale: (1.0, 1.0),
             scale: (1.0, 1.0),
             origin_unscrolled: (0.0, 0.0),
-            parent_border: (0.0, 0.0),
             scrollers: Rc::from(Vec::new()),
             accessible_ancestor: false,
             hidden_by_accessible_ancestor: false,
@@ -2319,7 +2316,6 @@ impl Inherited {
         self.window_control_area == other.window_control_area
             && self.parent_scale == other.parent_scale
             && self.scale == other.scale
-            && self.parent_border == other.parent_border
             && self.accessible_ancestor == other.accessible_ancestor
             && self.hidden_by_accessible_ancestor == other.hidden_by_accessible_ancestor
             && self.hidden_by_hidden_ancestor == other.hidden_by_hidden_ancestor
@@ -2332,7 +2328,6 @@ impl Inherited {
 pub(crate) struct InheritInput {
     pub(crate) origin_frame: (f32, f32),
     pub(crate) transform: (f32, f32, f32, f32),
-    pub(crate) border: (f32, f32),
     pub(crate) scroll: Option<Rc<Cell<Point<f32>>>>,
     pub(crate) accessible: bool,
     pub(crate) hides_descendants: bool,
@@ -2360,7 +2355,6 @@ pub(crate) fn inherit(
                 parent.origin_unscrolled.1
                     + inherited.parent_scale.1 * (own.origin_frame.1 + own.transform.3),
             );
-            inherited.parent_border = input.border;
             inherited.scrollers = match &input.scroll {
                 Some(position) => {
                     let mut links = parent.scrollers.to_vec();
@@ -2483,12 +2477,10 @@ mod inherited_tests {
     fn node(
         origin_frame: (f32, f32),
         transform: (f32, f32, f32, f32),
-        border: (f32, f32),
     ) -> InheritInput {
         InheritInput {
             origin_frame,
             transform,
-            border,
             scroll: None,
             accessible: false,
             hides_descendants: false,
@@ -2547,7 +2539,7 @@ mod inherited_tests {
     }
 
     fn plain() -> InheritInput {
-        node((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0))
+        node((0.0, 0.0), (1.0, 1.0, 0.0, 0.0))
     }
 
     fn scrolling(
@@ -2557,7 +2549,7 @@ mod inherited_tests {
     ) -> InheritInput {
         InheritInput {
             scroll: Some(Rc::new(Cell::new(point(offset.0, offset.1)))),
-            ..node(origin_frame, transform, (0.0, 0.0))
+            ..node(origin_frame, transform)
         }
     }
 
@@ -2614,8 +2606,8 @@ mod inherited_tests {
     #[test]
     fn plain_nesting_accumulates_origins() {
         let chain = [
-            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
-            node((5.0, 7.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0)),
+            node((5.0, 7.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(inherited(&chain).origin_unscrolled, (15.0, 27.0));
@@ -2625,8 +2617,8 @@ mod inherited_tests {
     #[test]
     fn a_scaled_parent_scales_its_children() {
         let chain = [
-            node((100.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
-            node((10.0, 20.0), (1.0, 1.0, 3.0, 4.0), (0.0, 0.0)),
+            node((100.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 3.0, 4.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(inherited(&chain).origin_unscrolled, (126.0, 48.0));
@@ -2637,7 +2629,7 @@ mod inherited_tests {
     fn a_scrollview_offset_moves_only_its_descendants() {
         let chain = [
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 100.0)),
-            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(cached_origin(&chain), (10.0, -80.0));
@@ -2647,9 +2639,9 @@ mod inherited_tests {
     #[test]
     fn a_scrollview_inside_a_scaled_parent_scrolls_at_that_scale() {
         let chain = [
-            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 50.0)),
-            node((0.0, 10.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 10.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         let inherited = inherited(&chain);
@@ -2662,9 +2654,9 @@ mod inherited_tests {
     fn nested_scrollviews_keep_both_offsets_outermost_first() {
         let chain = [
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 10.0)),
-            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 20.0)),
-            node((0.0, 5.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 5.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         let inherited = inherited(&chain);
@@ -2686,13 +2678,6 @@ mod inherited_tests {
         let after = inherited(&[root.clone(), child.clone()]);
         assert!(before.same(&after));
         assert_eq!(cached_origin(&[root, child]), (0.0, -40.0));
-    }
-
-    #[test]
-    fn a_parent_border_is_remembered_unscaled() {
-        let root = node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (3.0, 4.0));
-        assert_eq!(inherited(&[root, plain()]).parent_border, (3.0, 4.0));
-        assert_eq!(inherited(&[plain()]).parent_border, (0.0, 0.0));
     }
 
     #[test]
@@ -2976,17 +2961,16 @@ impl Render for RNNodeView {
         }
         let frame = self.own_layout_frame(cx);
         let (scale_x, scale_y) = self.cumulative_scale(cx);
-        // Yoga's child frames already include the parent's border inset, and GPUI
-        // positions absolute children inside that border as well.
+        // Yoga's child frames are relative to the parent's border box, and the
+        // element has no GPUI border widths of its own (borders are painted as
+        // rules), so GPUI's origin for absolute children is that box as well.
         let (parent_scale_x, parent_scale_y) = self.inherited.parent_scale;
         let (origin_x, origin_y) = (frame.x, frame.y);
         let (_, _, translate_x, translate_y) = self.local_transform();
         // No parent scroll offset here: the ScrollView moves all its children at once
         // through its content wrapper.
-        let base_left = parent_scale_x * (origin_x + translate_x)
-            - self.inherited.parent_border.0 * parent_scale_x.abs();
-        let base_top = parent_scale_y * (origin_y + translate_y)
-            - self.inherited.parent_border.1 * parent_scale_y.abs();
+        let base_left = parent_scale_x * (origin_x + translate_x);
+        let base_top = parent_scale_y * (origin_y + translate_y);
         #[cfg(debug_assertions)]
         if verify_inherited_enabled() {
             self.verify_inherited(cx);
