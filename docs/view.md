@@ -155,9 +155,10 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 
 ### Supported style properties
 
-A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform` and `color`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
+A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform`, `color`, `outlineColor`, `outlineWidth` and `outlineOffset`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
 
 - `borderColor` changes the color of borders the view already has. It does not add a border or change its width.
+- The outline properties draw a ring such as a keyboard focus ring: `outlineColor` with `outlineWidth` and `outlineOffset` replace the view's own. A view that sets an outline does not get the default focus ring.
 - `transform` takes translate, scale, rotate, skew and matrix. It replaces the view's own transform while the state holds, and an animated transform wins over it.
 - `color` sets the color of all text inside the view, replacing the colors the text sets itself. A `color` on a `Text` colors that text and the text nested in it.
 

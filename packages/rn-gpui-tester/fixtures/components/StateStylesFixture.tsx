@@ -52,6 +52,22 @@ export default function StateStylesFixture() {
         hoverStyle={{ borderColor: '#ef4444', borderBottomColor: '#10b981' }}
       />
 
+      <View
+        testID="state-outline"
+        focusable
+        style={{ width: 120, height: 60, backgroundColor: '#ffffff' }}
+        hoverStyle={{
+          outlineColor: '#ef4444',
+          outlineWidth: 6,
+          outlineOffset: -6,
+        }}
+        focusStyle={{
+          outlineColor: '#10b981',
+          outlineWidth: 6,
+          outlineOffset: -6,
+        }}
+      />
+
       <View testID="state-text" hoverStyle={{ color: '#ef4444' }}>
         <Text style={{ color: '#000000', fontSize: 30, fontWeight: '900' }}>
           MMMMMM

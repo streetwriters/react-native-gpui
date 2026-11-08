@@ -20,6 +20,9 @@ const STATE_STYLE_PROPS = new Set([
   'color',
   'borderColor',
   'transform',
+  'outlineColor',
+  'outlineWidth',
+  'outlineOffset',
   ...BORDER_SIDES.map(side => `border${side}Color`),
 ]);
 
@@ -156,6 +159,7 @@ function stateStyleObject(prop: string, style: unknown) {
     } else if (
       key === 'backgroundColor' ||
       key === 'color' ||
+      key === 'outlineColor' ||
       /^border(Left|Top|Right|Bottom)?Color$/.test(key)
     ) {
       const color = processColor(value);
@@ -164,8 +168,12 @@ function stateStyleObject(prop: string, style: unknown) {
       } else {
         warnOnce(`${prop} supports plain colors in ${key} only.`);
       }
-    } else if (key === 'opacity') {
-      out.opacity = value;
+    } else if (
+      key === 'opacity' ||
+      key === 'outlineWidth' ||
+      key === 'outlineOffset'
+    ) {
+      out[key] = value;
     } else {
       out.boxShadow = processBoxShadow(value).map(shadow => ({
         ...shadow,

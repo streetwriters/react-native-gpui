@@ -4292,12 +4292,26 @@ impl Render for RNNodeView {
             }
             element = element.child(border_clip.children(border_rules));
         }
+        let (outline_color, outline_width, outline_offset) = resolved.as_ref().map_or(
+            (
+                self.view.outline_color,
+                self.view.outline_width,
+                self.view.outline_offset,
+            ),
+            |state| {
+                state.outline((
+                    self.view.outline_color,
+                    self.view.outline_width,
+                    self.view.outline_offset,
+                ))
+            },
+        );
         let mut outline_rules = Vec::new();
-        if self.view.outline_color != 0 && self.view.outline_width > 0.0 {
-            let outline_width_x = self.view.outline_width * scale_x;
-            let outline_width_y = self.view.outline_width * scale_y;
-            let offset_x = self.view.outline_offset * scale_x;
-            let offset_y = self.view.outline_offset * scale_y;
+        if outline_color != 0 && outline_width > 0.0 {
+            let outline_width_x = outline_width * scale_x;
+            let outline_width_y = outline_width * scale_y;
+            let offset_x = outline_offset * scale_x;
+            let offset_y = outline_offset * scale_y;
             let x = -offset_x - outline_width_x;
             let y = -offset_y - outline_width_y;
             outline_rules.extend(rule_segments(
@@ -4306,7 +4320,7 @@ impl Render for RNNodeView {
                 width + 2.0 * offset_x,
                 outline_width_y,
                 true,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4315,7 +4329,7 @@ impl Render for RNNodeView {
                 width + 2.0 * offset_x,
                 outline_width_y,
                 true,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4324,7 +4338,7 @@ impl Render for RNNodeView {
                 height + 2.0 * offset_y,
                 outline_width_x,
                 false,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4333,13 +4347,13 @@ impl Render for RNNodeView {
                 height + 2.0 * offset_y,
                 outline_width_x,
                 false,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
         }
         // A text input shows its caret, and an app that sets an outline draws its
         // own ring; the keyboard focus ring is for everything else.
-        let app_outline = self.view.outline_color != 0 && self.view.outline_width > 0.0;
+        let app_outline = outline_color != 0 && outline_width > 0.0;
         if window.last_input_was_keyboard()
             && self.component != "TextInput"
             && !app_outline

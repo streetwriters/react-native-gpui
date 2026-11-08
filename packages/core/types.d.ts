@@ -66,6 +66,9 @@ export type DesktopStateStyle = Pick<
   | 'borderTopColor'
   | 'borderRightColor'
   | 'borderBottomColor'
+  | 'outlineColor'
+  | 'outlineWidth'
+  | 'outlineOffset'
 > & {
   /** The color of the text inside the view. */
   color?: ColorValue;
