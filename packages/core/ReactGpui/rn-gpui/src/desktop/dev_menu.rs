@@ -95,7 +95,9 @@ pub fn show(cx: &mut App) {
     // asked of the window rather than remembered.
     if let Some(handle) = open_panel(cx) {
         let _ = handle.update(cx, |_root: gpui::AnyView, window, _cx| {
-            window.activate_window();
+            if !crate::desktop::background::enabled() {
+                window.activate_window();
+            }
         });
         return;
     }

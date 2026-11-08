@@ -1296,6 +1296,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
     }
     startup_trace("active display detected");
     let application = Application::with_platform(platform);
+    // An accessory app takes no Dock icon or menu bar, and the policy has to
+    // be set before the run loop starts or the Dock bounces at launch.
+    #[cfg(target_os = "macos")]
+    let application = if crate::desktop::background::enabled() {
+        application.with_windowing(gpui::WindowingRequest::Headless)
+    } else {
+        application
+    };
     // Before any request can arrive: the C++ bridge reports completions through
     // this handler, and it is registered once.
     crate::http_client::install();
@@ -1551,6 +1559,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         if let Some(configure_window) = config.configure_window.take() {
             configure_window(&mut window_options);
         }
+        let show_behind = crate::desktop::background::prepare(&mut window_options);
         #[cfg(feature = "visual-capture")]
         if std::env::var_os("RN_GPUI_TRANSPARENT_TITLEBAR").is_some() {
             window_options.titlebar.get_or_insert_with(Default::default).appears_transparent = true;
@@ -1567,6 +1576,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
             )
             .expect("failed to open the GPUI window");
         startup_trace("window open");
+        if show_behind {
+            let _ = window.update(cx, |_root, window, _cx| {
+                crate::desktop::background::show_behind(window);
+            });
+        }
         // Set per window, not once: a dev run's executable carries no icon, and
         // on Windows the icon belongs to the window, not the application. Windows
         // opened later get it in `windows::open_window`.
@@ -2614,14 +2628,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
         })
         .detach();
 
-        // A hidden test run must not take focus or pull the user to the
-        // desktop the app launched on.
-        #[cfg(feature = "test-driver")]
-        let background = env_bool("RN_GPUI_TEST_OFFSCREEN", false);
-        #[cfg(not(feature = "test-driver"))]
-        let background = false;
-        if background {
-            #[cfg(all(target_os = "macos", feature = "test-driver"))]
+        // A background run (the test driver, or `RN_GPUI_BACKGROUND=1`) never
+        // activates the app: it must not take focus or the menu bar, or pull
+        // the person to the desktop it launched on.
+        if crate::desktop::background::enabled() {
+            #[cfg(target_os = "macos")]
             run_as_accessory_app();
         } else {
             cx.activate(true);
@@ -2670,7 +2681,7 @@ async fn capture_and_quit(
     }
 }
 
-#[cfg(all(target_os = "macos", feature = "test-driver"))]
+#[cfg(target_os = "macos")]
 fn run_as_accessory_app() {
     use objc::{class, msg_send, sel, sel_impl};
     const ACCESSORY: isize = 1;

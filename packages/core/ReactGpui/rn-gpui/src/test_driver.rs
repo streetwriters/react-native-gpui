@@ -206,8 +206,18 @@ async fn serve_commands(
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
             "focusWindow" => {
+                let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
+                if !offscreen && crate::desktop::background::enabled() {
+                    // A background run is never the operating system's active
+                    // application, so the window is made active logically.
+                    cx.update(|cx| {
+                        crate::desktop::windows::simulate_activation(cx, 1, true)
+                            .map(|_| json!({"focused": true}))
+                            .unwrap_or_else(|error| error.to_json_value())
+                    })
+                } else {
                 let hwnd = cx.update_window(window, |_, window, _| {
-                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1") {
+                    if offscreen {
                         return None;
                     }
                     window.activate_window();
@@ -225,6 +235,7 @@ async fn serve_commands(
                 match hwnd {
                     Ok(_) => json!({"focused":true}),
                     Err(error) => json!({"error":error.to_string()}),
+                }
                 }
             }
             "setWindowActive" => {

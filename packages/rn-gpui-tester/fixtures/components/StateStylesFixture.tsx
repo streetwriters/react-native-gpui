@@ -5,7 +5,7 @@
  * @format
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, Text, View } from 'react-native';
 
 const BASE = '#3b82f6';
@@ -19,6 +19,12 @@ const box = { width: 120, height: 60, backgroundColor: BASE };
 export default function StateStylesFixture() {
   const refA = useRef<View>(null);
   const refB = useRef<View>(null);
+  const refC = useRef<View>(null);
+  const refD = useRef<View>(null);
+  const [focusD, setFocusD] = useState(0);
+  useEffect(() => {
+    if (focusD > 0) refD.current?.focus();
+  }, [focusD]);
   const rendered = useRef(0);
   rendered.current += 1;
   const opacity = useRef(new Animated.Value(1)).current;
@@ -100,7 +106,27 @@ export default function StateStylesFixture() {
         focusable
         style={box}
         focusStyle={{ backgroundColor: FOCUS }}
-        onKeyDown={() => refB.current?.focus()}
+        onKeyDown={event => {
+          if (event.nativeEvent.key === 'c') refC.current?.focus();
+          else if (event.nativeEvent.key === 'd')
+            setTimeout(() => setFocusD(count => count + 1), 50);
+          else refB.current?.focus();
+        }}
+      />
+      <View
+        ref={refC}
+        testID="ref-c"
+        onFocus={() => {}}
+        style={box}
+        focusStyle={{ backgroundColor: FOCUS }}
+      />
+      <View
+        ref={refD}
+        testID="ref-d"
+        focusable
+        onFocus={() => {}}
+        style={box}
+        focusStyle={{ backgroundColor: FOCUS }}
       />
       <View
         ref={refB}

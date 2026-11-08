@@ -347,6 +347,8 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         ..Default::default()
     };
 
+    let mut window_options = window_options;
+    let show_behind = crate::desktop::background::prepare(&mut window_options);
     let store_for_root = store;
     let handle = cx
         .open_window(window_options, move |window, cx| {
@@ -360,6 +362,11 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             root
         })
         .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
+    if show_behind {
+        let _ = handle.update(cx, |_root, window, _cx| {
+            crate::desktop::background::show_behind(window);
+        });
+    }
 
     let (w, h, scale, gave_back) = handle
         .update(cx, |_root, window, _cx| {
@@ -743,6 +750,12 @@ pub fn focus(cx: &mut App, key: u32) -> DesktopResult {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
     };
     let handle = entry.handle;
+    if crate::desktop::background::enabled() {
+        #[cfg(feature = "test-driver")]
+        return simulate_activation(cx, key, true);
+        #[cfg(not(feature = "test-driver"))]
+        return Ok(json!({"windowId": key, "focused": false}));
+    }
     handle
         .update(cx, |_root, window, _cx| window.activate_window())
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
@@ -889,10 +902,12 @@ pub fn set_visible_on_all_workspaces(cx: &mut App, key: u32, visible: bool) -> D
 }
 
 pub fn minimize(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         window.minimize_window();
         Ok(())
-    })
+    });
+    recheck_window_state_later(cx, key);
+    result
 }
 
 pub fn maximize(cx: &mut App, key: u32) -> DesktopResult {
@@ -945,6 +960,7 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
     });
     if let Some(run) = later.take() {
         run_outside_update(cx, run);
+        recheck_window_state_later(cx, key);
     }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(true))]);
@@ -1269,30 +1285,84 @@ pub(crate) fn install_state_observer<T: 'static>(
         let Some(key) = window_key_for_handle(cx, handle) else {
             return;
         };
-        super::window_mirror::patch(
-            key,
-            &[
-                ("isMaximized", json!(state.0)),
-                ("isMinimized", json!(state.1)),
-                ("isFullscreen", json!(state.2)),
-            ],
-        );
-        super::app_state::schedule(cx);
-        let Some(store) = cx.try_global::<StoreGlobal>() else {
-            return;
-        };
-        let host = store.0.read(cx).host.clone();
-        host.emit_device_event_json(
-            "gpuiDesktop:windowStateChange",
-            &json!({
-                "windowId": key,
-                "isMaximized": state.0,
-                "isMinimized": state.1,
-                "isFullscreen": state.2,
-            })
-            .to_string(),
-        );
+        publish_window_state(cx, key, state);
     })
+}
+
+fn publish_window_state(cx: &mut App, key: u32, state: (bool, bool, bool)) {
+    super::window_mirror::patch(
+        key,
+        &[
+            ("isMaximized", json!(state.0)),
+            ("isMinimized", json!(state.1)),
+            ("isFullscreen", json!(state.2)),
+        ],
+    );
+    super::app_state::schedule(cx);
+    let Some(store) = cx.try_global::<StoreGlobal>() else {
+        return;
+    };
+    let host = store.0.read(cx).host.clone();
+    host.emit_device_event_json(
+        "gpuiDesktop:windowStateChange",
+        &json!({
+            "windowId": key,
+            "isMaximized": state.0,
+            "isMinimized": state.1,
+            "isFullscreen": state.2,
+        })
+        .to_string(),
+    );
+}
+
+/// Reads the window's maximized, minimized and fullscreen state again a moment
+/// after a command, and publishes it if it changed. A window that is not key,
+/// as in a background run, does not always send the bounds change that the
+/// observer waits for when it is minimized or brought back.
+fn recheck_window_state_later(cx: &mut App, key: u32) {
+    cx.spawn(async move |cx| {
+        for delay in [250u64, 750, 1500] {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(delay))
+                .await;
+            let _ = cx.update(|cx| {
+                let Some(handle) = cx
+                    .global::<DesktopWindowsGlobal>()
+                    .0
+                    .get(key)
+                    .map(|entry| entry.handle)
+                else {
+                    return;
+                };
+                let state = handle
+                    .update(cx, |_root, window, _cx| {
+                        (
+                            platform_window::is_maximized(window),
+                            platform_window::is_minimized(window),
+                            window.is_fullscreen(),
+                        )
+                    })
+                    .ok();
+                let Some(state) = state else {
+                    return;
+                };
+                let known = super::window_mirror::get(key);
+                let flag = |name: &str| {
+                    known
+                        .as_ref()
+                        .and_then(|value| value.get(name))
+                        .and_then(Value::as_bool)
+                };
+                if flag("isMaximized") != Some(state.0)
+                    || flag("isMinimized") != Some(state.1)
+                    || flag("isFullscreen") != Some(state.2)
+                {
+                    publish_window_state(cx, key, state);
+                }
+            });
+        }
+    })
+    .detach();
 }
 
 /// Reports focus changes to the mirror and to JS. JS can mount before the

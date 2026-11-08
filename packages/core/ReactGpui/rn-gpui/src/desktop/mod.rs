@@ -1,6 +1,7 @@
 pub mod app_dir;
 pub mod app_menu;
 pub mod app_state;
+pub mod background;
 pub mod button_layout;
 pub mod capabilities;
 pub mod client_frame;

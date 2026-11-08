@@ -313,3 +313,25 @@ test('ref.focus() and ref.blur() move focus like HTMLElement.focus() and blur()'
   await app.waitForIdle();
   expect((await props('ref-b')).states).toEqual([]);
 });
+
+test('focus() from an effect after an async change moves focus, and a view with only onFocus is not focusable', async () => {
+  const props = async (testID: string) => {
+    const [node] = await app.query('testID', testID, true);
+    return app.getProps(node.tag);
+  };
+  await away();
+  await app.getByTestId('ref-a').click();
+  await app.waitForIdle({ ignore: ['gestures', 'animations'] });
+  expect((await props('ref-a')).states).toEqual(['focus']);
+
+  await app.press('c');
+  await app.waitForIdle();
+  expect((await props('ref-a')).states).toEqual(['focus']);
+  expect((await props('ref-c')).states).toEqual([]);
+
+  await app.press('d');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await app.waitForIdle();
+  expect((await props('ref-a')).states).toEqual([]);
+  expect((await props('ref-d')).states).toContain('focus');
+});
