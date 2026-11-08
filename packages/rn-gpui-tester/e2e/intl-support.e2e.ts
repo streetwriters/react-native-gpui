@@ -14,7 +14,7 @@ beforeAll(async () => {
       'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
     ),
     env: {
-      RN_GPUI_MODULE: 'RNGPUITester--intl',
+      RN_GPUI_MODULE: 'RNGPUITester--intl-support',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
@@ -22,7 +22,9 @@ beforeAll(async () => {
     offscreen: true,
   });
   await app.setWindowSize(1024, 768);
-  await desktopExpect(app.getByTestId('tester-screen-intl')).toBeVisible();
+  await desktopExpect(
+    app.getByTestId('tester-screen-intl-support'),
+  ).toBeVisible();
 });
 
 afterAll(() => app?.close());

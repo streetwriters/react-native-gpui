@@ -12,15 +12,15 @@ const BODY =
   'A short body of text that continues for a few words so the list shows a headline under the title.';
 
 const ROWS = [
-  { title: 'Meeting notes', height: 134.40625, top: 35, lines: 2 },
-  { title: 'Grocery list', height: 109.40625, top: 10, lines: 2 },
+  { title: 'Meeting notes', height: 132.40625, top: 35, lines: 2 },
+  { title: 'Grocery list', height: 107.40625, top: 10, lines: 2 },
   {
     title: 'Project plan for the next quarter',
-    height: 128.609375,
+    height: 126.609375,
     top: 10,
     lines: 3,
   },
-  { title: 'Travel itinerary', height: 134.40625, top: 35, lines: 2 },
+  { title: 'Travel itinerary', height: 132.40625, top: 35, lines: 2 },
 ];
 
 export default function TextRowsFixture() {

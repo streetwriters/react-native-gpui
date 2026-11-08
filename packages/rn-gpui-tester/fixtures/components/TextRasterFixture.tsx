@@ -37,14 +37,14 @@ export default function TextRasterFixture() {
       <BorderedParent />
       <View
         testID="raster-13-400"
-        style={{ width: 60, height: 16, backgroundColor: '#f6f7f9' }}
+        style={{ width: 60, height: 15.5, backgroundColor: '#f6f7f9' }}
       >
         <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#474747' }}>
           Favorites
         </Text>
       </View>
       <View style={{ height: 8 }} />
-      <View testID="raster-15-600" style={{ ...slot, width: 104, height: 19 }}>
+      <View testID="raster-15-600" style={{ ...slot, width: 104, height: 18 }}>
         <Text
           style={{
             fontFamily: 'Inter',
@@ -99,7 +99,7 @@ export default function TextRasterFixture() {
       <View style={{ height: 8 }} />
       <View
         testID="raster-dark-13-400"
-        style={{ width: 60, height: 16, backgroundColor: '#181818' }}
+        style={{ width: 60, height: 15.5, backgroundColor: '#181818' }}
       >
         <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#f2f2f2' }}>
           Favorites
@@ -108,7 +108,7 @@ export default function TextRasterFixture() {
       <View style={{ height: 8 }} />
       <View
         testID="raster-dark-15-600"
-        style={{ width: 104, height: 19, backgroundColor: '#181818' }}
+        style={{ width: 104, height: 18, backgroundColor: '#181818' }}
       >
         <Text
           style={{
@@ -124,7 +124,7 @@ export default function TextRasterFixture() {
       <View style={{ height: 8 }} />
       <View
         testID="raster-description"
-        style={{ ...slot, width: 349, height: 39 }}
+        style={{ ...slot, width: 349, height: 38.5 }}
       >
         <Text
           numberOfLines={4}

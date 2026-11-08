@@ -48,7 +48,10 @@ test('a one-line text that fits its measured box is not cut short', async () => 
         const id = `${row}-${weight}-${size}`;
         const [cut] = await app.query('testID', `cut-${id}`, true);
         const [full] = await app.query('testID', `full-${id}`, true);
-        expect(Math.abs(cut.frame.width - full.frame.width), `frame ${id}`).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(cut.frame.width - full.frame.width),
+          `frame ${id}`,
+        ).toBeLessThanOrEqual(0.5);
         const a = await ink(`cut-${id}`);
         const b = await ink(`full-${id}`);
         expect(a, `ink ${id}`).toBeCloseTo(b, 2);
@@ -69,8 +72,14 @@ test('a text is as wide as its glyphs, to the device pixel, not rounded up to a 
   }
 });
 
-test('a line is as tall as the browser makes it: ascent and descent rounded separately', async () => {
-  const expected: Record<number, number> = { 13: 16, 14: 17, 15: 19, 16: 20, 17.5: 21 };
+test('a line is as tall as the browser makes it: ascent and descent rounded to device pixels', async () => {
+  const expected: Record<number, number> = {
+    13: 15.5,
+    14: 17,
+    15: 18,
+    16: 19.5,
+    17.5: 21,
+  };
   for (const [size, height] of Object.entries(expected)) {
     const [full] = await app.query('testID', `full-0-400-${size}`, true);
     expect(full.frame.height, `height at ${size}`).toBe(height);

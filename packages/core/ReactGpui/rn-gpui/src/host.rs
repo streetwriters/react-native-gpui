@@ -66,6 +66,7 @@ impl Host {
     }
 
     pub fn start_surface(&self, id: i32, module: &str, w: f32, h: f32, scale: f32) {
+        crate::text::set_device_scale(scale);
         #[cfg(test)]
         let _ = (self, id, module, w, h, scale);
         #[cfg(not(test))]
@@ -81,6 +82,7 @@ impl Host {
         h: f32,
         scale: f32,
     ) {
+        crate::text::set_device_scale(scale);
         #[cfg(test)]
         let _ = (self, id, module, props_json, w, h, scale);
         #[cfg(not(test))]
@@ -90,6 +92,7 @@ impl Host {
     }
 
     pub fn set_surface_size(&self, id: i32, w: f32, h: f32, scale: f32) {
+        crate::text::set_device_scale(scale);
         #[cfg(test)]
         let _ = (self, id, w, h, scale);
         #[cfg(not(test))]
@@ -156,6 +159,7 @@ impl Host {
     }
 
     pub fn set_window_metrics(&self, w: f32, h: f32, scale: f32) {
+        crate::text::set_device_scale(scale);
         #[cfg(test)]
         let _ = (self, w, h, scale);
         #[cfg(not(test))]

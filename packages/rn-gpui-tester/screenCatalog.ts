@@ -96,10 +96,10 @@ export const screens = [
     fixture: 'PropsProbeFixture',
   },
   {
-    id: 'intl',
+    id: 'intl-support',
     title: 'Intl support',
     group: 'Platform',
-    fixture: 'IntlFixture',
+    fixture: 'IntlSupportFixture',
   },
   {
     id: 'text-rows',

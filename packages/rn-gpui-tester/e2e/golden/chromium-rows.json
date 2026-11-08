@@ -1,0 +1,51 @@
+[
+ {
+  "name": "title:Meeting notes",
+  "x": 265,
+  "y": 227.5,
+  "width": 103.7109375,
+  "height": 18
+ },
+ {
+  "name": "body:Meeting notes",
+  "x": 265,
+  "y": 252.5,
+  "width": 349,
+  "height": 38.40625
+ },
+ {
+  "name": "title:Grocery list",
+  "x": 265,
+  "y": 334.90625,
+  "width": 83.7890625,
+  "height": 18
+ },
+ {
+  "name": "body:Grocery list",
+  "x": 265,
+  "y": 359.90625,
+  "width": 349,
+  "height": 19.2
+ },
+ {
+  "name": "title:Project plan for the next quarter",
+  "x": 265,
+  "y": 442.3125,
+  "width": 230.3359375,
+  "height": 18
+ },
+ {
+  "name": "title:Travel itinerary",
+  "x": 265,
+  "y": 593.921875,
+  "width": 108.9765625,
+  "height": 18
+ },
+ {
+  "name": "body:Travel itinerary",
+  "x": 265,
+  "y": 618.921875,
+  "width": 349,
+  "height": 38.40625
+ }
+]
