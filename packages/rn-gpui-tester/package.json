@@ -25,6 +25,7 @@
     "@react-native-gpui/native-module-fixture": "file:./gpui-native-module",
     "@react-native-gpui/node-addon-fixture": "file:./node-addon-fixture",
     "@react-native-gpui/reanimated": "file:../../modules/reanimated",
+    "@react-native-gpui/notifications": "file:../../modules/notifications",
     "@react-native-gpui/safe-area-context": "file:../../modules/safe-area-context",
     "@react-native-gpui/screens": "file:../../modules/screens",
     "@react-native-gpui/svg": "file:../../modules/svg",

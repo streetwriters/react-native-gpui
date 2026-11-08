@@ -835,3 +835,32 @@ test('the file system module reads, writes and watches real files', async () => 
   }
   await expectCaptureSmoke();
 });
+
+test('the notifications module shows, schedules, repeats and cancels', async () => {
+  await launch('GPUINotificationsFixture');
+  await desktopExpect(app.getByTestId('notifications-title')).toContainText(
+    'Notifications',
+  );
+  await desktopExpect(app.getByText('settings ok')).toBeVisible(20000);
+  const tree = JSON.stringify(await app.tree());
+  for (const expected of [
+    'permission ok',
+    'show ok',
+    'generatedId ok',
+    'scheduled ok',
+    'fired ok',
+    'oneShotRemoved ok',
+    'pastRejected ok',
+    'repeat ok',
+    'cancelScheduled ok',
+    'cancel ok',
+    'cancelAll ok',
+    'displayed ok',
+    'initialEvent ok',
+  ]) {
+    expect(tree).toContain(expected);
+  }
+  expect(tree).not.toContain('BAD');
+  expect(tree).not.toContain('FAILED');
+  expect(tree).not.toContain('TIMEOUT');
+});

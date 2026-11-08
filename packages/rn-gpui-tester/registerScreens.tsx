@@ -54,6 +54,16 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUINotificationsFixture',
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/NotificationsFixture')
+          .NotificationsFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
     'TrayPopover',
     () => (props: { windowId?: number }) =>
       React.createElement(
