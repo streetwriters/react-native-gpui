@@ -97,12 +97,25 @@ pub(crate) fn clear() {
     STATE.take();
 }
 
+/// Works the groups out again for the tree as it is now, for a view that
+/// mounted or moved under a pointer that did not.
+pub(crate) fn refresh(cx: &mut App) {
+    for kind in [Kind::Hover, Kind::Press] {
+        let chain = STATE.with_borrow(|state| state.track(kind).tags.clone());
+        update(kind, &chain, true, cx);
+    }
+}
+
 fn set(kind: Kind, chain: &[i32], cx: &mut App) {
+    update(kind, chain, false, cx);
+}
+
+fn update(kind: Kind, chain: &[i32], force: bool, cx: &mut App) {
     let Some(store) = cx.try_global::<StoreGlobal>().map(|store| store.0.clone()) else {
         return;
     };
     let unchanged = STATE.with_borrow(|state| state.track(kind).tags == chain);
-    if unchanged {
+    if unchanged && !force {
         return;
     }
     let press = kind.is_press();

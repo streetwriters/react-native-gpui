@@ -692,6 +692,7 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     // RN reuses the *target's* offset for every node in the hover path
     // (`handleIncomingPointerEventOnNode` re-dispatches the same PointerEvent),
     // so `offsetX/Y` of an ancestor's enter/leave is the target-relative offset.
+    store.read(cx).pointer_inside.set(true);
     let page = target.map_or(position, |target| target.page(position));
     let location = target
         .map(|target| target.local_position(page))
@@ -740,6 +741,44 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     }
 }
 
+/// Runs the hover retarget a mount batch asked for, once its frame is drawn.
+pub fn flush_hover_retarget(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    if store.read(cx).hover_retarget_pending.replace(false) {
+        retarget_hover(window, cx);
+    }
+}
+
+/// Sends the pointer's last position again, so what it is over is worked out
+/// against the tree as it is now.
+pub fn retarget_hover(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let (position, inside, pressed) = {
+        let store = store.read(cx);
+        (
+            store.pointer.get(),
+            store.pointer_inside.get(),
+            store.active_touch_target.is_some(),
+        )
+    };
+    if !inside || pressed {
+        return;
+    }
+    window.dispatch_event(
+        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: window.modifiers(),
+        }),
+        cx,
+    );
+    crate::interaction::refresh(cx);
+}
+
 pub fn leave_root(window: &mut Window, cx: &mut App) {
     let Some(store) = store_from(cx) else {
         return;
@@ -752,6 +791,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
             store.pointer.get(),
         )
     };
+    store.read(cx).pointer_inside.set(false);
     for tag in previous.iter() {
         let location = store
             .read(cx)

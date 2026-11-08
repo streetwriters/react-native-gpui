@@ -9,6 +9,7 @@ use gpui::{
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -71,6 +72,9 @@ pub struct ViewStore {
     /// entity, which nearly every node reads while rendering.
     pub hovered: RefCell<Vec<i32>>,
     pub pointer: Cell<Point<Pixels>>,
+    /// Whether the pointer is over the window, as the last pointer event left it.
+    pub pointer_inside: Cell<bool>,
+    pub(crate) hover_retarget_pending: Rc<Cell<bool>>,
     pub top_inset: f32,
     /// Target fixed at primary-button down. RN keeps a touch's target stable
     /// across drags, so responder moves/releases must still reach this node
@@ -124,6 +128,8 @@ impl ViewStore {
             overlay_host,
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
+            pointer_inside: Cell::new(false),
+            hover_retarget_pending: Rc::default(),
             top_inset: 0.0,
             active_touch_target: None,
             retained_subtrees: HashMap::new(),
@@ -537,6 +543,27 @@ impl ViewStore {
 
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
     /// so a parent always exists when its children arrive.
+    /// Works out what the pointer is over again once the tree it is over has
+    /// changed, the way a browser does after a layout: a view that mounts under
+    /// a still pointer is hovered without the pointer moving.
+    fn schedule_hover_retarget(&self, cx: &mut Context<Self>) {
+        if !self.pointer_inside.get()
+            || self.active_touch_target.is_some()
+            || self.hover_retarget_pending.replace(true)
+        {
+            return;
+        }
+        let window = self.window;
+        cx.defer(move |cx| {
+            let _ = cx.update_window(window, move |_, window, _| {
+                window.on_next_frame(move |window, cx| {
+                    window.defer(cx, crate::events::flush_hover_retarget);
+                });
+                window.refresh();
+            });
+        });
+    }
+
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         self.install_report_waker(cx);
         let surface_id = batch.surface_id;
@@ -924,6 +951,7 @@ impl ViewStore {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+        self.schedule_hover_retarget(cx);
     }
 
     /// The scroll views that keep their visible content in place, with the

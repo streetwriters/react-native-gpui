@@ -148,7 +148,7 @@ When several apply, the later one in this order wins for a property they share: 
 
 A view with `pointerEvents` set to `none` or `box-none` ignores `hoverStyle` and `activeStyle`, as it is not a pointer target.
 
-Hover follows the same path as `onPointerEnter` and `onPointerLeave`, so it updates when the pointer moves, not when a view appears under a still pointer.
+Hover follows the same path as `onPointerEnter` and `onPointerLeave`. It is worked out again after the tree changes, so a view that mounts under a still pointer is hovered, and so are the group styles of a child that mounts inside a hovered group.
 
 ### Groups
 

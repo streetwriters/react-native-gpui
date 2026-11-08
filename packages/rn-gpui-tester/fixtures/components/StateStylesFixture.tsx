@@ -6,7 +6,7 @@
  */
 
 import React, { useRef, useState } from 'react';
-import { Animated, Text, View } from 'react-native';
+import { Animated, Pressable, Text, View } from 'react-native';
 
 const BASE = '#3b82f6';
 const HOVER = '#f59e0b';
@@ -21,6 +21,7 @@ export default function StateStylesFixture() {
   rendered.current += 1;
   const opacity = useRef(new Animated.Value(1)).current;
   const [animating, setAnimating] = useState(false);
+  const [late, setLate] = useState(false);
 
   return (
     <View style={{ padding: 16, gap: 12, flex: 1 }}>
@@ -103,6 +104,30 @@ export default function StateStylesFixture() {
           }}
         />
       </View>
+
+      <View
+        testID="state-late"
+        group="late"
+        style={{ width: 200, height: 60, backgroundColor: '#e5e7eb' }}
+      >
+        {late ? (
+          <View
+            testID="state-late-child"
+            style={{ width: 60, height: 40, backgroundColor: BASE }}
+            groupHoverStyle={{
+              group: 'late',
+              style: { backgroundColor: GROUP },
+            }}
+          />
+        ) : null}
+      </View>
+      <Pressable
+        testID="state-late-toggle"
+        focusable
+        onPress={() => setLate(true)}
+      >
+        <Text>mount</Text>
+      </Pressable>
 
       <Animated.View
         testID="state-animated"

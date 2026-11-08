@@ -215,3 +215,22 @@ test('border colors, text color and transform follow the pointer', async () => {
   await away();
   expect(Math.round(await blueRun('state-transform'))).toBe(100);
 });
+
+test('a view mounted under a still pointer is hovered', async () => {
+  await away();
+  const [toggle] = await app.query('testID', 'state-late-toggle', true);
+  await app.focus(toggle.tag);
+  await app.waitForIdle();
+  const at = await centre('state-late');
+  await app.mouseMove(at);
+  await app.waitForIdle();
+  expect((await app.query('testID', 'state-late-child', true)).length).toBe(0);
+
+  await app.press('enter');
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('state-late-child')).toBeVisible();
+  await expectColor('state-late-child', '#8b5cf6');
+
+  await away();
+  await expectColor('state-late-child', '#3b82f6');
+});

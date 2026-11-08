@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- What the pointer is over is worked out again after a mount batch, as a browser does after a layout: a view that mounts under a still pointer receives `onPointerEnter`, without the pointer moving.
 - Added `DesktopWindow.setZoomFactor()` and `getZoomFactor()` to scale a window's content (0.25 to 5), `getTitle()`, and `isVisible`, `title` and `zoomFactor` in the window state. `stateChange` events now also report `isVisible`, `title` and `zoomFactor` changes. Needs a prebuilt runtime built with the change.
 - Added `DesktopWindow.setBackgroundColor()` and `setChromeAppearance()` to color a window's background and give its native title bar a light or dark look. macOS only for now.
 - Added state style props on every `View`: `hoverStyle`, `activeStyle`, `focusStyle`, `focusVisibleStyle`, `group`, `groupHoverStyle` and `groupActiveStyle`. A hover or press repaints in native code, without a round trip to JavaScript and without React rendering. They can change `backgroundColor`, `opacity`, `boxShadow`, border colors, `transform` and the `color` of the text inside, and a property that a native-driven animation is animating keeps its animated value. Needs a prebuilt runtime built with the change.

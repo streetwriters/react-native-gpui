@@ -1496,6 +1496,7 @@ async fn serve_commands(
 fn draw_frame(window: &mut gpui::Window, app: &mut App) {
     let needs_clear = window.draw(app);
     needs_clear.clear(app);
+    crate::events::flush_hover_retarget(window, app);
     let Some(store) = app.try_global::<crate::store::StoreGlobal>() else {
         return;
     };
