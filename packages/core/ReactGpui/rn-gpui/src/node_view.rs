@@ -982,15 +982,28 @@ impl RNNodeView {
         self.focusable || self.view.accessibility_has_escape_listener
     }
 
+    /// The handle a press focuses: the nearest focusable node's, or failing
+    /// that the nearest node's that only has one for accessibility.
     pub(crate) fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
-        if let Some(handle) = self.focus_handle.as_ref().filter(|_| self.takes_focus()) {
-            return Some(handle.clone());
+        self.nearest_focus_handle_where(cx, true)
+            .or_else(|| self.nearest_focus_handle_where(cx, false))
+    }
+
+    fn nearest_focus_handle_where(&self, cx: &App, focusable_only: bool) -> Option<FocusHandle> {
+        let usable = |node: &Self| {
+            node.focus_handle
+                .as_ref()
+                .filter(|_| !focusable_only || node.takes_focus())
+                .cloned()
+        };
+        if let Some(handle) = usable(self) {
+            return Some(handle);
         }
         let mut parent = self.parent.clone();
         while let Some(node) = parent.and_then(|node| node.upgrade()) {
             let node = node.read(cx);
-            if let Some(handle) = node.focus_handle.as_ref().filter(|_| node.takes_focus()) {
-                return Some(handle.clone());
+            if let Some(handle) = usable(node) {
+                return Some(handle);
             }
             parent = node.parent.clone();
         }
