@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- The test driver no longer scans every node after each draw for running transitions; it follows only the nodes a transition was started on, which shortens each draw by about a millisecond on a large tree.
 - `App.beep()` plays the system alert sound. Needs a prebuilt runtime built with the change.
 - `Tray.onClick(handler)` reports a click on the tray icon with its button and whether it is a double click. Needs a prebuilt runtime built with the change.
 - `View` takes a `tooltip` string, shown after the pointer rests over the view as the web's `title` is. macOS uses the system tooltip; Windows and Linux draw one in the window for now (`RN_GPUI_TOOLTIP=drawn` forces that on macOS). It is placed with the window's zoom factor, follows a change of the text, hides on leave, press and window deactivation, and is the view's accessibility description. Needs a prebuilt runtime built with the change.

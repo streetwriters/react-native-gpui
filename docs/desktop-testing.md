@@ -82,6 +82,10 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
+### Layout and paint work
+
+`app.layoutStats({ reset })` returns what the window's layout and paint did since the counters were last reset, from gpui-fast's layout statistics: `frames`; `nodesCreated`, `nodesReused`, `nodesFreed`; `styleCompares`, `styleWrites`, `childrenWrites`; `measureCalls`, `measurementsKept`, `measurementsReplayed`; `linesShaped`; `viewsBuilt` and `viewsReused`; `layerFramesComposited`, `layerFramesRepainted`, `tilesDirtied`, `layerRebuildsForInput` and `layersDemoted` for scroll layers; `layoutNodes`, the nodes the window holds; and in milliseconds `buildMs`, `prepaintMs`, `paintMs`, `computeLayoutMs`, `measureMs` and `shapeMs`. The counts always run. The times are zero until the first call with `reset: true`, so start a measurement with one, do the work, and read it with another `reset: true` call, which also starts the next interval. Divide by `frames` for a per-frame figure. Frames that the driver draws itself count too.
+
 ### Which display
 
 A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.

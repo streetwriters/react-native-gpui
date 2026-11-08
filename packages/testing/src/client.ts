@@ -944,6 +944,19 @@ export class DesktopApp {
   }
 
   /**
+   * The work the window's layout and paint did since `reset` was last passed:
+   * frames, layout nodes created and reused, style writes, measurements, lines
+   * shaped, views built and reused, scroll layer repaints and dirtied tiles,
+   * and the time each phase took in milliseconds. The times are zero until the
+   * first call with `reset: true`; pass it again to start the next interval.
+   */
+  async layoutStats(
+    options: { reset?: boolean } = {},
+  ): Promise<Record<string, number>> {
+    return this.request('layoutStats', options);
+  }
+
+  /**
    * The tooltip the window has set up for the view under the pointer: its text,
    * the view and its frame in the window, and the text of a tooltip the app
    * draws itself once it shows (`mode` is `native` when the system draws it).

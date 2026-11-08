@@ -264,6 +264,47 @@ async fn serve_commands(
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
             "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
+            "layoutStats" => {
+                let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
+                cx.update_window(window, |_, window, _| {
+                    let stats = window.layout_stats();
+                    let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+                    let report = json!({
+                        "frames": stats.frames,
+                        "nodesCreated": stats.nodes_created,
+                        "nodesReused": stats.nodes_reused,
+                        "nodesFreed": stats.nodes_freed,
+                        "styleCompares": stats.style_compares,
+                        "styleWrites": stats.style_writes,
+                        "childrenWrites": stats.children_writes,
+                        "measureRebinds": stats.measure_rebinds,
+                        "measurementsKept": stats.measurements_kept,
+                        "measurementsReplayed": stats.measurements_replayed,
+                        "measureCalls": stats.measure_calls,
+                        "measureMs": ms(stats.measure_time),
+                        "computeLayoutCalls": stats.compute_layout_calls,
+                        "buildMs": ms(stats.build_time),
+                        "prepaintMs": ms(stats.prepaint_time),
+                        "paintMs": ms(stats.paint_time),
+                        "computeLayoutMs": ms(stats.compute_layout_time),
+                        "linesShaped": stats.lines_shaped,
+                        "shapeMs": ms(stats.shape_time),
+                        "viewsBuilt": stats.views_built,
+                        "viewsReused": stats.views_reused,
+                        "layerFramesComposited": stats.layer_frames_composited,
+                        "layerFramesRepainted": stats.layer_frames_repainted,
+                        "tilesDirtied": stats.tiles_dirtied,
+                        "layerRebuildsForInput": stats.layer_rebuilds_for_input,
+                        "layersDemoted": stats.layers_demoted,
+                        "layoutNodes": window.layout_node_count(),
+                    });
+                    if reset {
+                        window.reset_layout_stats();
+                    }
+                    report
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
+            }
             "tooltip" => {
                 let active = crate::tooltip::active();
                 #[cfg(target_os = "macos")]
@@ -1667,13 +1708,20 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
         return;
     };
     let store = store.0.clone();
-    let transitioning: Vec<Entity<RNNodeView>> = store
-        .read(app)
-        .nodes
-        .values()
-        .filter(|node| node.read(app).transition_active(app))
-        .cloned()
-        .collect();
+    let transitioning: Vec<Entity<RNNodeView>> = {
+        let store = store.read(app);
+        let mut tracked = store.transitioning.borrow_mut();
+        tracked.retain(|tag| {
+            store
+                .nodes
+                .get(tag)
+                .is_some_and(|node| node.read(app).transition_active(app))
+        });
+        tracked
+            .iter()
+            .filter_map(|tag| store.nodes.get(tag).cloned())
+            .collect()
+    };
     for node in transitioning {
         node.update(app, |_, cx| cx.notify());
     }

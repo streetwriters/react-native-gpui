@@ -75,6 +75,9 @@ pub struct ViewStore {
     /// Whether the pointer is over the window, as the last pointer event left it.
     pub pointer_inside: Cell<bool>,
     pub(crate) hover_retarget_pending: Rc<Cell<bool>>,
+    /// Nodes a transition was started on and has not been seen to finish, for
+    /// the test driver to keep drawing without scanning every node.
+    pub(crate) transitioning: RefCell<std::collections::HashSet<i32>>,
     pub top_inset: f32,
     /// Target fixed at primary-button down. RN keeps a touch's target stable
     /// across drags, so responder moves/releases must still reach this node
@@ -130,6 +133,7 @@ impl ViewStore {
             pointer: Cell::new(point(px(0.), px(0.))),
             pointer_inside: Cell::new(false),
             hover_retarget_pending: Rc::default(),
+            transitioning: RefCell::default(),
             top_inset: 0.0,
             active_touch_target: None,
             retained_subtrees: HashMap::new(),
@@ -1307,6 +1311,7 @@ pub(crate) fn start_component_transition(
                 node.transition_forward = forward;
                 cx.notify();
             });
+            store.transitioning.borrow_mut().insert(tag);
             store.record_subtree_nodes(&[tag], cx);
         }
     });
@@ -1323,6 +1328,7 @@ fn start_component_transition_here(
             node.transition = Some((transition, Instant::now()));
             cx.notify();
         });
+        store.transitioning.borrow_mut().insert(tag);
         store.record_subtree_nodes(&[tag], cx);
     }
 }
