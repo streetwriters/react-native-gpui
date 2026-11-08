@@ -56,6 +56,73 @@ export type ScreenshotOptions = {
   maxDiffPixels?: number;
 };
 
+export type Sides = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+export type TextFragmentProps = {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  /** `0xAARRGGBB`. */
+  color: number;
+  /** In points, `0` for the font's own. */
+  lineHeight: number;
+  letterSpacing: number;
+  underline: boolean;
+  strikethrough: boolean;
+  /** 0 none, 1 uppercase, 2 lowercase, 3 capitalize. */
+  textTransform: number;
+};
+
+export type NodeProps = {
+  tag: number;
+  component: string;
+  testID: string;
+  text: string;
+  paragraphFragments: TextFragmentProps[];
+  borderWidths: Sides;
+  /** `0xAARRGGBB` per side, `0` for none. */
+  borderColors: Sides;
+  /** 0 solid, 1 dotted, 2 dashed, left, top, right, bottom. */
+  borderStyles: number[];
+  borderRadii: {
+    topLeft: number;
+    topRight: number;
+    bottomRight: number;
+    bottomLeft: number;
+  };
+  boxShadows: {
+    offsetX: number;
+    offsetY: number;
+    blurRadius: number;
+    spreadDistance: number;
+    color: number;
+    inset: boolean;
+  }[];
+  /** The first non-empty fragment's color, `null` for a node with no text. */
+  textColor: number | null;
+  textAlign: number | null;
+  numberOfLines: number | null;
+  outlineColor: number;
+  outlineOffset: number;
+  outlineWidth: number;
+  opacity: number;
+  backgroundColor: number;
+  transform: number[];
+  frame: { x: number; y: number; width: number; height: number } | null;
+  renderCount: number;
+  scrollStrategy: string | null;
+  selection: { start: number; end: number } | null;
+  inputScrollX: number | null;
+  [key: string]: unknown;
+};
+
 export type ClickOptions = {
   button?: 'left' | 'right' | 'middle' | 'back' | 'forward';
   clickCount?: number;
@@ -939,7 +1006,13 @@ export class DesktopApp {
     return this.request('a11yNode', { identifier });
   }
 
-  async getProps(tag: number): Promise<unknown> {
+  /**
+   * What the renderer has for a node: its text and the style of each fragment,
+   * border widths, colors, styles and radii per side, box shadows, outline,
+   * opacity, background and text color, and its frame. Colors are `0xAARRGGBB`
+   * numbers, `0` for none. See the package README.
+   */
+  async getProps(tag: number): Promise<NodeProps> {
     return this.request('getProps', { tag });
   }
 
