@@ -26,7 +26,7 @@ const run = (bin, args) =>
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.log(
-    'usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release] [--features feature,...] [--no-launch]',
+    'usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release] [--features feature,...] [--no-launch] [--sign-identity identity]',
   );
   process.exit(0);
 }
@@ -101,6 +101,7 @@ if (command === 'run') {
     release: hasFlag('--release'),
     features: option('--features'),
     noLaunch: hasFlag('--no-launch'),
+    signIdentity: option('--sign-identity'),
     port: option('--port'),
     host: option('--host'),
   });

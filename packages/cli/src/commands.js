@@ -468,6 +468,7 @@ export async function runDesktop({
   features,
   noLaunch = false,
   packaging = false,
+  signIdentity,
 }) {
   projectRoot = path.resolve(projectRoot);
   const dependencyProblem = linuxBuildDependencyProblem(
@@ -506,7 +507,16 @@ export async function runDesktop({
   // format (`.hbc` bytecode, for example).
   let runtimeBundlePath = bundlePath;
 
-  if (release) {
+  // A debug build normally loads its JavaScript from Metro. The test driver has
+  // no Metro, so a build made for it also writes the bundle it will load.
+  const emitDevBundle =
+    !release &&
+    noLaunch &&
+    (features ?? '')
+      .split(',')
+      .some(feature => feature.trim() === 'test-driver');
+
+  if (release || emitDevBundle) {
     fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
     const bundleArgs = [
       'react-native',
@@ -520,12 +530,12 @@ export async function runDesktop({
       '--assets-dest',
       path.join(path.dirname(bundlePath), 'assets'),
       '--dev',
-      'false',
+      release ? 'false' : 'true',
     ];
     if (fs.existsSync(metroConfig)) bundleArgs.push('--config', metroConfig);
     run(npxCommand, npxArgs(bundleArgs), { cwd: projectRoot, shell: npxShell });
 
-    if (engineBundle && typeof engineBundle.compile === 'function') {
+    if (release && engineBundle && typeof engineBundle.compile === 'function') {
       const extension =
         typeof engineBundle.bundleExtension === 'string'
           ? engineBundle.bundleExtension
@@ -575,8 +585,8 @@ export async function runDesktop({
   // then asks again for every item the app stored. Signed with a certificate
   // under the app's identifier, every build is the same app.
   const signingIdentity =
-    process.platform === 'darwin' && !packaging && !noLaunch
-      ? process.env.APPLE_SIGNING_IDENTITY
+    process.platform === 'darwin' && !packaging
+      ? (signIdentity ?? process.env.APPLE_SIGNING_IDENTITY)
       : undefined;
   const cargoArgs = [noLaunch || signingIdentity ? 'build' : 'run'];
   if (release) cargoArgs.push('--release');
@@ -660,7 +670,7 @@ export async function runDesktop({
       identifier,
       binary,
     ]);
-    run(binary, [], { cwd: projectRoot, env: cargoEnv });
+    if (!noLaunch) run(binary, [], { cwd: projectRoot, env: cargoEnv });
   }
 
   // The file the runtime was told to load: the engine's compiled output in a

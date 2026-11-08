@@ -158,3 +158,13 @@ import desktopPreset from '@react-native-gpui/testing/vitest-preset';
 
 export default mergeConfig(defineConfig(desktopPreset), defineConfig({}));
 ```
+
+## Building for the test driver
+
+```shell
+npx react-native run-desktop --features test-driver --no-launch
+```
+
+A debug build normally loads its JavaScript from Metro. With the `test-driver` feature and `--no-launch`, `run-desktop` also writes the bundle (`desktop/build/index.bundle` by default) with the development flag on, so a test run needs no Metro. Point `RN_GPUI_TEST_BINARY` at the binary in `desktop/build/target/debug` and `RN_GPUI_TEST_BUNDLE` at that bundle. When a bundle is given, `launchApp` also tells the app not to look for a dev server (`RN_GPUI_DEV_PORT=1`) unless the environment already sets that variable.
+
+On macOS an unsigned binary is a new app to the keychain on every build, and one that reads a keychain item written by another build waits for a prompt. Pass `--sign-identity <identity>` (or set `APPLE_SIGNING_IDENTITY`) to sign the binary under the app's identifier, with or without `--no-launch`.

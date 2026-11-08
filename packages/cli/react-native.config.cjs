@@ -32,6 +32,7 @@ module.exports = {
           host: options.host,
           features: options.features,
           noLaunch: options.noLaunch === true || options.launch === false,
+          signIdentity: options.signIdentity,
           packager: options.packager !== false && options.noPackager !== true,
           packagerLog: options.packagerLog === true,
           terminal: options.terminal,
@@ -59,7 +60,13 @@ module.exports = {
         },
         {
           name: '--no-launch',
-          description: 'Build the desktop app without launching it',
+          description:
+            'Build the desktop app without launching it. With the test-driver feature it also writes the JavaScript bundle the test driver loads',
+        },
+        {
+          name: '--sign-identity <identity>',
+          description:
+            'macOS code signing identity for the built binary (default: $APPLE_SIGNING_IDENTITY). Applies to --no-launch builds too',
         },
         {
           name: '--no-packager',

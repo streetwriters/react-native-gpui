@@ -219,6 +219,9 @@ export class DesktopApp {
               ),
             }
           : {}),
+        ...(bundlePath && !process.env.RN_GPUI_DEV_PORT
+          ? { RN_GPUI_DEV_PORT: '1' }
+          : {}),
         ...options.env,
         ...(options.initialProps
           ? { RN_GPUI_TEST_INITIAL_PROPS: JSON.stringify(options.initialProps) }
