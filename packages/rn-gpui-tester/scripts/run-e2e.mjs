@@ -99,10 +99,9 @@ function stopTestApps() {
   for (const line of processList.split('\n')) {
     const match = line.trim().match(/^(\d+)\s+(.+)$/u);
     if (match) commandsByPid.set(Number(match[1]), match[2]);
-    if (
-      match &&
-      (match[2].endsWith(`/${appName}`) || /\/rn-gpui-tester$/u.test(match[2]))
-    ) {
+    // Only this checkout's own binary: another checkout's e2e run on the same
+    // machine owns the apps it started, and killing them fails its tests.
+    if (match && (match[2] === binary || match[2].startsWith(`${binary} `))) {
       candidates.add(Number(match[1]));
     }
   }
