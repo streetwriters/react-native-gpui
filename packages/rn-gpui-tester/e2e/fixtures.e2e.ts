@@ -962,6 +962,8 @@ test('the system module controls login items and screen-capture protection', asy
     'protectionLater ok',
     'protectionOffAgain ok',
     'idleTime ok',
+    'badge ok',
+    'attention ok',
   ]) {
     expect(tree).toContain(expected);
   }

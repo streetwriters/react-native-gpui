@@ -88,6 +88,8 @@ A test that reads real screen pixels needs its window in front. `app.raiseWindow
 
 A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
 
+A window ordered behind the others can be covered by them, and macOS stops presenting frames for a covered (occluded) window, so a test that reads the real screen back with `app.compositeScreenshot()` needs the window in front. `RN_GPUI_TEST_ON_TOP=1` orders the window front without activating the app or giving it focus; the compositor test of native views sets it.
+
 `launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
 
 `RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
