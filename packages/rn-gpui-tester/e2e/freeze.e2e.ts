@@ -41,14 +41,23 @@ test('the app settles after moving through several frozen routes', async () => {
 });
 
 test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is running', async () => {
-  void app.getByTestId('js-busy').click();
+  await desktopExpect(app.getByTestId('js-busy')).toBeVisible();
+  const pressed = app.getByTestId('js-busy').click();
+  const failure = pressed.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
   let status = '';
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline && !status.includes('running for')) {
     await new Promise(resolve => setTimeout(resolve, 50));
     status = JSON.stringify(await app.idleStatus());
   }
+  expect(
+    await Promise.race([failure, Promise.resolve(undefined)]),
+  ).toBeUndefined();
   expect(status).toContain('running for');
   expect(status).toContain('queued from');
+  await pressed;
   await app.waitForIdle({ timeout: 8000 });
 });
