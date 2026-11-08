@@ -316,3 +316,84 @@ impl StateStyles {
         (styles != Self::default()).then(|| std::rc::Rc::new(styles))
     }
 }
+
+#[cfg(test)]
+mod state_style_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn state(value: Value) -> StateStyle {
+        StateStyle::from_json(&value)
+    }
+
+    #[test]
+    fn a_side_color_overrides_border_color() {
+        let style = state(json!({"borderColor": 1, "borderBottomColor": 2}));
+        assert_eq!(style.border_colors([9; 4]), [1, 1, 1, 2]);
+    }
+
+    #[test]
+    fn a_style_without_border_colors_keeps_the_base() {
+        assert_eq!(state(json!({})).border_colors([7, 8, 9, 10]), [7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn a_later_layer_wins_only_the_properties_it_sets() {
+        let mut base = state(json!({"backgroundColor": 1, "opacity": 0.5, "color": 3}));
+        base.merge(&state(json!({"backgroundColor": 2})));
+        assert_eq!(base.background_color, Some(2));
+        assert_eq!(base.opacity, Some(0.5));
+        assert_eq!(base.text_color(), Some(3));
+    }
+
+    #[test]
+    fn a_transform_needs_all_sixteen_numbers() {
+        assert!(state(json!({"transform": [1, 0]})).transform().is_none());
+        let matrix: Vec<f64> = (0..16).map(f64::from).collect();
+        assert_eq!(
+            state(json!({"transform": matrix})).transform().unwrap()[5],
+            5.0
+        );
+    }
+
+    #[test]
+    fn an_animated_property_is_left_out_of_the_refinement() {
+        let style = state(json!({"backgroundColor": 4278190080u32, "opacity": 0.2}));
+        let animating = Animating {
+            background: true,
+            opacity: false,
+        };
+        let refinement = style.refinement((1.0, 1.0), animating);
+        assert!(refinement.background.is_none());
+        assert_eq!(refinement.opacity, Some(0.2));
+    }
+
+    #[test]
+    fn a_view_with_no_state_props_has_no_state_styles() {
+        assert!(StateStyles::from_flat(&ViewPropsFlat::default()).is_none());
+    }
+
+    #[test]
+    fn a_group_style_needs_a_group_name() {
+        let mut view = ViewPropsFlat::default();
+        view.group_hover_style = r#"{"group":"","style":{"opacity":1}}"#.to_string();
+        assert!(StateStyles::from_flat(&view).is_none());
+        view.group_hover_style = r#"{"group":"row","style":{"opacity":1}}"#.to_string();
+        let styles = StateStyles::from_flat(&view).unwrap();
+        assert_eq!(styles.group_hover.as_ref().unwrap().group.as_ref(), "row");
+    }
+
+    #[test]
+    fn invalid_json_is_ignored() {
+        let mut view = ViewPropsFlat::default();
+        view.hover_style = "{".to_string();
+        assert!(StateStyles::from_flat(&view).is_none());
+    }
+
+    #[test]
+    fn any_state_can_set_the_text_color() {
+        let mut view = ViewPropsFlat::default();
+        view.active_style = r#"{"color":4294901760}"#.to_string();
+        assert!(StateStyles::from_flat(&view).unwrap().sets_color());
+    }
+}

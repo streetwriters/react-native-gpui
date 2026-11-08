@@ -41,3 +41,18 @@ pub fn forget(surface_id: i32) {
         factors.remove(&surface_id);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_factor_is_clamped_and_one_is_forgotten() {
+        assert_eq!(set(9101, 100.0), MAX);
+        assert_eq!(get(9101), MAX);
+        assert_eq!(set(9101, 0.0), MIN);
+        assert_eq!(set(9101, f32::NAN), 1.0);
+        assert_eq!(get(9101), 1.0);
+        forget(9101);
+    }
+}
