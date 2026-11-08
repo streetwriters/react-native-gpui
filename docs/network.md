@@ -19,8 +19,14 @@ await Network.setProxy('direct');
 await Network.setProxy('system');
 
 await Network.setDnsOverHttps('https://cloudflare-dns.com/dns-query');
+await Network.setDnsOverHttps([
+  'https://mozilla.cloudflare-dns.com/dns-query',
+  'https://dns.quad9.net/dns-query',
+]);
 await Network.setDnsOverHttps(null);
 ```
+
+An app that offers proxy rules and a secure DNS switch in its settings maps them directly: a rules string (`''` for none) is `Network.setProxy(rules || 'direct')`, and the switch is `Network.setDnsOverHttps(on ? [first, second] : null)`.
 
 WebSocket connections do not use these settings yet.
 
@@ -48,20 +54,22 @@ Sets where new requests go. It rejects when the rules cannot be read.
 ### `setDnsOverHttps()`
 
 ```tsx
-Network.setDnsOverHttps(url: string | null): Promise<void>;
+Network.setDnsOverHttps(urls: string | string[] | null): Promise<void>;
 ```
 
-Resolves the host names of new requests through a DNS-over-HTTPS server, such as `https://cloudflare-dns.com/dns-query`, in place of the system resolver. `null` goes back to the system resolver. The URL must be `https`. The server's own name is looked up by the system, so give its address when that must not leak. A request through an HTTP proxy is resolved by the proxy for the host it names, so this affects it only for the proxy's own name.
+Resolves the host names of new requests through DNS-over-HTTPS servers, such as `https://cloudflare-dns.com/dns-query`, in place of the system resolver. `null` goes back to the system resolver. Every URL must be `https`.
+
+With several servers they are tried in order: a request whose host name a server could not resolve asks the next one, and after the last it asks the system resolver, as Chromium's automatic secure DNS mode does. So a server that is down does not take the app offline. The retry happens only before anything of the response has arrived. The servers' own names are looked up by the system, so give their addresses when that must not leak. A request through an HTTP proxy is resolved by the proxy for the host it names, so this affects it only for the proxy's own name.
 
 ---
 
 ### `getSettings()`
 
 ```tsx
-Network.getSettings(): Promise<{ mode: 'system' | 'direct' | 'fixed'; rules: string; bypass: string; dnsOverHttps: string }>;
+Network.getSettings(): Promise<{ mode: 'system' | 'direct' | 'fixed'; rules: string; bypass: string; dnsOverHttps: string; dnsOverHttpsServers: string[] }>;
 ```
 
-The settings now in effect. The app remembers them across launches by calling `setProxy` and `setDnsOverHttps` at startup.
+The settings now in effect. `dnsOverHttps` is the first DNS server, and `dnsOverHttpsServers` lists them all. The app remembers them across launches by calling `setProxy` and `setDnsOverHttps` at startup.
 
 ---
 

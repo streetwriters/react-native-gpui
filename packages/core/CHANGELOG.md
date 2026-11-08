@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `Network.setDnsOverHttps()` takes a list of DNS-over-HTTPS servers. A name a server cannot resolve is asked of the next one and then of the system resolver, and `getSettings()` also reports `dnsOverHttpsServers`.
 - An app launched with the argument `--hidden` opens its main window without showing it or taking focus, for an app that starts at login in the background behind a tray icon.
 - Added `Network.setProxy()`, `setDnsOverHttps()`, `getSettings()` and `proxyForUrl()` to set the proxy (a proxy URL, Chromium proxy rules and a bypass list, `'direct'` or the system's) and a DNS-over-HTTPS server of the HTTP client that `fetch`, `XMLHttpRequest` and remote image and font loads share. On macOS requests follow the system proxy settings by default. WebSocket connections are not covered yet. Needs a prebuilt runtime built with the change.
 - Resizing a window continuously no longer crashes a large app with "Maximum update depth exceeded". `useWindowDimensions` in the main window no longer re-renders on every frame of a move or resize, `SafeAreaView` re-renders only when the title bar inset changes, a surface gets a new size at most every 50 ms during a live resize (the last size always arrives), events such as `onLayout` render at default priority instead of synchronously, and `windowResize` and `windowMove` fire only for what changed.
