@@ -82,3 +82,26 @@ test('the first words of 13 point text with a 19.2 point line height match Chrom
   );
   expect(over).toBeLessThan(total * 0.02);
 });
+
+test('a one-line title nested in a bordered, padded row matches Chromium', async () => {
+  const { over, total } = await differing(
+    'raster-nested-title',
+    'chromium-inter-15-600-meeting-notes.png',
+  );
+  expect(over).toBeLessThan(total * 0.1);
+});
+
+test('a child of a bordered parent is painted where its frame says', async () => {
+  const [child] = await app.query('testID', 'bordered-child', true);
+  const image = PNG.sync.read(await app.screenshot());
+  const scale = image.width / 1024;
+  const dark = (x: number, y: number) =>
+    image.data[
+      (Math.round(y * scale) * image.width + Math.round(x * scale)) * 4
+    ] < 60;
+  const { x, y, width, height } = child.frame;
+  expect(dark(x + 1, y + height / 2)).toBe(true);
+  expect(dark(x - 1, y + height / 2)).toBe(false);
+  expect(dark(x + width / 2, y + 1)).toBe(true);
+  expect(dark(x + width / 2, y - 1)).toBe(false);
+});
