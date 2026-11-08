@@ -48,6 +48,12 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'network',
+    title: 'Network settings',
+    group: 'Platform',
+    fixture: 'NetworkFixture',
+  },
+  {
     id: 'text-input',
     title: 'Text input',
     group: 'Input',

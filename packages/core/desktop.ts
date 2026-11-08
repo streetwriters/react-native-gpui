@@ -73,6 +73,7 @@ export {
 } from './src-gpui/src/private/desktop/contextMenu';
 
 export { PerfMonitor } from './src-gpui/src/private/desktop/perfMonitor';
+export { Network } from './src-gpui/src/private/desktop/network';
 
 export {
   shortcutId,
@@ -108,6 +109,10 @@ export type {
 } from './src-gpui/src/private/desktop/tray';
 
 export type { PerfMetrics } from './src-gpui/src/private/desktop/perfMonitor';
+export type {
+  NetworkSettings,
+  ProxyConfig,
+} from './src-gpui/src/private/desktop/network';
 
 export type {
   DesktopContextMenuEvent,

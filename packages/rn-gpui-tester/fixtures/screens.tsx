@@ -261,6 +261,8 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  network: props =>
+    React.createElement(require('./components/NetworkFixture').default, props),
   'context-menu': props =>
     React.createElement(
       require('./components/ContextMenuFixture').default,

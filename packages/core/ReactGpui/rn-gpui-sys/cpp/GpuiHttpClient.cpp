@@ -1,5 +1,6 @@
 #include "GpuiHttpClient.h"
 #include <react/io/BlobModule.h>
+#include "GpuiNetworkConfig.h"
 
 #include <curl/curl.h>
 
@@ -370,6 +371,7 @@ void performRequest(
 
   curl_easy_setopt(curl.handle, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl.handle, CURLOPT_USERAGENT, "react-native-gpui/0.1");
+  applyNetworkConfig(curl.handle, url);
   curl_easy_setopt(curl.handle, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl.handle, CURLOPT_ACCEPT_ENCODING, "");
