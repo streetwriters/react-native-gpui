@@ -278,6 +278,13 @@ export const renderScreen: Record<
       require('./components/PointerCaptureFixture').default,
       props,
     ),
+  freeze: props =>
+    React.createElement(require('./components/FreezeFixture').default, props),
+  'key-events': props =>
+    React.createElement(
+      require('./components/KeyEventsFixture').default,
+      props,
+    ),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>
