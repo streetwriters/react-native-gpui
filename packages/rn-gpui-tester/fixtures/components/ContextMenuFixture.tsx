@@ -9,7 +9,11 @@
 
 import React, { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
-import { ContextMenu, ContextMenuView } from '@react-native-gpui/core/desktop';
+import {
+  ContextMenu,
+  ContextMenuView,
+  Menu,
+} from '@react-native-gpui/core/desktop';
 import type { MenuItemSpec } from '@react-native-gpui/core/desktop';
 import { MenuView } from '@react-native-gpui/core/polyfills/menu';
 
@@ -47,6 +51,7 @@ const ITEMS: MenuItemSpec[] = [
 
 function ContextMenuFixture() {
   const [chosen, setChosen] = useState('none');
+  const [callbacks, setCallbacks] = useState('');
   const [error, setError] = useState('');
   const [pointer, setPointer] = useState('none');
   const [pointerLog, setPointerLog] = useState<Array<string>>([]);
@@ -114,6 +119,56 @@ function ContextMenuFixture() {
         <Text testID="pointer-log">pointer {pointer}</Text>
         <Text testID="pointer-history">{pointerLog.join(' | ')}</Text>
       </View>
+      <Text testID="cm-callbacks">{`callbacks: ${callbacks}`}</Text>
+      <View
+        testID="cm-callback-target"
+        style={styles.row}
+        onContextMenu={event =>
+          ContextMenu.show(
+            [
+              {
+                id: 'cb-rename',
+                label: 'Rename',
+                onPress: () => setCallbacks(value => `${value}rename;`),
+              },
+              {
+                type: 'submenu',
+                label: 'More',
+                items: [
+                  {
+                    id: 'cb-nested',
+                    label: 'Nested',
+                    onPress: () => setCallbacks(value => `${value}nested;`),
+                  },
+                ],
+              },
+            ],
+            { x: event.nativeEvent.x, y: event.nativeEvent.y },
+          ).then(id => setCallbacks(value => `${value}id=${id};`))
+        }
+      >
+        <Text>Right-click me (callbacks)</Text>
+      </View>
+      <Text
+        testID="cm-set-app-menu"
+        onPress={() =>
+          Menu.setApplicationMenu([
+            {
+              type: 'submenu',
+              label: 'Tester',
+              items: [
+                {
+                  id: 'app-cb',
+                  label: 'Callback item',
+                  onPress: () => setCallbacks(value => `${value}app;`),
+                },
+              ],
+            },
+          ])
+        }
+      >
+        Set application menu
+      </Text>
       <View
         testID="cm-target"
         style={styles.row}

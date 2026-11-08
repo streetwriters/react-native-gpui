@@ -347,6 +347,18 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         ..Default::default()
     };
 
+    let mut window_options = window_options;
+    let show_behind = crate::desktop::background::prepare(&mut window_options);
+    if !options.popup {
+        if let Some(display) = crate::desktop::background::test_display(cx) {
+            window_options.display_id = Some(display.id());
+            window_options.window_bounds = Some(WindowBounds::Windowed(Bounds::centered(
+                Some(display.id()),
+                bounds.size,
+                cx,
+            )));
+        }
+    }
     let store_for_root = store;
     let handle = cx
         .open_window(window_options, move |window, cx| {
@@ -360,6 +372,11 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
             root
         })
         .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
+    if show_behind {
+        let _ = handle.update(cx, |_root, window, _cx| {
+            crate::desktop::background::show_behind(window);
+        });
+    }
 
     let (w, h, scale, gave_back) = handle
         .update(cx, |_root, window, _cx| {
@@ -571,6 +588,7 @@ fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool)
     super::window_mirror::remove(key);
     super::app_state::schedule(cx);
     let surface_id = entry.surface_id;
+    super::zoom::forget(surface_id);
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
         // Only the registry entry is dropped here. `stop_surface` goes through
@@ -742,6 +760,12 @@ pub fn focus(cx: &mut App, key: u32) -> DesktopResult {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
     };
     let handle = entry.handle;
+    if crate::desktop::background::enabled() {
+        #[cfg(feature = "test-driver")]
+        return simulate_activation(cx, key, true);
+        #[cfg(not(feature = "test-driver"))]
+        return Ok(json!({"windowId": key, "focused": false}));
+    }
     handle
         .update(cx, |_root, window, _cx| window.activate_window())
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
@@ -767,9 +791,74 @@ pub fn set_title(cx: &mut App, key: u32, title: String) -> DesktopResult {
     if let Some(entry) = cx.global_mut::<DesktopWindowsGlobal>().0.get_mut(key) {
         entry.title.clone_from(&title);
     }
-    with_window(cx, key, move |window| {
+    let changed = json!(title);
+    let result = with_window(cx, key, move |window| {
         window.set_window_title(&title);
         Ok(())
+    });
+    if result.is_ok() {
+        report_state_change(cx, key, &[("title", changed)]);
+    }
+    result
+}
+
+/// Records fields of a window's state that no platform observer reports, and
+/// tells JS they changed.
+fn report_state_change(cx: &mut App, key: u32, fields: &[(&str, Value)]) {
+    super::window_mirror::patch(key, fields);
+    let mut payload = serde_json::Map::new();
+    payload.insert("windowId".to_string(), json!(key));
+    for (name, value) in fields {
+        payload.insert((*name).to_string(), value.clone());
+    }
+    emit_window_event(cx, "gpuiDesktop:windowStateChange", Value::Object(payload));
+}
+
+/// Scales a window's content, `1.0` being its natural size. The factor is
+/// clamped to 0.25 to 5 and lasts until the window closes: remembering it across
+/// launches is up to the app.
+pub fn set_zoom_factor(cx: &mut App, key: u32, factor: f32) -> DesktopResult {
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let (handle, surface_id) = (entry.handle, entry.surface_id);
+    let factor = super::zoom::set(surface_id, factor);
+    let Some(store) = store_from(cx) else {
+        return Ok(json!({"windowId": key}));
+    };
+    handle
+        .update(cx, |_root, window, cx| {
+            let (size, scale) = (window.viewport_size(), window.scale_factor());
+            store.update(cx, |store, cx| {
+                store.resize_window(
+                    window.window_handle().into(),
+                    f32::from(size.width),
+                    f32::from(size.height),
+                    scale,
+                    cx,
+                );
+                if let Some(root) = store.roots.get(&surface_id) {
+                    root.update(cx, |_, cx| cx.notify());
+                }
+                store.frame_hook.arm(window);
+            });
+        })
+        .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
+    report_state_change(cx, key, &[("zoomFactor", json!(factor))]);
+    Ok(json!({"windowId": key}))
+}
+
+/// Paints the window's own background, behind the content.
+pub fn set_background_color(cx: &mut App, key: u32, argb: u32) -> DesktopResult {
+    with_window(cx, key, move |window| {
+        platform_window::set_background_color(window, argb).map_err(DesktopError::unsupported)
+    })
+}
+
+/// Gives the window's native chrome a light or dark look; `None` follows the system.
+pub fn set_chrome_appearance(cx: &mut App, key: u32, dark: Option<bool>) -> DesktopResult {
+    with_window(cx, key, move |window| {
+        platform_window::set_chrome_appearance(window, dark).map_err(DesktopError::unsupported)
     })
 }
 
@@ -823,10 +912,12 @@ pub fn set_visible_on_all_workspaces(cx: &mut App, key: u32, visible: bool) -> D
 }
 
 pub fn minimize(cx: &mut App, key: u32) -> DesktopResult {
-    with_window(cx, key, |window| {
+    let result = with_window(cx, key, |window| {
         window.minimize_window();
         Ok(())
-    })
+    });
+    recheck_window_state_later(cx, key);
+    result
 }
 
 pub fn maximize(cx: &mut App, key: u32) -> DesktopResult {
@@ -863,23 +954,43 @@ pub fn set_fullscreen(cx: &mut App, key: u32, fullscreen: bool) -> DesktopResult
     })
 }
 
+/// Runs a native window operation once the update that asked for it has ended.
+/// The operating system reports the change while it makes it, and GPUI's window
+/// callbacks need the `App` that the update still holds.
+fn run_outside_update(cx: &mut App, run: Box<dyn FnOnce()>) {
+    cx.spawn(async move |_| run()).detach();
+}
+
 pub fn show(cx: &mut App, key: u32) -> DesktopResult {
+    let later = std::cell::RefCell::new(None);
     let result = with_window(cx, key, |window| {
-        platform_window::show(window).map_err(DesktopError::unsupported)
+        *later.borrow_mut() =
+            Some(platform_window::show_later(window).map_err(DesktopError::unsupported)?);
+        Ok(())
     });
+    if let Some(run) = later.take() {
+        run_outside_update(cx, run);
+        recheck_window_state_later(cx, key);
+    }
     if result.is_ok() {
-        super::window_mirror::patch(key, &[("isVisible", json!(true))]);
+        report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
     }
     result
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
+    let later = std::cell::RefCell::new(None);
     let result = with_window(cx, key, |window| {
-        platform_window::hide(window).map_err(DesktopError::unsupported)
+        *later.borrow_mut() =
+            Some(platform_window::hide_later(window).map_err(DesktopError::unsupported)?);
+        Ok(())
     });
+    if let Some(run) = later.take() {
+        run_outside_update(cx, run);
+    }
     if result.is_ok() {
-        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
+        report_state_change(cx, key, &[("isVisible", json!(false))]);
         super::app_state::schedule(cx);
     }
     result
@@ -905,6 +1016,11 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
     };
     let handle = entry.handle;
+    let surface_id = entry.surface_id;
+    let title = entry.title.clone();
+    let visible = super::window_mirror::get(key)
+        .and_then(|state| state["isVisible"].as_bool())
+        .unwrap_or(true);
     handle
         .update(cx, |_root, window, _cx| {
             let bounds = window.bounds();
@@ -918,8 +1034,11 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 },
                 "isMaximized": platform_window::is_maximized(window),
                 "isFullscreen": window.is_fullscreen(),
-                "isFocused": window.is_window_active(),
+                "isFocused": is_active(window, key),
                 "isMinimized": platform_window::is_minimized(window),
+                "isVisible": visible,
+                "title": title,
+                "zoomFactor": super::zoom::get(surface_id),
                 "scaleFactor": window.scale_factor(),
                 "topInset": top_inset(window, key),
             })
@@ -1176,30 +1295,84 @@ pub(crate) fn install_state_observer<T: 'static>(
         let Some(key) = window_key_for_handle(cx, handle) else {
             return;
         };
-        super::window_mirror::patch(
-            key,
-            &[
-                ("isMaximized", json!(state.0)),
-                ("isMinimized", json!(state.1)),
-                ("isFullscreen", json!(state.2)),
-            ],
-        );
-        super::app_state::schedule(cx);
-        let Some(store) = cx.try_global::<StoreGlobal>() else {
-            return;
-        };
-        let host = store.0.read(cx).host.clone();
-        host.emit_device_event_json(
-            "gpuiDesktop:windowStateChange",
-            &json!({
-                "windowId": key,
-                "isMaximized": state.0,
-                "isMinimized": state.1,
-                "isFullscreen": state.2,
-            })
-            .to_string(),
-        );
+        publish_window_state(cx, key, state);
     })
+}
+
+fn publish_window_state(cx: &mut App, key: u32, state: (bool, bool, bool)) {
+    super::window_mirror::patch(
+        key,
+        &[
+            ("isMaximized", json!(state.0)),
+            ("isMinimized", json!(state.1)),
+            ("isFullscreen", json!(state.2)),
+        ],
+    );
+    super::app_state::schedule(cx);
+    let Some(store) = cx.try_global::<StoreGlobal>() else {
+        return;
+    };
+    let host = store.0.read(cx).host.clone();
+    host.emit_device_event_json(
+        "gpuiDesktop:windowStateChange",
+        &json!({
+            "windowId": key,
+            "isMaximized": state.0,
+            "isMinimized": state.1,
+            "isFullscreen": state.2,
+        })
+        .to_string(),
+    );
+}
+
+/// Reads the window's maximized, minimized and fullscreen state again a moment
+/// after a command, and publishes it if it changed. A window that is not key,
+/// as in a background run, does not always send the bounds change that the
+/// observer waits for when it is minimized or brought back.
+fn recheck_window_state_later(cx: &mut App, key: u32) {
+    cx.spawn(async move |cx| {
+        for delay in [250u64, 750, 1500] {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(delay))
+                .await;
+            let _ = cx.update(|cx| {
+                let Some(handle) = cx
+                    .global::<DesktopWindowsGlobal>()
+                    .0
+                    .get(key)
+                    .map(|entry| entry.handle)
+                else {
+                    return;
+                };
+                let state = handle
+                    .update(cx, |_root, window, _cx| {
+                        (
+                            platform_window::is_maximized(window),
+                            platform_window::is_minimized(window),
+                            window.is_fullscreen(),
+                        )
+                    })
+                    .ok();
+                let Some(state) = state else {
+                    return;
+                };
+                let known = super::window_mirror::get(key);
+                let flag = |name: &str| {
+                    known
+                        .as_ref()
+                        .and_then(|value| value.get(name))
+                        .and_then(Value::as_bool)
+                };
+                if flag("isMaximized") != Some(state.0)
+                    || flag("isMinimized") != Some(state.1)
+                    || flag("isFullscreen") != Some(state.2)
+                {
+                    publish_window_state(cx, key, state);
+                }
+            });
+        }
+    })
+    .detach();
 }
 
 /// Reports focus changes to the mirror and to JS. JS can mount before the
@@ -1221,13 +1394,58 @@ fn install_activation_observer(
     })
 }
 
+/// What a test says a window's activation is, in place of the operating
+/// system's answer.
+#[cfg(feature = "test-driver")]
+fn simulated_activation(key: u32) -> Option<bool> {
+    SIMULATED_ACTIVATION
+        .lock()
+        .expect("simulated activation poisoned")
+        .get(&key)
+        .copied()
+}
+
+#[cfg(not(feature = "test-driver"))]
+fn simulated_activation(_key: u32) -> Option<bool> {
+    None
+}
+
+#[cfg(feature = "test-driver")]
+static SIMULATED_ACTIVATION: std::sync::Mutex<BTreeMap<u32, bool>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+fn is_active(window: &gpui::Window, key: u32) -> bool {
+    simulated_activation(key).unwrap_or_else(|| window.is_window_active())
+}
+
+/// Makes a window active or inactive as far as the app can tell, whatever the
+/// operating system thinks, so a test does not depend on which application is in
+/// front. The window then ignores real activation changes.
+#[cfg(feature = "test-driver")]
+pub fn simulate_activation(cx: &mut App, key: u32, active: bool) -> DesktopResult {
+    SIMULATED_ACTIVATION
+        .lock()
+        .expect("simulated activation poisoned")
+        .insert(key, active);
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let handle = entry.handle;
+    handle
+        .update(cx, |_root, window, cx| {
+            report_activation(window, cx, key, &std::cell::Cell::new(!active));
+        })
+        .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
+    Ok(json!({"windowId": key}))
+}
+
 fn report_activation(
     window: &mut gpui::Window,
     cx: &mut App,
     key: u32,
     last: &std::cell::Cell<bool>,
 ) {
-    let active = window.is_window_active();
+    let active = is_active(window, key);
     if active == last.get() {
         return;
     }

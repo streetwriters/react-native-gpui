@@ -270,6 +270,25 @@ test('a context menu shows, reports its model and selects an item', async () => 
   expect(await textOf('cm-chosen')).toBe('chosen: cm-nested');
 });
 
+test('menu items run their onPress, in a context menu and in the application menu', async () => {
+  await launch('ContextMenuFixture');
+  await app.waitForIdle();
+
+  await app.getByTestId('cm-callback-target').rightClick();
+  await app.waitForIdle();
+  expect(await app.selectContextMenuItem('cb-nested')).toBe(true);
+  await app.waitForIdle();
+  expect(await textOf('cm-callbacks')).toBe('callbacks: nested;id=cb-nested;');
+
+  await app.getByTestId('cm-set-app-menu').click();
+  await app.waitForIdle();
+  await app.triggerMenuItem('app-cb');
+  await app.waitForIdle();
+  expect(await textOf('cm-callbacks')).toBe(
+    'callbacks: nested;id=cb-nested;app;',
+  );
+});
+
 test('a dismissed context menu resolves null', async () => {
   await launch('ContextMenuFixture');
   await app.waitForIdle();

@@ -36,6 +36,27 @@ test('counts presses', async () => {
 | `@react-native-gpui/testing/vitest-preset`     | Vitest preset for component unit tests.                |
 | `@react-native-gpui/testing/vitest-preset-e2e` | Vitest preset for end-to-end tests.                    |
 
+## What a node reports
+
+`app.getProps(tag)` returns what the renderer has for one node, with colors as `0xAARRGGBB` numbers (`0` for none) and lengths in points:
+
+| Field                                           | Meaning                                                                                                                                                                                      |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paragraphFragments`                            | Per text fragment: `text`, `fontFamily`, `fontSize`, `fontWeight`, `italic`, `color`, `lineHeight` (`0` for the font's own), `letterSpacing`, `underline`, `strikethrough`, `textTransform`. |
+| `textColor`                                     | The first non-empty fragment's color, `null` without text.                                                                                                                                   |
+| `borderWidths`, `borderColors`                  | `{ left, top, right, bottom }`.                                                                                                                                                              |
+| `borderStyles`                                  | `[left, top, right, bottom]`, 0 solid, 1 dotted, 2 dashed.                                                                                                                                   |
+| `borderRadii`                                   | `{ topLeft, topRight, bottomRight, bottomLeft }`.                                                                                                                                            |
+| `boxShadows`                                    | `{ offsetX, offsetY, blurRadius, spreadDistance, color, inset }[]`.                                                                                                                          |
+| `opacity`, `backgroundColor`, `transform`       | The node's own values.                                                                                                                                                                       |
+| `outlineColor`, `outlineWidth`, `outlineOffset` | The outline.                                                                                                                                                                                 |
+| `textAlign`, `numberOfLines`                    | The paragraph's, `null` without text.                                                                                                                                                        |
+| `frame`                                         | `{ x, y, width, height }`.                                                                                                                                                                   |
+
+`backgroundColor`, `opacity`, `borderColors`, `outline*` and `textColor` are the effective values, with the `hoverStyle`, `activeStyle`, `focusStyle` and other state styles that hold applied. `baseBackgroundColor` and `baseOpacity` are the ones without, and `states` names the state styles that hold (`focus`, `focusVisible`, `groupHover`, `hover`, `dragOver`, `groupActive`, `active`).
+
+The tree from `app.tree()` has `backgroundColor`, `opacity`, `borderColors` and `textColor` on every node too.
+
 ## Documentation
 
 [End-to-end testing](https://streetwriters.github.io/react-native-gpui/docs/desktop-testing)

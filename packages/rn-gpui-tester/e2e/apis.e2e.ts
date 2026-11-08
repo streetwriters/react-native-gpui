@@ -131,24 +131,34 @@ async function settled(
   throw new Error('value kept changing');
 }
 
-test.runIf(windowActivation)(
-  'window hooks report focus per window and the window size',
-  async () => {
-    // An offscreen window is never active, so focus needs a real one.
-    await launch({ offscreen: false });
-    await app.setWindowSize(900, 700);
-    const { width } = await app.getWindowBounds();
-    await poll(async () => (await text('window-width')) === String(width));
-    await app.getByTestId('window-open-child').click();
-    await desktopExpect(app.getByTestId('desktop-child-focus')).toBeVisible();
-    await poll(async () => (await text('desktop-child-focus')) === 'true');
-    await poll(async () => (await text('window-focus')) === 'false');
-    expect(await text('desktop-child-width')).toBe('420');
-    await app.focusWindow();
-    await poll(async () => (await text('window-focus')) === 'true');
-    await poll(async () => (await text('desktop-child-focus')) === 'false');
-  },
-);
+/** The id of the window the child button opened. */
+async function openChild() {
+  await app.getByTestId('window-open-child').click();
+  await desktopExpect(app.getByTestId('desktop-child-focus')).toBeVisible();
+  const { windows } = await app.listWindows();
+  const child = windows.find(window => window.windowId !== 1);
+  if (!child) throw new Error('the child window did not open');
+  return child.windowId;
+}
+
+test('window hooks report focus per window and the window size', async () => {
+  await launch();
+  await app.setWindowSize(900, 700);
+  const { width } = await app.getWindowBounds();
+  await poll(async () => (await text('window-width')) === String(width));
+  await app.setWindowActive(1, true);
+  await poll(async () => (await text('window-focus')) === 'true');
+  const child = await openChild();
+  expect(await text('desktop-child-width')).toBe('420');
+  await app.setWindowActive(child, true);
+  await app.setWindowActive(1, false);
+  await poll(async () => (await text('desktop-child-focus')) === 'true');
+  await poll(async () => (await text('window-focus')) === 'false');
+  await app.setWindowActive(1, true);
+  await app.setWindowActive(child, false);
+  await poll(async () => (await text('window-focus')) === 'true');
+  await poll(async () => (await text('desktop-child-focus')) === 'false');
+});
 
 test('Dimensions reports the screen, the font scale and each window', async () => {
   await launch();
@@ -179,32 +189,21 @@ test('Dimensions reports the screen, the font scale and each window', async () =
   expect(await text('dimensions-window-width')).toBe('1024');
 });
 
-test.runIf(windowActivation)(
-  'AppState ignores focus moving between app windows',
-  async () => {
-    await launch({ offscreen: false });
-    await app.focusWindow();
-    await poll(async () => (await text('appstate-current')) === 'active');
-    try {
-      await poll(async () => (await text('window-focus')) === 'true');
-    } catch (error) {
-      throw new Error(
-        `${(error as Error).message}; window state ${JSON.stringify(
-          await app.windowState(1),
-        )}; readout ${JSON.stringify(await app.focusReadout())}`,
-      );
-    }
-    // Other applications can take and give back focus while the app starts, so
-    // only what happens after the log has stopped changing counts.
-    await settled(() => text('appstate-log'));
-    const before = await text('appstate-log');
-    await app.getByTestId('window-open-child').click();
-    await poll(async () => (await text('desktop-child-focus')) === 'true');
-    await poll(async () => (await text('window-focus')) === 'false');
-    await settled(() => text('appstate-log'));
-    expect(await text('appstate-log')).toBe(before);
-  },
-);
+test('AppState ignores focus moving between app windows', async () => {
+  await launch();
+  await app.setWindowActive(1, true);
+  await poll(async () => (await text('appstate-current')) === 'active');
+  await poll(async () => (await text('window-focus')) === 'true');
+  await settled(() => text('appstate-log'));
+  const before = await text('appstate-log');
+  const child = await openChild();
+  await app.setWindowActive(child, true);
+  await app.setWindowActive(1, false);
+  await poll(async () => (await text('desktop-child-focus')) === 'true');
+  await poll(async () => (await text('window-focus')) === 'false');
+  await settled(() => text('appstate-log'));
+  expect(await text('appstate-log')).toBe(before);
+});
 
 // `memory_pressure -S` needs root, so this runs where the suite does.
 test.skipIf(process.platform !== 'darwin' || process.getuid?.() !== 0)(
@@ -216,16 +215,17 @@ test.skipIf(process.platform !== 'darwin' || process.getuid?.() !== 0)(
   },
 );
 
-test.runIf(windowActivation)(
-  'AppState is background while no window is visible',
-  async () => {
-    await launch({ offscreen: false });
-    await app.focusWindow();
-    await poll(async () => (await text('appstate-current')) === 'active');
-    await app.getByTestId('appstate-hide').click();
-    await poll(async () => (await text('appstate-log')).includes('background'));
-  },
-);
+test('AppState is background while no window is visible', async () => {
+  await launch();
+  await app.setWindowActive(1, true);
+  await poll(async () => (await text('appstate-current')) === 'active');
+  await app.getByTestId('appstate-hide').click();
+  await app.waitForIdle({ ignore: ['timers'] });
+  await poll(async () => (await app.windowState(1)).isVisible === false);
+  // Hiding a window deactivates it; the simulated activation has to follow.
+  await app.setWindowActive(1, false);
+  await poll(async () => (await text('appstate-log')).includes('background'));
+});
 
 const onMac = process.platform === 'darwin';
 

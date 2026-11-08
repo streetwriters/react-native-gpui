@@ -6,8 +6,8 @@ use crate::style;
 use gpui::{
     div, point, prelude::*, px, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
     IntoElement, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Position, Role, StyleRefinement, Subscription, Task, WeakEntity,
-    Window,
+    MouseUpEvent, Pixels, Point, Position, Refineable, Role, StyleRefinement, Subscription, Task,
+    WeakEntity, Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 use std::cell::Cell;
@@ -105,6 +105,14 @@ pub struct RNNodeView {
     animated_background_color: Option<u32>,
     gradient_cache: Option<GradientCache>,
     animated_text_color: Option<u32>,
+    animated_opacity: bool,
+    focused: Cell<bool>,
+    focus_visible: Cell<bool>,
+    /// The text color a state style gives this node's text: its own, or the
+    /// nearest ancestor's.
+    state_text_color: Option<u32>,
+    own_state_color: Option<u32>,
+    state_styles: Option<Rc<style::StateStyles>>,
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
     pub input_placeholder: String,
@@ -500,13 +508,14 @@ impl RNNodeView {
         }
     }
 
+    /// `ref.focus()` and `ref.blur()` on a text input or a focusable view.
     pub fn apply_text_input_focus_command(
         &mut self,
         focus: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.component != "TextInput" {
+        if self.component != "TextInput" && !self.takes_focus() {
             return;
         }
         let Some(handle) = self.focus_handle.as_ref().cloned() else {
@@ -524,8 +533,172 @@ impl RNNodeView {
     }
 
     pub fn set_animated_opacity(&mut self, opacity: f32) {
+        self.animated_opacity = true;
         self.view.opacity = opacity.clamp(0.0, 1.0);
         self.cached_style = style::to_refinement(&self.view);
+    }
+
+    /// What this view's state styles amount to right now, the later layer
+    /// winning a property: focus, focus visible, group hover, hover, group
+    /// active, active. The pointer states come from the hit path (see
+    /// `interaction`), focus from what the node last reported, so a state
+    /// change repaints without JS and without React rendering again.
+    pub(crate) fn resolved_state(&self) -> Option<style::StateStyle> {
+        let mut resolved: Option<style::StateStyle> = None;
+        for (_, layer, applies) in self.state_layers() {
+            if let (Some(layer), true) = (layer, applies) {
+                resolved.get_or_insert_with(Default::default).merge(layer);
+            }
+        }
+        resolved
+    }
+
+    /// The names of the state styles that hold right now, in the order they
+    /// are layered.
+    #[cfg(feature = "test-driver")]
+    pub(crate) fn active_state_names(&self) -> Vec<&'static str> {
+        self.state_layers()
+            .into_iter()
+            .filter(|(_, layer, applies)| layer.is_some() && *applies)
+            .map(|(name, _, _)| name)
+            .collect()
+    }
+
+    fn state_layers(&self) -> [(&'static str, Option<&style::StateStyle>, bool); 7] {
+        let none = [("", None, false); 7];
+        let Some(styles) = self.state_styles.as_ref() else {
+            return none;
+        };
+        // `none` and `box-none` views are not pointer targets themselves.
+        let targeted = !matches!(self.view.pointer_events, 1 | 2);
+        let tag = self.tag;
+        let focused = self.focused.get();
+        [
+            ("focus", styles.focus.as_ref(), focused),
+            (
+                "focusVisible",
+                styles.focus_visible.as_ref(),
+                focused && self.focus_visible.get(),
+            ),
+            (
+                "groupHover",
+                styles.group_hover.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_hovered(tag),
+            ),
+            (
+                "hover",
+                styles.hover.as_ref(),
+                targeted && crate::interaction::node_hovered(tag),
+            ),
+            (
+                "dragOver",
+                styles.drag_over.as_ref(),
+                crate::interaction::node_dragged_over(tag),
+            ),
+            (
+                "groupActive",
+                styles.group_active.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_pressed(tag),
+            ),
+            (
+                "active",
+                styles.active.as_ref(),
+                targeted && crate::interaction::node_pressed(tag),
+            ),
+        ]
+    }
+
+    /// The matrix a state style asks for, unless an animation owns it.
+    fn effective_transform(&self) -> Option<[f32; 16]> {
+        if let Some(animated) = self.animated_transform {
+            return Some(animated);
+        }
+        if let Some(state) = self.resolved_state().and_then(|state| state.transform()) {
+            return Some(state);
+        }
+        self.view.has_transform.then_some(self.view.transform)
+    }
+
+    /// The color a state style gives this view's own text.
+    pub(crate) fn own_text_color(&self) -> Option<u32> {
+        self.resolved_state()?.text_color()
+    }
+
+    pub(crate) fn has_text_color_style(&self) -> bool {
+        self.state_styles
+            .as_ref()
+            .is_some_and(|styles| styles.sets_color())
+    }
+
+    pub(crate) fn set_state_text_color(
+        &mut self,
+        own: Option<u32>,
+        inherited: Option<u32>,
+    ) -> bool {
+        let before = self.state_text_color;
+        self.own_state_color = own;
+        self.state_text_color = own.or(inherited);
+        before != self.state_text_color
+    }
+
+    pub(crate) fn state_text_color(&self) -> Option<u32> {
+        self.state_text_color
+    }
+
+    pub(crate) fn own_state_color(&self) -> Option<u32> {
+        self.own_state_color
+    }
+
+    /// Reads whether the node has focus, which a state style depends on. Reading
+    /// it while rendering is what has gpui-fast render the node again when
+    /// focus moves.
+    fn sync_focus(&self, window: &Window, cx: &mut Context<Self>) {
+        let Some(handle) = &self.focus_handle else {
+            return;
+        };
+        let focused = handle.is_focused(window);
+        if self.focused.replace(focused) == focused {
+            return;
+        }
+        self.focus_visible
+            .set(focused && window.last_input_was_keyboard());
+        if self.has_text_color_style() {
+            cx.defer(crate::interaction::refresh_text_colors);
+        }
+    }
+
+    pub(crate) fn group_name(&self) -> Option<gpui::SharedString> {
+        self.state_styles.as_ref()?.group.clone()
+    }
+
+    /// Whether this node has a hover style, or a press style when `press`.
+    pub(crate) fn has_pointer_style(&self, kind: crate::interaction::Kind) -> bool {
+        use crate::interaction::Kind;
+        self.state_styles.as_ref().is_some_and(|styles| match kind {
+            Kind::Press => styles.active.is_some() || styles.group_active.is_some(),
+            Kind::Hover => styles.hover.is_some() || styles.group_hover.is_some(),
+            Kind::Drag => styles.drag_over.is_some(),
+        })
+    }
+
+    /// The group this node's hover (or press) style follows.
+    pub(crate) fn pointer_style_group(
+        &self,
+        kind: crate::interaction::Kind,
+    ) -> Option<gpui::SharedString> {
+        use crate::interaction::Kind;
+        let styles = self.state_styles.as_ref()?;
+        let grouped = match kind {
+            Kind::Press => styles.group_active.as_ref(),
+            Kind::Hover => styles.group_hover.as_ref(),
+            Kind::Drag => None,
+        };
+        Some(grouped?.group.clone())
+    }
+
+    /// Whether this view takes files dropped from the operating system.
+    pub(crate) fn accepts_files(&self) -> bool {
+        self.view.accepts_files
     }
 
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
@@ -829,15 +1002,32 @@ impl RNNodeView {
         self.render_count
     }
 
+    fn takes_focus(&self) -> bool {
+        self.focusable || self.view.accessibility_has_escape_listener
+    }
+
+    /// The handle a press focuses: the nearest focusable node's, or failing
+    /// that the nearest node's that only has one for accessibility.
     pub(crate) fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
-        if let Some(handle) = &self.focus_handle {
-            return Some(handle.clone());
+        self.nearest_focus_handle_where(cx, true)
+            .or_else(|| self.nearest_focus_handle_where(cx, false))
+    }
+
+    fn nearest_focus_handle_where(&self, cx: &App, focusable_only: bool) -> Option<FocusHandle> {
+        let usable = |node: &Self| {
+            node.focus_handle
+                .as_ref()
+                .filter(|_| !focusable_only || node.takes_focus())
+                .cloned()
+        };
+        if let Some(handle) = usable(self) {
+            return Some(handle);
         }
         let mut parent = self.parent.clone();
         while let Some(node) = parent.and_then(|node| node.upgrade()) {
             let node = node.read(cx);
-            if let Some(handle) = &node.focus_handle {
-                return Some(handle.clone());
+            if let Some(handle) = usable(node) {
+                return Some(handle);
             }
             parent = node.parent.clone();
         }
@@ -904,6 +1094,12 @@ impl RNNodeView {
             animated_background_color: None,
             gradient_cache: None,
             animated_text_color: None,
+            animated_opacity: false,
+            focused: Cell::new(false),
+            focus_visible: Cell::new(false),
+            state_text_color: None,
+            own_state_color: None,
+            state_styles: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
             input_text: text_input.text.clone(),
@@ -983,6 +1179,7 @@ impl RNNodeView {
         }
         view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
+        view.state_styles = style::StateStyles::from_flat(&view.view);
         view.sync_effect_group();
         view
     }
@@ -1083,6 +1280,8 @@ impl RNNodeView {
                 self.focus_subscriptions.clear();
             }
             self.cached_style = style::to_refinement(&self.view);
+            self.state_styles = style::StateStyles::from_flat(&self.view);
+            self.animated_opacity = false;
             if self.component == "TextInput" {
                 crate::builtins::textinput::input::apply_update(self, op);
             }
@@ -1444,7 +1643,7 @@ impl RNNodeView {
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {
-        if self.animated_transform.is_none() && !self.view.has_transform {
+        if self.effective_transform().is_none() {
             return (1.0, 1.0, 0.0, 0.0);
         }
         // GPUI draws the node's subtree under its matrix, so layout, borders,
@@ -1455,16 +1654,14 @@ impl RNNodeView {
     /// `backfaceVisibility: 'hidden'` while the node is turned to face away.
     fn backface_hidden(&self) -> bool {
         self.view.backface_hidden
-            && (self.animated_transform.is_some() || self.view.has_transform)
-            && crate::transform::faces_away(&self.animated_transform.unwrap_or(self.view.transform))
+            && self
+                .effective_transform()
+                .is_some_and(|matrix| crate::transform::faces_away(&matrix))
     }
 
     /// The matrix GPUI draws this node's subtree under.
     fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
-        if self.animated_transform.is_none() && !self.view.has_transform {
-            return None;
-        }
-        let m = self.animated_transform.unwrap_or(self.view.transform);
+        let m = self.effective_transform()?;
         if crate::transform::is_three_dimensional(&m) {
             log::debug!(
                 "[transform] tag={} has perspective or a turn about x or y; drawn flat",
@@ -1581,7 +1778,6 @@ impl RNNodeView {
         InheritInput {
             origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
-            border: (self.view.border_widths.left, self.view.border_widths.top),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
@@ -2076,7 +2272,6 @@ pub(crate) struct Inherited {
     pub(crate) parent_scale: (f32, f32),
     pub(crate) scale: (f32, f32),
     pub(crate) origin_unscrolled: (f32, f32),
-    pub(crate) parent_border: (f32, f32),
     pub(crate) scrollers: Rc<[ScrollLink]>,
     pub(crate) accessible_ancestor: bool,
     pub(crate) hidden_by_accessible_ancestor: bool,
@@ -2093,7 +2288,6 @@ impl Default for Inherited {
             parent_scale: (1.0, 1.0),
             scale: (1.0, 1.0),
             origin_unscrolled: (0.0, 0.0),
-            parent_border: (0.0, 0.0),
             scrollers: Rc::from(Vec::new()),
             accessible_ancestor: false,
             hidden_by_accessible_ancestor: false,
@@ -2123,7 +2317,6 @@ impl Inherited {
         self.window_control_area == other.window_control_area
             && self.parent_scale == other.parent_scale
             && self.scale == other.scale
-            && self.parent_border == other.parent_border
             && self.accessible_ancestor == other.accessible_ancestor
             && self.hidden_by_accessible_ancestor == other.hidden_by_accessible_ancestor
             && self.hidden_by_hidden_ancestor == other.hidden_by_hidden_ancestor
@@ -2136,7 +2329,6 @@ impl Inherited {
 pub(crate) struct InheritInput {
     pub(crate) origin_frame: (f32, f32),
     pub(crate) transform: (f32, f32, f32, f32),
-    pub(crate) border: (f32, f32),
     pub(crate) scroll: Option<Rc<Cell<Point<f32>>>>,
     pub(crate) accessible: bool,
     pub(crate) hides_descendants: bool,
@@ -2164,7 +2356,6 @@ pub(crate) fn inherit(
                 parent.origin_unscrolled.1
                     + inherited.parent_scale.1 * (own.origin_frame.1 + own.transform.3),
             );
-            inherited.parent_border = input.border;
             inherited.scrollers = match &input.scroll {
                 Some(position) => {
                     let mut links = parent.scrollers.to_vec();
@@ -2284,15 +2475,10 @@ mod inherited_tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    fn node(
-        origin_frame: (f32, f32),
-        transform: (f32, f32, f32, f32),
-        border: (f32, f32),
-    ) -> InheritInput {
+    fn node(origin_frame: (f32, f32), transform: (f32, f32, f32, f32)) -> InheritInput {
         InheritInput {
             origin_frame,
             transform,
-            border,
             scroll: None,
             accessible: false,
             hides_descendants: false,
@@ -2351,7 +2537,7 @@ mod inherited_tests {
     }
 
     fn plain() -> InheritInput {
-        node((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0))
+        node((0.0, 0.0), (1.0, 1.0, 0.0, 0.0))
     }
 
     fn scrolling(
@@ -2361,7 +2547,7 @@ mod inherited_tests {
     ) -> InheritInput {
         InheritInput {
             scroll: Some(Rc::new(Cell::new(point(offset.0, offset.1)))),
-            ..node(origin_frame, transform, (0.0, 0.0))
+            ..node(origin_frame, transform)
         }
     }
 
@@ -2418,8 +2604,8 @@ mod inherited_tests {
     #[test]
     fn plain_nesting_accumulates_origins() {
         let chain = [
-            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
-            node((5.0, 7.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0)),
+            node((5.0, 7.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(inherited(&chain).origin_unscrolled, (15.0, 27.0));
@@ -2429,8 +2615,8 @@ mod inherited_tests {
     #[test]
     fn a_scaled_parent_scales_its_children() {
         let chain = [
-            node((100.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
-            node((10.0, 20.0), (1.0, 1.0, 3.0, 4.0), (0.0, 0.0)),
+            node((100.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 3.0, 4.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(inherited(&chain).origin_unscrolled, (126.0, 48.0));
@@ -2441,7 +2627,7 @@ mod inherited_tests {
     fn a_scrollview_offset_moves_only_its_descendants() {
         let chain = [
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 100.0)),
-            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((10.0, 20.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         assert_eq!(cached_origin(&chain), (10.0, -80.0));
@@ -2451,9 +2637,9 @@ mod inherited_tests {
     #[test]
     fn a_scrollview_inside_a_scaled_parent_scrolls_at_that_scale() {
         let chain = [
-            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 50.0)),
-            node((0.0, 10.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 10.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         let inherited = inherited(&chain);
@@ -2466,9 +2652,9 @@ mod inherited_tests {
     fn nested_scrollviews_keep_both_offsets_outermost_first() {
         let chain = [
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 10.0)),
-            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0)),
             scrolling((0.0, 0.0), (1.0, 1.0, 0.0, 0.0), (0.0, 20.0)),
-            node((0.0, 5.0), (1.0, 1.0, 0.0, 0.0), (0.0, 0.0)),
+            node((0.0, 5.0), (1.0, 1.0, 0.0, 0.0)),
         ];
         assert_same_origin(&chain);
         let inherited = inherited(&chain);
@@ -2490,13 +2676,6 @@ mod inherited_tests {
         let after = inherited(&[root.clone(), child.clone()]);
         assert!(before.same(&after));
         assert_eq!(cached_origin(&[root, child]), (0.0, -40.0));
-    }
-
-    #[test]
-    fn a_parent_border_is_remembered_unscaled() {
-        let root = node((0.0, 0.0), (2.0, 2.0, 0.0, 0.0), (3.0, 4.0));
-        assert_eq!(inherited(&[root, plain()]).parent_border, (3.0, 4.0));
-        assert_eq!(inherited(&[plain()]).parent_border, (0.0, 0.0));
     }
 
     #[test]
@@ -2780,17 +2959,16 @@ impl Render for RNNodeView {
         }
         let frame = self.own_layout_frame(cx);
         let (scale_x, scale_y) = self.cumulative_scale(cx);
-        // Yoga's child frames already include the parent's border inset, and GPUI
-        // positions absolute children inside that border as well.
+        // Yoga's child frames are relative to the parent's border box, and the
+        // element has no GPUI border widths of its own (borders are painted as
+        // rules), so GPUI's origin for absolute children is that box as well.
         let (parent_scale_x, parent_scale_y) = self.inherited.parent_scale;
         let (origin_x, origin_y) = (frame.x, frame.y);
         let (_, _, translate_x, translate_y) = self.local_transform();
         // No parent scroll offset here: the ScrollView moves all its children at once
         // through its content wrapper.
-        let base_left = parent_scale_x * (origin_x + translate_x)
-            - self.inherited.parent_border.0 * parent_scale_x.abs();
-        let base_top = parent_scale_y * (origin_y + translate_y)
-            - self.inherited.parent_border.1 * parent_scale_y.abs();
+        let base_left = parent_scale_x * (origin_x + translate_x);
+        let base_top = parent_scale_y * (origin_y + translate_y);
         #[cfg(debug_assertions)]
         if verify_inherited_enabled() {
             self.verify_inherited(cx);
@@ -3269,9 +3447,24 @@ impl Render for RNNodeView {
             }
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
-                    if this.component == "TextInput" {
-                        dispatch_key(this.tag, "topKeyPress", &event.keystroke, event.is_held, cx);
+                    // gpui offers a key to every focusable node on the path to the
+                    // focused one; React bubbles the event from the target itself,
+                    // so only the focused node sends it.
+                    let is_target = this
+                        .focus_handle
+                        .as_ref()
+                        .is_some_and(|handle| handle.is_focused(window));
+                    if is_target {
+                        dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                        if this.component == "TextInput" {
+                            dispatch_key(
+                                this.tag,
+                                "topKeyPress",
+                                &event.keystroke,
+                                event.is_held,
+                                cx,
+                            );
+                        }
                     }
                     if !event.is_held
                         && focus_adjacent_semantic_sibling(this, &event.keystroke.key, window, cx)
@@ -3374,7 +3567,13 @@ impl Render for RNNodeView {
                     }
                 }))
                 .on_key_up(cx.listener(|this, event: &KeyUpEvent, window, cx| {
-                    dispatch_key(this.tag, "topKeyUp", &event.keystroke, false, cx);
+                    if this
+                        .focus_handle
+                        .as_ref()
+                        .is_some_and(|handle| handle.is_focused(window))
+                    {
+                        dispatch_key(this.tag, "topKeyUp", &event.keystroke, false, cx);
+                    }
                     if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                         store.0.read(cx).frame_hook.arm(window);
                     }
@@ -3630,6 +3829,19 @@ impl Render for RNNodeView {
             isolated = self.view.isolate;
             style
         };
+        if self.state_styles.is_some() {
+            self.sync_focus(window, cx);
+        }
+        let resolved = self.resolved_state();
+        if let Some(state) = &resolved {
+            let animating = style::Animating {
+                background: self.animated_background_color.is_some(),
+                opacity: self.animated_opacity,
+            };
+            element
+                .style()
+                .refine(&state.refinement((scale_x, scale_y), animating));
+        }
         // The listeners live on a `pointer_area` child, not on the node's own div: a
         // div with a hitbox records a hover read while painting, which makes a scroll
         // under a still pointer rebuild every row. It is the first child so its
@@ -3691,7 +3903,11 @@ impl Render for RNNodeView {
             }
         } else {
             if !handlers.is_empty() {
-                element = element.child(pointer_area(handlers, self.view.hit_slop));
+                element = element.child(pointer_area(
+                    handlers,
+                    self.view.hit_slop,
+                    crate::style::cursor_style(self.view.cursor),
+                ));
             }
         }
         // Not for a scroll container, which never had one: its content is
@@ -3719,7 +3935,7 @@ impl Render for RNNodeView {
                 fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
-                if let Some(color) = self.animated_text_color {
+                if let Some(color) = self.animated_text_color.or(self.state_text_color) {
                     fragment.color = color;
                 }
             }
@@ -4057,15 +4273,14 @@ impl Render for RNNodeView {
                 true,
             ),
         ];
+        let border_colors = resolved.as_ref().map_or(self.view.border_colors, |state| {
+            state.border_colors(self.view.border_colors)
+        });
         let radii = self.view.border_radii;
         let rounded = radii.tl > 0.0 || radii.tr > 0.0 || radii.br > 0.0 || radii.bl > 0.0;
         let uniform_border = rounded
-            && self.view.border_colors[0] != 0
-            && self
-                .view
-                .border_colors
-                .iter()
-                .all(|c| *c == self.view.border_colors[0])
+            && border_colors[0] != 0
+            && border_colors.iter().all(|c| *c == border_colors[0])
             && self.view.border_styles.iter().all(|s| *s == 0)
             && self.view.border_widths.left > 0.0
             && self.view.border_widths.left == self.view.border_widths.top
@@ -4076,7 +4291,7 @@ impl Render for RNNodeView {
             if uniform_border {
                 break;
             }
-            let color = self.view.border_colors[edge];
+            let color = border_colors[edge];
             if color != 0 && thickness > 0.0 {
                 border_rules.extend(rule_segments(
                     x,
@@ -4097,7 +4312,7 @@ impl Render for RNNodeView {
                 .left_0()
                 .size_full()
                 .border(px(self.view.border_widths.left * scale_x.min(scale_y)))
-                .border_color(style::color(self.view.border_colors[0]));
+                .border_color(style::color(border_colors[0]));
             let radii = &mut ring.style().corner_radii;
             let scale = scale_x.min(scale_y);
             radii.top_left = Some(px(self.view.border_radii.tl * scale).into());
@@ -4124,12 +4339,26 @@ impl Render for RNNodeView {
             }
             element = element.child(border_clip.children(border_rules));
         }
+        let (outline_color, outline_width, outline_offset) = resolved.as_ref().map_or(
+            (
+                self.view.outline_color,
+                self.view.outline_width,
+                self.view.outline_offset,
+            ),
+            |state| {
+                state.outline((
+                    self.view.outline_color,
+                    self.view.outline_width,
+                    self.view.outline_offset,
+                ))
+            },
+        );
         let mut outline_rules = Vec::new();
-        if self.view.outline_color != 0 && self.view.outline_width > 0.0 {
-            let outline_width_x = self.view.outline_width * scale_x;
-            let outline_width_y = self.view.outline_width * scale_y;
-            let offset_x = self.view.outline_offset * scale_x;
-            let offset_y = self.view.outline_offset * scale_y;
+        if outline_color != 0 && outline_width > 0.0 {
+            let outline_width_x = outline_width * scale_x;
+            let outline_width_y = outline_width * scale_y;
+            let offset_x = outline_offset * scale_x;
+            let offset_y = outline_offset * scale_y;
             let x = -offset_x - outline_width_x;
             let y = -offset_y - outline_width_y;
             outline_rules.extend(rule_segments(
@@ -4138,7 +4367,7 @@ impl Render for RNNodeView {
                 width + 2.0 * offset_x,
                 outline_width_y,
                 true,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4147,7 +4376,7 @@ impl Render for RNNodeView {
                 width + 2.0 * offset_x,
                 outline_width_y,
                 true,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4156,7 +4385,7 @@ impl Render for RNNodeView {
                 height + 2.0 * offset_y,
                 outline_width_x,
                 false,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
             outline_rules.extend(rule_segments(
@@ -4165,13 +4394,13 @@ impl Render for RNNodeView {
                 height + 2.0 * offset_y,
                 outline_width_x,
                 false,
-                self.view.outline_color,
+                outline_color,
                 self.view.outline_style,
             ));
         }
         // A text input shows its caret, and an app that sets an outline draws its
         // own ring; the keyboard focus ring is for everything else.
-        let app_outline = self.view.outline_color != 0 && self.view.outline_width > 0.0;
+        let app_outline = outline_color != 0 && outline_width > 0.0;
         if window.last_input_was_keyboard()
             && self.component != "TextInput"
             && !app_outline
@@ -4854,6 +5083,11 @@ impl RNNodeView {
                             this.text_selection_anchor.is_some(),
                         )
                     };
+                    if crate::file_drop::active() {
+                        crate::file_drop::over(window, cx, hit_target.as_ref(), event.position);
+                        cx.stop_propagation();
+                        return;
+                    }
                     if event.pressed_button.is_some() {
                         if selecting_text {
                             node.update(cx, |this, cx| {
@@ -4907,6 +5141,11 @@ impl RNNodeView {
                     let Some(node) = node.upgrade() else {
                         return;
                     };
+                    if crate::file_drop::active() {
+                        let target = crate::events::target(cx, node.read(cx));
+                        crate::file_drop::landing(target, event.position);
+                        return;
+                    }
                     let active_target = crate::events::active_touch_target(cx);
                     if let Some(target) = active_target.as_ref() {
                         crate::events::send(

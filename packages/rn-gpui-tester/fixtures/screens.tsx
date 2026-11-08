@@ -261,11 +261,69 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  'css-animations': props =>
+    React.createElement(
+      require('./components/CssAnimationsFixture').default,
+      props,
+    ),
   network: props =>
     React.createElement(require('./components/NetworkFixture').default, props),
+  'side-borders': props =>
+    React.createElement(
+      require('./components/SideBordersFixture').default,
+      props,
+    ),
+  'pointer-capture': props =>
+    React.createElement(
+      require('./components/PointerCaptureFixture').default,
+      props,
+    ),
+  freeze: props =>
+    React.createElement(require('./components/FreezeFixture').default, props),
+  'key-events': props =>
+    React.createElement(
+      require('./components/KeyEventsFixture').default,
+      props,
+    ),
+  ellipsis: props =>
+    React.createElement(require('./components/EllipsisFixture').default, props),
+  'props-probe': props =>
+    React.createElement(
+      require('./components/PropsProbeFixture').default,
+      props,
+    ),
+  'intl-support': props =>
+    React.createElement(
+      require('./components/IntlSupportFixture').default,
+      props,
+    ),
+  'text-rows': props =>
+    React.createElement(require('./components/TextRowsFixture').default, props),
+  'text-raster': props =>
+    React.createElement(
+      require('./components/TextRasterFixture').default,
+      props,
+    ),
+  'rounded-clip': props =>
+    React.createElement(
+      require('./components/RoundedClipFixture').default,
+      props,
+    ),
+  'file-drop': props =>
+    React.createElement(require('./components/FileDropFixture').default, props),
+  'state-styles': props =>
+    React.createElement(
+      require('./components/StateStylesFixture').default,
+      props,
+    ),
   'context-menu': props =>
     React.createElement(
       require('./components/ContextMenuFixture').default,
+      props,
+    ),
+  'window-state': props =>
+    React.createElement(
+      require('./components/WindowStateFixture').default,
       props,
     ),
   tray: props =>

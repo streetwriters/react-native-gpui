@@ -261,6 +261,18 @@ fn normalise_key(token: &str) -> Option<String> {
 ///
 /// `event.key` in the DOM is a single printable character for printable keys or
 /// one of the named values; `Shift+A` is `"A"`, which needs the modifiers to say.
+/// The GPUI spelling of a key name given in the W3C spelling (`ArrowDown`,
+/// `PageUp`, `Escape`), or the name as it was for anything else.
+pub fn gpui_key_name(key: &str) -> String {
+    match key.to_ascii_lowercase().as_str() {
+        "arrowup" => "up".to_string(),
+        "arrowdown" => "down".to_string(),
+        "arrowleft" => "left".to_string(),
+        "arrowright" => "right".to_string(),
+        other => other.to_string(),
+    }
+}
+
 pub fn normalise_web_key(key: &str, shift: bool) -> String {
     let named = match key {
         "enter" => "Enter",
@@ -795,6 +807,15 @@ pub fn register(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_w3c_key_name_maps_to_the_gpui_one() {
+        assert_eq!(super::gpui_key_name("ArrowDown"), "down");
+        assert_eq!(super::gpui_key_name("arrowdown"), "down");
+        assert_eq!(super::gpui_key_name("down"), "down");
+        assert_eq!(super::gpui_key_name("Escape"), "escape");
+        assert_eq!(super::gpui_key_name("a"), "a");
+    }
+
     use super::*;
     use gpui::Keystroke;
 

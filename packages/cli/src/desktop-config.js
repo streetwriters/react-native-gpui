@@ -209,6 +209,7 @@ function withDefaults(config, { appConfig, packageJson }) {
     version,
     ...(config.icon === undefined ? {} : { icon: config.icon }),
     window,
+    ...(config.accessory === undefined ? {} : { accessory: config.accessory }),
     devMenu: config.devMenu ?? true,
     urlSchemes: config.urlSchemes ?? [],
     singleInstance:

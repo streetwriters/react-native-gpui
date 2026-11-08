@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/worklets` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- Added a hook that runs after each frame's animation callbacks, which Reanimated uses to apply its pending updates.
+
 ## 0.13.0-alpha.0 - 2026-11-01
 
 - First release, for `react-native-worklets` 0.13.x.

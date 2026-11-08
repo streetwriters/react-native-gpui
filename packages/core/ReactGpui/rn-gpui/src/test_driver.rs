@@ -22,6 +22,7 @@ unsafe extern "C" {
     fn rn_gpui_pending_timers_due_within(window_ms: u64) -> u64;
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
+    fn rn_gpui_pending_js_tasks_dump(buffer: *mut u8, capacity: u64) -> u64;
     fn rn_gpui_native_animations_active() -> u64;
     fn rn_gpui_frame_demand() -> u64;
     fn rn_gpui_pending_work() -> u64;
@@ -198,6 +199,26 @@ async fn serve_commands(
                 }
                 counters
             }
+            "displays" => cx.update(|cx| {
+                let primary = cx.primary_display().map(|display| display.id());
+                let rect = |bounds: gpui::Bounds<gpui::Pixels>| {
+                    json!({
+                        "x": f32::from(bounds.origin.x),
+                        "y": f32::from(bounds.origin.y),
+                        "width": f32::from(bounds.size.width),
+                        "height": f32::from(bounds.size.height),
+                    })
+                };
+                json!(cx
+                    .displays()
+                    .iter()
+                    .map(|display| json!({
+                        "primary": Some(display.id()) == primary,
+                        "bounds": rect(display.bounds()),
+                        "visibleBounds": rect(display.visible_bounds()),
+                    }))
+                    .collect::<Vec<_>>())
+            }),
             "getWindowSize" => cx
                 .update_window(window, |_, window, _| {
                     let size = window.viewport_size();
@@ -205,8 +226,18 @@ async fn serve_commands(
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
             "focusWindow" => {
+                let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
+                if !offscreen && crate::desktop::background::enabled() {
+                    // A background run is never the operating system's active
+                    // application, so the window is made active logically.
+                    cx.update(|cx| {
+                        crate::desktop::windows::simulate_activation(cx, 1, true)
+                            .map(|_| json!({"focused": true}))
+                            .unwrap_or_else(|error| error.to_json_value())
+                    })
+                } else {
                 let hwnd = cx.update_window(window, |_, window, _| {
-                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1") {
+                    if offscreen {
                         return None;
                     }
                     window.activate_window();
@@ -225,6 +256,15 @@ async fn serve_commands(
                     Ok(_) => json!({"focused":true}),
                     Err(error) => json!({"error":error.to_string()}),
                 }
+                }
+            }
+            "setWindowActive" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(1) as u32;
+                let active = params.get("active").and_then(Value::as_bool).unwrap_or(true);
+                cx.update(|cx| {
+                    crate::desktop::windows::simulate_activation(cx, key, active)
+                        .unwrap_or_else(|error| error.to_json_value())
+                })
             }
             "focusReadout" => {
                 let mirror = crate::desktop::window_mirror::get(1)
@@ -415,8 +455,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .unwrap_or_default();
@@ -452,8 +492,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .ok();
@@ -584,8 +624,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .ok();
@@ -749,6 +789,19 @@ async fn serve_commands(
                             platform: modifiers["platform"].as_bool().unwrap_or(false),
                             function: modifiers["function"].as_bool().unwrap_or(false),
                         };
+                        // A button pressed by this driver stays held until it is
+                        // released, so a move in between is a drag, as with a mouse.
+                        static HELD: std::sync::Mutex<Option<gpui::MouseButton>> =
+                            std::sync::Mutex::new(None);
+                        let held = {
+                            let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+                            match method {
+                                "mouseDown" => *held = Some(button),
+                                "mouseUp" => *held = None,
+                                _ => {}
+                            }
+                            *held
+                        };
                         let event = match method {
                             "mouseDown" => gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                 position,
@@ -768,7 +821,8 @@ async fn serve_commands(
                                 pressed_button: params
                                     .get("button")
                                     .and_then(Value::as_str)
-                                    .map(|_| button),
+                                    .map(|_| button)
+                                    .or(held),
                                 ..Default::default()
                             }),
                         };
@@ -783,6 +837,51 @@ async fn serve_commands(
                 } else {
                     json!({"error":"Pointer command requires x and y"})
                 }
+            }
+            "dragFiles" | "dropFiles" | "dragFilesExit" => {
+                let x = params.get("x").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let y = params.get("y").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let position = point(px(x), px(y));
+                let paths: Vec<std::path::PathBuf> = params
+                    .get("paths")
+                    .and_then(Value::as_array)
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(std::path::PathBuf::from)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let method = method.to_owned();
+                cx.update_window(window, move |_, window, app| {
+                    draw_frame(window, app);
+                    let mut send = |event: gpui::FileDropEvent| {
+                        window.dispatch_event(gpui::PlatformInput::FileDrop(event), app);
+                        draw_frame(window, app);
+                    };
+                    match method.as_str() {
+                        "dragFiles" => {
+                            if !paths.is_empty() {
+                                send(gpui::FileDropEvent::Entered {
+                                    position,
+                                    paths: gpui::ExternalPaths(paths.into_iter().collect()),
+                                });
+                            }
+                            send(gpui::FileDropEvent::Pending { position });
+                        }
+                        "dropFiles" => {
+                            send(gpui::FileDropEvent::Submit { position });
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                        _ => {
+                            send(gpui::FileDropEvent::Exited);
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                    }
+                    json!({"dispatched": true})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
             }
             "focus" => {
                 let handle = cx.update_entity(&store, |store,cx| {
@@ -804,6 +903,13 @@ async fn serve_commands(
                         "ctrl-"
                     },
                 );
+                // Modifiers first, the key last: `mod-ArrowDown`, `shift-PageUp`.
+                let key = match key.rsplit_once('-') {
+                    Some((modifiers, name)) if !name.is_empty() => {
+                        format!("{modifiers}-{}", crate::desktop::keymap::gpui_key_name(name))
+                    }
+                    _ => crate::desktop::keymap::gpui_key_name(&key),
+                };
                 match gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os()) {
                     Ok(keystroke) => {
                         let dispatched = cx.update_window(window, move |_root, window, app| {
@@ -1098,8 +1204,8 @@ async fn serve_commands(
                             RectF {
                                 x: 0.0,
                                 y: 0.0,
-                                w: f32::from(size.width),
-                                h: f32::from(size.height),
+                                w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                                h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                             },
                             window.scale_factor(),
                         )
@@ -1496,6 +1602,7 @@ async fn serve_commands(
 fn draw_frame(window: &mut gpui::Window, app: &mut App) {
     let needs_clear = window.draw(app);
     needs_clear.clear(app);
+    crate::events::flush_hover_retarget(window, app);
     let Some(store) = app.try_global::<crate::store::StoreGlobal>() else {
         return;
     };
@@ -1604,9 +1711,19 @@ fn idle_status(
     if (js_tasks > 0 || unsafe { rn_gpui_reload_in_progress() })
         && !ignore.iter().any(|item| item == "js")
     {
-        busy.push(
-            json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
-        );
+        let mut detail = format!("{js_tasks} queued or running JS task(s)");
+        if std::env::var_os("RN_GPUI_DEBUG_JS_TASKS").is_some() {
+            let mut buffer = vec![0u8; 64 * 1024];
+            // SAFETY: the buffer is valid for the capacity given, and the call
+            // writes at most that many bytes.
+            let length =
+                unsafe { rn_gpui_pending_js_tasks_dump(buffer.as_mut_ptr(), buffer.len() as u64) }
+                    as usize;
+            buffer.truncate(length.min(buffer.len()));
+            detail.push_str(":\n");
+            detail.push_str(&String::from_utf8_lossy(&buffer));
+        }
+        busy.push(json!({"source":"js", "detail": detail}));
     }
     // SAFETY: these C++ probes take no pointers and only read counters.
     let native_animations = unsafe { rn_gpui_native_animations_active() };
@@ -1824,9 +1941,10 @@ fn activate_accessibility_probe(window: &gpui::Window) {
 /// The window-space center of a surface-space frame. Pointer events dispatched
 /// with it land on the node the frame names, not `menu_bar_offset()` above it.
 fn frame_center(frame: RectF, offset: f32) -> gpui::Point<gpui::Pixels> {
+    let zoom = crate::desktop::zoom::get(crate::store::APP_SURFACE_ID);
     point(
-        px(frame.x + frame.w / 2.0),
-        px(frame.y + offset + frame.h / 2.0),
+        px((frame.x + frame.w / 2.0) * zoom),
+        px((frame.y + frame.h / 2.0) * zoom + offset),
     )
 }
 
@@ -1985,6 +2103,46 @@ fn tree(store: &ViewStore, cx: &gpui::Context<ViewStore>) -> Value {
     json!({"surface": store.primary_surface_id, "generation": instance_generation(), "children": children})
 }
 
+/// The color of each border side as ARGB, `0` for none.
+fn border_colors_json(node: &RNNodeView) -> Value {
+    let colors = node
+        .resolved_state()
+        .map_or(node.view.border_colors, |state| {
+            state.border_colors(node.view.border_colors)
+        });
+    json!({"left": colors[0], "top": colors[1], "right": colors[2], "bottom": colors[3]})
+}
+
+/// The color of a node's text: the one a state style gives it, else its first
+/// non-empty fragment's, as ARGB.
+fn text_color(node: &RNNodeView) -> Value {
+    if let Some(color) = node.state_text_color() {
+        return json!(color);
+    }
+    node.paragraph
+        .as_ref()
+        .and_then(|paragraph| {
+            paragraph
+                .fragments
+                .iter()
+                .find(|fragment| !fragment.text.is_empty())
+        })
+        .map_or(Value::Null, |fragment| json!(fragment.color))
+}
+
+/// The background and opacity a node paints with, the state styles applied.
+fn effective_background(node: &RNNodeView) -> u32 {
+    node.resolved_state()
+        .and_then(|state| state.background())
+        .unwrap_or(node.view.background_color)
+}
+
+fn effective_opacity(node: &RNNodeView) -> f32 {
+    node.resolved_state()
+        .and_then(|state| state.opacity())
+        .unwrap_or(node.view.opacity)
+}
+
 fn tree_node(
     entity: &Entity<RNNodeView>,
     store: &ViewStore,
@@ -1999,6 +2157,8 @@ fn tree_node(
     json!({"tag": node.tag, "component": node.component, "testID": node.view.test_id,
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
+        "backgroundColor": effective_background(node), "opacity": effective_opacity(node),
+        "borderColors": border_colors_json(node), "textColor": text_color(node),
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
@@ -2018,6 +2178,20 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         return json!({"error": format!("tag {tag} is not mounted")});
     };
     let node = entity.read(cx);
+    let outline = node.resolved_state().map_or(
+        (
+            node.view.outline_color,
+            node.view.outline_width,
+            node.view.outline_offset,
+        ),
+        |state| {
+            state.outline((
+                node.view.outline_color,
+                node.view.outline_width,
+                node.view.outline_offset,
+            ))
+        },
+    );
     let paragraph_fragments = node
         .paragraph
         .as_ref()
@@ -2032,6 +2206,12 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
                         "fontSize": fragment.font_size,
                         "fontWeight": fragment.font_weight,
                         "italic": fragment.italic,
+                        "color": fragment.color,
+                        "lineHeight": fragment.line_height,
+                        "letterSpacing": fragment.letter_spacing,
+                        "underline": fragment.underline,
+                        "strikethrough": fragment.strikethrough,
+                        "textTransform": fragment.text_transform,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -2044,10 +2224,22 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "borderWidths": {"left": node.view.border_widths.left, "top": node.view.border_widths.top,
             "right": node.view.border_widths.right, "bottom": node.view.border_widths.bottom},
         "borderStyles": node.view.border_styles,
-        "outlineWidth": node.view.outline_width,
+        "borderColors": border_colors_json(node),
+        "borderRadii": {"topLeft": node.view.border_radii.tl, "topRight": node.view.border_radii.tr,
+            "bottomRight": node.view.border_radii.br, "bottomLeft": node.view.border_radii.bl},
+        "boxShadows": node.view.shadows.iter().map(|shadow| json!({
+            "offsetX": shadow.dx, "offsetY": shadow.dy, "blurRadius": shadow.blur,
+            "spreadDistance": shadow.spread, "color": shadow.color, "inset": shadow.inset,
+        })).collect::<Vec<_>>(),
+        "textColor": text_color(node),
+        "textAlign": node.paragraph.as_ref().map(|paragraph| paragraph.text_align),
+        "numberOfLines": node.paragraph.as_ref().map(|paragraph| paragraph.max_lines),
+        "outlineColor": outline.0,
+        "outlineOffset": outline.2,
+        "outlineWidth": outline.1,
         "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
         "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
-        "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
+        "opacity":effective_opacity(node),"backgroundColor":effective_background(node),"baseBackgroundColor":node.view.background_color,"baseOpacity":node.view.opacity,"states":node.active_state_names(),"transform":node.view.transform,"renderCount":node.test_render_count(),
         "scrollStrategy": node.scroll_strategy_name(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),

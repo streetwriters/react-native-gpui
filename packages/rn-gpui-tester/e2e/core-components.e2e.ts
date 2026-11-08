@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import { PNG } from 'pngjs';
@@ -28,22 +27,9 @@ async function surfaceTop() {
 // The Xvfb session on Linux CI has no window manager to activate a window or
 // to own the clipboard; what needs either is not verified there.
 const windowActivation = process.platform !== 'linux';
-
-function frontmostApp() {
-  if (process.platform !== 'darwin') return 'another window';
-  try {
-    return execFileSync(
-      'osascript',
-      [
-        '-e',
-        'tell application "System Events" to name of first process whose frontmost is true',
-      ],
-      { encoding: 'utf8', timeout: 3000 },
-    ).trim();
-  } catch {
-    return 'another application';
-  }
-}
+// Focus and blur events reach a text input only in a window the operating
+// system has made active, which a background run never does.
+const realFocus = process.env.RN_GPUI_TEST_REAL_FOCUS === '1';
 
 async function start(offscreen: boolean) {
   app = await launchApp({
@@ -695,6 +681,27 @@ describe('hitSlop and pressRetentionOffset', () => {
     expect(await text('slop-default-count')).toBe('0');
   });
 
+  test('the pointer entering the slop around a view enters it, and past the slop does not', async () => {
+    const frame = await area();
+    const top = await surfaceTop();
+    const move = async (x: number, y: number) => {
+      await app.mouseMove({ x: frame.x + x, y: frame.y + y + top });
+      await app.waitForIdle();
+    };
+    await move(100, 100);
+    expect(await text('slop-enter-count')).toBe('0');
+    await move(112, 35);
+    expect(await text('slop-enter-count')).toBe('0');
+    await move(120, 35);
+    await poll(async () => (await text('slop-enter-count')) === '1');
+    await move(100, 100);
+    await move(140, 55);
+    await poll(async () => (await text('slop-enter-count')) === '2');
+    await move(140, 65);
+    await move(140, 35);
+    await poll(async () => (await text('slop-enter-count')) === '3');
+  });
+
   test('dragging out of a view keeps the press only as far as pressRetentionOffset', async () => {
     const frame = await area();
     // The green view retains 80 points: released 60 past its edge it presses.
@@ -1280,7 +1287,7 @@ describe('font scale', () => {
 
 // Focus and blur events only fire in a window that can be active. Such a
 // window is as tall as the screen allows, so it lives only for these tests.
-describe.runIf(windowActivation)('with an active window', () => {
+describe.runIf(windowActivation && realFocus)('with an active window', () => {
   beforeAll(async () => {
     await app.close();
     await start(false);
@@ -1290,12 +1297,8 @@ describe.runIf(windowActivation)('with an active window', () => {
     await start(true);
   });
   beforeEach(async () => {
-    try {
-      await app.focusWindow();
-      await poll(async () => (await app.windowState(1)).isFocused, 5000);
-    } catch {
-      throw new Error(`the test window lost focus to ${frontmostApp()}`);
-    }
+    await app.setWindowActive(1, true);
+    await app.waitForIdle();
   });
 
   test('selectTextOnFocus selects all the text on focus', async () => {

@@ -115,6 +115,17 @@ pub mod ffi {
         pub desktop_drag_region: bool,
         /// "minimize" | "maximize" | "close" for a custom caption button.
         pub on_context_menu: bool,
+        /// A node's group name, and the JSON of each state style prop; empty = not set.
+        pub group: String,
+        pub hover_style: String,
+        pub active_style: String,
+        pub focus_style: String,
+        pub focus_visible_style: String,
+        pub group_hover_style: String,
+        pub group_active_style: String,
+        pub drag_over_style: String,
+        /// Whether the view takes files dropped from the operating system.
+        pub accepts_files: bool,
     }
 
     #[derive(Clone, Debug, Default)]

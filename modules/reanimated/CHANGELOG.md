@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/reanimated` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- CSS transitions and animations now run: the registries' updates are applied after every frame, as the display link does on iOS, where before nothing applied them and a transition or keyframe animation never changed what was painted. Needs a prebuilt runtime built with the change.
+
 ## 4.7.0-alpha.0 - 2026-11-01
 
 - First release, for `react-native-reanimated` 4.7.x with Worklets 0.13.x.

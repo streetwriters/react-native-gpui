@@ -300,6 +300,26 @@ test('registers a crate that has no TurboModule specs', () => {
   expect(generated).toContain('fake_paint::rn_gpui_register();');
 });
 
+test('hands desktop.json to the app so its window options need no main.rs change', () => {
+  const { projectRoot, configPath } = createProject();
+  fs.writeFileSync(
+    path.join(projectRoot, 'desktop/desktop.json'),
+    JSON.stringify({
+      window: { titleBar: 'hidden', trafficLightPosition: { x: 10, y: 14 } },
+    }),
+  );
+  autolink({ projectRoot, configFile: configPath });
+  const generated = fs.readFileSync(
+    path.join(projectRoot, 'desktop/autolink/src/lib.rs'),
+    'utf8',
+  );
+  expect(generated).toContain(
+    'react_native_gpui::set_desktop_defaults(DESKTOP_JSON);',
+  );
+  expect(generated).toContain('"titleBar":"hidden"');
+  expect(generated).toContain('"trafficLightPosition":{"x":10,"y":14}');
+});
+
 /**
  * A project with one Rust module crate, so the manifest checks have something to
  * read. The crate's manifest is the argument: the tests below vary only that.

@@ -144,7 +144,11 @@ mod imp {
         let native = ns_window(window)?;
         // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
-            let _: () = msg_send![native, orderFront: std::ptr::null::<id>()];
+            if crate::desktop::background::enabled() {
+                let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+            } else {
+                let _: () = msg_send![native, orderFront: std::ptr::null::<id>()];
+            }
         }
         Ok(())
     }
@@ -1272,4 +1276,138 @@ pub fn native_frame(window: &gpui::Window) -> Option<(i32, i32, i32, i32, bool)>
             IsWindowVisible(hwnd) != 0,
         ))
     }
+}
+
+/// Paints the window's own background, behind the content: `argb` is `0xAARRGGBB`.
+#[cfg(target_os = "macos")]
+pub fn set_background_color(window: &mut gpui::Window, argb: u32) -> Result<(), String> {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)?;
+    let channel = |shift: u32| f64::from((argb >> shift) & 0xFF) / 255.0;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let color: id = msg_send![
+            class!(NSColor),
+            colorWithSRGBRed: channel(16)
+            green: channel(8)
+            blue: channel(0)
+            alpha: channel(24)
+        ];
+        let _: () = msg_send![native, setBackgroundColor: color];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_background_color(_window: &mut gpui::Window, _argb: u32) -> Result<(), String> {
+    Err("window background colors are not supported on this platform".to_string())
+}
+
+/// Gives the window's native chrome (title bar, traffic lights) a light or dark
+/// look, or `None` to follow the system.
+#[cfg(target_os = "macos")]
+pub fn set_chrome_appearance(window: &mut gpui::Window, dark: Option<bool>) -> Result<(), String> {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let appearance: id = match dark {
+            None => nil,
+            Some(dark) => {
+                let name = if dark {
+                    "NSAppearanceNameDarkAqua"
+                } else {
+                    "NSAppearanceNameAqua"
+                };
+                msg_send![class!(NSAppearance), appearanceNamed: NSString::alloc(nil).init_str(name)]
+            }
+        };
+        let _: () = msg_send![native, setAppearance: appearance];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_chrome_appearance(
+    _window: &mut gpui::Window,
+    _dark: Option<bool>,
+) -> Result<(), String> {
+    Err("a window's chrome appearance is not supported on this platform".to_string())
+}
+
+/// Prepares to show a window, returning what does it. The operating system
+/// reports activation and size changes while it shows a window, and those
+/// reach GPUI's window callbacks, which borrow the window; so the caller runs
+/// the returned action once its own borrow of the window has ended.
+#[cfg(target_os = "macos")]
+pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)? as usize;
+    Ok(Box::new(move || {
+        let native = native as id;
+        // SAFETY: `native` is the `NSWindow` of a window that is still open, and AppKit is only messaged from the main thread.
+        unsafe {
+            let miniaturized: bool = msg_send![native, isMiniaturized];
+            if miniaturized {
+                let _: () = msg_send![native, deminiaturize: nil];
+            }
+            if crate::desktop::background::enabled() {
+                let _: () = msg_send![native, orderBack: nil];
+            } else {
+                let _: () = msg_send![native, orderFront: nil];
+            }
+        }
+    }))
+}
+
+/// Shows a window behind every other window, without making it key.
+#[cfg(target_os = "macos")]
+pub fn show_behind(window: &mut gpui::Window) -> Result<(), String> {
+    use cocoa::base::id;
+    use objc::{msg_send, sel, sel_impl};
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_behind(_window: &mut gpui::Window) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    show(window)?;
+    Ok(Box::new(|| {}))
+}
+
+/// Prepares to hide a window; see [`show_later`].
+#[cfg(target_os = "macos")]
+pub fn hide_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)? as usize;
+    Ok(Box::new(move || {
+        // SAFETY: `native` is the `NSWindow` of a window that is still open, and AppKit is only messaged from the main thread.
+        unsafe {
+            let _: () = msg_send![native as id, orderOut: nil];
+        }
+    }))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn hide_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    hide(window)?;
+    Ok(Box::new(|| {}))
 }

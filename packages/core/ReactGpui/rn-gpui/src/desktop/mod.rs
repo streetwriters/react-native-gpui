@@ -1,6 +1,7 @@
 pub mod app_dir;
 pub mod app_menu;
 pub mod app_state;
+pub mod background;
 pub mod button_layout;
 pub mod capabilities;
 pub mod client_frame;
@@ -32,6 +33,7 @@ pub mod window_mirror;
 pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod work_area;
+pub mod zoom;
 
 use gpui::App;
 use std::sync::OnceLock;

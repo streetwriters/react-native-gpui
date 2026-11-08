@@ -417,6 +417,13 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
                 << " props=" << folly::toJson(props);
     }
   }
+  // Reanimated hands colors over as signed 32-bit integers, so a color with a
+  // high alpha byte is negative; converting the double straight to unsigned is
+  // undefined for those.
+  const auto argb = [](const folly::dynamic& value) {
+    return static_cast<uint32_t>(
+        value.isInt() ? value.asInt() : static_cast<int64_t>(value.asDouble()));
+  };
   AnimatedPropsFlat update{};
   update.tag = tag;
   if (props.isObject()) {
@@ -427,13 +434,12 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
     }
     const auto* backgroundColor = props.get_ptr("backgroundColor");
     if (backgroundColor != nullptr && backgroundColor->isNumber()) {
-      update.background_color =
-          static_cast<uint32_t>(backgroundColor->asDouble());
+      update.background_color = argb(*backgroundColor);
       update.has_background_color = true;
     }
     const auto* textColor = props.get_ptr("color");
     if (textColor != nullptr && textColor->isNumber()) {
-      update.text_color = static_cast<uint32_t>(textColor->asDouble());
+      update.text_color = argb(*textColor);
       update.has_text_color = true;
     }
     const auto* transform = props.get_ptr("transform");
@@ -651,6 +657,11 @@ void GpuiMountingManager::dispatchCommand(
     } else if (name == "clear") {
       rn_gpui_on_text_input_clear(view.tag);
     }
+    return;
+  }
+  if (std::string_view(view.componentName) == "View" &&
+      (name == "focus" || name == "blur")) {
+    rn_gpui_on_text_input_command(view.tag, name == "focus");
     return;
   }
   const folly::dynamic argsArray =

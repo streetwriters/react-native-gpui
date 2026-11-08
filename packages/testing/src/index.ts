@@ -2,6 +2,7 @@ export {
   DesktopApp,
   Locator,
   expect,
+  frontmostApplicationPid,
   launchApp,
   matchScreenshot,
   expectNoA11yViolations,

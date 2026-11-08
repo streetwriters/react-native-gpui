@@ -23,7 +23,7 @@
  * @format
  */
 
-import type { NativeSyntheticEvent } from 'react-native';
+import type { NativeSyntheticEvent, StyleProp, ViewStyle } from 'react-native';
 
 /** The native payload of a context-menu event. */
 export interface DesktopContextMenuEventData {
@@ -51,6 +51,65 @@ export interface DesktopContextMenuEventData {
   trigger: 'mouse' | 'keyboard';
 }
 
+/**
+ * The style properties a state style can change. A property that is being
+ * animated by a native-driven animation keeps its animated value.
+ */
+export type DesktopStateStyle = Pick<
+  ViewStyle,
+  | 'backgroundColor'
+  | 'opacity'
+  | 'boxShadow'
+  | 'transform'
+  | 'borderColor'
+  | 'borderLeftColor'
+  | 'borderTopColor'
+  | 'borderRightColor'
+  | 'borderBottomColor'
+  | 'outlineColor'
+  | 'outlineWidth'
+  | 'outlineOffset'
+> & {
+  /** The color of the text inside the view. */
+  color?: ColorValue;
+};
+
+/**
+ * A state style that applies while the ancestor that set `group` to this name
+ * is hovered or pressed.
+ */
+export interface DesktopGroupStateStyle {
+  /** The name an ancestor sets with its `group` prop. */
+  group: string;
+  style: StyleProp<DesktopStateStyle>;
+}
+
+/** A file or folder dragged in from the operating system. */
+export interface DesktopDroppedFile {
+  /** The absolute path. */
+  path: string;
+  name: string;
+  /** Size in bytes; `0` for a folder. */
+  size: number;
+  /** The media type for the extension, or an empty string when unknown. */
+  type: string;
+  isDirectory: boolean;
+}
+
+export interface DesktopDragEventData {
+  /** The view that takes the files. */
+  target: number;
+  /** The pointer position in that view. */
+  x: number;
+  y: number;
+  /** The pointer position in the page. */
+  pageX: number;
+  pageY: number;
+  files: DesktopDroppedFile[];
+}
+
+export type DesktopDragEvent = NativeSyntheticEvent<DesktopDragEventData>;
+
 export type DesktopContextMenuEvent =
   NativeSyntheticEvent<DesktopContextMenuEventData>;
 
@@ -75,6 +134,35 @@ declare module 'react-native' {
      * set, so a view with only the capture handler still receives events.
      */
     onContextMenuCapture?: (event: DesktopContextMenuEvent) => void;
+    /**
+     * Whether the view takes files dragged in from the operating system. The
+     * nearest view under the pointer that does gets the drag events.
+     */
+    acceptsFiles?: boolean;
+    onDragEnter?: (event: DesktopDragEvent) => void;
+    onDragOver?: (event: DesktopDragEvent) => void;
+    onDragLeave?: (event: DesktopDragEvent) => void;
+    onDrop?: (event: DesktopDragEvent) => void;
+    onDragEnterCapture?: (event: DesktopDragEvent) => void;
+    onDragOverCapture?: (event: DesktopDragEvent) => void;
+    onDragLeaveCapture?: (event: DesktopDragEvent) => void;
+    onDropCapture?: (event: DesktopDragEvent) => void;
+    /** Applied while files are dragged over this view, which must set `acceptsFiles`. */
+    dragOverStyle?: StyleProp<DesktopStateStyle>;
+    /** Names this view as a group that descendants style against with `groupHoverStyle` and `groupActiveStyle`. */
+    group?: string;
+    /** Applied while the pointer is over this view. */
+    hoverStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while a mouse button pressed on this view is held. */
+    activeStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while this view has keyboard focus. Needs a view that can take focus. */
+    focusStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while this view has focus and the last input was the keyboard. */
+    focusVisibleStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while the pointer is over the ancestor that set `group` to this name. */
+    groupHoverStyle?: DesktopGroupStateStyle;
+    /** Applied while a button pressed on the ancestor that set `group` to this name is held. */
+    groupActiveStyle?: DesktopGroupStateStyle;
   }
 }
 

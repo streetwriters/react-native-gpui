@@ -18,6 +18,16 @@ title: desktop.json
 
 The `$schema` line gives your editor completion and validation.
 
+## What applies on every build
+
+`npx react-native run-desktop` records `desktop.json` in the build, and the app's window options reach the running app on every rebuild. You do not have to run `init-desktop` again or edit `desktop/src/main.rs`.
+
+These keys apply: `window.title`, `width`, `height`, `position`, `resizable`, `restoreState`, `titleBar`, `background`, `windowButtons`, `shadow`, `trafficLightPosition`, `cornerRadius`, `windowControlsPosition` and `menuBar`, plus `accessory`.
+
+A call on the config in `main.rs` after `DesktopAppConfig::from_env_with_defaults(...)`, such as `.title_bar(...)` or `.window_size(...)`, replaces the value from `desktop.json`. `RN_GPUI_WIDTH` and `RN_GPUI_HEIGHT` still win over the size. The other keys (`productName`, `identifier`, `icon`, `urlSchemes`, `singleInstance`, `devMenu`, `tray`, `bundle`) take effect through packaging, or through the `main.rs` that `init-desktop` writes.
+
+A build that skips the CLI, such as plain `cargo build`, uses the options from the last CLI run.
+
 ## Per-OS overrides
 
 `desktop.macos.json`, `desktop.windows.json` and `desktop.linux.json` are merged over `desktop.json` on that operating system, following [JSON Merge Patch (RFC 7386)](https://www.rfc-editor.org/rfc/rfc7386). Objects merge key by key, other values replace the base value, and `null` removes a key.

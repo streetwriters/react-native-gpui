@@ -60,6 +60,7 @@ struct ParagraphKey {
     text_align: u8,
     ellipsize: u8,
     fit: Option<u32>,
+    scale: u32,
 }
 
 impl ParagraphKey {
@@ -73,6 +74,7 @@ impl ParagraphKey {
             fit: paragraph
                 .adjusts_to_fit
                 .then_some(paragraph.min_font_scale.to_bits()),
+            scale: device_scale().to_bits(),
         }
     }
 }
@@ -92,6 +94,19 @@ struct TextService {
 }
 
 static TEXT_SERVICE: OnceLock<Arc<TextService>> = OnceLock::new();
+static DEVICE_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+
+/// The pixel density line metrics are rounded at. A browser lays text out in
+/// device pixels, so a line is a whole number of them.
+pub(crate) fn set_device_scale(scale: f32) {
+    if scale.is_finite() && scale > 0.0 {
+        DEVICE_SCALE.store(scale.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn device_scale() -> f32 {
+    f32::from_bits(DEVICE_SCALE.load(std::sync::atomic::Ordering::Relaxed))
+}
 static FONT_ALIASES: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
 static FONT_DATA: OnceLock<RwLock<HashMap<String, Arc<Vec<u8>>>>> = OnceLock::new();
 const MAX_CACHED_PARAGRAPHS: usize = 256;
@@ -616,7 +631,34 @@ impl TextService {
             .map(font_of)
             .unwrap_or_default();
 
+        let window_text_system = gpui::WindowTextSystem::new(self.text_system.clone());
+        // The box a text was measured into is rounded to the pixel grid, so it can
+        // be a hair narrower than the text it was measured for. Text that fits
+        // within that hair is not truncated, and keeps its line.
+        const ROUNDING_SLACK: f32 = 0.5;
+        let mut wrap_width = width;
+        let mut fits = false;
         if paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
+            let probe = window_text_system
+                .shape_text(
+                    SharedString::from(text.clone()),
+                    px(font_size),
+                    &runs,
+                    Some(px(width + ROUNDING_SLACK)),
+                    None,
+                )
+                .unwrap_or_default();
+            let lines: usize = probe
+                .iter()
+                .map(|line| line.wrap_boundaries.len() + 1)
+                .sum();
+            fits = lines <= paragraph.max_lines as usize;
+            if fits {
+                wrap_width = width + ROUNDING_SLACK;
+            }
+        }
+
+        if !fits && paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
             let mut wrapper = self.text_system.line_wrapper(base_font, px(font_size));
             let truncation = match paragraph.ellipsize {
                 1 => Some(gpui::TruncateFrom::Start),
@@ -639,13 +681,12 @@ impl TextService {
             }
         }
 
-        let window_text_system = gpui::WindowTextSystem::new(self.text_system.clone());
         let shaped_lines = window_text_system
             .shape_text(
                 SharedString::from(text),
                 px(font_size),
                 &runs,
-                (width < f32::MAX).then_some(px(width)),
+                (width < f32::MAX).then_some(px(wrap_width)),
                 (paragraph.max_lines > 0).then_some(paragraph.max_lines as usize),
             )
             .unwrap_or_default();
@@ -660,8 +701,13 @@ impl TextService {
         let mut measured_width = 0.0f32;
         let mut measured_height = 0.0f32;
         for line in shaped_lines {
-            let line_height = explicit_line_height
-                .unwrap_or_else(|| f32::from(line.ascent() + line.descent()).max(1.0));
+            let line_height = explicit_line_height.unwrap_or_else(|| {
+                let scale = device_scale();
+                (((f32::from(line.ascent()) * scale).round()
+                    + (f32::from(line.descent()) * scale).round())
+                    / scale)
+                    .max(1.0)
+            });
             let visual_lines = line.wrap_boundaries.len() + 1;
             measured_width = measured_width.max(f32::from(line.width()));
             measured_height += line_height * visual_lines as f32;
@@ -705,9 +751,10 @@ pub fn install_measure_handler(cx: &mut App) {
     }));
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
+        let scale = device_scale();
         MeasureResult {
-            width: shaped.width.ceil(),
-            height: shaped.height.ceil(),
+            width: shaped.width,
+            height: (shaped.height * scale).round() / scale,
         }
     }));
 }
@@ -973,6 +1020,21 @@ fn shadow_layers(paragraph: &ParagraphFlat, width: f32) -> Vec<ShadowLayer> {
         .collect()
 }
 
+/// How far to move a line so its baseline sits where a browser puts it: the
+/// ascent and descent each rounded to whole device pixels and the half leading
+/// rounded down to one, added above the ascent. gpui centres the unrounded
+/// metrics instead.
+fn baseline_correction(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+    let scale = device_scale();
+    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+    let (rounded_ascent, rounded_descent) = ((ascent * scale).round(), (descent * scale).round());
+    let browser = (rounded_ascent
+        + ((line_height * scale - rounded_ascent - rounded_descent) / 2.0).floor())
+        / scale;
+    let gpui = (line_height - ascent - descent) / 2.0 + ascent;
+    browser - gpui
+}
+
 fn paint_lines(
     shaped: &ShapedParagraph,
     origin: gpui::Point<gpui::Pixels>,
@@ -982,9 +1044,10 @@ fn paint_lines(
 ) {
     let mut y = origin.y;
     for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let baseline = point(origin.x, y + px(baseline_correction(line, *line_height)));
         if line
             .paint(
-                point(origin.x, y),
+                baseline,
                 px(*line_height),
                 shaped.text_align,
                 Some(bounds),

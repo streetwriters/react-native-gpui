@@ -16,6 +16,13 @@ export function DesktopPropsTypeProbe(): React.JSX.Element {
   return (
     <View
       desktopDragRegion
+      group="row"
+      hoverStyle={{ backgroundColor: 'red', opacity: 0.5 }}
+      activeStyle={[{ backgroundColor: 'blue' }]}
+      focusStyle={{ boxShadow: '0 0 0 2px red' }}
+      focusVisibleStyle={{ opacity: 1 }}
+      groupHoverStyle={{ group: 'row', style: { opacity: 1 } }}
+      groupActiveStyle={{ group: 'row', style: { opacity: 0.5 } }}
       onContextMenu={event => {
         // Every field the types promise, read to prove the shape.
         const {

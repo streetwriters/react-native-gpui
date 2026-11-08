@@ -9,6 +9,7 @@ use gpui::{
 use rn_gpui_sys::ffi::{MountBatch, MountKind, MountOp};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -71,6 +72,9 @@ pub struct ViewStore {
     /// entity, which nearly every node reads while rendering.
     pub hovered: RefCell<Vec<i32>>,
     pub pointer: Cell<Point<Pixels>>,
+    /// Whether the pointer is over the window, as the last pointer event left it.
+    pub pointer_inside: Cell<bool>,
+    pub(crate) hover_retarget_pending: Rc<Cell<bool>>,
     pub top_inset: f32,
     /// Target fixed at primary-button down. RN keeps a touch's target stable
     /// across drags, so responder moves/releases must still reach this node
@@ -124,6 +128,8 @@ impl ViewStore {
             overlay_host,
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
+            pointer_inside: Cell::new(false),
+            hover_retarget_pending: Rc::default(),
             top_inset: 0.0,
             active_touch_target: None,
             retained_subtrees: HashMap::new(),
@@ -258,6 +264,7 @@ impl ViewStore {
             self.accessibility_modal_tags.clear();
             self.hovered.borrow_mut().clear();
             self.active_touch_target = None;
+            crate::interaction::clear();
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
             for root in roots {
                 root.update(cx, |root, cx| {
@@ -286,6 +293,7 @@ impl ViewStore {
             .is_some_and(|target| stale.contains(&target.tag))
         {
             self.active_touch_target = None;
+            crate::interaction::clear();
         }
         for tag in stale {
             self.nodes.remove(&tag);
@@ -339,11 +347,14 @@ impl ViewStore {
         // belongs to.
         for surface_id in self.surfaces_in_window(window) {
             let frame = crate::desktop::window_frame::insets_of(surface_id);
-            let width = (width - frame.horizontal()).max(1.0);
-            let height = (height
+            let zoom = crate::desktop::zoom::get(surface_id);
+            let width = ((width - frame.horizontal()) / zoom).max(1.0);
+            let height = ((height
                 - frame.vertical()
                 - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32))
-            .max(1.0);
+                / zoom)
+                .max(1.0);
+            let scale = scale * zoom;
             let busy = self
                 .resizes_in_flight
                 .get(&surface_id)
@@ -532,6 +543,27 @@ impl ViewStore {
 
     /// Fabric emits `Create`/`Update` before the `Insert` that splices a node in,
     /// so a parent always exists when its children arrive.
+    /// Works out what the pointer is over again once the tree it is over has
+    /// changed, the way a browser does after a layout: a view that mounts under
+    /// a still pointer is hovered without the pointer moving.
+    fn schedule_hover_retarget(&self, cx: &mut Context<Self>) {
+        if !self.pointer_inside.get()
+            || self.active_touch_target.is_some()
+            || self.hover_retarget_pending.replace(true)
+        {
+            return;
+        }
+        let window = self.window;
+        cx.defer(move |cx| {
+            let _ = cx.update_window(window, move |_, window, _| {
+                window.on_next_frame(move |window, cx| {
+                    window.defer(cx, crate::events::flush_hover_retarget);
+                });
+                window.refresh();
+            });
+        });
+    }
+
     pub fn apply_batch(&mut self, batch: MountBatch, cx: &mut Context<Self>) {
         self.install_report_waker(cx);
         let surface_id = batch.surface_id;
@@ -919,6 +951,7 @@ impl ViewStore {
             hook.arm(window);
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
+        self.schedule_hover_retarget(cx);
     }
 
     /// The scroll views that keep their visible content in place, with the
@@ -2766,6 +2799,37 @@ fn framed(
     shell.into_any_element()
 }
 
+impl SurfaceRootView {
+    /// The content under the window's zoom factor: laid out at the window's size
+    /// over the factor, and drawn scaled back up to it.
+    fn zoomed(root: gpui::Div, surface_id: i32, window: &Window) -> gpui::AnyElement {
+        let zoom = crate::desktop::zoom::get(surface_id);
+        if (zoom - 1.0).abs() < f32::EPSILON {
+            return root.into_any_element();
+        }
+        let viewport = window.viewport_size();
+        let frame = crate::desktop::window_frame::insets_of(surface_id);
+        let width = f32::from(viewport.width) - frame.horizontal();
+        let height = f32::from(viewport.height)
+            - frame.vertical()
+            - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32);
+        let matrix = gpui::TransformationMatrix {
+            rotation_scale: [[zoom, 0.0], [0.0, zoom]],
+            translation: [0.0, 0.0],
+        };
+        div()
+            .size_full()
+            .overflow_hidden()
+            .child(crate::transform::Transformed::new(
+                root.w(px((width / zoom).max(1.0)))
+                    .h(px((height / zoom).max(1.0)))
+                    .into_any_element(),
+                matrix,
+            ))
+            .into_any_element()
+    }
+}
+
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.kind == SurfaceKind::Embedded {
@@ -2795,7 +2859,16 @@ impl Render for SurfaceRootView {
             // else it moves and ends here, so a drag that left every touchable
             // still reaches React, which decides from it whether the press
             // is kept.
+            .on_drag_move::<gpui::ExternalPaths>(|event, _window, cx| {
+                crate::file_drop::moved(event.drag(cx).paths());
+            })
+            .on_drop::<gpui::ExternalPaths>(|_, window, cx| crate::file_drop::dropped(window, cx))
+            .on_file_drop_exit(|_, window, cx| crate::file_drop::exited(window, cx))
             .on_mouse_move(|event, window, cx| {
+                if crate::file_drop::active() {
+                    crate::file_drop::left_unanswered(window, cx, event.position);
+                    return;
+                }
                 if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
                     return;
                 }
@@ -2875,7 +2948,7 @@ impl Render for SurfaceRootView {
             .capture_any_mouse_down(cx.listener(|_this, _event, _window, cx| {
                 let _ = crate::desktop::gpui_menu::MenuPopup::dismiss(cx);
             }))
-            .child(root);
+            .child(Self::zoomed(root, self.surface_id, _window));
         // The root carries the app key context, so a shortcut with no scope can
         // match with nothing focused: GPUI evaluates a context predicate against
         // the focus path's contexts, and an empty stack matches nothing at all —

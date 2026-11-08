@@ -5,12 +5,14 @@ pub(crate) mod counters;
 pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
+pub(crate) mod file_drop;
 mod filter;
 pub(crate) mod frame;
 pub(crate) mod gradient;
 pub(crate) mod host;
 pub mod host_component;
 pub(crate) mod image_loader;
+pub(crate) mod interaction;
 pub mod native_surface;
 #[cfg(target_os = "macos")]
 pub mod native_view;
@@ -35,7 +37,9 @@ pub(crate) mod virtual_view;
 mod bootstrap;
 mod http_client;
 mod resources;
-pub use bootstrap::{run, run_with, DesktopAppConfig, WindowBackground, WindowTitleBar};
+pub use bootstrap::{
+    run, run_with, set_desktop_defaults, DesktopAppConfig, WindowBackground, WindowTitleBar,
+};
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.
 pub use http_client::RnHttpClient;

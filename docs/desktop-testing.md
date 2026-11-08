@@ -62,15 +62,35 @@ test('counts presses', async () => {
 
 ### Launch options
 
-| Option                 | Description                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `disableAnimations`    | Turns animations off, so tests do not wait for them.                            |
-| `initialProps`         | Props for the root component.                                                   |
-| `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. |
-| `idleOptions`          | What to ignore when waiting for the app to be idle.                             |
-| `executable`, `bundle` | Run a specific build and bundle.                                                |
-| `args`, `env`          | Arguments and environment variables for the app.                                |
-| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                           |
+| Option                 | Description                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disableAnimations`    | Turns animations off, so tests do not wait for them.                                                                                                      |
+| `initialProps`         | Props for the root component.                                                                                                                             |
+| `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. Without it the window is shown, behind the others, and never takes focus. |
+| `idleOptions`          | What to ignore when waiting for the app to be idle.                                                                                                       |
+| `executable`, `bundle` | Run a specific build and bundle.                                                                                                                          |
+| `args`, `env`          | Arguments and environment variables for the app.                                                                                                          |
+| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                                                                                                     |
+
+## Staying in the background
+
+A test run does not disturb whoever is using the machine. While the test driver is on (`RN_GPUI_TEST_DRIVER=1`, which `launchApp` sets), or when `RN_GPUI_BACKGROUND=1` is set on any run, the app:
+
+- never activates itself, so it does not take keyboard focus or the menu bar. On macOS it runs as an accessory application, with no Dock icon, so the Dock does not bounce.
+- opens its windows without making them key or main. With `offscreen: true` they stay hidden. Otherwise, on macOS, they are shown behind every other window. `window.show()` also puts a window behind the others, and `window.focus()` gives it logical focus only.
+- keeps everything tests use working without operating system focus: `app.setWindowActive()` gives a window focus and key events, pointer input comes from the driver, and screenshots are drawn by the app, not captured from the screen.
+
+`launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
+
+### Which display
+
+A background run opens its windows on the secondary display when there is one, centred in it, and on the main display otherwise. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
+
+`launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
+
+`RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
+
+Focus and blur events reach a text input only in a window the operating system has made active, which a background run never has. The tests that need that (the "with an active window" tests in the tester's `core-components` suite) run only with `RN_GPUI_TEST_REAL_FOCUS=1`, which turns background mode off for the run.
 
 ## Finding elements
 
@@ -109,6 +129,8 @@ await expectNoA11yViolations(app);
 | `toHaveAccessibleName(name)`, `toHaveAccessibleRole(role)`      | The accessibility name or role.           |
 | `toMatchScreenshot(name)`                                       | The element or window against a baseline. |
 
+When the wait times out because JavaScript work never finishes, start the app with `RN_GPUI_DEBUG_JS_TASKS=1` (in `env`): the error then lists each queued or running JavaScript task with how long it has been there and the call stack that queued it. The stacks are symbols of the native runtime, so they name the C++ entry point that scheduled the task. The variable is for debugging; it costs a stack capture per task. macOS and Linux only.
+
 Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work.
 
 ### Screenshots
@@ -119,19 +141,20 @@ Baselines are stored next to the test, in `__screenshots__/gpui/<platform>-<arch
 
 `DesktopApp` also drives the desktop shell, so tests can cover menus, windows and the tray:
 
-| Area             | Methods                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Windows          | `setWindowSize`, `getWindowBounds`, `focusWindow`, `listWindows`, `windowState`, `windowClose`, `osCloseWindow`, `reopen` |
-| Menus            | `getAppMenu`, `triggerMenuItem`, `menuBarState`, `openMenuBarMenu`                                                        |
-| Context menus    | `getContextMenu`, `selectContextMenuItem`, `dismissContextMenu`                                                           |
-| Dev menu         | `showDevMenu`, `getDevMenu`, `devMenuPerform`, `closeDevMenu`                                                             |
-| Tray             | `trayInstall`, `trayState`, `trayClick`, `trayHide`, `trayDestroy`                                                        |
-| Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                               |
-| Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                      |
-| Clipboard        | `clipboardText`, `setClipboardText`                                                                                       |
-| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                              |
-| Accessibility    | `a11yTree`, `a11yNode`                                                                                                    |
-| Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                             |
+| Area             | Methods                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows          | `setWindowSize`, `getWindowBounds`, `focusWindow`, `setWindowActive`, `listWindows`, `windowState`, `windowClose`, `osCloseWindow`, `reopen` |
+| File drops       | `dragFiles`, `dropFiles`, `dragFilesExit`                                                                                                    |
+| Menus            | `getAppMenu`, `triggerMenuItem`, `menuBarState`, `openMenuBarMenu`                                                                           |
+| Context menus    | `getContextMenu`, `selectContextMenuItem`, `dismissContextMenu`                                                                              |
+| Dev menu         | `showDevMenu`, `getDevMenu`, `devMenuPerform`, `closeDevMenu`                                                                                |
+| Tray             | `trayInstall`, `trayState`, `trayClick`, `trayHide`, `trayDestroy`                                                                           |
+| Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                                                  |
+| Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                                         |
+| Clipboard        | `clipboardText`, `setClipboardText`                                                                                                          |
+| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                                                 |
+| Accessibility    | `a11yTree`, `a11yNode`                                                                                                                       |
+| Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                                                |
 
 `alertState` returns the title, buttons and fields of the alert on screen, and `alertRespond(button, texts)` types into its fields and presses a button. On macOS the alert is a system sheet that a test cannot press, so the driver answers it directly; set `RN_GPUI_ALERT_DIALOG=1` in `env` to make macOS show the same dialog window that Windows and Linux use. `shareOpen` and `shareChoose` do the same for the macOS share picker.
 

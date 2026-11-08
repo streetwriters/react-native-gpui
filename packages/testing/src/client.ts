@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -56,6 +56,82 @@ export type ScreenshotOptions = {
   maxDiffPixels?: number;
 };
 
+export type Sides = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+export type TextFragmentProps = {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  /** `0xAARRGGBB`. */
+  color: number;
+  /** In points, `0` for the font's own. */
+  lineHeight: number;
+  letterSpacing: number;
+  underline: boolean;
+  strikethrough: boolean;
+  /** 0 none, 1 uppercase, 2 lowercase, 3 capitalize. */
+  textTransform: number;
+};
+
+export type NodeProps = {
+  tag: number;
+  component: string;
+  testID: string;
+  text: string;
+  paragraphFragments: TextFragmentProps[];
+  borderWidths: Sides;
+  /** `0xAARRGGBB` per side, `0` for none. */
+  borderColors: Sides;
+  /** 0 solid, 1 dotted, 2 dashed, left, top, right, bottom. */
+  borderStyles: number[];
+  borderRadii: {
+    topLeft: number;
+    topRight: number;
+    bottomRight: number;
+    bottomLeft: number;
+  };
+  boxShadows: {
+    offsetX: number;
+    offsetY: number;
+    blurRadius: number;
+    spreadDistance: number;
+    color: number;
+    inset: boolean;
+  }[];
+  /** The first non-empty fragment's color, `null` for a node with no text. */
+  textColor: number | null;
+  textAlign: number | null;
+  numberOfLines: number | null;
+  outlineColor: number;
+  outlineOffset: number;
+  outlineWidth: number;
+  opacity: number;
+  /** The background it paints with, the state styles that hold applied. */
+  backgroundColor: number;
+  /** The background without state styles. */
+  baseBackgroundColor: number;
+  /** Opacity without state styles; `opacity` has them applied. */
+  baseOpacity: number;
+  /** The state styles that hold, in layering order: `focus`, `focusVisible`, `groupHover`, `hover`, `dragOver`, `groupActive`, `active`. */
+  states: string[];
+  transform: number[];
+  frame: { x: number; y: number; width: number; height: number } | null;
+  renderCount: number;
+  imageUri: string | null;
+  imageResizeMode: string | null;
+  scrollStrategy: string | null;
+  selection: { start: number; end: number } | null;
+  inputScrollX: number | null;
+  [key: string]: unknown;
+};
+
 export type ClickOptions = {
   button?: 'left' | 'right' | 'middle' | 'back' | 'forward';
   clickCount?: number;
@@ -83,6 +159,39 @@ export type IdleOptions = {
     | 'websockets'
   >;
 };
+
+/**
+ * The process id of the frontmost application, or `undefined` where it cannot
+ * be told (anywhere but macOS).
+ */
+export function frontmostApplicationPid(): number | undefined {
+  if (process.platform !== 'darwin') return undefined;
+  try {
+    const asn = execFileSync('lsappinfo', ['front'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    }).trim();
+    if (!asn) return undefined;
+    const info = execFileSync('lsappinfo', ['info', '-only', 'pid', asn], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    const pid = /"pid"=(\d+)/u.exec(info)?.[1];
+    return pid === undefined ? undefined : Number(pid);
+  } catch {
+    return undefined;
+  }
+}
+
+function backgroundExpected(): boolean {
+  if (
+    process.env.RN_GPUI_TEST_HEADED === '1' ||
+    process.env.RN_GPUI_TEST_REAL_FOCUS === '1'
+  )
+    return false;
+  const value = process.env.RN_GPUI_BACKGROUND;
+  return value === undefined || !['', '0', 'false', 'no'].includes(value);
+}
 
 export class DesktopApp {
   readonly logs: string[];
@@ -207,6 +316,7 @@ export class DesktopApp {
       options.bundle ??
       options.env?.RN_GPUI_BUNDLE ??
       process.env.RN_GPUI_BUNDLE;
+    const frontmostBefore = frontmostApplicationPid();
     const child = spawn(executable, options.args ?? [], {
       env: {
         ...process.env,
@@ -228,6 +338,15 @@ export class DesktopApp {
           : {}),
         RN_GPUI_TEST_DRIVER: '1',
         RN_GPUI_TEST_DRIVER_TOKEN: token,
+        ...(process.env.RN_GPUI_TEST_SCALE_FACTOR === undefined &&
+        options.env?.RN_GPUI_TEST_SCALE_FACTOR === undefined
+          ? { RN_GPUI_TEST_SCALE_FACTOR: '2' }
+          : {}),
+        ...((process.env.RN_GPUI_TEST_HEADED === '1' ||
+          process.env.RN_GPUI_TEST_REAL_FOCUS === '1') &&
+        process.env.RN_GPUI_BACKGROUND === undefined
+          ? { RN_GPUI_BACKGROUND: '0' }
+          : {}),
       },
       detached: true,
       stdio: ['ignore', logDescriptor, logDescriptor],
@@ -284,6 +403,15 @@ export class DesktopApp {
     } catch (error) {
       await app.close();
       throw error;
+    }
+    if (backgroundExpected() && child.pid !== undefined) {
+      const frontmost = frontmostApplicationPid();
+      if (frontmost !== undefined && frontmost === child.pid) {
+        await app.close();
+        throw new Error(
+          `the test app became the frontmost application (pid ${child.pid}; it was ${frontmostBefore ?? 'unknown'} before the launch). A test run must stay in the background.`,
+        );
+      }
     }
     (
       globalThis as typeof globalThis & {
@@ -639,6 +767,15 @@ export class DesktopApp {
     return result.sent;
   }
 
+  /**
+   * Makes a window active or inactive as far as the app can tell, without
+   * asking the operating system, so a test does not depend on which application
+   * is in front. The window ignores real activation changes afterwards.
+   */
+  async setWindowActive(windowId: number, active = true): Promise<void> {
+    await this.request('setWindowActive', { windowId, active });
+  }
+
   async focusWindow(): Promise<void> {
     await this.request('focusWindow');
   }
@@ -788,6 +925,17 @@ export class DesktopApp {
    * One window's state, by the id `listWindows` or `trayState` gives it. Bounds
    * are in points, like the main window's.
    */
+  /** The displays the operating system has, in the app's coordinates, main first. */
+  async displays(): Promise<
+    {
+      primary: boolean;
+      bounds: { x: number; y: number; width: number; height: number };
+      visibleBounds: { x: number; y: number; width: number; height: number };
+    }[]
+  > {
+    return this.request('displays');
+  }
+
   async windowState(windowId: number): Promise<{
     windowId: number;
     bounds: { x: number; y: number; width: number; height: number };
@@ -795,6 +943,9 @@ export class DesktopApp {
     isFullscreen: boolean;
     isFocused: boolean;
     isMinimized: boolean;
+    isVisible: boolean;
+    title: string;
+    zoomFactor: number;
     scaleFactor: number;
     /**
      * The OS's own frame for the window, in physical pixels — what a user sees,
@@ -927,7 +1078,13 @@ export class DesktopApp {
     return this.request('a11yNode', { identifier });
   }
 
-  async getProps(tag: number): Promise<unknown> {
+  /**
+   * What the renderer has for a node: its text and the style of each fragment,
+   * border widths, colors, styles and radii per side, box shadows, outline,
+   * opacity, background and text color, and its frame. Colors are `0xAARRGGBB`
+   * numbers, `0` for none. See the package README.
+   */
+  async getProps(tag: number): Promise<NodeProps> {
     return this.request('getProps', { tag });
   }
 
@@ -1092,6 +1249,27 @@ export class DesktopApp {
   ): Promise<void> {
     await this.request('mouseMove', { ...position, ...options });
   }
+  /**
+   * Starts dragging files in from the operating system over a window position,
+   * or moves a drag that has started.
+   */
+  async dragFiles(
+    paths: string[],
+    position: { x: number; y: number },
+  ): Promise<void> {
+    await this.request('dragFiles', { paths, ...position });
+  }
+
+  /** Drops the files being dragged over a window position. */
+  async dropFiles(position: { x: number; y: number }): Promise<void> {
+    await this.request('dropFiles', position);
+  }
+
+  /** Drags the files off the window without dropping them. */
+  async dragFilesExit(): Promise<void> {
+    await this.request('dragFilesExit');
+  }
+
   async focus(tag: number): Promise<void> {
     await this.request('focus', { tag });
   }
