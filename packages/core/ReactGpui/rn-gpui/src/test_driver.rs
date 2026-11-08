@@ -22,6 +22,7 @@ unsafe extern "C" {
     fn rn_gpui_pending_timers_due_within(window_ms: u64) -> u64;
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
+    fn rn_gpui_pending_js_tasks_dump(buffer: *mut u8, capacity: u64) -> u64;
     fn rn_gpui_native_animations_active() -> u64;
     fn rn_gpui_frame_demand() -> u64;
     fn rn_gpui_pending_work() -> u64;
@@ -1679,9 +1680,19 @@ fn idle_status(
     if (js_tasks > 0 || unsafe { rn_gpui_reload_in_progress() })
         && !ignore.iter().any(|item| item == "js")
     {
-        busy.push(
-            json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
-        );
+        let mut detail = format!("{js_tasks} queued or running JS task(s)");
+        if std::env::var_os("RN_GPUI_DEBUG_JS_TASKS").is_some() {
+            let mut buffer = vec![0u8; 64 * 1024];
+            // SAFETY: the buffer is valid for the capacity given, and the call
+            // writes at most that many bytes.
+            let length =
+                unsafe { rn_gpui_pending_js_tasks_dump(buffer.as_mut_ptr(), buffer.len() as u64) }
+                    as usize;
+            buffer.truncate(length.min(buffer.len()));
+            detail.push_str(":\n");
+            detail.push_str(&String::from_utf8_lossy(&buffer));
+        }
+        busy.push(json!({"source":"js", "detail": detail}));
     }
     // SAFETY: these C++ probes take no pointers and only read counters.
     let native_animations = unsafe { rn_gpui_native_animations_active() };

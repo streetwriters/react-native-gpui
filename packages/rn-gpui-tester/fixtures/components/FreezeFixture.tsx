@@ -58,6 +58,17 @@ export default function FreezeFixture() {
   };
   return (
     <View style={{ padding: 16, gap: 8 }}>
+      <Text
+        testID="js-busy"
+        onPress={() => {
+          const end = Date.now() + 4000;
+          while (Date.now() < end) {
+            // keep the JS thread busy
+          }
+        }}
+      >
+        busy
+      </Text>
       {ROUTES.map(name => (
         <Text key={name} testID={`go-${name}`} onPress={() => go(name)}>
           {`go ${name}`}

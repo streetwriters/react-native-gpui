@@ -109,6 +109,8 @@ await expectNoA11yViolations(app);
 | `toHaveAccessibleName(name)`, `toHaveAccessibleRole(role)`      | The accessibility name or role.           |
 | `toMatchScreenshot(name)`                                       | The element or window against a baseline. |
 
+When the wait times out because JavaScript work never finishes, start the app with `RN_GPUI_DEBUG_JS_TASKS=1` (in `env`): the error then lists each queued or running JavaScript task with how long it has been there and the call stack that queued it. The stacks are symbols of the native runtime, so they name the C++ entry point that scheduled the task. The variable is for debugging; it costs a stack capture per task. macOS and Linux only.
+
 Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work.
 
 ### Screenshots
