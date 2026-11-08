@@ -125,7 +125,7 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 
 ### Supported style properties
 
-A state style can change `backgroundColor`, `opacity` and `boxShadow`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
+A state style can change `backgroundColor`, `opacity` and `boxShadow`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Border color, text color and transform are not supported yet. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
 
 ### States
 
