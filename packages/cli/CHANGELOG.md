@@ -7,6 +7,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 - `run-desktop --features test-driver --no-launch` also writes the JavaScript bundle the test driver loads, so a debug build can be tested without Metro or a separate `react-native bundle` step.
 - `run-desktop` takes `--sign-identity <identity>` (default `$APPLE_SIGNING_IDENTITY`) and signs the binary with `--no-launch` too, instead of only before a launch.
 - `autolink` adds `rn-gpui-module` and `rn-gpui-module-build` to an app manifest that already has the managed patch block, which it skipped because the block names the same crates. It also rewrites an existing path to either crate to the real path, so a `file:`-linked core no longer makes Cargo report two different packages.
+- Autolink records the window options and flags of `desktop/desktop.json`, merged with the per-OS file, in the generated autolink crate, and `ensure_linked()` hands them to the runtime, so `window.titleBar`, `window.trafficLightPosition` and the other window keys apply to a hand-written `main.rs` without running `init-desktop` again.
 - `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.
 - `run-desktop` on macOS signs the app with `APPLE_SIGNING_IDENTITY` when it is set, so the keychain keeps the access it granted across rebuilds instead of asking for every item again.
 
