@@ -99,7 +99,7 @@ The view gained or lost keyboard focus. `focusVisible` is `true` when focus arri
 
 ### `onKeyDown`, `onKeyUp`
 
-A key was pressed or released while the view has focus. The event has `key`, `code`, `keyCode`, `repeat` and the modifier flags.
+A key was pressed or released while the view has focus. The event has `key`, `code`, `keyCode`, `repeat` and the modifier flags. It goes to the focused view once and bubbles to its ancestors, as on other platforms.
 
 | Type                        |
 | --------------------------- |
@@ -230,3 +230,7 @@ Dragging files over the window sends `onDragEnter` to the view that takes them, 
 ## Borders
 
 Borders follow React Native: `borderWidth` and `borderColor` set all four sides, and `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` and the matching `...Color` props set one side with its own width and color. A side with a width and a color paints, also when no other side does and under a `borderRadius`. `borderStyle` is `solid`, `dashed` or `dotted`. A width under one device pixel, such as `StyleSheet.hairlineWidth` on a 1x display, may not show.
+
+## Modifier keys on presses
+
+The `nativeEvent` of a press, such as the one `onPress` of a `Pressable` and the responder events give, also has `shiftKey`, `ctrlKey`, `altKey` and `metaKey`, the keys held at the release. It is a desktop extension to React Native's press event, and the fields are absent on other platforms. The type of `onPress` does not list them, so read them with a cast.

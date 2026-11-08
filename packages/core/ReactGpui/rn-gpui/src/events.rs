@@ -349,9 +349,21 @@ fn touch_json(tag: i32, page: Point<Pixels>, location: Point<Pixels>, timestamp:
 
 /// `touches` must be empty for `topTouchEnd`: `ResponderTouchHistoryStore`
 /// reads its length as the number of active touches.
-fn touch_payload(tag: i32, page: Point<Pixels>, location: Point<Pixels>, active: bool) -> Value {
+fn touch_payload(
+    tag: i32,
+    page: Point<Pixels>,
+    location: Point<Pixels>,
+    active: bool,
+    modifiers: ModifierState,
+) -> Value {
     let touch = touch_json(tag, page, location, now_ms());
     let mut payload = touch.as_object().cloned().unwrap_or_else(Map::new);
+    // A desktop extension: the keys held, as on the pointer events, so a press
+    // handler can tell a shift or meta click from a plain one.
+    payload.insert("shiftKey".into(), modifiers.shift.into());
+    payload.insert("ctrlKey".into(), modifiers.ctrl.into());
+    payload.insert("altKey".into(), modifiers.alt.into());
+    payload.insert("metaKey".into(), modifiers.meta.into());
     let list = |touch: &Value| Value::Array(if active { vec![touch.clone()] } else { vec![] });
     payload.insert("touches".into(), list(&touch));
     payload.insert("changedTouches".into(), Value::Array(vec![touch.clone()]));
@@ -587,7 +599,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topTouchStart",
-                &touch_payload(tag, position, location, true),
+                &touch_payload(tag, position, location, true, modifiers),
             );
             host.dispatch_event(
                 tag,
@@ -606,7 +618,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topTouchMove",
-                &touch_payload(tag, position, location, true),
+                &touch_payload(tag, position, location, true, modifiers),
             );
             host.dispatch_event(
                 tag,
@@ -625,7 +637,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topTouchEnd",
-                &touch_payload(tag, position, location, false),
+                &touch_payload(tag, position, location, false, modifiers),
             );
             host.dispatch_event(
                 tag,
@@ -637,7 +649,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topTouchCancel",
-                &touch_payload(tag, position, location, false),
+                &touch_payload(tag, position, location, false, modifiers),
             );
             host.dispatch_event(
                 tag,

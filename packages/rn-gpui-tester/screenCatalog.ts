@@ -72,6 +72,24 @@ export const screens = [
     fixture: 'PointerCaptureFixture',
   },
   {
+    id: 'freeze',
+    title: 'Frozen routes',
+    group: 'Views',
+    fixture: 'FreezeFixture',
+  },
+  {
+    id: 'key-events',
+    title: 'Key events',
+    group: 'Input',
+    fixture: 'KeyEventsFixture',
+  },
+  {
+    id: 'ellipsis',
+    title: 'Text ellipsis',
+    group: 'Views',
+    fixture: 'EllipsisFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

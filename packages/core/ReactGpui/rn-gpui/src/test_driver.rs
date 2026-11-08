@@ -871,6 +871,13 @@ async fn serve_commands(
                         "ctrl-"
                     },
                 );
+                // Modifiers first, the key last: `mod-ArrowDown`, `shift-PageUp`.
+                let key = match key.rsplit_once('-') {
+                    Some((modifiers, name)) if !name.is_empty() => {
+                        format!("{modifiers}-{}", crate::desktop::keymap::gpui_key_name(name))
+                    }
+                    _ => crate::desktop::keymap::gpui_key_name(&key),
+                };
                 match gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os()) {
                     Ok(keystroke) => {
                         let dispatched = cx.update_window(window, move |_root, window, app| {
