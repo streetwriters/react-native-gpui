@@ -6,15 +6,27 @@
 
 import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { App, Menu, useWindowState } from '@react-native-gpui/core/desktop';
+import {
+  App,
+  Menu,
+  Tray,
+  useWindowState,
+} from '@react-native-gpui/core/desktop';
 
 export default function AppFixture() {
   const zoom = useWindowState()?.zoomFactor ?? 0;
   const [dockPresses, setDockPresses] = useState<string[]>([]);
+  const [trayClicks, setTrayClicks] = useState<string[]>([]);
   const [seconds, setSeconds] = useState<string[]>([]);
   useEffect(() => {
     const subscription = App.onSecondInstance(args =>
       setSeconds(previous => [...previous, args.join(' ')]),
+    );
+    return () => subscription.remove();
+  }, []);
+  useEffect(() => {
+    const subscription = Tray.onClick(({ button, double }) =>
+      setTrayClicks(previous => [...previous, `${button}:${double}`]),
     );
     return () => subscription.remove();
   }, []);
@@ -37,6 +49,7 @@ export default function AppFixture() {
   }, []);
   return (
     <View style={{ padding: 16, gap: 8 }}>
+      <Text testID="app-tray-clicks">{trayClicks.join(',')}</Text>
       <Text testID="app-dock-presses">{dockPresses.join(',')}</Text>
       <Text testID="app-launch-args">{App.launchArgs().join(' ')}</Text>
       <Text testID="app-zoom">{String(Math.round(zoom * 100) / 100)}</Text>

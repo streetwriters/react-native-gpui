@@ -86,6 +86,21 @@ test.runIf(process.platform === 'darwin')(
   },
 );
 
+test('Tray.onClick reports a click with its button and whether it is a double click', async () => {
+  await app.trayInstall({ id: 'app-e2e-tray', tooltip: 'e2e' });
+  try {
+    const rect = { x: 1200, y: 0, width: 24, height: 24 };
+    await app.trayClick(rect);
+    await app.trayClick(rect);
+    await app.trayClick({ ...rect, button: 'right' });
+    await desktopExpect(app.getByTestId('app-tray-clicks')).toHaveText(
+      'left:false,left:true,right:false',
+    );
+  } finally {
+    await app.trayDestroy();
+  }
+});
+
 test('quit ends the application', async () => {
   await app
     .getByTestId('app-quit')
