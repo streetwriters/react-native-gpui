@@ -7,6 +7,7 @@ export interface Spec extends TurboModule {
   restart(args: Array<string> | null): Promise<void>;
   setContentProtected(enabled: boolean): Promise<void>;
   isContentProtected(): Promise<boolean>;
+  getIdleTime(): Promise<number>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('RNGpuiSystem');

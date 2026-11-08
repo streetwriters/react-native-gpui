@@ -49,3 +49,13 @@ await isContentProtected(); // true
 Hides the app's windows from screenshots, screen recordings and screen sharing; others see nothing where the window is. It covers every window of the app, and windows opened later, such as a tray popover, are covered within half a second of appearing. `isContentProtected()` reads the windows back, so it is `true` only while every open window carries the protection. macOS only for now: on other systems `setContentProtected` rejects with `ERR_UNSUPPORTED` and `isContentProtected` resolves with `false`.
 
 The setting is not remembered between launches: set it again at startup.
+
+## Idle time
+
+```js
+import { getIdleTime } from '@react-native-gpui/system';
+
+const seconds = await getIdleTime();
+```
+
+The seconds since the user last pressed a key, moved the mouse or touched the trackpad, anywhere in the session and not only in this app. To act after the user has been away, poll it, for example once a second, and compare it with the limit. macOS reads it from `CGEventSourceSecondsSinceLastEventType`; Windows uses `GetLastInputInfo` but is not tested yet; Linux rejects with `ERR_UNSUPPORTED`.

@@ -1,5 +1,6 @@
 rn_gpui_module::include_specs!();
 
+mod idle;
 mod login;
 mod protection;
 mod restart;
@@ -48,6 +49,10 @@ impl NativeSystemSpec for System {
 
     async fn is_content_protected(&self) -> Result<bool, ModuleError> {
         Ok(protection::is_enabled())
+    }
+
+    async fn get_idle_time(&self) -> Result<f64, ModuleError> {
+        idle::seconds()
     }
 }
 

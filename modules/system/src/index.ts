@@ -57,10 +57,20 @@ export function isContentProtected(): Promise<boolean> {
   return NativeSystem.isContentProtected();
 }
 
+/**
+ * Seconds since the user last used the keyboard, mouse or trackpad anywhere in
+ * the session, not only in this app. Poll it to tell when the user went away:
+ * macOS and Windows report it, and Linux rejects with `ERR_UNSUPPORTED`.
+ */
+export function getIdleTime(): Promise<number> {
+  return NativeSystem.getIdleTime();
+}
+
 export default {
   getLaunchAtLogin,
   setLaunchAtLogin,
   restart,
   setContentProtected,
   isContentProtected,
+  getIdleTime,
 };
