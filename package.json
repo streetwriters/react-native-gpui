@@ -23,6 +23,7 @@
     "modules/system",
     "modules/updater",
     "modules/webauthn",
+    "modules/spellcheck",
     "packages/rn-gpui-tester",
     "packages/rn-gpui-tester/host-components-module",
     "packages/rn-gpui-tester/gpui-native-module",

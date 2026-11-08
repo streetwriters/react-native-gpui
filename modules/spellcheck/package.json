@@ -1,0 +1,35 @@
+{
+  "name": "@react-native-gpui/spellcheck",
+  "version": "0.0.1-alpha.0",
+  "description": "Spell checking for React Native GPUI apps: misspelled ranges, suggestions, the user's dictionary and the available languages",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/spellcheck"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "desktop",
+    "react-native.config.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "codegenConfig": {
+    "name": "RNGpuiSpellcheckSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
+  "peerDependencies": {
+    "react-native": "0.87.x"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}

@@ -63,6 +63,15 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUISpellcheckFixture',
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/SpellcheckFixture').SpellcheckFixture,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
     'GPUIWebauthnFixture',
     () => (props: ScreenProps) =>
       // Not in the screen catalog: only the e2e launches it, by this name.

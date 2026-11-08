@@ -969,6 +969,27 @@ test('the system module controls login items and screen-capture protection', asy
   expect(tree).not.toContain('FAILED');
 });
 
+test('the spellcheck module checks, suggests and keeps the user dictionary', async () => {
+  await launch('GPUISpellcheckFixture');
+  await desktopExpect(app.getByText('done ok')).toBeVisible(30000);
+  const tree = JSON.stringify(await app.tree());
+  for (const expected of [
+    'languages ok',
+    'check ok',
+    'checkLanguage ok',
+    'utf16 ok',
+    'suggest ok',
+    'learn ok',
+    'learned ok',
+    'forget ok',
+    'ignore ok',
+  ]) {
+    expect(tree).toContain(expected);
+  }
+  expect(tree).not.toContain('BAD');
+  expect(tree).not.toContain('FAILED');
+});
+
 test('the webauthn module registers a resident credential and derives the same PRF secret twice', async () => {
   await launch('GPUIWebauthnFixture');
   await desktopExpect(app.getByText('done ok')).toBeVisible(30000);
