@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `app.setWindowActive()` and the driver's `focusWindow` make a window active for gpui as a real activation does, so focus and blur events reach text inputs in a background run. Needs the gpui-fast revision that carries `Window::simulate_active_status` and `RN_GPUI_TEST_SCALE_FACTOR`: a window then lays out and draws at that scale whichever display it is on.
 - A background run opens its windows on the secondary display when there is one, and `RN_GPUI_TEST_DISPLAY` (`main`, `secondary` or an index) chooses the display. A display that does not exist falls back to the main one with a log line. The test driver has a `displays` command.
 - Background mode: with the test driver on, or `RN_GPUI_BACKGROUND=1`, the app never activates itself, runs as an accessory application on macOS (no Dock icon or bounce, the menu bar stays the user's), opens its windows without focus and shows them behind the other windows, and `window.show()` and `window.focus()` stay behind and logical. `RN_GPUI_BACKGROUND=0` turns it off. Needs a prebuilt runtime built with the change.
 - `ref.focus()` and `ref.blur()` on a `focusable` View move focus as `HTMLElement.focus()` and `blur()` do: the previously focused view loses its `focusStyle` and the new one gains it, and an `onFocus`/`onBlur` handler runs. Needs a prebuilt runtime built with the change.

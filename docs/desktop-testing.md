@@ -90,7 +90,7 @@ A background run opens its windows on the secondary display when there is one, c
 
 `RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
 
-Focus and blur events reach a text input only in a window the operating system has made active, which a background run never has. The tests that need that (the "with an active window" tests in the tester's `core-components` suite) run only with `RN_GPUI_TEST_REAL_FOCUS=1`, which turns background mode off for the run.
+Focus and blur events reach a text input only in an active window. `app.setWindowActive()` makes a window active as the system's own activation would, without activating the application, so those tests run in the background too. This needs a runtime built with a gpui-fast revision that carries `Window::simulate_active_status`.
 
 ## Finding elements
 
