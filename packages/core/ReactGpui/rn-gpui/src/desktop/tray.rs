@@ -157,6 +157,7 @@ pub struct TrayState {
     pub popover: Option<u32>,
     visible: bool,
     clicks: u32,
+    last_click: Option<(TrayButton, std::time::Instant)>,
     pub popover_dismissed_at: Option<std::time::Instant>,
     /// The app's own quit-on-last-window policy, put back when the tray goes.
     app_quits_on_last_window: Option<bool>,
@@ -188,6 +189,7 @@ pub fn install(cx: &mut App, config: TrayConfig) -> DesktopResult {
         popover: None,
         visible: true,
         clicks: 0,
+        last_click: None,
         popover_dismissed_at: None,
         app_quits_on_last_window,
     })));
@@ -252,6 +254,31 @@ pub fn destroy(cx: &mut App) -> DesktopResult {
     Ok(json!({"id": config, "destroyed": true}))
 }
 
+const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(500);
+
+fn is_double_click(
+    last: Option<(TrayButton, std::time::Instant)>,
+    button: TrayButton,
+    now: std::time::Instant,
+) -> bool {
+    last.is_some_and(|(previous, at)| previous == button && now.duration_since(at) <= DOUBLE_CLICK)
+}
+
+fn emit_click(cx: &App, button: TrayButton, double: bool) {
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let name = match button {
+        TrayButton::Left => "left",
+        TrayButton::Right => "right",
+        TrayButton::Middle => "middle",
+    };
+    store.read(cx).host.emit_device_event_json(
+        "gpuiDesktop:trayClick",
+        &json!({"button": name, "double": double}).to_string(),
+    );
+}
+
 pub fn handle_click(cx: &mut App, rect: TrayRect, button: TrayButton) {
     let (config, menu) = {
         let Some(tray) = cx.try_global::<TrayGlobal>() else {
@@ -259,6 +286,12 @@ pub fn handle_click(cx: &mut App, rect: TrayRect, button: TrayButton) {
         };
         let mut tray = tray.0.borrow_mut();
         tray.clicks += 1;
+        let now = std::time::Instant::now();
+        let double = is_double_click(tray.last_click, button, now);
+        tray.last_click = (!double).then_some((button, now));
+        drop(tray);
+        emit_click(cx, button, double);
+        let tray = cx.global::<TrayGlobal>().0.borrow();
         (tray.config.clone(), tray.config.menu.clone())
     };
     if wants_menu(menu.is_some(), config.menu_on_left_click, button) {
@@ -1194,6 +1227,18 @@ pub fn emit_menu_press(cx: &App, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_click_of_the_same_button_in_time_is_a_double_click() {
+        let now = std::time::Instant::now();
+        let first = Some((TrayButton::Left, now));
+        let soon = now + std::time::Duration::from_millis(300);
+        let late = now + std::time::Duration::from_millis(800);
+        assert!(is_double_click(first, TrayButton::Left, soon));
+        assert!(!is_double_click(first, TrayButton::Left, late));
+        assert!(!is_double_click(first, TrayButton::Right, soon));
+        assert!(!is_double_click(None, TrayButton::Left, soon));
+    }
 
     #[test]
     fn the_default_icon_is_a_valid_template() {

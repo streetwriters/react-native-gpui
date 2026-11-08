@@ -62,6 +62,16 @@ Without a reported click the popover is near the icon, not on it: where along th
 
 An app launched with the argument `--hidden` opens its main window without showing it or taking focus. Together with a tray icon this is how an app starts at login in the background: the tray click, the Dock icon (macOS) or a second launch of a [single-instance](desktop-json#singleinstance) app brings the window up. [`setLaunchAtLogin(true, { hidden: true })`](desktop-system#start-at-login) registers the app with that argument. The argument is the `START_HIDDEN_ARGUMENT` constant of the Rust crate.
 
+## Clicks
+
+`Tray.onClick(handler)` calls the handler with `{ button, double }` when the icon is clicked: `button` is `'left'`, `'right'` or `'middle'`, and `double` is true for a second click of the same button within half a second. The click is reported whatever else it does, so it also arrives when the icon opens its menu or popover. Use it to bring the window to the front on a click, as a tray app on Windows and Linux does:
+
+```tsx
+Tray.onClick(({ button }) => {
+  if (button === 'left') DesktopWindow.current().show();
+});
+```
+
 ## Changing it later
 
 `Tray.setTooltip`, `setTitle`, `setIcon`, `setMenu` and `setVisible` change the icon after it is installed, and `Tray.showPopover`, `hidePopover`, `togglePopover` and `setPopoverPosition` control the popover. See [`Tray`](tray#methods).
