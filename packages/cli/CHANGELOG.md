@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `autolink` adds `rn-gpui-module` and `rn-gpui-module-build` to an app manifest that already has the managed patch block, which it skipped because the block names the same crates. It also rewrites an existing path to either crate to the real path, so a `file:`-linked core no longer makes Cargo report two different packages.
 - `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.
 - `run-desktop` on macOS signs the app with `APPLE_SIGNING_IDENTITY` when it is set, so the keychain keeps the access it granted across rebuilds instead of asking for every item again.
 

@@ -368,6 +368,50 @@ test('the app manifest gets a managed patch block pointing at core', () => {
   );
 });
 
+test('the app manifest gets the module crates in their own sections', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const appManifest = path.join(projectRoot, 'desktop/Cargo.toml');
+  fs.writeFileSync(
+    appManifest,
+    '[package]\nname = "app"\nversion = "0.0.1"\nedition = "2021"\n\n[build-dependencies]\nserde_json = "1"\n\n[dependencies]\n',
+  );
+  autolink({ projectRoot, configFile: configPath });
+  autolink({ projectRoot, configFile: configPath });
+  const appCargo = fs.readFileSync(appManifest, 'utf8');
+  const dependencies = appCargo.slice(
+    appCargo.indexOf('[dependencies]'),
+    appCargo.indexOf('[patch.crates-io]'),
+  );
+  const buildDependencies = appCargo.slice(
+    appCargo.indexOf('[build-dependencies]'),
+    appCargo.indexOf('[features]'),
+  );
+  expect(dependencies).toMatch(/^rn-gpui-module = \{ path = "[^"]+" \}$/mu);
+  expect(buildDependencies).toMatch(
+    /^rn-gpui-module-build = \{ path = "[^"]+" \}$/mu,
+  );
+  expect(appCargo.match(/^rn-gpui-module = /gmu)).toHaveLength(2);
+});
+
+test('a path to a crate of core through a symlink becomes the real path', () => {
+  const { projectRoot, configPath } = projectWithRustCrate(
+    `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
+  );
+  const appManifest = path.join(projectRoot, 'desktop/Cargo.toml');
+  fs.writeFileSync(
+    appManifest,
+    '[package]\nname = "app"\nversion = "0.0.1"\nedition = "2021"\n\n[build-dependencies]\nrn-gpui-module-build = { path = "../node_modules/core/rn-gpui-module-build" }\n\n[dependencies]\nrn-gpui-module = { path = "../node_modules/core/rn-gpui-module" }\n',
+  );
+  autolink({ projectRoot, configFile: configPath });
+  const appCargo = fs.readFileSync(appManifest, 'utf8');
+  expect(appCargo).not.toContain('node_modules/core');
+  expect(appCargo).toMatch(
+    /^rn-gpui-module = \{ path = "[^"]+ReactGpui\/rn-gpui-module" \}$/gmu,
+  );
+});
+
 test('a second autolink leaves the app manifest byte-identical', () => {
   const { projectRoot, configPath } = projectWithRustCrate(
     `${CARGO_HEADER}rn-gpui-module = "0.1"\n`,
