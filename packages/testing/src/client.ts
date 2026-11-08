@@ -338,6 +338,10 @@ export class DesktopApp {
           : {}),
         RN_GPUI_TEST_DRIVER: '1',
         RN_GPUI_TEST_DRIVER_TOKEN: token,
+        ...(process.env.RN_GPUI_TEST_SCALE_FACTOR === undefined &&
+        options.env?.RN_GPUI_TEST_SCALE_FACTOR === undefined
+          ? { RN_GPUI_TEST_SCALE_FACTOR: '2' }
+          : {}),
         ...((process.env.RN_GPUI_TEST_HEADED === '1' ||
           process.env.RN_GPUI_TEST_REAL_FOCUS === '1') &&
         process.env.RN_GPUI_BACKGROUND === undefined
@@ -921,6 +925,17 @@ export class DesktopApp {
    * One window's state, by the id `listWindows` or `trayState` gives it. Bounds
    * are in points, like the main window's.
    */
+  /** The displays the operating system has, in the app's coordinates, main first. */
+  async displays(): Promise<
+    {
+      primary: boolean;
+      bounds: { x: number; y: number; width: number; height: number };
+      visibleBounds: { x: number; y: number; width: number; height: number };
+    }[]
+  > {
+    return this.request('displays');
+  }
+
   async windowState(windowId: number): Promise<{
     windowId: number;
     bounds: { x: number; y: number; width: number; height: number };

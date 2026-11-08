@@ -199,6 +199,26 @@ async fn serve_commands(
                 }
                 counters
             }
+            "displays" => cx.update(|cx| {
+                let primary = cx.primary_display().map(|display| display.id());
+                let rect = |bounds: gpui::Bounds<gpui::Pixels>| {
+                    json!({
+                        "x": f32::from(bounds.origin.x),
+                        "y": f32::from(bounds.origin.y),
+                        "width": f32::from(bounds.size.width),
+                        "height": f32::from(bounds.size.height),
+                    })
+                };
+                json!(cx
+                    .displays()
+                    .iter()
+                    .map(|display| json!({
+                        "primary": Some(display.id()) == primary,
+                        "bounds": rect(display.bounds()),
+                        "visibleBounds": rect(display.visible_bounds()),
+                    }))
+                    .collect::<Vec<_>>())
+            }),
             "getWindowSize" => cx
                 .update_window(window, |_, window, _| {
                     let size = window.viewport_size();
