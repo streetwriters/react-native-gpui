@@ -639,6 +639,15 @@ export class DesktopApp {
     return result.sent;
   }
 
+  /**
+   * Makes a window active or inactive as far as the app can tell, without
+   * asking the operating system, so a test does not depend on which application
+   * is in front. The window ignores real activation changes afterwards.
+   */
+  async setWindowActive(windowId: number, active = true): Promise<void> {
+    await this.request('setWindowActive', { windowId, active });
+  }
+
   async focusWindow(): Promise<void> {
     await this.request('focusWindow');
   }
@@ -795,6 +804,9 @@ export class DesktopApp {
     isFullscreen: boolean;
     isFocused: boolean;
     isMinimized: boolean;
+    isVisible: boolean;
+    title: string;
+    zoomFactor: number;
     scaleFactor: number;
     /**
      * The OS's own frame for the window, in physical pixels — what a user sees,

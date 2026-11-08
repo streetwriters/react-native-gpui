@@ -226,6 +226,14 @@ async fn serve_commands(
                     Err(error) => json!({"error":error.to_string()}),
                 }
             }
+            "setWindowActive" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(1) as u32;
+                let active = params.get("active").and_then(Value::as_bool).unwrap_or(true);
+                cx.update(|cx| {
+                    crate::desktop::windows::simulate_activation(cx, key, active)
+                        .unwrap_or_else(|error| error.to_json_value())
+                })
+            }
             "focusReadout" => {
                 let mirror = crate::desktop::window_mirror::get(1)
                     .and_then(|state| state.get("isFocused").cloned())

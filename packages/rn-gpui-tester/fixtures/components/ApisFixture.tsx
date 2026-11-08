@@ -269,7 +269,7 @@ export default function ApisFixture() {
           testID="appstate-hide"
           onPress={() => {
             currentWindow.hide();
-            setTimeout(() => currentWindow.show(), 600);
+            setTimeout(() => currentWindow.show(), 2500);
           }}
         >
           <Text>Hide briefly</Text>

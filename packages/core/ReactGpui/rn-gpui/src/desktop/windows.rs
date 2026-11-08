@@ -989,7 +989,7 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 },
                 "isMaximized": platform_window::is_maximized(window),
                 "isFullscreen": window.is_fullscreen(),
-                "isFocused": window.is_window_active(),
+                "isFocused": is_active(window, key),
                 "isMinimized": platform_window::is_minimized(window),
                 "isVisible": visible,
                 "title": title,
@@ -1295,13 +1295,58 @@ fn install_activation_observer(
     })
 }
 
+/// What a test says a window's activation is, in place of the operating
+/// system's answer.
+#[cfg(feature = "test-driver")]
+fn simulated_activation(key: u32) -> Option<bool> {
+    SIMULATED_ACTIVATION
+        .lock()
+        .expect("simulated activation poisoned")
+        .get(&key)
+        .copied()
+}
+
+#[cfg(not(feature = "test-driver"))]
+fn simulated_activation(_key: u32) -> Option<bool> {
+    None
+}
+
+#[cfg(feature = "test-driver")]
+static SIMULATED_ACTIVATION: std::sync::Mutex<BTreeMap<u32, bool>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+fn is_active(window: &gpui::Window, key: u32) -> bool {
+    simulated_activation(key).unwrap_or_else(|| window.is_window_active())
+}
+
+/// Makes a window active or inactive as far as the app can tell, whatever the
+/// operating system thinks, so a test does not depend on which application is in
+/// front. The window then ignores real activation changes.
+#[cfg(feature = "test-driver")]
+pub fn simulate_activation(cx: &mut App, key: u32, active: bool) -> DesktopResult {
+    SIMULATED_ACTIVATION
+        .lock()
+        .expect("simulated activation poisoned")
+        .insert(key, active);
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let handle = entry.handle;
+    handle
+        .update(cx, |_root, window, cx| {
+            report_activation(window, cx, key, &std::cell::Cell::new(!active));
+        })
+        .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
+    Ok(json!({"windowId": key}))
+}
+
 fn report_activation(
     window: &mut gpui::Window,
     cx: &mut App,
     key: u32,
     last: &std::cell::Cell<bool>,
 ) {
-    let active = window.is_window_active();
+    let active = is_active(window, key);
     if active == last.get() {
         return;
     }
