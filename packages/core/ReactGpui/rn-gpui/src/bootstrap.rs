@@ -1397,10 +1397,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     Bounds::centered(None, size, cx)
                 }
             });
-        #[cfg(feature = "test-driver")]
-        let bounds = if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
-            Bounds::new(point(px(-10000.0), px(-10000.0)), bounds.size)
-        } else { bounds };
+        let test_display = crate::desktop::background::test_display(cx);
+        let bounds = if let Some(display) = &test_display {
+            Bounds::centered(Some(display.id()), bounds.size, cx)
+        } else {
+            #[cfg(feature = "test-driver")]
+            if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
+                Bounds::new(point(px(-10000.0), px(-10000.0)), bounds.size)
+            } else {
+                bounds
+            }
+            #[cfg(not(feature = "test-driver"))]
+            bounds
+        };
         let (width, height) = restored_bounds.map_or((width, height), |(_, _, width, height)| (width, height));
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
             log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
@@ -1556,6 +1565,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_options.focus = false;
         }
         window_options.is_resizable = config.resizable;
+        if let Some(display) = &test_display {
+            window_options.display_id = Some(display.id());
+        }
         if let Some(configure_window) = config.configure_window.take() {
             configure_window(&mut window_options);
         }

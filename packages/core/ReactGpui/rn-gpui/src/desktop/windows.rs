@@ -349,6 +349,16 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
 
     let mut window_options = window_options;
     let show_behind = crate::desktop::background::prepare(&mut window_options);
+    if !options.popup {
+        if let Some(display) = crate::desktop::background::test_display(cx) {
+            window_options.display_id = Some(display.id());
+            window_options.window_bounds = Some(WindowBounds::Windowed(Bounds::centered(
+                Some(display.id()),
+                bounds.size,
+                cx,
+            )));
+        }
+    }
     let store_for_root = store;
     let handle = cx
         .open_window(window_options, move |window, cx| {

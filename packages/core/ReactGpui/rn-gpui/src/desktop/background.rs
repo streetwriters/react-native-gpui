@@ -63,3 +63,40 @@ pub fn show_behind(window: &mut gpui::Window) {
         log::debug!("[background] could not show a window behind the others: {error}");
     }
 }
+
+/// The display a test window opens on: `RN_GPUI_TEST_DISPLAY` names an index
+/// into the platform's list of displays, `main`, or `secondary`. A background
+/// run opens on the secondary display when there is one. A display that does
+/// not exist falls back to the main one, with a log line.
+pub fn test_display(cx: &gpui::App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
+    let requested = std::env::var("RN_GPUI_TEST_DISPLAY").ok();
+    if requested.is_none() && !enabled() {
+        return None;
+    }
+    let displays = cx.displays();
+    let primary = cx.primary_display()?;
+    let wanted = requested.as_deref().unwrap_or("secondary");
+    let chosen = match wanted {
+        "main" | "primary" => Some(primary.clone()),
+        "secondary" => displays
+            .iter()
+            .find(|display| display.id() != primary.id())
+            .cloned(),
+        index => index
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| displays.get(index).cloned()),
+    };
+    match chosen {
+        Some(display) => Some(display),
+        None => {
+            if requested.is_some() {
+                log::info!(
+                    "[background] RN_GPUI_TEST_DISPLAY={wanted} names no display of {}; using the main display",
+                    displays.len()
+                );
+            }
+            Some(primary)
+        }
+    }
+}
