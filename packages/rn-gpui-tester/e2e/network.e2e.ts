@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
@@ -17,7 +18,26 @@ const direct: string[] = [];
 let proxy: http.Server;
 let target: http.Server;
 let dns: net.Server;
+let secondDns: net.Server;
 let connections = 0;
+
+/** A name /etc/hosts gives to the loopback address, which only the system resolves. */
+const loopbackAlias = (() => {
+  try {
+    for (const line of fs.readFileSync('/etc/hosts', 'utf8').split('\n')) {
+      const [address, ...names] = line.replace(/#.*/u, '').trim().split(/\s+/u);
+      if (address !== '127.0.0.1') continue;
+      const name = names.find(
+        candidate => candidate !== 'localhost' && /[a-z]/iu.test(candidate),
+      );
+      if (name) return name;
+    }
+  } catch {
+    // No hosts file to read.
+  }
+  return undefined;
+})();
+let secondConnections = 0;
 
 beforeAll(async () => {
   dns = net.createServer(socket => {
@@ -25,6 +45,13 @@ beforeAll(async () => {
     socket.destroy();
   });
   await new Promise<void>(resolve => dns.listen(38519, '127.0.0.1', resolve));
+  secondDns = net.createServer(socket => {
+    secondConnections += 1;
+    socket.destroy();
+  });
+  await new Promise<void>(resolve =>
+    secondDns.listen(38520, '127.0.0.1', resolve),
+  );
   proxy = http.createServer((request, response) => {
     proxied.push(`${request.method} ${request.url}`);
     response.end('from-proxy');
@@ -46,15 +73,16 @@ beforeAll(async () => {
       'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
     ),
     env: {
-      RN_GPUI_MODULE: 'RNGPUITester--network',
+      RN_GPUI_MODULE: 'NetworkFixture',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
+    initialProps: { host: loopbackAlias },
     disableAnimations: true,
     offscreen: true,
   });
   app.allowErrors(/gpui-http/u);
-  await desktopExpect(app.getByTestId('tester-screen-network')).toBeVisible();
+  await desktopExpect(app.getByTestId('net-run-proxy')).toBeVisible();
 });
 
 afterAll(async () => {
@@ -62,6 +90,7 @@ afterAll(async () => {
   proxy?.close();
   target?.close();
   dns?.close();
+  secondDns?.close();
 });
 
 async function run(name: string) {
@@ -118,3 +147,21 @@ test('a DNS-over-HTTPS server is asked to resolve names', async () => {
   expect(await run('dohRequest')).toMatch(/^failed/);
   expect(connections).toBeGreaterThan(0);
 });
+
+test('several DNS-over-HTTPS servers are tried in order', async () => {
+  const before = [connections, secondConnections];
+  expect(await run('dohFallback')).toMatch(
+    /^failed.*\| 2 https:\/\/127\.0\.0\.1:38519/u,
+  );
+  expect(connections).toBeGreaterThan(before[0]);
+  expect(secondConnections).toBeGreaterThan(before[1]);
+});
+
+test.skipIf(loopbackAlias === undefined)(
+  'a name no DNS-over-HTTPS server can resolve falls back to the system',
+  async () => {
+    const before = connections;
+    expect(await run('dohSystem')).toBe('200 from-target');
+    expect(connections).toBeGreaterThan(before);
+  },
+);

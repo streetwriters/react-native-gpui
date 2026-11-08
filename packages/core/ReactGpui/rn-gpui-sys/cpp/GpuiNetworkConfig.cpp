@@ -45,7 +45,7 @@ enum class Mode { System, Direct, Fixed };
 struct Config {
   Mode mode{Mode::System};
   Rules fixed;
-  std::string doh;
+  std::vector<std::string> doh;
 };
 
 std::mutex configMutex;
@@ -510,7 +510,7 @@ rust::String rn_gpui_network_configure(
   } else {
     return "unknown proxy mode \"" + modeText + "\"";
   }
-  next.doh = std::string(doh);
+  next.doh = split(std::string(doh), "\n");
   std::lock_guard<std::mutex> lock(configMutex);
   config = std::move(next);
   return "";
@@ -535,8 +535,27 @@ void applyNetworkConfig(CURL* handle, const std::string& url) {
     curl_easy_setopt(handle, CURLOPT_PROXY, "");
   }
   if (!snapshot.doh.empty()) {
-    curl_easy_setopt(handle, CURLOPT_DOH_URL, snapshot.doh.c_str());
+    curl_easy_setopt(handle, CURLOPT_DOH_URL, snapshot.doh.front().c_str());
   }
+}
+
+bool fallBackResolver(CURL* handle, size_t& attempt) {
+  std::vector<std::string> servers;
+  {
+    std::lock_guard<std::mutex> lock(configMutex);
+    servers = config.doh;
+  }
+  if (servers.empty() || attempt >= servers.size()) {
+    return false;
+  }
+  attempt += 1;
+  if (attempt < servers.size()) {
+    curl_easy_setopt(handle, CURLOPT_DOH_URL, servers[attempt].c_str());
+  } else {
+    // Every server failed: the system resolver is the last resort.
+    curl_easy_setopt(handle, CURLOPT_DOH_URL, nullptr);
+  }
+  return true;
 }
 
 } // namespace rngpui

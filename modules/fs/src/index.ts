@@ -38,6 +38,7 @@ import {
   type Encoding,
   type NodeError,
 } from './shared';
+import { download } from './download';
 import { watch } from './watch';
 
 export type {
@@ -51,12 +52,17 @@ export type {
 } from './promises';
 export type { BinaryData, Encoding, NodeError } from './shared';
 export type {
+  DownloadHttpError,
+  DownloadOptions,
+  DownloadResult,
+} from './download';
+export type {
   FSWatcher,
   WatchEventType,
   WatchListener,
   WatchOptions,
 } from './watch';
-export { Dirent, Stats, FileHandle, promises, constants, watch };
+export { Dirent, Stats, FileHandle, promises, constants, watch, download };
 
 /* -------------------------------------------------------------------------- */
 /* Dialogs                                                                    */
@@ -748,6 +754,7 @@ const fs = {
   open,
   reveal,
   openExternal,
+  download,
 
   readFileSync,
   writeFileSync,

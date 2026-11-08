@@ -20,7 +20,7 @@ async function get(url: string) {
   }
 }
 
-const SCENARIOS: Record<string, () => Promise<string>> = {
+const SCENARIOS: Record<string, (host?: string) => Promise<string>> = {
   proxy: async () => {
     await Network.setProxy(PROXY);
     return get('http://proxied.invalid/hello');
@@ -57,6 +57,24 @@ const SCENARIOS: Record<string, () => Promise<string>> = {
     await Network.setDnsOverHttps(null);
     return result;
   },
+  dohFallback: async () => {
+    await Network.setProxy('direct');
+    await Network.setDnsOverHttps([
+      'https://127.0.0.1:38519/dns-query',
+      'https://127.0.0.1:38520/dns-query',
+    ]);
+    const settings = await Network.getSettings();
+    const result = await get('http://doh-name.invalid:38518/hello');
+    await Network.setDnsOverHttps(null);
+    return `${result} | ${settings.dnsOverHttpsServers.length} ${settings.dnsOverHttps}`;
+  },
+  dohSystem: async host => {
+    await Network.setProxy('direct');
+    await Network.setDnsOverHttps(['https://127.0.0.1:38519/dns-query']);
+    const result = await get(`http://${host}:38518/hello`);
+    await Network.setDnsOverHttps(null);
+    return result;
+  },
   bypassList: async () => {
     await Network.setProxy({
       rules: 'proxy.example:3128',
@@ -85,7 +103,7 @@ const SCENARIOS: Record<string, () => Promise<string>> = {
     ),
 };
 
-export default function NetworkFixture() {
+export default function NetworkFixture({ host }: { host?: string }) {
   const [results, setResults] = useState<Record<string, string>>({});
   return (
     <View style={{ padding: 16, gap: 8 }}>
@@ -94,7 +112,7 @@ export default function NetworkFixture() {
           <Text
             testID={`net-run-${name}`}
             onPress={() =>
-              SCENARIOS[name]().then(result =>
+              SCENARIOS[name](host).then(result =>
                 setResults(previous => ({ ...previous, [name]: result })),
               )
             }

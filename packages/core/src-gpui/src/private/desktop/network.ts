@@ -45,8 +45,10 @@ export interface NetworkSettings {
   mode: 'system' | 'direct' | 'fixed';
   rules: string;
   bypass: string;
-  /** The DNS-over-HTTPS server, or an empty string for the system resolver. */
+  /** The first DNS-over-HTTPS server, or an empty string for the system resolver. */
   dnsOverHttps: string;
+  /** All the DNS-over-HTTPS servers, in the order they are tried. */
+  dnsOverHttpsServers: string[];
 }
 
 function split(config: ProxyConfig): [string, string, string] {
@@ -75,16 +77,29 @@ export const Network = {
   /**
    * Resolves host names for new requests through a DNS-over-HTTPS server, for
    * example `'https://cloudflare-dns.com/dns-query'`, or through the system
-   * resolver for `null`. The server's own name is looked up by the system, so
-   * give it by address when that matters. A request through a proxy is resolved
-   * by the proxy for the host it names.
+   * resolver for `null`. Give several servers to try them in order: a name that
+   * a server cannot resolve is asked of the next one, and of the system resolver
+   * after the last, as Chromium's automatic secure DNS mode does. The server's
+   * own name is looked up by the system, so give it by address when that
+   * matters. A request through a proxy is resolved by the proxy for the host it
+   * names.
    */
-  setDnsOverHttps(url: string | null): Promise<void> {
-    return request(native => native.setDnsOverHttps(url ?? ''));
+  setDnsOverHttps(urls: string | string[] | null): Promise<void> {
+    const list = urls === null ? [] : Array.isArray(urls) ? urls : [urls];
+    return request(native => native.setDnsOverHttps(list.join('\n')));
   },
 
-  getSettings(): Promise<NetworkSettings> {
-    return request(native => native.getSettings()) as Promise<NetworkSettings>;
+  async getSettings(): Promise<NetworkSettings> {
+    const settings = (await request(native => native.getSettings())) as Omit<
+      NetworkSettings,
+      'dnsOverHttpsServers'
+    >;
+    const servers = settings.dnsOverHttps.split('\n').filter(Boolean);
+    return {
+      ...settings,
+      dnsOverHttps: servers[0] ?? '',
+      dnsOverHttpsServers: servers,
+    };
   },
 
   /** The proxy a request to `url` would go through: `'DIRECT'` or its URL. */

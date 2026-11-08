@@ -62,15 +62,15 @@ test('counts presses', async () => {
 
 ### Launch options
 
-| Option                 | Description                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `disableAnimations`    | Turns animations off, so tests do not wait for them.                            |
-| `initialProps`         | Props for the root component.                                                   |
+| Option                 | Description                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disableAnimations`    | Turns animations off, so tests do not wait for them.                                                                                                      |
+| `initialProps`         | Props for the root component.                                                                                                                             |
 | `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. Without it the window is shown, behind the others, and never takes focus. |
-| `idleOptions`          | What to ignore when waiting for the app to be idle.                             |
-| `executable`, `bundle` | Run a specific build and bundle.                                                |
-| `args`, `env`          | Arguments and environment variables for the app.                                |
-| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                           |
+| `idleOptions`          | What to ignore when waiting for the app to be idle.                                                                                                       |
+| `executable`, `bundle` | Run a specific build and bundle.                                                                                                                          |
+| `args`, `env`          | Arguments and environment variables for the app.                                                                                                          |
+| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                                                                                                     |
 
 ## Staying in the background
 

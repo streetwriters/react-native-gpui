@@ -1,0 +1,19 @@
+[package]
+name = "rn-gpui-system"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rn-gpui-module = { version = "0.1" }
+# Login items: a launch agent on macOS, the Run key on Windows, an autostart entry on Linux.
+auto-launch = "0.6"
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+block2 = "0.6"
+
+[build-dependencies]
+rn-gpui-module-build = { version = "0.1" }

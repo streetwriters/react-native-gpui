@@ -23,6 +23,7 @@ rn_gpui_module::include_specs!();
 
 mod dialogs;
 mod dirs;
+mod download;
 mod errors;
 mod files;
 mod handles;
@@ -181,6 +182,19 @@ impl NativeFsSpec for RNFsModule {
 
     async fn watch(&self, path: String, recursive: bool) -> Result<f64, ModuleError> {
         watching::watch(self, path, recursive)
+    }
+
+    async fn download(
+        &self,
+        url: String,
+        path: String,
+        options: DownloadOptions,
+    ) -> Result<DownloadResult, ModuleError> {
+        download::download(self, url, path, options).await
+    }
+
+    fn cancel_download(&self, id: f64) -> Result<bool, ModuleError> {
+        Ok(download::cancel(self, id))
     }
 
     fn unwatch(&self, id: f64) {

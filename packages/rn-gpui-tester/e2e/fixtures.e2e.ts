@@ -1,5 +1,9 @@
+import crypto from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { PNG } from 'pngjs';
 import {
@@ -964,6 +968,26 @@ test('the system module controls login items and screen-capture protection', asy
   expect(tree).not.toContain('FAILED');
 });
 
+test('the webauthn module registers a resident credential and derives the same PRF secret twice', async () => {
+  await launch('GPUIWebauthnFixture');
+  await desktopExpect(app.getByText('done ok')).toBeVisible(30000);
+  const tree = JSON.stringify(await app.tree());
+  for (const expected of [
+    'available ok',
+    'noPin ok',
+    'wrongPin ok',
+    'register ok',
+    'prfSame ok',
+    'prfSalt ok',
+    'unknown ok',
+    'touch ok',
+  ]) {
+    expect(tree).toContain(expected);
+  }
+  expect(tree).not.toContain('BAD');
+  expect(tree).not.toContain('FAILED');
+});
+
 test('the system module restarts the app with new arguments', async () => {
   const marker = `restart-${Date.now()}`;
   const running = () =>
@@ -1408,6 +1432,8 @@ test('an SVG icon has the same antialiased edge and place as Chrome draws', asyn
     ['svg-edge-stretched', read('chrome-star-16.png')],
     ['svg-edge-centered', read('chrome-arrow-centered.png')],
     ['svg-edge-centered-stretched', read('chrome-arrow-centered.png')],
+    ['svg-edge-search', read('chrome-search-15.png')],
+    ['svg-edge-search-transform', read('chrome-search-transform.png')],
   ];
   await launch('GPUISvgEdgeFixture');
   const mismatches: Record<string, number> = {};
