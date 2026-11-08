@@ -616,7 +616,34 @@ impl TextService {
             .map(font_of)
             .unwrap_or_default();
 
+        let window_text_system = gpui::WindowTextSystem::new(self.text_system.clone());
+        // The box a text was measured into is rounded to the pixel grid, so it can
+        // be a hair narrower than the text it was measured for. Text that fits
+        // within that hair is not truncated, and keeps its line.
+        const ROUNDING_SLACK: f32 = 0.5;
+        let mut wrap_width = width;
+        let mut fits = false;
         if paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
+            let probe = window_text_system
+                .shape_text(
+                    SharedString::from(text.clone()),
+                    px(font_size),
+                    &runs,
+                    Some(px(width + ROUNDING_SLACK)),
+                    None,
+                )
+                .unwrap_or_default();
+            let lines: usize = probe
+                .iter()
+                .map(|line| line.wrap_boundaries.len() + 1)
+                .sum();
+            fits = lines <= paragraph.max_lines as usize;
+            if fits {
+                wrap_width = width + ROUNDING_SLACK;
+            }
+        }
+
+        if !fits && paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
             let mut wrapper = self.text_system.line_wrapper(base_font, px(font_size));
             let truncation = match paragraph.ellipsize {
                 1 => Some(gpui::TruncateFrom::Start),
@@ -639,13 +666,12 @@ impl TextService {
             }
         }
 
-        let window_text_system = gpui::WindowTextSystem::new(self.text_system.clone());
         let shaped_lines = window_text_system
             .shape_text(
                 SharedString::from(text),
                 px(font_size),
                 &runs,
-                (width < f32::MAX).then_some(px(width)),
+                (width < f32::MAX).then_some(px(wrap_width)),
                 (paragraph.max_lines > 0).then_some(paragraph.max_lines as usize),
             )
             .unwrap_or_default();

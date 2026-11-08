@@ -84,6 +84,12 @@ export const screens = [
     fixture: 'KeyEventsFixture',
   },
   {
+    id: 'ellipsis',
+    title: 'Text ellipsis',
+    group: 'Views',
+    fixture: 'EllipsisFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

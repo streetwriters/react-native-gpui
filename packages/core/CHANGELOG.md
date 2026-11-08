@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A one-line text with `numberOfLines` is no longer cut short with an ellipsis when it fits the box it was measured into within the pixel rounding of that box.
 - A key press goes to the focused view once and bubbles through React, instead of being sent once for every focusable view on the path to it, so an `onKeyDown` on a list no longer runs two or three times per press.
 - The `nativeEvent` of a press (`onPress`, the responder events) has `shiftKey`, `ctrlKey`, `altKey` and `metaKey`, as the pointer events do.
 - Added `Network.setProxy()`, `setDnsOverHttps()`, `getSettings()` and `proxyForUrl()` to set the proxy (a proxy URL, Chromium proxy rules and a bypass list, `'direct'` or the system's) and a DNS-over-HTTPS server of the HTTP client that `fetch`, `XMLHttpRequest` and remote image and font loads share. On macOS requests follow the system proxy settings by default. WebSocket connections are not covered yet. Needs a prebuilt runtime built with the change.

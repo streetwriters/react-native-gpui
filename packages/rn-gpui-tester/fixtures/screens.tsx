@@ -285,6 +285,8 @@ export const renderScreen: Record<
       require('./components/KeyEventsFixture').default,
       props,
     ),
+  ellipsis: props =>
+    React.createElement(require('./components/EllipsisFixture').default, props),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>
