@@ -141,6 +141,56 @@ fn set(kind: Kind, chain: &[i32], cx: &mut App) {
             node.update(cx, |_: &mut RNNodeView, cx| cx.notify());
         }
     }
+    refresh_text_colors(cx);
+}
+
+/// Hands the text color a state style gives a node down to the text inside it,
+/// for the nodes whose color changed. A node's own color wins over an
+/// ancestor's.
+pub(crate) fn refresh_text_colors(cx: &mut App) {
+    let Some(store) = cx.try_global::<StoreGlobal>().map(|store| store.0.clone()) else {
+        return;
+    };
+    let changed: Vec<_> = store
+        .read(cx)
+        .nodes
+        .values()
+        .filter(|node| {
+            let node = node.read(cx);
+            node.has_text_color_style() && node.own_text_color() != node.own_state_color()
+        })
+        .cloned()
+        .collect();
+    for node in changed {
+        let parent = node
+            .read(cx)
+            .parent
+            .as_ref()
+            .and_then(|parent| parent.upgrade())
+            .and_then(|parent| parent.read(cx).state_text_color());
+        propagate_text_color(&node, parent, cx);
+    }
+}
+
+fn propagate_text_color(node: &gpui::Entity<RNNodeView>, inherited: Option<u32>, cx: &mut App) {
+    let own = node.read(cx).own_text_color();
+    let mut changed = false;
+    let mut children = Vec::new();
+    node.update(cx, |node: &mut RNNodeView, cx| {
+        changed = node.set_state_text_color(own, inherited);
+        if changed {
+            cx.notify();
+        }
+        children = node
+            .children
+            .iter()
+            .map(|(_, child)| child.clone())
+            .collect();
+    });
+    let effective = node.read(cx).state_text_color();
+    for child in children {
+        propagate_text_color(&child, effective, cx);
+    }
 }
 
 /// Whether the nearest ancestor of `node` that names its group is on `chain`.

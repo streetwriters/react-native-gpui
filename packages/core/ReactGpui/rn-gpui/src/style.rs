@@ -105,6 +105,10 @@ pub struct StateStyle {
     background_color: Option<u32>,
     opacity: Option<f32>,
     box_shadow: Option<Vec<ShadowSpec>>,
+    /// Left, top, right, bottom: the order of `ViewPropsFlat::border_colors`.
+    border_colors: [Option<u32>; 4],
+    color: Option<u32>,
+    transform: Option<[f32; 16]>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -146,7 +150,9 @@ pub struct Animating {
 }
 
 impl StateStyle {
-    fn from_json(value: &Value) -> Self {
+    pub(crate) fn from_json(value: &Value) -> Self {
+        let all = argb(value, "borderColor");
+        let side = |name: &str| argb(value, name).or(all);
         Self {
             background_color: argb(value, "backgroundColor"),
             opacity: number(value, "opacity"),
@@ -154,7 +160,52 @@ impl StateStyle {
                 .get("boxShadow")
                 .and_then(Value::as_array)
                 .map(|shadows| shadows.iter().map(ShadowSpec::from_json).collect()),
+            border_colors: [
+                side("borderLeftColor"),
+                side("borderTopColor"),
+                side("borderRightColor"),
+                side("borderBottomColor"),
+            ],
+            color: argb(value, "color"),
+            transform: value
+                .get("transform")
+                .and_then(Value::as_array)
+                .and_then(|m| {
+                    let matrix: Vec<f32> = m
+                        .iter()
+                        .filter_map(|n| n.as_f64())
+                        .map(|n| n as f32)
+                        .collect();
+                    <[f32; 16]>::try_from(matrix).ok()
+                }),
         }
+    }
+
+    /// Lays `other` over this style: what it sets wins.
+    pub(crate) fn merge(&mut self, other: &StateStyle) {
+        self.background_color = other.background_color.or(self.background_color);
+        self.opacity = other.opacity.or(self.opacity);
+        if other.box_shadow.is_some() {
+            self.box_shadow.clone_from(&other.box_shadow);
+        }
+        for (mine, theirs) in self.border_colors.iter_mut().zip(other.border_colors) {
+            *mine = theirs.or(*mine);
+        }
+        self.color = other.color.or(self.color);
+        self.transform = other.transform.or(self.transform);
+    }
+
+    /// The border colors this style leaves to `base`, left, top, right, bottom.
+    pub(crate) fn border_colors(&self, base: [u32; 4]) -> [u32; 4] {
+        std::array::from_fn(|side| self.border_colors[side].unwrap_or(base[side]))
+    }
+
+    pub(crate) fn text_color(&self) -> Option<u32> {
+        self.color
+    }
+
+    pub(crate) fn transform(&self) -> Option<[f32; 16]> {
+        self.transform
     }
 
     /// The refinement gpui layers over the base style while the state holds.
@@ -236,6 +287,21 @@ fn parse_group(prop: &str, json: &str) -> Option<GroupStateStyle> {
 }
 
 impl StateStyles {
+    /// Whether any state sets the text color.
+    pub fn sets_color(&self) -> bool {
+        [
+            self.focus.as_ref(),
+            self.focus_visible.as_ref(),
+            self.hover.as_ref(),
+            self.active.as_ref(),
+            self.group_hover.as_ref().map(|grouped| &grouped.style),
+            self.group_active.as_ref().map(|grouped| &grouped.style),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|style| style.text_color().is_some())
+    }
+
     /// `None` when the view declares nothing, which is the case for almost every view.
     pub fn from_flat(v: &ViewPropsFlat) -> Option<std::rc::Rc<Self>> {
         let styles = Self {
@@ -248,9 +314,5 @@ impl StateStyles {
             group_active: parse_group("groupActiveStyle", &v.group_active_style),
         };
         (styles != Self::default()).then(|| std::rc::Rc::new(styles))
-    }
-
-    pub fn has_focus(&self) -> bool {
-        self.focus.is_some() || self.focus_visible.is_some()
     }
 }

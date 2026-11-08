@@ -57,3 +57,7 @@ declare module 'react-native/Libraries/StyleSheet/processBoxShadow' {
     inset?: boolean;
   }>;
 }
+
+declare module 'react-native/Libraries/StyleSheet/processTransform' {
+  export default function processTransform(transform: unknown): unknown;
+}

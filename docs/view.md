@@ -125,7 +125,11 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 
 ### Supported style properties
 
-A state style can change `backgroundColor`, `opacity` and `boxShadow`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Border color, text color and transform are not supported yet. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
+A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform` and `color`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
+
+- `borderColor` changes the color of borders the view already has. It does not add a border or change its width.
+- `transform` takes translate, scale, rotate, skew and matrix. It replaces the view's own transform while the state holds, and an animated transform wins over it.
+- `color` sets the color of all text inside the view, replacing the colors the text sets itself. A `color` on a `Text` colors that text and the text nested in it.
 
 ### States
 
@@ -161,6 +165,10 @@ A group lets a child react to an ancestor. The ancestor sets `group` to a name, 
 ```
 
 The group is the nearest ancestor that sets that name, so rows of a list can all use `"row"` and hovering one row does not change the others. A child can follow any ancestor by its name, not only its parent. A view follows one group for hover and one for press.
+
+### How states are resolved
+
+The pointer states come from the path React Native already tracks for `onPointerEnter` and `onPointerLeave`: the view under the pointer and its ancestors. They are resolved when the view renders, in native code, rather than by gpui's own hover and pressed styles on the view's element. Those listen on the element itself, which a press that a child handled never reaches, and a group they look up by name is missing when a child is drawn apart from its parent. Focus is read from the focus state the view reports.
 
 ### Animations
 

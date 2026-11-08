@@ -106,6 +106,12 @@ pub struct RNNodeView {
     gradient_cache: Option<GradientCache>,
     animated_text_color: Option<u32>,
     animated_opacity: bool,
+    focused: Cell<bool>,
+    focus_visible: Cell<bool>,
+    /// The text color a state style gives this node's text: its own, or the
+    /// nearest ancestor's.
+    state_text_color: Option<u32>,
+    own_state_color: Option<u32>,
     state_styles: Option<Rc<style::StateStyles>>,
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
@@ -531,67 +537,106 @@ impl RNNodeView {
         self.cached_style = style::to_refinement(&self.view);
     }
 
-    /// Layers a view's state styles over its own. The pointer states are
-    /// resolved here, in Rust, from the hit path (see `interaction`); focus is
-    /// left to gpui, which reads it while painting. Either way a state change
-    /// repaints without JS and without React rendering again.
-    fn apply_state_styles(
-        &self,
-        mut element: gpui::Stateful<gpui::Div>,
-        styles: &style::StateStyles,
-        scale: (f32, f32),
-    ) -> gpui::Stateful<gpui::Div> {
-        let animating = style::Animating {
-            background: self.animated_background_color.is_some(),
-            opacity: self.animated_opacity,
-        };
+    /// What this view's state styles amount to right now, the later layer
+    /// winning a property: focus, focus visible, group hover, hover, group
+    /// active, active. The pointer states come from the hit path (see
+    /// `interaction`), focus from what the node last reported, so a state
+    /// change repaints without JS and without React rendering again.
+    pub(crate) fn resolved_state(&self) -> Option<style::StateStyle> {
+        let styles = self.state_styles.as_ref()?;
         // `none` and `box-none` views are not pointer targets themselves.
         let targeted = !matches!(self.view.pointer_events, 1 | 2);
-        let mut pointer = StyleRefinement::default();
-        let mut pointer_applies = false;
-        let mut layer = |state: &style::StateStyle, applies: bool| {
-            if applies {
-                pointer.refine(&state.refinement(scale, animating));
-                pointer_applies = true;
+        let tag = self.tag;
+        let focused = self.focused.get();
+        let layers = [
+            (styles.focus.as_ref(), focused),
+            (
+                styles.focus_visible.as_ref(),
+                focused && self.focus_visible.get(),
+            ),
+            (
+                styles.group_hover.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_hovered(tag),
+            ),
+            (
+                styles.hover.as_ref(),
+                targeted && crate::interaction::node_hovered(tag),
+            ),
+            (
+                styles.group_active.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_pressed(tag),
+            ),
+            (
+                styles.active.as_ref(),
+                targeted && crate::interaction::node_pressed(tag),
+            ),
+        ];
+        let mut resolved: Option<style::StateStyle> = None;
+        for (layer, applies) in layers {
+            if let (Some(layer), true) = (layer, applies) {
+                resolved.get_or_insert_with(Default::default).merge(layer);
             }
+        }
+        resolved
+    }
+
+    /// The matrix a state style asks for, unless an animation owns it.
+    fn effective_transform(&self) -> Option<[f32; 16]> {
+        if let Some(animated) = self.animated_transform {
+            return Some(animated);
+        }
+        if let Some(state) = self.resolved_state().and_then(|state| state.transform()) {
+            return Some(state);
+        }
+        self.view.has_transform.then_some(self.view.transform)
+    }
+
+    /// The color a state style gives this view's own text.
+    pub(crate) fn own_text_color(&self) -> Option<u32> {
+        self.resolved_state()?.text_color()
+    }
+
+    pub(crate) fn has_text_color_style(&self) -> bool {
+        self.state_styles
+            .as_ref()
+            .is_some_and(|styles| styles.sets_color())
+    }
+
+    pub(crate) fn set_state_text_color(
+        &mut self,
+        own: Option<u32>,
+        inherited: Option<u32>,
+    ) -> bool {
+        let before = self.state_text_color;
+        self.own_state_color = own;
+        self.state_text_color = own.or(inherited);
+        before != self.state_text_color
+    }
+
+    pub(crate) fn state_text_color(&self) -> Option<u32> {
+        self.state_text_color
+    }
+
+    pub(crate) fn own_state_color(&self) -> Option<u32> {
+        self.own_state_color
+    }
+
+    /// Reads whether the node has focus, which a state style depends on. Reading
+    /// it while rendering is what has gpui-fast render the node again when
+    /// focus moves.
+    fn sync_focus(&self, window: &Window, cx: &mut Context<Self>) {
+        let Some(handle) = &self.focus_handle else {
+            return;
         };
-        if let Some(grouped) = &styles.group_hover {
-            layer(&grouped.style, crate::interaction::group_hovered(self.tag));
+        let focused = handle.is_focused(window);
+        if self.focused.replace(focused) == focused {
+            return;
         }
-        if let Some(state) = &styles.hover {
-            layer(
-                state,
-                targeted && crate::interaction::node_hovered(self.tag),
-            );
+        self.focus_visible
+            .set(focused && window.last_input_was_keyboard());
+        if self.has_text_color_style() {
+            cx.defer(crate::interaction::refresh_text_colors);
         }
-        if let Some(grouped) = &styles.group_active {
-            layer(&grouped.style, crate::interaction::group_pressed(self.tag));
-        }
-        if let Some(state) = &styles.active {
-            layer(
-                state,
-                targeted && crate::interaction::node_pressed(self.tag),
-            );
-        }
-        // A focus layer is applied over the base style by gpui, so the pointer
-        // layers are folded into it to keep them on top.
-        let focus_layer = |state: &style::StateStyle| {
-            let mut refinement = state.refinement(scale, animating);
-            if pointer_applies {
-                refinement.refine(&pointer);
-            }
-            move |_: StyleRefinement| refinement
-        };
-        if let Some(state) = &styles.focus {
-            element = element.focus(focus_layer(state));
-        }
-        if let Some(state) = &styles.focus_visible {
-            element = element.focus_visible(focus_layer(state));
-        }
-        if pointer_applies {
-            element.style().refine(&pointer);
-        }
-        element
     }
 
     pub(crate) fn group_name(&self) -> Option<gpui::SharedString> {
@@ -997,6 +1042,10 @@ impl RNNodeView {
             gradient_cache: None,
             animated_text_color: None,
             animated_opacity: false,
+            focused: Cell::new(false),
+            focus_visible: Cell::new(false),
+            state_text_color: None,
+            own_state_color: None,
             state_styles: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
@@ -1541,7 +1590,7 @@ impl RNNodeView {
     }
 
     fn local_transform(&self) -> (f32, f32, f32, f32) {
-        if self.animated_transform.is_none() && !self.view.has_transform {
+        if self.effective_transform().is_none() {
             return (1.0, 1.0, 0.0, 0.0);
         }
         // GPUI draws the node's subtree under its matrix, so layout, borders,
@@ -1552,16 +1601,14 @@ impl RNNodeView {
     /// `backfaceVisibility: 'hidden'` while the node is turned to face away.
     fn backface_hidden(&self) -> bool {
         self.view.backface_hidden
-            && (self.animated_transform.is_some() || self.view.has_transform)
-            && crate::transform::faces_away(&self.animated_transform.unwrap_or(self.view.transform))
+            && self
+                .effective_transform()
+                .is_some_and(|matrix| crate::transform::faces_away(&matrix))
     }
 
     /// The matrix GPUI draws this node's subtree under.
     fn gpui_transform(&self, scale: (f32, f32)) -> Option<gpui::TransformationMatrix> {
-        if self.animated_transform.is_none() && !self.view.has_transform {
-            return None;
-        }
-        let m = self.animated_transform.unwrap_or(self.view.transform);
+        let m = self.effective_transform()?;
         if crate::transform::is_three_dimensional(&m) {
             log::debug!(
                 "[transform] tag={} has perspective or a turn about x or y; drawn flat",
@@ -3354,13 +3401,7 @@ impl Render for RNNodeView {
                     && !self.inherited.hidden_by_accessible_ancestor,
             );
             if let Some(handle) = &self.focus_handle {
-                if accessibility_active
-                    || is_scroll
-                    || self
-                        .state_styles
-                        .as_ref()
-                        .is_some_and(|styles| styles.has_focus())
-                {
+                if accessibility_active || is_scroll {
                     // The accessibility tree needs the role, the label and the focus on one
                     // element.
                     element = element.track_focus(handle);
@@ -3733,8 +3774,18 @@ impl Render for RNNodeView {
             isolated = self.view.isolate;
             style
         };
-        if let Some(styles) = self.state_styles.clone() {
-            element = self.apply_state_styles(element, &styles, (scale_x, scale_y));
+        if self.state_styles.is_some() {
+            self.sync_focus(window, cx);
+        }
+        let resolved = self.resolved_state();
+        if let Some(state) = &resolved {
+            let animating = style::Animating {
+                background: self.animated_background_color.is_some(),
+                opacity: self.animated_opacity,
+            };
+            element
+                .style()
+                .refine(&state.refinement((scale_x, scale_y), animating));
         }
         // The listeners live on a `pointer_area` child, not on the node's own div: a
         // div with a hitbox records a hover read while painting, which makes a scroll
@@ -3825,7 +3876,7 @@ impl Render for RNNodeView {
                 fragment.font_size = scaled_font_size(fragment.font_size, scale_y);
                 fragment.line_height *= scale_y;
                 fragment.letter_spacing *= scale_x;
-                if let Some(color) = self.animated_text_color {
+                if let Some(color) = self.animated_text_color.or(self.state_text_color) {
                     fragment.color = color;
                 }
             }
@@ -4163,15 +4214,14 @@ impl Render for RNNodeView {
                 true,
             ),
         ];
+        let border_colors = resolved.as_ref().map_or(self.view.border_colors, |state| {
+            state.border_colors(self.view.border_colors)
+        });
         let radii = self.view.border_radii;
         let rounded = radii.tl > 0.0 || radii.tr > 0.0 || radii.br > 0.0 || radii.bl > 0.0;
         let uniform_border = rounded
-            && self.view.border_colors[0] != 0
-            && self
-                .view
-                .border_colors
-                .iter()
-                .all(|c| *c == self.view.border_colors[0])
+            && border_colors[0] != 0
+            && border_colors.iter().all(|c| *c == border_colors[0])
             && self.view.border_styles.iter().all(|s| *s == 0)
             && self.view.border_widths.left > 0.0
             && self.view.border_widths.left == self.view.border_widths.top
@@ -4182,7 +4232,7 @@ impl Render for RNNodeView {
             if uniform_border {
                 break;
             }
-            let color = self.view.border_colors[edge];
+            let color = border_colors[edge];
             if color != 0 && thickness > 0.0 {
                 border_rules.extend(rule_segments(
                     x,
@@ -4203,7 +4253,7 @@ impl Render for RNNodeView {
                 .left_0()
                 .size_full()
                 .border(px(self.view.border_widths.left * scale_x.min(scale_y)))
-                .border_color(style::color(self.view.border_colors[0]));
+                .border_color(style::color(border_colors[0]));
             let radii = &mut ring.style().corner_radii;
             let scale = scale_x.min(scale_y);
             radii.top_left = Some(px(self.view.border_radii.tl * scale).into());

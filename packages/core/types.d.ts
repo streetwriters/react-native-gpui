@@ -57,8 +57,19 @@ export interface DesktopContextMenuEventData {
  */
 export type DesktopStateStyle = Pick<
   ViewStyle,
-  'backgroundColor' | 'opacity' | 'boxShadow'
->;
+  | 'backgroundColor'
+  | 'opacity'
+  | 'boxShadow'
+  | 'transform'
+  | 'borderColor'
+  | 'borderLeftColor'
+  | 'borderTopColor'
+  | 'borderRightColor'
+  | 'borderBottomColor'
+> & {
+  /** The color of the text inside the view. */
+  color?: ColorValue;
+};
 
 /**
  * A state style that applies while the ancestor that set `group` to this name

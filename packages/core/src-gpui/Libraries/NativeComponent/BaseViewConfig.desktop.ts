@@ -9,8 +9,121 @@ import flattenStyle from 'react-native/Libraries/StyleSheet/flattenStyle';
 import processBoxShadow from 'react-native/Libraries/StyleSheet/processBoxShadow';
 // eslint-disable-next-line @react-native/no-deep-imports
 import processColor from 'react-native/Libraries/StyleSheet/processColor';
+// eslint-disable-next-line @react-native/no-deep-imports
+import processTransform from 'react-native/Libraries/StyleSheet/processTransform';
 
-const STATE_STYLE_PROPS = new Set(['backgroundColor', 'opacity', 'boxShadow']);
+const BORDER_SIDES = ['Left', 'Top', 'Right', 'Bottom'] as const;
+const STATE_STYLE_PROPS = new Set([
+  'backgroundColor',
+  'opacity',
+  'boxShadow',
+  'color',
+  'borderColor',
+  'transform',
+  ...BORDER_SIDES.map(side => `border${side}Color`),
+]);
+
+// x' = a x + c y + tx, y' = b x + d y + ty
+type Affine = [number, number, number, number, number, number];
+const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
+
+function multiply(m: Affine, n: Affine): Affine {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+function angle(value: unknown): number {
+  const text = String(value);
+  const amount = parseFloat(text);
+  return text.endsWith('deg') ? (amount * Math.PI) / 180 : amount;
+}
+
+// The 2D part of a transform, as the column-major 4x4 Fabric uses. The depth
+// and perspective rows are not part of a state style.
+function transformMatrix(value: unknown): number[] | null {
+  const steps = processTransform(value as never) as Array<
+    Record<string, unknown>
+  >;
+  if (!Array.isArray(steps)) {
+    return null;
+  }
+  let result = IDENTITY;
+  for (const step of steps) {
+    const [name] = Object.keys(step);
+    const amount = step[name];
+    let next: Affine = IDENTITY;
+    switch (name) {
+      case 'translateX':
+        next = [1, 0, 0, 1, Number(amount), 0];
+        break;
+      case 'translateY':
+        next = [1, 0, 0, 1, 0, Number(amount)];
+        break;
+      case 'translate':
+        next = [
+          1,
+          0,
+          0,
+          1,
+          Number((amount as number[])[0]),
+          Number((amount as number[])[1]),
+        ];
+        break;
+      case 'scale':
+        next = [Number(amount), 0, 0, Number(amount), 0, 0];
+        break;
+      case 'scaleX':
+        next = [Number(amount), 0, 0, 1, 0, 0];
+        break;
+      case 'scaleY':
+        next = [1, 0, 0, Number(amount), 0, 0];
+        break;
+      case 'rotate':
+      case 'rotateZ': {
+        const radians = angle(amount);
+        next = [
+          Math.cos(radians),
+          Math.sin(radians),
+          -Math.sin(radians),
+          Math.cos(radians),
+          0,
+          0,
+        ];
+        break;
+      }
+      case 'skewX':
+        next = [1, 0, Math.tan(angle(amount)), 1, 0, 0];
+        break;
+      case 'skewY':
+        next = [1, Math.tan(angle(amount)), 0, 1, 0, 0];
+        break;
+      case 'matrix': {
+        const m = amount as number[];
+        next = [m[0], m[1], m[4], m[5], m[12], m[13]];
+        break;
+      }
+      default:
+        warnOnce(`State styles do not support the transform "${name}".`);
+    }
+    result = multiply(result, next);
+  }
+  const matrix = new Array<number>(16).fill(0);
+  matrix[0] = result[0];
+  matrix[1] = result[1];
+  matrix[4] = result[2];
+  matrix[5] = result[3];
+  matrix[10] = 1;
+  matrix[12] = result[4];
+  matrix[13] = result[5];
+  matrix[15] = 1;
+  return matrix;
+}
 const warned = new Set<string>();
 
 function warnOnce(message: string) {
@@ -35,12 +148,21 @@ function stateStyleObject(prop: string, style: unknown) {
     }
     if (!STATE_STYLE_PROPS.has(key)) {
       warnOnce(`${prop} does not support the style property "${key}".`);
-    } else if (key === 'backgroundColor') {
+    } else if (key === 'transform') {
+      const matrix = transformMatrix(value);
+      if (matrix) {
+        out.transform = matrix;
+      }
+    } else if (
+      key === 'backgroundColor' ||
+      key === 'color' ||
+      /^border(Left|Top|Right|Bottom)?Color$/.test(key)
+    ) {
       const color = processColor(value);
       if (typeof color === 'number') {
-        out.backgroundColor = color;
+        out[key] = color;
       } else {
-        warnOnce(`${prop} supports plain colors in backgroundColor only.`);
+        warnOnce(`${prop} supports plain colors in ${key} only.`);
       }
     } else if (key === 'opacity') {
       out.opacity = value;

@@ -40,6 +40,30 @@ export default function StateStylesFixture() {
       />
 
       <View
+        testID="state-border"
+        style={{
+          width: 120,
+          height: 60,
+          backgroundColor: '#ffffff',
+          borderWidth: 6,
+          borderColor: '#000000',
+        }}
+        hoverStyle={{ borderColor: '#ef4444', borderBottomColor: '#10b981' }}
+      />
+
+      <View testID="state-text" hoverStyle={{ color: '#ef4444' }}>
+        <Text style={{ color: '#000000', fontSize: 30, fontWeight: '900' }}>
+          MMMMMM
+        </Text>
+      </View>
+
+      <View
+        testID="state-transform"
+        style={{ width: 100, height: 40, backgroundColor: '#3b82f6' }}
+        hoverStyle={{ transform: [{ scale: 2 }] }}
+      />
+
+      <View
         testID="state-focus"
         focusable
         style={box}

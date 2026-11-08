@@ -23,7 +23,7 @@ beforeAll(async () => {
     idleOptions: { ignore: ['animations'] },
     offscreen: true,
   });
-  await app.setWindowSize(1024, 768);
+  await app.setWindowSize(1024, 1400);
   await desktopExpect(
     app.getByTestId('tester-screen-state-styles'),
   ).toBeVisible();
@@ -31,10 +31,10 @@ beforeAll(async () => {
 
 afterAll(() => app?.close());
 
-async function color(testID: string) {
+async function color(testID: string, atX = 0.5, atY = 0.5) {
   const image = PNG.sync.read(await app.getByTestId(testID).screenshot());
-  const x = Math.round(image.width / 2);
-  const y = Math.round(image.height / 2);
+  const x = Math.min(image.width - 1, Math.round(image.width * atX));
+  const y = Math.min(image.height - 1, Math.round(image.height * atY));
   const offset = (y * image.width + x) * 4;
   return Array.from(image.data.subarray(offset, offset + 3));
 }
@@ -46,8 +46,8 @@ function near(actual: number[], hex: string, tolerance = 4) {
   );
 }
 
-async function expectColor(testID: string, hex: string) {
-  const actual = await color(testID);
+async function expectColor(testID: string, hex: string, atX = 0.5, atY = 0.5) {
+  const actual = await color(testID, atX, atY);
   expect(near(actual, hex), `${testID} is ${actual}, expected ${hex}`).toBe(
     true,
   );
@@ -63,7 +63,7 @@ async function centre(testID: string) {
 }
 
 async function away() {
-  await app.mouseMove({ x: 1010, y: 760 });
+  await app.mouseMove({ x: 1010, y: 1390 });
   await app.waitForIdle();
 }
 
@@ -112,6 +112,7 @@ test('focusStyle applies while the view has focus', async () => {
   await expectColor('state-focus', '#3b82f6');
   const [node] = await app.query('testID', 'state-focus', true);
   await app.focus(node.tag);
+  await app.waitForIdle();
   await expectColor('state-focus', '#10b981');
   const [other] = await app.query('testID', 'state-focus-other', true);
   await app.focus(other.tag);
@@ -153,4 +154,64 @@ test('a state style leaves out a property that is being animated', async () => {
   await app.getByTestId('state-animated').hover();
   await app.waitForIdle();
   await expectColor('state-animated', '#f59e0b');
+});
+
+test('border colors, text color and transform follow the pointer', async () => {
+  await away();
+  await expectColor('state-border', '#000000', 0.5, 0.03);
+  await app.getByTestId('state-border').hover();
+  await expectColor('state-border', '#ef4444', 0.5, 0.03);
+  await expectColor('state-border', '#10b981', 0.5, 0.97);
+  await away();
+  await expectColor('state-border', '#000000', 0.5, 0.03);
+
+  const reds = async () => {
+    const image = PNG.sync.read(
+      await app.getByTestId('state-text').screenshot(),
+    );
+    let count = 0;
+    for (let at = 0; at < image.data.length; at += 4) {
+      if (
+        image.data[at] > 200 &&
+        image.data[at + 1] < 90 &&
+        image.data[at + 2] < 90
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  };
+  expect(await reds()).toBe(0);
+  await app.getByTestId('state-text').hover();
+  await app.waitForIdle();
+  expect(await reds()).toBeGreaterThan(50);
+  await away();
+  expect(await reds()).toBe(0);
+
+  const blueRun = async (testID: string) => {
+    const [node] = await app.query('testID', testID, true);
+    const painted = PNG.sync.read(await app.screenshot());
+    const pixels = painted.width / 1024;
+    const y = Math.round((node.frame.y + node.frame.height / 2) * pixels);
+    const x = Math.round((node.frame.x + node.frame.width / 2) * pixels);
+    const blue = (at: number) => {
+      const i = (y * painted.width + at) * 4;
+      return (
+        Math.abs(painted.data[i] - 0x3b) < 4 &&
+        Math.abs(painted.data[i + 1] - 0x82) < 4 &&
+        Math.abs(painted.data[i + 2] - 0xf6) < 4
+      );
+    };
+    let left = x;
+    let right = x;
+    while (blue(left - 1)) left -= 1;
+    while (blue(right + 1)) right += 1;
+    return (right - left + 1) / pixels;
+  };
+  expect(Math.round(await blueRun('state-transform'))).toBe(100);
+  await app.getByTestId('state-transform').hover();
+  await app.waitForIdle();
+  expect(Math.round(await blueRun('state-transform'))).toBe(200);
+  await away();
+  expect(Math.round(await blueRun('state-transform'))).toBe(100);
 });
