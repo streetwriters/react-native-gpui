@@ -39,6 +39,22 @@ export default function PropsProbeFixture() {
           boxShadow: '2px 3px 4px 1px rgba(0, 0, 0, 0.5)',
         }}
       />
+      <View
+        testID="shadow-slot"
+        style={{ width: 300, height: 300, backgroundColor: '#ffffff' }}
+      >
+        <View
+          style={{
+            position: 'absolute',
+            left: 100,
+            top: 100,
+            width: 100,
+            height: 100,
+            backgroundColor: '#ffffff',
+            boxShadow: '0px 0px 20px 0px rgba(0, 0, 0, 0.5)',
+          }}
+        />
+      </View>
       {Object.entries(COLORS).map(([name, color]) => (
         <View
           key={name}
