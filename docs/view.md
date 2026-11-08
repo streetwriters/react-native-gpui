@@ -121,7 +121,7 @@ A context menu was requested: right click, Control + click on macOS, or the Menu
 
 The pointer events of the web, for the mouse and trackpad, including buttons other than the left one and hovering. Each has a capturing variant. See [Mouse and keyboard input](desktop-input).
 
-A press captures the pointer. From `onPointerDown` until the button is released, `onPointerMove` and `onPointerUp` go to the view that was pressed, and bubble to its ancestors, wherever the pointer is, including outside the view and the window. Other views get no pointer moves meanwhile, and the view's `onPointerLeave` is not sent until the press ends. There is nothing to call: a splitter or a slider needs only these handlers.
+A press captures the pointer. From `onPointerDown` until the button is released, `onPointerMove` and `onPointerUp` go to the view that was pressed, and bubble to its ancestors, wherever the pointer is, including outside the view and the window. Other views get no pointer moves meanwhile. There is nothing to call: a splitter or a slider needs only these handlers.
 
 | Type                            |
 | ------------------------------- |
@@ -226,3 +226,7 @@ A state style's `opacity` applies to the view and everything inside it, per shap
 Dragging files over the window sends `onDragEnter` to the view that takes them, `onDragOver` as the pointer moves, and `onDragLeave` when it moves to another view, leaves the window or is cancelled. Dropping sends `onDrop`, and no leave. A view that does not set `acceptsFiles` is never the target: the nearest ancestor that does is, and when there is none a drop does nothing. The event is a bubbling event, so a handler on an ancestor of the target also runs.
 
 `path` is a path the app can read, so a file is read from disk, not delivered as bytes. The drop does not copy or open anything. Dragging files out of the app is not supported.
+
+## Borders
+
+Borders follow React Native: `borderWidth` and `borderColor` set all four sides, and `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` and the matching `...Color` props set one side with its own width and color. A side with a width and a color paints, also when no other side does and under a `borderRadius`. `borderStyle` is `solid`, `dashed` or `dotted`. A width under one device pixel, such as `StyleSheet.hairlineWidth` on a 1x display, may not show.
