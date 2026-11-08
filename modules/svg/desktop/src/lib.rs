@@ -57,9 +57,8 @@ impl ComponentRenderer for SvgRenderer {
         let (scale_x, scale_y) = node.scale;
         let width = frame.w * scale_x;
         let height = frame.h * scale_y;
-        let document = svg_document(node, frame, cx);
         let scale = window.scale_factor();
-        let image = cached_svg_image(document, frame.w, frame.h, scale);
+        let image = cached_svg_image(node, frame, scale, cx)?;
         Some(
             gpui::img(image)
                 .w(px(width))
@@ -75,13 +74,26 @@ pub fn rn_gpui_register() {
     }
 }
 
-fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
+/// Where one coverage sample sits, so a shape can be drawn once per sample.
+#[derive(Clone, Copy)]
+struct Sample {
+    /// The sample's offset from the pixel centre, in device pixels.
+    dx: f32,
+    dy: f32,
+    /// Device pixels per CSS pixel.
+    scale: f32,
+}
+
+fn svg_document(node: &ComponentNode, frame: RectF, cx: &App, sample: Option<Sample>) -> String {
     let props = &node.props;
     let mut attributes = format!(
         "xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\"",
         svg_number(frame.w),
         svg_number(frame.h)
     );
+    if sample.is_some() {
+        attributes.push_str(" shape-rendering=\"crispEdges\"");
+    }
     for (name, attribute) in [
         ("color", "color"),
         ("fill", "fill"),
@@ -117,11 +129,11 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
             .unwrap_or("miter");
         attributes.push_str(&format!(" stroke-linejoin=\"{join}\""));
     }
-    if let (Some(width), Some(height)) = (
+    let view_box = match (
         props.get("vbWidth").and_then(serde_json::Value::as_f64),
         props.get("vbHeight").and_then(serde_json::Value::as_f64),
     ) {
-        if width > 0.0 && height > 0.0 {
+        (Some(width), Some(height)) if width > 0.0 && height > 0.0 => {
             let min_x = props
                 .get("minX")
                 .and_then(serde_json::Value::as_f64)
@@ -130,6 +142,36 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
                 .get("minY")
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
+            let align = props.get("align").and_then(serde_json::Value::as_str);
+            let mode = match props
+                .get("meetOrSlice")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
+            {
+                1 => "slice",
+                2 => "none",
+                _ => "meet",
+            };
+            Some((min_x, min_y, width, height, align, mode))
+        }
+        _ => None,
+    };
+    match (view_box, sample) {
+        (Some((min_x, min_y, width, height, align, mode)), sample) => {
+            // The sample's shift in user units: how many of them one device
+            // pixel covers depends on how the view box is fitted to the frame.
+            let (mut min_x, mut min_y) = (min_x, min_y);
+            if let Some(sample) = sample {
+                let fit_x = f64::from(frame.w * sample.scale) / width;
+                let fit_y = f64::from(frame.h * sample.scale) / height;
+                let (unit_x, unit_y) = match (align, mode) {
+                    (Some(_), "none") => (fit_x, fit_y),
+                    (_, "slice") => (fit_x.max(fit_y), fit_x.max(fit_y)),
+                    _ => (fit_x.min(fit_y), fit_x.min(fit_y)),
+                };
+                min_x += f64::from(sample.dx) / unit_x;
+                min_y += f64::from(sample.dy) / unit_y;
+            }
             attributes.push_str(&format!(
                 " viewBox=\"{} {} {} {}\"",
                 svg_number(min_x as f32),
@@ -137,16 +179,7 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
                 svg_number(width as f32),
                 svg_number(height as f32)
             ));
-            if let Some(align) = props.get("align").and_then(serde_json::Value::as_str) {
-                let mode = match props
-                    .get("meetOrSlice")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0)
-                {
-                    1 => "slice",
-                    2 => "none",
-                    _ => "meet",
-                };
+            if let Some(align) = align {
                 attributes.push_str(&format!(
                     " preserveAspectRatio=\"{} {}\"",
                     svg_escape(align),
@@ -154,6 +187,18 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App) -> String {
                 ));
             }
         }
+        (None, Some(sample)) => {
+            // Without a view box the user unit is the CSS pixel; one is added
+            // only to carry the shift.
+            attributes.push_str(&format!(
+                " viewBox=\"{} {} {} {}\"",
+                svg_number(sample.dx / sample.scale),
+                svg_number(sample.dy / sample.scale),
+                svg_number(frame.w),
+                svg_number(frame.h)
+            ));
+        }
+        (None, None) => {}
     }
     let mut document = format!("<svg {attributes}>");
     for child in &node.children {
@@ -403,20 +448,104 @@ fn svg_number(value: f32) -> String {
     }
 }
 
-fn cached_svg_image(
-    document: String,
-    width: f32,
-    height: f32,
+/// Chrome rasterises with four coverage samples per pixel at these offsets (in
+/// pixels from the centre): the standard Direct3D 4x pattern. A pixel is
+/// therefore never covered by anything but 0, 1/4, 1/2, 3/4 or all, and the edge
+/// of an icon takes the same five steps here.
+const SAMPLE_OFFSETS: [(f32, f32); 4] = [
+    (-2.0 / 16.0, -6.0 / 16.0),
+    (6.0 / 16.0, -2.0 / 16.0),
+    (-6.0 / 16.0, 2.0 / 16.0),
+    (2.0 / 16.0, 6.0 / 16.0),
+];
+
+/// Draws the document at the window's scale, once per coverage sample without
+/// antialiasing, and averages the samples.
+fn sampled_image(
+    node: &ComponentNode,
+    frame: RectF,
     scale: f32,
-) -> std::sync::Arc<gpui::Image> {
-    type SvgCache = HashMap<(u64, u32, u32, u32), Weak<gpui::Image>>;
+    cx: &App,
+) -> Option<Arc<gpui::RenderImage>> {
+    let width = (frame.w * scale).round() as i32;
+    let height = (frame.h * scale).round() as i32;
+    if width < 1 || height < 1 {
+        return None;
+    }
+    let size = gpui::size(gpui::DevicePixels(width), gpui::DevicePixels(height));
+    let renderer = cx.svg_renderer();
+    let mut sum = vec![0f32; width as usize * height as usize * 4];
+    for (dx, dy) in SAMPLE_OFFSETS {
+        let document = svg_document(node, frame, cx, Some(Sample { dx, dy, scale }));
+        let parsed = renderer.parse_svg(document.as_bytes()).ok()?;
+        let rendered = renderer
+            .render_parsed(&parsed, gpui::SvgSize::ExactSize(size))
+            .ok()?;
+        let bytes = rendered.as_bytes(0)?;
+        if bytes.len() != sum.len() {
+            return None;
+        }
+        // BGRA with straight alpha; accumulate colour weighted by alpha.
+        for (total, pixel) in sum.chunks_exact_mut(4).zip(bytes.chunks_exact(4)) {
+            let alpha = f32::from(pixel[3]);
+            total[0] += f32::from(pixel[0]) * alpha;
+            total[1] += f32::from(pixel[1]) * alpha;
+            total[2] += f32::from(pixel[2]) * alpha;
+            total[3] += alpha;
+        }
+    }
+    let samples = SAMPLE_OFFSETS.len() as f32;
+    let mut out = Vec::with_capacity(sum.len());
+    for total in sum.chunks_exact(4) {
+        if total[3] <= 0.0 {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        let blue = (total[0] / total[3]).round().clamp(0.0, 255.0);
+        let green = (total[1] / total[3]).round().clamp(0.0, 255.0);
+        let red = (total[2] / total[3]).round().clamp(0.0, 255.0);
+        // Half coverage is 127.5 of 255, which the alpha channel cannot hold.
+        // Chrome blends the exact half, and the result then rounds away from
+        // the ink's own side: toward light under dark ink and toward dark
+        // under light ink, so the alpha rounds the other way to match.
+        let alpha = total[3] / samples;
+        let alpha = if (alpha.fract() - 0.5).abs() < 1e-3 {
+            let luma = 0.299 * red + 0.587 * green + 0.114 * blue;
+            if luma < 128.0 {
+                alpha.floor()
+            } else {
+                alpha.ceil()
+            }
+        } else {
+            alpha.round()
+        };
+        out.extend_from_slice(&[
+            blue as u8,
+            green as u8,
+            red as u8,
+            alpha.clamp(0.0, 255.0) as u8,
+        ]);
+    }
+    let buffer = image::ImageBuffer::from_raw(width as u32, height as u32, out)?;
+    Some(Arc::new(gpui::RenderImage::new(
+        smallvec::SmallVec::from_const([image::Frame::new(buffer)]),
+    )))
+}
+
+fn cached_svg_image(
+    node: &ComponentNode,
+    frame: RectF,
+    scale: f32,
+    cx: &App,
+) -> Option<Arc<gpui::RenderImage>> {
+    type SvgCache = HashMap<(u64, u32, u32, u32), Weak<gpui::RenderImage>>;
     static CACHE: OnceLock<Mutex<SvgCache>> = OnceLock::new();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    document.hash(&mut hasher);
+    svg_document(node, frame, cx, None).hash(&mut hasher);
     let key = (
         hasher.finish(),
-        width.to_bits(),
-        height.to_bits(),
+        frame.w.to_bits(),
+        frame.h.to_bits(),
         scale.to_bits(),
     );
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -424,17 +553,14 @@ fn cached_svg_image(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(image) = cache.get(&key).and_then(Weak::upgrade) {
-        return image;
+        return Some(image);
     }
-    let image = std::sync::Arc::new(gpui::Image::from_bytes(
-        gpui::ImageFormat::Svg,
-        document.into_bytes(),
-    ));
-    cache.insert(key, std::sync::Arc::downgrade(&image));
+    let image = sampled_image(node, frame, scale, cx)?;
+    cache.insert(key, Arc::downgrade(&image));
     if cache.len() > 512 {
         cache.retain(|_, image| image.strong_count() > 0);
     }
-    image
+    Some(image)
 }
 
 #[cfg(test)]
