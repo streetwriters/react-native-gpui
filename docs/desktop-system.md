@@ -3,7 +3,7 @@ id: desktop-system
 title: System
 ---
 
-`@react-native-gpui/system` covers what an app asks of the operating system beyond its windows: start at login, restart, and keeping its windows out of screen captures. Opening a path or URL with the system is `fs.reveal` and `fs.openExternal` in [File system](desktop-file-system#reveal-and-open); the tray, closing to the tray and the Dock are in [Tray](desktop-tray).
+`@react-native-gpui/system` covers what an app asks of the operating system beyond its windows: start at login, restart, keeping its windows out of screen captures, how long the user has been idle, and the Dock badge and bounce. Opening a path or URL with the system is `fs.reveal` and `fs.openExternal` in [File system](desktop-file-system#reveal-and-open); the tray, closing to the tray and the Dock are in [Tray](desktop-tray).
 
 ```shell
 npm install @react-native-gpui/system

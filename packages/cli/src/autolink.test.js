@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
-import { autolink } from './autolink.js';
+import { autolink, specFilesFor } from './autolink.js';
 
 // The repository root by lookup, not by counting parents: this file sits at a
 // different depth before and after a folder move.
@@ -758,4 +758,20 @@ test('refuses a duplicate host component name across packages', () => {
       configFile: project.configPath,
     }),
   ).toThrow(/host component FakeChart is already declared by fake-host/u);
+});
+
+test('splits the specifications of a package between its C++ provider and its crate', () => {
+  const files = ['NativeCrypto.ts', 'NativeSubtle.ts'];
+  expect(specFilesFor(files, undefined, 'cpp')).toEqual(files);
+  expect(specFilesFor(files, undefined, 'rust')).toEqual(files);
+  expect(specFilesFor(files, ['NativeCrypto.ts'], 'cpp')).toEqual([
+    'NativeCrypto.ts',
+  ]);
+  expect(specFilesFor(files, ['NativeCrypto.ts'], 'rust')).toEqual([
+    'NativeSubtle.ts',
+  ]);
+  expect(() => specFilesFor(files, ['NativeMissing.ts'], 'cpp')).toThrow(
+    /NativeMissing.ts/u,
+  );
+  expect(() => specFilesFor(files, 'NativeCrypto.ts', 'cpp')).toThrow(/array/u);
 });
