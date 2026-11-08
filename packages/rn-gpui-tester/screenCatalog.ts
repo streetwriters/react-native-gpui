@@ -96,6 +96,12 @@ export const screens = [
     fixture: 'PropsProbeFixture',
   },
   {
+    id: 'rounded-clip',
+    title: 'Rounded clip under transform',
+    group: 'Views',
+    fixture: 'RoundedClipFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A view that clips to its rounded corners (`borderRadius` with `overflow: 'hidden'`) now clips to the corners as drawn when it has a `transform`: the clip was left at its untransformed size and position, so a scaled view was cut to the unscaled shape. A rotation clips to the rotated view's bounding box. Needs the gpui-fast revision that carries the change.
 - `RN_GPUI_DEBUG_JS_TASKS=1` makes the test driver's idle error list the JavaScript tasks that are queued or running, each with its age and the call stack that queued it.
 - A one-line text with `numberOfLines` is no longer cut short with an ellipsis when it fits the box it was measured into within the pixel rounding of that box.
 - A key press goes to the focused view once and bubbles through React, instead of being sent once for every focusable view on the path to it, so an `onKeyDown` on a list no longer runs two or three times per press.

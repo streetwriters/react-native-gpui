@@ -141,6 +141,7 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 
 - On desktop a `View` with children and an `opacity` below 1 is painted into a picture of its own and faded, as on iOS and Android. `needsOffscreenAlphaCompositing` has no effect.
 - `hitSlop` extends the area that starts a press. Hover and pointer moves are over the view itself, and an ancestor with `overflow: 'hidden'` clips the slop.
+- `overflow: 'hidden'` with a `borderRadius` clips children to the rounded shape, also under a `transform`. A rotated view clips to its bounding box without the rounded corners. A rounded `Image` under a scale clips to the unscaled shape for now.
 - Mobile-only accessibility props that name VoiceOver gestures work through the platform accessibility tree on each OS. Screen readers on Windows and Linux have not been validated.
 
 ## State styles
