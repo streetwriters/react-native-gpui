@@ -117,6 +117,8 @@ export type NodeProps = {
   transform: number[];
   frame: { x: number; y: number; width: number; height: number } | null;
   renderCount: number;
+  imageUri: string | null;
+  imageResizeMode: string | null;
   scrollStrategy: string | null;
   selection: { start: number; end: number } | null;
   inputScrollX: number | null;
