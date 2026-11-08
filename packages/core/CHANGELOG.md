@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Menu items take an `onPress` handler, run when the item is chosen in a context menu (`ContextMenu.show`, `ContextMenuView`) or in the application menu, alongside the id the menu already reports.
 - What the pointer is over is worked out again after a mount batch, as a browser does after a layout: a view that mounts under a still pointer receives `onPointerEnter`, without the pointer moving.
 - Added `DesktopWindow.setZoomFactor()` and `getZoomFactor()` to scale a window's content (0.25 to 5), `getTitle()`, and `isVisible`, `title` and `zoomFactor` in the window state. `stateChange` events now also report `isVisible`, `title` and `zoomFactor` changes. Needs a prebuilt runtime built with the change.
 - Added `DesktopWindow.setBackgroundColor()` and `setChromeAppearance()` to color a window's background and give its native title bar a light or dark look. macOS only for now.

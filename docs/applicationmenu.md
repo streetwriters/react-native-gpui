@@ -71,7 +71,7 @@ A menu is an array of `MenuItemSpec` values.
 
 ### `Item`
 
-`{id, label, accelerator?, enabled?, checked?, role?, icon?}`. `type: 'item'` is the default. `accelerator` is a key combination such as `mod+s`, where `mod` is Command on macOS and Control on Windows and Linux (see [Keyboard shortcuts](shortcuts)). A `checked` item shows a check mark instead of its icon. `icon` takes anything `<Image source>` takes, or a path string.
+`{id, label, accelerator?, enabled?, checked?, role?, icon?, onPress?}`. `type: 'item'` is the default. `onPress` runs when the item is chosen, in the application menu, a context menu or a `ContextMenuView`; the menu's `onPress` prop and the `press` event are still reported with the item's `id`. The handlers are those of the array last given, so a menu rebuilt with new closures runs the new ones. `accelerator` is a key combination such as `mod+s`, where `mod` is Command on macOS and Control on Windows and Linux (see [Keyboard shortcuts](shortcuts)). A `checked` item shows a check mark instead of its icon. `icon` takes anything `<Image source>` takes, or a path string.
 
 ---
 
