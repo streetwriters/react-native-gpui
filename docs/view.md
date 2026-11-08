@@ -47,6 +47,36 @@ Style that applies while the ancestor that set `group` to the given name is hove
 
 ---
 
+### `acceptsFiles`
+
+Whether the view takes files and folders dragged in from the operating system. The nearest view under the pointer that does, counting the view itself, receives the drag events below; a view with none of them in its path is not a drop target and nothing is sent. See [Files dropped from the system](#files-dropped-from-the-system).
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `onDragEnter`, `onDragOver`, `onDragLeave`, `onDrop`
+
+Files dragged in from the operating system came over the view, moved over it, left it, or were dropped on it. `event.nativeEvent` has `files`, `x` and `y` (the pointer in the view), `pageX` and `pageY`, and `target`. Each file has `path`, `name`, `size` in bytes (`0` for a folder), `type` (a media type from the extension, or `''`) and `isDirectory`. The `Capture` forms exist too.
+
+| Type                                |
+| ----------------------------------- |
+| `(event: DesktopDragEvent) => void` |
+
+---
+
+### `dragOverStyle`
+
+State style applied while files are dragged over the view, which must set `acceptsFiles`. See [State styles](#state-styles).
+
+| Type                           |
+| ------------------------------ |
+| `StyleProp<DesktopStateStyle>` |
+
+---
+
 ### `focusable`
 
 Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `onFocus` and `onBlur`.
@@ -175,3 +205,21 @@ The pointer states come from the path React Native already tracks for `onPointer
 An animated value wins over a state style. While a native-driven animation owns a property of a view, such as `opacity` or `backgroundColor`, its state styles leave that property out and keep applying the rest.
 
 A state style's `opacity` applies to the view and everything inside it, per shape, not to the view's content as one picture.
+
+## Files dropped from the system
+
+```jsx
+<View
+  acceptsFiles
+  dragOverStyle={{ backgroundColor: '#dbeafe' }}
+  onDrop={event => {
+    for (const file of event.nativeEvent.files) {
+      importAttachment(file.path);
+    }
+  }}
+/>
+```
+
+Dragging files over the window sends `onDragEnter` to the view that takes them, `onDragOver` as the pointer moves, and `onDragLeave` when it moves to another view, leaves the window or is cancelled. Dropping sends `onDrop`, and no leave. A view that does not set `acceptsFiles` is never the target: the nearest ancestor that does is, and when there is none a drop does nothing. The event is a bubbling event, so a handler on an ancestor of the target also runs.
+
+`path` is a path the app can read, so a file is read from disk, not delivered as bytes. The drop does not copy or open anything. Dragging files out of the app is not supported.

@@ -261,6 +261,8 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  'file-drop': props =>
+    React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>
     React.createElement(
       require('./components/StateStylesFixture').default,

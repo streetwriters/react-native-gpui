@@ -122,6 +122,7 @@ Baselines are stored next to the test, in `__screenshots__/gpui/<platform>-<arch
 | Area             | Methods                                                                                                                                      |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows          | `setWindowSize`, `getWindowBounds`, `focusWindow`, `setWindowActive`, `listWindows`, `windowState`, `windowClose`, `osCloseWindow`, `reopen` |
+| File drops       | `dragFiles`, `dropFiles`, `dragFilesExit`                                                                                                    |
 | Menus            | `getAppMenu`, `triggerMenuItem`, `menuBarState`, `openMenuBarMenu`                                                                           |
 | Context menus    | `getContextMenu`, `selectContextMenuItem`, `dismissContextMenu`                                                                              |
 | Dev menu         | `showDevMenu`, `getDevMenu`, `devMenuPerform`, `closeDevMenu`                                                                                |

@@ -210,6 +210,30 @@ export default {
         captured: 'onContextMenuCapture',
       },
     },
+    topDragEnter: {
+      phasedRegistrationNames: {
+        bubbled: 'onDragEnter',
+        captured: 'onDragEnterCapture',
+      },
+    },
+    topDragOver: {
+      phasedRegistrationNames: {
+        bubbled: 'onDragOver',
+        captured: 'onDragOverCapture',
+      },
+    },
+    topDragLeave: {
+      phasedRegistrationNames: {
+        bubbled: 'onDragLeave',
+        captured: 'onDragLeaveCapture',
+      },
+    },
+    topDrop: {
+      phasedRegistrationNames: {
+        bubbled: 'onDrop',
+        captured: 'onDropCapture',
+      },
+    },
   },
   validAttributes: {
     ...iosConfig.validAttributes,
@@ -227,6 +251,16 @@ export default {
     groupActiveStyle: { process: processGroupStateStyle('groupActiveStyle') },
     onContextMenu: true,
     onContextMenuCapture: true,
+    acceptsFiles: true,
+    onDragEnter: true,
+    onDragEnterCapture: true,
+    onDragOver: true,
+    onDragOverCapture: true,
+    onDragLeave: true,
+    onDragLeaveCapture: true,
+    onDrop: true,
+    onDropCapture: true,
+    dragOverStyle: { process: processStateStyle('dragOverStyle') },
     // RN omits iOS listener flags when Platform.OS is an out-of-tree platform.
     // Fabric's AccessibilityProps needs these flags for native action routing.
     onAccessibilityAction: true,

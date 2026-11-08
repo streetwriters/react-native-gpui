@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 ## Unreleased
 
+- Added `app.dragFiles()`, `app.dropFiles()` and `app.dragFilesExit()` to simulate files dragged in from the operating system.
 - Added `app.setWindowActive(windowId, active)` to make a window active or inactive as far as the app can tell, without the operating system, so a test of focus does not depend on which application is in front.
 
 ## 0.87.0-alpha.0 - 2026-11-01

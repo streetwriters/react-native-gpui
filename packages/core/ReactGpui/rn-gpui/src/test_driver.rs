@@ -792,6 +792,51 @@ async fn serve_commands(
                     json!({"error":"Pointer command requires x and y"})
                 }
             }
+            "dragFiles" | "dropFiles" | "dragFilesExit" => {
+                let x = params.get("x").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let y = params.get("y").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let position = point(px(x), px(y));
+                let paths: Vec<std::path::PathBuf> = params
+                    .get("paths")
+                    .and_then(Value::as_array)
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(std::path::PathBuf::from)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let method = method.to_owned();
+                cx.update_window(window, move |_, window, app| {
+                    draw_frame(window, app);
+                    let mut send = |event: gpui::FileDropEvent| {
+                        window.dispatch_event(gpui::PlatformInput::FileDrop(event), app);
+                        draw_frame(window, app);
+                    };
+                    match method.as_str() {
+                        "dragFiles" => {
+                            if !paths.is_empty() {
+                                send(gpui::FileDropEvent::Entered {
+                                    position,
+                                    paths: gpui::ExternalPaths(paths.into_iter().collect()),
+                                });
+                            }
+                            send(gpui::FileDropEvent::Pending { position });
+                        }
+                        "dropFiles" => {
+                            send(gpui::FileDropEvent::Submit { position });
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                        _ => {
+                            send(gpui::FileDropEvent::Exited);
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                    }
+                    json!({"dispatched": true})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
+            }
             "focus" => {
                 let handle = cx.update_entity(&store, |store,cx| {
                     let tag = params.get("tag").and_then(Value::as_i64)? as i32;

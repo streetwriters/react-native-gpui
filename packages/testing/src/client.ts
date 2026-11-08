@@ -1104,6 +1104,27 @@ export class DesktopApp {
   ): Promise<void> {
     await this.request('mouseMove', { ...position, ...options });
   }
+  /**
+   * Starts dragging files in from the operating system over a window position,
+   * or moves a drag that has started.
+   */
+  async dragFiles(
+    paths: string[],
+    position: { x: number; y: number },
+  ): Promise<void> {
+    await this.request('dragFiles', { paths, ...position });
+  }
+
+  /** Drops the files being dragged over a window position. */
+  async dropFiles(position: { x: number; y: number }): Promise<void> {
+    await this.request('dropFiles', position);
+  }
+
+  /** Drags the files off the window without dropping them. */
+  async dragFilesExit(): Promise<void> {
+    await this.request('dragFilesExit');
+  }
+
   async focus(tag: number): Promise<void> {
     await this.request('focus', { tag });
   }

@@ -18,9 +18,10 @@ use gpui::App;
 use std::cell::RefCell;
 
 #[derive(Clone, Copy)]
-enum Kind {
+pub(crate) enum Kind {
     Hover,
     Press,
+    Drag,
 }
 
 #[derive(Default)]
@@ -35,6 +36,7 @@ struct Track {
 struct State {
     hover: Track,
     press: Track,
+    drag: Track,
 }
 
 impl State {
@@ -42,6 +44,7 @@ impl State {
         match kind {
             Kind::Hover => &self.hover,
             Kind::Press => &self.press,
+            Kind::Drag => &self.drag,
         }
     }
 
@@ -49,6 +52,7 @@ impl State {
         match kind {
             Kind::Hover => &mut self.hover,
             Kind::Press => &mut self.press,
+            Kind::Drag => &mut self.drag,
         }
     }
 }
@@ -67,6 +71,11 @@ pub(crate) fn group_hovered(tag: i32) -> bool {
     STATE.with_borrow(|state| state.hover.grouped.contains(&tag))
 }
 
+/// Whether files are being dragged over this node, the one that takes them.
+pub(crate) fn node_dragged_over(tag: i32) -> bool {
+    STATE.with_borrow(|state| state.drag.tags.contains(&tag))
+}
+
 /// Whether a press is held on this node or one of its descendants.
 pub(crate) fn node_pressed(tag: i32) -> bool {
     STATE.with_borrow(|state| state.press.tags.contains(&tag))
@@ -80,6 +89,12 @@ pub(crate) fn group_pressed(tag: i32) -> bool {
 /// The pointer is now over `chain`, the target and its ancestors.
 pub(crate) fn set_hover(chain: &[i32], cx: &mut App) {
     set(Kind::Hover, chain, cx);
+}
+
+/// Files are now being dragged over `target`, or over nothing.
+pub(crate) fn set_drag(target: Option<i32>, cx: &mut App) {
+    let chain: Vec<i32> = target.into_iter().collect();
+    set(Kind::Drag, &chain, cx);
 }
 
 /// A press is now held on `chain`, the target and its ancestors.
@@ -118,14 +133,13 @@ fn update(kind: Kind, chain: &[i32], force: bool, cx: &mut App) {
     if unchanged && !force {
         return;
     }
-    let press = kind.is_press();
     let grouped = {
         let store = store.read(cx);
         store
             .nodes
             .values()
-            .filter(|node| node.read(cx).pointer_style_group(press).is_some())
-            .filter(|node| group_on_path(node, press, chain, cx))
+            .filter(|node| node.read(cx).pointer_style_group(kind).is_some())
+            .filter(|node| group_on_path(node, kind, chain, cx))
             .map(|node| node.read(cx).tag)
             .collect()
     };
@@ -142,7 +156,7 @@ fn update(kind: Kind, chain: &[i32], force: bool, cx: &mut App) {
         .read(cx)
         .nodes
         .values()
-        .filter(|node| node.read(cx).has_pointer_style(press))
+        .filter(|node| node.read(cx).has_pointer_style(kind))
         .cloned()
         .collect();
     for node in nodes {
@@ -207,8 +221,8 @@ fn propagate_text_color(node: &gpui::Entity<RNNodeView>, inherited: Option<u32>,
 }
 
 /// Whether the nearest ancestor of `node` that names its group is on `chain`.
-fn group_on_path(node: &gpui::Entity<RNNodeView>, press: bool, chain: &[i32], cx: &App) -> bool {
-    let Some(group) = node.read(cx).pointer_style_group(press) else {
+fn group_on_path(node: &gpui::Entity<RNNodeView>, kind: Kind, chain: &[i32], cx: &App) -> bool {
+    let Some(group) = node.read(cx).pointer_style_group(kind) else {
         return false;
     };
     let mut ancestor = node
@@ -224,10 +238,4 @@ fn group_on_path(node: &gpui::Entity<RNNodeView>, press: bool, chain: &[i32], cx
         ancestor = entity.parent.as_ref().and_then(|parent| parent.upgrade());
     }
     false
-}
-
-impl Kind {
-    fn is_press(self) -> bool {
-        matches!(self, Kind::Press)
-    }
 }

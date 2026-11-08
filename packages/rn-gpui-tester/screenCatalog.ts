@@ -48,6 +48,12 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'file-drop',
+    title: 'File drop',
+    group: 'Input',
+    fixture: 'FileDropFixture',
+  },
+  {
     id: 'state-styles',
     title: 'State styles',
     group: 'Input',

@@ -123,6 +123,9 @@ pub mod ffi {
         pub focus_visible_style: String,
         pub group_hover_style: String,
         pub group_active_style: String,
+        pub drag_over_style: String,
+        /// Whether the view takes files dropped from the operating system.
+        pub accepts_files: bool,
     }
 
     #[derive(Clone, Debug, Default)]

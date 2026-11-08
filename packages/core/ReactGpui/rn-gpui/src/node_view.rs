@@ -563,6 +563,10 @@ impl RNNodeView {
                 targeted && crate::interaction::node_hovered(tag),
             ),
             (
+                styles.drag_over.as_ref(),
+                crate::interaction::node_dragged_over(tag),
+            ),
+            (
                 styles.group_active.as_ref().map(|grouped| &grouped.style),
                 crate::interaction::group_pressed(tag),
             ),
@@ -644,25 +648,33 @@ impl RNNodeView {
     }
 
     /// Whether this node has a hover style, or a press style when `press`.
-    pub(crate) fn has_pointer_style(&self, press: bool) -> bool {
-        self.state_styles.as_ref().is_some_and(|styles| {
-            if press {
-                styles.active.is_some() || styles.group_active.is_some()
-            } else {
-                styles.hover.is_some() || styles.group_hover.is_some()
-            }
+    pub(crate) fn has_pointer_style(&self, kind: crate::interaction::Kind) -> bool {
+        use crate::interaction::Kind;
+        self.state_styles.as_ref().is_some_and(|styles| match kind {
+            Kind::Press => styles.active.is_some() || styles.group_active.is_some(),
+            Kind::Hover => styles.hover.is_some() || styles.group_hover.is_some(),
+            Kind::Drag => styles.drag_over.is_some(),
         })
     }
 
     /// The group this node's hover (or press) style follows.
-    pub(crate) fn pointer_style_group(&self, press: bool) -> Option<gpui::SharedString> {
+    pub(crate) fn pointer_style_group(
+        &self,
+        kind: crate::interaction::Kind,
+    ) -> Option<gpui::SharedString> {
+        use crate::interaction::Kind;
         let styles = self.state_styles.as_ref()?;
-        let grouped = if press {
-            styles.group_active.as_ref()
-        } else {
-            styles.group_hover.as_ref()
+        let grouped = match kind {
+            Kind::Press => styles.group_active.as_ref(),
+            Kind::Hover => styles.group_hover.as_ref(),
+            Kind::Drag => None,
         };
         Some(grouped?.group.clone())
+    }
+
+    /// Whether this view takes files dropped from the operating system.
+    pub(crate) fn accepts_files(&self) -> bool {
+        self.view.accepts_files
     }
 
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
@@ -5010,6 +5022,11 @@ impl RNNodeView {
                             this.text_selection_anchor.is_some(),
                         )
                     };
+                    if crate::file_drop::active() {
+                        crate::file_drop::over(window, cx, hit_target.as_ref(), event.position);
+                        cx.stop_propagation();
+                        return;
+                    }
                     if event.pressed_button.is_some() {
                         if selecting_text {
                             node.update(cx, |this, cx| {
@@ -5063,6 +5080,11 @@ impl RNNodeView {
                     let Some(node) = node.upgrade() else {
                         return;
                     };
+                    if crate::file_drop::active() {
+                        let target = crate::events::target(cx, node.read(cx));
+                        crate::file_drop::landing(target, event.position);
+                        return;
+                    }
                     let active_target = crate::events::active_touch_target(cx);
                     if let Some(target) = active_target.as_ref() {
                         crate::events::send(

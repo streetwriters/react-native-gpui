@@ -253,6 +253,7 @@ pub struct StateStyles {
     pub active: Option<StateStyle>,
     pub focus: Option<StateStyle>,
     pub focus_visible: Option<StateStyle>,
+    pub drag_over: Option<StateStyle>,
     pub group_hover: Option<GroupStateStyle>,
     pub group_active: Option<GroupStateStyle>,
 }
@@ -292,6 +293,7 @@ impl StateStyles {
         [
             self.focus.as_ref(),
             self.focus_visible.as_ref(),
+            self.drag_over.as_ref(),
             self.hover.as_ref(),
             self.active.as_ref(),
             self.group_hover.as_ref().map(|grouped| &grouped.style),
@@ -310,6 +312,7 @@ impl StateStyles {
             active: parse_state("activeStyle", &v.active_style),
             focus: parse_state("focusStyle", &v.focus_style),
             focus_visible: parse_state("focusVisibleStyle", &v.focus_visible_style),
+            drag_over: parse_state("dragOverStyle", &v.drag_over_style),
             group_hover: parse_group("groupHoverStyle", &v.group_hover_style),
             group_active: parse_group("groupActiveStyle", &v.group_active_style),
         };
