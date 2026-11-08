@@ -42,6 +42,44 @@ struct Request {
 /// The generation of the React instance currently mounted, or 0 before the host
 /// has created one. Reported by `hello`, `tree` and `reload` so a client can
 /// wait for a *particular* instance after a reload.
+#[cfg(target_os = "macos")]
+fn dock_menu(command: &str, params: &Value) -> Value {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: AppKit is messaged on the main thread, where the driver runs; the
+    // menu is the delegate's own and outlives this call.
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: id = msg_send![app, delegate];
+        let menu: id = msg_send![delegate, applicationDockMenu: app];
+        if menu.is_null() {
+            return json!({"titles": Vec::<String>::new()});
+        }
+        if command == "dockMenuPress" {
+            let index = params.get("index").and_then(Value::as_i64).unwrap_or(0);
+            let _: () = msg_send![menu, performActionForItemAtIndex: index as isize];
+            return json!({"pressed": index});
+        }
+        let count: isize = msg_send![menu, numberOfItems];
+        let titles: Vec<String> = (0..count)
+            .map(|index| {
+                let item: id = msg_send![menu, itemAtIndex: index];
+                let title: id = msg_send![item, title];
+                let bytes: *const std::os::raw::c_char = msg_send![title, UTF8String];
+                std::ffi::CStr::from_ptr(bytes)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        json!({"titles": titles})
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dock_menu(_command: &str, _params: &Value) -> Value {
+    json!({"error": "the Dock menu is only available on macOS"})
+}
+
 fn instance_generation() -> u64 {
     // SAFETY: the C++ function takes no arguments and reads an atomic.
     unsafe { rn_gpui_instance_generation() }
@@ -225,6 +263,7 @@ async fn serve_commands(
                     json!({"width": f32::from(size.width), "height":f32::from(size.height)})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
+            "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
             "focusWindow" => {
                 let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
                 if !offscreen && crate::desktop::background::enabled() {

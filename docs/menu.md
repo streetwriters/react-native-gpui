@@ -38,6 +38,18 @@ Replaces the menu. `null` restores the default.
 
 ---
 
+### `setDockMenu()`
+
+```tsx
+Menu.setDockMenu(items: MenuItemSpec[] | null): Promise<void>;
+```
+
+Sets the menu shown above the system's own items when the app's Dock icon is right-clicked, such as "New note" and "New notebook". macOS only: elsewhere the call does nothing, and Windows has no equivalent yet. `null` removes the menu.
+
+An item's `onPress` runs when it is chosen, and the press is also reported to `Menu.addListener('press')` with the item's `id`. Ids should differ from the application menu's. The menu is cleared when the app quits; set it again on every launch.
+
+---
+
 ### `update()`
 
 ```tsx

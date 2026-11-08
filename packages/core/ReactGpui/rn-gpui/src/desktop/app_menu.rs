@@ -192,6 +192,20 @@ pub fn set_application_menu(cx: &mut App, items: Option<&Value>) -> DesktopResul
     Ok(json!({"items": current_model(cx).ids().len()}))
 }
 
+/// Sets the menu of the Dock icon. Its items report as `menuPress` like the
+/// application menu's. Other platforms have no Dock, so nothing happens there.
+pub fn set_dock_menu(cx: &mut App, items: Option<&Value>) -> DesktopResult {
+    let model = match items {
+        Some(value) => menu_model::parse_menu(value)?,
+        None => MenuModel { items: Vec::new() },
+    };
+    #[cfg(target_os = "macos")]
+    cx.set_dock_menu(build_items(&model.items));
+    #[cfg(not(target_os = "macos"))]
+    let _ = &model;
+    Ok(json!({"items": model.ids().len()}))
+}
+
 pub fn update_item(cx: &mut App, id: &str, patch: &Value) -> DesktopResult {
     let patch = patch
         .as_object()

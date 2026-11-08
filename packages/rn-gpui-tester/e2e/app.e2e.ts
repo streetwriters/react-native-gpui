@@ -69,6 +69,23 @@ test('the zoom roles step the window zoom and reset it', async () => {
   await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1');
 });
 
+test.runIf(process.platform === 'darwin')(
+  'the Dock menu shows its items and runs the one that is chosen',
+  async () => {
+    await expect
+      .poll(() => app.dockMenu(), { timeout: 5_000 })
+      .toEqual(['New note', 'New notebook']);
+    await app.pressDockMenuItem(1);
+    await desktopExpect(app.getByTestId('app-dock-presses')).toHaveText(
+      'notebook',
+    );
+    await app.pressDockMenuItem(0);
+    await desktopExpect(app.getByTestId('app-dock-presses')).toHaveText(
+      'notebook,note',
+    );
+  },
+);
+
 test('quit ends the application', async () => {
   await app
     .getByTestId('app-quit')

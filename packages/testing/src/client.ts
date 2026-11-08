@@ -943,6 +943,16 @@ export class DesktopApp {
     return this.request('displays');
   }
 
+  /** The titles of the Dock menu's items (macOS). */
+  async dockMenu(): Promise<string[]> {
+    return (await this.request<{ titles: string[] }>('dockMenu')).titles;
+  }
+
+  /** Chooses an item of the Dock menu by its position, as a click would (macOS). */
+  async pressDockMenuItem(index: number): Promise<void> {
+    await this.request('dockMenuPress', { index });
+  }
+
   async windowState(windowId: number): Promise<{
     windowId: number;
     bounds: { x: number; y: number; width: number; height: number };

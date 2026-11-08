@@ -185,22 +185,28 @@ export function collectMenuHandlers(
 }
 
 let applicationMenuHandlers: MenuHandlers = new Map();
+let dockMenuHandlers: MenuHandlers = new Map();
 let applicationMenuListening = false;
+
+function listenForMenuPresses() {
+  if (applicationMenuListening) {
+    return;
+  }
+  applicationMenuListening = true;
+  DeviceEventEmitter.addListener(MENU_PRESS, payload => {
+    const id = (payload as MenuPressEvent | undefined)?.id;
+    if (id != null) {
+      (applicationMenuHandlers.get(id) ?? dockMenuHandlers.get(id))?.();
+    }
+  });
+}
 
 /** Makes `items`' handlers the ones a press of the application menu runs. */
 export function setApplicationMenuHandlers(items: MenuItemSpec[] | null) {
   applicationMenuHandlers = items
     ? collectMenuHandlers(items).handlers
     : new Map();
-  if (!applicationMenuListening) {
-    applicationMenuListening = true;
-    DeviceEventEmitter.addListener(MENU_PRESS, payload => {
-      const id = (payload as MenuPressEvent | undefined)?.id;
-      if (id != null) {
-        applicationMenuHandlers.get(id)?.();
-      }
-    });
-  }
+  listenForMenuPresses();
 }
 
 /** Hearers of `Menu.setMenuBarVisible` for the main window. */
@@ -238,6 +244,20 @@ export const Menu = {
     setApplicationMenuHandlers(items);
     return request(native =>
       native.menuSetApplicationMenu(items ? nativeMenuItems(items) : null),
+    );
+  },
+
+  /**
+   * Sets the menu of the Dock icon, shown above the system's own items when the
+   * icon is right-clicked. macOS only; elsewhere it does nothing. `null` removes
+   * it. An item's `onPress` runs when it is chosen, and the press is reported to
+   * `addListener('press')` like the application menu's.
+   */
+  setDockMenu(items: MenuItemSpec[] | null): Promise<void> {
+    dockMenuHandlers = items ? collectMenuHandlers(items).handlers : new Map();
+    listenForMenuPresses();
+    return request(native =>
+      native.menuSetDockMenu(items ? nativeMenuItems(items) : null),
     );
   },
 

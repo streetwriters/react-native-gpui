@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `Menu.setDockMenu(items)` sets the menu of the Dock icon on macOS, with `onPress` per item. Needs a prebuilt runtime built with the change.
 - Menu roles `zoomIn`, `zoomOut` and `resetZoom` step the focused window's zoom factor through a browser's levels and back to 100%, from the application menu or `Menu.performRole()`. Needs a prebuilt runtime built with the change.
 - `App` (from `@react-native-gpui/core/desktop`): `launchArgs()`, `quit()`, `exit(code)`, `relaunch()` and `onSecondInstance(handler)`. With `singleInstance`, a second launch now shows the main window (restoring a minimized or hidden one) as well as focusing it, and its arguments reach JS. Needs a prebuilt runtime built with the change.
 - Escape cancels a view drag: the target gets `onDragLeave`, nothing drops and `onDragEnd` reports `dropped: false`.
