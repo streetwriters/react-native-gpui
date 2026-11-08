@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `platforms.desktop.bundleHook` names a module of a package that `run-desktop --release` and `package-desktop` run after the app's bundle is built, to build more of what the release ships (react-native-workers bundles each worker this way). What it returns is copied beside the bundle and packaged as resources.
 - `platforms.desktop.cppSpecs` lists the specification files a package's C++ provider serves when the package also has a Rust crate, so the provider is no longer asked for the crate's modules and the crate no longer lists the C++ ones.
 - Autolink records the window options and flags of `desktop/desktop.json`, merged with the per-OS file, in the generated autolink crate, and `ensure_linked()` hands them to the runtime, so `window.titleBar`, `window.trafficLightPosition` and the other window keys apply to a hand-written `main.rs` without running `init-desktop` again.
 - `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.

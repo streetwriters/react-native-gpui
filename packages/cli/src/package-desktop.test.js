@@ -253,6 +253,16 @@ describe('toPackagerConfig', () => {
     ...overrides,
   });
 
+  test("what a package's bundle hook produced ships as a resource", () => {
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({
+        extraResources: ['/project/desktop/build/package/workers'],
+      }),
+    );
+    expect(config.resources).toContain('build/package/workers');
+  });
+
   test('url schemes become deep link protocols, which register them per OS', () => {
     const config = toPackagerConfig(
       desktopConfig({ urlSchemes: ['myapp'] }),
