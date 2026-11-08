@@ -1370,6 +1370,8 @@ test('an SVG icon has the same antialiased edge and place as Chrome draws', asyn
     ['svg-edge-stretched', read('chrome-star-16.png')],
     ['svg-edge-centered', read('chrome-arrow-centered.png')],
     ['svg-edge-centered-stretched', read('chrome-arrow-centered.png')],
+    ['svg-edge-search', read('chrome-search-15.png')],
+    ['svg-edge-search-transform', read('chrome-search-transform.png')],
   ];
   await launch('GPUISvgEdgeFixture');
   const mismatches: Record<string, number> = {};
