@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { DesktopWindow } from '@react-native-gpui/core/desktop';
 import fs, { paths } from '@react-native-gpui/fs';
 import {
+  getIdleTime,
   getLaunchAtLogin,
   isContentProtected,
   restart,
@@ -86,6 +87,19 @@ export function SystemFixture({
       await setContentProtected(false);
       record(
         `protectionOffAgain ${(await isContentProtected()) === false ? 'ok' : 'BAD'}`,
+      );
+      const idleBefore = await getIdleTime();
+      await wait(1200);
+      const idleAfter = await getIdleTime();
+      // Either it kept counting, or the user touched the machine meanwhile.
+      record(
+        `idleTime ${
+          Number.isFinite(idleBefore) &&
+          idleBefore >= 0 &&
+          (idleAfter >= idleBefore + 1 || idleAfter < idleBefore)
+            ? 'ok'
+            : 'BAD'
+        }`,
       );
       record('done ok');
     })().catch(error => {
