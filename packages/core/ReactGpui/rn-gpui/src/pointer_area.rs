@@ -114,10 +114,14 @@ impl PointerHandlers {
 }
 
 /// How far past its box a node takes a press, in points: left, top, right,
-/// bottom. Only presses use it: hover and moves are over the box itself.
+/// bottom. Presses, moves and hover all reach this far, and so does the cursor.
 pub(crate) type HitSlop = [f32; 4];
 
-pub(crate) fn pointer_area(handlers: Rc<PointerHandlers>, slop: HitSlop) -> impl IntoElement {
+pub(crate) fn pointer_area(
+    handlers: Rc<PointerHandlers>,
+    slop: HitSlop,
+    cursor: Option<gpui::CursorStyle>,
+) -> impl IntoElement {
     canvas(
         move |bounds, window, _cx| {
             let reach = Bounds {
@@ -127,14 +131,14 @@ pub(crate) fn pointer_area(handlers: Rc<PointerHandlers>, slop: HitSlop) -> impl
                     bounds.size.height + px(slop[1] + slop[3]),
                 ),
             };
-            // Inserted together, so they stack alike: a sibling above covers
-            // the slop as it covers the box.
-            (
-                window.insert_hitbox(reach, HitboxBehavior::Normal),
-                window.insert_hitbox(bounds, HitboxBehavior::Normal),
-            )
+            window.insert_hitbox(reach, HitboxBehavior::Normal)
         },
-        move |_bounds, (press_box, hitbox), window, _cx| {
+        move |_bounds, press_box, window, _cx| {
+            if let Some(cursor) = cursor {
+                if slop != [0.0; 4] {
+                    window.set_cursor_style(cursor, &press_box);
+                }
+            }
             // A listener per handler, each holding the shared handlers and its
             // index, so GPUI stops between them when one stops propagation.
             // Every button, including the ones nothing currently registers, so
@@ -164,7 +168,7 @@ pub(crate) fn pointer_area(handlers: Rc<PointerHandlers>, slop: HitSlop) -> impl
                 }
             }
             for index in 0..handlers.mouse_move.len() {
-                let (handlers, hitbox) = (handlers.clone(), hitbox.clone());
+                let (handlers, hitbox) = (handlers.clone(), press_box.clone());
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                     if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                         handlers.mouse_move[index](event, window, cx);
@@ -178,7 +182,7 @@ pub(crate) fn pointer_area(handlers: Rc<PointerHandlers>, slop: HitSlop) -> impl
             // `was_hovered` local here would reset at each paint and the leave edge
             // would never fire.
             for index in 0..handlers.hover.len() {
-                let (handlers, hitbox) = (handlers.clone(), hitbox.clone());
+                let (handlers, hitbox) = (handlers.clone(), press_box.clone());
                 window.on_mouse_event(move |_event: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble {
                         return;
@@ -216,7 +220,7 @@ mod hover_tests {
             let handlers = self.handlers.borrow_mut().take().unwrap_or_default();
             gpui::div()
                 .size_full()
-                .child(pointer_area(Rc::new(handlers), [0.0; 4]))
+                .child(pointer_area(Rc::new(handlers), [0.0; 4], None))
         }
     }
 
@@ -342,7 +346,7 @@ mod hover_tests {
                     .left(gpui::px(60.0))
                     .top(gpui::px(60.0))
                     .size(gpui::px(40.0))
-                    .child(pointer_area(Rc::new(handlers), self.slop)),
+                    .child(pointer_area(Rc::new(handlers), self.slop, None)),
             )
         }
     }
@@ -400,16 +404,16 @@ mod hover_tests {
     }
 
     #[gpui::test]
-    fn a_press_in_the_slop_reaches_the_handler_but_a_hover_does_not(cx: &mut gpui::TestAppContext) {
+    fn a_press_or_hover_in_the_slop_reaches_the_handler(cx: &mut gpui::TestAppContext) {
         let slop = [10.0, 20.0, 30.0, 40.0];
         // Inside the box.
         assert_eq!(press_and_hover(cx, slop, 80.0, 80.0), (true, true));
         // Left of the box by 5 (slop 10), above it by 15 (slop 20).
-        assert_eq!(press_and_hover(cx, slop, 55.0, 80.0), (true, false));
-        assert_eq!(press_and_hover(cx, slop, 80.0, 45.0), (true, false));
+        assert_eq!(press_and_hover(cx, slop, 55.0, 80.0), (true, true));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 45.0), (true, true));
         // Right of the box by 25 (slop 30), below it by 35 (slop 40).
-        assert_eq!(press_and_hover(cx, slop, 125.0, 80.0), (true, false));
-        assert_eq!(press_and_hover(cx, slop, 80.0, 135.0), (true, false));
+        assert_eq!(press_and_hover(cx, slop, 125.0, 80.0), (true, true));
+        assert_eq!(press_and_hover(cx, slop, 80.0, 135.0), (true, true));
         // Past the slop on each side.
         assert_eq!(press_and_hover(cx, slop, 45.0, 80.0), (false, false));
         assert_eq!(press_and_hover(cx, slop, 80.0, 35.0), (false, false));

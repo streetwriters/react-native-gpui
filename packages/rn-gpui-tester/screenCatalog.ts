@@ -90,6 +90,18 @@ export const screens = [
     fixture: 'EllipsisFixture',
   },
   {
+    id: 'props-probe',
+    title: 'Props probe',
+    group: 'Views',
+    fixture: 'PropsProbeFixture',
+  },
+  {
+    id: 'rounded-clip',
+    title: 'Rounded clip under transform',
+    group: 'Views',
+    fixture: 'RoundedClipFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

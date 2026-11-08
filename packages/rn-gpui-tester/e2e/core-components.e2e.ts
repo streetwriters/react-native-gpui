@@ -695,6 +695,27 @@ describe('hitSlop and pressRetentionOffset', () => {
     expect(await text('slop-default-count')).toBe('0');
   });
 
+  test('the pointer entering the slop around a view enters it, and past the slop does not', async () => {
+    const frame = await area();
+    const top = await surfaceTop();
+    const move = async (x: number, y: number) => {
+      await app.mouseMove({ x: frame.x + x, y: frame.y + y + top });
+      await app.waitForIdle();
+    };
+    await move(100, 100);
+    expect(await text('slop-enter-count')).toBe('0');
+    await move(112, 35);
+    expect(await text('slop-enter-count')).toBe('0');
+    await move(120, 35);
+    await poll(async () => (await text('slop-enter-count')) === '1');
+    await move(100, 100);
+    await move(140, 55);
+    await poll(async () => (await text('slop-enter-count')) === '2');
+    await move(140, 65);
+    await move(140, 35);
+    await poll(async () => (await text('slop-enter-count')) === '3');
+  });
+
   test('dragging out of a view keeps the press only as far as pressRetentionOffset', async () => {
     const frame = await area();
     // The green view retains 80 points: released 60 past its edge it presses.

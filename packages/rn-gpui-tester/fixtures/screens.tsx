@@ -287,6 +287,16 @@ export const renderScreen: Record<
     ),
   ellipsis: props =>
     React.createElement(require('./components/EllipsisFixture').default, props),
+  'props-probe': props =>
+    React.createElement(
+      require('./components/PropsProbeFixture').default,
+      props,
+    ),
+  'rounded-clip': props =>
+    React.createElement(
+      require('./components/RoundedClipFixture').default,
+      props,
+    ),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>

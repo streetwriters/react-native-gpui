@@ -5,6 +5,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 ## Unreleased
 
 - `launchApp` sets `RN_GPUI_DEV_PORT=1` when it is given a bundle and the environment does not set it, so the app loads the bundle at once instead of trying a dev server first.
+- `app.getProps()` is typed and reports the color, line height and letter spacing of each text fragment, `textColor`, `borderColors`, `borderRadii`, `boxShadows`, `textAlign`, `numberOfLines` and the outline's color and offset, and `app.tree()` nodes have `backgroundColor`, `opacity`, `borderColors` and `textColor`.
 - `app.press()` accepts the W3C key names (`ArrowDown`, `ArrowUp`, `ArrowLeft`, `ArrowRight`) as well as GPUI's (`down`, `up`, …), and the app sees `ArrowDown`, not `Arrowdown`.
 - `app.mouseMove()` between `app.mouseDown()` and `app.mouseUp()` is a move with the button held, as with a mouse, so a sequence of them drives `onPointerMove` of a pressed view without `app.drag()`.
 - Added `app.dragFiles()`, `app.dropFiles()` and `app.dragFilesExit()` to simulate files dragged in from the operating system.

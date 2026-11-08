@@ -3881,7 +3881,11 @@ impl Render for RNNodeView {
             }
         } else {
             if !handlers.is_empty() {
-                element = element.child(pointer_area(handlers, self.view.hit_slop));
+                element = element.child(pointer_area(
+                    handlers,
+                    self.view.hit_slop,
+                    crate::style::cursor_style(self.view.cursor),
+                ));
             }
         }
         // Not for a scroll container, which never had one: its content is

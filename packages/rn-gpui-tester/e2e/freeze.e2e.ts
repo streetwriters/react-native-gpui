@@ -17,6 +17,7 @@ beforeAll(async () => {
       RN_GPUI_MODULE: 'RNGPUITester--freeze',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+      RN_GPUI_DEBUG_JS_TASKS: '1',
     },
     disableAnimations: false,
     offscreen: true,
@@ -34,7 +35,20 @@ test('the app settles after moving through several frozen routes', async () => {
   }
   await app.getByTestId('route-home-bump').click();
   await app.waitForIdle({ timeout: 8000 });
-  expect(await app.getByTestId('route-home-title').textContent()).toBe(
-    'home 1',
+  expect(await app.getByTestId('route-home-title').textContent()).toMatch(
+    /^home 1 /,
   );
+});
+
+test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is running', async () => {
+  void app.getByTestId('js-busy').click();
+  let status = '';
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline && !status.includes('running for')) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    status = JSON.stringify(await app.idleStatus());
+  }
+  expect(status).toContain('running for');
+  expect(status).toContain('queued from');
+  await app.waitForIdle({ timeout: 8000 });
 });

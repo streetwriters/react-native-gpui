@@ -686,8 +686,9 @@ impl TextService {
         let mut measured_width = 0.0f32;
         let mut measured_height = 0.0f32;
         for line in shaped_lines {
-            let line_height = explicit_line_height
-                .unwrap_or_else(|| f32::from(line.ascent() + line.descent()).max(1.0));
+            let line_height = explicit_line_height.unwrap_or_else(|| {
+                (f32::from(line.ascent()).round() + f32::from(line.descent()).round()).max(1.0)
+            });
             let visual_lines = line.wrap_boundaries.len() + 1;
             measured_width = measured_width.max(f32::from(line.width()));
             measured_height += line_height * visual_lines as f32;
@@ -732,8 +733,8 @@ pub fn install_measure_handler(cx: &mut App) {
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
         MeasureResult {
-            width: shaped.width.ceil(),
-            height: shaped.height.ceil(),
+            width: shaped.width,
+            height: shaped.height,
         }
     }));
 }

@@ -22,6 +22,7 @@ unsafe extern "C" {
     fn rn_gpui_pending_timers_due_within(window_ms: u64) -> u64;
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
+    fn rn_gpui_pending_js_tasks_dump(buffer: *mut u8, capacity: u64) -> u64;
     fn rn_gpui_native_animations_active() -> u64;
     fn rn_gpui_frame_demand() -> u64;
     fn rn_gpui_pending_work() -> u64;
@@ -1679,9 +1680,19 @@ fn idle_status(
     if (js_tasks > 0 || unsafe { rn_gpui_reload_in_progress() })
         && !ignore.iter().any(|item| item == "js")
     {
-        busy.push(
-            json!({"source":"js", "detail":format!("{js_tasks} queued or running JS task(s)")}),
-        );
+        let mut detail = format!("{js_tasks} queued or running JS task(s)");
+        if std::env::var_os("RN_GPUI_DEBUG_JS_TASKS").is_some() {
+            let mut buffer = vec![0u8; 64 * 1024];
+            // SAFETY: the buffer is valid for the capacity given, and the call
+            // writes at most that many bytes.
+            let length =
+                unsafe { rn_gpui_pending_js_tasks_dump(buffer.as_mut_ptr(), buffer.len() as u64) }
+                    as usize;
+            buffer.truncate(length.min(buffer.len()));
+            detail.push_str(":\n");
+            detail.push_str(&String::from_utf8_lossy(&buffer));
+        }
+        busy.push(json!({"source":"js", "detail": detail}));
     }
     // SAFETY: these C++ probes take no pointers and only read counters.
     let native_animations = unsafe { rn_gpui_native_animations_active() };
@@ -2061,6 +2072,25 @@ fn tree(store: &ViewStore, cx: &gpui::Context<ViewStore>) -> Value {
     json!({"surface": store.primary_surface_id, "generation": instance_generation(), "children": children})
 }
 
+/// The color of each border side as ARGB, `0` for none.
+fn border_colors_json(node: &RNNodeView) -> Value {
+    let colors = node.view.border_colors;
+    json!({"left": colors[0], "top": colors[1], "right": colors[2], "bottom": colors[3]})
+}
+
+/// The color of a node's text: its first non-empty fragment's, as ARGB.
+fn text_color(node: &RNNodeView) -> Value {
+    node.paragraph
+        .as_ref()
+        .and_then(|paragraph| {
+            paragraph
+                .fragments
+                .iter()
+                .find(|fragment| !fragment.text.is_empty())
+        })
+        .map_or(Value::Null, |fragment| json!(fragment.color))
+}
+
 fn tree_node(
     entity: &Entity<RNNodeView>,
     store: &ViewStore,
@@ -2075,6 +2105,8 @@ fn tree_node(
     json!({"tag": node.tag, "component": node.component, "testID": node.view.test_id,
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
+        "backgroundColor": node.view.background_color, "opacity": node.view.opacity,
+        "borderColors": border_colors_json(node), "textColor": text_color(node),
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
         "scrollOffset": [node.scroll_offset().x, node.scroll_offset().y],
@@ -2108,6 +2140,12 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
                         "fontSize": fragment.font_size,
                         "fontWeight": fragment.font_weight,
                         "italic": fragment.italic,
+                        "color": fragment.color,
+                        "lineHeight": fragment.line_height,
+                        "letterSpacing": fragment.letter_spacing,
+                        "underline": fragment.underline,
+                        "strikethrough": fragment.strikethrough,
+                        "textTransform": fragment.text_transform,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -2120,6 +2158,18 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "borderWidths": {"left": node.view.border_widths.left, "top": node.view.border_widths.top,
             "right": node.view.border_widths.right, "bottom": node.view.border_widths.bottom},
         "borderStyles": node.view.border_styles,
+        "borderColors": border_colors_json(node),
+        "borderRadii": {"topLeft": node.view.border_radii.tl, "topRight": node.view.border_radii.tr,
+            "bottomRight": node.view.border_radii.br, "bottomLeft": node.view.border_radii.bl},
+        "boxShadows": node.view.shadows.iter().map(|shadow| json!({
+            "offsetX": shadow.dx, "offsetY": shadow.dy, "blurRadius": shadow.blur,
+            "spreadDistance": shadow.spread, "color": shadow.color, "inset": shadow.inset,
+        })).collect::<Vec<_>>(),
+        "textColor": text_color(node),
+        "textAlign": node.paragraph.as_ref().map(|paragraph| paragraph.text_align),
+        "numberOfLines": node.paragraph.as_ref().map(|paragraph| paragraph.max_lines),
+        "outlineColor": node.view.outline_color,
+        "outlineOffset": node.view.outline_offset,
         "outlineWidth": node.view.outline_width,
         "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
         "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),

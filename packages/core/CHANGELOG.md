@@ -4,6 +4,10 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `hitSlop` now also extends hover and pointer moves (`onPointerEnter`, `onPointerLeave`, `onPointerMove`) and the view's `cursor`, not just presses, so a thin divider can be painted at 1 point and show `col-resize` over a wider grab area. `hoverStyle` still follows the painted box.
+- A text is measured to the pixel and not rounded up to a whole point first, so its frame is Yoga's ceil to the device pixel grid (at a scale of 2 a text 39.16 points wide has a frame 39.5 wide, not 40). A line without an explicit `lineHeight` is as tall as its ascent and descent each rounded to a whole point, as in a browser: Inter at 13 and 15 points is 16 and 19 tall.
+- A view that clips to its rounded corners (`borderRadius` with `overflow: 'hidden'`) now clips to the corners as drawn when it has a `transform`: the clip was left at its untransformed size and position, so a scaled view was cut to the unscaled shape. A rotation clips to the rotated view's bounding box. Needs the gpui-fast revision that carries the change.
+- `RN_GPUI_DEBUG_JS_TASKS=1` makes the test driver's idle error list the JavaScript tasks that are queued or running, each with its age and the call stack that queued it.
 - A one-line text with `numberOfLines` is no longer cut short with an ellipsis when it fits the box it was measured into within the pixel rounding of that box.
 - A key press goes to the focused view once and bubbles through React, instead of being sent once for every focusable view on the path to it, so an `onKeyDown` on a list no longer runs two or three times per press.
 - The `nativeEvent` of a press (`onPress`, the responder events) has `shiftKey`, `ctrlKey`, `altKey` and `metaKey`, as the pointer events do.
