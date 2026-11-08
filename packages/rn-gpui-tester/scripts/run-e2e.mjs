@@ -290,6 +290,7 @@ run(
     'desktop/metro.config.js',
     '--max-workers',
     '2',
+    '--reset-cache',
   ]),
   projectRoot,
   process.env,
