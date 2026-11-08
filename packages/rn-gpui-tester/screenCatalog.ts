@@ -96,6 +96,12 @@ export const screens = [
     fixture: 'PropsProbeFixture',
   },
   {
+    id: 'text-rows',
+    title: 'Text rows at fractional heights',
+    group: 'Text',
+    fixture: 'TextRowsFixture',
+  },
+  {
     id: 'text-raster',
     title: 'Text raster against a browser',
     group: 'Text',

@@ -292,6 +292,11 @@ export const renderScreen: Record<
       require('./components/PropsProbeFixture').default,
       props,
     ),
+  'text-rows': props =>
+    React.createElement(
+      require('./components/TextRowsFixture').default,
+      props,
+    ),
   'text-raster': props =>
     React.createElement(
       require('./components/TextRasterFixture').default,
