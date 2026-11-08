@@ -31,6 +31,7 @@
     "@react-native-gpui/screens": "file:../../modules/screens",
     "@react-native-gpui/svg": "file:../../modules/svg",
     "@react-native-gpui/system": "file:../../modules/system",
+    "@react-native-gpui/webauthn": "file:../../modules/webauthn",
     "@react-native-gpui/updater": "file:../../modules/updater",
     "@react-native-gpui/vector-icons": "file:../../modules/vector-icons",
     "@react-native-gpui/worklets": "file:../../modules/worklets",
