@@ -89,7 +89,7 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
                 .map(|sh| BoxShadow {
                     color: color(sh.color),
                     offset: point(px(sh.dx), px(sh.dy)),
-                    blur_radius: px(sh.blur),
+                    blur_radius: px(sh.blur / 2.0),
                     spread_radius: px(sh.spread),
                     inset: sh.inset,
                 })
@@ -245,7 +245,7 @@ impl StateStyle {
                     .map(|shadow| BoxShadow {
                         color: color(shadow.color.unwrap_or(0xFF00_0000)),
                         offset: point(px(shadow.offset_x * scale.0), px(shadow.offset_y * scale.1)),
-                        blur_radius: px(shadow.blur_radius * radius_scale),
+                        blur_radius: px(shadow.blur_radius * radius_scale / 2.0),
                         spread_radius: px(shadow.spread_distance * radius_scale),
                         inset: shadow.inset,
                     })
