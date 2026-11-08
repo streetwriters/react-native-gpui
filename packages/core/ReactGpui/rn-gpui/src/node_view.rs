@@ -508,13 +508,14 @@ impl RNNodeView {
         }
     }
 
+    /// `ref.focus()` and `ref.blur()` on a text input or a focusable view.
     pub fn apply_text_input_focus_command(
         &mut self,
         focus: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.component != "TextInput" {
+        if self.component != "TextInput" && !self.takes_focus() {
             return;
         }
         let Some(handle) = self.focus_handle.as_ref().cloned() else {

@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `ref.focus()` and `ref.blur()` on a `focusable` View move focus as `HTMLElement.focus()` and `blur()` do: the previously focused view loses its `focusStyle` and the new one gains it, and an `onFocus`/`onBlur` handler runs. Needs a prebuilt runtime built with the change.
 - A text's height is rounded to the nearest device pixel rather than up, as Chromium snaps a block of lines: three lines of `lineHeight: 19.2` are 57.5 points tall at a scale of 2 (they were 58), two lines 38.5.
 - The window options in `desktop/desktop.json` (`window.titleBar`, `trafficLightPosition`, `background`, `windowButtons`, `shadow`, `resizable`, `width`, `height`, `title` and the others, plus `accessory`) reach the app on every build instead of only when `init-desktop` regenerates `main.rs`. `DesktopAppConfig::from_env_with_defaults` applies them, and a builder call made after it still wins. Needs the CLI that records them.
 - Text line boxes are rounded at the device scale, as Chromium lays text out in device pixels: a line without an explicit `lineHeight` is the ascent and descent each rounded to whole device pixels, so Inter at 13 points is 15.5 points tall at a scale of 2, not 16, and the baseline half leading is rounded down to a device pixel. Text measures already on the 1/scale grid, so Yoga's ceil no longer adds a pixel to every line.
