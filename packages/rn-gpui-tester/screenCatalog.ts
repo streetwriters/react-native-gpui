@@ -366,6 +366,12 @@ export const screens = [
     fixture: 'ContextMenuFixture',
   },
   {
+    id: 'window-state',
+    title: 'Window state',
+    group: 'Platform',
+    fixture: 'WindowStateFixture',
+  },
+  {
     id: 'tray',
     title: 'Tray / menu bar',
     group: 'Platform',

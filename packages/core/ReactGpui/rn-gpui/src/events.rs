@@ -75,6 +75,9 @@ pub struct Target {
     /// menu bar GPUI draws above it, when the surface's origin does not hold it.
     window_offset: f32,
     window_offset_x: f32,
+    /// The window's zoom factor: window pointer positions run ahead of the
+    /// surface's by this much.
+    zoom: f32,
     scale_x: f32,
     scale_y: f32,
     /// Inverses of the matrices GPUI draws the target under, outermost first.
@@ -93,8 +96,8 @@ impl Target {
     /// React's page coordinates and the node origins are.
     fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
         point(
-            position.x - px(self.window_offset_x),
-            position.y - px(self.window_offset),
+            (position.x - px(self.window_offset_x)) / self.zoom,
+            (position.y - px(self.window_offset)) / self.zoom,
         )
     }
 
@@ -121,6 +124,7 @@ mod transform_tests {
             origin: point(px(30.0), px(40.0)),
             window_offset: 0.0,
             window_offset_x: 0.0,
+            zoom: 1.0,
             scale_x: 2.0,
             scale_y: 0.5,
             inverses: Vec::new(),
@@ -144,6 +148,7 @@ mod transform_tests {
             origin: point(px(20.0), px(35.0)),
             window_offset: 0.0,
             window_offset_x: 0.0,
+            zoom: 1.0,
             scale_x: 1.0,
             scale_y: 1.0,
             inverses: vec![about.inverse().unwrap()],
@@ -316,6 +321,7 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         } else {
             crate::desktop::window_frame::insets_of(hit_node.surface_id).left
         },
+        zoom: crate::desktop::zoom::get(hit_node.surface_id),
         scale_x,
         scale_y,
         inverses,
@@ -686,14 +692,16 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     // RN reuses the *target's* offset for every node in the hover path
     // (`handleIncomingPointerEventOnNode` re-dispatches the same PointerEvent),
     // so `offsetX/Y` of an ancestor's enter/leave is the target-relative offset.
+    let page = target.map_or(position, |target| target.page(position));
     let location = target
-        .map(|target| target.local_position(position))
+        .map(|target| target.local_position(page))
         .unwrap_or_else(|| point(px(0.), px(0.)));
     let (host, previous) = {
         let store = store.read(cx);
         store.pointer.set(position);
         (store.host.clone(), store.hovered.replace(next.clone()))
     };
+    let position = page;
     let shared = shared_root_len(&previous, &next);
     log::trace!(
         "[events] hover at ({:.1},{:.1}) chain={next:?} was={previous:?}",
@@ -756,6 +764,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
                     origin: node.absolute_origin(cx),
                     window_offset: 0.0,
                     window_offset_x: 0.0,
+                    zoom: 1.0,
                     scale_x: node.cumulative_scale(cx).0,
                     scale_y: node.cumulative_scale(cx).1,
                     inverses: node.transform_inverses(cx),

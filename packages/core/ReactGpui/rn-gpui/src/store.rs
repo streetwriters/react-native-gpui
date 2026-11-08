@@ -341,11 +341,14 @@ impl ViewStore {
         // belongs to.
         for surface_id in self.surfaces_in_window(window) {
             let frame = crate::desktop::window_frame::insets_of(surface_id);
-            let width = (width - frame.horizontal()).max(1.0);
-            let height = (height
+            let zoom = crate::desktop::zoom::get(surface_id);
+            let width = ((width - frame.horizontal()) / zoom).max(1.0);
+            let height = ((height
                 - frame.vertical()
                 - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32))
-            .max(1.0);
+                / zoom)
+                .max(1.0);
+            let scale = scale * zoom;
             let busy = self
                 .resizes_in_flight
                 .get(&surface_id)
@@ -2768,6 +2771,37 @@ fn framed(
     shell.into_any_element()
 }
 
+impl SurfaceRootView {
+    /// The content under the window's zoom factor: laid out at the window's size
+    /// over the factor, and drawn scaled back up to it.
+    fn zoomed(root: gpui::Div, surface_id: i32, window: &Window) -> gpui::AnyElement {
+        let zoom = crate::desktop::zoom::get(surface_id);
+        if (zoom - 1.0).abs() < f32::EPSILON {
+            return root.into_any_element();
+        }
+        let viewport = window.viewport_size();
+        let frame = crate::desktop::window_frame::insets_of(surface_id);
+        let width = f32::from(viewport.width) - frame.horizontal();
+        let height = f32::from(viewport.height)
+            - frame.vertical()
+            - crate::desktop::gpui_menu::menu_bar_inset_for_window_id(surface_id as u32);
+        let matrix = gpui::TransformationMatrix {
+            rotation_scale: [[zoom, 0.0], [0.0, zoom]],
+            translation: [0.0, 0.0],
+        };
+        div()
+            .size_full()
+            .overflow_hidden()
+            .child(crate::transform::Transformed::new(
+                root.w(px((width / zoom).max(1.0)))
+                    .h(px((height / zoom).max(1.0)))
+                    .into_any_element(),
+                matrix,
+            ))
+            .into_any_element()
+    }
+}
+
 impl Render for SurfaceRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.kind == SurfaceKind::Embedded {
@@ -2877,7 +2911,7 @@ impl Render for SurfaceRootView {
             .capture_any_mouse_down(cx.listener(|_this, _event, _window, cx| {
                 let _ = crate::desktop::gpui_menu::MenuPopup::dismiss(cx);
             }))
-            .child(root);
+            .child(Self::zoomed(root, self.surface_id, _window));
         // The root carries the app key context, so a shortcut with no scope can
         // match with nothing focused: GPUI evaluates a context predicate against
         // the focus path's contexts, and an empty stack matches nothing at all —

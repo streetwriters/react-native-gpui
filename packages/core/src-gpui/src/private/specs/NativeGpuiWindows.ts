@@ -15,6 +15,9 @@ export type WindowState = {
   isFullscreen: boolean;
   isFocused: boolean;
   isMinimized: boolean;
+  isVisible: boolean;
+  title: string;
+  zoomFactor: number;
   scaleFactor: number;
   topInset: number;
 };
@@ -103,6 +106,18 @@ export interface Spec extends TurboModule {
   windowMaximize(windowId: CodegenTypes.Int32): Promise<void>;
   windowUnmaximize(windowId: CodegenTypes.Int32): Promise<void>;
   windowToggleMaximize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowSetZoomFactor(
+    windowId: CodegenTypes.Int32,
+    factor: number,
+  ): Promise<void>;
+  windowSetBackgroundColor(
+    windowId: CodegenTypes.Int32,
+    color: number,
+  ): Promise<void>;
+  windowSetChromeAppearance(
+    windowId: CodegenTypes.Int32,
+    appearance: string,
+  ): Promise<void>;
   windowShow(windowId: CodegenTypes.Int32): Promise<void>;
   windowHide(windowId: CodegenTypes.Int32): Promise<void>;
   windowStartDragging(windowId: CodegenTypes.Int32): Promise<void>;

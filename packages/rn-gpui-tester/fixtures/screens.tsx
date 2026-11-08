@@ -271,6 +271,11 @@ export const renderScreen: Record<
       require('./components/ContextMenuFixture').default,
       props,
     ),
+  'window-state': props =>
+    React.createElement(
+      require('./components/WindowStateFixture').default,
+      props,
+    ),
   tray: props =>
     React.createElement(require('./components/TrayFixture').default, props),
   'perf-monitor': props =>

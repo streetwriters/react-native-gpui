@@ -32,6 +32,7 @@ pub mod window_mirror;
 pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod work_area;
+pub mod zoom;
 
 use gpui::App;
 use std::sync::OnceLock;
