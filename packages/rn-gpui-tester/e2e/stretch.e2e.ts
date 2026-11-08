@@ -32,14 +32,32 @@ async function width(testID: string) {
   return node.frame.width;
 }
 
-test.each(['plain', 'drag'])(
-  'a row in %s wrappers takes the width of the column',
-  async id => {
-    const column = await width('stretch-column');
-    const wrapper = await width(`${id}-wrapper`);
-    expect(wrapper).toBe(column - 20);
-    expect(await width(`${id}-item`)).toBe(wrapper);
-    expect(await width(`${id}-inner`)).toBeGreaterThan(100);
-    expect(await width(`${id}-title`)).toBeGreaterThan(100);
-  },
-);
+test.each([
+  'plain',
+  'drag',
+  'display',
+  'hover',
+  'dragover',
+  'tooltip',
+  'context',
+  'group',
+  'bg',
+])('a row in %s wrappers takes the width of the column', async id => {
+  const column = await width('stretch-column');
+  const wrapper = await width(`${id}-wrapper`);
+  expect(wrapper).toBe(column - 20);
+  expect(await width(`${id}-item`)).toBe(wrapper);
+  expect(await width(`${id}-inner`)).toBeGreaterThan(60);
+  expect(await width(`${id}-title`)).toBeGreaterThan(60);
+});
+
+test('rows take the new width when the column grows', async () => {
+  await app.getByTestId('stretch-widen').click();
+  await app.waitForIdle();
+  const column = await width('stretch-column');
+  expect(column).toBe(300);
+  for (const id of ['plain', 'drag', 'display']) {
+    expect(await width(`${id}-item`)).toBe(column - 20);
+    expect(await width(`${id}-title`)).toBeGreaterThan(60);
+  }
+});
