@@ -389,6 +389,17 @@ fn save_window_bounds(
     }
 }
 
+static DESKTOP_DEFAULTS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+
+/// Records the app's `desktop.json`, as the generated autolink crate passes it
+/// on, so the window options in it reach the app without `main.rs` repeating
+/// them. Anything `main.rs` sets on the config afterwards wins.
+pub fn set_desktop_defaults(json: &str) {
+    if let Ok(value) = serde_json::from_str(json) {
+        let _ = DESKTOP_DEFAULTS.set(value);
+    }
+}
+
 fn env_f32(key: &str, default: f32) -> f32 {
     std::env::var(key)
         .ok()
@@ -686,6 +697,7 @@ pub struct DesktopAppConfig {
     /// Corner radius on Linux where the desktop's own cannot be measured.
     pub corner_radius: Option<f32>,
     pub configure_window: Option<WindowOptionsHook>,
+    resizable: bool,
     pub on_app_ready: Option<AppReadyHook>,
 
     pub on_window_opened: Option<WindowOpenedHook>,
@@ -701,7 +713,7 @@ impl DesktopAppConfig {
     }
 
     pub fn from_env_with_defaults(module: &str, app_id: &str) -> Self {
-        Self {
+        let mut config = Self {
             app_id: env_string("RN_GPUI_APP_ID", app_id),
             module: env_string("RN_GPUI_MODULE", module),
             js_engine: String::new(),
@@ -725,9 +737,78 @@ impl DesktopAppConfig {
             window_controls_left: false,
             corner_radius: None,
             configure_window: None,
+            resizable: true,
             on_app_ready: None,
             on_window_opened: None,
             gpui_root: None,
+        };
+        if let Some(defaults) = DESKTOP_DEFAULTS.get() {
+            config.apply_desktop_values(defaults);
+        }
+        config
+    }
+
+    /// The window options `desktop.json` gave the build, which the generated
+    /// autolink crate records. A builder call made after this one replaces them.
+    fn apply_desktop_values(&mut self, defaults: &serde_json::Value) {
+        let window = &defaults["window"];
+        let text = |key: &str| window.get(key).and_then(serde_json::Value::as_str);
+        let flag = |key: &str| window.get(key).and_then(serde_json::Value::as_bool);
+        let number = |value: &serde_json::Value| value.as_f64().map(|n| n as f32);
+        if let Some(title) = text("title") {
+            self.title = Some(title.to_string());
+        }
+        if std::env::var_os("RN_GPUI_WIDTH").is_none() {
+            if let Some(width) = number(&window["width"]) {
+                self.width = width.max(320.0);
+            }
+        }
+        if std::env::var_os("RN_GPUI_HEIGHT").is_none() {
+            if let Some(height) = number(&window["height"]) {
+                self.height = height.max(240.0);
+            }
+        }
+        if let (Some(x), Some(y)) = (
+            number(&window["position"]["x"]),
+            number(&window["position"]["y"]),
+        ) {
+            self.position = Some((x, y));
+        }
+        if let Some(restore) = flag("restoreState") {
+            self.restore_window_state = restore;
+        }
+        if let Some(resizable) = flag("resizable") {
+            self.resizable = resizable;
+        }
+        if let Some(name) = text("titleBar") {
+            self.title_bar = WindowTitleBar::from_name(name);
+        }
+        if let Some(name) = text("background") {
+            self.background = WindowBackground::from_name(name);
+        }
+        if let Some(show) = flag("windowButtons") {
+            self.window_buttons = show;
+        }
+        if let Some(shadow) = flag("shadow") {
+            self.shadow = shadow;
+        }
+        if let (Some(x), Some(y)) = (
+            number(&window["trafficLightPosition"]["x"]),
+            number(&window["trafficLightPosition"]["y"]),
+        ) {
+            self.traffic_light_position = Some((x, y));
+        }
+        if let Some(radius) = number(&window["cornerRadius"]) {
+            self.corner_radius = Some(radius);
+        }
+        if let Some(side) = text("windowControlsPosition") {
+            self.window_controls_left = side == "left";
+        }
+        if let Some(visible) = flag("menuBar") {
+            self.menu_bar = visible;
+        }
+        if let Some(accessory) = defaults["accessory"].as_bool() {
+            self.accessory = accessory;
         }
     }
 
@@ -1466,6 +1547,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_options.show = false;
             window_options.focus = false;
         }
+        window_options.is_resizable = config.resizable;
         if let Some(configure_window) = config.configure_window.take() {
             configure_window(&mut window_options);
         }
@@ -2601,6 +2683,31 @@ fn run_as_accessory_app() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn desktop_json_window_options_apply_and_a_builder_call_still_wins() {
+        let defaults = serde_json::json!({
+            "window": {
+                "title": "From JSON",
+                "titleBar": "hidden",
+                "windowButtons": false,
+                "shadow": false,
+                "trafficLightPosition": {"x": 10, "y": 14},
+                "resizable": false,
+                "menuBar": false,
+            },
+            "accessory": true,
+        });
+        let mut config = DesktopAppConfig::from_env_with_defaults("App", "com.example.app");
+        config.apply_desktop_values(&defaults);
+        assert_eq!(config.title.as_deref(), Some("From JSON"));
+        assert_eq!(config.title_bar, WindowTitleBar::Hidden);
+        assert!(!config.window_buttons && !config.shadow && !config.menu_bar);
+        assert_eq!(config.traffic_light_position, Some((10.0, 14.0)));
+        assert!(!config.resizable && config.accessory);
+        let config = config.title_bar(WindowTitleBar::Transparent);
+        assert_eq!(config.title_bar, WindowTitleBar::Transparent);
+    }
+
     use super::*;
 
     #[test]
