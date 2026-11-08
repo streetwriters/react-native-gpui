@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A background test run can put a window in front of the others without activating the app or giving it focus: `RN_GPUI_TEST_ON_TOP=1` orders it front instead of behind. A window that other windows cover is occluded and macOS stops presenting its frames, so a test that reads the screen back (the compositor test of native views) saw no React view in a full run on a busy desktop.
 - `Network.setDnsOverHttps()` takes a list of DNS-over-HTTPS servers. A name a server cannot resolve is asked of the next one and then of the system resolver, and `getSettings()` also reports `dnsOverHttpsServers`.
 - An app launched with the argument `--hidden` opens its main window without showing it or taking focus, for an app that starts at login in the background behind a tray icon.
 - Added `Network.setProxy()`, `setDnsOverHttps()`, `getSettings()` and `proxyForUrl()` to set the proxy (a proxy URL, Chromium proxy rules and a bypass list, `'direct'` or the system's) and a DNS-over-HTTPS server of the HTTP client that `fetch`, `XMLHttpRequest` and remote image and font loads share. On macOS requests follow the system proxy settings by default. WebSocket connections are not covered yet. Needs a prebuilt runtime built with the change.
