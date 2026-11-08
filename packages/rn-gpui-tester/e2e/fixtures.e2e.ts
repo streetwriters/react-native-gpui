@@ -998,3 +998,60 @@ test('the system module restarts the app with new arguments', async () => {
   }
   expect(started.length).toBeGreaterThan(0);
 });
+
+test('an app started with --hidden opens without showing its window', async () => {
+  const visibleWindows = (pid: number) =>
+    Number(
+      execFileSync(
+        'osascript',
+        [
+          '-l',
+          'JavaScript',
+          '-e',
+          `ObjC.import('CoreGraphics'); const pid = ${pid};
+           const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+           list.filter(w => w.kCGWindowOwnerPID === pid && w.kCGWindowLayer === 0 && w.kCGWindowBounds.Width > 100).length`,
+        ],
+        { encoding: 'utf8' },
+      ).trim(),
+    );
+  const bundle = path.resolve(
+    'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+  );
+  const start = async (args: string[]) =>
+    launchApp({
+      bundle,
+      env: {
+        RN_GPUI_MODULE: 'GPUISystemFixture',
+        RN_GPUI_BUNDLE: bundle,
+        RN_GPUI_DEV_PORT: '1',
+        RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-hidden-start.json'),
+      },
+      args,
+      initialProps: { idle: true },
+      disableAnimations: true,
+      offscreen: false,
+    });
+
+  const shown = await start([]);
+  try {
+    const deadline = Date.now() + 15000;
+    while (visibleWindows(shown.pid as number) !== 1) {
+      expect(Date.now()).toBeLessThan(deadline);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } finally {
+    await shown.close();
+  }
+
+  const hidden = await start(['--hidden']);
+  try {
+    await desktopExpect(hidden.getByTestId('system-title')).toBeVisible(30000);
+    for (let i = 0; i < 20; i += 1) {
+      expect(visibleWindows(hidden.pid as number)).toBe(0);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } finally {
+    await hidden.close();
+  }
+});

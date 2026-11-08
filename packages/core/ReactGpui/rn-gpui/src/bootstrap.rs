@@ -649,6 +649,10 @@ pub fn clamp_traffic_light_position(x: f32, y: f32, width: f32, height: f32) -> 
 /// Builds the GPUI view that is a GPUI-first app's main window content.
 type GpuiRootHook = Box<dyn FnOnce(&mut App, crate::runtime::ReactRuntime) -> gpui::AnyView>;
 
+/// Launching with this argument opens the main window without showing it; a tray
+/// click, the Dock icon or a second launch brings it up.
+pub const START_HIDDEN_ARGUMENT: &str = "--hidden";
+
 pub struct DesktopAppConfig {
     pub app_id: String,
     pub module: String,
@@ -1463,6 +1467,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
         if env_bool("RN_GPUI_TEST_OFFSCREEN", false) {
             // AppKit clamps remote coordinates into the visible desktop.
             // Hidden windows still support forced draws and injected input.
+            window_options.show = false;
+            window_options.focus = false;
+        }
+        if std::env::args().skip(1).any(|argument| argument == START_HIDDEN_ARGUMENT) {
             window_options.show = false;
             window_options.focus = false;
         }
