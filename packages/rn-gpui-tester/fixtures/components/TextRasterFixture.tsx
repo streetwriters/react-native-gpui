@@ -98,10 +98,36 @@ export default function TextRasterFixture() {
       </View>
       <View style={{ height: 8 }} />
       <View
+        testID="raster-dark-13-400"
+        style={{ width: 60, height: 16, backgroundColor: '#181818' }}
+      >
+        <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#f2f2f2' }}>
+          Favorites
+        </Text>
+      </View>
+      <View style={{ height: 8 }} />
+      <View
+        testID="raster-dark-15-600"
+        style={{ width: 104, height: 19, backgroundColor: '#181818' }}
+      >
+        <Text
+          style={{
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: '600',
+            color: '#ffffff',
+          }}
+        >
+          Meeting notes
+        </Text>
+      </View>
+      <View style={{ height: 8 }} />
+      <View
         testID="raster-description"
         style={{ ...slot, width: 349, height: 39 }}
       >
         <Text
+          numberOfLines={4}
           style={{
             fontFamily: 'Inter',
             fontSize: 13,
@@ -109,7 +135,8 @@ export default function TextRasterFixture() {
             color: '#474747',
           }}
         >
-          Meeting notes. A short body of text that wraps onto a second line
+          Meeting notes. A short body of text that continues for a few words so
+          the list shows a headline under the title.
         </Text>
       </View>
     </View>

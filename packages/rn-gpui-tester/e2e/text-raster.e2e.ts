@@ -31,6 +31,10 @@ beforeAll(async () => {
 
 afterAll(() => app?.close());
 
+/**
+ * How far a text's pixels are from Chromium's: the share over a perceptual
+ * threshold, and the total ink relative to the background.
+ */
 async function differing(id: string, golden: string, columns = Infinity) {
   const mine = PNG.sync.read(await app.getByTestId(id).screenshot());
   const reference = PNG.sync.read(
@@ -43,52 +47,83 @@ async function differing(id: string, golden: string, columns = Infinity) {
     );
   }
   expect(mine.width).toBeGreaterThanOrEqual(reference.width - 2);
-  let over = 0;
+  const background = reference.data[0];
   const width = Math.min(reference.width, columns);
+  let over = 0;
+  let referenceInk = 0;
+  let mineInk = 0;
   for (let y = 0; y < reference.height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const a = reference.data[(y * reference.width + x) * 4];
       const b =
         x < mine.width && y < mine.height
           ? mine.data[(y * mine.width + x) * 4]
-          : 255;
+          : background;
       if (Math.abs(a - b) > 25) over += 1;
+      referenceInk += Math.abs(background - a);
+      mineInk += Math.abs(background - b);
     }
   }
-  return { over, total: width * reference.height };
+  return {
+    over,
+    total: width * reference.height,
+    ink: mineInk / referenceInk,
+  };
+}
+
+function expectLikeChromium(result: {
+  over: number;
+  total: number;
+  ink: number;
+}) {
+  expect(result.ink).toBeGreaterThan(0.97);
+  expect(result.ink).toBeLessThan(1.03);
+  expect(result.over).toBeLessThan(result.total * 0.01);
 }
 
 test('13 point regular text matches the pixels Chromium paints', async () => {
-  const { over, total } = await differing(
-    'raster-13-400',
-    'chromium-inter-13-400-favorites.png',
+  expectLikeChromium(
+    await differing('raster-13-400', 'chromium-inter-13-400-favorites.png'),
   );
-  expect(over).toBeLessThan(total * 0.02);
 });
 
 test('15 point semibold text matches the pixels Chromium paints', async () => {
-  const { over, total } = await differing(
-    'raster-15-600',
-    'chromium-inter-15-600-meeting-notes.png',
+  expectLikeChromium(
+    await differing('raster-15-600', 'chromium-inter-15-600-meeting-notes.png'),
   );
-  expect(over).toBeLessThan(total * 0.1);
 });
 
-test('the first words of 13 point text with a 19.2 point line height match Chromium', async () => {
-  const { over, total } = await differing(
-    'raster-description',
-    'chromium-inter-13-400-description-line1.png',
-    480,
+test('wrapped 13 point text with a 19.2 point line height matches Chromium', async () => {
+  expectLikeChromium(
+    await differing(
+      'raster-description',
+      'chromium-inter-13-400-description.png',
+    ),
   );
-  expect(over).toBeLessThan(total * 0.02);
+});
+
+test('light text on a dark background matches Chromium', async () => {
+  expectLikeChromium(
+    await differing(
+      'raster-dark-13-400',
+      'chromium-dark-inter-13-400-favorites.png',
+    ),
+  );
+  expectLikeChromium(
+    await differing(
+      'raster-dark-15-600',
+      'chromium-dark-inter-15-600-meeting-notes.png',
+    ),
+  );
 });
 
 test('a one-line title nested in a bordered, padded row matches Chromium', async () => {
-  const { over, total } = await differing(
-    'raster-nested-title',
-    'chromium-inter-15-600-meeting-notes.png',
+  expectLikeChromium(
+    await differing(
+      'raster-nested-title',
+      'chromium-inter-15-600-meeting-notes.png',
+    ),
   );
-  expect(over).toBeLessThan(total * 0.1);
 });
 
 test('a child of a bordered parent is painted where its frame says', async () => {
