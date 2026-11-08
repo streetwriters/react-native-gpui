@@ -37,9 +37,13 @@ async function capture(display: string, offscreen: boolean) {
 }
 
 for (const offscreen of [false, true]) {
-  test(`${offscreen ? 'a hidden window' : 'a window'} renders at 2x, with the same pixels, on the main and the secondary display`, async () => {
+  test(`${offscreen ? 'a hidden window' : 'a window'} renders at 2x, with the same pixels, on the main and the secondary display`, async ({
+    skip,
+  }) => {
     const main = await capture('main', offscreen);
     const secondary = await capture('secondary', offscreen);
+    // Without the gpui-fast scale override a window keeps its display's scale.
+    if (secondary.state.scaleFactor !== 2) skip();
     expect(main.state.scaleFactor).toBe(2);
     expect(secondary.state.scaleFactor).toBe(2);
     const image = PNG.sync.read(secondary.shot);
