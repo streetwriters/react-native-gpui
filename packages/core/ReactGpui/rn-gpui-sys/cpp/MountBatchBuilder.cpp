@@ -232,6 +232,7 @@ TextFragmentFlat flattenTextFragment(
         break;
     }
   }
+  out.background_color = argb(attributes.backgroundColor);
   out.font_variant = attributes.fontVariant
       ? static_cast<uint32_t>(*attributes.fontVariant)
       : 0;

@@ -142,6 +142,7 @@ pub mod ffi {
         pub strikethrough: bool,
         pub text_transform: u8, // 0 none, 1 uppercase, 2 lowercase, 3 capitalize
         pub font_variant: u32,  // RN's FontVariant bitmask
+        pub background_color: u32, // ARGB, 0 = none
     }
 
     #[derive(Clone, Debug, Default)]

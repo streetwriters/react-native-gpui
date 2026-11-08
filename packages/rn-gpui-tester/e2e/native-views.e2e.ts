@@ -38,6 +38,9 @@ async function launch(
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
       RN_GPUI_WINDOW_STATE: path.resolve(`.local/e2e-${module}.json`),
+      // Native views are placed by the operating system at the display's own
+      // scale, which these tests compare with layout at 2x.
+      RN_GPUI_TEST_DISPLAY: 'main',
     },
     initialProps: {},
     disableAnimations: true,

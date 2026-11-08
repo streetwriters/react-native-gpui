@@ -160,6 +160,9 @@ export type IdleOptions = {
   >;
 };
 
+/** The display test windows open on when there is a secondary one; the main display otherwise. */
+const DEFAULT_TEST_DISPLAY = 'secondary';
+
 /**
  * The process id of the frontmost application, or `undefined` where it cannot
  * be told (anywhere but macOS).
@@ -338,6 +341,10 @@ export class DesktopApp {
           : {}),
         RN_GPUI_TEST_DRIVER: '1',
         RN_GPUI_TEST_DRIVER_TOKEN: token,
+        ...(process.env.RN_GPUI_TEST_DISPLAY === undefined &&
+        options.env?.RN_GPUI_TEST_DISPLAY === undefined
+          ? { RN_GPUI_TEST_DISPLAY: DEFAULT_TEST_DISPLAY }
+          : {}),
         ...(process.env.RN_GPUI_TEST_SCALE_FACTOR === undefined &&
         options.env?.RN_GPUI_TEST_SCALE_FACTOR === undefined
           ? { RN_GPUI_TEST_SCALE_FACTOR: '2' }

@@ -84,13 +84,13 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 ### Which display
 
-A background run opens its windows on the secondary display when there is one, centred in it, and on the main display otherwise. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
+A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
 
 `launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
 
 `RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
 
-Focus and blur events reach a text input only in a window the operating system has made active, which a background run never has. The tests that need that (the "with an active window" tests in the tester's `core-components` suite) run only with `RN_GPUI_TEST_REAL_FOCUS=1`, which turns background mode off for the run.
+Focus and blur events reach a text input only in an active window. While the test driver is on, windows report themselves active to the UI toolkit from the moment they open, without the application being activated, so those tests run in the background too (`RN_GPUI_BACKGROUND=0` turns it off). This needs a runtime built with a gpui-fast revision that has the test-driver activity hook.
 
 ## Finding elements
 

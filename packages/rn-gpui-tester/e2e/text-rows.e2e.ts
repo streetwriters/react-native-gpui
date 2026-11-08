@@ -85,3 +85,52 @@ test('a text box with an explicit line height is as tall as Chromium snaps its l
   expect(await height('row-body-2')).toBe(57.5);
   expect(await height('row-body-3')).toBe(38.5);
 });
+
+test('a nested Text with a backgroundColor is painted behind its words', async () => {
+  const mine = PNG.sync.read(await app.screenshot());
+  const scale = mine.width / 1024;
+  const [outer] = await app.query('testID', 'highlight', true);
+  const pixel = (x: number, y: number) => {
+    const o = (Math.round(y * scale) * mine.width + Math.round(x * scale)) * 4;
+    return [mine.data[o], mine.data[o + 1], mine.data[o + 2]];
+  };
+  const y = outer.frame.y + outer.frame.height / 2;
+  const red: number[] = [];
+  for (let x = outer.frame.x; x < outer.frame.x + outer.frame.width; x += 0.5) {
+    const [r, g, b] = pixel(x, y);
+    if (r > 200 && g < 60 && b < 60) red.push(x);
+  }
+  expect(red.length).toBeGreaterThan(20);
+  const left = Math.min(...red);
+  const right = Math.max(...red);
+  expect(left).toBeGreaterThan(outer.frame.x + 20);
+  expect(right).toBeLessThan(outer.frame.x + outer.frame.width - 20);
+  const column = left + 0.5;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (let offset = -4; offset < outer.frame.height + 4; offset += 0.5) {
+    const [r, g, b] = pixel(column, outer.frame.y + offset);
+    if (r > 200 && g < 60 && b < 60) {
+      top = Math.min(top, offset);
+      bottom = Math.max(bottom, offset);
+    }
+  }
+  const tall = bottom - top + 0.5;
+  expect(tall).toBeGreaterThanOrEqual(14);
+  expect(tall).toBeLessThanOrEqual(outer.frame.height);
+});
+
+test('a truncated one-line text fills the width it was given, as a block with text-overflow does', async () => {
+  const width = async (id: string) =>
+    (await app.query('testID', id, true))[0].frame.width;
+  expect(await width('truncated-title')).toBe(349);
+  expect(await width('truncated-token')).toBe(349);
+  expect(await width('short-title')).toBeLessThan(100);
+});
+
+test('a line with a fallback font is as tall as its tallest font', async () => {
+  const [plain] = await app.query('testID', 'short-title', true);
+  const [mixed] = await app.query('testID', 'fallback-title', true);
+  expect(plain.frame.height).toBe(18);
+  expect(mixed.frame.height).toBe(21);
+});
