@@ -1000,6 +1000,17 @@ fn shadow_layers(paragraph: &ParagraphFlat, width: f32) -> Vec<ShadowLayer> {
         .collect()
 }
 
+/// How far to move a line so its baseline sits where a browser puts it: the
+/// ascent and descent each rounded to whole points, the half leading rounded
+/// down and added above the ascent. gpui centres the unrounded metrics instead.
+fn baseline_correction(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+    let (rounded_ascent, rounded_descent) = (ascent.round(), descent.round());
+    let browser = rounded_ascent + ((line_height - rounded_ascent - rounded_descent) / 2.0).floor();
+    let gpui = (line_height - ascent - descent) / 2.0 + ascent;
+    browser - gpui
+}
+
 fn paint_lines(
     shaped: &ShapedParagraph,
     origin: gpui::Point<gpui::Pixels>,
@@ -1009,9 +1020,10 @@ fn paint_lines(
 ) {
     let mut y = origin.y;
     for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
+        let baseline = point(origin.x, y + px(baseline_correction(line, *line_height)));
         if line
             .paint(
-                point(origin.x, y),
+                baseline,
                 px(*line_height),
                 shaped.text_align,
                 Some(bounds),

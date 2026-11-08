@@ -292,6 +292,11 @@ export const renderScreen: Record<
       require('./components/PropsProbeFixture').default,
       props,
     ),
+  'text-raster': props =>
+    React.createElement(
+      require('./components/TextRasterFixture').default,
+      props,
+    ),
   'rounded-clip': props =>
     React.createElement(
       require('./components/RoundedClipFixture').default,
