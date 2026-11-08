@@ -15,7 +15,7 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 | `react-native-svg`               | `@react-native-gpui/svg`               | `15.15.x`                                              |
 | `@react-native-vector-icons/*`   | `@react-native-gpui/vector-icons`      | Icon fonts rasterized by the desktop shell             |
 
-Four packages have no upstream library, because they provide desktop APIs:
+Five packages have no upstream library, because they provide desktop APIs:
 
 | Package                            | Purpose                                                     |
 | ---------------------------------- | ----------------------------------------------------------- |

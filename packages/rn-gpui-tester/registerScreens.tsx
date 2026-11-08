@@ -54,6 +54,22 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUIUpdaterFixture',
+    () =>
+      (
+        props: ScreenProps & {
+          feedUrl?: string;
+          mode?: 'check' | 'install';
+          currentVersion?: string;
+        },
+      ) =>
+        // Not in the screen catalog: only the e2e launches it, by this name.
+        React.createElement(
+          require('./fixtures/components/UpdaterFixture').UpdaterFixture,
+          { ...props, testMode },
+        ),
+  );
+  AppRegistry.registerComponent(
     'GPUISystemFixture',
     () => (props: ScreenProps & { restartMarker?: string }) =>
       // Not in the screen catalog: only the e2e launches it, by this name.
