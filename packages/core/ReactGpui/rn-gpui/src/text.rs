@@ -84,6 +84,9 @@ impl ParagraphKey {
 struct ShapedParagraph {
     lines: Vec<WrappedLine>,
     line_heights: Vec<f32>,
+    /// Per line, the ascent and descent of the tallest font it uses, fallback
+    /// fonts included, unrounded.
+    line_metrics: Vec<(f32, f32)>,
     width: f32,
     height: f32,
     visual_lines: usize,
@@ -641,6 +644,7 @@ impl TextService {
         const ROUNDING_SLACK: f32 = 0.5;
         let mut wrap_width = width;
         let mut fits = false;
+        let mut was_truncated = false;
         if paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
             let probe = window_text_system
                 .shape_text(
@@ -681,6 +685,7 @@ impl TextService {
                 );
                 text = truncated.to_string();
                 runs = truncated_runs.into_owned();
+                was_truncated = true;
             }
         }
 
@@ -701,16 +706,24 @@ impl TextService {
             .find(|height| height.is_finite() && *height > 0.0);
         let mut lines = Vec::with_capacity(shaped_lines.len());
         let mut line_heights = Vec::with_capacity(shaped_lines.len());
+        let mut line_metrics = Vec::with_capacity(shaped_lines.len());
         let mut measured_width = 0.0f32;
         let mut measured_height = 0.0f32;
         for line in shaped_lines {
+            let (mut ascent, mut descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+            for run in line.runs() {
+                if run.glyphs.iter().all(|glyph| glyph.is_emoji) {
+                    continue;
+                }
+                let size = px(font_size);
+                ascent = ascent.max(f32::from(self.text_system.ascent(run.font_id, size)));
+                descent = descent.max(f32::from(self.text_system.descent(run.font_id, size)).abs());
+            }
             let line_height = explicit_line_height.unwrap_or_else(|| {
                 let scale = device_scale();
-                (((f32::from(line.ascent()) * scale).round()
-                    + (f32::from(line.descent()) * scale).round())
-                    / scale)
-                    .max(1.0)
+                (((ascent * scale).round() + (descent * scale).round()) / scale).max(1.0)
             });
+            line_metrics.push((ascent, descent));
             let visual_lines = line.wrap_boundaries.len() + 1;
             measured_width = measured_width.max(f32::from(line.width()));
             measured_height += line_height * visual_lines as f32;
@@ -725,7 +738,12 @@ impl TextService {
         let shaped = Arc::new(ShapedParagraph {
             lines,
             line_heights,
-            width: measured_width.min(width),
+            line_metrics,
+            width: if was_truncated {
+                width
+            } else {
+                measured_width.min(width)
+            },
             height: measured_height,
             visual_lines,
             text_align: text_align(resolve_alignment(paragraph.text_align)),
@@ -822,6 +840,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
             Arc::new(ShapedParagraph {
                 lines: Vec::new(),
                 line_heights: Vec::new(),
+                line_metrics: Vec::new(),
                 visual_lines: 0,
                 width,
                 height,
@@ -1027,14 +1046,18 @@ fn shadow_layers(paragraph: &ParagraphFlat, width: f32) -> Vec<ShadowLayer> {
 /// ascent and descent each rounded to whole device pixels and the half leading
 /// rounded down to one, added above the ascent. gpui centres the unrounded
 /// metrics instead.
-fn baseline_correction(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+fn baseline_correction(
+    line: &gpui::WrappedLine,
+    line_height: f32,
+    (ascent, descent): (f32, f32),
+) -> f32 {
     let scale = device_scale();
-    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
     let (rounded_ascent, rounded_descent) = ((ascent * scale).round(), (descent * scale).round());
     let browser = (rounded_ascent
         + ((line_height * scale - rounded_ascent - rounded_descent) / 2.0).floor())
         / scale;
-    let gpui = (line_height - ascent - descent) / 2.0 + ascent;
+    let (own_ascent, own_descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+    let gpui = (line_height - own_ascent - own_descent) / 2.0 + own_ascent;
     browser - gpui
 }
 
@@ -1042,22 +1065,28 @@ fn baseline_correction(line: &gpui::WrappedLine, line_height: f32) -> f32 {
 /// browser paints it over the font's content area, which the line's leading
 /// centres in the line box. A line that wraps keeps GPUI's whole-line-tall
 /// rectangle, which steps with the line height.
-fn background_top(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+fn background_top(
+    line: &gpui::WrappedLine,
+    line_height: f32,
+    (ascent, descent): (f32, f32),
+) -> f32 {
     if !line.wrap_boundaries.is_empty() {
         return 0.0;
     }
     let scale = device_scale();
-    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
     let content = (ascent * scale).round() + (descent * scale).round();
     ((line_height * scale - content) / 2.0).floor() / scale
 }
 
-fn background_height(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+fn background_height(
+    line: &gpui::WrappedLine,
+    line_height: f32,
+    (ascent, descent): (f32, f32),
+) -> f32 {
     if !line.wrap_boundaries.is_empty() {
         return line_height;
     }
     let scale = device_scale();
-    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
     ((ascent * scale).round() + (descent * scale).round()) / scale
 }
 
@@ -1069,11 +1098,22 @@ fn paint_lines(
     cx: &mut App,
 ) {
     let mut y = origin.y;
-    for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
-        let baseline = point(origin.x, y + px(baseline_correction(line, *line_height)));
+    for ((line, line_height), metrics) in shaped
+        .lines
+        .iter()
+        .zip(&shaped.line_heights)
+        .zip(&shaped.line_metrics)
+    {
+        let baseline = point(
+            origin.x,
+            y + px(baseline_correction(line, *line_height, *metrics)),
+        );
         let _ = line.paint_background(
-            point(origin.x, y + px(background_top(line, *line_height))),
-            px(background_height(line, *line_height)),
+            point(
+                origin.x,
+                y + px(background_top(line, *line_height, *metrics)),
+            ),
+            px(background_height(line, *line_height, *metrics)),
             shaped.text_align,
             Some(bounds),
             window,
