@@ -27,8 +27,9 @@ async function surfaceTop() {
 // The Xvfb session on Linux CI has no window manager to activate a window or
 // to own the clipboard; what needs either is not verified there.
 const windowActivation = process.platform !== 'linux';
-// Focus and blur events reach a text input only in a window the operating
-// system has made active, which a background run never does.
+// Focus and blur events reach a text input only in an active window. A
+// background run reports its windows active through a gpui-fast hook; with
+// a runtime that lacks it, these tests need real focus.
 const realFocus = process.env.RN_GPUI_TEST_REAL_FOCUS === '1';
 
 async function start(offscreen: boolean) {

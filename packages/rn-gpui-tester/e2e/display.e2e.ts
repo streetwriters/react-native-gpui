@@ -48,8 +48,8 @@ const inside = (
 
 for (const offscreen of [false, true]) {
   const label = offscreen ? 'a hidden window' : 'a window';
-  test(`${label} opens on the secondary display by default, and on the one RN_GPUI_TEST_DISPLAY names`, async () => {
-    const probe = await start({}, offscreen);
+  test(`${label} opens on the secondary display when asked, and on the one RN_GPUI_TEST_DISPLAY names`, async () => {
+    const probe = await start({ RN_GPUI_TEST_DISPLAY: 'secondary' }, offscreen);
     const displays = await probe.displays();
     const main = displays.find(display => display.primary)!;
     const secondary = displays.find(display => !display.primary);
