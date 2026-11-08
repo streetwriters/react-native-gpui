@@ -1,3 +1,5 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { afterAll, beforeAll, expect, test } from 'vitest';
@@ -9,6 +11,10 @@ import {
 
 let app: DesktopApp;
 
+/** A window-state file of its own, so a launch neither restores nor leaves bounds. */
+const freshWindowState = () =>
+  path.join(mkdtempSync(path.join(tmpdir(), 'rn-gpui-window-')), 'window.json');
+
 beforeAll(async () => {
   app = await launchApp({
     bundle: path.resolve(
@@ -16,6 +22,7 @@ beforeAll(async () => {
     ),
     env: {
       RN_GPUI_MODULE: 'RNGPUITester--window-state',
+      RN_GPUI_WINDOW_STATE: freshWindowState(),
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
@@ -126,6 +133,7 @@ test('a window that was minimised and then hidden shows again', async () => {
     ),
     env: {
       RN_GPUI_MODULE: 'RNGPUITester--window-state',
+      RN_GPUI_WINDOW_STATE: freshWindowState(),
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
@@ -136,14 +144,15 @@ test('a window that was minimised and then hidden shows again', async () => {
     app.getByTestId('tester-screen-window-state'),
   ).toBeVisible();
   await run('minimize');
-  await new Promise(resolve => setTimeout(resolve, 1200));
+  await poll(
+    async () => (await text('window-state')).includes('minimized=true'),
+    10000,
+  );
   await run('hide');
-  await new Promise(resolve => setTimeout(resolve, 600));
   await poll(async () =>
     (await text('window-state')).includes('visible=false'),
   );
   await run('show-focus');
-  await new Promise(resolve => setTimeout(resolve, 1200));
   await poll(async () => (await text('window-state')).includes('visible=true'));
   await poll(
     async () => (await text('window-state')).includes('minimized=false'),
