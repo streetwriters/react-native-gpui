@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `platforms.desktop.cppSpecs` lists the specification files a package's C++ provider serves when the package also has a Rust crate, so the provider is no longer asked for the crate's modules and the crate no longer lists the C++ ones.
 - Autolink records the window options and flags of `desktop/desktop.json`, merged with the per-OS file, in the generated autolink crate, and `ensure_linked()` hands them to the runtime, so `window.titleBar`, `window.trafficLightPosition` and the other window keys apply to a hand-written `main.rs` without running `init-desktop` again.
 - `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.
 - `run-desktop` on macOS signs the app with `APPLE_SIGNING_IDENTITY` when it is set, so the keychain keeps the access it granted across rebuilds instead of asking for every item again.

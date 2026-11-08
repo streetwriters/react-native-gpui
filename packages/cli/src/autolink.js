@@ -149,6 +149,30 @@ function escapeToml(value) {
  * authority; `base` is the directory the paths are written relative to, which
  * for an app manifest is its `desktop/` directory.
  */
+/**
+ * The spec files a package hands to one side. A package with both a C++
+ * provider and a Rust crate lists the C++ ones in `cppSpecs`: the provider
+ * serves those and the crate the rest. Without `cppSpecs` both get every spec.
+ */
+export function specFilesFor(files, cppSpecs, side) {
+  if (cppSpecs === undefined) return files;
+  if (
+    !Array.isArray(cppSpecs) ||
+    cppSpecs.some(name => typeof name !== 'string')
+  ) {
+    throw new Error(
+      'platforms.desktop.cppSpecs must be an array of file names',
+    );
+  }
+  const missing = cppSpecs.filter(name => !files.includes(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `platforms.desktop.cppSpecs names ${missing.join(', ')}, which is not a specification of the package`,
+    );
+  }
+  return files.filter(file => cppSpecs.includes(file) === (side === 'cpp'));
+}
+
 export function managedPatchEntries(platformRoot, base) {
   const runtimeCrate = path.join(platformRoot, 'ReactGpui/rn-gpui');
   const pin = gpuiPin(platformRoot);
@@ -1045,7 +1069,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       }
       const specDir = path.join(root, specDirectory);
       const cppSpecPaths = [];
-      for (const file of findSpecFiles(specDir)) {
+      for (const file of specFilesFor(
+        findSpecFiles(specDir),
+        gpui.cppSpecs,
+        'cpp',
+      )) {
         const specPath = path.join(specDir, file);
         const moduleName = moduleNameForSpec(specPath);
         cppSpecPaths.push(specPath);
@@ -1109,7 +1137,11 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     const moduleTypes = [];
     const specDir = path.join(root, specDirectory);
     if (fs.existsSync(specDir)) {
-      for (const file of findSpecFiles(specDir)) {
+      for (const file of specFilesFor(
+        findSpecFiles(specDir),
+        gpui.cppSpecs,
+        'rust',
+      )) {
         const specPath = path.join(specDir, file);
         const moduleName = moduleNameForSpec(specPath);
         moduleTypes.push(moduleName);
