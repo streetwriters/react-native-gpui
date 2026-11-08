@@ -3425,9 +3425,24 @@ impl Render for RNNodeView {
             }
             element = element
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
-                    if this.component == "TextInput" {
-                        dispatch_key(this.tag, "topKeyPress", &event.keystroke, event.is_held, cx);
+                    // gpui offers a key to every focusable node on the path to the
+                    // focused one; React bubbles the event from the target itself,
+                    // so only the focused node sends it.
+                    let is_target = this
+                        .focus_handle
+                        .as_ref()
+                        .is_some_and(|handle| handle.is_focused(window));
+                    if is_target {
+                        dispatch_key(this.tag, "topKeyDown", &event.keystroke, event.is_held, cx);
+                        if this.component == "TextInput" {
+                            dispatch_key(
+                                this.tag,
+                                "topKeyPress",
+                                &event.keystroke,
+                                event.is_held,
+                                cx,
+                            );
+                        }
                     }
                     if !event.is_held
                         && focus_adjacent_semantic_sibling(this, &event.keystroke.key, window, cx)
@@ -3530,7 +3545,13 @@ impl Render for RNNodeView {
                     }
                 }))
                 .on_key_up(cx.listener(|this, event: &KeyUpEvent, window, cx| {
-                    dispatch_key(this.tag, "topKeyUp", &event.keystroke, false, cx);
+                    if this
+                        .focus_handle
+                        .as_ref()
+                        .is_some_and(|handle| handle.is_focused(window))
+                    {
+                        dispatch_key(this.tag, "topKeyUp", &event.keystroke, false, cx);
+                    }
                     if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                         store.0.read(cx).frame_hook.arm(window);
                     }
