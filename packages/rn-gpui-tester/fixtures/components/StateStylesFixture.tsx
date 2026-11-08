@@ -17,6 +17,8 @@ const GROUP = '#8b5cf6';
 const box = { width: 120, height: 60, backgroundColor: BASE };
 
 export default function StateStylesFixture() {
+  const refA = useRef<View>(null);
+  const refB = useRef<View>(null);
   const rendered = useRef(0);
   rendered.current += 1;
   const opacity = useRef(new Animated.Value(1)).current;
@@ -91,6 +93,23 @@ export default function StateStylesFixture() {
       />
 
       <View testID="state-focus-other" focusable style={box} />
+
+      <View
+        ref={refA}
+        testID="ref-a"
+        focusable
+        style={box}
+        focusStyle={{ backgroundColor: FOCUS }}
+        onKeyDown={() => refB.current?.focus()}
+      />
+      <View
+        ref={refB}
+        testID="ref-b"
+        focusable
+        style={box}
+        focusStyle={{ backgroundColor: FOCUS }}
+        onKeyDown={() => refB.current?.blur()}
+      />
 
       <View
         testID="state-group"

@@ -659,6 +659,11 @@ void GpuiMountingManager::dispatchCommand(
     }
     return;
   }
+  if (std::string_view(view.componentName) == "View" &&
+      (name == "focus" || name == "blur")) {
+    rn_gpui_on_text_input_command(view.tag, name == "focus");
+    return;
+  }
   const folly::dynamic argsArray =
       args.isArray() ? args : folly::dynamic::array(args);
   rn_gpui_on_builtin_command(

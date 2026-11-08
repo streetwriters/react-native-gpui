@@ -45,6 +45,12 @@ class GpuiFeatureFlagsOverrides
   bool fixMappingOfEventPrioritiesBetweenFabricAndReact() override {
     return true;
   }
+
+  // `ref.focus()` and `ref.blur()` on a View send a command to the host
+  // instead of doing nothing, as `HTMLElement.focus()` moves focus.
+  bool enableImperativeFocus() override {
+    return true;
+  }
 };
 
 struct GpuiJsEngineInfo {

@@ -286,3 +286,30 @@ test('getProps reports the colors a state style applies and which states hold', 
   expect((await props('state-text-label')).textColor >>> 0).toBe(0xff000000);
   expect((await props('state-hover')).states).toEqual([]);
 });
+
+test('ref.focus() and ref.blur() move focus like HTMLElement.focus() and blur()', async () => {
+  const props = async (testID: string) => {
+    const [node] = await app.query('testID', testID, true);
+    return app.getProps(node.tag);
+  };
+  await away();
+  await app.getByTestId('ref-a').click();
+  await app.waitForIdle({ ignore: ['gestures', 'animations'] });
+  let a = await props('ref-a');
+  expect(a.states).toEqual(['focus']);
+  expect(a.backgroundColor >>> 0).toBe(0xff10b981);
+  expect((await props('ref-b')).states).toEqual([]);
+
+  await app.press('x');
+  await app.waitForIdle();
+  a = await props('ref-a');
+  const b = await props('ref-b');
+  expect(a.states).toEqual([]);
+  expect(a.backgroundColor >>> 0).toBe(0xff3b82f6);
+  expect(b.states).toContain('focus');
+  expect(b.backgroundColor >>> 0).toBe(0xff10b981);
+
+  await app.press('x');
+  await app.waitForIdle();
+  expect((await props('ref-b')).states).toEqual([]);
+});
