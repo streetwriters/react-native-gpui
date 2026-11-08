@@ -31,6 +31,7 @@ struct FragmentKey {
     strikethrough: bool,
     text_transform: u8,
     font_variant: u32,
+    background_color: u32,
 }
 
 impl From<&TextFragmentFlat> for FragmentKey {
@@ -48,6 +49,7 @@ impl From<&TextFragmentFlat> for FragmentKey {
             strikethrough: fragment.strikethrough,
             text_transform: fragment.text_transform,
             font_variant: fragment.font_variant,
+            background_color: fragment.background_color,
         }
     }
 }
@@ -518,7 +520,8 @@ fn make_runs(paragraph: &ParagraphFlat) -> (String, Vec<TextRun>) {
             len: shown.len(),
             font: font_of(fragment),
             color,
-            background_color: None,
+            background_color: (fragment.background_color >> 24 != 0)
+                .then(|| crate::style::color(fragment.background_color)),
             underline: fragment.underline.then_some(UnderlineStyle {
                 thickness: px(1.0),
                 color: None,
@@ -1035,6 +1038,29 @@ fn baseline_correction(line: &gpui::WrappedLine, line_height: f32) -> f32 {
     browser - gpui
 }
 
+/// Where a highlight behind a run starts, relative to the top of its line: a
+/// browser paints it over the font's content area, which the line's leading
+/// centres in the line box. A line that wraps keeps GPUI's whole-line-tall
+/// rectangle, which steps with the line height.
+fn background_top(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+    if !line.wrap_boundaries.is_empty() {
+        return 0.0;
+    }
+    let scale = device_scale();
+    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+    let content = (ascent * scale).round() + (descent * scale).round();
+    ((line_height * scale - content) / 2.0).floor() / scale
+}
+
+fn background_height(line: &gpui::WrappedLine, line_height: f32) -> f32 {
+    if !line.wrap_boundaries.is_empty() {
+        return line_height;
+    }
+    let scale = device_scale();
+    let (ascent, descent) = (f32::from(line.ascent()), f32::from(line.descent()));
+    ((ascent * scale).round() + (descent * scale).round()) / scale
+}
+
 fn paint_lines(
     shaped: &ShapedParagraph,
     origin: gpui::Point<gpui::Pixels>,
@@ -1045,6 +1071,14 @@ fn paint_lines(
     let mut y = origin.y;
     for (line, line_height) in shaped.lines.iter().zip(&shaped.line_heights) {
         let baseline = point(origin.x, y + px(baseline_correction(line, *line_height)));
+        let _ = line.paint_background(
+            point(origin.x, y + px(background_top(line, *line_height))),
+            px(background_height(line, *line_height)),
+            shaped.text_align,
+            Some(bounds),
+            window,
+            cx,
+        );
         if line
             .paint(
                 baseline,

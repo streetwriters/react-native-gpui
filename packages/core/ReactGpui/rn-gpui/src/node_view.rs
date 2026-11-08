@@ -2760,6 +2760,7 @@ impl RNNodeView {
                     strikethrough: false,
                     text_transform: 0,
                     font_variant: 0,
+                    background_color: 0,
                 });
         } else {
             paragraph.fragments[0].text.clone_from(visible);

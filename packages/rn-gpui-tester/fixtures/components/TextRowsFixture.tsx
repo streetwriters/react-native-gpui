@@ -26,6 +26,19 @@ const ROWS = [
 export default function TextRowsFixture() {
   return (
     <View testID="rows" style={{ backgroundColor: '#ffffff' }}>
+      <Text
+        testID="highlight"
+        style={{ fontFamily: 'Inter', fontSize: 13, color: '#000000' }}
+      >
+        A short{' '}
+        <Text
+          testID="highlight-span"
+          style={{ backgroundColor: '#ff0000', color: '#ffffff' }}
+        >
+          body
+        </Text>{' '}
+        of text
+      </Text>
       {ROWS.map((row, index) => (
         <View
           key={row.title}

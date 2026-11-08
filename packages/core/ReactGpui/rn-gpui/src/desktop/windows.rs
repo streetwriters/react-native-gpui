@@ -1433,7 +1433,6 @@ pub fn simulate_activation(cx: &mut App, key: u32, active: bool) -> DesktopResul
     let handle = entry.handle;
     handle
         .update(cx, |_root, window, cx| {
-            window.simulate_active_status(active, cx);
             report_activation(window, cx, key, &std::cell::Cell::new(!active));
         })
         .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
