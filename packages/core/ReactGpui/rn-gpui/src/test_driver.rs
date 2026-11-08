@@ -415,8 +415,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .unwrap_or_default();
@@ -452,8 +452,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .ok();
@@ -584,8 +584,8 @@ async fn serve_commands(
                         RectF {
                             x: 0.0,
                             y: 0.0,
-                            w: f32::from(size.width),
-                            h: f32::from(size.height),
+                            w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                            h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                         }
                     })
                     .ok();
@@ -1098,8 +1098,8 @@ async fn serve_commands(
                             RectF {
                                 x: 0.0,
                                 y: 0.0,
-                                w: f32::from(size.width),
-                                h: f32::from(size.height),
+                                w: f32::from(size.width) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
+                                h: f32::from(size.height) / crate::desktop::zoom::get(crate::store::APP_SURFACE_ID),
                             },
                             window.scale_factor(),
                         )
@@ -1496,6 +1496,7 @@ async fn serve_commands(
 fn draw_frame(window: &mut gpui::Window, app: &mut App) {
     let needs_clear = window.draw(app);
     needs_clear.clear(app);
+    crate::events::flush_hover_retarget(window, app);
     let Some(store) = app.try_global::<crate::store::StoreGlobal>() else {
         return;
     };
@@ -1824,9 +1825,10 @@ fn activate_accessibility_probe(window: &gpui::Window) {
 /// The window-space center of a surface-space frame. Pointer events dispatched
 /// with it land on the node the frame names, not `menu_bar_offset()` above it.
 fn frame_center(frame: RectF, offset: f32) -> gpui::Point<gpui::Pixels> {
+    let zoom = crate::desktop::zoom::get(crate::store::APP_SURFACE_ID);
     point(
-        px(frame.x + frame.w / 2.0),
-        px(frame.y + offset + frame.h / 2.0),
+        px((frame.x + frame.w / 2.0) * zoom),
+        px((frame.y + frame.h / 2.0) * zoom + offset),
     )
 }
 

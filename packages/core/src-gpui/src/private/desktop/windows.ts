@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter, processColor } from 'react-native';
+import type { ColorValue } from 'react-native';
 import NativeGpuiWindows from '../specs/NativeGpuiWindows';
 import { nativeRequest } from './index';
 import { useDesktopWindowId } from './windowContext';
@@ -41,6 +42,11 @@ export interface WindowState {
   isFullscreen: boolean;
   isFocused: boolean;
   isMinimized: boolean;
+  /** `false` after `hide()`. A minimized window is still visible. */
+  isVisible: boolean;
+  title: string;
+  /** The content scale set with `setZoomFactor()`; `1` is the natural size. */
+  zoomFactor: number;
   scaleFactor: number;
   /** How far a transparent title bar reaches into the content, in points. */
   topInset: number;
@@ -156,6 +162,51 @@ export class DesktopWindow {
 
   setTitle(title: string): Promise<void> {
     return request(native => native.windowSetTitle(this.id, title));
+  }
+
+  /**
+   * Scales the window's content: `1` is the natural size, `2` doubles it. The
+   * factor is clamped to 0.25 to 5 and lasts until the window closes, so an app
+   * that remembers it saves it itself (the `stateChange` event reports changes)
+   * and sets it again on the next launch.
+   */
+  setZoomFactor(factor: number): Promise<void> {
+    return request(native => native.windowSetZoomFactor(this.id, factor));
+  }
+
+  /** The factor set with `setZoomFactor()`. */
+  async getZoomFactor(): Promise<number> {
+    return (await this.getState()).zoomFactor;
+  }
+
+  /** The title set with `setTitle()` or `open()`. */
+  async getTitle(): Promise<string> {
+    return (await this.getState()).title;
+  }
+
+  /**
+   * Paints the window behind its content, which shows while the window is
+   * resized and wherever the content is transparent. macOS only for now.
+   */
+  setBackgroundColor(color: ColorValue): Promise<void> {
+    const argb = processColor(color);
+    if (typeof argb !== 'number') {
+      return Promise.reject(
+        new TypeError('setBackgroundColor needs a plain color'),
+      );
+    }
+    return request(native => native.windowSetBackgroundColor(this.id, argb));
+  }
+
+  /**
+   * Gives the window's native title bar and traffic lights a light or dark look,
+   * or `'system'` to follow the system again. macOS only for now. A title bar the
+   * app draws itself takes its colors from its styles.
+   */
+  setChromeAppearance(appearance: 'light' | 'dark' | 'system'): Promise<void> {
+    return request(native =>
+      native.windowSetChromeAppearance(this.id, appearance),
+    );
   }
 
   setSize(size: { width: number; height: number }): Promise<void> {
@@ -292,6 +343,9 @@ function sameState(a: WindowState | null, b: WindowState | null): boolean {
     a.isFullscreen === b.isFullscreen &&
     a.isFocused === b.isFocused &&
     a.isMinimized === b.isMinimized &&
+    a.isVisible === b.isVisible &&
+    a.title === b.title &&
+    a.zoomFactor === b.zoomFactor &&
     a.scaleFactor === b.scaleFactor &&
     a.topInset === b.topInset
   );

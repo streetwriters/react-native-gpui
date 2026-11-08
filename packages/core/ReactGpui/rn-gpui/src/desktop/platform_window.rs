@@ -1273,3 +1273,65 @@ pub fn native_frame(window: &gpui::Window) -> Option<(i32, i32, i32, i32, bool)>
         ))
     }
 }
+
+/// Paints the window's own background, behind the content: `argb` is `0xAARRGGBB`.
+#[cfg(target_os = "macos")]
+pub fn set_background_color(window: &mut gpui::Window, argb: u32) -> Result<(), String> {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)?;
+    let channel = |shift: u32| f64::from((argb >> shift) & 0xFF) / 255.0;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let color: id = msg_send![
+            class!(NSColor),
+            colorWithSRGBRed: channel(16)
+            green: channel(8)
+            blue: channel(0)
+            alpha: channel(24)
+        ];
+        let _: () = msg_send![native, setBackgroundColor: color];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_background_color(_window: &mut gpui::Window, _argb: u32) -> Result<(), String> {
+    Err("window background colors are not supported on this platform".to_string())
+}
+
+/// Gives the window's native chrome (title bar, traffic lights) a light or dark
+/// look, or `None` to follow the system.
+#[cfg(target_os = "macos")]
+pub fn set_chrome_appearance(window: &mut gpui::Window, dark: Option<bool>) -> Result<(), String> {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let appearance: id = match dark {
+            None => nil,
+            Some(dark) => {
+                let name = if dark {
+                    "NSAppearanceNameDarkAqua"
+                } else {
+                    "NSAppearanceNameAqua"
+                };
+                msg_send![class!(NSAppearance), appearanceNamed: NSString::alloc(nil).init_str(name)]
+            }
+        };
+        let _: () = msg_send![native, setAppearance: appearance];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_chrome_appearance(
+    _window: &mut gpui::Window,
+    _dark: Option<bool>,
+) -> Result<(), String> {
+    Err("a window's chrome appearance is not supported on this platform".to_string())
+}

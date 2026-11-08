@@ -48,6 +48,12 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'state-styles',
+    title: 'State styles',
+    group: 'Input',
+    fixture: 'StateStylesFixture',
+  },
+  {
     id: 'text-input',
     title: 'Text input',
     group: 'Input',
@@ -358,6 +364,12 @@ export const screens = [
     title: 'Context menus',
     group: 'Platform',
     fixture: 'ContextMenuFixture',
+  },
+  {
+    id: 'window-state',
+    title: 'Window state',
+    group: 'Platform',
+    fixture: 'WindowStateFixture',
   },
   {
     id: 'tray',

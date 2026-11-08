@@ -295,6 +295,40 @@ impl NativeGpuiWindowsSpec for WindowsModule {
             .map_err(module_error)
     }
 
+    async fn window_set_zoom_factor(&self, window_id: i32, factor: f64) -> Result<(), ModuleError> {
+        on_main(move |cx| windows::set_zoom_factor(cx, window_key(window_id), factor as f32))
+            .await?
+            .map(|_| ())
+            .map_err(module_error)
+    }
+
+    async fn window_set_background_color(
+        &self,
+        window_id: i32,
+        color: f64,
+    ) -> Result<(), ModuleError> {
+        on_main(move |cx| windows::set_background_color(cx, window_key(window_id), color as u32))
+            .await?
+            .map(|_| ())
+            .map_err(module_error)
+    }
+
+    async fn window_set_chrome_appearance(
+        &self,
+        window_id: i32,
+        appearance: String,
+    ) -> Result<(), ModuleError> {
+        let dark = match appearance.as_str() {
+            "dark" => Some(true),
+            "light" => Some(false),
+            _ => None,
+        };
+        on_main(move |cx| windows::set_chrome_appearance(cx, window_key(window_id), dark))
+            .await?
+            .map(|_| ())
+            .map_err(module_error)
+    }
+
     async fn window_show(&self, window_id: i32) -> Result<(), ModuleError> {
         on_main(move |cx| windows::show(cx, window_key(window_id)))
             .await?

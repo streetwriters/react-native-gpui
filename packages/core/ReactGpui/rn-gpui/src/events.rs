@@ -75,6 +75,9 @@ pub struct Target {
     /// menu bar GPUI draws above it, when the surface's origin does not hold it.
     window_offset: f32,
     window_offset_x: f32,
+    /// The window's zoom factor: window pointer positions run ahead of the
+    /// surface's by this much.
+    zoom: f32,
     scale_x: f32,
     scale_y: f32,
     /// Inverses of the matrices GPUI draws the target under, outermost first.
@@ -93,8 +96,8 @@ impl Target {
     /// React's page coordinates and the node origins are.
     fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
         point(
-            position.x - px(self.window_offset_x),
-            position.y - px(self.window_offset),
+            (position.x - px(self.window_offset_x)) / self.zoom,
+            (position.y - px(self.window_offset)) / self.zoom,
         )
     }
 
@@ -121,6 +124,7 @@ mod transform_tests {
             origin: point(px(30.0), px(40.0)),
             window_offset: 0.0,
             window_offset_x: 0.0,
+            zoom: 1.0,
             scale_x: 2.0,
             scale_y: 0.5,
             inverses: Vec::new(),
@@ -144,6 +148,7 @@ mod transform_tests {
             origin: point(px(20.0), px(35.0)),
             window_offset: 0.0,
             window_offset_x: 0.0,
+            zoom: 1.0,
             scale_x: 1.0,
             scale_y: 1.0,
             inverses: vec![about.inverse().unwrap()],
@@ -316,6 +321,7 @@ pub fn target(cx: &App, hit_node: &RNNodeView) -> Option<Target> {
         } else {
             crate::desktop::window_frame::insets_of(hit_node.surface_id).left
         },
+        zoom: crate::desktop::zoom::get(hit_node.surface_id),
         scale_x,
         scale_y,
         inverses,
@@ -550,6 +556,9 @@ pub fn send(
         store.update(cx, |store, _| {
             store.active_touch_target = Some(target.clone())
         });
+        if matches!(button, None | Some(Button::Left)) {
+            crate::interaction::begin_press(&target.chain, cx);
+        }
     }
     let tag = target.tag;
     let position = target.page(position);
@@ -639,6 +648,7 @@ pub fn send(
     }
     if matches!(phase, Phase::End | Phase::Cancel) {
         store.update(cx, |store, _| store.active_touch_target = None);
+        crate::interaction::end_press(cx);
     }
     // dispatchEvent queues React work; the frame hook is what calls RN's
     // RunLoopObserverManager::onRender and lets the JS scheduler consume it.
@@ -682,14 +692,17 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     // RN reuses the *target's* offset for every node in the hover path
     // (`handleIncomingPointerEventOnNode` re-dispatches the same PointerEvent),
     // so `offsetX/Y` of an ancestor's enter/leave is the target-relative offset.
+    store.read(cx).pointer_inside.set(true);
+    let page = target.map_or(position, |target| target.page(position));
     let location = target
-        .map(|target| target.local_position(position))
+        .map(|target| target.local_position(page))
         .unwrap_or_else(|| point(px(0.), px(0.)));
     let (host, previous) = {
         let store = store.read(cx);
         store.pointer.set(position);
         (store.host.clone(), store.hovered.replace(next.clone()))
     };
+    let position = page;
     let shared = shared_root_len(&previous, &next);
     log::trace!(
         "[events] hover at ({:.1},{:.1}) chain={next:?} was={previous:?}",
@@ -724,7 +737,46 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     }
     if previous != next {
         store.read(cx).frame_hook.arm(window);
+        crate::interaction::set_hover(&next, cx);
     }
+}
+
+/// Runs the hover retarget a mount batch asked for, once its frame is drawn.
+pub fn flush_hover_retarget(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    if store.read(cx).hover_retarget_pending.replace(false) {
+        retarget_hover(window, cx);
+    }
+}
+
+/// Sends the pointer's last position again, so what it is over is worked out
+/// against the tree as it is now.
+pub fn retarget_hover(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let (position, inside, pressed) = {
+        let store = store.read(cx);
+        (
+            store.pointer.get(),
+            store.pointer_inside.get(),
+            store.active_touch_target.is_some(),
+        )
+    };
+    if !inside || pressed {
+        return;
+    }
+    window.dispatch_event(
+        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: window.modifiers(),
+        }),
+        cx,
+    );
+    crate::interaction::refresh(cx);
 }
 
 pub fn leave_root(window: &mut Window, cx: &mut App) {
@@ -739,6 +791,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
             store.pointer.get(),
         )
     };
+    store.read(cx).pointer_inside.set(false);
     for tag in previous.iter() {
         let location = store
             .read(cx)
@@ -751,6 +804,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
                     origin: node.absolute_origin(cx),
                     window_offset: 0.0,
                     window_offset_x: 0.0,
+                    zoom: 1.0,
                     scale_x: node.cumulative_scale(cx).0,
                     scale_y: node.cumulative_scale(cx).1,
                     inverses: node.transform_inverses(cx),
@@ -772,6 +826,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
     }
     if !previous.is_empty() {
         store.read(cx).frame_hook.arm(window);
+        crate::interaction::set_hover(&[], cx);
     }
 }
 

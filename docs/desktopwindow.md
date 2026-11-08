@@ -92,6 +92,58 @@ Changes the title.
 
 ---
 
+### `setZoomFactor()`
+
+```tsx
+setZoomFactor(factor: number): Promise<void>;
+```
+
+Scales the window's content: `1` is the natural size and `2` doubles it. The content is laid out at the window's size divided by the factor, so `useWindowDimensions()` reports less room when zoomed in, and pointer input follows the zoomed content. The factor is clamped to 0.25 to 5 and lasts until the window closes. The app remembers it: listen for `stateChange` events (they carry `zoomFactor`), save the value, and call `setZoomFactor()` on the next launch.
+
+Menus, tooltips and popovers that the system positions from window coordinates are not scaled with the content yet.
+
+---
+
+### `getZoomFactor()`
+
+```tsx
+getZoomFactor(): Promise<number>;
+```
+
+The factor set with `setZoomFactor()`, `1` by default.
+
+---
+
+### `getTitle()`
+
+```tsx
+getTitle(): Promise<string>;
+```
+
+The title set with `setTitle()` or the `title` option.
+
+---
+
+### `setBackgroundColor()`
+
+```tsx
+setBackgroundColor(color: ColorValue): Promise<void>;
+```
+
+Paints the window behind its content. It shows while the window is resized and wherever the content is transparent. Takes a plain color. macOS only for now; elsewhere it rejects with `unsupported`.
+
+---
+
+### `setChromeAppearance()`
+
+```tsx
+setChromeAppearance(appearance: 'light' | 'dark' | 'system'): Promise<void>;
+```
+
+Gives the window's native title bar and traffic lights a light or dark look, or `'system'` to follow the system again. macOS only for now; elsewhere it rejects with `unsupported`. A title bar the app draws itself takes its colors from its styles.
+
+---
+
 ### `setSize()`
 
 ```tsx
@@ -268,7 +320,7 @@ Closes the window. While a `closeRequested` listener is attached the window's cl
 addListener(name: WindowEventName, listener: (event: WindowEvent) => void): Subscription;
 ```
 
-Subscribes to an event of this window and returns a subscription to remove. The event names are `focus`, `blur`, `resize`, `move`, `stateChange` and `closeRequested`, and each event carries the `windowId` of its window. Several listeners can be attached to one window, and the window is released as soon as the last one is removed.
+Subscribes to an event of this window and returns a subscription to remove. The event names are `focus`, `blur`, `resize`, `move`, `stateChange` and `closeRequested`, and each event carries the `windowId` of its window. `stateChange` also carries the fields that changed (`isMaximized`, `isMinimized`, `isFullscreen`, `isVisible`, `title`, `zoomFactor`). Several listeners can be attached to one window, and the window is released as soon as the last one is removed.
 
 ---
 
@@ -467,6 +519,36 @@ Whether the window is full screen.
 ### `isFocused`
 
 Whether the window has focus.
+
+---
+
+### `isVisible`
+
+`false` while the window is hidden with `hide()`. A minimized window is still visible.
+
+| Type    |
+| ------- |
+| boolean |
+
+---
+
+### `title`
+
+The window's title.
+
+| Type   |
+| ------ |
+| string |
+
+---
+
+### `zoomFactor`
+
+The content scale set with `setZoomFactor()`.
+
+| Type   |
+| ------ |
+| number |
 
 ---
 

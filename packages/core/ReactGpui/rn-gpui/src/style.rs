@@ -1,5 +1,8 @@
-use gpui::{point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, StyleRefinement};
+use gpui::{
+    point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, SharedString, StyleRefinement,
+};
 use rn_gpui_sys::ffi::ViewPropsFlat;
+use serde_json::Value;
 
 /// RN colors are 0xAARRGGBB; GPUI's `rgba()` takes 0xRRGGBBAA.
 pub fn color(argb: u32) -> Hsla {
@@ -94,4 +97,303 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
         );
     }
     s
+}
+
+/// The properties a state style prop can change.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StateStyle {
+    background_color: Option<u32>,
+    opacity: Option<f32>,
+    box_shadow: Option<Vec<ShadowSpec>>,
+    /// Left, top, right, bottom: the order of `ViewPropsFlat::border_colors`.
+    border_colors: [Option<u32>; 4],
+    color: Option<u32>,
+    transform: Option<[f32; 16]>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ShadowSpec {
+    offset_x: f32,
+    offset_y: f32,
+    color: Option<u32>,
+    blur_radius: f32,
+    spread_distance: f32,
+    inset: bool,
+}
+
+fn number(value: &Value, key: &str) -> Option<f32> {
+    value.get(key)?.as_f64().map(|n| n as f32)
+}
+
+fn argb(value: &Value, key: &str) -> Option<u32> {
+    u32::try_from(value.get(key)?.as_u64()?).ok()
+}
+
+impl ShadowSpec {
+    fn from_json(value: &Value) -> Self {
+        Self {
+            offset_x: number(value, "offsetX").unwrap_or(0.0),
+            offset_y: number(value, "offsetY").unwrap_or(0.0),
+            color: argb(value, "color"),
+            blur_radius: number(value, "blurRadius").unwrap_or(0.0),
+            spread_distance: number(value, "spreadDistance").unwrap_or(0.0),
+            inset: value.get("inset").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+/// The properties a running animation owns, which a state style leaves alone.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Animating {
+    pub background: bool,
+    pub opacity: bool,
+}
+
+impl StateStyle {
+    pub(crate) fn from_json(value: &Value) -> Self {
+        let all = argb(value, "borderColor");
+        let side = |name: &str| argb(value, name).or(all);
+        Self {
+            background_color: argb(value, "backgroundColor"),
+            opacity: number(value, "opacity"),
+            box_shadow: value
+                .get("boxShadow")
+                .and_then(Value::as_array)
+                .map(|shadows| shadows.iter().map(ShadowSpec::from_json).collect()),
+            border_colors: [
+                side("borderLeftColor"),
+                side("borderTopColor"),
+                side("borderRightColor"),
+                side("borderBottomColor"),
+            ],
+            color: argb(value, "color"),
+            transform: value
+                .get("transform")
+                .and_then(Value::as_array)
+                .and_then(|m| {
+                    let matrix: Vec<f32> = m
+                        .iter()
+                        .filter_map(|n| n.as_f64())
+                        .map(|n| n as f32)
+                        .collect();
+                    <[f32; 16]>::try_from(matrix).ok()
+                }),
+        }
+    }
+
+    /// Lays `other` over this style: what it sets wins.
+    pub(crate) fn merge(&mut self, other: &StateStyle) {
+        self.background_color = other.background_color.or(self.background_color);
+        self.opacity = other.opacity.or(self.opacity);
+        if other.box_shadow.is_some() {
+            self.box_shadow.clone_from(&other.box_shadow);
+        }
+        for (mine, theirs) in self.border_colors.iter_mut().zip(other.border_colors) {
+            *mine = theirs.or(*mine);
+        }
+        self.color = other.color.or(self.color);
+        self.transform = other.transform.or(self.transform);
+    }
+
+    /// The border colors this style leaves to `base`, left, top, right, bottom.
+    pub(crate) fn border_colors(&self, base: [u32; 4]) -> [u32; 4] {
+        std::array::from_fn(|side| self.border_colors[side].unwrap_or(base[side]))
+    }
+
+    pub(crate) fn text_color(&self) -> Option<u32> {
+        self.color
+    }
+
+    pub(crate) fn transform(&self) -> Option<[f32; 16]> {
+        self.transform
+    }
+
+    /// The refinement gpui layers over the base style while the state holds.
+    /// `scale` is the node's accumulated transform scale, applied to shadows the
+    /// way the base style's are.
+    pub fn refinement(&self, scale: (f32, f32), animating: Animating) -> StyleRefinement {
+        let mut s = StyleRefinement::default();
+        if let Some(argb) = self.background_color.filter(|_| !animating.background) {
+            s.background = Some(Fill::from(color(argb)));
+        }
+        if let Some(opacity) = self.opacity.filter(|_| !animating.opacity) {
+            s.opacity = Some(opacity.clamp(0.0, 1.0));
+        }
+        if let Some(shadows) = &self.box_shadow {
+            let radius_scale = scale.0.min(scale.1);
+            s.box_shadow = Some(
+                shadows
+                    .iter()
+                    .map(|shadow| BoxShadow {
+                        color: color(shadow.color.unwrap_or(0xFF00_0000)),
+                        offset: point(px(shadow.offset_x * scale.0), px(shadow.offset_y * scale.1)),
+                        blur_radius: px(shadow.blur_radius * radius_scale),
+                        spread_radius: px(shadow.spread_distance * radius_scale),
+                        inset: shadow.inset,
+                    })
+                    .collect(),
+            );
+        }
+        s
+    }
+}
+
+/// A style that applies while a named ancestor group is hovered or pressed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroupStateStyle {
+    pub group: SharedString,
+    pub style: StateStyle,
+}
+
+/// Everything a view declares through `group` and the `*Style` state props.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StateStyles {
+    pub group: Option<SharedString>,
+    pub hover: Option<StateStyle>,
+    pub active: Option<StateStyle>,
+    pub focus: Option<StateStyle>,
+    pub focus_visible: Option<StateStyle>,
+    pub group_hover: Option<GroupStateStyle>,
+    pub group_active: Option<GroupStateStyle>,
+}
+
+fn parse_json(prop: &str, json: &str) -> Option<Value> {
+    if json.is_empty() {
+        return None;
+    }
+    match serde_json::from_str(json) {
+        Ok(parsed) => Some(parsed),
+        Err(error) => {
+            log::warn!("[style] ignoring invalid {prop}: {error}");
+            None
+        }
+    }
+}
+
+fn parse_state(prop: &str, json: &str) -> Option<StateStyle> {
+    parse_json(prop, json).map(|value| StateStyle::from_json(&value))
+}
+
+fn parse_group(prop: &str, json: &str) -> Option<GroupStateStyle> {
+    let value = parse_json(prop, json)?;
+    let group = value
+        .get("group")?
+        .as_str()
+        .filter(|group| !group.is_empty())?;
+    Some(GroupStateStyle {
+        group: group.to_owned().into(),
+        style: StateStyle::from_json(value.get("style")?),
+    })
+}
+
+impl StateStyles {
+    /// Whether any state sets the text color.
+    pub fn sets_color(&self) -> bool {
+        [
+            self.focus.as_ref(),
+            self.focus_visible.as_ref(),
+            self.hover.as_ref(),
+            self.active.as_ref(),
+            self.group_hover.as_ref().map(|grouped| &grouped.style),
+            self.group_active.as_ref().map(|grouped| &grouped.style),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|style| style.text_color().is_some())
+    }
+
+    /// `None` when the view declares nothing, which is the case for almost every view.
+    pub fn from_flat(v: &ViewPropsFlat) -> Option<std::rc::Rc<Self>> {
+        let styles = Self {
+            group: (!v.group.is_empty()).then(|| v.group.clone().into()),
+            hover: parse_state("hoverStyle", &v.hover_style),
+            active: parse_state("activeStyle", &v.active_style),
+            focus: parse_state("focusStyle", &v.focus_style),
+            focus_visible: parse_state("focusVisibleStyle", &v.focus_visible_style),
+            group_hover: parse_group("groupHoverStyle", &v.group_hover_style),
+            group_active: parse_group("groupActiveStyle", &v.group_active_style),
+        };
+        (styles != Self::default()).then(|| std::rc::Rc::new(styles))
+    }
+}
+
+#[cfg(test)]
+mod state_style_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn state(value: Value) -> StateStyle {
+        StateStyle::from_json(&value)
+    }
+
+    #[test]
+    fn a_side_color_overrides_border_color() {
+        let style = state(json!({"borderColor": 1, "borderBottomColor": 2}));
+        assert_eq!(style.border_colors([9; 4]), [1, 1, 1, 2]);
+    }
+
+    #[test]
+    fn a_style_without_border_colors_keeps_the_base() {
+        assert_eq!(state(json!({})).border_colors([7, 8, 9, 10]), [7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn a_later_layer_wins_only_the_properties_it_sets() {
+        let mut base = state(json!({"backgroundColor": 1, "opacity": 0.5, "color": 3}));
+        base.merge(&state(json!({"backgroundColor": 2})));
+        assert_eq!(base.background_color, Some(2));
+        assert_eq!(base.opacity, Some(0.5));
+        assert_eq!(base.text_color(), Some(3));
+    }
+
+    #[test]
+    fn a_transform_needs_all_sixteen_numbers() {
+        assert!(state(json!({"transform": [1, 0]})).transform().is_none());
+        let matrix: Vec<f64> = (0..16).map(f64::from).collect();
+        assert_eq!(
+            state(json!({"transform": matrix})).transform().unwrap()[5],
+            5.0
+        );
+    }
+
+    #[test]
+    fn an_animated_property_is_left_out_of_the_refinement() {
+        let style = state(json!({"backgroundColor": 4278190080u32, "opacity": 0.2}));
+        let animating = Animating {
+            background: true,
+            opacity: false,
+        };
+        let refinement = style.refinement((1.0, 1.0), animating);
+        assert!(refinement.background.is_none());
+        assert_eq!(refinement.opacity, Some(0.2));
+    }
+
+    #[test]
+    fn a_view_with_no_state_props_has_no_state_styles() {
+        assert!(StateStyles::from_flat(&ViewPropsFlat::default()).is_none());
+    }
+
+    #[test]
+    fn a_group_style_needs_a_group_name() {
+        let mut view = ViewPropsFlat::default();
+        view.group_hover_style = r#"{"group":"","style":{"opacity":1}}"#.to_string();
+        assert!(StateStyles::from_flat(&view).is_none());
+        view.group_hover_style = r#"{"group":"row","style":{"opacity":1}}"#.to_string();
+        let styles = StateStyles::from_flat(&view).unwrap();
+        assert_eq!(styles.group_hover.as_ref().unwrap().group.as_ref(), "row");
+    }
+
+    #[test]
+    fn invalid_json_is_ignored() {
+        let mut view = ViewPropsFlat::default();
+        view.hover_style = "{".to_string();
+        assert!(StateStyles::from_flat(&view).is_none());
+    }
+
+    #[test]
+    fn any_state_can_set_the_text_color() {
+        let mut view = ViewPropsFlat::default();
+        view.active_style = r#"{"color":4294901760}"#.to_string();
+        assert!(StateStyles::from_flat(&view).unwrap().sets_color());
+    }
 }

@@ -261,9 +261,19 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  'state-styles': props =>
+    React.createElement(
+      require('./components/StateStylesFixture').default,
+      props,
+    ),
   'context-menu': props =>
     React.createElement(
       require('./components/ContextMenuFixture').default,
+      props,
+    ),
+  'window-state': props =>
+    React.createElement(
+      require('./components/WindowStateFixture').default,
       props,
     ),
   tray: props =>

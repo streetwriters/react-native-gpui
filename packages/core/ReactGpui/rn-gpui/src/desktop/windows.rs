@@ -571,6 +571,7 @@ fn finish_close(cx: &mut App, key: u32, entry: WindowEntry, remove_window: bool)
     super::window_mirror::remove(key);
     super::app_state::schedule(cx);
     let surface_id = entry.surface_id;
+    super::zoom::forget(surface_id);
     let handle = entry.handle;
     if let Some(store) = store_from(cx) {
         // Only the registry entry is dropped here. `stop_surface` goes through
@@ -767,9 +768,74 @@ pub fn set_title(cx: &mut App, key: u32, title: String) -> DesktopResult {
     if let Some(entry) = cx.global_mut::<DesktopWindowsGlobal>().0.get_mut(key) {
         entry.title.clone_from(&title);
     }
-    with_window(cx, key, move |window| {
+    let changed = json!(title);
+    let result = with_window(cx, key, move |window| {
         window.set_window_title(&title);
         Ok(())
+    });
+    if result.is_ok() {
+        report_state_change(cx, key, &[("title", changed)]);
+    }
+    result
+}
+
+/// Records fields of a window's state that no platform observer reports, and
+/// tells JS they changed.
+fn report_state_change(cx: &mut App, key: u32, fields: &[(&str, Value)]) {
+    super::window_mirror::patch(key, fields);
+    let mut payload = serde_json::Map::new();
+    payload.insert("windowId".to_string(), json!(key));
+    for (name, value) in fields {
+        payload.insert((*name).to_string(), value.clone());
+    }
+    emit_window_event(cx, "gpuiDesktop:windowStateChange", Value::Object(payload));
+}
+
+/// Scales a window's content, `1.0` being its natural size. The factor is
+/// clamped to 0.25 to 5 and lasts until the window closes: remembering it across
+/// launches is up to the app.
+pub fn set_zoom_factor(cx: &mut App, key: u32, factor: f32) -> DesktopResult {
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let (handle, surface_id) = (entry.handle, entry.surface_id);
+    let factor = super::zoom::set(surface_id, factor);
+    let Some(store) = store_from(cx) else {
+        return Ok(json!({"windowId": key}));
+    };
+    handle
+        .update(cx, |_root, window, cx| {
+            let (size, scale) = (window.viewport_size(), window.scale_factor());
+            store.update(cx, |store, cx| {
+                store.resize_window(
+                    window.window_handle().into(),
+                    f32::from(size.width),
+                    f32::from(size.height),
+                    scale,
+                    cx,
+                );
+                if let Some(root) = store.roots.get(&surface_id) {
+                    root.update(cx, |_, cx| cx.notify());
+                }
+                store.frame_hook.arm(window);
+            });
+        })
+        .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
+    report_state_change(cx, key, &[("zoomFactor", json!(factor))]);
+    Ok(json!({"windowId": key}))
+}
+
+/// Paints the window's own background, behind the content.
+pub fn set_background_color(cx: &mut App, key: u32, argb: u32) -> DesktopResult {
+    with_window(cx, key, move |window| {
+        platform_window::set_background_color(window, argb).map_err(DesktopError::unsupported)
+    })
+}
+
+/// Gives the window's native chrome a light or dark look; `None` follows the system.
+pub fn set_chrome_appearance(cx: &mut App, key: u32, dark: Option<bool>) -> DesktopResult {
+    with_window(cx, key, move |window| {
+        platform_window::set_chrome_appearance(window, dark).map_err(DesktopError::unsupported)
     })
 }
 
@@ -868,7 +934,7 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
         platform_window::show(window).map_err(DesktopError::unsupported)
     });
     if result.is_ok() {
-        super::window_mirror::patch(key, &[("isVisible", json!(true))]);
+        report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
     }
     result
@@ -879,7 +945,7 @@ pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
         platform_window::hide(window).map_err(DesktopError::unsupported)
     });
     if result.is_ok() {
-        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
+        report_state_change(cx, key, &[("isVisible", json!(false))]);
         super::app_state::schedule(cx);
     }
     result
@@ -905,6 +971,11 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
     };
     let handle = entry.handle;
+    let surface_id = entry.surface_id;
+    let title = entry.title.clone();
+    let visible = super::window_mirror::get(key)
+        .and_then(|state| state["isVisible"].as_bool())
+        .unwrap_or(true);
     handle
         .update(cx, |_root, window, _cx| {
             let bounds = window.bounds();
@@ -920,6 +991,9 @@ pub fn window_state(cx: &mut App, key: u32) -> DesktopResult {
                 "isFullscreen": window.is_fullscreen(),
                 "isFocused": window.is_window_active(),
                 "isMinimized": platform_window::is_minimized(window),
+                "isVisible": visible,
+                "title": title,
+                "zoomFactor": super::zoom::get(surface_id),
                 "scaleFactor": window.scale_factor(),
                 "topInset": top_inset(window, key),
             })
