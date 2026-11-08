@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A native-driven or Reanimated animation of `backgroundColor` or `color` now paints: colors that arrive as negative 32-bit integers, which is every color with a high alpha byte from Reanimated, were converted to unsigned through a double and came out transparent.
 - Files dragged in from the operating system: `View` takes `acceptsFiles`, `onDragEnter`, `onDragOver`, `onDragLeave` and `onDrop` events carrying each file's path, name, size, media type and the pointer position, and a `dragOverStyle` state style. Needs a prebuilt runtime built with the change.
 - Menu items take an `onPress` handler, run when the item is chosen in a context menu (`ContextMenu.show`, `ContextMenuView`) or in the application menu, alongside the id the menu already reports.
 - What the pointer is over is worked out again after a mount batch, as a browser does after a layout: a view that mounts under a still pointer receives `onPointerEnter`, without the pointer moving.

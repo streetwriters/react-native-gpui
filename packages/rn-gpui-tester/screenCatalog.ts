@@ -48,6 +48,12 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'css-animations',
+    title: 'CSS animations',
+    group: 'Views',
+    fixture: 'CssAnimationsFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',
