@@ -28,6 +28,7 @@ export type ScrollBarEvent = Readonly<{
   contentOffset: Readonly<{ x: CodegenTypes.Double; y: CodegenTypes.Double }>;
 }>;
 
+// @ts-expect-error onDragStart, onDrag and onDragEnd are the scroll bar's own events, not View's drag events
 export interface NativeProps extends ViewProps {
   /** Width of a vertical bar, height of a horizontal one. Defaults to 6. */
   thickness?: CodegenTypes.Float;

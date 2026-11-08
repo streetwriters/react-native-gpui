@@ -228,6 +228,19 @@ Dragging files over the window sends `onDragEnter` to the view that takes them, 
 
 `path` is a path the app can read, so a file is read from disk, not delivered as bytes. The drop does not copy or open anything. Dragging files out of the app is not supported.
 
+## Dragging views inside the app
+
+```jsx
+<View draggable onDragStart={() => DragDrop.setPayload({ id: note.id })} />
+<View
+  droppable
+  dragOverStyle={{ backgroundColor: '#dbeafe' }}
+  onDrop={() => move(DragDrop.getPayload().id)}
+/>
+```
+
+A press on a `draggable` view that moves 4 points starts a drag: the press is cancelled, so a `Pressable` around it does not fire, and the view gets `onDragStart`. The drag follows the pointer wherever it goes, also out of the view and over a scroll view. The nearest `droppable` view under it gets `onDragEnter`, `onDragOver` and `onDragLeave`, and the release sends it `onDrop` with no leave. The source gets `onDrag` as the pointer moves and `onDragEnd` at the end, with `dropped` saying whether a droppable view took it. See [Dragging views](desktop-drag-and-drop) for the payload, the preview and auto-scrolling.
+
 ## Borders
 
 Borders follow React Native: `borderWidth` and `borderColor` set all four sides, and `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` and the matching `...Color` props set one side with its own width and color. A side with a width and a color paints, also when no other side does and under a `borderRadius`. `borderStyle` is `solid`, `dashed` or `dotted`. A width under one device pixel, such as `StyleSheet.hairlineWidth` on a 1x display, may not show.

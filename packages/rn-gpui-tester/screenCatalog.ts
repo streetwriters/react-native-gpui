@@ -126,6 +126,12 @@ export const screens = [
     fixture: 'FileDropFixture',
   },
   {
+    id: 'drag-drop',
+    title: 'Drag and drop',
+    group: 'Input',
+    fixture: 'DragDropFixture',
+  },
+  {
     id: 'state-styles',
     title: 'State styles',
     group: 'Input',
