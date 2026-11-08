@@ -225,15 +225,6 @@ async fn serve_commands(
                     json!({"width": f32::from(size.width), "height":f32::from(size.height)})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
-            "raiseWindow" => {
-                match cx.update_window(window, |_, window, _| {
-                    crate::desktop::platform_window::show_front(window)
-                }) {
-                    Ok(Ok(())) => json!({"raised": true}),
-                    Ok(Err(error)) => json!({"error": error}),
-                    Err(error) => json!({"error": error.to_string()}),
-                }
-            }
             "focusWindow" => {
                 let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
                 if !offscreen && crate::desktop::background::enabled() {

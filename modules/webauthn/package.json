@@ -1,0 +1,35 @@
+{
+  "name": "@react-native-gpui/webauthn",
+  "version": "0.0.1-alpha.0",
+  "description": "FIDO2 security keys for React Native GPUI apps: resident credentials and the PRF (hmac-secret) extension over CTAP2 on USB",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/webauthn"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "desktop",
+    "react-native.config.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "codegenConfig": {
+    "name": "RNGpuiWebauthnSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
+  "peerDependencies": {
+    "react-native": "0.87.x"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}

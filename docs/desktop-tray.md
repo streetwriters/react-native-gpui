@@ -58,6 +58,10 @@ await Tray.install({
 
 Without a reported click the popover is near the icon, not on it: where along the panel the icon sits is not known. Only the popover takes clicks: a click anywhere else reaches the window or the desktop underneath, and the popover closes because it loses focus. The overlay shows in Alt+Tab and the overview as a blank window, which Wayland gives an app no way to hide. Windows, macOS and X11 ignore the two options.
 
+## Starting hidden
+
+An app launched with the argument `--hidden` opens its main window without showing it or taking focus. Together with a tray icon this is how an app starts at login in the background: the tray click, the Dock icon (macOS) or a second launch of a [single-instance](desktop-json#singleinstance) app brings the window up. [`setLaunchAtLogin(true, { hidden: true })`](desktop-system#start-at-login) registers the app with that argument. The argument is the `START_HIDDEN_ARGUMENT` constant of the Rust crate.
+
 ## Changing it later
 
 `Tray.setTooltip`, `setTitle`, `setIcon`, `setMenu` and `setVisible` change the icon after it is installed, and `Tray.showPopover`, `hidePopover`, `togglePopover` and `setPopoverPosition` control the popover. See [`Tray`](tray#methods).

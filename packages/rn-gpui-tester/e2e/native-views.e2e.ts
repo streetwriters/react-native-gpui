@@ -41,6 +41,9 @@ async function launch(
       // Native views are placed by the operating system at the display's own
       // scale, which these tests compare with layout at 2x.
       RN_GPUI_TEST_DISPLAY: 'main',
+      // A window that other windows cover is occluded and macOS stops
+      // presenting it, so the screen read back would show no React view.
+      ...(onScreen ? { RN_GPUI_TEST_ON_TOP: '1' } : {}),
     },
     initialProps: {},
     disableAnimations: true,
@@ -50,7 +53,6 @@ async function launch(
   // without DRI (headless sway) logs that probe as an error.
   app.allowErrors(/wgpu_hal::gles::egl\] EGL 'eglInitialize'/u);
   await app.setWindowSize(1024, 768);
-  if (onScreen) await app.raiseWindow();
   await app.waitForIdle();
   return app;
 }

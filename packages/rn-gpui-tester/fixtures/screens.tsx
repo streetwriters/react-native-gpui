@@ -298,10 +298,7 @@ export const renderScreen: Record<
       props,
     ),
   'text-rows': props =>
-    React.createElement(
-      require('./components/TextRowsFixture').default,
-      props,
-    ),
+    React.createElement(require('./components/TextRowsFixture').default, props),
   'text-raster': props =>
     React.createElement(
       require('./components/TextRasterFixture').default,

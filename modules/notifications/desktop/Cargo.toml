@@ -1,0 +1,19 @@
+[package]
+name = "rn-gpui-notifications"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rn-gpui-module = { version = "0.1" }
+futures = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-user-notifications = "0.3"
+block2 = "0.6"
+
+[build-dependencies]
+rn-gpui-module-build = { version = "0.1" }

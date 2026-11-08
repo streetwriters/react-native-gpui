@@ -62,15 +62,15 @@ test('counts presses', async () => {
 
 ### Launch options
 
-| Option                 | Description                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `disableAnimations`    | Turns animations off, so tests do not wait for them.                            |
-| `initialProps`         | Props for the root component.                                                   |
+| Option                 | Description                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disableAnimations`    | Turns animations off, so tests do not wait for them.                                                                                                      |
+| `initialProps`         | Props for the root component.                                                                                                                             |
 | `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. Without it the window is shown, behind the others, and never takes focus. |
-| `idleOptions`          | What to ignore when waiting for the app to be idle.                             |
-| `executable`, `bundle` | Run a specific build and bundle.                                                |
-| `args`, `env`          | Arguments and environment variables for the app.                                |
-| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                           |
+| `idleOptions`          | What to ignore when waiting for the app to be idle.                                                                                                       |
+| `executable`, `bundle` | Run a specific build and bundle.                                                                                                                          |
+| `args`, `env`          | Arguments and environment variables for the app.                                                                                                          |
+| `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                                                                                                     |
 
 ## Staying in the background
 
@@ -82,11 +82,11 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
-A test that reads real screen pixels needs its window in front. `app.raiseWindow()` puts it in front of the other windows without activating the app or moving focus; it is the only call that makes a run visible over other windows.
-
 ### Which display
 
 A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
+
+A window ordered behind the others can be covered by them, and macOS stops presenting frames for a covered (occluded) window, so a test that reads the real screen back with `app.compositeScreenshot()` needs the window in front. `RN_GPUI_TEST_ON_TOP=1` orders the window front without activating the app or giving it focus; the compositor test of native views sets it.
 
 `launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
 

@@ -47,15 +47,17 @@ fn apply(next: Settings) -> Result<(), ModuleError> {
     Ok(())
 }
 
-/// A DNS-over-HTTPS server's URL has to be `https`, which is all libcurl takes.
-fn check_doh(url: &str) -> Result<(), ModuleError> {
-    if url.is_empty() || url.starts_with("https://") {
-        Ok(())
-    } else {
-        Err(ModuleError::new(format!(
-            "a DNS-over-HTTPS URL must start with https://, got \"{url}\""
-        )))
+/// The servers are one URL per line, and each has to be `https`, which is all
+/// libcurl takes.
+fn check_doh(urls: &str) -> Result<(), ModuleError> {
+    for url in urls.lines().filter(|line| !line.is_empty()) {
+        if !url.starts_with("https://") {
+            return Err(ModuleError::new(format!(
+                "a DNS-over-HTTPS URL must start with https://, got \"{url}\""
+            )));
+        }
     }
+    Ok(())
 }
 
 struct NetworkModule;
@@ -119,5 +121,7 @@ mod tests {
         assert!(check_doh("").is_ok());
         assert!(check_doh("https://dns.example/dns-query").is_ok());
         assert!(check_doh("http://dns.example/dns-query").is_err());
+        assert!(check_doh("https://a.example/q\nhttps://b.example/q").is_ok());
+        assert!(check_doh("https://a.example/q\nhttp://b.example/q").is_err());
     }
 }

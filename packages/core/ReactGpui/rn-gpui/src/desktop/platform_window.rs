@@ -1367,39 +1367,30 @@ pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String
     }))
 }
 
-/// Shows a window behind every other window, without making it key.
+/// Shows a window behind every other window, without making it key. A window
+/// that other windows cover is occluded, and macOS stops presenting frames for
+/// it, so a test that reads the screen back asks for the window to go in front
+/// with `RN_GPUI_TEST_ON_TOP=1`: `orderFrontRegardless` does not activate the
+/// app or give the window focus.
 #[cfg(target_os = "macos")]
 pub fn show_behind(window: &mut gpui::Window) -> Result<(), String> {
     use cocoa::base::id;
     use objc::{msg_send, sel, sel_impl};
     let native = imp::ns_window(window)?;
+    let on_top = std::env::var("RN_GPUI_TEST_ON_TOP").is_ok_and(|value| value == "1");
     // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
     unsafe {
-        let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+        if on_top {
+            let _: () = msg_send![native, orderFrontRegardless];
+        } else {
+            let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+        }
     }
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_behind(_window: &mut gpui::Window) -> Result<(), String> {
-    Ok(())
-}
-
-/// Shows a window in front of every other window, without making it key or
-/// activating the application.
-#[cfg(target_os = "macos")]
-pub fn show_front(window: &mut gpui::Window) -> Result<(), String> {
-    use objc::{msg_send, sel, sel_impl};
-    let native = imp::ns_window(window)?;
-    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
-    unsafe {
-        let _: () = msg_send![native, orderFrontRegardless];
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn show_front(_window: &mut gpui::Window) -> Result<(), String> {
     Ok(())
 }
 
