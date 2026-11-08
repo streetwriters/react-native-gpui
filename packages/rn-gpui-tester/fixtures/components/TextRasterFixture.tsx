@@ -12,7 +12,10 @@ const slot = { backgroundColor: '#ffffff' };
 export default function TextRasterFixture() {
   return (
     <View style={{ backgroundColor: '#ffffff' }}>
-      <View testID="raster-13-400" style={{ ...slot, width: 60, height: 16 }}>
+      <View
+        testID="raster-13-400"
+        style={{ width: 60, height: 16, backgroundColor: '#f6f7f9' }}
+      >
         <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#474747' }}>
           Favorites
         </Text>
