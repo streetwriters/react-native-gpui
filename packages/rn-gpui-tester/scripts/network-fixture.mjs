@@ -78,7 +78,11 @@ function handleHttp(request, response) {
   } else if (url.pathname === '/slow') {
     setTimeout(() => response.end('too-late'), 1500);
   } else if (url.pathname === '/idle') {
-    setTimeout(() => response.end('network-idle-ok'), 2200);
+    const timer = setTimeout(() => finishIdle(response), 30_000);
+    heldIdle.add({ response, timer });
+  } else if (url.pathname === '/idle/release') {
+    for (const held of heldIdle) finishIdle(held.response);
+    response.end('released');
   } else if (url.pathname === '/stream') {
     response.setHeader('content-type', 'text/plain');
     response.write('first-');
@@ -87,6 +91,18 @@ function handleHttp(request, response) {
   } else {
     response.writeHead(404).end('fixture-not-found');
   }
+}
+
+const heldIdle = new Set();
+
+function finishIdle(response) {
+  for (const held of heldIdle) {
+    if (held.response === response) {
+      clearTimeout(held.timer);
+      heldIdle.delete(held);
+    }
+  }
+  response.end('network-idle-ok');
 }
 
 const httpServer = http.createServer(handleHttp);

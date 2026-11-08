@@ -82,6 +82,8 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
+A test that reads real screen pixels needs its window in front. `app.raiseWindow()` puts it in front of the other windows without activating the app or moving focus; it is the only call that makes a run visible over other windows.
+
 ### Which display
 
 A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.

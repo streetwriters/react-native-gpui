@@ -1385,6 +1385,24 @@ pub fn show_behind(_window: &mut gpui::Window) -> Result<(), String> {
     Ok(())
 }
 
+/// Shows a window in front of every other window, without making it key or
+/// activating the application.
+#[cfg(target_os = "macos")]
+pub fn show_front(window: &mut gpui::Window) -> Result<(), String> {
+    use objc::{msg_send, sel, sel_impl};
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let _: () = msg_send![native, orderFrontRegardless];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_front(_window: &mut gpui::Window) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
     show(window)?;

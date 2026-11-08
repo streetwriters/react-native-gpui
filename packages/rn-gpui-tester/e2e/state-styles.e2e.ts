@@ -280,10 +280,14 @@ test('getProps reports the colors a state style applies and which states hold', 
 
   await app.getByTestId('state-text').hover();
   await app.waitForIdle();
-  expect((await props('state-text-label')).textColor >>> 0).toBe(0xffef4444);
+  expect(((await props('state-text-label')).textColor ?? 0) >>> 0).toBe(
+    0xffef4444,
+  );
 
   await away();
-  expect((await props('state-text-label')).textColor >>> 0).toBe(0xff000000);
+  expect(((await props('state-text-label')).textColor ?? 0) >>> 0).toBe(
+    0xff000000,
+  );
   expect((await props('state-hover')).states).toEqual([]);
 });
 
