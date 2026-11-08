@@ -29,7 +29,18 @@ beforeAll(async () => {
 afterAll(() => app?.close());
 
 test('the app settles after moving through several frozen routes', async () => {
-  for (const route of ['notebook', 'tag', 'home', 'notebook', 'home']) {
+  for (const route of [
+    'notebook',
+    'tag',
+    'home',
+    'notebook',
+    'home',
+    'tag',
+    'notebook',
+    'home',
+    'tag',
+    'home',
+  ]) {
     await app.getByTestId(`go-${route}`).click();
     await app.waitForIdle({ timeout: 8000 });
   }

@@ -42,6 +42,17 @@ function Screen({ name }: { name: Route }) {
       <Text
         testID={`route-${name}-title`}
       >{`${name} ${count} ${external % 2}`}</Text>
+      <View style={{ height: 120 }}>
+        <FlatList
+          data={Array.from({ length: 50 + (rows % 5) }, (_, index) => index)}
+          keyExtractor={item => String(item)}
+          renderItem={({ item }) => (
+            <Text
+              style={{ height: 20 }}
+            >{`${name} row ${item} ${external % 2}`}</Text>
+          )}
+        />
+      </View>
       <Pressable
         testID={`route-${name}-bump`}
         onPress={() => setCount(c => c + 1)}

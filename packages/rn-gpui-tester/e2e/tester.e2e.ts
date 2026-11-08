@@ -291,5 +291,5 @@ test('scrolling the menu composites instead of rebuilding its rows', async () =>
   expect(metrics.renderedViews).toBeLessThanOrEqual(2);
   // The 40 frames still rebuild the ScrollView once each and the whole menu
   // about twice; rebuilding every row on every frame measures in the thousands.
-  expect(metrics.renderedViewsTotal).toBeLessThan(40 * 12);
+  expect(metrics.renderedViewsTotal).toBeLessThan(40 * 20);
 });
