@@ -2854,6 +2854,11 @@ impl Render for SurfaceRootView {
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            .capture_key_down(|event, window, cx| {
+                if event.keystroke.key == "escape" && crate::drag_drop::cancel(window, cx) {
+                    cx.stop_propagation();
+                }
+            })
             // A press that started on a node follows the pointer wherever it
             // goes: over a node, the node moves and ends it first; anywhere
             // else it moves and ends here, so a drag that left every touchable
