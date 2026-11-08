@@ -268,6 +268,11 @@ export const renderScreen: Record<
     ),
   network: props =>
     React.createElement(require('./components/NetworkFixture').default, props),
+  'side-borders': props =>
+    React.createElement(
+      require('./components/SideBordersFixture').default,
+      props,
+    ),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>

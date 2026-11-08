@@ -60,6 +60,12 @@ export const screens = [
     fixture: 'NetworkFixture',
   },
   {
+    id: 'side-borders',
+    title: 'Side borders',
+    group: 'Views',
+    fixture: 'SideBordersFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',
