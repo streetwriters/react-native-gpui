@@ -18,6 +18,7 @@
     "modules/safe-area-context",
     "modules/screens",
     "modules/fs",
+    "modules/image-manipulator",
     "modules/notifications",
     "modules/system",
     "modules/updater",

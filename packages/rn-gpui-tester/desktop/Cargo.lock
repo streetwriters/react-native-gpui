@@ -5774,6 +5774,7 @@ dependencies = [
  "rn-gpui-fixture-badge",
  "rn-gpui-fs",
  "rn-gpui-host-components-fixture",
+ "rn-gpui-image-manipulator",
  "rn-gpui-native-fixture",
  "rn-gpui-notifications",
  "rn-gpui-screens",
@@ -5827,6 +5828,17 @@ dependencies = [
  "wayland-client",
  "windows 0.62.2",
  "x11rb",
+]
+
+[[package]]
+name = "rn-gpui-image-manipulator"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "dirs 5.0.1",
+ "image",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
 ]
 
 [[package]]

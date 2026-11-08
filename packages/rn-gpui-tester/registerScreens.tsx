@@ -54,6 +54,16 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUIImageManipulatorFixture',
+    () => (props: ScreenProps & { source?: string }) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/ImageManipulatorFixture')
+          .ImageManipulatorFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
     'GPUIUpdaterFixture',
     () =>
       (
