@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Views can be dragged to other views in the app. `draggable` views start a drag when a press moves 4 points, with `onDragStart`, `onDrag` and `onDragEnd`; `droppable` views get `onDragEnter`, `onDragOver`, `onDragLeave` and `onDrop` and take `dragOverStyle`. The drag follows the pointer out of the source. `DragDrop` (`setPayload`, `getPayload`, `getState`, `onMove`), `useDragState`, `useIsDragging`, `DragPreview` and `useDragAutoScroll` are exported from `@react-native-gpui/core/desktop`. Needs a prebuilt runtime built with the change.
 - A one-line `Text` cut short with an ellipsis is as wide as the width it was given, as a block with `text-overflow: ellipsis` is, instead of as wide as the text that was left. A line is as tall as the tallest font it uses, fallback fonts such as Hiragino included, as in a browser; a color emoji font is left out, as there.
 - A nested `Text` with a `backgroundColor` is painted behind its words: a rectangle over the font's content area, as a browser paints an inline span's background (a line that wraps keeps a whole-line-tall rectangle).
 - While the test driver is on, windows report themselves active to the UI toolkit, so focus and blur events reach text inputs in a background run. `RN_GPUI_TEST_SCALE_FACTOR` makes a window lay out and draw at that scale whichever display it is on. Both need the gpui-fast revision that carries them.

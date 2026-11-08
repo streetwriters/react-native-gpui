@@ -106,7 +106,22 @@ export interface DesktopDragEventData {
   pageX: number;
   pageY: number;
   files: DesktopDroppedFile[];
+  /** For a drag started in the app: the view being dragged. Absent for files from the operating system. */
+  source?: number;
 }
+
+export interface DesktopDragSourceEventData {
+  /** The view being dragged. */
+  target: number;
+  /** The pointer position in the page. */
+  pageX: number;
+  pageY: number;
+  /** For `onDragEnd`: whether the drag ended on a view that takes drops. */
+  dropped?: boolean;
+}
+
+export type DesktopDragSourceEvent =
+  NativeSyntheticEvent<DesktopDragSourceEventData>;
 
 export type DesktopDragEvent = NativeSyntheticEvent<DesktopDragEventData>;
 
@@ -139,6 +154,19 @@ declare module 'react-native' {
      * nearest view under the pointer that does gets the drag events.
      */
     acceptsFiles?: boolean;
+    /**
+     * Lets the user drag this view within the app. A press that moves a few
+     * points starts a drag, see `DragDrop`.
+     */
+    draggable?: boolean;
+    /** Whether this view takes drags started in the app (`draggable` views). */
+    droppable?: boolean;
+    onDragStart?: (event: DesktopDragSourceEvent) => void;
+    onDrag?: (event: DesktopDragSourceEvent) => void;
+    onDragEnd?: (event: DesktopDragSourceEvent) => void;
+    onDragStartCapture?: (event: DesktopDragSourceEvent) => void;
+    onDragCapture?: (event: DesktopDragSourceEvent) => void;
+    onDragEndCapture?: (event: DesktopDragSourceEvent) => void;
     onDragEnter?: (event: DesktopDragEvent) => void;
     onDragOver?: (event: DesktopDragEvent) => void;
     onDragLeave?: (event: DesktopDragEvent) => void;
@@ -147,7 +175,7 @@ declare module 'react-native' {
     onDragOverCapture?: (event: DesktopDragEvent) => void;
     onDragLeaveCapture?: (event: DesktopDragEvent) => void;
     onDropCapture?: (event: DesktopDragEvent) => void;
-    /** Applied while files are dragged over this view, which must set `acceptsFiles`. */
+    /** Applied while files are dragged over this view, which must set `acceptsFiles` or `droppable`. */
     dragOverStyle?: StyleProp<DesktopStateStyle>;
     /** Names this view as a group that descendants style against with `groupHoverStyle` and `groupActiveStyle`. */
     group?: string;

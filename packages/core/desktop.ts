@@ -101,6 +101,18 @@ export type {
   ShortcutScopeProps,
 } from './src-gpui/src/private/desktop/useShortcut';
 
+export {
+  DragDrop,
+  DragPreview,
+  useDragAutoScroll,
+  useDragState,
+  useIsDragging,
+} from './src-gpui/src/private/desktop/dragDrop';
+export type {
+  DragAutoScrollOptions,
+  DragPreviewProps,
+  DragState,
+} from './src-gpui/src/private/desktop/dragDrop';
 export { Tray } from './src-gpui/src/private/desktop/tray';
 
 export type {

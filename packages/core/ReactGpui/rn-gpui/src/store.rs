@@ -2865,6 +2865,16 @@ impl Render for SurfaceRootView {
             .on_drop::<gpui::ExternalPaths>(|_, window, cx| crate::file_drop::dropped(window, cx))
             .on_file_drop_exit(|_, window, cx| crate::file_drop::exited(window, cx))
             .on_mouse_move(|event, window, cx| {
+                if crate::drag_drop::tracking() {
+                    crate::drag_drop::moved(
+                        window,
+                        cx,
+                        None,
+                        event.position,
+                        event.pressed_button.is_some(),
+                    );
+                    return;
+                }
                 if crate::file_drop::active() {
                     crate::file_drop::left_unanswered(window, cx, event.position);
                     return;
@@ -2885,6 +2895,10 @@ impl Render for SurfaceRootView {
                 }
             })
             .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
+                if crate::drag_drop::tracking() {
+                    crate::drag_drop::released(window, cx, None, event.position);
+                    return;
+                }
                 if crate::events::press_belongs_to_window() {
                     return;
                 }

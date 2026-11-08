@@ -236,6 +236,24 @@ export default {
         captured: 'onDragLeaveCapture',
       },
     },
+    topDragStart: {
+      phasedRegistrationNames: {
+        bubbled: 'onDragStart',
+        captured: 'onDragStartCapture',
+      },
+    },
+    topDrag: {
+      phasedRegistrationNames: {
+        bubbled: 'onDrag',
+        captured: 'onDragCapture',
+      },
+    },
+    topDragEnd: {
+      phasedRegistrationNames: {
+        bubbled: 'onDragEnd',
+        captured: 'onDragEndCapture',
+      },
+    },
     topDrop: {
       phasedRegistrationNames: {
         bubbled: 'onDrop',
@@ -260,6 +278,14 @@ export default {
     onContextMenu: true,
     onContextMenuCapture: true,
     acceptsFiles: true,
+    draggable: true,
+    droppable: true,
+    onDragStart: true,
+    onDragStartCapture: true,
+    onDrag: true,
+    onDragCapture: true,
+    onDragEnd: true,
+    onDragEndCapture: true,
     onDragEnter: true,
     onDragEnterCapture: true,
     onDragOver: true,

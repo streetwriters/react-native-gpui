@@ -701,6 +701,14 @@ impl RNNodeView {
         self.view.accepts_files
     }
 
+    pub(crate) fn draggable(&self) -> bool {
+        self.view.draggable
+    }
+
+    pub(crate) fn droppable(&self) -> bool {
+        self.view.droppable
+    }
+
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
         self.animated_transform = transform;
     }
@@ -4986,6 +4994,7 @@ impl RNNodeView {
                         Some(crate::events::Button::Left),
                         modifier_state(event.modifiers),
                     );
+                    crate::drag_drop::press(cx, &target, event.position);
                     cx.stop_propagation();
                 }));
             // Every other button reports the DOM pointer events only, with no
@@ -5084,6 +5093,17 @@ impl RNNodeView {
                             this.text_selection_anchor.is_some(),
                         )
                     };
+                    if crate::drag_drop::tracking() {
+                        crate::drag_drop::moved(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            event.pressed_button.is_some(),
+                        );
+                        cx.stop_propagation();
+                        return;
+                    }
                     if crate::file_drop::active() {
                         crate::file_drop::over(window, cx, hit_target.as_ref(), event.position);
                         cx.stop_propagation();
@@ -5142,6 +5162,11 @@ impl RNNodeView {
                     let Some(node) = node.upgrade() else {
                         return;
                     };
+                    if crate::drag_drop::tracking() {
+                        let target = crate::events::target(cx, node.read(cx));
+                        crate::drag_drop::released(window, cx, target.as_ref(), event.position);
+                        return;
+                    }
                     if crate::file_drop::active() {
                         let target = crate::events::target(cx, node.read(cx));
                         crate::file_drop::landing(target, event.position);

@@ -44,6 +44,7 @@ export default {
       'desktop-application-menu',
       'desktop-context-menus',
       'desktop-input',
+      'desktop-drag-and-drop',
       'desktop-keyboard-shortcuts',
       'desktop-tray',
     ],

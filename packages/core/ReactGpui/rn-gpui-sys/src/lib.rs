@@ -126,6 +126,8 @@ pub mod ffi {
         pub drag_over_style: String,
         /// Whether the view takes files dropped from the operating system.
         pub accepts_files: bool,
+        pub draggable: bool,
+        pub droppable: bool,
     }
 
     #[derive(Clone, Debug, Default)]
