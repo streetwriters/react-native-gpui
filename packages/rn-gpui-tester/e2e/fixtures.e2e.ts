@@ -944,3 +944,57 @@ test('the file system module downloads, reports progress and aborts', async () =
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
+
+test('the system module controls login items and screen-capture protection', async () => {
+  await launch('GPUISystemFixture', undefined, {});
+  await desktopExpect(app.getByText('done ok')).toBeVisible(30000);
+  const tree = JSON.stringify(await app.tree());
+  for (const expected of [
+    'loginOff ok',
+    'loginOn ok',
+    'loginReplace ok',
+    'loginOffAgain ok',
+    'loginTwice ok',
+    'protectionOff ok',
+    'protectionOn ok',
+    'protectionLater ok',
+    'protectionOffAgain ok',
+  ]) {
+    expect(tree).toContain(expected);
+  }
+  expect(tree).not.toContain('BAD');
+  expect(tree).not.toContain('FAILED');
+});
+
+test('the system module restarts the app with new arguments', async () => {
+  const marker = `restart-${Date.now()}`;
+  const running = () =>
+    execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
+      .split('\n')
+      .filter(line => line.includes(`--restart-marker=${marker}`))
+      .map(line => Number(line.trim().split(/\s+/)[0]))
+      .filter(pid => pid !== process.pid);
+
+  await launch('GPUISystemFixture', undefined, { restartMarker: marker });
+  await desktopExpect(app.getByText('done ok')).toBeVisible(30000);
+  expect(running()).toHaveLength(0);
+  app
+    .getByTestId('system-restart')
+    .click()
+    .catch(() => {});
+
+  const deadline = Date.now() + 20000;
+  let started: number[] = [];
+  while (Date.now() < deadline && started.length === 0) {
+    started = running();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  for (const pid of started) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // The copy may already have exited.
+    }
+  }
+  expect(started.length).toBeGreaterThan(0);
+});

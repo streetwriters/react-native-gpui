@@ -54,6 +54,15 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUISystemFixture',
+    () => (props: ScreenProps & { restartMarker?: string }) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/SystemFixture').SystemFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
     'GPUIDownloadFixture',
     () => (props: ScreenProps & { server?: string }) =>
       // Not in the screen catalog: only the e2e launches it, by this name.

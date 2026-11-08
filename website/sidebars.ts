@@ -178,6 +178,7 @@ export default {
       'desktop-file-system',
       'desktop-fonts',
       'desktop-notifications',
+      'desktop-system',
     ],
     'JavaScript Runtime': [
       'javascript-environment',

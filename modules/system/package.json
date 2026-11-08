@@ -1,0 +1,35 @@
+{
+  "name": "@react-native-gpui/system",
+  "version": "0.0.1-alpha.0",
+  "description": "Operating system integration for React Native GPUI apps: start at login, restart and screen-capture protection",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/system"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "desktop",
+    "react-native.config.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "codegenConfig": {
+    "name": "RNGpuiSystemSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
+  "peerDependencies": {
+    "react-native": "0.87.x"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}

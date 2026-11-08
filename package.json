@@ -19,6 +19,7 @@
     "modules/screens",
     "modules/fs",
     "modules/notifications",
+    "modules/system",
     "packages/rn-gpui-tester",
     "packages/rn-gpui-tester/host-components-module",
     "packages/rn-gpui-tester/gpui-native-module",
