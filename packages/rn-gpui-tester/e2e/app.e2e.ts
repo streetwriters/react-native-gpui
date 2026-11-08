@@ -1,0 +1,74 @@
+import { execFile } from 'node:child_process';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { afterAll, beforeAll, expect, test } from 'vitest';
+import {
+  launchApp,
+  expect as desktopExpect,
+  type DesktopApp,
+} from '@react-native-gpui/testing';
+
+const run = promisify(execFile);
+const appId = `org.reactnativegpui.tester.app-${process.pid}`;
+const env = {
+  RN_GPUI_SINGLE_INSTANCE: '1',
+  RN_GPUI_APP_ID: appId,
+};
+let app: DesktopApp;
+
+beforeAll(async () => {
+  app = await launchApp({
+    bundle: path.resolve(
+      'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    ),
+    args: ['--first', 'run'],
+    env: {
+      ...env,
+      RN_GPUI_MODULE: 'RNGPUITester--app',
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+    },
+    disableAnimations: true,
+    offscreen: true,
+  });
+  await app.setWindowSize(1024, 768);
+  await desktopExpect(app.getByTestId('tester-screen-app')).toBeVisible();
+});
+
+afterAll(() => app?.close());
+
+test('launchArgs gives the arguments the app was started with', async () => {
+  await desktopExpect(app.getByTestId('app-launch-args')).toHaveText(
+    '--first run',
+  );
+});
+
+test('a second launch hands its arguments to the running app and exits', async () => {
+  const binary = process.env.RN_GPUI_TEST_BINARY as string;
+  const started = Date.now();
+  await run(binary, ['new', 'note'], {
+    env: { ...process.env, ...env },
+    timeout: 20_000,
+  });
+  expect(Date.now() - started).toBeLessThan(20_000);
+  await desktopExpect(app.getByTestId('app-second-instances')).toHaveText(
+    'new note',
+  );
+});
+
+test('quit ends the application', async () => {
+  await app
+    .getByTestId('app-quit')
+    .click()
+    .catch(() => undefined);
+  const deadline = Date.now() + 10_000;
+  let ended = false;
+  while (Date.now() < deadline && !ended) {
+    ended = await app.idleStatus().then(
+      () => false,
+      () => true,
+    );
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  expect(ended).toBe(true);
+});

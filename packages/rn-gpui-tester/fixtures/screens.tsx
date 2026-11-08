@@ -312,6 +312,8 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  app: props =>
+    React.createElement(require('./components/AppFixture').default, props),
   'drag-drop': props =>
     React.createElement(require('./components/DragDropFixture').default, props),
   'file-drop': props =>

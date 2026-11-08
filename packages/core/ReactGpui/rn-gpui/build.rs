@@ -16,6 +16,7 @@ fn main() {
     rn_gpui_module_build::generate(&[
         "../../src-gpui/src/private/specs/NativeGpuiDesktop.ts",
         "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiApp.ts",
         "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
         "../../src-gpui/src/private/specs/NativeGpuiNetwork.ts",
         "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",

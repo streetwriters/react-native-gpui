@@ -39,6 +39,7 @@ export default {
     ],
     'Environment setup': ['environment-setup', 'set-up-your-environment'],
     Desktop: [
+      'desktop-app',
       'desktop-windows',
       'desktop-title-bar',
       'desktop-application-menu',

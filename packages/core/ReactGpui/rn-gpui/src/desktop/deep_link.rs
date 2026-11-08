@@ -49,6 +49,18 @@ pub fn handle_url(url: String) {
     }
 }
 
+/// Reports to JS that another launch handed its arguments to this process.
+pub fn second_instance(args: &[String]) {
+    if READY.load(Ordering::Acquire) {
+        if let Some(host) = HOST.lock().expect("deep link host poisoned").as_ref() {
+            host.emit_device_event_json(
+                "gpuiDesktop:secondInstance",
+                &json!({ "args": args }).to_string(),
+            );
+        }
+    }
+}
+
 pub fn initial_url() -> Option<String> {
     INITIAL.lock().expect("deep link state poisoned").clone()
 }

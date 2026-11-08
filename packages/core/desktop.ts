@@ -113,6 +113,7 @@ export type {
   DragPreviewProps,
   DragState,
 } from './src-gpui/src/private/desktop/dragDrop';
+export { App } from './src-gpui/src/private/desktop/app';
 export { Tray } from './src-gpui/src/private/desktop/tray';
 
 export type {
