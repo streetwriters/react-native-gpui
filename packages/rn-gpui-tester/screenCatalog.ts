@@ -48,6 +48,12 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'state-styles',
+    title: 'State styles',
+    group: 'Input',
+    fixture: 'StateStylesFixture',
+  },
+  {
     id: 'text-input',
     title: 'Text input',
     group: 'Input',

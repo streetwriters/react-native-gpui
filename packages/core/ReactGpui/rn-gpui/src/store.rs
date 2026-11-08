@@ -258,6 +258,7 @@ impl ViewStore {
             self.accessibility_modal_tags.clear();
             self.hovered.borrow_mut().clear();
             self.active_touch_target = None;
+            crate::interaction::clear();
             let roots: Vec<Entity<SurfaceRootView>> = self.roots.values().cloned().collect();
             for root in roots {
                 root.update(cx, |root, cx| {
@@ -286,6 +287,7 @@ impl ViewStore {
             .is_some_and(|target| stale.contains(&target.tag))
         {
             self.active_touch_target = None;
+            crate::interaction::clear();
         }
         for tag in stale {
             self.nodes.remove(&tag);

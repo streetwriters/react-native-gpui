@@ -11,6 +11,7 @@ pub(crate) mod gradient;
 pub(crate) mod host;
 pub mod host_component;
 pub(crate) mod image_loader;
+pub(crate) mod interaction;
 pub mod native_surface;
 #[cfg(target_os = "macos")]
 pub mod native_view;

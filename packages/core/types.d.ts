@@ -23,7 +23,7 @@
  * @format
  */
 
-import type { NativeSyntheticEvent } from 'react-native';
+import type { NativeSyntheticEvent, StyleProp, ViewStyle } from 'react-native';
 
 /** The native payload of a context-menu event. */
 export interface DesktopContextMenuEventData {
@@ -51,6 +51,25 @@ export interface DesktopContextMenuEventData {
   trigger: 'mouse' | 'keyboard';
 }
 
+/**
+ * The style properties a state style can change. A property that is being
+ * animated by a native-driven animation keeps its animated value.
+ */
+export type DesktopStateStyle = Pick<
+  ViewStyle,
+  'backgroundColor' | 'opacity' | 'boxShadow'
+>;
+
+/**
+ * A state style that applies while the ancestor that set `group` to this name
+ * is hovered or pressed.
+ */
+export interface DesktopGroupStateStyle {
+  /** The name an ancestor sets with its `group` prop. */
+  group: string;
+  style: StyleProp<DesktopStateStyle>;
+}
+
 export type DesktopContextMenuEvent =
   NativeSyntheticEvent<DesktopContextMenuEventData>;
 
@@ -75,6 +94,20 @@ declare module 'react-native' {
      * set, so a view with only the capture handler still receives events.
      */
     onContextMenuCapture?: (event: DesktopContextMenuEvent) => void;
+    /** Names this view as a group that descendants style against with `groupHoverStyle` and `groupActiveStyle`. */
+    group?: string;
+    /** Applied while the pointer is over this view. */
+    hoverStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while a mouse button pressed on this view is held. */
+    activeStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while this view has keyboard focus. Needs a view that can take focus. */
+    focusStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while this view has focus and the last input was the keyboard. */
+    focusVisibleStyle?: StyleProp<DesktopStateStyle>;
+    /** Applied while the pointer is over the ancestor that set `group` to this name. */
+    groupHoverStyle?: DesktopGroupStateStyle;
+    /** Applied while a button pressed on the ancestor that set `group` to this name is held. */
+    groupActiveStyle?: DesktopGroupStateStyle;
   }
 }
 

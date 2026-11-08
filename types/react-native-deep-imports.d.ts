@@ -34,3 +34,26 @@ declare module 'react-native/Libraries/NativeComponent/BaseViewConfig.ios' {
   };
   export default config;
 }
+
+declare module 'react-native/Libraries/StyleSheet/flattenStyle' {
+  export default function flattenStyle(
+    style: unknown,
+  ): Record<string, unknown> | null | undefined;
+}
+
+declare module 'react-native/Libraries/StyleSheet/processColor' {
+  export default function processColor(
+    color: unknown,
+  ): number | object | null | undefined;
+}
+
+declare module 'react-native/Libraries/StyleSheet/processBoxShadow' {
+  export default function processBoxShadow(boxShadow: unknown): Array<{
+    offsetX: number;
+    offsetY: number;
+    color?: number | object;
+    blurRadius?: number;
+    spreadDistance?: number;
+    inset?: boolean;
+  }>;
+}

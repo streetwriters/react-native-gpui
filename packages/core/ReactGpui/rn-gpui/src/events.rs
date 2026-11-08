@@ -550,6 +550,9 @@ pub fn send(
         store.update(cx, |store, _| {
             store.active_touch_target = Some(target.clone())
         });
+        if matches!(button, None | Some(Button::Left)) {
+            crate::interaction::begin_press(&target.chain, cx);
+        }
     }
     let tag = target.tag;
     let position = target.page(position);
@@ -639,6 +642,7 @@ pub fn send(
     }
     if matches!(phase, Phase::End | Phase::Cancel) {
         store.update(cx, |store, _| store.active_touch_target = None);
+        crate::interaction::end_press(cx);
     }
     // dispatchEvent queues React work; the frame hook is what calls RN's
     // RunLoopObserverManager::onRender and lets the JS scheduler consume it.
@@ -724,6 +728,7 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
     }
     if previous != next {
         store.read(cx).frame_hook.arm(window);
+        crate::interaction::set_hover(&next, cx);
     }
 }
 
@@ -772,6 +777,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
     }
     if !previous.is_empty() {
         store.read(cx).frame_hook.arm(window);
+        crate::interaction::set_hover(&[], cx);
     }
 }
 

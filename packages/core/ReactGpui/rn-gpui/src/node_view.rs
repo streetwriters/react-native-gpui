@@ -6,8 +6,8 @@ use crate::style;
 use gpui::{
     div, point, prelude::*, px, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
     IntoElement, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Position, Role, StyleRefinement, Subscription, Task, WeakEntity,
-    Window,
+    MouseUpEvent, Pixels, Point, Position, Refineable, Role, StyleRefinement, Subscription, Task,
+    WeakEntity, Window,
 };
 use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
 use std::cell::Cell;
@@ -105,6 +105,8 @@ pub struct RNNodeView {
     animated_background_color: Option<u32>,
     gradient_cache: Option<GradientCache>,
     animated_text_color: Option<u32>,
+    animated_opacity: bool,
+    state_styles: Option<Rc<style::StateStyles>>,
     pub paragraph: Option<ParagraphFlat>,
     pub input_text: String,
     pub input_placeholder: String,
@@ -524,8 +526,98 @@ impl RNNodeView {
     }
 
     pub fn set_animated_opacity(&mut self, opacity: f32) {
+        self.animated_opacity = true;
         self.view.opacity = opacity.clamp(0.0, 1.0);
         self.cached_style = style::to_refinement(&self.view);
+    }
+
+    /// Layers a view's state styles over its own. The pointer states are
+    /// resolved here, in Rust, from the hit path (see `interaction`); focus is
+    /// left to gpui, which reads it while painting. Either way a state change
+    /// repaints without JS and without React rendering again.
+    fn apply_state_styles(
+        &self,
+        mut element: gpui::Stateful<gpui::Div>,
+        styles: &style::StateStyles,
+        scale: (f32, f32),
+    ) -> gpui::Stateful<gpui::Div> {
+        let animating = style::Animating {
+            background: self.animated_background_color.is_some(),
+            opacity: self.animated_opacity,
+        };
+        // `none` and `box-none` views are not pointer targets themselves.
+        let targeted = !matches!(self.view.pointer_events, 1 | 2);
+        let mut pointer = StyleRefinement::default();
+        let mut pointer_applies = false;
+        let mut layer = |state: &style::StateStyle, applies: bool| {
+            if applies {
+                pointer.refine(&state.refinement(scale, animating));
+                pointer_applies = true;
+            }
+        };
+        if let Some(grouped) = &styles.group_hover {
+            layer(&grouped.style, crate::interaction::group_hovered(self.tag));
+        }
+        if let Some(state) = &styles.hover {
+            layer(
+                state,
+                targeted && crate::interaction::node_hovered(self.tag),
+            );
+        }
+        if let Some(grouped) = &styles.group_active {
+            layer(&grouped.style, crate::interaction::group_pressed(self.tag));
+        }
+        if let Some(state) = &styles.active {
+            layer(
+                state,
+                targeted && crate::interaction::node_pressed(self.tag),
+            );
+        }
+        // A focus layer is applied over the base style by gpui, so the pointer
+        // layers are folded into it to keep them on top.
+        let focus_layer = |state: &style::StateStyle| {
+            let mut refinement = state.refinement(scale, animating);
+            if pointer_applies {
+                refinement.refine(&pointer);
+            }
+            move |_: StyleRefinement| refinement
+        };
+        if let Some(state) = &styles.focus {
+            element = element.focus(focus_layer(state));
+        }
+        if let Some(state) = &styles.focus_visible {
+            element = element.focus_visible(focus_layer(state));
+        }
+        if pointer_applies {
+            element.style().refine(&pointer);
+        }
+        element
+    }
+
+    pub(crate) fn group_name(&self) -> Option<gpui::SharedString> {
+        self.state_styles.as_ref()?.group.clone()
+    }
+
+    /// Whether this node has a hover style, or a press style when `press`.
+    pub(crate) fn has_pointer_style(&self, press: bool) -> bool {
+        self.state_styles.as_ref().is_some_and(|styles| {
+            if press {
+                styles.active.is_some() || styles.group_active.is_some()
+            } else {
+                styles.hover.is_some() || styles.group_hover.is_some()
+            }
+        })
+    }
+
+    /// The group this node's hover (or press) style follows.
+    pub(crate) fn pointer_style_group(&self, press: bool) -> Option<gpui::SharedString> {
+        let styles = self.state_styles.as_ref()?;
+        let grouped = if press {
+            styles.group_active.as_ref()
+        } else {
+            styles.group_hover.as_ref()
+        };
+        Some(grouped?.group.clone())
     }
 
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
@@ -904,6 +996,8 @@ impl RNNodeView {
             animated_background_color: None,
             gradient_cache: None,
             animated_text_color: None,
+            animated_opacity: false,
+            state_styles: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
             input_text: text_input.text.clone(),
@@ -983,6 +1077,7 @@ impl RNNodeView {
         }
         view.apply_switch_state();
         view.cached_style = style::to_refinement(&view.view);
+        view.state_styles = style::StateStyles::from_flat(&view.view);
         view.sync_effect_group();
         view
     }
@@ -1083,6 +1178,8 @@ impl RNNodeView {
                 self.focus_subscriptions.clear();
             }
             self.cached_style = style::to_refinement(&self.view);
+            self.state_styles = style::StateStyles::from_flat(&self.view);
+            self.animated_opacity = false;
             if self.component == "TextInput" {
                 crate::builtins::textinput::input::apply_update(self, op);
             }
@@ -3257,7 +3354,13 @@ impl Render for RNNodeView {
                     && !self.inherited.hidden_by_accessible_ancestor,
             );
             if let Some(handle) = &self.focus_handle {
-                if accessibility_active || is_scroll {
+                if accessibility_active
+                    || is_scroll
+                    || self
+                        .state_styles
+                        .as_ref()
+                        .is_some_and(|styles| styles.has_focus())
+                {
                     // The accessibility tree needs the role, the label and the focus on one
                     // element.
                     element = element.track_focus(handle);
@@ -3630,6 +3733,9 @@ impl Render for RNNodeView {
             isolated = self.view.isolate;
             style
         };
+        if let Some(styles) = self.state_styles.clone() {
+            element = self.apply_state_styles(element, &styles, (scale_x, scale_y));
+        }
         // The listeners live on a `pointer_area` child, not on the node's own div: a
         // div with a hitbox records a hover read while painting, which makes a scroll
         // under a still pointer rebuild every row. It is the first child so its

@@ -1,5 +1,8 @@
-use gpui::{point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, StyleRefinement};
+use gpui::{
+    point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, SharedString, StyleRefinement,
+};
 use rn_gpui_sys::ffi::ViewPropsFlat;
+use serde_json::Value;
 
 /// RN colors are 0xAARRGGBB; GPUI's `rgba()` takes 0xRRGGBBAA.
 pub fn color(argb: u32) -> Hsla {
@@ -94,4 +97,160 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
         );
     }
     s
+}
+
+/// The properties a state style prop can change.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StateStyle {
+    background_color: Option<u32>,
+    opacity: Option<f32>,
+    box_shadow: Option<Vec<ShadowSpec>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ShadowSpec {
+    offset_x: f32,
+    offset_y: f32,
+    color: Option<u32>,
+    blur_radius: f32,
+    spread_distance: f32,
+    inset: bool,
+}
+
+fn number(value: &Value, key: &str) -> Option<f32> {
+    value.get(key)?.as_f64().map(|n| n as f32)
+}
+
+fn argb(value: &Value, key: &str) -> Option<u32> {
+    u32::try_from(value.get(key)?.as_u64()?).ok()
+}
+
+impl ShadowSpec {
+    fn from_json(value: &Value) -> Self {
+        Self {
+            offset_x: number(value, "offsetX").unwrap_or(0.0),
+            offset_y: number(value, "offsetY").unwrap_or(0.0),
+            color: argb(value, "color"),
+            blur_radius: number(value, "blurRadius").unwrap_or(0.0),
+            spread_distance: number(value, "spreadDistance").unwrap_or(0.0),
+            inset: value.get("inset").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+/// The properties a running animation owns, which a state style leaves alone.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Animating {
+    pub background: bool,
+    pub opacity: bool,
+}
+
+impl StateStyle {
+    fn from_json(value: &Value) -> Self {
+        Self {
+            background_color: argb(value, "backgroundColor"),
+            opacity: number(value, "opacity"),
+            box_shadow: value
+                .get("boxShadow")
+                .and_then(Value::as_array)
+                .map(|shadows| shadows.iter().map(ShadowSpec::from_json).collect()),
+        }
+    }
+
+    /// The refinement gpui layers over the base style while the state holds.
+    /// `scale` is the node's accumulated transform scale, applied to shadows the
+    /// way the base style's are.
+    pub fn refinement(&self, scale: (f32, f32), animating: Animating) -> StyleRefinement {
+        let mut s = StyleRefinement::default();
+        if let Some(argb) = self.background_color.filter(|_| !animating.background) {
+            s.background = Some(Fill::from(color(argb)));
+        }
+        if let Some(opacity) = self.opacity.filter(|_| !animating.opacity) {
+            s.opacity = Some(opacity.clamp(0.0, 1.0));
+        }
+        if let Some(shadows) = &self.box_shadow {
+            let radius_scale = scale.0.min(scale.1);
+            s.box_shadow = Some(
+                shadows
+                    .iter()
+                    .map(|shadow| BoxShadow {
+                        color: color(shadow.color.unwrap_or(0xFF00_0000)),
+                        offset: point(px(shadow.offset_x * scale.0), px(shadow.offset_y * scale.1)),
+                        blur_radius: px(shadow.blur_radius * radius_scale),
+                        spread_radius: px(shadow.spread_distance * radius_scale),
+                        inset: shadow.inset,
+                    })
+                    .collect(),
+            );
+        }
+        s
+    }
+}
+
+/// A style that applies while a named ancestor group is hovered or pressed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroupStateStyle {
+    pub group: SharedString,
+    pub style: StateStyle,
+}
+
+/// Everything a view declares through `group` and the `*Style` state props.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StateStyles {
+    pub group: Option<SharedString>,
+    pub hover: Option<StateStyle>,
+    pub active: Option<StateStyle>,
+    pub focus: Option<StateStyle>,
+    pub focus_visible: Option<StateStyle>,
+    pub group_hover: Option<GroupStateStyle>,
+    pub group_active: Option<GroupStateStyle>,
+}
+
+fn parse_json(prop: &str, json: &str) -> Option<Value> {
+    if json.is_empty() {
+        return None;
+    }
+    match serde_json::from_str(json) {
+        Ok(parsed) => Some(parsed),
+        Err(error) => {
+            log::warn!("[style] ignoring invalid {prop}: {error}");
+            None
+        }
+    }
+}
+
+fn parse_state(prop: &str, json: &str) -> Option<StateStyle> {
+    parse_json(prop, json).map(|value| StateStyle::from_json(&value))
+}
+
+fn parse_group(prop: &str, json: &str) -> Option<GroupStateStyle> {
+    let value = parse_json(prop, json)?;
+    let group = value
+        .get("group")?
+        .as_str()
+        .filter(|group| !group.is_empty())?;
+    Some(GroupStateStyle {
+        group: group.to_owned().into(),
+        style: StateStyle::from_json(value.get("style")?),
+    })
+}
+
+impl StateStyles {
+    /// `None` when the view declares nothing, which is the case for almost every view.
+    pub fn from_flat(v: &ViewPropsFlat) -> Option<std::rc::Rc<Self>> {
+        let styles = Self {
+            group: (!v.group.is_empty()).then(|| v.group.clone().into()),
+            hover: parse_state("hoverStyle", &v.hover_style),
+            active: parse_state("activeStyle", &v.active_style),
+            focus: parse_state("focusStyle", &v.focus_style),
+            focus_visible: parse_state("focusVisibleStyle", &v.focus_visible_style),
+            group_hover: parse_group("groupHoverStyle", &v.group_hover_style),
+            group_active: parse_group("groupActiveStyle", &v.group_active_style),
+        };
+        (styles != Self::default()).then(|| std::rc::Rc::new(styles))
+    }
+
+    pub fn has_focus(&self) -> bool {
+        self.focus.is_some() || self.focus_visible.is_some()
+    }
 }
