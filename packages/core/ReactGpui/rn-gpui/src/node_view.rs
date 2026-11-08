@@ -2474,10 +2474,7 @@ mod inherited_tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    fn node(
-        origin_frame: (f32, f32),
-        transform: (f32, f32, f32, f32),
-    ) -> InheritInput {
+    fn node(origin_frame: (f32, f32), transform: (f32, f32, f32, f32)) -> InheritInput {
         InheritInput {
             origin_frame,
             transform,

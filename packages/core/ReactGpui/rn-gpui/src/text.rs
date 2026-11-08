@@ -94,8 +94,7 @@ struct TextService {
 }
 
 static TEXT_SERVICE: OnceLock<Arc<TextService>> = OnceLock::new();
-static DEVICE_SCALE: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0x3f80_0000);
+static DEVICE_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
 
 /// The pixel density line metrics are rounded at. A browser lays text out in
 /// device pixels, so a line is a whole number of them.
