@@ -1157,3 +1157,19 @@ void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {
   mountingManager_->setScrollOffset(tag, x, y);
 }
 } // namespace rngpui
+
+namespace rngpui {
+
+std::shared_ptr<facebook::react::TurboModule> createTurboModule(
+    const std::string& name,
+    const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker) {
+  static const auto providers = gpui_turbo_module_providers();
+  for (const auto& provider : providers) {
+    if (auto module = provider(name, jsInvoker)) {
+      return module;
+    }
+  }
+  return nullptr;
+}
+
+} // namespace rngpui

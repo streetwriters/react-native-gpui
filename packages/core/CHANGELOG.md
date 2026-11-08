@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `rngpui::createTurboModule(name, jsInvoker)` (in `GpuiModules.h`) makes a TurboModule the way the main runtime does, for the invoker it is given: the app's C++ provider, then the extension providers (Rust modules), then core's own. A library that runs another JavaScript runtime, such as a worker, uses it to give that runtime the app's native modules.
 - A background test run can put a window in front of the others without activating the app or giving it focus: `RN_GPUI_TEST_ON_TOP=1` orders it front instead of behind. A window that other windows cover is occluded and macOS stops presenting its frames, so a test that reads the screen back (the compositor test of native views) saw no React view in a full run on a busy desktop.
 - `Network.setDnsOverHttps()` takes a list of DNS-over-HTTPS servers. A name a server cannot resolve is asked of the next one and then of the system resolver, and `getSettings()` also reports `dnsOverHttpsServers`.
 - An app launched with the argument `--hidden` opens its main window without showing it or taking focus, for an app that starts at login in the background behind a tray icon.

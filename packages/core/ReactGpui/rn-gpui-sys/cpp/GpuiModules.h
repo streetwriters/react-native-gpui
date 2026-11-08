@@ -126,6 +126,14 @@ uint32_t argb(const facebook::react::SharedColor& color);
 // Hooks are set by the installers at startup, before any surface starts.
 GpuiModuleHooks& gpuiModuleHooks();
 
+// Resolves a TurboModule by name the way the main runtime does: the app's C++
+// provider, then the extension providers (Rust modules), then core's own. The
+// module is made for `jsInvoker`, so a library that runs another JS runtime
+// (a worker) passes that runtime's invoker. Null when no module has the name.
+std::shared_ptr<facebook::react::TurboModule> createTurboModule(
+    const std::string& name,
+    const std::shared_ptr<facebook::react::CallInvoker>& jsInvoker);
+
 // JSON props for one component name. `componentName` is the Fabric component
 // name; the ShadowView carries the props and layout.
 void registerComponentProps(
