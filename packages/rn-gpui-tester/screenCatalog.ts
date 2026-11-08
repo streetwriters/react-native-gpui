@@ -96,6 +96,12 @@ export const screens = [
     fixture: 'PropsProbeFixture',
   },
   {
+    id: 'intl',
+    title: 'Intl support',
+    group: 'Platform',
+    fixture: 'IntlFixture',
+  },
+  {
     id: 'text-rows',
     title: 'Text rows at fractional heights',
     group: 'Text',

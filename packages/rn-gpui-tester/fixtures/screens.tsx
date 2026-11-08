@@ -292,6 +292,8 @@ export const renderScreen: Record<
       require('./components/PropsProbeFixture').default,
       props,
     ),
+  intl: props =>
+    React.createElement(require('./components/IntlFixture').default, props),
   'text-rows': props =>
     React.createElement(
       require('./components/TextRowsFixture').default,
