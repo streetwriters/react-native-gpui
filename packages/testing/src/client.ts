@@ -160,8 +160,8 @@ export type IdleOptions = {
   >;
 };
 
-/** The display test windows open on; `secondary` once the runtime can render at 2x on any display. */
-const DEFAULT_TEST_DISPLAY = 'main';
+/** The display test windows open on when there is a secondary one; the main display otherwise. */
+const DEFAULT_TEST_DISPLAY = 'secondary';
 
 /**
  * The process id of the frontmost application, or `undefined` where it cannot

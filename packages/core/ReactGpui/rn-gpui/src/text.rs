@@ -712,6 +712,9 @@ impl TextService {
         for line in shaped_lines {
             let (mut ascent, mut descent) = (f32::from(line.ascent()), f32::from(line.descent()));
             for run in line.runs() {
+                if run.glyphs.iter().all(|glyph| glyph.is_emoji) {
+                    continue;
+                }
                 let size = px(font_size);
                 ascent = ascent.max(f32::from(self.text_system.ascent(run.font_id, size)));
                 descent = descent.max(f32::from(self.text_system.descent(run.font_id, size)).abs());
@@ -1062,7 +1065,11 @@ fn baseline_correction(
 /// browser paints it over the font's content area, which the line's leading
 /// centres in the line box. A line that wraps keeps GPUI's whole-line-tall
 /// rectangle, which steps with the line height.
-fn background_top(line: &gpui::WrappedLine, line_height: f32, (ascent, descent): (f32, f32)) -> f32 {
+fn background_top(
+    line: &gpui::WrappedLine,
+    line_height: f32,
+    (ascent, descent): (f32, f32),
+) -> f32 {
     if !line.wrap_boundaries.is_empty() {
         return 0.0;
     }
@@ -1102,7 +1109,10 @@ fn paint_lines(
             y + px(baseline_correction(line, *line_height, *metrics)),
         );
         let _ = line.paint_background(
-            point(origin.x, y + px(background_top(line, *line_height, *metrics))),
+            point(
+                origin.x,
+                y + px(background_top(line, *line_height, *metrics)),
+            ),
             px(background_height(line, *line_height, *metrics)),
             shaped.text_align,
             Some(bounds),
