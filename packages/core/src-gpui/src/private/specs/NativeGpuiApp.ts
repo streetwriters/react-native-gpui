@@ -6,6 +6,7 @@ export interface Spec extends TurboModule {
   readonly quit: () => Promise<void>;
   readonly exit: (code: number) => Promise<void>;
   readonly relaunch: () => Promise<void>;
+  readonly beep: () => Promise<void>;
   readonly addListener: (eventName: string) => void;
   readonly removeListeners: (count: number) => void;
 }

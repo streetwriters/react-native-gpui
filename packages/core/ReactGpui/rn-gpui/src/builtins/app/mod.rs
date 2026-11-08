@@ -8,6 +8,36 @@ use crate::builtins::rn_gpui_specs::{NativeGpuiAppEvents, NativeGpuiAppSpec};
 
 struct AppModule;
 
+#[cfg(target_os = "macos")]
+fn beep() {
+    #[link(name = "AppKit", kind = "framework")]
+    // SAFETY: `NSBeep` takes no arguments and may be called from any thread.
+    unsafe extern "C" {
+        fn NSBeep();
+    }
+    // SAFETY: see the declaration.
+    unsafe { NSBeep() }
+}
+
+#[cfg(target_os = "windows")]
+fn beep() {
+    #[link(name = "user32")]
+    // SAFETY: `MessageBeep` takes a sound type and may be called from any thread.
+    unsafe extern "system" {
+        fn MessageBeep(kind: u32) -> i32;
+    }
+    // SAFETY: see the declaration; `u32::MAX` is the default beep.
+    unsafe {
+        MessageBeep(u32::MAX);
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn beep() {
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(b"\x07");
+}
+
 impl NativeGpuiAppSpec for AppModule {
     const THREAD: ModuleThread = ModuleThread::Main;
 
@@ -35,6 +65,10 @@ impl NativeGpuiAppSpec for AppModule {
             .spawn()
             .map_err(|error| ModuleError::new(format!("the app could not be started: {error}")))?;
         on_main(|cx| cx.quit()).await
+    }
+
+    async fn beep(&self) -> Result<(), ModuleError> {
+        on_main(|_| beep()).await
     }
 
     fn add_listener(&self, _event_name: String) {}

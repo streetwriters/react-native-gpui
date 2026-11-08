@@ -42,6 +42,11 @@ export const App = {
     return request(native => native.relaunch());
   },
 
+  /** Plays the system alert sound. On Linux it rings the terminal bell the app was started from, if any. */
+  beep(): Promise<void> {
+    return request(native => native.beep());
+  },
+
   /**
    * Calls `handler` with the arguments of another launch that was handed to
    * this process because the app is a single instance. The main window is

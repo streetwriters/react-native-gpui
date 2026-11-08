@@ -34,4 +34,6 @@ A URL among the arguments also arrives as a `url` event of `Linking`.
 | `App.exit(code)` | Ends the process at once with the exit code, without closing windows.     |
 | `App.relaunch()` | Starts the same executable with the same arguments, then quits this copy. |
 
+| `App.beep()` | Plays the system alert sound (`shell.beep()` in Electron). |
+
 To hide the application while it keeps running, for a tray app, hide its window with [`DesktopWindow.hide()`](desktopwindow).
