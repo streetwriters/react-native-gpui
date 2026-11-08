@@ -180,6 +180,8 @@ export default {
       'desktop-image-manipulator',
       'desktop-notifications',
       'desktop-system',
+      'desktop-spellcheck',
+      'desktop-webauthn',
       'desktop-updater',
     ],
     'JavaScript Runtime': [

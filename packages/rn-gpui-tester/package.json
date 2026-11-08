@@ -30,6 +30,7 @@
     "@react-native-gpui/safe-area-context": "file:../../modules/safe-area-context",
     "@react-native-gpui/screens": "file:../../modules/screens",
     "@react-native-gpui/svg": "file:../../modules/svg",
+    "@react-native-gpui/spellcheck": "file:../../modules/spellcheck",
     "@react-native-gpui/system": "file:../../modules/system",
     "@react-native-gpui/webauthn": "file:../../modules/webauthn",
     "@react-native-gpui/updater": "file:../../modules/updater",
