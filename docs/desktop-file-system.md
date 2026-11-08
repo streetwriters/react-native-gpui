@@ -81,6 +81,34 @@ await fs.promises.reveal(path); // show the file in Finder, Explorer or the file
 await fs.promises.openExternal(path); // open a file or URL with its default application
 ```
 
+## Downloading
+
+`download(url, path, options)` streams an HTTP response into a file without holding it in memory. The body is written to `<path>.part` and renamed onto `path` when it is complete, so `path` never holds half a file; an existing file is replaced only on success. The partial file is removed when the request fails or is aborted.
+
+```js
+const controller = new AbortController();
+
+const { status, headers, bytes } = await fs.download(
+  url,
+  `${paths.downloads}/report.pdf`,
+  {
+    headers: { Authorization: `Bearer ${token}` },
+    onProgress: (received, total) =>
+      setProgress(total > 0 ? received / total : 0),
+    signal: controller.signal,
+  },
+);
+```
+
+| Option       | Description                                                          |
+| ------------ | -------------------------------------------------------------------- |
+| `method`     | `GET` unless set. No request body is sent.                           |
+| `headers`    | Request headers.                                                     |
+| `onProgress` | `(received, total)`; `total` is `-1` when the server gave no length. |
+| `signal`     | Aborting rejects with an `AbortError` within a fraction of a second. |
+
+The promise resolves with the final `status`, the response `headers` (lower-cased) and the `bytes` written. A status outside 200 to 299 rejects with `code` `ERR_HTTP_STATUS` and the `status`, `headers` and the first 2 KiB of the `body`, and writes nothing. Redirects are followed. A connection that closes before the announced length rejects, and the parent folder of `path` must exist. Certificates are checked against the operating system's store.
+
 ## Watching
 
 `watch(path, listener)` watches a file or folder, as in Node. The listener receives `'rename'` or `'change'` and the file name, and the watcher it returns has a `close()` method.

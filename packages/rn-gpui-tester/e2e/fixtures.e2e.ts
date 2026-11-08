@@ -1,5 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { PNG } from 'pngjs';
 import {
@@ -863,4 +865,82 @@ test('the notifications module shows, schedules, repeats and cancels', async () 
   expect(tree).not.toContain('BAD');
   expect(tree).not.toContain('FAILED');
   expect(tree).not.toContain('TIMEOUT');
+});
+
+test('the file system module downloads, reports progress and aborts', async () => {
+  const size = 3 * 1024 * 1024;
+  const body = Buffer.alloc(size);
+  for (let i = 0; i < size; i += 1) body[i] = i % 251;
+
+  const sockets = new Set<import('node:net').Socket>();
+  const server = http.createServer((request, response) => {
+    const route = request.url ?? '/';
+    if (route === '/file') {
+      response.setHeader('content-length', String(size));
+      response.end(body);
+    } else if (route === '/chunked') {
+      response.write(body.subarray(0, size / 2));
+      setTimeout(() => response.end(body.subarray(size / 2)), 30);
+    } else if (route === '/redirect') {
+      response.statusCode = 302;
+      response.setHeader('location', '/file');
+      response.end();
+    } else if (route === '/echo') {
+      response.end(
+        JSON.stringify({ method: request.method, headers: request.headers }),
+      );
+    } else if (route === '/short') {
+      response.setHeader('content-length', String(size));
+      response.write(body.subarray(0, 1000));
+      setTimeout(() => response.destroy(), 50);
+    } else if (route === '/slow') {
+      response.setHeader('content-length', String(size));
+      const timer = setInterval(
+        () => response.write(body.subarray(0, 16384)),
+        40,
+      );
+      response.on('close', () => clearInterval(timer));
+    } else if (route === '/stall') {
+      response.setHeader('content-length', String(size));
+      response.write(body.subarray(0, 100));
+    } else {
+      response.statusCode = 404;
+      response.end('nothing here');
+    }
+  });
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    await launch('GPUIDownloadFixture', undefined, { server: url });
+    await desktopExpect(app.getByText('done ok')).toBeVisible(60000);
+    const tree = JSON.stringify(await app.tree());
+    for (const expected of [
+      'basic ok',
+      'content ok',
+      'noPartial ok',
+      'progress ok',
+      'chunked ok',
+      'redirect ok',
+      'request ok',
+      'httpError ok',
+      'keepsExisting ok',
+      'incomplete ok',
+      'noDirectory ok',
+      'abort ok',
+      'abortStalled ok',
+      'preAborted ok',
+    ]) {
+      expect(tree).toContain(expected);
+    }
+    expect(tree).not.toContain('BAD');
+    expect(tree).not.toContain('FAILED');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
 });
