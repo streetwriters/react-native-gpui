@@ -218,6 +218,14 @@ impl StateStyle {
         )
     }
 
+    pub(crate) fn background(&self) -> Option<u32> {
+        self.background_color
+    }
+
+    pub(crate) fn opacity(&self) -> Option<f32> {
+        self.opacity
+    }
+
     pub(crate) fn text_color(&self) -> Option<u32> {
         self.color
     }

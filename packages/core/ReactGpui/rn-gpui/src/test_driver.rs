@@ -2074,12 +2074,20 @@ fn tree(store: &ViewStore, cx: &gpui::Context<ViewStore>) -> Value {
 
 /// The color of each border side as ARGB, `0` for none.
 fn border_colors_json(node: &RNNodeView) -> Value {
-    let colors = node.view.border_colors;
+    let colors = node
+        .resolved_state()
+        .map_or(node.view.border_colors, |state| {
+            state.border_colors(node.view.border_colors)
+        });
     json!({"left": colors[0], "top": colors[1], "right": colors[2], "bottom": colors[3]})
 }
 
-/// The color of a node's text: its first non-empty fragment's, as ARGB.
+/// The color of a node's text: the one a state style gives it, else its first
+/// non-empty fragment's, as ARGB.
 fn text_color(node: &RNNodeView) -> Value {
+    if let Some(color) = node.state_text_color() {
+        return json!(color);
+    }
     node.paragraph
         .as_ref()
         .and_then(|paragraph| {
@@ -2089,6 +2097,19 @@ fn text_color(node: &RNNodeView) -> Value {
                 .find(|fragment| !fragment.text.is_empty())
         })
         .map_or(Value::Null, |fragment| json!(fragment.color))
+}
+
+/// The background and opacity a node paints with, the state styles applied.
+fn effective_background(node: &RNNodeView) -> u32 {
+    node.resolved_state()
+        .and_then(|state| state.background())
+        .unwrap_or(node.view.background_color)
+}
+
+fn effective_opacity(node: &RNNodeView) -> f32 {
+    node.resolved_state()
+        .and_then(|state| state.opacity())
+        .unwrap_or(node.view.opacity)
 }
 
 fn tree_node(
@@ -2105,7 +2126,7 @@ fn tree_node(
     json!({"tag": node.tag, "component": node.component, "testID": node.view.test_id,
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
-        "backgroundColor": node.view.background_color, "opacity": node.view.opacity,
+        "backgroundColor": effective_background(node), "opacity": effective_opacity(node),
         "borderColors": border_colors_json(node), "textColor": text_color(node),
         "frame": [node.frame.x, node.frame.y, node.frame.w, node.frame.h],
         "contentSize": node.scroll.as_ref().map(|scroll| json!([scroll.content_size.0, scroll.content_size.1])).unwrap_or(Value::Null),
@@ -2126,6 +2147,20 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         return json!({"error": format!("tag {tag} is not mounted")});
     };
     let node = entity.read(cx);
+    let outline = node.resolved_state().map_or(
+        (
+            node.view.outline_color,
+            node.view.outline_width,
+            node.view.outline_offset,
+        ),
+        |state| {
+            state.outline((
+                node.view.outline_color,
+                node.view.outline_width,
+                node.view.outline_offset,
+            ))
+        },
+    );
     let paragraph_fragments = node
         .paragraph
         .as_ref()
@@ -2168,12 +2203,12 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "textColor": text_color(node),
         "textAlign": node.paragraph.as_ref().map(|paragraph| paragraph.text_align),
         "numberOfLines": node.paragraph.as_ref().map(|paragraph| paragraph.max_lines),
-        "outlineColor": node.view.outline_color,
-        "outlineOffset": node.view.outline_offset,
-        "outlineWidth": node.view.outline_width,
+        "outlineColor": outline.0,
+        "outlineOffset": outline.2,
+        "outlineWidth": outline.1,
         "imageUri": extension_props(node).get("uri").cloned().unwrap_or(Value::Null),
         "imageResizeMode": extension_props(node).get("resizeMode").cloned().unwrap_or(Value::Null),
-        "opacity":node.view.opacity,"backgroundColor":node.view.background_color,"transform":node.view.transform,"renderCount":node.test_render_count(),
+        "opacity":effective_opacity(node),"backgroundColor":effective_background(node),"baseBackgroundColor":node.view.background_color,"baseOpacity":node.view.opacity,"states":node.active_state_names(),"transform":node.view.transform,"renderCount":node.test_render_count(),
         "scrollStrategy": node.scroll_strategy_name(),
         "selection": if node.component == "TextInput" { json!({
             "start": node.input_text[..node.input_selection.start].encode_utf16().count(),

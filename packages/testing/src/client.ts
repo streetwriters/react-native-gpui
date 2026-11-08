@@ -113,7 +113,14 @@ export type NodeProps = {
   outlineOffset: number;
   outlineWidth: number;
   opacity: number;
+  /** The background it paints with, the state styles that hold applied. */
   backgroundColor: number;
+  /** The background without state styles. */
+  baseBackgroundColor: number;
+  /** Opacity without state styles; `opacity` has them applied. */
+  baseOpacity: number;
+  /** The state styles that hold, in layering order: `focus`, `focusVisible`, `groupHover`, `hover`, `dragOver`, `groupActive`, `active`. */
+  states: string[];
   transform: number[];
   frame: { x: number; y: number; width: number; height: number } | null;
   renderCount: number;

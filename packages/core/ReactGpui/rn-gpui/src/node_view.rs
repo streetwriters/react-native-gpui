@@ -543,45 +543,68 @@ impl RNNodeView {
     /// `interaction`), focus from what the node last reported, so a state
     /// change repaints without JS and without React rendering again.
     pub(crate) fn resolved_state(&self) -> Option<style::StateStyle> {
-        let styles = self.state_styles.as_ref()?;
-        // `none` and `box-none` views are not pointer targets themselves.
-        let targeted = !matches!(self.view.pointer_events, 1 | 2);
-        let tag = self.tag;
-        let focused = self.focused.get();
-        let layers = [
-            (styles.focus.as_ref(), focused),
-            (
-                styles.focus_visible.as_ref(),
-                focused && self.focus_visible.get(),
-            ),
-            (
-                styles.group_hover.as_ref().map(|grouped| &grouped.style),
-                crate::interaction::group_hovered(tag),
-            ),
-            (
-                styles.hover.as_ref(),
-                targeted && crate::interaction::node_hovered(tag),
-            ),
-            (
-                styles.drag_over.as_ref(),
-                crate::interaction::node_dragged_over(tag),
-            ),
-            (
-                styles.group_active.as_ref().map(|grouped| &grouped.style),
-                crate::interaction::group_pressed(tag),
-            ),
-            (
-                styles.active.as_ref(),
-                targeted && crate::interaction::node_pressed(tag),
-            ),
-        ];
         let mut resolved: Option<style::StateStyle> = None;
-        for (layer, applies) in layers {
+        for (_, layer, applies) in self.state_layers() {
             if let (Some(layer), true) = (layer, applies) {
                 resolved.get_or_insert_with(Default::default).merge(layer);
             }
         }
         resolved
+    }
+
+    /// The names of the state styles that hold right now, in the order they
+    /// are layered.
+    #[cfg(feature = "test-driver")]
+    pub(crate) fn active_state_names(&self) -> Vec<&'static str> {
+        self.state_layers()
+            .into_iter()
+            .filter(|(_, layer, applies)| layer.is_some() && *applies)
+            .map(|(name, _, _)| name)
+            .collect()
+    }
+
+    fn state_layers(&self) -> [(&'static str, Option<&style::StateStyle>, bool); 7] {
+        let none = [("", None, false); 7];
+        let Some(styles) = self.state_styles.as_ref() else {
+            return none;
+        };
+        // `none` and `box-none` views are not pointer targets themselves.
+        let targeted = !matches!(self.view.pointer_events, 1 | 2);
+        let tag = self.tag;
+        let focused = self.focused.get();
+        [
+            ("focus", styles.focus.as_ref(), focused),
+            (
+                "focusVisible",
+                styles.focus_visible.as_ref(),
+                focused && self.focus_visible.get(),
+            ),
+            (
+                "groupHover",
+                styles.group_hover.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_hovered(tag),
+            ),
+            (
+                "hover",
+                styles.hover.as_ref(),
+                targeted && crate::interaction::node_hovered(tag),
+            ),
+            (
+                "dragOver",
+                styles.drag_over.as_ref(),
+                crate::interaction::node_dragged_over(tag),
+            ),
+            (
+                "groupActive",
+                styles.group_active.as_ref().map(|grouped| &grouped.style),
+                crate::interaction::group_pressed(tag),
+            ),
+            (
+                "active",
+                styles.active.as_ref(),
+                targeted && crate::interaction::node_pressed(tag),
+            ),
+        ]
     }
 
     /// The matrix a state style asks for, unless an animation owns it.
