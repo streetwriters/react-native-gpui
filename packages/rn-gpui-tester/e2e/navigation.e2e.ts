@@ -92,6 +92,7 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     const excluded = await app.idleStatus();
     if (!excluded.busySources.some(source => source.source === 'network'))
       throw new Error('Expected the delayed HTTP request to remain active');
+    await fetch('http://127.0.0.1:43181/idle/release');
     await app.waitForIdle({ timeout: 5_000 });
     const networkIdle = await app.idleStatus();
     if (!networkIdle.idle)

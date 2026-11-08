@@ -946,6 +946,15 @@ export class DesktopApp {
     return this.request('displays');
   }
 
+  /**
+   * Puts the window in front of the other windows without activating the app or
+   * moving focus. A background run opens its windows behind the others, which a
+   * test that reads the screen needs undone.
+   */
+  async raiseWindow(): Promise<void> {
+    await this.request('raiseWindow');
+  }
+
   async windowState(windowId: number): Promise<{
     windowId: number;
     bounds: { x: number; y: number; width: number; height: number };

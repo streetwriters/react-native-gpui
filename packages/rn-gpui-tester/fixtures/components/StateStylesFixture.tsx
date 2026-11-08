@@ -9,8 +9,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
 
-type FocusableView = HostInstance & { focus(): void; blur(): void };
-
 const BASE = '#3b82f6';
 const HOVER = '#f59e0b';
 const ACTIVE = '#ef4444';
@@ -20,10 +18,10 @@ const GROUP = '#8b5cf6';
 const box = { width: 120, height: 60, backgroundColor: BASE };
 
 export default function StateStylesFixture() {
-  const refA = useRef<FocusableView>(null);
-  const refB = useRef<FocusableView>(null);
-  const refC = useRef<FocusableView>(null);
-  const refD = useRef<FocusableView>(null);
+  const refA = useRef<HostInstance>(null);
+  const refB = useRef<HostInstance>(null);
+  const refC = useRef<HostInstance>(null);
+  const refD = useRef<HostInstance>(null);
   const [focusD, setFocusD] = useState(0);
   useEffect(() => {
     if (focusD > 0) refD.current?.focus();
