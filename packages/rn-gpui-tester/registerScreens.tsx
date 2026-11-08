@@ -54,6 +54,69 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUISvgEdgeFixture',
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/SvgEdgeFixture').SvgEdgeFixture,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
+    'GPUIImageManipulatorFixture',
+    () => (props: ScreenProps & { source?: string }) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/ImageManipulatorFixture')
+          .ImageManipulatorFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
+    'GPUIUpdaterFixture',
+    () =>
+      (
+        props: ScreenProps & {
+          feedUrl?: string;
+          mode?: 'check' | 'install';
+          currentVersion?: string;
+        },
+      ) =>
+        // Not in the screen catalog: only the e2e launches it, by this name.
+        React.createElement(
+          require('./fixtures/components/UpdaterFixture').UpdaterFixture,
+          { ...props, testMode },
+        ),
+  );
+  AppRegistry.registerComponent(
+    'GPUISystemFixture',
+    () => (props: ScreenProps & { restartMarker?: string }) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/SystemFixture').SystemFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
+    'GPUIDownloadFixture',
+    () => (props: ScreenProps & { server?: string }) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/DownloadFixture').DownloadFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
+    'GPUINotificationsFixture',
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/NotificationsFixture')
+          .NotificationsFixture,
+        { ...props, testMode },
+      ),
+  );
+  AppRegistry.registerComponent(
     'TrayPopover',
     () => (props: { windowId?: number }) =>
       React.createElement(
