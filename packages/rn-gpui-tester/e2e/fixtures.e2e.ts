@@ -1354,23 +1354,30 @@ test('the image manipulator crops, resizes and encodes, and the result shows as 
   }
 });
 
-test('an SVG icon has the same antialiased edge as Chrome draws', async () => {
-  // `reference/chrome-star-16.png` is the Material "star outline" icon at 16 CSS
-  // pixels, #181818 on #f7f7f7, as Chrome rasterises it at a device scale of 2.
-  const reference = PNG.sync.read(
-    fs.readFileSync(path.join(__dirname, 'reference/chrome-star-16.png')),
-  );
+test('an SVG icon has the same antialiased edge and place as Chrome draws', async () => {
+  // The references are what Chrome draws at a device scale of 2 on #f7f7f7: the
+  // Material "star outline" at 16 CSS pixels, and the arrow-left icon at 15 CSS
+  // pixels centred in a 20 pixel button, where Chrome snaps the icon to a whole
+  // CSS pixel.
+  const read = (name: string) =>
+    PNG.sync.read(fs.readFileSync(path.join(__dirname, 'reference', name)));
+  const cases: Array<[string, PNG]> = [
+    ['svg-edge-fixed', read('chrome-star-16.png')],
+    ['svg-edge-stretched', read('chrome-star-16.png')],
+    ['svg-edge-centered', read('chrome-arrow-centered.png')],
+    ['svg-edge-centered-stretched', read('chrome-arrow-centered.png')],
+  ];
   await launch('GPUISvgEdgeFixture');
   const mismatches: Record<string, number> = {};
-  for (const testID of ['svg-edge-fixed', 'svg-edge-stretched']) {
+  for (const [testID, reference] of cases) {
     await desktopExpect(app.getByTestId(testID)).toBeVisible();
-    // The icon paints a moment after its node exists.
-    const deadline = Date.now() + 5000;
-    let image = PNG.sync.read(await app.getByTestId(testID).screenshot());
-    const count = () => {
-      expect([image.width, image.height]).toEqual([32, 32]);
+    const count = (image: PNG) => {
+      expect([image.width, image.height]).toEqual([
+        reference.width,
+        reference.height,
+      ]);
       let different = 0;
-      for (let i = 0; i < 32 * 32; i += 1) {
+      for (let i = 0; i < reference.width * reference.height; i += 1) {
         for (let channel = 0; channel < 3; channel += 1) {
           if (
             Math.abs(
@@ -1384,15 +1391,20 @@ test('an SVG icon has the same antialiased edge as Chrome draws', async () => {
       }
       return different;
     };
-    let different = count();
+    // The icon paints a moment after its node exists.
+    const deadline = Date.now() + 5000;
+    let different = count(
+      PNG.sync.read(await app.getByTestId(testID).screenshot()),
+    );
     while (different > 20 && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 150));
-      image = PNG.sync.read(await app.getByTestId(testID).screenshot());
-      different = count();
+      different = count(
+        PNG.sync.read(await app.getByTestId(testID).screenshot()),
+      );
     }
     mismatches[testID] = different;
   }
-  // Pixels more than two levels away from Chrome's, of 1024.
+  // Pixels more than two levels away from Chrome's.
   console.log('svg edge mismatches', JSON.stringify(mismatches));
   expect(Math.max(...Object.values(mismatches))).toBeLessThanOrEqual(8);
 });
