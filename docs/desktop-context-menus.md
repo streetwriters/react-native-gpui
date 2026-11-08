@@ -39,6 +39,22 @@ import { ContextMenuView } from '@react-native-gpui/core/desktop';
 const id = await ContextMenu.show(items, { x: 120, y: 80 });
 ```
 
+An item's `onPress` runs before the promise resolves, so a nested menu can carry its own callbacks:
+
+```tsx
+await ContextMenu.show(
+  [
+    { id: 'rename', label: 'Rename', onPress: () => rename() },
+    {
+      type: 'submenu',
+      label: 'Move to',
+      items: [{ id: 'trash', label: 'Trash', onPress: () => trash() }],
+    },
+  ],
+  { x: 120, y: 80 },
+);
+```
+
 The options and the rest of the API are in the [`ContextMenu`](contextmenu) reference.
 
 ## Presentations

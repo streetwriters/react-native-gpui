@@ -617,6 +617,7 @@ add_library(rn_gpui_core STATIC
   GpuiHost.cpp
   GpuiHttpClient.cpp
   GpuiHttpBridge.cpp
+  GpuiNetworkConfig.cpp
   GpuiStartupSignpost.cpp
   GpuiJsEngine.cpp
   GpuiLogBoxSurfaceDelegate.cpp

@@ -598,6 +598,7 @@ export default {
       'contextmenu',
       'shortcuts',
       'perfmonitor',
+      'network',
       {
         type: 'link',
         label: 'BackHandler',

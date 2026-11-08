@@ -53,6 +53,21 @@ export default function WindowStateFixture() {
       <Action name="zoom-1" run={() => window.setZoomFactor(1)} />
       <Action name="hide" run={() => window.hide()} />
       <Action name="show" run={() => window.show()} />
+      <Action name="minimize" run={() => window.minimize()} />
+      <Action
+        name="minimize-hide"
+        run={async () => {
+          await window.minimize();
+          await window.hide();
+        }}
+      />
+      <Action
+        name="show-focus"
+        run={async () => {
+          await window.show();
+          await window.focus();
+        }}
+      />
       <Action name="maximize" run={() => window.maximize()} />
       <Action name="unmaximize" run={() => window.unmaximize()} />
       <Action name="fullscreen" run={() => window.setFullscreen(true)} />

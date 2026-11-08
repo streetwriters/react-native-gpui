@@ -261,6 +261,25 @@ export const renderScreen: Record<
       require('./components/DesktopMenuFixture').default,
       props,
     ),
+  'css-animations': props =>
+    React.createElement(
+      require('./components/CssAnimationsFixture').default,
+      props,
+    ),
+  network: props =>
+    React.createElement(require('./components/NetworkFixture').default, props),
+  'side-borders': props =>
+    React.createElement(
+      require('./components/SideBordersFixture').default,
+      props,
+    ),
+  'pointer-capture': props =>
+    React.createElement(
+      require('./components/PointerCaptureFixture').default,
+      props,
+    ),
+  'file-drop': props =>
+    React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>
     React.createElement(
       require('./components/StateStylesFixture').default,

@@ -642,6 +642,15 @@ export class DesktopApp {
     return result.sent;
   }
 
+  /**
+   * Makes a window active or inactive as far as the app can tell, without
+   * asking the operating system, so a test does not depend on which application
+   * is in front. The window ignores real activation changes afterwards.
+   */
+  async setWindowActive(windowId: number, active = true): Promise<void> {
+    await this.request('setWindowActive', { windowId, active });
+  }
+
   async focusWindow(): Promise<void> {
     await this.request('focusWindow');
   }
@@ -798,6 +807,9 @@ export class DesktopApp {
     isFullscreen: boolean;
     isFocused: boolean;
     isMinimized: boolean;
+    isVisible: boolean;
+    title: string;
+    zoomFactor: number;
     scaleFactor: number;
     /**
      * The OS's own frame for the window, in physical pixels — what a user sees,
@@ -1095,6 +1107,27 @@ export class DesktopApp {
   ): Promise<void> {
     await this.request('mouseMove', { ...position, ...options });
   }
+  /**
+   * Starts dragging files in from the operating system over a window position,
+   * or moves a drag that has started.
+   */
+  async dragFiles(
+    paths: string[],
+    position: { x: number; y: number },
+  ): Promise<void> {
+    await this.request('dragFiles', { paths, ...position });
+  }
+
+  /** Drops the files being dragged over a window position. */
+  async dropFiles(position: { x: number; y: number }): Promise<void> {
+    await this.request('dropFiles', position);
+  }
+
+  /** Drags the files off the window without dropping them. */
+  async dragFilesExit(): Promise<void> {
+    await this.request('dragFilesExit');
+  }
+
   async focus(tag: number): Promise<void> {
     await this.request('focus', { tag });
   }

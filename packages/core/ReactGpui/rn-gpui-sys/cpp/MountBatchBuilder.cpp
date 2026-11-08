@@ -471,6 +471,8 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
     out.focus_visible_style = platformProps->focusVisibleStyle;
     out.group_hover_style = platformProps->groupHoverStyle;
     out.group_active_style = platformProps->groupActiveStyle;
+    out.drag_over_style = platformProps->dragOverStyle;
+    out.accepts_files = platformProps->acceptsFiles;
   }
 
   const auto transform = props->resolveTransform(layoutMetrics);

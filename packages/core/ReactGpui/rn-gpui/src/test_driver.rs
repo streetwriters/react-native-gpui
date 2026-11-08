@@ -226,6 +226,14 @@ async fn serve_commands(
                     Err(error) => json!({"error":error.to_string()}),
                 }
             }
+            "setWindowActive" => {
+                let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(1) as u32;
+                let active = params.get("active").and_then(Value::as_bool).unwrap_or(true);
+                cx.update(|cx| {
+                    crate::desktop::windows::simulate_activation(cx, key, active)
+                        .unwrap_or_else(|error| error.to_json_value())
+                })
+            }
             "focusReadout" => {
                 let mirror = crate::desktop::window_mirror::get(1)
                     .and_then(|state| state.get("isFocused").cloned())
@@ -749,6 +757,19 @@ async fn serve_commands(
                             platform: modifiers["platform"].as_bool().unwrap_or(false),
                             function: modifiers["function"].as_bool().unwrap_or(false),
                         };
+                        // A button pressed by this driver stays held until it is
+                        // released, so a move in between is a drag, as with a mouse.
+                        static HELD: std::sync::Mutex<Option<gpui::MouseButton>> =
+                            std::sync::Mutex::new(None);
+                        let held = {
+                            let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+                            match method {
+                                "mouseDown" => *held = Some(button),
+                                "mouseUp" => *held = None,
+                                _ => {}
+                            }
+                            *held
+                        };
                         let event = match method {
                             "mouseDown" => gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                 position,
@@ -768,7 +789,8 @@ async fn serve_commands(
                                 pressed_button: params
                                     .get("button")
                                     .and_then(Value::as_str)
-                                    .map(|_| button),
+                                    .map(|_| button)
+                                    .or(held),
                                 ..Default::default()
                             }),
                         };
@@ -783,6 +805,51 @@ async fn serve_commands(
                 } else {
                     json!({"error":"Pointer command requires x and y"})
                 }
+            }
+            "dragFiles" | "dropFiles" | "dragFilesExit" => {
+                let x = params.get("x").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let y = params.get("y").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let position = point(px(x), px(y));
+                let paths: Vec<std::path::PathBuf> = params
+                    .get("paths")
+                    .and_then(Value::as_array)
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(std::path::PathBuf::from)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let method = method.to_owned();
+                cx.update_window(window, move |_, window, app| {
+                    draw_frame(window, app);
+                    let mut send = |event: gpui::FileDropEvent| {
+                        window.dispatch_event(gpui::PlatformInput::FileDrop(event), app);
+                        draw_frame(window, app);
+                    };
+                    match method.as_str() {
+                        "dragFiles" => {
+                            if !paths.is_empty() {
+                                send(gpui::FileDropEvent::Entered {
+                                    position,
+                                    paths: gpui::ExternalPaths(paths.into_iter().collect()),
+                                });
+                            }
+                            send(gpui::FileDropEvent::Pending { position });
+                        }
+                        "dropFiles" => {
+                            send(gpui::FileDropEvent::Submit { position });
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                        _ => {
+                            send(gpui::FileDropEvent::Exited);
+                            send(gpui::FileDropEvent::Ended);
+                        }
+                    }
+                    json!({"dispatched": true})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
             }
             "focus" => {
                 let handle = cx.update_entity(&store, |store,cx| {

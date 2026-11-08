@@ -48,6 +48,36 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
+    id: 'css-animations',
+    title: 'CSS animations',
+    group: 'Views',
+    fixture: 'CssAnimationsFixture',
+  },
+  {
+    id: 'network',
+    title: 'Network settings',
+    group: 'Platform',
+    fixture: 'NetworkFixture',
+  },
+  {
+    id: 'side-borders',
+    title: 'Side borders',
+    group: 'Views',
+    fixture: 'SideBordersFixture',
+  },
+  {
+    id: 'pointer-capture',
+    title: 'Pointer capture',
+    group: 'Input',
+    fixture: 'PointerCaptureFixture',
+  },
+  {
+    id: 'file-drop',
+    title: 'File drop',
+    group: 'Input',
+    fixture: 'FileDropFixture',
+  },
+  {
     id: 'state-styles',
     title: 'State styles',
     group: 'Input',

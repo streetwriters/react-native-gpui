@@ -47,6 +47,36 @@ Style that applies while the ancestor that set `group` to the given name is hove
 
 ---
 
+### `acceptsFiles`
+
+Whether the view takes files and folders dragged in from the operating system. The nearest view under the pointer that does, counting the view itself, receives the drag events below; a view with none of them in its path is not a drop target and nothing is sent. See [Files dropped from the system](#files-dropped-from-the-system).
+
+| Type      |
+| --------- |
+| `boolean` |
+
+---
+
+### `onDragEnter`, `onDragOver`, `onDragLeave`, `onDrop`
+
+Files dragged in from the operating system came over the view, moved over it, left it, or were dropped on it. `event.nativeEvent` has `files`, `x` and `y` (the pointer in the view), `pageX` and `pageY`, and `target`. Each file has `path`, `name`, `size` in bytes (`0` for a folder), `type` (a media type from the extension, or `''`) and `isDirectory`. The `Capture` forms exist too.
+
+| Type                                |
+| ----------------------------------- |
+| `(event: DesktopDragEvent) => void` |
+
+---
+
+### `dragOverStyle`
+
+State style applied while files are dragged over the view, which must set `acceptsFiles`. See [State styles](#state-styles).
+
+| Type                           |
+| ------------------------------ |
+| `StyleProp<DesktopStateStyle>` |
+
+---
+
 ### `focusable`
 
 Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `onFocus` and `onBlur`.
@@ -91,6 +121,8 @@ A context menu was requested: right click, Control + click on macOS, or the Menu
 
 The pointer events of the web, for the mouse and trackpad, including buttons other than the left one and hovering. Each has a capturing variant. See [Mouse and keyboard input](desktop-input).
 
+A press captures the pointer. From `onPointerDown` until the button is released, `onPointerMove` and `onPointerUp` go to the view that was pressed, and bubble to its ancestors, wherever the pointer is, including outside the view and the window. Other views get no pointer moves meanwhile. There is nothing to call: a splitter or a slider needs only these handlers.
+
 | Type                            |
 | ------------------------------- |
 | `(event: PointerEvent) => void` |
@@ -125,9 +157,10 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 
 ### Supported style properties
 
-A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform` and `color`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
+A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform`, `color`, `outlineColor`, `outlineWidth` and `outlineOffset`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
 
 - `borderColor` changes the color of borders the view already has. It does not add a border or change its width.
+- The outline properties draw a ring such as a keyboard focus ring: `outlineColor` with `outlineWidth` and `outlineOffset` replace the view's own. A view that sets an outline does not get the default focus ring.
 - `transform` takes translate, scale, rotate, skew and matrix. It replaces the view's own transform while the state holds, and an animated transform wins over it.
 - `color` sets the color of all text inside the view, replacing the colors the text sets itself. A `color` on a `Text` colors that text and the text nested in it.
 
@@ -175,3 +208,25 @@ The pointer states come from the path React Native already tracks for `onPointer
 An animated value wins over a state style. While a native-driven animation owns a property of a view, such as `opacity` or `backgroundColor`, its state styles leave that property out and keep applying the rest.
 
 A state style's `opacity` applies to the view and everything inside it, per shape, not to the view's content as one picture.
+
+## Files dropped from the system
+
+```jsx
+<View
+  acceptsFiles
+  dragOverStyle={{ backgroundColor: '#dbeafe' }}
+  onDrop={event => {
+    for (const file of event.nativeEvent.files) {
+      importAttachment(file.path);
+    }
+  }}
+/>
+```
+
+Dragging files over the window sends `onDragEnter` to the view that takes them, `onDragOver` as the pointer moves, and `onDragLeave` when it moves to another view, leaves the window or is cancelled. Dropping sends `onDrop`, and no leave. A view that does not set `acceptsFiles` is never the target: the nearest ancestor that does is, and when there is none a drop does nothing. The event is a bubbling event, so a handler on an ancestor of the target also runs.
+
+`path` is a path the app can read, so a file is read from disk, not delivered as bytes. The drop does not copy or open anything. Dragging files out of the app is not supported.
+
+## Borders
+
+Borders follow React Native: `borderWidth` and `borderColor` set all four sides, and `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` and the matching `...Color` props set one side with its own width and color. A side with a width and a color paints, also when no other side does and under a `borderRadius`. `borderStyle` is `solid`, `dashed` or `dotted`. A width under one device pixel, such as `StyleSheet.hairlineWidth` on a 1x display, may not show.

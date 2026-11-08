@@ -109,6 +109,9 @@ pub struct StateStyle {
     border_colors: [Option<u32>; 4],
     color: Option<u32>,
     transform: Option<[f32; 16]>,
+    outline_color: Option<u32>,
+    outline_width: Option<f32>,
+    outline_offset: Option<f32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -167,6 +170,9 @@ impl StateStyle {
                 side("borderBottomColor"),
             ],
             color: argb(value, "color"),
+            outline_color: argb(value, "outlineColor"),
+            outline_width: number(value, "outlineWidth"),
+            outline_offset: number(value, "outlineOffset"),
             transform: value
                 .get("transform")
                 .and_then(Value::as_array)
@@ -193,11 +199,23 @@ impl StateStyle {
         }
         self.color = other.color.or(self.color);
         self.transform = other.transform.or(self.transform);
+        self.outline_color = other.outline_color.or(self.outline_color);
+        self.outline_width = other.outline_width.or(self.outline_width);
+        self.outline_offset = other.outline_offset.or(self.outline_offset);
     }
 
     /// The border colors this style leaves to `base`, left, top, right, bottom.
     pub(crate) fn border_colors(&self, base: [u32; 4]) -> [u32; 4] {
         std::array::from_fn(|side| self.border_colors[side].unwrap_or(base[side]))
+    }
+
+    /// The outline color, width and offset, with what this style leaves to `base`.
+    pub(crate) fn outline(&self, base: (u32, f32, f32)) -> (u32, f32, f32) {
+        (
+            self.outline_color.unwrap_or(base.0),
+            self.outline_width.unwrap_or(base.1),
+            self.outline_offset.unwrap_or(base.2),
+        )
     }
 
     pub(crate) fn text_color(&self) -> Option<u32> {
@@ -253,6 +271,7 @@ pub struct StateStyles {
     pub active: Option<StateStyle>,
     pub focus: Option<StateStyle>,
     pub focus_visible: Option<StateStyle>,
+    pub drag_over: Option<StateStyle>,
     pub group_hover: Option<GroupStateStyle>,
     pub group_active: Option<GroupStateStyle>,
 }
@@ -292,6 +311,7 @@ impl StateStyles {
         [
             self.focus.as_ref(),
             self.focus_visible.as_ref(),
+            self.drag_over.as_ref(),
             self.hover.as_ref(),
             self.active.as_ref(),
             self.group_hover.as_ref().map(|grouped| &grouped.style),
@@ -310,6 +330,7 @@ impl StateStyles {
             active: parse_state("activeStyle", &v.active_style),
             focus: parse_state("focusStyle", &v.focus_style),
             focus_visible: parse_state("focusVisibleStyle", &v.focus_visible_style),
+            drag_over: parse_state("dragOverStyle", &v.drag_over_style),
             group_hover: parse_group("groupHoverStyle", &v.group_hover_style),
             group_active: parse_group("groupActiveStyle", &v.group_active_style),
         };
@@ -344,6 +365,12 @@ mod state_style_tests {
         assert_eq!(base.background_color, Some(2));
         assert_eq!(base.opacity, Some(0.5));
         assert_eq!(base.text_color(), Some(3));
+    }
+
+    #[test]
+    fn an_outline_overrides_only_what_it_sets() {
+        let style = state(json!({"outlineColor": 5, "outlineWidth": 2.0}));
+        assert_eq!(style.outline((1, 9.0, 3.0)), (5, 2.0, 3.0));
     }
 
     #[test]

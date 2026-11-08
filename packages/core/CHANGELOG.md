@@ -4,6 +4,12 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Added `Network.setProxy()`, `setDnsOverHttps()`, `getSettings()` and `proxyForUrl()` to set the proxy (a proxy URL, Chromium proxy rules and a bypass list, `'direct'` or the system's) and a DNS-over-HTTPS server of the HTTP client that `fetch`, `XMLHttpRequest` and remote image and font loads share. On macOS requests follow the system proxy settings by default. WebSocket connections are not covered yet. Needs a prebuilt runtime built with the change.
+- `DesktopWindow.show()` brings back a window that was minimized, and neither it nor `hide()` logs `RefCell already borrowed` errors from GPUI's window code any more: the operating system's own window call now runs after the update that asked for it, since it reports the change while it makes it.
+- State styles can change `outlineColor`, `outlineWidth` and `outlineOffset`, for example to draw a keyboard focus ring.
+- A native-driven or Reanimated animation of `backgroundColor` or `color` now paints: colors that arrive as negative 32-bit integers, which is every color with a high alpha byte from Reanimated, were converted to unsigned through a double and came out transparent.
+- Files dragged in from the operating system: `View` takes `acceptsFiles`, `onDragEnter`, `onDragOver`, `onDragLeave` and `onDrop` events carrying each file's path, name, size, media type and the pointer position, and a `dragOverStyle` state style. Needs a prebuilt runtime built with the change.
+- Menu items take an `onPress` handler, run when the item is chosen in a context menu (`ContextMenu.show`, `ContextMenuView`) or in the application menu, alongside the id the menu already reports.
 - What the pointer is over is worked out again after a mount batch, as a browser does after a layout: a view that mounts under a still pointer receives `onPointerEnter`, without the pointer moving.
 - Added `DesktopWindow.setZoomFactor()` and `getZoomFactor()` to scale a window's content (0.25 to 5), `getTitle()`, and `isVisible`, `title` and `zoomFactor` in the window state. `stateChange` events now also report `isVisible`, `title` and `zoomFactor` changes. Needs a prebuilt runtime built with the change.
 - Added `DesktopWindow.setBackgroundColor()` and `setChromeAppearance()` to color a window's background and give its native title bar a light or dark look. macOS only for now.

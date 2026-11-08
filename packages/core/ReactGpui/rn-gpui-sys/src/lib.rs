@@ -123,6 +123,9 @@ pub mod ffi {
         pub focus_visible_style: String,
         pub group_hover_style: String,
         pub group_active_style: String,
+        pub drag_over_style: String,
+        /// Whether the view takes files dropped from the operating system.
+        pub accepts_files: bool,
     }
 
     #[derive(Clone, Debug, Default)]
@@ -449,6 +452,17 @@ pub mod ffi {
             body: &str,
         );
         fn rn_gpui_http_request_cancel(request_id: u64);
+    }
+
+    // SAFETY: the signatures match the declarations in `GpuiNetworkConfig.h`.
+    unsafe extern "C++" {
+        include!("GpuiNetworkConfig.h");
+
+        /// Replaces the proxy and DNS settings; returns an error message or an
+        /// empty string.
+        fn rn_gpui_network_configure(mode: &str, rules: &str, bypass: &str, doh: &str) -> String;
+        /// The proxy a request to `url` uses: `DIRECT` or the proxy's URL.
+        fn rn_gpui_network_proxy_for(url: &str) -> String;
     }
 
     extern "Rust" {

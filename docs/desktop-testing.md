@@ -119,19 +119,20 @@ Baselines are stored next to the test, in `__screenshots__/gpui/<platform>-<arch
 
 `DesktopApp` also drives the desktop shell, so tests can cover menus, windows and the tray:
 
-| Area             | Methods                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Windows          | `setWindowSize`, `getWindowBounds`, `focusWindow`, `listWindows`, `windowState`, `windowClose`, `osCloseWindow`, `reopen` |
-| Menus            | `getAppMenu`, `triggerMenuItem`, `menuBarState`, `openMenuBarMenu`                                                        |
-| Context menus    | `getContextMenu`, `selectContextMenuItem`, `dismissContextMenu`                                                           |
-| Dev menu         | `showDevMenu`, `getDevMenu`, `devMenuPerform`, `closeDevMenu`                                                             |
-| Tray             | `trayInstall`, `trayState`, `trayClick`, `trayHide`, `trayDestroy`                                                        |
-| Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                               |
-| Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                      |
-| Clipboard        | `clipboardText`, `setClipboardText`                                                                                       |
-| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                              |
-| Accessibility    | `a11yTree`, `a11yNode`                                                                                                    |
-| Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                             |
+| Area             | Methods                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows          | `setWindowSize`, `getWindowBounds`, `focusWindow`, `setWindowActive`, `listWindows`, `windowState`, `windowClose`, `osCloseWindow`, `reopen` |
+| File drops       | `dragFiles`, `dropFiles`, `dragFilesExit`                                                                                                    |
+| Menus            | `getAppMenu`, `triggerMenuItem`, `menuBarState`, `openMenuBarMenu`                                                                           |
+| Context menus    | `getContextMenu`, `selectContextMenuItem`, `dismissContextMenu`                                                                              |
+| Dev menu         | `showDevMenu`, `getDevMenu`, `devMenuPerform`, `closeDevMenu`                                                                                |
+| Tray             | `trayInstall`, `trayState`, `trayClick`, `trayHide`, `trayDestroy`                                                                           |
+| Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                                                  |
+| Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                                         |
+| Clipboard        | `clipboardText`, `setClipboardText`                                                                                                          |
+| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                                                 |
+| Accessibility    | `a11yTree`, `a11yNode`                                                                                                                       |
+| Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                                                |
 
 `alertState` returns the title, buttons and fields of the alert on screen, and `alertRespond(button, texts)` types into its fields and presses a button. On macOS the alert is a system sheet that a test cannot press, so the driver answers it directly; set `RN_GPUI_ALERT_DIALOG=1` in `env` to make macOS show the same dialog window that Windows and Linux use. `shareOpen` and `shareChoose` do the same for the macOS share picker.
 

@@ -5,6 +5,7 @@ pub(crate) mod counters;
 pub(crate) mod desktop;
 pub(crate) mod events;
 pub mod extensions;
+pub(crate) mod file_drop;
 mod filter;
 pub(crate) mod frame;
 pub(crate) mod gradient;

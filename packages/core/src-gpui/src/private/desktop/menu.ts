@@ -76,6 +76,11 @@ export type MenuItemSpec =
       checked?: boolean;
       role?: MenuRole;
       icon?: DesktopIcon;
+      /**
+       * Runs when the item is chosen, in the menu that was opened from this
+       * array. The menu's own result, the item's `id`, is reported as well.
+       */
+      onPress?: () => void;
     }
   | {
       type: 'submenu';
@@ -129,6 +134,9 @@ export function nativeMenuItems(items: MenuItemSpec[]): Object[] {
       return item;
     }
     const { icon, ...rest } = item;
+    if ('onPress' in rest) {
+      delete rest.onPress;
+    }
     const uri = iconUri(icon);
     const native: { [key: string]: unknown } = uri
       ? { ...rest, icon: uri }
@@ -138,6 +146,55 @@ export function nativeMenuItems(items: MenuItemSpec[]): Object[] {
     }
     return native;
   });
+}
+
+/** The `onPress` handlers of the items of a menu, by item id. */
+export type MenuHandlers = Map<string, () => void>;
+
+/**
+ * Collects the `onPress` handlers of a menu tree by item id, and returns the
+ * tree without them, which is what the native and custom menus take.
+ */
+export function collectMenuHandlers(
+  items: MenuItemSpec[],
+  handlers: MenuHandlers = new Map(),
+): { items: MenuItemSpec[]; handlers: MenuHandlers } {
+  const stripped = items.map((item): MenuItemSpec => {
+    if (item.type === 'separator' || item.type === 'role') {
+      return item;
+    }
+    if (item.type === 'submenu') {
+      return {
+        ...item,
+        items: collectMenuHandlers(item.items, handlers).items,
+      };
+    }
+    const { onPress, ...rest } = item;
+    if (onPress) {
+      handlers.set(item.id, onPress);
+    }
+    return rest;
+  });
+  return { items: stripped, handlers };
+}
+
+let applicationMenuHandlers: MenuHandlers = new Map();
+let applicationMenuListening = false;
+
+/** Makes `items`' handlers the ones a press of the application menu runs. */
+export function setApplicationMenuHandlers(items: MenuItemSpec[] | null) {
+  applicationMenuHandlers = items
+    ? collectMenuHandlers(items).handlers
+    : new Map();
+  if (!applicationMenuListening) {
+    applicationMenuListening = true;
+    DeviceEventEmitter.addListener(MENU_PRESS, payload => {
+      const id = (payload as MenuPressEvent | undefined)?.id;
+      if (id != null) {
+        applicationMenuHandlers.get(id)?.();
+      }
+    });
+  }
 }
 
 /** Hearers of `Menu.setMenuBarVisible` for the main window. */
@@ -172,6 +229,7 @@ export const Menu = {
    * Edit, Window, Help).
    */
   setApplicationMenu(items: MenuItemSpec[] | null): Promise<void> {
+    setApplicationMenuHandlers(items);
     return request(native =>
       native.menuSetApplicationMenu(items ? nativeMenuItems(items) : null),
     );
@@ -304,6 +362,7 @@ export function ApplicationMenu({ items, onPress }: ApplicationMenuProps) {
     const patches =
       previous != null && items != null ? diffItems(previous, items) : null;
     if (patches) {
+      setApplicationMenuHandlers(items);
       // A rejected menu call would otherwise be an unhandled rejection with
       // nothing to show for it: the menu simply would not match the props. Log it
       // and carry on, the same way `ContextMenuView` does.

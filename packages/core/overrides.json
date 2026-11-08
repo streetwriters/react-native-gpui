@@ -213,6 +213,10 @@
     },
     {
       "type": "platform",
+      "file": "src-gpui/src/private/desktop/network.ts"
+    },
+    {
+      "type": "platform",
       "file": "src-gpui/Libraries/NativeComponent/BaseViewConfig.desktop.ts"
     },
     {

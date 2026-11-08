@@ -234,3 +234,19 @@ test('a view mounted under a still pointer is hovered', async () => {
   await away();
   await expectColor('state-late-child', '#3b82f6');
 });
+
+test('outline follows hover and focus', async () => {
+  await away();
+  await expectColor('state-outline', '#ffffff', 0.5, 0.03);
+  await app.getByTestId('state-outline').hover();
+  await expectColor('state-outline', '#ef4444', 0.5, 0.03);
+  await away();
+  const [node] = await app.query('testID', 'state-outline', true);
+  await app.focus(node.tag);
+  await app.waitForIdle();
+  await expectColor('state-outline', '#10b981', 0.5, 0.03);
+  const [other] = await app.query('testID', 'state-focus-other', true);
+  await app.focus(other.tag);
+  await app.waitForIdle();
+  await expectColor('state-outline', '#ffffff', 0.5, 0.03);
+});

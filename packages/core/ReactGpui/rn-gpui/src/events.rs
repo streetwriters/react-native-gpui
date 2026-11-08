@@ -94,14 +94,14 @@ pub fn active_touch_target(cx: &App) -> Option<Target> {
 impl Target {
     /// A pointer position of the window in the surface's space, which is where
     /// React's page coordinates and the node origins are.
-    fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
+    pub(crate) fn page(&self, position: Point<Pixels>) -> Point<Pixels> {
         point(
             (position.x - px(self.window_offset_x)) / self.zoom,
             (position.y - px(self.window_offset)) / self.zoom,
         )
     }
 
-    fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
+    pub(crate) fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
         let position = self.inverses.iter().fold(position, |position, inverse| {
             inverse.transform_logical_point(position)
         });

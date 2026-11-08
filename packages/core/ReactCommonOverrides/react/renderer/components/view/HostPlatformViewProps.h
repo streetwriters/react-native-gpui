@@ -68,6 +68,18 @@ class HostPlatformViewProps : public BaseViewProps {
             "groupActiveStyle",
             sourceProps.groupActiveStyle,
             std::string{})),
+        dragOverStyle(convertRawProp(
+            context,
+            rawProps,
+            "dragOverStyle",
+            sourceProps.dragOverStyle,
+            std::string{})),
+        acceptsFiles(convertRawProp(
+            context,
+            rawProps,
+            "acceptsFiles",
+            sourceProps.acceptsFiles,
+            false)),
         // Either handler is enough to make the view a context-menu target. Fabric
         // turns a function prop into `true`, so a view with only the capture
         // handler used to get no listener at all.
@@ -102,6 +114,8 @@ class HostPlatformViewProps : public BaseViewProps {
       RAW_SET_PROP_SWITCH_CASE_BASIC(focusVisibleStyle);
       RAW_SET_PROP_SWITCH_CASE_BASIC(groupHoverStyle);
       RAW_SET_PROP_SWITCH_CASE_BASIC(groupActiveStyle);
+      RAW_SET_PROP_SWITCH_CASE_BASIC(dragOverStyle);
+      RAW_SET_PROP_SWITCH_CASE_BASIC(acceptsFiles);
       // There is one stored flag, so only `onContextMenu` gets a case here; a
       // second case would need a field that does not exist. An update to either
       // prop still re-parses through the constructor above, where the two are
@@ -122,6 +136,8 @@ class HostPlatformViewProps : public BaseViewProps {
   std::string focusVisibleStyle;
   std::string groupHoverStyle;
   std::string groupActiveStyle;
+  std::string dragOverStyle;
+  bool acceptsFiles{false};
   /// True when the view has an `onContextMenu` handler (RN turns a function
   /// prop into this boolean marker).
   bool onContextMenu{false};

@@ -2859,7 +2859,16 @@ impl Render for SurfaceRootView {
             // else it moves and ends here, so a drag that left every touchable
             // still reaches React, which decides from it whether the press
             // is kept.
+            .on_drag_move::<gpui::ExternalPaths>(|event, _window, cx| {
+                crate::file_drop::moved(event.drag(cx).paths());
+            })
+            .on_drop::<gpui::ExternalPaths>(|_, window, cx| crate::file_drop::dropped(window, cx))
+            .on_file_drop_exit(|_, window, cx| crate::file_drop::exited(window, cx))
             .on_mouse_move(|event, window, cx| {
+                if crate::file_drop::active() {
+                    crate::file_drop::left_unanswered(window, cx, event.position);
+                    return;
+                }
                 if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
                     return;
                 }
