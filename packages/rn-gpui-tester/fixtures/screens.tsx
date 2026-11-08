@@ -309,6 +309,11 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'flex-basis': props =>
+    React.createElement(
+      require('./components/FlexBasisFixture').default,
+      props,
+    ),
   stretch: props =>
     React.createElement(require('./components/StretchFixture').default, props),
   tooltip: props =>

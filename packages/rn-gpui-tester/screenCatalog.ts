@@ -126,6 +126,12 @@ export const screens = [
     fixture: 'FileDropFixture',
   },
   {
+    id: 'flex-basis',
+    title: 'Flex basis',
+    group: 'Views',
+    fixture: 'FlexBasisFixture',
+  },
+  {
     id: 'stretch',
     title: 'Row stretch',
     group: 'Views',
