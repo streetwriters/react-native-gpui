@@ -96,6 +96,12 @@ export const screens = [
     fixture: 'PropsProbeFixture',
   },
   {
+    id: 'text-raster',
+    title: 'Text raster against a browser',
+    group: 'Text',
+    fixture: 'TextRasterFixture',
+  },
+  {
     id: 'rounded-clip',
     title: 'Rounded clip under transform',
     group: 'Views',
