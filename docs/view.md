@@ -121,6 +121,8 @@ A context menu was requested: right click, Control + click on macOS, or the Menu
 
 The pointer events of the web, for the mouse and trackpad, including buttons other than the left one and hovering. Each has a capturing variant. See [Mouse and keyboard input](desktop-input).
 
+A press captures the pointer. From `onPointerDown` until the button is released, `onPointerMove` and `onPointerUp` go to the view that was pressed, and bubble to its ancestors, wherever the pointer is, including outside the view and the window. Other views get no pointer moves meanwhile, and the view's `onPointerLeave` is not sent until the press ends. There is nothing to call: a splitter or a slider needs only these handlers.
+
 | Type                            |
 | ------------------------------- |
 | `(event: PointerEvent) => void` |

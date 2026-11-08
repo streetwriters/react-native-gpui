@@ -757,6 +757,19 @@ async fn serve_commands(
                             platform: modifiers["platform"].as_bool().unwrap_or(false),
                             function: modifiers["function"].as_bool().unwrap_or(false),
                         };
+                        // A button pressed by this driver stays held until it is
+                        // released, so a move in between is a drag, as with a mouse.
+                        static HELD: std::sync::Mutex<Option<gpui::MouseButton>> =
+                            std::sync::Mutex::new(None);
+                        let held = {
+                            let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+                            match method {
+                                "mouseDown" => *held = Some(button),
+                                "mouseUp" => *held = None,
+                                _ => {}
+                            }
+                            *held
+                        };
                         let event = match method {
                             "mouseDown" => gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                 position,
@@ -776,7 +789,8 @@ async fn serve_commands(
                                 pressed_button: params
                                     .get("button")
                                     .and_then(Value::as_str)
-                                    .map(|_| button),
+                                    .map(|_| button)
+                                    .or(held),
                                 ..Default::default()
                             }),
                         };

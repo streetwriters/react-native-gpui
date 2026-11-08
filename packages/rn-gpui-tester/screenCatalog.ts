@@ -66,6 +66,12 @@ export const screens = [
     fixture: 'SideBordersFixture',
   },
   {
+    id: 'pointer-capture',
+    title: 'Pointer capture',
+    group: 'Input',
+    fixture: 'PointerCaptureFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',
