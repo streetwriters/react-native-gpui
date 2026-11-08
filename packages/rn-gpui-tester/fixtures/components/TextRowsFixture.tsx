@@ -26,6 +26,56 @@ const ROWS = [
 export default function TextRowsFixture() {
   return (
     <View testID="rows" style={{ backgroundColor: '#ffffff' }}>
+      <View style={{ width: 349, flexDirection: 'row', alignItems: 'center' }}>
+        <Text
+          testID="truncated-title"
+          numberOfLines={1}
+          style={{
+            minWidth: 0,
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: '600',
+          }}
+        >
+          A very long note title that keeps going well past the width of the
+          list pane
+        </Text>
+      </View>
+      <View style={{ width: 349, flexDirection: 'row', alignItems: 'center' }}>
+        <Text
+          testID="truncated-token"
+          numberOfLines={1}
+          style={{
+            minWidth: 0,
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: '600',
+          }}
+        >
+          supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilistic
+        </Text>
+      </View>
+      <View style={{ width: 349, flexDirection: 'row', alignItems: 'center' }}>
+        <Text
+          testID="short-title"
+          numberOfLines={1}
+          style={{
+            minWidth: 0,
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: '600',
+          }}
+        >
+          Short title
+        </Text>
+      </View>
+      <Text
+        testID="fallback-title"
+        numberOfLines={1}
+        style={{ fontFamily: 'Inter', fontSize: 15, fontWeight: '600' }}
+      >
+        Accents and symbols: café, naïve, 日本語, emoji 🙂
+      </Text>
       <Text
         testID="highlight"
         style={{ fontFamily: 'Inter', fontSize: 13, color: '#000000' }}

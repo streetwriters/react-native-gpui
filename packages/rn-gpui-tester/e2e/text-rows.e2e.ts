@@ -119,3 +119,18 @@ test('a nested Text with a backgroundColor is painted behind its words', async (
   expect(tall).toBeGreaterThanOrEqual(14);
   expect(tall).toBeLessThanOrEqual(outer.frame.height);
 });
+
+test('a truncated one-line text fills the width it was given, as a block with text-overflow does', async () => {
+  const width = async (id: string) =>
+    (await app.query('testID', id, true))[0].frame.width;
+  expect(await width('truncated-title')).toBe(349);
+  expect(await width('truncated-token')).toBe(349);
+  expect(await width('short-title')).toBeLessThan(100);
+});
+
+test('a line with a fallback font is as tall as its tallest font', async () => {
+  const [plain] = await app.query('testID', 'short-title', true);
+  const [mixed] = await app.query('testID', 'fallback-title', true);
+  expect(plain.frame.height).toBe(18);
+  expect(mixed.frame.height).toBe(21);
+});
