@@ -11,7 +11,6 @@
 // This file is compiled from ReactCommonOverrides/, not from next to its
 // header, so the include is spelled relative to an include root
 // (`${platform_DIR}` = .../textlayoutmanager/platform/cxx/).
-#include <cmath>
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 
 #include "GpuiTextMeasure.h" // rngpui::gpuiTextMeasureTable
@@ -39,7 +38,7 @@ TextLayoutManager::TextLayoutManager(
 TextMeasurement TextLayoutManager::measure(
     const AttributedStringBox& attributedStringBox,
     const ParagraphAttributes& paragraphAttributes,
-    const TextLayoutContext& layoutContext,
+    const TextLayoutContext& /*layoutContext*/,
     const LayoutConstraints& layoutConstraints) const {
   const auto& fragments = attributedStringBox.getValue().getFragments();
 
@@ -64,13 +63,8 @@ TextMeasurement TextLayoutManager::measure(
         layoutConstraints.maximumSize.height);
   }
 
-  const Float pointScale = layoutContext.pointScaleFactor > 0 ? layoutContext.pointScaleFactor : 1;
-  const auto toDevicePixel = [pointScale](Float value) {
-    return std::round(value * pointScale) / pointScale;
-  };
   return TextMeasurement{
-      .size = layoutConstraints.clamp(
-          {.width = toDevicePixel(size.width), .height = toDevicePixel(size.height)}),
+      .size = layoutConstraints.clamp({.width = size.width, .height = size.height}),
       .attachments = std::move(attachments)};
 }
 
