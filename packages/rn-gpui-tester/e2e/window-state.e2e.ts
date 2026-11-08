@@ -116,3 +116,39 @@ test('the zoom factor scales layout, painting and pointer input', async () => {
   await run('zoom-1');
   await poll(async () => Math.abs((await width()) - natural) <= 1);
 });
+
+test('a window that was minimised and then hidden shows again', async () => {
+  // Minimising needs a window the system has put on screen.
+  await app.close();
+  app = await launchApp({
+    bundle: path.resolve(
+      'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    ),
+    env: {
+      RN_GPUI_MODULE: 'RNGPUITester--window-state',
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+    },
+    disableAnimations: false,
+    offscreen: false,
+  });
+  await desktopExpect(
+    app.getByTestId('tester-screen-window-state'),
+  ).toBeVisible();
+  await run('minimize');
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  await run('hide');
+  await new Promise(resolve => setTimeout(resolve, 600));
+  await poll(async () =>
+    (await text('window-state')).includes('visible=false'),
+  );
+  await run('show-focus');
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  await poll(async () => (await text('window-state')).includes('visible=true'));
+  await poll(
+    async () => (await text('window-state')).includes('minimized=false'),
+    10000,
+  );
+  await app.waitForIdle();
+  expect(app.logs.join('\n')).not.toMatch(/already borrowed/);
+});

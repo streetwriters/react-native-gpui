@@ -1335,3 +1335,53 @@ pub fn set_chrome_appearance(
 ) -> Result<(), String> {
     Err("a window's chrome appearance is not supported on this platform".to_string())
 }
+
+/// Prepares to show a window, returning what does it. The operating system
+/// reports activation and size changes while it shows a window, and those
+/// reach GPUI's window callbacks, which borrow the window; so the caller runs
+/// the returned action once its own borrow of the window has ended.
+#[cfg(target_os = "macos")]
+pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)? as usize;
+    Ok(Box::new(move || {
+        let native = native as id;
+        // SAFETY: `native` is the `NSWindow` of a window that is still open, and AppKit is only messaged from the main thread.
+        unsafe {
+            let miniaturized: bool = msg_send![native, isMiniaturized];
+            if miniaturized {
+                let _: () = msg_send![native, deminiaturize: nil];
+            }
+            let _: () = msg_send![native, orderFront: nil];
+        }
+    }))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    show(window)?;
+    Ok(Box::new(|| {}))
+}
+
+/// Prepares to hide a window; see [`show_later`].
+#[cfg(target_os = "macos")]
+pub fn hide_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    let native = imp::ns_window(window)? as usize;
+    Ok(Box::new(move || {
+        // SAFETY: `native` is the `NSWindow` of a window that is still open, and AppKit is only messaged from the main thread.
+        unsafe {
+            let _: () = msg_send![native as id, orderOut: nil];
+        }
+    }))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn hide_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String> {
+    hide(window)?;
+    Ok(Box::new(|| {}))
+}

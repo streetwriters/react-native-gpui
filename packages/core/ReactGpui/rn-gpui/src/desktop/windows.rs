@@ -929,10 +929,23 @@ pub fn set_fullscreen(cx: &mut App, key: u32, fullscreen: bool) -> DesktopResult
     })
 }
 
+/// Runs a native window operation once the update that asked for it has ended.
+/// The operating system reports the change while it makes it, and GPUI's window
+/// callbacks need the `App` that the update still holds.
+fn run_outside_update(cx: &mut App, run: Box<dyn FnOnce()>) {
+    cx.spawn(async move |_| run()).detach();
+}
+
 pub fn show(cx: &mut App, key: u32) -> DesktopResult {
+    let later = std::cell::RefCell::new(None);
     let result = with_window(cx, key, |window| {
-        platform_window::show(window).map_err(DesktopError::unsupported)
+        *later.borrow_mut() =
+            Some(platform_window::show_later(window).map_err(DesktopError::unsupported)?);
+        Ok(())
     });
+    if let Some(run) = later.take() {
+        run_outside_update(cx, run);
+    }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
@@ -941,9 +954,15 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
+    let later = std::cell::RefCell::new(None);
     let result = with_window(cx, key, |window| {
-        platform_window::hide(window).map_err(DesktopError::unsupported)
+        *later.borrow_mut() =
+            Some(platform_window::hide_later(window).map_err(DesktopError::unsupported)?);
+        Ok(())
     });
+    if let Some(run) = later.take() {
+        run_outside_update(cx, run);
+    }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(false))]);
         super::app_state::schedule(cx);
