@@ -11,13 +11,11 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `3a4aada` (2026-11-08: `ac7018a` plus a rounded overflow clip mapped through the
-  transform in force, and glyph masks with Skia's luminance-dependent coverage curve on macOS, so
-  text carries the same ink as in Chromium; `ac7018a` brought content masks carried into a
-  transformed space, layers ordered where they land on screen, a view drawn under a transform built
-  with the view around it, transforms kept for content painted into a scroll layer, retained views
-  that no longer allocate placeholders and empty lists every frame, and tab stops sorted only when
-  focus moves by keyboard)
+- Commit: `5392403` (2026-11-08: `3a4aada` plus two test hooks on macOS: a window scale factor a test
+  run asks for (`RN_GPUI_TEST_SCALE_FACTOR`), and windows reporting themselves active while the test
+  driver runs the app in the background; `3a4aada` brought rounded overflow clips mapped through the
+  transform in force and glyph masks with Skia's coverage curve, on top of `ac7018a`'s transform,
+  layer and allocation fixes)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
   `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and
