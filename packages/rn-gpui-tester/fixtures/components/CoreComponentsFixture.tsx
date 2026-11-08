@@ -29,6 +29,7 @@ export default function CoreComponentsFixture() {
   const [refreshing, setRefreshing] = useState(false);
   const [rotatedPresses, setRotatedPresses] = useState(0);
   const [slopPresses, setSlopPresses] = useState(0);
+  const [slopEnters, setSlopEnters] = useState(0);
   const [retainedPresses, setRetainedPresses] = useState(0);
   const [defaultPresses, setDefaultPresses] = useState(0);
   const [rotatedLocation, setRotatedLocation] = useState('none');
@@ -87,6 +88,12 @@ export default function CoreComponentsFixture() {
             style={styles.slopDefault}
             onPress={() => setDefaultPresses(count => count + 1)}
           />
+          <View
+            testID="slop-hover"
+            hitSlop={10}
+            style={styles.slopHover}
+            onPointerEnter={() => setSlopEnters(count => count + 1)}
+          />
           <Pressable
             testID="slop-retained"
             pressRetentionOffset={{ top: 80, left: 80, right: 80, bottom: 80 }}
@@ -95,6 +102,7 @@ export default function CoreComponentsFixture() {
           />
         </View>
         <Text testID="slop-count">{String(slopPresses)}</Text>
+        <Text testID="slop-enter-count">{String(slopEnters)}</Text>
         <Text testID="slop-default-count">{String(defaultPresses)}</Text>
         <Text testID="slop-retained-count">{String(retainedPresses)}</Text>
       </View>
@@ -1064,6 +1072,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     backgroundColor: '#f80',
+  },
+  slopHover: {
+    position: 'absolute',
+    left: 125,
+    top: 20,
+    width: 30,
+    height: 30,
+    backgroundColor: '#f0f',
   },
   slopRetained: {
     position: 'absolute',

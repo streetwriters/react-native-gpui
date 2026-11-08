@@ -12,7 +12,7 @@ pub fn color(argb: u32) -> Hsla {
 
 /// `ViewPropsFlat::cursor` is the ordinal of RN's `Cursor` enum; the arms
 /// below are in that order.
-fn cursor_style(ordinal: u8) -> Option<CursorStyle> {
+pub(crate) fn cursor_style(ordinal: u8) -> Option<CursorStyle> {
     let style = match ordinal {
         0 => return None,                         // Auto
         1 => CursorStyle::DragLink,               // Alias
