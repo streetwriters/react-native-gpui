@@ -70,7 +70,7 @@ async function away() {
 async function whilePressed(at: { x: number; y: number }, check: () => void) {
   await app.mouseDown(at);
   try {
-    await app.waitForIdle({ ignore: ['gestures'] });
+    await app.waitForIdle({ ignore: ['gestures', 'animations'] });
     await check();
   } finally {
     await app.mouseUp(at);
@@ -249,4 +249,40 @@ test('outline follows hover and focus', async () => {
   await app.focus(other.tag);
   await app.waitForIdle();
   await expectColor('state-outline', '#ffffff', 0.5, 0.03);
+});
+
+test('getProps reports the colors a state style applies and which states hold', async () => {
+  await away();
+  const props = async (testID: string) => {
+    const [node] = await app.query('testID', testID, true);
+    return app.getProps(node.tag);
+  };
+  let hover = await props('state-hover');
+  expect(hover.backgroundColor >>> 0).toBe(0xff3b82f6);
+  expect(hover.states).toEqual([]);
+
+  await app.getByTestId('state-hover').hover();
+  hover = await props('state-hover');
+  expect(hover.backgroundColor >>> 0).toBe(0xfff59e0b);
+  expect(hover.baseBackgroundColor >>> 0).toBe(0xff3b82f6);
+  expect(hover.states).toEqual(['hover']);
+
+  await whilePressed(await centre('state-hover'), async () => {
+    const pressed = await props('state-hover');
+    expect(pressed.backgroundColor >>> 0).toBe(0xffef4444);
+    expect(pressed.states).toEqual(['hover', 'active']);
+  });
+
+  await app.getByTestId('state-border').hover();
+  const border = await props('state-border');
+  expect(border.borderColors.left >>> 0).toBe(0xffef4444);
+  expect(border.borderColors.bottom >>> 0).toBe(0xff10b981);
+
+  await app.getByTestId('state-text').hover();
+  await app.waitForIdle();
+  expect((await props('state-text-label')).textColor >>> 0).toBe(0xffef4444);
+
+  await away();
+  expect((await props('state-text-label')).textColor >>> 0).toBe(0xff000000);
+  expect((await props('state-hover')).states).toEqual([]);
 });

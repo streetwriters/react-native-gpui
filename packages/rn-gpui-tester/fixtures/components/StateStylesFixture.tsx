@@ -69,7 +69,10 @@ export default function StateStylesFixture() {
       />
 
       <View testID="state-text" hoverStyle={{ color: '#ef4444' }}>
-        <Text style={{ color: '#000000', fontSize: 30, fontWeight: '900' }}>
+        <Text
+          testID="state-text-label"
+          style={{ color: '#000000', fontSize: 30, fontWeight: '900' }}
+        >
           MMMMMM
         </Text>
       </View>

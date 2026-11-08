@@ -53,6 +53,8 @@ test('counts presses', async () => {
 | `textAlign`, `numberOfLines`                    | The paragraph's, `null` without text.                                                                                                                                                        |
 | `frame`                                         | `{ x, y, width, height }`.                                                                                                                                                                   |
 
+`backgroundColor`, `opacity`, `borderColors`, `outline*` and `textColor` are the effective values, with the `hoverStyle`, `activeStyle`, `focusStyle` and other state styles that hold applied. `baseBackgroundColor` and `baseOpacity` are the ones without, and `states` names the state styles that hold (`focus`, `focusVisible`, `groupHover`, `hover`, `dragOver`, `groupActive`, `active`).
+
 The tree from `app.tree()` has `backgroundColor`, `opacity`, `borderColors` and `textColor` on every node too.
 
 ## Documentation
