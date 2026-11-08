@@ -126,6 +126,12 @@ export const screens = [
     fixture: 'FileDropFixture',
   },
   {
+    id: 'stretch',
+    title: 'Row stretch',
+    group: 'Views',
+    fixture: 'StretchFixture',
+  },
+  {
     id: 'tooltip',
     title: 'Tooltip',
     group: 'Input',

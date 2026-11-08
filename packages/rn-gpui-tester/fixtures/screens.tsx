@@ -309,6 +309,8 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  stretch: props =>
+    React.createElement(require('./components/StretchFixture').default, props),
   tooltip: props =>
     React.createElement(require('./components/TooltipFixture').default, props),
   app: props =>
