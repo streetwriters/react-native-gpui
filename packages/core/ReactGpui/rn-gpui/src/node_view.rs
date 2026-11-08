@@ -978,14 +978,18 @@ impl RNNodeView {
         self.render_count
     }
 
+    fn takes_focus(&self) -> bool {
+        self.focusable || self.view.accessibility_has_escape_listener
+    }
+
     pub(crate) fn nearest_focus_handle(&self, cx: &App) -> Option<FocusHandle> {
-        if let Some(handle) = &self.focus_handle {
+        if let Some(handle) = self.focus_handle.as_ref().filter(|_| self.takes_focus()) {
             return Some(handle.clone());
         }
         let mut parent = self.parent.clone();
         while let Some(node) = parent.and_then(|node| node.upgrade()) {
             let node = node.read(cx);
-            if let Some(handle) = &node.focus_handle {
+            if let Some(handle) = node.focus_handle.as_ref().filter(|_| node.takes_focus()) {
                 return Some(handle.clone());
             }
             parent = node.parent.clone();

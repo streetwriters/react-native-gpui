@@ -4,7 +4,12 @@
  * @format
  */
 
-import React, { useEffect, useState, useSyncExternalStore } from 'react';
+import React, {
+  Activity,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { Freeze } from 'react-freeze';
 
@@ -47,6 +52,45 @@ function Screen({ name }: { name: Route }) {
   );
 }
 
+function KeyList({ name }: { name: string }) {
+  const [keys, setKeys] = useState(0);
+  const [presses, setPresses] = useState(0);
+  return (
+    <View
+      testID={`${name}-list`}
+      focusable
+      onKeyDown={() => setKeys(k => k + 1)}
+    >
+      <Pressable
+        testID={`${name}-row`}
+        onPress={() => setPresses(p => p + 1)}
+        style={{ height: 24 }}
+      >
+        <Text>{`${name} row`}</Text>
+      </Pressable>
+      <Text testID={`${name}-keys`}>{`${keys}`}</Text>
+      <Text testID={`${name}-presses`}>{`${presses}`}</Text>
+    </View>
+  );
+}
+
+function HideCycle() {
+  const [visible, setVisible] = useState(true);
+  return (
+    <View style={{ gap: 4 }}>
+      <Text testID="hide-toggle" onPress={() => setVisible(value => !value)}>
+        {visible ? 'hide' : 'show'}
+      </Text>
+      <Activity mode={visible ? 'visible' : 'hidden'}>
+        <KeyList name="activity" />
+      </Activity>
+      <Freeze freeze={!visible}>
+        <KeyList name="freeze" />
+      </Freeze>
+    </View>
+  );
+}
+
 export default function FreezeFixture() {
   const [route, setRoute] = useState<Route>('home');
   const [visited, setVisited] = useState<Route[]>(['home']);
@@ -69,6 +113,7 @@ export default function FreezeFixture() {
       >
         busy
       </Text>
+      <HideCycle />
       {ROUTES.map(name => (
         <Text key={name} testID={`go-${name}`} onPress={() => go(name)}>
           {`go ${name}`}

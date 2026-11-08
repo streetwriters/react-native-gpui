@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Clicking a view no longer focuses a `Text` or other node that only exists for accessibility: the press focuses the nearest `focusable` view. The accessibility-only focus was dropped as soon as that node was updated, which blurred the window and left a focusable ancestor's `onKeyDown` without events after a subtree had been hidden and shown again (`Activity`, react-freeze).
 - A `boxShadow` blur is as wide as in CSS: its gaussian has a standard deviation of half the blur radius. The blur radius was used as the standard deviation, which made every blurred shadow twice as wide and darker at the edge.
 - `hitSlop` now also extends hover and pointer moves (`onPointerEnter`, `onPointerLeave`, `onPointerMove`) and the view's `cursor`, not just presses, so a thin divider can be painted at 1 point and show `col-resize` over a wider grab area. `hoverStyle` still follows the painted box.
 - A text is measured to the pixel and not rounded up to a whole point first, so its frame is Yoga's ceil to the device pixel grid (at a scale of 2 a text 39.16 points wide has a frame 39.5 wide, not 40). A line without an explicit `lineHeight` is as tall as its ascent and descent each rounded to a whole point, as in a browser: Inter at 13 and 15 points is 16 and 19 tall.

@@ -61,3 +61,24 @@ test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is runni
   await pressed;
   await app.waitForIdle({ timeout: 8000 });
 });
+
+for (const name of ['activity', 'freeze']) {
+  test(`${name}: a list keeps its key handling after being hidden and shown again`, async () => {
+    const text = (id: string) => app.getByTestId(id).textContent();
+    await app.getByTestId(`${name}-row`).click();
+    await app.waitForIdle();
+    await app.press('down');
+    await app.waitForIdle();
+    expect(await text(`${name}-keys`)).toBe('1');
+    await app.getByTestId('hide-toggle').click();
+    await app.waitForIdle();
+    await app.getByTestId('hide-toggle').click();
+    await app.waitForIdle();
+    await app.getByTestId(`${name}-row`).click();
+    await app.waitForIdle();
+    expect(await text(`${name}-presses`)).toBe('2');
+    await app.press('down');
+    await app.waitForIdle();
+    expect(await text(`${name}-keys`)).toBe('2');
+  });
+}
