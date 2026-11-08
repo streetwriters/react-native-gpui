@@ -144,7 +144,11 @@ mod imp {
         let native = ns_window(window)?;
         // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
         unsafe {
-            let _: () = msg_send![native, orderFront: std::ptr::null::<id>()];
+            if crate::desktop::background::enabled() {
+                let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+            } else {
+                let _: () = msg_send![native, orderFront: std::ptr::null::<id>()];
+            }
         }
         Ok(())
     }
@@ -1354,9 +1358,31 @@ pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String
             if miniaturized {
                 let _: () = msg_send![native, deminiaturize: nil];
             }
-            let _: () = msg_send![native, orderFront: nil];
+            if crate::desktop::background::enabled() {
+                let _: () = msg_send![native, orderBack: nil];
+            } else {
+                let _: () = msg_send![native, orderFront: nil];
+            }
         }
     }))
+}
+
+/// Shows a window behind every other window, without making it key.
+#[cfg(target_os = "macos")]
+pub fn show_behind(window: &mut gpui::Window) -> Result<(), String> {
+    use cocoa::base::id;
+    use objc::{msg_send, sel, sel_impl};
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let _: () = msg_send![native, orderBack: std::ptr::null::<id>()];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_behind(_window: &mut gpui::Window) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]

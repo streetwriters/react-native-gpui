@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -160,6 +160,39 @@ export type IdleOptions = {
   >;
 };
 
+/**
+ * The process id of the frontmost application, or `undefined` where it cannot
+ * be told (anywhere but macOS).
+ */
+export function frontmostApplicationPid(): number | undefined {
+  if (process.platform !== 'darwin') return undefined;
+  try {
+    const asn = execFileSync('lsappinfo', ['front'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    }).trim();
+    if (!asn) return undefined;
+    const info = execFileSync('lsappinfo', ['info', '-only', 'pid', asn], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    const pid = /"pid"=(\d+)/u.exec(info)?.[1];
+    return pid === undefined ? undefined : Number(pid);
+  } catch {
+    return undefined;
+  }
+}
+
+function backgroundExpected(): boolean {
+  if (
+    process.env.RN_GPUI_TEST_HEADED === '1' ||
+    process.env.RN_GPUI_TEST_REAL_FOCUS === '1'
+  )
+    return false;
+  const value = process.env.RN_GPUI_BACKGROUND;
+  return value === undefined || !['', '0', 'false', 'no'].includes(value);
+}
+
 export class DesktopApp {
   readonly logs: string[];
   readonly logFile: string;
@@ -283,6 +316,7 @@ export class DesktopApp {
       options.bundle ??
       options.env?.RN_GPUI_BUNDLE ??
       process.env.RN_GPUI_BUNDLE;
+    const frontmostBefore = frontmostApplicationPid();
     const child = spawn(executable, options.args ?? [], {
       env: {
         ...process.env,
@@ -304,6 +338,11 @@ export class DesktopApp {
           : {}),
         RN_GPUI_TEST_DRIVER: '1',
         RN_GPUI_TEST_DRIVER_TOKEN: token,
+        ...((process.env.RN_GPUI_TEST_HEADED === '1' ||
+          process.env.RN_GPUI_TEST_REAL_FOCUS === '1') &&
+        process.env.RN_GPUI_BACKGROUND === undefined
+          ? { RN_GPUI_BACKGROUND: '0' }
+          : {}),
       },
       detached: true,
       stdio: ['ignore', logDescriptor, logDescriptor],
@@ -360,6 +399,15 @@ export class DesktopApp {
     } catch (error) {
       await app.close();
       throw error;
+    }
+    if (backgroundExpected() && child.pid !== undefined) {
+      const frontmost = frontmostApplicationPid();
+      if (frontmost !== undefined && frontmost === child.pid) {
+        await app.close();
+        throw new Error(
+          `the test app became the frontmost application (pid ${child.pid}; it was ${frontmostBefore ?? 'unknown'} before the launch). A test run must stay in the background.`,
+        );
+      }
     }
     (
       globalThis as typeof globalThis & {

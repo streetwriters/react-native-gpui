@@ -66,11 +66,25 @@ test('counts presses', async () => {
 | ---------------------- | ------------------------------------------------------------------------------- |
 | `disableAnimations`    | Turns animations off, so tests do not wait for them.                            |
 | `initialProps`         | Props for the root component.                                                   |
-| `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. |
+| `offscreen`            | Launches with a hidden, unfocused window. `RN_GPUI_TEST_HEADED=1` overrides it. Without it the window is shown, behind the others, and never takes focus. |
 | `idleOptions`          | What to ignore when waiting for the app to be idle.                             |
 | `executable`, `bundle` | Run a specific build and bundle.                                                |
 | `args`, `env`          | Arguments and environment variables for the app.                                |
 | `timeout`, `logFile`   | The launch timeout, and where to write the app's log.                           |
+
+## Staying in the background
+
+A test run does not disturb whoever is using the machine. While the test driver is on (`RN_GPUI_TEST_DRIVER=1`, which `launchApp` sets), or when `RN_GPUI_BACKGROUND=1` is set on any run, the app:
+
+- never activates itself, so it does not take keyboard focus or the menu bar. On macOS it runs as an accessory application, with no Dock icon, so the Dock does not bounce.
+- opens its windows without making them key or main. With `offscreen: true` they stay hidden. Otherwise, on macOS, they are shown behind every other window. `window.show()` also puts a window behind the others, and `window.focus()` gives it logical focus only.
+- keeps everything tests use working without operating system focus: `app.setWindowActive()` gives a window focus and key events, pointer input comes from the driver, and screenshots are drawn by the app, not captured from the screen.
+
+`launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
+
+`RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
+
+Focus and blur events reach a text input only in a window the operating system has made active, which a background run never has. The tests that need that (the "with an active window" tests in the tester's `core-components` suite) run only with `RN_GPUI_TEST_REAL_FOCUS=1`, which turns background mode off for the run.
 
 ## Finding elements
 
