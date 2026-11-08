@@ -56,6 +56,19 @@ test('a second launch hands its arguments to the running app and exits', async (
   );
 });
 
+test('the zoom roles step the window zoom and reset it', async () => {
+  const zoom = () => app.getByTestId('app-zoom').textContent();
+  expect(await zoom()).toBe('1');
+  await app.getByTestId('app-zoomIn').click();
+  await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1.1');
+  await app.getByTestId('app-zoomIn').click();
+  await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1.25');
+  await app.getByTestId('app-zoomOut').click();
+  await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1.1');
+  await app.getByTestId('app-resetZoom').click();
+  await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1');
+});
+
 test('quit ends the application', async () => {
   await app
     .getByTestId('app-quit')

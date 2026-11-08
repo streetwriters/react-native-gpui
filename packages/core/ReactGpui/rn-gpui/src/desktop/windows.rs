@@ -814,6 +814,38 @@ fn report_state_change(cx: &mut App, key: u32, fields: &[(&str, Value)]) {
     emit_window_event(cx, "gpuiDesktop:windowStateChange", Value::Object(payload));
 }
 
+const ZOOM_STEPS: [f32; 17] = [
+    0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0,
+];
+
+/// The factor one step from `current` in `direction`: `zoomIn`, `zoomOut`, or
+/// `resetZoom` for 1. The steps are the ones a browser offers.
+pub(crate) fn zoom_step(current: f32, direction: &str) -> f32 {
+    match direction {
+        "zoomIn" => ZOOM_STEPS
+            .iter()
+            .copied()
+            .find(|step| *step > current + 0.001)
+            .unwrap_or(5.0),
+        "zoomOut" => ZOOM_STEPS
+            .iter()
+            .rev()
+            .copied()
+            .find(|step| *step < current - 0.001)
+            .unwrap_or(0.25),
+        _ => 1.0,
+    }
+}
+
+/// Zooms a window in or out by a step, or back to its natural size.
+pub fn step_zoom(cx: &mut App, key: u32, direction: &str) -> DesktopResult {
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let factor = zoom_step(super::zoom::get(entry.surface_id), direction);
+    set_zoom_factor(cx, key, factor)
+}
+
 /// Scales a window's content, `1.0` being its natural size. The factor is
 /// clamped to 0.25 to 5 and lasts until the window closes: remembering it across
 /// launches is up to the app.
@@ -1655,6 +1687,16 @@ pub fn window_id_for_surface(cx: &App, surface_id: i32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn zoom_steps_follow_the_browser_levels() {
+        assert_eq!(zoom_step(1.0, "zoomIn"), 1.1);
+        assert_eq!(zoom_step(1.0, "zoomOut"), 0.9);
+        assert_eq!(zoom_step(1.3, "zoomIn"), 1.5);
+        assert_eq!(zoom_step(5.0, "zoomIn"), 5.0);
+        assert_eq!(zoom_step(0.25, "zoomOut"), 0.25);
+        assert_eq!(zoom_step(2.0, "resetZoom"), 1.0);
+    }
+
     use super::*;
 
     #[test]
