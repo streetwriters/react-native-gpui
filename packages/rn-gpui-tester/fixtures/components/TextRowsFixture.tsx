@@ -61,7 +61,7 @@ export default function TextRowsFixture() {
               color: '#474747',
             }}
           >
-            {index === 2 ? '' : `${row.title}. ${BODY}`}
+            {`${row.title}. ${BODY}${index === 2 ? ' It ends.' : ''}`}
           </Text>
         </View>
       ))}

@@ -77,3 +77,11 @@ test.fails(
     for (const share of Object.values(shares)) expect(share).toBeLessThan(0.01);
   },
 );
+
+test('a text box with an explicit line height is as tall as Chromium snaps its lines', async () => {
+  const height = async (id: string) =>
+    (await app.query('testID', id, true))[0].frame.height;
+  expect(await height('row-body-0')).toBe(38.5);
+  expect(await height('row-body-2')).toBe(57.5);
+  expect(await height('row-body-3')).toBe(38.5);
+});

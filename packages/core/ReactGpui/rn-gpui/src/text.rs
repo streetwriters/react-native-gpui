@@ -751,9 +751,10 @@ pub fn install_measure_handler(cx: &mut App) {
     }));
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
+        let scale = device_scale();
         MeasureResult {
             width: shaped.width,
-            height: shaped.height,
+            height: (shaped.height * scale).round() / scale,
         }
     }));
 }
