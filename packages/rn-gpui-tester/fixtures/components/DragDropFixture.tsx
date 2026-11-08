@@ -79,6 +79,8 @@ export default function DragDropFixture() {
           <View
             key={index}
             testID={`drag-row-${index}`}
+            droppable
+            onDrop={() => note(`drop-row:${index}`)}
             style={{ height: 40, backgroundColor: index % 2 ? '#ddd' : '#eee' }}
           >
             <Text>{`row ${index}`}</Text>

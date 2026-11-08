@@ -34,6 +34,7 @@ struct Active {
     origin: Target,
     target: Option<i32>,
     last_target: Option<Target>,
+    position: Point<Pixels>,
 }
 
 enum Session {
@@ -115,6 +116,7 @@ pub(crate) fn moved(
                 origin: pending.origin.clone(),
                 target: None,
                 last_target: None,
+                position,
             };
             let started = (active.source, id, active.origin.clone());
             *session = Some(Session::Active(active));
@@ -188,14 +190,14 @@ pub(crate) fn released(
 }
 
 /// The drag ended without a drop.
-pub(crate) fn cancel(window: &mut Window, cx: &mut App) {
+pub(crate) fn cancel(window: &mut Window, cx: &mut App) -> bool {
     let Some(session) = SESSION.with_borrow_mut(Option::take) else {
-        return;
+        return false;
     };
     let Session::Active(active) = session else {
-        return;
+        return false;
     };
-    let position = gpui::point(gpui::px(0.0), gpui::px(0.0));
+    let position = active.position;
     let last = active.last_target.clone();
     if let (Some(tag), Some(last)) = (active.target, last.as_ref()) {
         deliver(
@@ -210,6 +212,7 @@ pub(crate) fn cancel(window: &mut Window, cx: &mut App) {
     }
     crate::interaction::set_drag(None, cx);
     finish(window, cx, active, position, false);
+    true
 }
 
 fn finish(
@@ -252,6 +255,7 @@ fn retarget(
     let accepting = target.and_then(|target| droppable_view(cx, target));
     let Some((previous, last, source)) = SESSION.with_borrow_mut(|session| match session {
         Some(Session::Active(active)) => {
+            active.position = position;
             let previous = std::mem::replace(&mut active.target, accepting);
             let last = active.last_target.clone();
             if let Some(target) = target {

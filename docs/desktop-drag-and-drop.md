@@ -68,4 +68,4 @@ const ref = useRef<ScrollView>(null);
 
 ## Details
 
-The drag ends on the release, or when no node answers it anywhere in the window. Device events `gpuiDesktop:dragStart`, `gpuiDesktop:dragMove` and `gpuiDesktop:dragEnd` carry the same stream. A move without a button held is ignored. Escape does not cancel a drag yet.
+The drag ends on the release, or when Escape is pressed: the target gets `onDragLeave`, nothing drops, and the source's `onDragEnd` has `dropped` false. The rest of the press is ignored. A release over no view ends the drag without a drop. Device events `gpuiDesktop:dragStart`, `gpuiDesktop:dragMove` and `gpuiDesktop:dragEnd` carry the same stream. A move without a button held is ignored.

@@ -52,6 +52,15 @@ test('a drop on a view that does not take drops ends the drag undropped', async 
   expect(await app.getByTestId('drag-dropped').textContent()).toBe('beta');
 });
 
+test('a droppable view inside a scroll view takes the drop', async () => {
+  await app
+    .getByTestId('drag-item-gamma')
+    .dragTo(app.getByTestId('drag-row-1'));
+  await app.waitForIdle();
+  const entries = (await log()).split(' | ');
+  expect(entries.slice(-2)).toEqual(['drop-row:1', 'end:gamma:true']);
+});
+
 test('a press that does not move far enough is not a drag', async () => {
   const before = await log();
   await app.getByTestId('drag-item-gamma').click();
@@ -103,4 +112,27 @@ test('while a drag is held the preview shows and the droppable view under it is 
   });
   await app.waitForIdle();
   expect(await app.getByTestId('drag-state').textContent()).toBe('idle');
+});
+
+test('Escape cancels a drag: the target is left, nothing drops and the state resets', async () => {
+  const before = (await log()).split(' | ').length;
+  const [item] = await app.query('testID', 'drag-item-beta', true);
+  const [zone] = await app.query('testID', 'drag-zone', true);
+  const inside = {
+    x: zone.frame.x + zone.frame.width / 2,
+    y: zone.frame.y + zone.frame.height / 2,
+  };
+  await app.mouseDown({ x: item.frame.x + 10, y: item.frame.y + 10 });
+  await app.mouseMove({ x: item.frame.x + 40, y: item.frame.y + 20 });
+  await app.mouseMove(inside);
+  await app.waitForIdle();
+  expect(await app.getByTestId('drag-state').textContent()).toMatch(/^active/);
+  await app.press('escape');
+  await app.waitForIdle();
+  await app.mouseUp(inside);
+  await app.waitForIdle();
+  const entries = (await log()).split(' | ').slice(before);
+  expect(entries).toEqual(['start:beta', 'enter', 'leave', 'end:beta:false']);
+  expect(await app.getByTestId('drag-state').textContent()).toBe('idle');
+  await desktopExpect(app.getByTestId('drag-preview')).toBeHidden();
 });
