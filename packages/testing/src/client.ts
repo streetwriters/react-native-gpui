@@ -943,6 +943,23 @@ export class DesktopApp {
     return this.request('displays');
   }
 
+  /**
+   * The tooltip the window has set up for the view under the pointer: its text,
+   * the view and its frame in the window, and the text of a tooltip the app
+   * draws itself once it shows (`mode` is `native` when the system draws it).
+   */
+  async tooltip(): Promise<{
+    mode: 'native' | 'drawn';
+    tag: number | null;
+    text: string | null;
+    rect: [number, number, number, number] | null;
+    drawn: string | null;
+    ownerText: string | null;
+    trackingAreas: number;
+  }> {
+    return this.request('tooltip');
+  }
+
   /** The titles of the Dock menu's items (macOS). */
   async dockMenu(): Promise<string[]> {
     return (await this.request<{ titles: string[] }>('dockMenu')).titles;

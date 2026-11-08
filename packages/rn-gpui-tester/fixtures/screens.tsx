@@ -309,6 +309,8 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  tooltip: props =>
+    React.createElement(require('./components/TooltipFixture').default, props),
   app: props =>
     React.createElement(require('./components/AppFixture').default, props),
   'drag-drop': props =>

@@ -1422,6 +1422,9 @@ fn install_activation_observer(
         move |window, cx| report_activation(window, cx, key, &last)
     });
     cx.observe_window_activation(window, move |_root, window, cx| {
+        if !window.is_window_active() {
+            crate::tooltip::dismiss(window, cx);
+        }
         report_activation(window, cx, key, &last);
     })
 }

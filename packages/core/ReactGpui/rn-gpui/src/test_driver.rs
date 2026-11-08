@@ -264,6 +264,27 @@ async fn serve_commands(
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
             "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
+            "tooltip" => {
+                let active = crate::tooltip::active();
+                #[cfg(target_os = "macos")]
+                let (owner_text, tracking_areas) = cx
+                    .update_window(window, |_, window, _| {
+                        crate::tooltip::native_probe(window, active.as_ref().map_or(0, |a| a.tag))
+                    })
+                    .unwrap_or((None, 0));
+                #[cfg(not(target_os = "macos"))]
+                let (owner_text, tracking_areas): (Option<String>, usize) = (None, 0);
+                let drawn = crate::tooltip::drawn();
+                json!({
+                    "mode": crate::tooltip::mode(),
+                    "tag": active.as_ref().map(|active| active.tag),
+                    "text": active.as_ref().map(|active| active.text.clone()),
+                    "rect": active.as_ref().map(|active| active.rect),
+                    "drawn": drawn.map(|drawn| drawn.text),
+                    "ownerText": owner_text,
+                    "trackingAreas": tracking_areas,
+                })
+            }
             "focusWindow" => {
                 let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
                 if !offscreen && crate::desktop::background::enabled() {

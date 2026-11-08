@@ -158,6 +158,12 @@ declare module 'react-native' {
      * Lets the user drag this view within the app. A press that moves a few
      * points starts a drag, see `DragDrop`.
      */
+    /**
+     * Text shown in a tooltip after the pointer rests over this view, as the
+     * web's `title` attribute does. Also the view's accessibility description
+     * when it has no `accessibilityHint`.
+     */
+    tooltip?: string;
     draggable?: boolean;
     /** Whether this view takes drags started in the app (`draggable` views). */
     droppable?: boolean;

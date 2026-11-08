@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `View` takes a `tooltip` string, shown after the pointer rests over the view as the web's `title` is. macOS uses the system tooltip; Windows and Linux draw one in the window for now (`RN_GPUI_TOOLTIP=drawn` forces that on macOS). It is placed with the window's zoom factor, follows a change of the text, hides on leave, press and window deactivation, and is the view's accessibility description. Needs a prebuilt runtime built with the change.
 - `Menu.setDockMenu(items)` sets the menu of the Dock icon on macOS, with `onPress` per item. Needs a prebuilt runtime built with the change.
 - Menu roles `zoomIn`, `zoomOut` and `resetZoom` step the focused window's zoom factor through a browser's levels and back to 100%, from the application menu or `Menu.performRole()`. Needs a prebuilt runtime built with the change.
 - `App` (from `@react-native-gpui/core/desktop`): `launchArgs()`, `quit()`, `exit(code)`, `relaunch()` and `onSecondInstance(handler)`. With `singleInstance`, a second launch now shows the main window (restoring a minimized or hidden one) as well as focusing it, and its arguments reach JS. Needs a prebuilt runtime built with the change.

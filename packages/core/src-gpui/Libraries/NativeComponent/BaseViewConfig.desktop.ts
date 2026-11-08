@@ -278,6 +278,7 @@ export default {
     onContextMenu: true,
     onContextMenuCapture: true,
     acceptsFiles: true,
+    tooltip: true,
     draggable: true,
     droppable: true,
     onDragStart: true,

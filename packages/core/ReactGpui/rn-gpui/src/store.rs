@@ -2847,7 +2847,10 @@ impl Render for SurfaceRootView {
             .relative()
             // Ahead of every node's listener, so a press that a title bar handed
             // to the window does not leave the next press marked as well.
-            .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+            .capture_any_mouse_down(|_, window, cx| {
+                crate::tooltip::dismiss(window, cx);
+                crate::events::begin_press_dispatch()
+            })
             .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
             // The root stays hovered while any descendant is hit, so this only fires when
             // the pointer left the window.
@@ -2987,6 +2990,9 @@ impl Render for SurfaceRootView {
             .flex_col()
             .relative()
             .key_context(app_context);
+        if let Some(tooltip) = crate::tooltip::drawn_element(_window) {
+            window_root = window_root.child(tooltip);
+        }
         window_root = match (
             menu_bar,
             crate::desktop::gpui_menu::menu_bar_slot(window_id),

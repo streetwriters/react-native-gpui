@@ -80,6 +80,12 @@ class HostPlatformViewProps : public BaseViewProps {
             "acceptsFiles",
             sourceProps.acceptsFiles,
             false)),
+        tooltip(convertRawProp(
+            context,
+            rawProps,
+            "tooltip",
+            sourceProps.tooltip,
+            std::string{})),
         draggable(convertRawProp(
             context,
             rawProps,
@@ -128,6 +134,7 @@ class HostPlatformViewProps : public BaseViewProps {
       RAW_SET_PROP_SWITCH_CASE_BASIC(groupActiveStyle);
       RAW_SET_PROP_SWITCH_CASE_BASIC(dragOverStyle);
       RAW_SET_PROP_SWITCH_CASE_BASIC(acceptsFiles);
+      RAW_SET_PROP_SWITCH_CASE_BASIC(tooltip);
       RAW_SET_PROP_SWITCH_CASE_BASIC(draggable);
       RAW_SET_PROP_SWITCH_CASE_BASIC(droppable);
       // There is one stored flag, so only `onContextMenu` gets a case here; a
@@ -152,6 +159,7 @@ class HostPlatformViewProps : public BaseViewProps {
   std::string groupActiveStyle;
   std::string dragOverStyle;
   bool acceptsFiles{false};
+  std::string tooltip;
   bool draggable{false};
   bool droppable{false};
   /// True when the view has an `onContextMenu` handler (RN turns a function
