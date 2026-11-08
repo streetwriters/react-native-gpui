@@ -1354,6 +1354,48 @@ test('the image manipulator crops, resizes and encodes, and the result shows as 
   }
 });
 
+test('an SVG illustration with rotated cards and drop shadows looks like Chrome', async () => {
+  const reference = PNG.sync.read(
+    fs.readFileSync(
+      path.join(__dirname, 'reference', 'chrome-illustration.png'),
+    ),
+  );
+  await launch('GPUISvgFilterFixture');
+  await desktopExpect(app.getByTestId('svg-filter')).toBeVisible();
+  const count = (image: PNG, level: number) => {
+    expect([image.width, image.height]).toEqual([
+      reference.width,
+      reference.height,
+    ]);
+    let different = 0;
+    for (let i = 0; i < reference.width * reference.height; i += 1) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        if (
+          Math.abs(
+            image.data[i * 4 + channel] - reference.data[i * 4 + channel],
+          ) > level
+        ) {
+          different += 1;
+          break;
+        }
+      }
+    }
+    return different;
+  };
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  const shot = await app.getByTestId('svg-filter').screenshot();
+  fs.writeFileSync(
+    process.env.SVG_FILTER_OUT ?? os.tmpdir() + '/svg-filter.png',
+    shot,
+  );
+  const image = PNG.sync.read(shot);
+  console.log(
+    'svg illustration mismatches',
+    JSON.stringify({ over2: count(image, 2), over8: count(image, 8) }),
+  );
+  expect(count(image, 8)).toBeLessThanOrEqual(300);
+});
+
 test('an SVG icon has the same antialiased edge and place as Chrome draws', async () => {
   // The references are what Chrome draws at a device scale of 2 on #f7f7f7: the
   // Material "star outline" at 16 CSS pixels, and the arrow-left icon at 15 CSS

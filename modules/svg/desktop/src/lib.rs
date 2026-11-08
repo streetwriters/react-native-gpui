@@ -27,6 +27,14 @@ const COMPONENTS: &[&str] = &[
     "RNSVGMarker",
     "RNSVGTextPath",
     "RNSVGUse",
+    "RNSVGFilter",
+    "RNSVGFeBlend",
+    "RNSVGFeColorMatrix",
+    "RNSVGFeComposite",
+    "RNSVGFeFlood",
+    "RNSVGFeGaussianBlur",
+    "RNSVGFeMerge",
+    "RNSVGFeOffset",
 ];
 
 struct SvgRenderer;
@@ -251,6 +259,14 @@ fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
         "RNSVGTSpan" => "tspan",
         "RNSVGTextPath" => "textPath",
         "RNSVGUse" => "use",
+        "RNSVGFilter" => "filter",
+        "RNSVGFeBlend" => "feBlend",
+        "RNSVGFeColorMatrix" => "feColorMatrix",
+        "RNSVGFeComposite" => "feComposite",
+        "RNSVGFeFlood" => "feFlood",
+        "RNSVGFeGaussianBlur" => "feGaussianBlur",
+        "RNSVGFeMerge" => "feMerge",
+        "RNSVGFeOffset" => "feOffset",
         _ => "",
     };
     if element.is_empty() {
@@ -359,24 +375,99 @@ fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
         attributes.push_str(&format!(" stroke-linejoin=\"{join}\""));
     }
     if let Some(matrix) = props.get("matrix").and_then(serde_json::Value::as_array) {
-        if matrix.len() >= 16 {
-            let values = [0, 1, 4, 5, 12, 13].map(|index| matrix[index].as_f64().unwrap_or(0.0));
-            attributes.push_str(&format!(
-                " transform=\"matrix({} {} {} {} {} {})\"",
-                values[0], values[1], values[2], values[3], values[4], values[5]
-            ));
+        let component = |index: usize| matrix.get(index).and_then(serde_json::Value::as_f64);
+        let values = match matrix.len() {
+            6 => [0, 1, 2, 3, 4, 5],
+            16.. => [0, 1, 4, 5, 12, 13],
+            _ => [usize::MAX; 6],
         }
+        .map(component);
+        if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] = values {
+            attributes.push_str(&format!(" transform=\"matrix({a} {b} {c} {d} {e} {f})\""));
+        }
+    }
+    if let Some(id) = props
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
+        attributes.push_str(&format!(" id=\"{}\"", svg_escape(id)));
+    }
+    if let Some(filter) = props
+        .get("filter")
+        .and_then(serde_json::Value::as_str)
+        .filter(|filter| !filter.is_empty())
+    {
+        attributes.push_str(&format!(" filter=\"url(#{})\"", svg_escape(filter)));
+    }
+    if element == "filter" {
+        attributes.push_str(" color-interpolation-filters=\"sRGB\"");
+    }
+    if element.starts_with("fe") || element == "filter" {
+        attributes.push_str(&filter_primitive_attributes(props));
     }
     output.push('<');
     output.push_str(element);
     output.push_str(&attributes);
     output.push('>');
+    if element == "feMerge" {
+        for id in props
+            .get("nodes")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+        {
+            output.push_str(&format!("<feMergeNode in=\"{}\"/>", svg_escape(id)));
+        }
+    }
     for child in &node.children {
         svg_node(child, cx, output);
     }
     output.push_str("</");
     output.push_str(element);
     output.push('>');
+}
+
+fn filter_primitive_attributes(props: &serde_json::Value) -> String {
+    let mut attributes = String::new();
+    let text = |name: &str| match props.get(name) {
+        Some(serde_json::Value::String(value)) if !value.is_empty() => Some(value.clone()),
+        Some(value) if value.is_array() || value.is_number() => svg_value(value),
+        _ => None,
+    };
+    for (name, attribute) in [
+        ("in1", "in"),
+        ("in2", "in2"),
+        ("result", "result"),
+        ("mode", "mode"),
+        ("type", "type"),
+        ("values", "values"),
+        ("operator1", "operator"),
+        ("k1", "k1"),
+        ("k2", "k2"),
+        ("k3", "k3"),
+        ("k4", "k4"),
+        ("dx", "dx"),
+        ("dy", "dy"),
+        ("edgeMode", "edgeMode"),
+        ("floodOpacity", "flood-opacity"),
+        ("filterUnits", "filterUnits"),
+        ("primitiveUnits", "primitiveUnits"),
+    ] {
+        if let Some(value) = text(name) {
+            attributes.push_str(&format!(" {attribute}=\"{}\"", svg_escape(&value)));
+        }
+    }
+    if let Some(color) = props.get("floodColor").and_then(svg_value) {
+        attributes.push_str(&format!(" flood-color=\"{}\"", svg_escape(&color)));
+    }
+    let deviation = |name: &str| props.get(name).and_then(serde_json::Value::as_f64);
+    if let Some(x) = deviation("stdDeviationX") {
+        let y = deviation("stdDeviationY").unwrap_or(x);
+        attributes.push_str(&format!(" stdDeviation=\"{x} {y}\""));
+    }
+    attributes
 }
 
 fn svg_property_is_set(props: &serde_json::Value, name: &str) -> bool {

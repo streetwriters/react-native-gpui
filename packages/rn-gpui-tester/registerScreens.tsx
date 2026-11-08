@@ -63,6 +63,15 @@ export function registerScreens(testMode = false) {
       ),
   );
   AppRegistry.registerComponent(
+    'GPUISvgFilterFixture',
+    () => (props: ScreenProps) =>
+      // Not in the screen catalog: only the e2e launches it, by this name.
+      React.createElement(
+        require('./fixtures/components/SvgFilterFixture').SvgFilterFixture,
+        props,
+      ),
+  );
+  AppRegistry.registerComponent(
     'GPUIImageManipulatorFixture',
     () => (props: ScreenProps & { source?: string }) =>
       // Not in the screen catalog: only the e2e launches it, by this name.
