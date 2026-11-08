@@ -732,7 +732,7 @@ pub fn install_measure_handler(cx: &mut App) {
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
         MeasureResult {
-            width: shaped.width.ceil(),
+            width: shaped.width,
             height: shaped.height.ceil(),
         }
     }));
