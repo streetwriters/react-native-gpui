@@ -67,3 +67,23 @@ test('getProps reports text color, line height and letter spacing per fragment',
   expect(nested.letterSpacing).toBeCloseTo(2, 2);
   expect(props.textColor).toBe(0xff336699);
 });
+
+test('getProps reports every background color as the 8-bit value it was given', async () => {
+  const expected: Record<string, number> = {
+    hex6: 0xff008837,
+    hex8: 0x26008837,
+    rgba: 0x26008837,
+    rgb: 0xff0c2238,
+    short: 0xff00ff00,
+    named: 0xffff6347,
+    hsl: 0xff008000,
+    transparent: 0,
+    white: 0xffffffff,
+    almost: 0xfe010203,
+  };
+  for (const [name, color] of Object.entries(expected)) {
+    const [node] = await app.query('testID', `color-${name}`, true);
+    const props = await app.getProps(node.tag);
+    expect(props.backgroundColor >>> 0, name).toBe(color >>> 0);
+  }
+});

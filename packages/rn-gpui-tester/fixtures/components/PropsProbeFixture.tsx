@@ -7,6 +7,19 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 
+const COLORS: Record<string, string> = {
+  hex6: '#008837',
+  hex8: '#00883726',
+  rgba: 'rgba(0, 136, 55, 0.15)',
+  rgb: 'rgb(12, 34, 56)',
+  short: '#0f0',
+  named: 'tomato',
+  hsl: 'hsl(120, 100%, 25%)',
+  transparent: 'transparent',
+  white: '#ffffff',
+  almost: '#010203fe',
+};
+
 export default function PropsProbeFixture() {
   return (
     <View style={{ padding: 16, gap: 8 }}>
@@ -26,6 +39,13 @@ export default function PropsProbeFixture() {
           boxShadow: '2px 3px 4px 1px rgba(0, 0, 0, 0.5)',
         }}
       />
+      {Object.entries(COLORS).map(([name, color]) => (
+        <View
+          key={name}
+          testID={`color-${name}`}
+          style={{ width: 10, height: 10, backgroundColor: color }}
+        />
+      ))}
       <Text
         testID="probe-text"
         style={{
