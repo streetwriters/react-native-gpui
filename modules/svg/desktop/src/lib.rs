@@ -59,11 +59,33 @@ impl ComponentRenderer for SvgRenderer {
         let height = frame.h * scale_y;
         let scale = window.scale_factor();
         let image = cached_svg_image(node, frame, scale, cx)?;
+        // Chrome paints an inline SVG at a whole CSS pixel: a box laid out at
+        // 2.5 is drawn at 3. The image is placed the same way, so a 15 point
+        // icon centred in a 20 point button lands where the web app's does.
         Some(
-            gpui::img(image)
-                .w(px(width))
-                .h(px(height))
-                .into_any_element(),
+            gpui::canvas(
+                |bounds, _, _| bounds,
+                move |_, bounds, window, _| {
+                    let snapped = gpui::Bounds::new(
+                        gpui::point(
+                            px((bounds.origin.x.as_f32() + 0.5).floor()),
+                            px((bounds.origin.y.as_f32() + 0.5).floor()),
+                        ),
+                        bounds.size,
+                    );
+                    let _ = window.paint_image(
+                        snapped,
+                        snapped,
+                        gpui::Corners::default(),
+                        image.clone(),
+                        0,
+                        false,
+                    );
+                },
+            )
+            .w(px(width))
+            .h(px(height))
+            .into_any_element(),
         )
     }
 }
@@ -165,7 +187,7 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App, sample: Option<Sam
                 let fit_x = f64::from(frame.w * sample.scale) / width;
                 let fit_y = f64::from(frame.h * sample.scale) / height;
                 let (unit_x, unit_y) = match (align, mode) {
-                    (Some(_), "none") => (fit_x, fit_y),
+                    (Some("none"), _) | (Some(_), "none") => (fit_x, fit_y),
                     (_, "slice") => (fit_x.max(fit_y), fit_x.max(fit_y)),
                     _ => (fit_x.min(fit_y), fit_x.min(fit_y)),
                 };
