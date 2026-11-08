@@ -59,3 +59,22 @@ const seconds = await getIdleTime();
 ```
 
 The seconds since the user last pressed a key, moved the mouse or touched the trackpad, anywhere in the session and not only in this app. To act after the user has been away, poll it, for example once a second, and compare it with the limit. macOS reads it from `CGEventSourceSecondsSinceLastEventType`; Windows uses `GetLastInputInfo` but is not tested yet; Linux rejects with `ERR_UNSUPPORTED`.
+
+## Badge and attention
+
+```js
+import {
+  setBadge,
+  getBadge,
+  requestAttention,
+  cancelAttention,
+} from '@react-native-gpui/system';
+
+await setBadge(3); // a number or text on the Dock icon
+await setBadge(null); // remove it; 0 and '' do too
+await requestAttention(); // bounce the icon once while the app is in the background
+await requestAttention({ critical: true }); // bounce until the app is activated
+await cancelAttention();
+```
+
+`getBadge()` returns the text now shown, or `null`. A bounce is only made while another app is active. macOS only: other platforms reject with `ERR_UNSUPPORTED`; a taskbar overlay for Windows is not done.

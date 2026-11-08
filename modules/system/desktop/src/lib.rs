@@ -1,5 +1,6 @@
 rn_gpui_module::include_specs!();
 
+mod badge;
 mod idle;
 mod login;
 mod protection;
@@ -49,6 +50,22 @@ impl NativeSystemSpec for System {
 
     async fn is_content_protected(&self) -> Result<bool, ModuleError> {
         Ok(protection::is_enabled())
+    }
+
+    async fn set_badge(&self, label: Option<String>) -> Result<(), ModuleError> {
+        badge::set(label)
+    }
+
+    async fn get_badge(&self) -> Result<Option<String>, ModuleError> {
+        badge::get()
+    }
+
+    async fn request_attention(&self, critical: bool) -> Result<(), ModuleError> {
+        badge::request_attention(critical)
+    }
+
+    async fn cancel_attention(&self) -> Result<(), ModuleError> {
+        badge::cancel_attention()
     }
 
     async fn get_idle_time(&self) -> Result<f64, ModuleError> {

@@ -3,7 +3,11 @@ import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { DesktopWindow } from '@react-native-gpui/core/desktop';
 import fs, { paths } from '@react-native-gpui/fs';
 import {
+  cancelAttention,
+  getBadge,
   getIdleTime,
+  requestAttention,
+  setBadge,
   getLaunchAtLogin,
   isContentProtected,
   restart,
@@ -101,6 +105,16 @@ export function SystemFixture({
             : 'BAD'
         }`,
       );
+      await setBadge(7);
+      const shown = await getBadge();
+      await setBadge(null);
+      const cleared = await getBadge();
+      record(
+        `badge ${shown === '7' && cleared === null ? 'ok' : `BAD ${shown} ${cleared}`}`,
+      );
+      await requestAttention();
+      await cancelAttention();
+      record('attention ok');
       record('done ok');
     })().catch(error => {
       if (!cancelled) {

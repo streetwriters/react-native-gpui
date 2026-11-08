@@ -66,6 +66,38 @@ export function getIdleTime(): Promise<number> {
   return NativeSystem.getIdleTime();
 }
 
+/**
+ * Sets the number or text shown on the app's Dock icon, or removes it with
+ * `null`, `0` or an empty string. macOS only; other platforms reject with
+ * `ERR_UNSUPPORTED`.
+ */
+export function setBadge(value: number | string | null): Promise<void> {
+  const label =
+    value === null || value === 0 || value === '' ? null : String(value);
+  return NativeSystem.setBadge(label);
+}
+
+/** The text on the Dock icon, or `null` when there is none. */
+export function getBadge(): Promise<string | null> {
+  return NativeSystem.getBadge();
+}
+
+/**
+ * Bounces the Dock icon to get the user's attention while the app is in the
+ * background. A `critical` request bounces until the app is activated, an
+ * informational one once. Does nothing when the app is already active. macOS only.
+ */
+export function requestAttention(
+  options: { critical?: boolean } = {},
+): Promise<void> {
+  return NativeSystem.requestAttention(options.critical ?? false);
+}
+
+/** Stops the bounce that {@link requestAttention} started. */
+export function cancelAttention(): Promise<void> {
+  return NativeSystem.cancelAttention();
+}
+
 export default {
   getLaunchAtLogin,
   setLaunchAtLogin,
@@ -73,4 +105,8 @@ export default {
   setContentProtected,
   isContentProtected,
   getIdleTime,
+  setBadge,
+  getBadge,
+  requestAttention,
+  cancelAttention,
 };
