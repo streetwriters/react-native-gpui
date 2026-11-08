@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Added `Network.setProxy()`, `setDnsOverHttps()`, `getSettings()` and `proxyForUrl()` to set the proxy (a proxy URL, Chromium proxy rules and a bypass list, `'direct'` or the system's) and a DNS-over-HTTPS server of the HTTP client that `fetch`, `XMLHttpRequest` and remote image and font loads share. On macOS requests follow the system proxy settings by default. WebSocket connections are not covered yet. Needs a prebuilt runtime built with the change.
 - `DesktopWindow.show()` brings back a window that was minimized, and neither it nor `hide()` logs `RefCell already borrowed` errors from GPUI's window code any more: the operating system's own window call now runs after the update that asked for it, since it reports the change while it makes it.
 - State styles can change `outlineColor`, `outlineWidth` and `outlineOffset`, for example to draw a keyboard focus ring.
 - A native-driven or Reanimated animation of `backgroundColor` or `color` now paints: colors that arrive as negative 32-bit integers, which is every color with a high alpha byte from Reanimated, were converted to unsigned through a double and came out transparent.

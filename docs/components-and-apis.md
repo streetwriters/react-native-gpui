@@ -90,6 +90,12 @@ The desktop shell adds components and APIs for windows, menus, shortcuts and mor
     </a>
   </div>
   <div className="component">
+    <a href="./network">
+      <h3>Network</h3>
+      <p>Proxy rules and DNS-over-HTTPS for the HTTP client.</p>
+    </a>
+  </div>
+  <div className="component">
     <a href="./perfmonitor">
       <h3>PerfMonitor</h3>
       <p>Frame rates and memory use overlay.</p>

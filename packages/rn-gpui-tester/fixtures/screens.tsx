@@ -266,6 +266,8 @@ export const renderScreen: Record<
       require('./components/CssAnimationsFixture').default,
       props,
     ),
+  network: props =>
+    React.createElement(require('./components/NetworkFixture').default, props),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>

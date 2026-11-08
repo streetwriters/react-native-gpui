@@ -13,6 +13,7 @@ pub mod image;
 pub mod linking;
 pub mod main_thread;
 pub mod modal;
+pub mod network;
 pub mod perf_monitor;
 pub mod scrollview;
 pub mod settings;
@@ -39,6 +40,7 @@ pub fn register() {
     image::register();
     linking::register();
     modal::register();
+    network::register();
     perf_monitor::register();
     scrollview::register();
     settings::register();

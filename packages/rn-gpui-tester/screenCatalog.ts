@@ -54,6 +54,12 @@ export const screens = [
     fixture: 'CssAnimationsFixture',
   },
   {
+    id: 'network',
+    title: 'Network settings',
+    group: 'Platform',
+    fixture: 'NetworkFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

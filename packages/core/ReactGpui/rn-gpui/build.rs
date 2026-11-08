@@ -17,6 +17,7 @@ fn main() {
         "../../src-gpui/src/private/specs/NativeGpuiDesktop.ts",
         "../../src-gpui/src/private/specs/NativeGpuiAlertManager.ts",
         "../../src-gpui/src/private/specs/NativeGpuiClipboard.ts",
+        "../../src-gpui/src/private/specs/NativeGpuiNetwork.ts",
         "../../src-gpui/src/private/specs/NativeGpuiLinkingManager.ts",
         "../../src-gpui/src/private/specs/NativeGpuiI18nManager.ts",
         "../../src-gpui/src/private/specs/NativeGpuiShare.ts",
