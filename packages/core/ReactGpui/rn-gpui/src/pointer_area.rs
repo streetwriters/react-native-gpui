@@ -342,7 +342,7 @@ mod hover_tests {
                     .left(gpui::px(60.0))
                     .top(gpui::px(60.0))
                     .size(gpui::px(40.0))
-                    .child(pointer_area(handlers, self.slop)),
+                    .child(pointer_area(Rc::new(handlers), self.slop)),
             )
         }
     }
