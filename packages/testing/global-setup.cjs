@@ -46,7 +46,9 @@ module.exports = async function (vitestProject) {
         '--format-version',
         '1',
       ],
-      { cwd: project, encoding: 'utf8' },
+      // Cargo reads `.cargo/config.toml` (a `target-dir`) from where it runs,
+      // not from the manifest's folder.
+      { cwd: path.join(project, 'desktop'), encoding: 'utf8' },
     ),
   );
   const root = metadata.packages.find(
