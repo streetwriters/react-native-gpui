@@ -68,3 +68,11 @@ test('a text is as wide as its glyphs, to the device pixel, not rounded up to a 
     expect(width * 2).toBeCloseTo(Math.round(width * 2), 3);
   }
 });
+
+test('a line is as tall as the browser makes it: ascent and descent rounded separately', async () => {
+  const expected: Record<number, number> = { 13: 16, 14: 17, 15: 19, 16: 20, 17.5: 21 };
+  for (const [size, height] of Object.entries(expected)) {
+    const [full] = await app.query('testID', `full-0-400-${size}`, true);
+    expect(full.frame.height, `height at ${size}`).toBe(height);
+  }
+});
