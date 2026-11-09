@@ -40,6 +40,25 @@ export default function OutlineRadiusFixture() {
           ]}
         />
       </View>
+      <View testID="focus-rounded" style={slot}>
+        <View
+          testID="focus-rounded-box"
+          focusable
+          style={{
+            width: 60,
+            height: 60,
+            backgroundColor: '#dddddd',
+            borderRadius: 10,
+          }}
+        />
+      </View>
+      <View testID="focus-square" style={slot}>
+        <View
+          testID="focus-square-box"
+          focusable
+          style={{ width: 60, height: 60, backgroundColor: '#dddddd' }}
+        />
+      </View>
       <View testID="outline-dashed" style={slot}>
         <View style={[box, { borderRadius: 10, outlineStyle: 'dashed' }]} />
       </View>

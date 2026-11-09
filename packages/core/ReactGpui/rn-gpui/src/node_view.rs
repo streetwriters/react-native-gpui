@@ -4378,42 +4378,21 @@ impl Render for RNNodeView {
             self.view.border_radii.tr,
             self.view.border_radii.br,
             self.view.border_radii.bl,
-        ]
-        .map(|radius| {
-            if radius > 0.0 {
-                (radius + outline_offset).max(0.0)
-            } else {
-                0.0
-            }
-        });
+        ];
         let rounded_outline = self.view.outline_style == 0
             && outline_color != 0
             && outline_width > 0.0
             && outline_radii.iter().any(|radius| *radius > 0.0);
         if rounded_outline {
-            let scale = scale_x.min(scale_y);
-            let reach = (outline_offset + outline_width) * scale;
-            let mut ring = div()
-                .absolute()
-                .left(px(-reach))
-                .top(px(-reach))
-                .w(px(width + 2.0 * reach))
-                .h(px(height + 2.0 * reach))
-                .border(px(outline_width * scale))
-                .border_color(style::color(outline_color));
-            let radii = &mut ring.style().corner_radii;
-            let outer = |radius: f32| {
-                if radius > 0.0 {
-                    px((radius + outline_width) * scale).into()
-                } else {
-                    px(0.0).into()
-                }
-            };
-            radii.top_left = Some(outer(outline_radii[0]));
-            radii.top_right = Some(outer(outline_radii[1]));
-            radii.bottom_right = Some(outer(outline_radii[2]));
-            radii.bottom_left = Some(outer(outline_radii[3]));
-            outline_rules.push(ring);
+            outline_rules.push(rounded_ring(
+                width,
+                height,
+                outline_offset,
+                outline_width,
+                outline_color,
+                outline_radii,
+                scale_x.min(scale_y),
+            ));
         } else if outline_color != 0 && outline_width > 0.0 {
             let outline_width_x = outline_width * scale_x;
             let outline_width_y = outline_width * scale_y;
@@ -4471,42 +4450,60 @@ impl Render for RNNodeView {
         {
             let focus_color = 0xff60a5fa;
             let ring = 2.0;
-            outline_rules.extend(rule_segments(
-                -ring,
-                -ring,
-                width + ring * 2.0,
-                ring,
-                true,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                -ring,
-                height,
-                width + ring * 2.0,
-                ring,
-                true,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                -ring,
-                0.0,
-                height,
-                ring,
-                false,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                width,
-                0.0,
-                height,
-                ring,
-                false,
-                focus_color,
-                0,
-            ));
+            let radii = [
+                self.view.border_radii.tl,
+                self.view.border_radii.tr,
+                self.view.border_radii.br,
+                self.view.border_radii.bl,
+            ];
+            if radii.iter().any(|radius| *radius > 0.0) {
+                outline_rules.push(rounded_ring(
+                    width,
+                    height,
+                    0.0,
+                    ring,
+                    focus_color,
+                    radii,
+                    scale_x.min(scale_y),
+                ));
+            } else {
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    -ring,
+                    width + ring * 2.0,
+                    ring,
+                    true,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    height,
+                    width + ring * 2.0,
+                    ring,
+                    true,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    0.0,
+                    height,
+                    ring,
+                    false,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    width,
+                    0.0,
+                    height,
+                    ring,
+                    false,
+                    focus_color,
+                    0,
+                ));
+            }
         }
         let element = element.children(outline_rules).into_any_element();
         let element = match self.gpui_transform((scale_x, scale_y)) {
@@ -4528,6 +4525,39 @@ impl Render for RNNodeView {
             element
         }
     }
+}
+
+fn rounded_ring(
+    width: f32,
+    height: f32,
+    offset: f32,
+    ring: f32,
+    argb: u32,
+    radii: [f32; 4],
+    scale: f32,
+) -> gpui::Div {
+    let reach = (offset + ring) * scale;
+    let mut element = div()
+        .absolute()
+        .left(px(-reach))
+        .top(px(-reach))
+        .w(px(width + 2.0 * reach))
+        .h(px(height + 2.0 * reach))
+        .border(px(ring * scale))
+        .border_color(style::color(argb));
+    let corners = &mut element.style().corner_radii;
+    let outer = |radius: f32| {
+        if radius > 0.0 {
+            px(((radius + offset).max(0.0) + ring) * scale).into()
+        } else {
+            px(0.0).into()
+        }
+    };
+    corners.top_left = Some(outer(radii[0]));
+    corners.top_right = Some(outer(radii[1]));
+    corners.bottom_right = Some(outer(radii[2]));
+    corners.bottom_left = Some(outer(radii[3]));
+    element
 }
 
 fn rule_segments(

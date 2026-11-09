@@ -37,6 +37,15 @@ async function red(id: string, x: number, y: number) {
   );
 }
 
+async function blue(id: string, x: number, y: number) {
+  const image = PNG.sync.read(await app.getByTestId(id).screenshot());
+  const scale = image.width / 100;
+  const o = (Math.floor(y * scale) * image.width + Math.floor(x * scale)) * 4;
+  return (
+    image.data[o] < 140 && image.data[o + 1] > 140 && image.data[o + 2] > 220
+  );
+}
+
 test('a square outline is painted into every corner', async () => {
   expect(await red('outline-square', 14.5, 14.5)).toBe(true);
   expect(await red('outline-square', 85.5, 85.5)).toBe(true);
@@ -69,4 +78,22 @@ test('the ring is as wide as outlineWidth and starts outlineOffset from the edge
 
 test('a dashed outline keeps its square dashes', async () => {
   expect(await red('outline-dashed', 14.5, 14.5)).toBe(true);
+});
+
+async function focusWithKeyboard(id: string) {
+  const [node] = await app.query('testID', id, true);
+  await app.focus(node.tag);
+  await app.press('ArrowRight');
+  await app.waitForIdle();
+}
+
+test('the keyboard focus ring follows the border radius', async () => {
+  await focusWithKeyboard('focus-rounded-box');
+  expect(await blue('focus-rounded', 50, 19)).toBe(true);
+  expect(await blue('focus-rounded', 18.5, 18.5)).toBe(false);
+  expect(await blue('focus-rounded', 81.5, 81.5)).toBe(false);
+  await focusWithKeyboard('focus-square-box');
+  expect(await blue('focus-square', 50, 19)).toBe(true);
+  expect(await blue('focus-square', 18.5, 18.5)).toBe(true);
+  expect(await blue('focus-square', 81.5, 81.5)).toBe(true);
 });

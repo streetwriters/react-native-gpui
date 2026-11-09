@@ -109,7 +109,7 @@ Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `
 
 ### `onFocus`, `onBlur`
 
-The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`.
+The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, which follows the view's `borderRadius`, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`.
 
 | Type              |
 | ----------------- |

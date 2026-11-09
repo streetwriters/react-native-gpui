@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- The keyboard focus ring of a focusable view follows its `borderRadius`, as Chromium's does. Needs a prebuilt runtime built with the change.
 - A solid `outline` follows the view's `borderRadius`, as CSS does: the ring is rounded, with the border radius plus `outlineOffset` as its inner radius, and a corner with no radius stays square. The square ring also had a notch in each outer corner, now filled. Needs a prebuilt runtime built with the change.
 - A single-line `TextInput` is as tall as a line of `Text` in the same font and size, as a browser input is: its content height is measured from its text, its placeholder or, when both are empty, its font, instead of being forced to 1.4 times the font size. An input with no `lineHeight` at 15 px is now 17.5 px of content at 2x instead of 21. A multiline input keeps its minimum height. Needs a prebuilt runtime built with the change.
 - `window.visible: false` in `desktop.json` (and `DesktopAppConfig::visible(false)`) starts the main window hidden, as the `--hidden` argument does: it is created at its restored size and position, the app mounts and renders in it, and it is not shown, focused or activated until `DesktopWindow.show()`. A window that was hidden reports `isVisible: false` from the start, and is shown clear and made opaque once the frames after the show have been drawn (at most 80 ms later). Needs a prebuilt runtime built with the change, and a CLI with the new schema key.
