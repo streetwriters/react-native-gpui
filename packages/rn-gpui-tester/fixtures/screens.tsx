@@ -326,6 +326,11 @@ export const renderScreen: Record<
       require('./components/ScrollPointerFixture').default,
       props,
     ),
+  'reuse-under-pointer': props =>
+    React.createElement(
+      require('./components/ReuseUnderPointerFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>
