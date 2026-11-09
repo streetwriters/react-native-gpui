@@ -997,6 +997,12 @@ pub fn retarget_hover(window: &mut Window, cx: &mut App) {
     if !inside || pressed {
         return;
     }
+    if window.last_input_was_keyboard() {
+        let target = crate::wheel::target_at(cx, position);
+        hover(window, cx, target.as_ref(), position);
+        crate::interaction::refresh(cx);
+        return;
+    }
     RETARGETING.with(|flag| flag.set(true));
     window.dispatch_event(
         gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {

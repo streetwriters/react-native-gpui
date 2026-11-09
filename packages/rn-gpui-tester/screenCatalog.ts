@@ -126,6 +126,12 @@ export const screens = [
     fixture: 'ScrollPointerFixture',
   },
   {
+    id: 'reuse-under-pointer',
+    title: 'View reuse with the pointer inside',
+    group: 'Views',
+    fixture: 'ReuseUnderPointerFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',

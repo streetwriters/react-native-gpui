@@ -570,7 +570,6 @@ impl ViewStore {
                 window.on_next_frame(move |window, cx| {
                     window.defer(cx, crate::events::flush_hover_retarget);
                 });
-                window.refresh();
             });
         });
     }

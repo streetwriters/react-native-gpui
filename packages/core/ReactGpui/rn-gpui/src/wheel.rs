@@ -168,22 +168,16 @@ fn depth(node: &Entity<RNNodeView>, cx: &App) -> usize {
     depth
 }
 
-fn target_with_handler(window: &Window, cx: &App, position: Point<gpui::Pixels>) -> Option<Target> {
+/// The target under a window position, found from the nodes' frames, their
+/// scroll offsets and the clips of their ancestors.
+pub(crate) fn target_at(cx: &App, position: Point<gpui::Pixels>) -> Option<Target> {
     let store = store_from(cx)?;
     let store = store.read(cx);
-    let mut conversion: Option<Target> = None;
-    for node in store.nodes.values() {
-        let node = node.read(cx);
-        if node.view.on_wheel {
-            conversion = events::target(cx, node);
-            if conversion.is_some() {
-                break;
-            }
-        }
-    }
-    let conversion = conversion?;
+    let conversion = store
+        .nodes
+        .values()
+        .find_map(|node| events::target(cx, node.read(cx)))?;
     let page = conversion.page(position);
-    let _ = window;
     let mut hit: Option<(usize, i32, Entity<RNNodeView>)> = None;
     for (tag, entity) in &store.nodes {
         let node = entity.read(cx);
@@ -201,7 +195,17 @@ fn target_with_handler(window: &Window, cx: &App, position: Point<gpui::Pixels>)
         }
     }
     let (_, _, entity) = hit?;
-    let target = events::target(cx, entity.read(cx))?;
+    events::target(cx, entity.read(cx))
+}
+
+fn target_with_handler(
+    _window: &Window,
+    cx: &App,
+    position: Point<gpui::Pixels>,
+) -> Option<Target> {
+    let store = store_from(cx)?;
+    let store = store.read(cx);
+    let target = target_at(cx, position)?;
     let wants = target.chain.iter().any(|tag| {
         store
             .nodes
