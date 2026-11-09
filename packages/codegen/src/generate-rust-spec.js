@@ -568,7 +568,9 @@ export function generateRustSpec({ specPaths }) {
     modules.length > 0 ? MODULE_IMPORTS : null,
     components.length > 0
       ? [
-          COMPONENT_IMPORTS,
+          modules.length > 0
+            ? COMPONENT_IMPORTS.replace('PropsHandle, Value,', 'PropsHandle,')
+            : COMPONENT_IMPORTS,
           componentsUseImageSource ? COMPONENT_IMAGE_SOURCE : '',
           COMPONENT_ABI,
         ]

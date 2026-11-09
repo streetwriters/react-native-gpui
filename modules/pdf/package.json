@@ -20,6 +20,8 @@
   },
   "files": [
     "src",
+    "desktop",
+    "react-native.config.js",
     "metro.cjs",
     "metro-babel-transformer.cjs",
     "scripts",
@@ -44,5 +46,10 @@
   },
   "scripts": {
     "prepack": "node scripts/generate-notices.mjs"
+  },
+  "codegenConfig": {
+    "name": "RNGpuiPdfSpec",
+    "type": "all",
+    "jsSrcsDir": "src"
   }
 }

@@ -5,6 +5,11 @@ import { createTileImageEncoder, type TileSink } from './tiles';
 export * from '@embedpdf/engine';
 export { createPdfRuntimeFromAddon } from './runtime';
 export { createPdfRuntime, resolveRuntimeTarget } from './native-runtime';
+
+export function nativeTiles() {
+  return (require('./native-tiles') as typeof import('./native-tiles'))
+    .nativeTileSink;
+}
 export {
   createTileImageEncoder,
   tileIdOf,
