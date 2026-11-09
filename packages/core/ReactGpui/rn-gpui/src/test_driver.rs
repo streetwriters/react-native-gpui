@@ -273,6 +273,7 @@ async fn serve_commands(
                 cx.update_window(window, |_, window, _| {
                     let stats = window.layout_stats();
                     let target_at = crate::wheel::target_at_stats(reset);
+                    let scroll_deltas = crate::wheel::scroll_delta_stats(reset);
                     let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
                     let report = json!({
                         "frames": stats.frames,
@@ -304,6 +305,8 @@ async fn serve_commands(
                         "layoutNodes": window.layout_node_count(),
                         "targetAtCalls": target_at.0,
                         "targetAtMs": target_at.1,
+                        "scrollEvents": scroll_deltas.0,
+                        "scrollEventsWholePixel": scroll_deltas.1,
                     });
                     if reset {
                         window.reset_layout_stats();

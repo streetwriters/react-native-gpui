@@ -178,3 +178,14 @@ test('input to handler latency is reported by the fixture', async () => {
   );
   expect(max).toBeLessThan(250);
 });
+
+test('layoutStats counts precise scroll events and the ones that move by whole device pixels', async () => {
+  await app.layoutStats({ reset: true });
+  const target = await tag('wheel-canvas');
+  await app.scroll(target, 0, -10);
+  await app.scroll(target, 0, -0.123);
+  await app.waitForIdle();
+  const stats = await app.layoutStats({ reset: true });
+  expect(stats.scrollEvents).toBe(2);
+  expect(stats.scrollEventsWholePixel).toBe(1);
+});

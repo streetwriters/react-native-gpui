@@ -69,6 +69,9 @@ pub(crate) fn pending() -> bool {
 /// Listens, before the views below it scroll, for the wheel and the pinch.
 pub(crate) fn install(window: &mut Window) {
     window.on_mouse_event(|event: &ScrollEvent, phase, window, cx| {
+        if phase == DispatchPhase::Capture {
+            note_scroll_delta(event, window.scale_factor());
+        }
         if phase == DispatchPhase::Capture && intercept(Wheel::Scroll(event.clone()), window, cx) {
             cx.stop_propagation();
         }
@@ -185,6 +188,39 @@ fn paint_path(node: &Entity<RNNodeView>, cx: &App) -> Vec<usize> {
     }
     path.reverse();
     path
+}
+
+static SCROLL_EVENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SCROLL_EVENTS_WHOLE_PIXEL: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn note_scroll_delta(event: &ScrollEvent, scale: f32) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let ScrollDelta::Pixels(delta) = event.delta else {
+        return;
+    };
+    SCROLL_EVENTS.fetch_add(1, Relaxed);
+    let whole = |value: f32| ((value * scale) - (value * scale).round()).abs() < 0.001;
+    if whole(f32::from(delta.x)) && whole(f32::from(delta.y)) {
+        SCROLL_EVENTS_WHOLE_PIXEL.fetch_add(1, Relaxed);
+    }
+}
+
+/// The precise scroll events seen since the last reset, and how many moved by a
+/// whole number of device pixels on both axes.
+pub(crate) fn scroll_delta_stats(reset: bool) -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if reset {
+        (
+            SCROLL_EVENTS.swap(0, Relaxed),
+            SCROLL_EVENTS_WHOLE_PIXEL.swap(0, Relaxed),
+        )
+    } else {
+        (
+            SCROLL_EVENTS.load(Relaxed),
+            SCROLL_EVENTS_WHOLE_PIXEL.load(Relaxed),
+        )
+    }
 }
 
 static TARGET_AT_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
