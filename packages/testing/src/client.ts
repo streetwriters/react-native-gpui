@@ -196,6 +196,17 @@ function backgroundExpected(): boolean {
   return value === undefined || !['', '0', 'false', 'no'].includes(value);
 }
 
+export interface WheelOptions {
+  /** Scrolls by lines, as a mouse wheel notch does, instead of pixels, as a trackpad does. */
+  lines?: boolean;
+  modifiers?: {
+    shift?: boolean;
+    control?: boolean;
+    alt?: boolean;
+    platform?: boolean;
+  };
+}
+
 export class DesktopApp {
   readonly logs: string[];
   readonly logFile: string;
@@ -1267,6 +1278,7 @@ export class DesktopApp {
     repeat = 1,
     phase?: 'started' | 'moved' | 'ended',
     intervalMs = 0,
+    options: WheelOptions = {},
   ): Promise<{
     drawMs: number;
     renderedViews: number;
@@ -1280,6 +1292,7 @@ export class DesktopApp {
       repeat,
       phase,
       intervalMs,
+      ...options,
     })) as {
       drawMs?: number;
       renderedViews?: number;
@@ -1291,6 +1304,20 @@ export class DesktopApp {
       renderedViewsTotal: result?.renderedViewsTotal ?? 0,
       a11yActive: (result as { a11yActive?: boolean })?.a11yActive ?? false,
     };
+  }
+
+  /**
+   * A trackpad pinch over the node's centre: `delta` is the magnification
+   * change, as the platform reports it (0.1 is a 10% zoom in), and `phase`
+   * brackets the gesture.
+   */
+  async pinch(
+    tag: number,
+    delta: number,
+    phase?: 'started' | 'moved' | 'ended',
+    modifiers: WheelOptions['modifiers'] = {},
+  ): Promise<void> {
+    await this.request('pinch', { tag, delta, phase, modifiers });
   }
 
   async mouseDown(

@@ -82,6 +82,10 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
+### Wheel and pinch
+
+`app.scroll(tag, dx, dy, repeat, phase, intervalMs, options)` sends a platform scroll event to the node's centre, the event a trackpad or wheel sends, so it goes through [`onWheel`](desktop-input#wheel-events) handlers before it scrolls anything. `options.lines` sends a mouse wheel notch in lines instead of trackpad pixels, and `options.modifiers` holds keys (`shift`, `control`, `alt`, `platform`). `phase` is `started`, `moved` or `ended`. A negative `dy` scrolls down. `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch, where `delta` is the magnification change. `waitForIdle` waits for a wheel event that is still waiting for its handlers.
+
 ### Layout and paint work
 
 `app.layoutStats({ reset })` returns what the window's layout and paint did since the counters were last reset, from gpui-fast's layout statistics: `frames`; `nodesCreated`, `nodesReused`, `nodesFreed`; `styleCompares`, `styleWrites`, `childrenWrites`; `measureCalls`, `measurementsKept`, `measurementsReplayed`; `linesShaped`; `viewsBuilt` and `viewsReused`; `layerFramesComposited`, `layerFramesRepainted`, `tilesDirtied`, `layerRebuildsForInput` and `layersDemoted` for scroll layers; `layoutNodes`, the nodes the window holds; and in milliseconds `buildMs`, `prepaintMs`, `paintMs`, `computeLayoutMs`, `measureMs` and `shapeMs`. The counts always run. The times are zero until the first call with `reset: true`, so start a measurement with one, do the work, and read it with another `reset: true` call, which also starts the next interval. Divide by `frames` for a per-frame figure. Frames that the driver draws itself count too.
@@ -162,7 +166,7 @@ Baselines are stored next to the test, in `__screenshots__/gpui/<platform>-<arch
 | Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                                                  |
 | Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                                         |
 | Clipboard        | `clipboardText`, `setClipboardText`                                                                                                          |
-| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                                                 |
+| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `pinch`, `hover`                                        |
 | Accessibility    | `a11yTree`, `a11yNode`                                                                                                                       |
 | Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                                                |
 

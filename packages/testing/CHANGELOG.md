@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 ## Unreleased
 
+- `app.scroll` takes `{ lines, modifiers }` as a last argument to send a mouse wheel notch or hold keys, and `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch. Both are platform events, so they reach `onWheel` handlers before they scroll. `waitForIdle` waits for a wheel event that is still waiting for its handlers. Needs a runtime built with the change.
 - `app.windowReveal()` reports the main window's opacity and what made a window that was hidden opaque after it was shown: `frame` (its first frame was drawn) or `timeout`.
 - `app.idleStatus()` lists the pending timers that keep the app from being idle, each with the delay it was set for and the time left. Needs a runtime built with the change.
 - `app.layoutStats({ reset })` reports the layout and paint statistics of the window: frames, layout node reuse, style writes, measurements, lines shaped, views built and reused, scroll layer repaints and dirtied tiles, and the time of each phase.

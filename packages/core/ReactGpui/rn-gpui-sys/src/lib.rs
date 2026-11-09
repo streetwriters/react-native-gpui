@@ -115,6 +115,7 @@ pub mod ffi {
         pub desktop_drag_region: bool,
         /// "minimize" | "maximize" | "close" for a custom caption button.
         pub on_context_menu: bool,
+        pub on_wheel: bool,
         /// A node's group name, and the JSON of each state style prop; empty = not set.
         pub group: String,
         pub hover_style: String,
@@ -302,6 +303,9 @@ pub mod ffi {
         fn rn_gpui_on_text_input_command(tag: i32, focus: bool);
         fn rn_gpui_request_accessibility_focus(tag: i32);
         fn rn_gpui_on_text_input_clear(tag: i32);
+        /// A wheel event's JS handlers have run: `prevented` is whether one called
+        /// `preventDefault` or `stopPropagation`. Called on the JS thread.
+        fn rn_gpui_on_wheel_done(id: u64, prevented: bool);
         /// Whether surfaces start right to left, and whether left and right
         /// swap in that direction.
         fn rn_gpui_layout_direction_rtl() -> bool;
@@ -580,6 +584,9 @@ pub mod ffi {
         fn on_pointer_frame(self: &GpuiHost, timestamp: f64) -> Result<()>;
         /// payload_json is a JSON object string, e.g. {"pageX":10,"pageY":20}
         fn dispatch_event(self: &GpuiHost, tag: i32, event_type: &str, payload_json: &str);
+        /// Delivers a `topWheel` event whose `nativeEvent` can be prevented, then
+        /// reports through `rn_gpui_on_wheel_done` once its handlers have run.
+        fn dispatch_wheel(self: &GpuiHost, tag: i32, id: u64, payload_json: &str);
         fn emit_device_event(self: &GpuiHost, event_name: &str);
         fn emit_device_event_bool(self: &GpuiHost, event_name: &str, value: bool);
         fn emit_device_event_json(self: &GpuiHost, event_name: &str, payload_json: &str);
@@ -620,6 +627,7 @@ pub type AnimatedPropsHandler = Box<dyn Fn(ffi::AnimatedPropsFlat) + Send + Sync
 pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
+pub type WheelDoneHandler = Box<dyn Fn(u64, bool) + Send + Sync>;
 pub type LayoutDirectionHandler = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
 pub static LAYOUT_DIRECTION_HANDLER: OnceLock<LayoutDirectionHandler> = OnceLock::new();
 pub type BuiltinCommandHandler = Box<dyn Fn(i32, &str, &str, &str) + Send + Sync>;
@@ -637,6 +645,7 @@ pub static ANIMATED_PROPS_HANDLER: OnceLock<AnimatedPropsHandler> = OnceLock::ne
 pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::new();
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
+pub static WHEEL_DONE_HANDLER: OnceLock<WheelDoneHandler> = OnceLock::new();
 pub static BUILTIN_COMMAND_HANDLER: OnceLock<BuiltinCommandHandler> = OnceLock::new();
 pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
@@ -770,6 +779,12 @@ fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
 fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
+    }
+}
+
+fn rn_gpui_on_wheel_done(id: u64, prevented: bool) {
+    if let Some(handler) = WHEEL_DONE_HANDLER.get() {
+        handler(id, prevented);
     }
 }
 

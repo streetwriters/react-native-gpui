@@ -120,6 +120,12 @@ export const screens = [
     fixture: 'RoundedClipFixture',
   },
   {
+    id: 'wheel',
+    title: 'Wheel events',
+    group: 'Input',
+    fixture: 'WheelFixture',
+  },
+  {
     id: 'outline-radius',
     title: 'Outline follows the border radius',
     group: 'Views',

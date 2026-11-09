@@ -730,7 +730,7 @@ async fn serve_commands(
                     None => json!({"error": "click requires a mounted tag"}),
                 }
             }
-            "hover" | "scroll" => {
+            "hover" | "scroll" | "pinch" => {
                 let viewport = cx
                     .update_window(window, |_, window, _| {
                         let size = window.viewport_size();
@@ -770,6 +770,27 @@ async fn serve_commands(
                             Some("ended") => gpui::TouchPhase::Ended,
                             _ => gpui::TouchPhase::Moved,
                         };
+                        let lines = params.get("lines").and_then(Value::as_bool).unwrap_or(false);
+                        let held = |name: &str| {
+                            params
+                                .get("modifiers")
+                                .and_then(|modifiers| modifiers.get(name))
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                        };
+                        let modifiers = gpui::Modifiers {
+                            shift: held("shift"),
+                            control: held("control"),
+                            alt: held("alt"),
+                            platform: held("platform"),
+                            ..Default::default()
+                        };
+                        let pinch_delta = params.get("delta").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                        let scroll_delta = if lines {
+                            gpui::ScrollDelta::Lines(point(dx, dy))
+                        } else {
+                            gpui::ScrollDelta::Pixels(point(px(dx), px(dy)))
+                        };
                         let preflight = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
                             window.dispatch_event(
@@ -805,13 +826,29 @@ async fn serve_commands(
                             .clamp(1, 1000);
                         let result: Result<(), String> = match hit {
                             Some((true, _)) if kind == "hover" => Ok(()),
+                            Some((true, _)) if kind == "pinch" => cx
+                                .update_window(window, |_root, window, app| {
+                                    draw_frame(window, app);
+                                    window.dispatch_event(
+                                        gpui::PlatformInput::Pinch(gpui::PinchEvent {
+                                            position,
+                                            delta: pinch_delta,
+                                            modifiers,
+                                            phase: touch_phase,
+                                        }),
+                                        app,
+                                    );
+                                    draw_frame(window, app);
+                                })
+                                .map_err(|error| error.to_string()),
                             Some((true, _)) => cx
                                 .update_window(window, |_root, window, app| {
                                     draw_frame(window, app);
                                     window.dispatch_event(
                                         gpui::PlatformInput::Scroll(gpui::ScrollEvent {
                                             position,
-                                            delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+                                            delta: scroll_delta,
+                                            modifiers,
                                             touch_phase,
                                             ..Default::default()
                                         }),
@@ -829,10 +866,8 @@ async fn serve_commands(
                                                 gpui::PlatformInput::Scroll(
                                                     gpui::ScrollEvent {
                                                         position,
-                                                        delta: gpui::ScrollDelta::Pixels(point(
-                                                            px(dx),
-                                                            px(dy),
-                                                        )),
+                                                        delta: scroll_delta,
+                                                        modifiers,
                                                         touch_phase,
                                                         ..Default::default()
                                                     },
@@ -1854,6 +1889,11 @@ fn idle_status(
     {
         busy.push(
             json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
+        );
+    }
+    if crate::wheel::pending() && !ignore.iter().any(|item| item == "wheel") {
+        busy.push(
+            json!({"source": "wheel", "detail": "a wheel event is waiting for its JS handlers"}),
         );
     }
     if store.frame_hook.gesture_is_active() && !ignore.iter().any(|item| item == "gestures") {
