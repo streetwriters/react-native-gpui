@@ -76,3 +76,22 @@ test('layoutStats reports the target lookups of the keyboard hover pass', async 
   expect(stats.targetAtMs).toBeGreaterThanOrEqual(0);
   expect(stats.targetAtMs / stats.targetAtCalls).toBeLessThan(5);
 });
+
+test('typing into a field with the pointer inside the window keeps the views that did not change', async () => {
+  const [row] = await app.query('testID', 'reuse-row-30', true);
+  const top = (await app.menuBarState()).inset;
+  await app.mouseMove({ x: row.frame.x + 10, y: row.frame.y + 3 + top });
+  const [input] = await app.query('testID', 'reuse-input', true);
+  await app.typeText(input.tag, 'a');
+  await app.waitForIdle();
+  const built: number[] = [];
+  for (const char of 'pple') {
+    await app.layoutStats({ reset: true });
+    await app.typeText(input.tag, char);
+    await app.waitForIdle();
+    built.push((await app.layoutStats({ reset: true })).viewsBuilt);
+  }
+  const [typed] = await app.query('testID', 'reuse-input', true);
+  expect(typed.text).toBe('apple');
+  expect(Math.max(...built.slice(0, 3))).toBeLessThan(400);
+});

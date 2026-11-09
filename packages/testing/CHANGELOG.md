@@ -6,6 +6,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 - `launchApp` sets `RN_GPUI_DEV_PORT=1` when it is given a bundle and the environment does not set it, so the app loads the bundle at once instead of trying a dev server first.
 - `app.raiseWindow()` puts the window in front of the other windows without activating the app, for a test that reads the screen. Needs a runtime built with the `raiseWindow` driver command.
+- `app.typeText` and `locator.type` click the input only when it does not have focus. Each call used to click first, which flipped the window's input mode from keyboard to mouse and back, so every typed key refreshed the window twice and rebuilt every view; a measurement of typing saw that cost that real typing does not have. Needs a runtime built with the change.
 - `app.layoutStats` reports `targetAtCalls` and `targetAtMs`, the lookups of the view under the pointer that the hover pass makes after keyboard input and the time they took. Needs a runtime built with the change.
 - `app.scroll` takes `{ lines, modifiers }` as a last argument to send a mouse wheel notch or hold keys, and `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch. Both are platform events, so they reach `onWheel` handlers before they scroll. `waitForIdle` waits for a wheel event that is still waiting for its handlers. Needs a runtime built with the change.
 - `app.windowReveal()` reports the main window's opacity and what made a window that was hidden opaque after it was shown: `frame` (its first frame was drawn) or `timeout`.

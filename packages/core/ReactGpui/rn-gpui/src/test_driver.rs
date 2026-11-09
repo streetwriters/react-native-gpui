@@ -1099,24 +1099,34 @@ async fn serve_commands(
                 match target {
                     None => json!({"error": "type requires a mounted, editable TextInput"}),
                     Some(position) => {
+                        let tag = params.get("tag").and_then(Value::as_i64).unwrap_or(0) as i32;
+                        let store = store.clone();
                         let dispatched = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
-                            window.dispatch_event(
-                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
-                                    button: gpui::MouseButton::Left,
-                                    position,
-                                    ..Default::default()
-                                }),
-                                app,
-                            );
-                            window.dispatch_event(
-                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
-                                    button: gpui::MouseButton::Left,
-                                    position,
-                                    ..Default::default()
-                                }),
-                                app,
-                            );
+                            let focused = store
+                                .read(app)
+                                .nodes
+                                .get(&tag)
+                                .and_then(|node| node.read(app).accessibility_focus_handle())
+                                .is_some_and(|handle| handle.is_focused(window));
+                            if !focused {
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                        button: gpui::MouseButton::Left,
+                                        position,
+                                        ..Default::default()
+                                    }),
+                                    app,
+                                );
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                        button: gpui::MouseButton::Left,
+                                        position,
+                                        ..Default::default()
+                                    }),
+                                    app,
+                                );
+                            }
                             // Focusing can install a new InputHandler during
                             // paint. Native OS input arrives on a later turn;
                             // synthetic typing must complete that paint first.
