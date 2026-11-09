@@ -20,6 +20,10 @@ Shapes, paths, text, gradients, masks, clip paths, symbols, patterns and markers
 
 Limits: `overflow="visible"` is not honoured (the drawing is clipped to the SVG's frame), the other filter primitives such as `feDropShadow` and `feMorphology` are not passed to the renderer, and a blurred shadow comes out about one level lighter than Chrome's for each shadow that overlaps another.
 
+## Cost
+
+A drawing is cached by a hash of what it is made of, so drawing it again costs a hash and a lookup. The cache is shared by every node and holds up to 64 MB of images (`RN_GPUI_SVG_CACHE_MB` changes that). A drawing that is not cached yet is rasterised on a background thread when it is large or filtered, and the node shows its previous image, if it has one, until the new one is ready; a small icon with nothing yet to show is drawn at once. `RN_GPUI_SVG_TRACE=1` logs each rasterisation and `RN_GPUI_SVG_SYNC=1` draws on the main thread, to measure.
+
 ## Documentation
 
 [Supported libraries](https://streetwriters.github.io/react-native-gpui/docs/supported-libraries)
