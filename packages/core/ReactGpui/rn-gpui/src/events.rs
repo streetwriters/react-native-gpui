@@ -726,8 +726,9 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
                         return;
                     }
                     if crate::drag_drop::tracking() {
-                        crate::drag_drop::released(window, cx, None, event.position);
-                        return;
+                        if crate::drag_drop::released(window, cx, None, event.position) {
+                            return;
+                        }
                     }
                     if press_belongs_to_window() {
                         return;

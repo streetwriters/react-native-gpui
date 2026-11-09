@@ -20,6 +20,7 @@ const ITEMS = ['alpha', 'beta', 'gamma'];
 export default function DragDropFixture() {
   const [log, setLog] = useState<string[]>([]);
   const [dropped, setDropped] = useState<string[]>([]);
+  const [taps, setTaps] = useState<string[]>([]);
   const drag = useDragState();
   const scroll = useRef<ScrollViewInstance>(null);
   const autoScroll = useDragAutoScroll(scroll, { edge: 40, speed: 20 });
@@ -27,6 +28,7 @@ export default function DragDropFixture() {
   return (
     <View style={{ flex: 1 }}>
       <Text testID="drag-log">{log.join(' | ')}</Text>
+      <Text testID="drag-taps">{taps.join(',')}</Text>
       <Text testID="drag-dropped">{dropped.join(',')}</Text>
       <Text testID="drag-state">
         {drag.active ? `active over=${drag.over ?? 'none'}` : 'idle'}
@@ -38,6 +40,7 @@ export default function DragDropFixture() {
               key={item}
               testID={`drag-item-${item}`}
               draggable
+              onTouchEnd={() => setTaps(previous => [...previous, item])}
               onDragStart={() => {
                 DragDrop.setPayload(item);
                 note(`start:${item}`);

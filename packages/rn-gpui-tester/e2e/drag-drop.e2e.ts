@@ -66,6 +66,7 @@ test('a press that does not move far enough is not a drag', async () => {
   await app.getByTestId('drag-item-gamma').click();
   await app.waitForIdle();
   expect(await log()).toBe(before);
+  expect(await app.getByTestId('drag-taps').textContent()).toBe('gamma');
 });
 
 test('holding a drag near the edge of a scroll view scrolls it', async () => {
