@@ -202,3 +202,23 @@ test('scrolling keeps the JS thread under a frame (rAF gaps)', async () => {
   const max = Number(/max (\d+)/u.exec(text)?.[1] ?? 1e9);
   expect(max).toBeLessThan(100);
 });
+
+test('dragging across a word selects it', async () => {
+  await launchViewer(5);
+  await until(async () => /^ready page 1\/5/u.test(await stateText()), 20000);
+  await app.getByTestId('fit-width').click();
+  const page = (await app.query('testID', 'pdf-page-1', true))[0];
+  const zoom = Number(/zoom ([\d.]+)/u.exec(await stateText())![1]);
+  const top = (await app.menuBarState()).inset;
+  const y = page.frame.y + top + 221 * zoom;
+  await app.mouseMove({ x: page.frame.x + 245 * zoom, y });
+  await app.mouseDown({ x: page.frame.x + 245 * zoom, y });
+  await app.mouseMove({ x: page.frame.x + 300 * zoom, y }, { button: 'left' });
+  await app.mouseMove({ x: page.frame.x + 330 * zoom, y }, { button: 'left' });
+  await app.mouseUp({ x: page.frame.x + 330 * zoom, y });
+  await app.getByTestId('read-selection').click();
+  await until(async () => {
+    const text = (await app.query('testID', 'pdf-selected', true))[0]?.text;
+    return /^Pag/u.test(text ?? '');
+  });
+});
