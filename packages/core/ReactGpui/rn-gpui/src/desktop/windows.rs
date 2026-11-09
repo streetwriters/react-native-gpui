@@ -1551,6 +1551,9 @@ fn report_activation(
         return;
     }
     last.set(active);
+    if !active {
+        crate::events::cancel_presses(window, cx);
+    }
     super::window_mirror::patch(key, &[("isFocused", json!(active))]);
     super::app_state::schedule(cx);
     let Some(store) = cx.try_global::<StoreGlobal>() else {

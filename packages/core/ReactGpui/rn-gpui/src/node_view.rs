@@ -421,6 +421,44 @@ fn dispatch_pointer_button(
     cx.stop_propagation();
 }
 
+fn dispatch_pointer_release(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseUpEvent,
+    button: crate::events::Button,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let pressed = store.read(cx).button_target.borrow().clone();
+    let held = store.read(cx).buttons_held.get() & button.mask() != 0;
+    if !held {
+        return;
+    }
+    let target = pressed.or_else(|| {
+        let this = node.read(cx);
+        crate::events::target(cx, this)
+    });
+    let Some(target) = target else {
+        return;
+    };
+    crate::events::send_pointer(
+        window,
+        cx,
+        &target,
+        event.position,
+        crate::events::Phase::End,
+        Some(button),
+        button.mask(),
+        modifier_state(event.modifiers),
+    );
+    cx.stop_propagation();
+}
+
 /// Dispatches `topContextMenu` for a press, once `events` says it is a trigger.
 ///
 /// `is_left` distinguishes the Ctrl + click case from the right click so the same
@@ -5098,6 +5136,30 @@ impl RNNodeView {
                         cx,
                     );
                 }));
+            let middle_up_node = node.clone();
+            handlers
+                .middle_up
+                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    dispatch_pointer_release(
+                        &middle_up_node,
+                        event,
+                        crate::events::Button::Middle,
+                        window,
+                        cx,
+                    );
+                }));
+            let right_up_node = node.clone();
+            handlers
+                .right_up
+                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    dispatch_pointer_release(
+                        &right_up_node,
+                        event,
+                        crate::events::Button::Right,
+                        window,
+                        cx,
+                    );
+                }));
             // Every node that takes pointer input handles the right button, whether
             // or not it owns a context menu. One press must do both jobs: report
             // `topPointerDown` for the innermost node, and open the nearest
@@ -5212,21 +5274,22 @@ impl RNNodeView {
                         }
                         // RN keeps the touch target fixed from mouse-down to
                         // release, including when the pointer leaves the view.
-                        let target =
-                            crate::events::active_touch_target(cx).or_else(|| hit_target.clone());
-                        if let Some(target) = target.as_ref() {
-                            crate::events::send(
-                                window,
-                                cx,
-                                target,
-                                event.position,
-                                crate::events::Phase::Move,
-                                None,
-                                modifier_state(event.modifiers),
-                            );
-                        }
+                        crate::events::move_pressed(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            modifier_state(event.modifiers),
+                        );
                     } else {
                         crate::events::hover(window, cx, hit_target.as_ref(), event.position);
+                        crate::events::move_hovered(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            modifier_state(event.modifiers),
+                        );
                     }
                     if hit_target.is_some() || crate::events::active_touch_target(cx).is_some() {
                         cx.stop_propagation();

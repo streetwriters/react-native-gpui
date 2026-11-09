@@ -45,6 +45,10 @@ pub(crate) fn press_belongs_to_window() -> bool {
     WINDOW_OWNS_PRESS.with(std::cell::Cell::get)
 }
 
+thread_local! {
+    static RETARGETING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Phase {
     Start,
@@ -411,6 +415,24 @@ pub fn send_pointer(
     let tag = target.tag;
     let position = target.page(position);
     let location = target.local_position(position);
+    let buttons = {
+        let store = store.read(cx);
+        let held = store.buttons_held.get();
+        let held = match phase {
+            Phase::Start => held | button.map_or(buttons, Button::mask),
+            Phase::End => held & !button.map_or(buttons, Button::mask),
+            Phase::Move => held,
+            Phase::Cancel => 0,
+        };
+        store.buttons_held.set(held);
+        match phase {
+            Phase::Start => *store.button_target.borrow_mut() = Some(target.clone()),
+            Phase::End if held == 0 => *store.button_target.borrow_mut() = None,
+            Phase::Cancel => *store.button_target.borrow_mut() = None,
+            _ => {}
+        }
+        held
+    };
     let (name, event) = match phase {
         Phase::Start => (
             "topPointerDown",
@@ -431,6 +453,74 @@ pub fn send_pointer(
     };
     host.dispatch_event(tag, name, &event);
     frame_hook.arm(window);
+}
+
+/// A move with a button held: it goes to the node the press started on, as
+/// touch events and pointer events for the left button and as pointer events
+/// alone for the others. Returns whether there was a press to follow.
+pub fn move_pressed(
+    window: &mut Window,
+    cx: &mut App,
+    fallback: Option<&Target>,
+    position: Point<Pixels>,
+    modifiers: ModifierState,
+) -> bool {
+    if let Some(target) = active_touch_target(cx) {
+        send(window, cx, &target, position, Phase::Move, None, modifiers);
+        return true;
+    }
+    let Some(store) = store_from(cx) else {
+        return false;
+    };
+    let (held, pressed) = {
+        let store = store.read(cx);
+        (
+            store.buttons_held.get(),
+            store.button_target.borrow().clone(),
+        )
+    };
+    if held == 0 {
+        return false;
+    }
+    let Some(target) = pressed.or_else(|| fallback.cloned()) else {
+        return false;
+    };
+    send_pointer(
+        window,
+        cx,
+        &target,
+        position,
+        Phase::Move,
+        None,
+        held,
+        modifiers,
+    );
+    true
+}
+
+/// A move with nothing held, for `onPointerMove` on the view under the pointer.
+pub fn move_hovered(
+    window: &mut Window,
+    cx: &mut App,
+    target: Option<&Target>,
+    position: Point<Pixels>,
+    modifiers: ModifierState,
+) {
+    if RETARGETING.with(std::cell::Cell::get) {
+        return;
+    }
+    if let Some(target) = target {
+        send_pointer(
+            window,
+            cx,
+            target,
+            position,
+            Phase::Move,
+            None,
+            0,
+            modifiers,
+        );
+    }
 }
 
 /// The W3C number for a mouse button.
@@ -587,6 +677,22 @@ pub fn send(
     let tag = target.tag;
     let position = target.page(position);
     let location = target.local_position(position);
+    let buttons = {
+        let store = store.read(cx);
+        let held = store.buttons_held.get();
+        let left = button.map_or(Button::Left.mask(), Button::mask);
+        let held = match phase {
+            Phase::Start => held | left,
+            Phase::End => held & !left,
+            Phase::Move => held,
+            Phase::Cancel => 0,
+        };
+        store.buttons_held.set(held);
+        if held == 0 {
+            *store.button_target.borrow_mut() = None;
+        }
+        held
+    };
     log::debug!(
         "[events] {phase:?} tag={tag} position=({:.1},{:.1}) location=({:.1},{:.1})",
         f32::from(position.x),
@@ -616,14 +722,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerDown",
-                &pointer_payload(
-                    tag,
-                    position,
-                    location,
-                    button,
-                    button.map_or(0, Button::mask),
-                    modifiers,
-                ),
+                &pointer_payload(tag, position, location, button, buttons, modifiers),
             );
         }
         Phase::Move => {
@@ -635,14 +734,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerMove",
-                &pointer_payload(
-                    tag,
-                    position,
-                    location,
-                    button,
-                    button.map_or(0, Button::mask),
-                    modifiers,
-                ),
+                &pointer_payload(tag, position, location, None, buttons, modifiers),
             );
         }
         Phase::End => {
@@ -654,7 +746,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerUp",
-                &pointer_payload(tag, position, location, button, 0, modifiers),
+                &pointer_payload(tag, position, location, button, buttons, modifiers),
             );
         }
         Phase::Cancel => {
@@ -666,7 +758,7 @@ pub fn send(
             host.dispatch_event(
                 tag,
                 "topPointerCancel",
-                &pointer_payload(tag, position, location, button, 0, modifiers),
+                &pointer_payload(tag, position, location, None, 0, modifiers),
             );
         }
     }
@@ -707,17 +799,13 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
                     {
                         return;
                     }
-                    if let Some(target) = active_touch_target(cx) {
-                        send(
-                            window,
-                            cx,
-                            &target,
-                            event.position,
-                            Phase::Move,
-                            None,
-                            crate::node_view::modifier_state(event.modifiers),
-                        );
-                    }
+                    move_pressed(
+                        window,
+                        cx,
+                        None,
+                        event.position,
+                        crate::node_view::modifier_state(event.modifiers),
+                    );
                 });
                 window.on_mouse_event(|event: &gpui::MouseUpEvent, phase, window, cx| {
                     if phase != gpui::DispatchPhase::Capture
@@ -750,6 +838,49 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
         )
         .size_0(),
     )
+}
+
+/// The window stopped being active: every press still held ends with a cancel,
+/// as in a browser, and no button counts as held any more.
+pub fn cancel_presses(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let (position, held, pressed) = {
+        let store = store.read(cx);
+        (
+            store.pointer.get(),
+            store.buttons_held.get(),
+            store.button_target.borrow().clone(),
+        )
+    };
+    if let Some(target) = active_touch_target(cx) {
+        send(
+            window,
+            cx,
+            &target,
+            position,
+            Phase::Cancel,
+            Some(Button::Left),
+            ModifierState::none(),
+        );
+    } else if held != 0 {
+        if let Some(target) = pressed {
+            send_pointer(
+                window,
+                cx,
+                &target,
+                position,
+                Phase::Cancel,
+                None,
+                0,
+                ModifierState::none(),
+            );
+        }
+    }
+    let store = store.read(cx);
+    store.buttons_held.set(0);
+    *store.button_target.borrow_mut() = None;
 }
 
 pub fn cancel_active_touch(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
@@ -866,6 +997,7 @@ pub fn retarget_hover(window: &mut Window, cx: &mut App) {
     if !inside || pressed {
         return;
     }
+    RETARGETING.with(|flag| flag.set(true));
     window.dispatch_event(
         gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
             position,
@@ -874,6 +1006,7 @@ pub fn retarget_hover(window: &mut Window, cx: &mut App) {
         }),
         cx,
     );
+    RETARGETING.with(|flag| flag.set(false));
     crate::interaction::refresh(cx);
 }
 

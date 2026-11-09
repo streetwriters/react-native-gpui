@@ -314,6 +314,11 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'scroll-pointer': props =>
+    React.createElement(
+      require('./components/ScrollPointerFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>
