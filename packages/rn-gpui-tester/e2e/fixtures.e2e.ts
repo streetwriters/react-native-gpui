@@ -39,6 +39,7 @@ async function launch(
     },
     initialProps: { scenario, ...initialProps },
     disableAnimations: true,
+    logFile: process.env.RN_GPUI_E2E_LOG,
     offscreen,
   });
   await app.setWindowSize(1024, 768);
@@ -1400,6 +1401,47 @@ test('the image manipulator crops, resizes and encodes, and the result shows as 
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('a filtered SVG keeps its old image while a new colour is drawn, then shows the new one', async () => {
+  await launch('GPUISvgFilterFixture');
+  await desktopExpect(app.getByTestId('svg-recolor')).toBeVisible();
+  // The centre of the square: red, blue, or the white background when nothing
+  // is drawn.
+  const centre = async () => {
+    const image = PNG.sync.read(
+      await app.getByTestId('svg-recolor').screenshot(),
+    );
+    const at = ((image.height >> 1) * image.width + (image.width >> 1)) * 4;
+    const [red, green, blue] = [
+      image.data[at],
+      image.data[at + 1],
+      image.data[at + 2],
+    ];
+    if (red > 200 && green > 200 && blue > 200) return 'blank';
+    if (red > 200 && blue < 60) return 'red';
+    if (blue > 200 && red < 60) return 'blue';
+    return `other ${red},${green},${blue}`;
+  };
+  let seen = await centre();
+  const deadline = Date.now() + 5000;
+  while (seen !== 'red' && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    seen = await centre();
+  }
+  expect(seen).toBe('red');
+  await app.getByTestId('svg-recolor-toggle').click();
+  const states: Array<string> = [];
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    states.push(await centre());
+    if (states.at(-1) === 'blue') break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  console.log('svg recolour states', JSON.stringify(states.slice(0, 40)));
+  // Never blank in between: the old image stays until the new one is ready.
+  expect(states).not.toContain('blank');
+  expect(states.at(-1)).toBe('blue');
 });
 
 test('an SVG illustration with rotated cards and drop shadows looks like Chrome', async () => {

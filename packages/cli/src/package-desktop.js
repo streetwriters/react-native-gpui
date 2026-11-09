@@ -642,6 +642,7 @@ export function toPackagerConfig(config, build) {
     binaryName,
     bundleDir,
     assetsDir,
+    extraResources = [],
     icons = [],
     libraries = [],
     formats,
@@ -673,6 +674,7 @@ export function toPackagerConfig(config, build) {
   if (assetsDir !== undefined && fs.existsSync(assetsDir)) {
     resources.push(relative(assetsDir));
   }
+  for (const resource of extraResources) resources.push(relative(resource));
   // On Windows the runtime DLLs are already staged beside the executable by the
   // app's build.rs, and the loader looks there — but NSIS installs only the
   // binary and the resources, so "beside the executable" has to be expressed as

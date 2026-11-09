@@ -1015,6 +1015,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   const hostComponents = [];
   const hostComponentLibraries = new Set();
   const jsEngines = [];
+  const bundleHooks = [];
   const codegenRoot = path.join(autolinkRoot, 'codegen');
   const generatedLibraries = new Map();
   for (const [dependencyName, dependency] of Object.entries(
@@ -1033,6 +1034,18 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     if (!gpui) continue;
     if (gpui.jsEngine !== undefined) {
       jsEngines.push(jsEngineConfigFor(dependencyName, root, gpui.jsEngine));
+    }
+    if (gpui.bundleHook !== undefined) {
+      if (typeof gpui.bundleHook !== 'string') {
+        throw new Error(
+          `${dependencyName}: platforms.desktop.bundleHook must be a path to a module`,
+        );
+      }
+      const hookPath = path.resolve(root, gpui.bundleHook);
+      if (!fs.existsSync(hookPath)) {
+        throw new Error(`${dependencyName}: no bundleHook at ${hookPath}`);
+      }
+      bundleHooks.push({ dependencyName, module: hookPath });
     }
     const componentConfig = componentConfigFor(dependencyName, gpui);
     const componentSourceRoot = componentConfig.sourcePackage
@@ -1259,6 +1272,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     appComponentSources: [...new Set(appComponentSources)],
     appComponentIncludeDirs: [...new Set(appComponentIncludeDirs)],
     jsEngines,
+    bundleHooks,
   };
   writeIfChanged(
     path.join(generatedDir, 'autolink.json'),

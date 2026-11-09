@@ -3,9 +3,11 @@ use react_native_gpui::extensions::{
     register_component_renderer, ComponentNode, ComponentRenderer,
 };
 use rn_gpui_sys::ffi::RectF;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::Arc;
+
+mod cache;
+mod key;
+mod raster;
 
 const COMPONENTS: &[&str] = &[
     "RNSVGSvgView",
@@ -66,7 +68,7 @@ impl ComponentRenderer for SvgRenderer {
         let width = frame.w * scale_x;
         let height = frame.h * scale_y;
         let scale = window.scale_factor();
-        let image = cached_svg_image(node, frame, scale, cx)?;
+        let image = raster::image_for(node, frame, scale, window, cx);
         // Chrome paints an inline SVG at a whole CSS pixel: a box laid out at
         // 2.5 is drawn at 3. The image is placed the same way, so a 15 point
         // icon centred in a 20 point button lands where the web app's does.
@@ -81,14 +83,16 @@ impl ComponentRenderer for SvgRenderer {
                         ),
                         bounds.size,
                     );
-                    let _ = window.paint_image(
-                        snapped,
-                        snapped,
-                        gpui::Corners::default(),
-                        image.clone(),
-                        0,
-                        false,
-                    );
+                    if let Some(image) = &image {
+                        let _ = window.paint_image(
+                            snapped,
+                            snapped,
+                            gpui::Corners::default(),
+                            image.clone(),
+                            0,
+                            false,
+                        );
+                    }
                 },
             )
             .w(px(width))
@@ -106,15 +110,26 @@ pub fn rn_gpui_register() {
 
 /// Where one coverage sample sits, so a shape can be drawn once per sample.
 #[derive(Clone, Copy)]
-struct Sample {
+pub(crate) struct Sample {
     /// The sample's offset from the pixel centre, in device pixels.
-    dx: f32,
-    dy: f32,
+    pub(crate) dx: f32,
+    pub(crate) dy: f32,
     /// Device pixels per CSS pixel.
-    scale: f32,
+    pub(crate) scale: f32,
 }
 
-fn svg_document(node: &ComponentNode, frame: RectF, cx: &App, sample: Option<Sample>) -> String {
+/// Chrome rasterises with four coverage samples per pixel at these offsets (in
+/// pixels from the centre): the standard Direct3D 4x pattern. A pixel is
+/// therefore never covered by anything but 0, 1/4, 1/2, 3/4 or all, and the edge
+/// of an icon takes the same five steps here.
+pub(crate) const SAMPLE_OFFSETS: [(f32, f32); 4] = [
+    (-2.0 / 16.0, -6.0 / 16.0),
+    (6.0 / 16.0, -2.0 / 16.0),
+    (-6.0 / 16.0, 2.0 / 16.0),
+    (2.0 / 16.0, 6.0 / 16.0),
+];
+
+pub(crate) fn svg_document(node: &ComponentNode, frame: RectF, sample: Option<Sample>) -> String {
     let props = &node.props;
     let mut attributes = format!(
         "xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\"",
@@ -232,13 +247,13 @@ fn svg_document(node: &ComponentNode, frame: RectF, cx: &App, sample: Option<Sam
     }
     let mut document = format!("<svg {attributes}>");
     for child in &node.children {
-        svg_node(child, cx, &mut document);
+        svg_node(child, &mut document);
     }
     document.push_str("</svg>");
     document
 }
 
-fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
+fn svg_node(node: &ComponentNode, output: &mut String) {
     let props = &node.props;
     let element = match node.component.as_str() {
         "RNSVGCircle" => "circle",
@@ -271,7 +286,7 @@ fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
     };
     if element.is_empty() {
         for child in &node.children {
-            svg_node(child, cx, output);
+            svg_node(child, output);
         }
         return;
     }
@@ -422,7 +437,7 @@ fn svg_node(node: &ComponentNode, cx: &App, output: &mut String) {
         }
     }
     for child in &node.children {
-        svg_node(child, cx, output);
+        svg_node(child, output);
     }
     output.push_str("</");
     output.push_str(element);
@@ -559,121 +574,6 @@ fn svg_number(value: f32) -> String {
     } else {
         value.to_string()
     }
-}
-
-/// Chrome rasterises with four coverage samples per pixel at these offsets (in
-/// pixels from the centre): the standard Direct3D 4x pattern. A pixel is
-/// therefore never covered by anything but 0, 1/4, 1/2, 3/4 or all, and the edge
-/// of an icon takes the same five steps here.
-const SAMPLE_OFFSETS: [(f32, f32); 4] = [
-    (-2.0 / 16.0, -6.0 / 16.0),
-    (6.0 / 16.0, -2.0 / 16.0),
-    (-6.0 / 16.0, 2.0 / 16.0),
-    (2.0 / 16.0, 6.0 / 16.0),
-];
-
-/// Draws the document at the window's scale, once per coverage sample without
-/// antialiasing, and averages the samples.
-fn sampled_image(
-    node: &ComponentNode,
-    frame: RectF,
-    scale: f32,
-    cx: &App,
-) -> Option<Arc<gpui::RenderImage>> {
-    let width = (frame.w * scale).round() as i32;
-    let height = (frame.h * scale).round() as i32;
-    if width < 1 || height < 1 {
-        return None;
-    }
-    let size = gpui::size(gpui::DevicePixels(width), gpui::DevicePixels(height));
-    let renderer = cx.svg_renderer();
-    let mut sum = vec![0f32; width as usize * height as usize * 4];
-    for (dx, dy) in SAMPLE_OFFSETS {
-        let document = svg_document(node, frame, cx, Some(Sample { dx, dy, scale }));
-        let parsed = renderer.parse_svg(document.as_bytes()).ok()?;
-        let rendered = renderer
-            .render_parsed(&parsed, gpui::SvgSize::ExactSize(size))
-            .ok()?;
-        let bytes = rendered.as_bytes(0)?;
-        if bytes.len() != sum.len() {
-            return None;
-        }
-        // BGRA with straight alpha; accumulate colour weighted by alpha.
-        for (total, pixel) in sum.chunks_exact_mut(4).zip(bytes.chunks_exact(4)) {
-            let alpha = f32::from(pixel[3]);
-            total[0] += f32::from(pixel[0]) * alpha;
-            total[1] += f32::from(pixel[1]) * alpha;
-            total[2] += f32::from(pixel[2]) * alpha;
-            total[3] += alpha;
-        }
-    }
-    let samples = SAMPLE_OFFSETS.len() as f32;
-    let mut out = Vec::with_capacity(sum.len());
-    for total in sum.chunks_exact(4) {
-        if total[3] <= 0.0 {
-            out.extend_from_slice(&[0, 0, 0, 0]);
-            continue;
-        }
-        let blue = (total[0] / total[3]).round().clamp(0.0, 255.0);
-        let green = (total[1] / total[3]).round().clamp(0.0, 255.0);
-        let red = (total[2] / total[3]).round().clamp(0.0, 255.0);
-        // Half coverage is 127.5 of 255, which the alpha channel cannot hold.
-        // Chrome blends the exact half, and the result then rounds away from
-        // the ink's own side: toward light under dark ink and toward dark
-        // under light ink, so the alpha rounds the other way to match.
-        let alpha = total[3] / samples;
-        let alpha = if (alpha.fract() - 0.5).abs() < 1e-3 {
-            let luma = 0.299 * red + 0.587 * green + 0.114 * blue;
-            if luma < 128.0 {
-                alpha.floor()
-            } else {
-                alpha.ceil()
-            }
-        } else {
-            alpha.round()
-        };
-        out.extend_from_slice(&[
-            blue as u8,
-            green as u8,
-            red as u8,
-            alpha.clamp(0.0, 255.0) as u8,
-        ]);
-    }
-    let buffer = image::ImageBuffer::from_raw(width as u32, height as u32, out)?;
-    Some(Arc::new(gpui::RenderImage::new(
-        smallvec::SmallVec::from_const([image::Frame::new(buffer)]),
-    )))
-}
-
-fn cached_svg_image(
-    node: &ComponentNode,
-    frame: RectF,
-    scale: f32,
-    cx: &App,
-) -> Option<Arc<gpui::RenderImage>> {
-    type SvgCache = HashMap<(u64, u32, u32, u32), Weak<gpui::RenderImage>>;
-    static CACHE: OnceLock<Mutex<SvgCache>> = OnceLock::new();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    svg_document(node, frame, cx, None).hash(&mut hasher);
-    let key = (
-        hasher.finish(),
-        frame.w.to_bits(),
-        frame.h.to_bits(),
-        scale.to_bits(),
-    );
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(image) = cache.get(&key).and_then(Weak::upgrade) {
-        return Some(image);
-    }
-    let image = sampled_image(node, frame, scale, cx)?;
-    cache.insert(key, Arc::downgrade(&image));
-    if cache.len() > 512 {
-        cache.retain(|_, image| image.strong_count() > 0);
-    }
-    Some(image)
 }
 
 #[cfg(test)]

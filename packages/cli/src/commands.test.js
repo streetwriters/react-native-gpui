@@ -6,6 +6,7 @@ import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 import {
+  runBundleHooks,
   assertReleaseExists,
   collectNodeAddons,
   gpuiVersionRange,
@@ -763,3 +764,38 @@ test.skipIf(process.platform === 'win32')(
     }
   },
 );
+
+test('runs the bundle hook of each autolinked package and collects what it ships', async () => {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'bundle-hook-'));
+  try {
+    const hook = nodePath.join(root, 'hook.cjs');
+    fs.writeFileSync(
+      hook,
+      "module.exports = async context => [require('node:path').join(context.bundleDir, 'workers')];\n",
+    );
+    fs.mkdirSync(nodePath.join(root, 'desktop', 'autolink'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      nodePath.join(root, 'desktop', 'autolink', 'autolink.json'),
+      JSON.stringify({ bundleHooks: [{ dependencyName: 'x', module: hook }] }),
+    );
+    const resources = await runBundleHooks({
+      projectRoot: root,
+      desktopRoot: nodePath.join(root, 'desktop'),
+      bundleDir: nodePath.join(root, 'desktop', 'build'),
+    });
+    expect(resources).toEqual([
+      nodePath.join(root, 'desktop', 'build', 'workers'),
+    ]);
+    expect(
+      await runBundleHooks({
+        projectRoot: root,
+        desktopRoot: nodePath.join(root, 'nothing'),
+        bundleDir: root,
+      }),
+    ).toEqual([]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

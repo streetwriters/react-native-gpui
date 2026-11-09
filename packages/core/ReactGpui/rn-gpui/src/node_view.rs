@@ -3028,7 +3028,10 @@ impl Render for RNNodeView {
         let has_native = self.native_surface_descendants > 0;
         if let Some(renderer) = crate::extensions::component_renderer(&self.component) {
             let node = self.renderer_node(&*renderer, cx);
-            if let Some(painted) = renderer.render(&node, window, cx) {
+            let handle = crate::extensions::NodeHandle::new(cx.entity().downgrade());
+            let painted =
+                crate::extensions::render_with_node(handle, || renderer.render(&node, window, cx));
+            if let Some(painted) = painted {
                 // The renderer paints the node's whole appearance, but core still
                 // owns where the node is: without this box the element is an
                 // unpositioned flow child of the parent, and a `size_full()`

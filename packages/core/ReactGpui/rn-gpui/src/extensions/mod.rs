@@ -42,6 +42,46 @@ impl ComponentNode {
     }
 }
 
+/// A handle on the node a renderer is drawing, for work that finishes later.
+///
+/// A renderer that rasterises or loads something in the background cannot call
+/// back into the node it was handed; this is how it asks for the node to be
+/// built and painted again once the work is done. It holds the node weakly, so a
+/// node that went away meanwhile is simply skipped.
+#[derive(Clone)]
+pub struct NodeHandle {
+    node: gpui::WeakEntity<crate::node_view::RNNodeView>,
+}
+
+impl NodeHandle {
+    pub(crate) fn new(node: gpui::WeakEntity<crate::node_view::RNNodeView>) -> Self {
+        Self { node }
+    }
+
+    /// Builds and paints the node again. Call it on the main thread.
+    pub fn notify(&self, cx: &mut App) {
+        let _ = self.node.update(cx, |_, cx| cx.notify());
+    }
+}
+
+thread_local! {
+    static RENDERING: std::cell::RefCell<Option<NodeHandle>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The node whose renderer is running on this thread, inside
+/// [`ComponentRenderer::render`]. `None` anywhere else.
+pub fn rendering_node() -> Option<NodeHandle> {
+    RENDERING.with(|current| current.borrow().clone())
+}
+
+pub(crate) fn render_with_node<R>(handle: NodeHandle, render: impl FnOnce() -> R) -> R {
+    let previous = RENDERING.with(|current| current.borrow_mut().replace(handle));
+    let result = render();
+    RENDERING.with(|current| *current.borrow_mut() = previous);
+    result
+}
+
 /// Where a node sits between two poses during a transition.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {

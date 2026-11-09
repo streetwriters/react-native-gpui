@@ -506,6 +506,7 @@ export async function runDesktop({
   // What the runtime loads: the plain Metro bundle, or the engine's compiled
   // format (`.hbc` bytecode, for example).
   let runtimeBundlePath = bundlePath;
+  let extraResources = [];
 
   // A debug build normally loads its JavaScript from Metro. The test driver has
   // no Metro, so a build made for it also writes the bundle it will load.
@@ -551,6 +552,14 @@ export async function runDesktop({
         compiled?.output ?? compiledPath,
       );
     }
+    extraResources = await runBundleHooks({
+      projectRoot,
+      desktopRoot,
+      bundleDir: path.dirname(bundlePath),
+      entryFile,
+      metroConfig: fs.existsSync(metroConfig) ? metroConfig : undefined,
+      engine: engineBundle,
+    });
   } else {
     const numericPort = Number(port);
     if (
@@ -675,7 +684,7 @@ export async function runDesktop({
 
   // The file the runtime was told to load: the engine's compiled output in a
   // release build, the Metro bundle otherwise. `package-desktop` stages it.
-  return { runtimeBundlePath, bundlePath };
+  return { runtimeBundlePath, bundlePath, extraResources };
 }
 
 const appPackageName = (projectRoot, packageJson) =>
@@ -1610,6 +1619,34 @@ function stripReleaseBinary({ crateDir, binaryName }) {
 }
 
 /**
+ * Runs the `bundleHook` of every autolinked package: a module that builds more
+ * of what the release ships, beside the app's bundle, for a library that needs
+ * its own script files (react-native-workers bundles each worker). A hook is
+ * called with `{ projectRoot, desktopRoot, bundleDir, entryFile, metroConfig,
+ * engine }` and returns the files or folders, as absolute paths, that go in the
+ * app's resource directory. Returns all of them.
+ */
+export async function runBundleHooks(context) {
+  const manifestPath = path.join(
+    context.desktopRoot,
+    'autolink',
+    'autolink.json',
+  );
+  if (!fs.existsSync(manifestPath)) return [];
+  const { bundleHooks = [] } = JSON.parse(
+    fs.readFileSync(manifestPath, 'utf8'),
+  );
+  const resources = [];
+  for (const hook of bundleHooks) {
+    const result = await createRequire(import.meta.url)(hook.module)(context);
+    for (const resource of result ?? []) {
+      resources.push(path.resolve(resource));
+    }
+  }
+  return resources;
+}
+
+/**
  * Copy the bundle a release should ship to `desktop/build/package/index.bundle`.
  *
  * One name, one file, and the content is whatever the engine produced. A
@@ -1633,6 +1670,12 @@ export function stageBundle({
     );
   }
   fs.copyFileSync(source, staged);
+  // What the packages' bundle hooks produced ships beside the bundle.
+  for (const resource of build?.extraResources ?? []) {
+    fs.cpSync(resource, path.join(packageDir, path.basename(resource)), {
+      recursive: true,
+    });
+  }
 
   if (!engine || typeof engine.compile !== 'function') {
     console.log(
@@ -1757,6 +1800,9 @@ export async function packageDesktop({
     os: desktopOs(process.platform),
     bundleDir: path.dirname(shippedBundle),
     assetsDir: path.join(buildDir, 'assets'),
+    extraResources: (build.extraResources ?? []).map(resource =>
+      path.join(path.dirname(shippedBundle), path.basename(resource)),
+    ),
     icons,
     libraries,
     formats,
