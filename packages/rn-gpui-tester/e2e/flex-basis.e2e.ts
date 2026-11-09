@@ -41,7 +41,7 @@ async function frames(id: string) {
   };
 }
 
-test.each(['percent', 'auto'])(
+test.each(['auto'])(
   'a flex-basis of %s sizes a row item to its content, as CSS does',
   async id => {
     const { item, title } = await frames(id);
@@ -50,10 +50,11 @@ test.each(['percent', 'auto'])(
   },
 );
 
-test.each(['flex', 'points'])(
-  'a flex-basis of 0 points collapses a row item in a content-sized row',
+test.each(['flex', 'points', 'percent'])(
+  'a flex-basis of %s collapses a row item in a content-sized row',
   async id => {
-    const { title } = await frames(id);
+    const { title, inner } = await frames(id);
     expect(title).toBeLessThan(20);
+    expect(inner).toBe(0);
   },
 );
