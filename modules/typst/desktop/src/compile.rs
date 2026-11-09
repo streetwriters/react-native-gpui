@@ -577,6 +577,27 @@ mod tests {
     }
 
     #[test]
+    fn system_fonts_load_only_when_the_source_needs_them() {
+        let mut plain = job("Hello world");
+        plain.system_fonts = SystemFonts::Auto;
+        let first = run(plain);
+        assert!(first.pdf.is_some());
+        let loaded_before = first.system_fonts_loaded;
+
+        let mut cjk = job("Hello \u{4f60}\u{597d}");
+        cjk.system_fonts = SystemFonts::Auto;
+        let started = Instant::now();
+        let outcome = run(cjk);
+        println!(
+            "system font scan and compile: {} ms",
+            started.elapsed().as_millis()
+        );
+        assert!(outcome.system_fonts_loaded);
+        assert!(outcome.pdf.is_some());
+        assert!(loaded_before <= outcome.system_fonts_loaded);
+    }
+
+    #[test]
     #[ignore]
     fn measure() {
         let dir = std::env::var("NOTE_DIR").unwrap();
