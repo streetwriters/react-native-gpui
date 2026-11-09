@@ -33,7 +33,9 @@ The engine needs `crypto.getRandomValues`, `AbortController` and `queueMicrotask
 
 ## Packaging
 
-The release bundle names the runtime addon, so `react-native-gpui collect-node-addons --bundle <bundle> --out <dir>` copies `pdf-runtime.node` and the `libembedpdf` library next to it into `<dir>/node_modules/@embedpdf/engine-runtime-<platform>/lib/`. Ship `<dir>` as `node-addons` beside the executable (`Resources/node-addons` in a macOS app). A signed macOS app has to re-sign both files with the app's identity or carry the `com.apple.security.cs.disable-library-validation` entitlement in `bundle.macos.entitlements`.
+The CLI collects the runtime addon and its `libembedpdf` library into `Resources/node-addons` when it packages or runs a release build; see Packaging in [Native Modules: Node addons](native-modules-node-addons).
+
+Signing the collected addon and library is a pending decision. The CLI can sign them with the app's identity when `APPLE_SIGNING_IDENTITY` is set, or the app can carry the `com.apple.security.cs.disable-library-validation` entitlement in `bundle.macos.entitlements` instead.
 
 `THIRD_PARTY_NOTICES.md` lists the licences of the components in the runtime; include it in the app's own notices.
 
