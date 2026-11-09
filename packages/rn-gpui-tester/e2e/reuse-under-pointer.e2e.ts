@@ -45,3 +45,34 @@ test('a React commit that changes one leaf does not rebuild the tree while the p
   expect(stats.layoutNodes).toBeGreaterThan(120);
   expect(stats.viewsBuilt / 5).toBeLessThan(40);
 });
+
+test('after a key the view painted over the pointer keeps the hover, not the one under it', async () => {
+  const [overlay] = await app.query('testID', 'overlay-above', true);
+  const [row] = await app.query('testID', 'overlay-row-inner', true);
+  const top = (await app.menuBarState()).inset;
+  await app.mouseMove({
+    x: overlay.frame.x + 30,
+    y: overlay.frame.y + 20 + top,
+  });
+  await app.waitForIdle();
+  const states = async (tag: number) => (await app.getProps(tag)).states;
+  expect(await states(overlay.tag)).toEqual(['hover']);
+  expect(await states(row.tag)).toEqual([]);
+  const [key] = await app.query('testID', 'reuse-key', true);
+  await app.focus(key.tag);
+  await app.press('a');
+  await app.press('a');
+  await app.waitForIdle();
+  expect(await states(overlay.tag)).toEqual(['hover']);
+  expect(await states(row.tag)).toEqual([]);
+});
+
+test('layoutStats reports the target lookups of the keyboard hover pass', async () => {
+  await app.layoutStats({ reset: true });
+  await app.press('a');
+  await app.waitForIdle();
+  const stats = await app.layoutStats({ reset: true });
+  expect(stats.targetAtCalls).toBeGreaterThan(0);
+  expect(stats.targetAtMs).toBeGreaterThanOrEqual(0);
+  expect(stats.targetAtMs / stats.targetAtCalls).toBeLessThan(5);
+});

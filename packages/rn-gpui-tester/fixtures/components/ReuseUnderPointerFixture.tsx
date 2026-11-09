@@ -15,6 +15,31 @@ export default function ReuseUnderPointerFixture() {
       >
         <Text testID="reuse-count">{String(count)}</Text>
       </View>
+      <View style={{ height: 40, marginVertical: 4 }}>
+        <View
+          testID="overlay-row"
+          hoverStyle={{ backgroundColor: '#ff0000' }}
+          style={{ height: 40, backgroundColor: '#dddddd' }}
+        >
+          <View
+            testID="overlay-row-inner"
+            hoverStyle={{ backgroundColor: '#ff8800' }}
+            style={{ height: 40, backgroundColor: '#eeeeee' }}
+          />
+        </View>
+        <View
+          testID="overlay-above"
+          hoverStyle={{ backgroundColor: '#0000ff' }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: 120,
+            height: 40,
+            backgroundColor: '#cccccc',
+          }}
+        />
+      </View>
       {rows.map(row => (
         <View
           key={row}

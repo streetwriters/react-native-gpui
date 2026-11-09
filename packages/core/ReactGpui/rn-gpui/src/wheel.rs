@@ -158,19 +158,65 @@ fn clipped_out(node: &Entity<RNNodeView>, page: Point<gpui::Pixels>, cx: &App) -
     false
 }
 
-fn depth(node: &Entity<RNNodeView>, cx: &App) -> usize {
-    let mut depth = 0;
-    let mut parent = node.read(cx).parent.clone();
-    while let Some(next) = parent.and_then(|weak| weak.upgrade()) {
-        depth += 1;
-        parent = next.read(cx).parent.clone();
+/// Where a node sits in paint order: its index among its siblings at each level,
+/// from the root. A later sibling paints over an earlier one, and a node over its
+/// ancestors, which is how the vectors compare.
+fn paint_path(node: &Entity<RNNodeView>, cx: &App) -> Vec<usize> {
+    let mut path = Vec::new();
+    let mut current = node.clone();
+    loop {
+        let parent = current
+            .read(cx)
+            .parent
+            .clone()
+            .and_then(|weak| weak.upgrade());
+        let Some(parent) = parent else {
+            break;
+        };
+        let tag = current.read(cx).tag;
+        let index = parent
+            .read(cx)
+            .children
+            .iter()
+            .position(|(child, _)| *child == tag)
+            .unwrap_or(0);
+        path.push(index);
+        current = parent;
     }
-    depth
+    path.reverse();
+    path
+}
+
+static TARGET_AT_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TARGET_AT_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The calls to `target_at` and the time they took, in milliseconds, since the
+/// last reset.
+pub(crate) fn target_at_stats(reset: bool) -> (u64, f64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (calls, nanos) = if reset {
+        (
+            TARGET_AT_CALLS.swap(0, Relaxed),
+            TARGET_AT_NANOS.swap(0, Relaxed),
+        )
+    } else {
+        (TARGET_AT_CALLS.load(Relaxed), TARGET_AT_NANOS.load(Relaxed))
+    };
+    (calls, nanos as f64 / 1_000_000.0)
 }
 
 /// The target under a window position, found from the nodes' frames, their
 /// scroll offsets and the clips of their ancestors.
 pub(crate) fn target_at(cx: &App, position: Point<gpui::Pixels>) -> Option<Target> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let started = std::time::Instant::now();
+    let target = find_target(cx, position);
+    TARGET_AT_CALLS.fetch_add(1, Relaxed);
+    TARGET_AT_NANOS.fetch_add(started.elapsed().as_nanos() as u64, Relaxed);
+    target
+}
+
+fn find_target(cx: &App, position: Point<gpui::Pixels>) -> Option<Target> {
     let store = store_from(cx)?;
     let store = store.read(cx);
     let conversion = store
@@ -178,8 +224,8 @@ pub(crate) fn target_at(cx: &App, position: Point<gpui::Pixels>) -> Option<Targe
         .values()
         .find_map(|node| events::target(cx, node.read(cx)))?;
     let page = conversion.page(position);
-    let mut hit: Option<(usize, i32, Entity<RNNodeView>)> = None;
-    for (tag, entity) in &store.nodes {
+    let mut hit: Option<(Vec<usize>, Entity<RNNodeView>)> = None;
+    for entity in store.nodes.values() {
         let node = entity.read(cx);
         if node.view.display_none {
             continue;
@@ -187,14 +233,12 @@ pub(crate) fn target_at(cx: &App, position: Point<gpui::Pixels>) -> Option<Targe
         if !contains(node, page, cx) || clipped_out(entity, page, cx) {
             continue;
         }
-        let depth = depth(entity, cx);
-        if hit.as_ref().map_or(true, |(best, best_tag, _)| {
-            (depth, *tag) > (*best, *best_tag)
-        }) {
-            hit = Some((depth, *tag, entity.clone()));
+        let path = paint_path(entity, cx);
+        if hit.as_ref().map_or(true, |(best, _)| path > *best) {
+            hit = Some((path, entity.clone()));
         }
     }
-    let (_, _, entity) = hit?;
+    let (_, entity) = hit?;
     events::target(cx, entity.read(cx))
 }
 
