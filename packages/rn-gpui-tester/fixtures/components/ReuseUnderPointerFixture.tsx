@@ -6,6 +6,7 @@ const rows = Array.from({ length: 60 }, (_, index) => index);
 export default function ReuseUnderPointerFixture() {
   const [count, setCount] = useState(0);
   const [query, setQuery] = useState('');
+  const [mounted, setMounted] = useState(0);
   return (
     <View style={{ padding: 8 }}>
       <View
@@ -16,6 +17,18 @@ export default function ReuseUnderPointerFixture() {
       >
         <Text testID="reuse-count">{String(count)}</Text>
       </View>
+      <View
+        testID="reuse-mount"
+        focusable
+        onKeyDown={() => setMounted(value => (value === 0 ? 1000 : 0))}
+        style={{ height: 1 }}
+      />
+      {Array.from({ length: mounted }, (_, index) => (
+        <View
+          key={`mounted-${index}`}
+          style={{ position: 'absolute', width: 1, height: 1 }}
+        />
+      ))}
       <TextInput
         testID="reuse-input"
         value={query}
