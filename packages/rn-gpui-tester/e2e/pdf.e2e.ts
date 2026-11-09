@@ -155,3 +155,29 @@ test('an encrypted document asks for a password and opens after the right one', 
   await until(async () => /^ready page 1\/1/u.test(await stateText()));
   await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
 });
+
+test('search finds and reveals matches, and a double-click selects a word', async () => {
+  await launchViewer(30);
+  await until(async () => /^ready page 1\/30/u.test(await stateText()), 20000);
+
+  await app.getByTestId('search-page-2').click();
+  await until(async () => /hits 11 complete/u.test(await stateText()));
+  await until(async () => /page [23]\/30/u.test(await stateText()));
+  await app.getByTestId('next-hit').click();
+  await until(async () =>
+    /page 2[0-9]\/30|page 3\/30/u.test(await stateText()),
+  );
+
+  await app.getByTestId('fit-width').click();
+  await app.getByTestId('page-3').click();
+  await app.getByTestId('fit-width').click();
+  await until(async () => /page 3\/30/u.test(await stateText()));
+  await app.getByTestId('pdf-page-3').click();
+  await app.getByTestId('pdf-page-3').click();
+  await app.getByTestId('read-selection').click();
+  await new Promise(resolve => setTimeout(resolve, 500));
+  await until(async () => {
+    const text = (await app.query('testID', 'pdf-selected', true))[0]?.text;
+    return text === 'Page' || text === 'Page ';
+  });
+});

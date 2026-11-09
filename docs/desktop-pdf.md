@@ -52,3 +52,13 @@ const id = tileIdOf(image.source.bytes);
 ## Random bytes
 
 The engine names documents with random ids from `crypto.getRandomValues`, which it reads from the global. This module never installs or replaces anything on `crypto`: the app installs a secure implementation at startup, for example `import '@react-native-gpui/crypto'`, and `createPdfEngine` throws if there is none.
+
+## Viewer
+
+```js
+import { PdfViewer } from '@react-native-gpui/pdf';
+
+<PdfViewer source={{ path }} controllerRef={ref} onStateChange={setState} />;
+```
+
+`controllerRef` gives `zoomIn`, `zoomOut`, `setZoom`, `fitWidth`, `fitPage`, `goToPage`, `unlock`, `search`, `nextHit`, `previousHit`, `clearSearch`, `getSelectedText`, `clearSelection` and `download`. `onStateChange` reports the status (`loading`, `locked`, `ready`, `error`), page, page count, zoom and the search state. Drag selects text, a double-click selects a word and a triple-click a line.

@@ -17,7 +17,7 @@ function buildPdf(pageCount: number): Uint8Array {
   for (let page = 0; page < pageCount; page++) {
     const pageObject = objects.length + 1;
     kids.push(`${pageObject} 0 R`);
-    const content = `BT /F1 48 Tf 72 700 Td (Page ${page + 1}) Tj ET 0.2 0.4 0.9 rg 72 400 ${100 + (page % 5) * 60} 120 re f`;
+    const content = `BT /F1 48 Tf 240 560 Td (Page ${page + 1}) Tj ET 0.2 0.4 0.9 rg 72 400 ${100 + (page % 5) * 60} 120 re f`;
     objects.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageObject + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
     );
@@ -74,6 +74,7 @@ export default function PdfViewerFixture({
   const controller = useRef<PdfViewerController>(null);
   const [state, setState] = useState<PdfViewerState | null>(null);
   const [stats, setStats] = useState('');
+  const [selected, setSelected] = useState('');
   useEffect(() => {
     if (budget) {
       const {
@@ -107,10 +108,22 @@ export default function PdfViewerFixture({
           id="unlock"
           onPress={() => void controller.current?.unlock('1234')}
         />
+        <Button
+          id="search-page-2"
+          onPress={() => void controller.current?.search('Page 2')}
+        />
+        <Button id="next-hit" onPress={() => controller.current?.nextHit()} />
+        <Button
+          id="read-selection"
+          onPress={() =>
+            void controller.current?.getSelectedText().then(setSelected)
+          }
+        />
+        <Text testID="pdf-selected">{selected}</Text>
         <Button id="page-3" onPress={() => controller.current?.goToPage(3)} />
         <Text testID="pdf-state">
           {state
-            ? `${state.status} page ${state.page}/${state.pageCount} zoom ${state.zoom.toFixed(2)}${state.error ? ` ${state.error}` : ''}`
+            ? `${state.status} page ${state.page}/${state.pageCount} zoom ${state.zoom.toFixed(2)} hits ${state.search.hits} ${state.search.status} active ${state.search.active} on ${state.search.activePage}${state.error ? ` ${state.error}` : ''}`
             : 'none'}
         </Text>
         <Text testID="pdf-stats">{stats}</Text>

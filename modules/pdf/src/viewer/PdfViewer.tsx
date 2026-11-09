@@ -18,7 +18,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 import type { PageInfo } from '@embedpdf/core';
+import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import { PageView } from './PageView';
+import { useSearch, type SearchState } from './search';
 import { createPdfSession, type PdfSession } from './session';
 import {
   clampZoom,
@@ -40,6 +42,7 @@ export interface PdfViewerState {
   zoom: number;
   fit: PdfFit;
   passwordIncorrect: boolean;
+  search: SearchState;
   error?: string;
 }
 
@@ -51,6 +54,12 @@ export interface PdfViewerController {
   fitPage(): void;
   goToPage(page: number): void;
   unlock(password: string): Promise<void>;
+  search(query: string, options?: { matchCase?: boolean }): Promise<void>;
+  nextHit(): void;
+  previousHit(): void;
+  clearSearch(): void;
+  getSelectedText(): Promise<string>;
+  clearSelection(): void;
   download(): Promise<Uint8Array>;
   getState(): PdfViewerState;
 }
@@ -90,6 +99,16 @@ export function PdfViewer({
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [offset, setOffset] = useState(0);
   const scroller = useRef<ScrollViewInstance>(null);
+  const found = useSearch(session.kernel, documentId);
+  const [selectionVersion, setSelectionVersion] = useState(0);
+  useEffect(() => {
+    if (!documentId) return;
+    const selection = session.kernel.tryCapability(SelectionToken, documentId);
+    if (!selection) return;
+    const bump = () => setSelectionVersion(previous => previous + 1);
+    const stops = [selection.onChanged(bump), selection.onCleared(bump)];
+    return () => stops.forEach(stop => stop());
+  }, [session, documentId]);
   const latest = useRef({ zoom, offset, viewport });
   latest.current = { zoom, offset, viewport };
 
@@ -163,6 +182,7 @@ export function PdfViewer({
     zoom,
     fit,
     passwordIncorrect: incorrect,
+    search: found.state,
     error,
   };
   const stateRef = useRef(state);
@@ -178,6 +198,7 @@ export function PdfViewer({
     fit,
     incorrect,
     error,
+    found.state,
     onStateChange,
   ]);
 
@@ -191,6 +212,27 @@ export function PdfViewer({
       animated: false,
     });
   }, []);
+
+  const revealHit = useCallback(
+    (pageIndex: number, y: number) => {
+      const box = layout.boxes[pageIndex];
+      if (!box) return;
+      scroller.current?.scrollTo({
+        y: Math.max(
+          0,
+          box.top + y * zoom - latest.current.viewport.height * 0.35,
+        ),
+        animated: false,
+      });
+    },
+    [layout, zoom],
+  );
+
+  useEffect(() => {
+    const hit = found.capability?.getActiveHit();
+    if (hit) revealHit(hit.pageIndex, hit.bounds?.y ?? 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reveal only when the active hit changes
+  }, [found.state.active, found.state.activePage, found.capability]);
 
   const controller = useMemo<PdfViewerController>(
     () => ({
@@ -217,9 +259,33 @@ export function PdfViewer({
       },
       download: () =>
         session.kernel.documents.download(documentId ?? undefined),
+      search: async (query, options) => {
+        await found.capability?.search({ text: query, ...options });
+      },
+      nextHit: () => {
+        found.capability?.nextHit();
+      },
+      previousHit: () => {
+        found.capability?.previousHit();
+      },
+      clearSearch: () => found.capability?.clear(),
+      getSelectedText: async () => {
+        if (!documentId) return '';
+        const selection = session.kernel.tryCapability(
+          SelectionToken,
+          documentId,
+        );
+        return selection && selection.hasSelection()
+          ? selection.readText()
+          : '';
+      },
+      clearSelection: () => {
+        if (!documentId) return;
+        session.kernel.tryCapability(SelectionToken, documentId)?.clear();
+      },
       getState: () => stateRef.current,
     }),
-    [changeZoom, layout, documentId, session, load],
+    [changeZoom, layout, documentId, session, load, found.capability],
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);
 
@@ -274,6 +340,9 @@ export function PdfViewer({
                       page={page}
                       zoom={zoom}
                       background={pageBackground}
+                      hits={found.hitsOn(page.ref)}
+                      activeHit={found.capability?.getActiveHit() ?? null}
+                      selectionVersion={selectionVersion}
                       visible={{
                         top: offset - box.top,
                         bottom: offset + viewport.height - box.top,

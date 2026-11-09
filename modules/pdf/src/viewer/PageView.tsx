@@ -2,11 +2,14 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
-import { PixelRatio, View } from 'react-native';
+import { PixelRatio, View, type PointerEvent } from 'react-native';
 import type { Kernel, PageInfo, PageRef } from '@embedpdf/core';
+import type { SearchHit } from '@embedpdf/plugin-search';
+import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import {
   RenderToken,
   type ViewDemand,
@@ -21,6 +24,9 @@ interface Props {
   zoom: number;
   visible: { top: number; bottom: number };
   background?: string;
+  hits: readonly SearchHit[];
+  activeHit: SearchHit | null;
+  selectionVersion: number;
 }
 
 function tileOf(handle: { source: { kind: string; bytes?: Uint8Array } }) {
@@ -70,6 +76,9 @@ export function PageView({
   zoom,
   visible,
   background = '#ffffff',
+  hits,
+  activeHit,
+  selectionVersion,
 }: Props) {
   const render = kernel.capability(RenderToken, documentId);
   const dpr = PixelRatio.get();
@@ -104,6 +113,57 @@ export function PageView({
   const subscribe = useMemo(() => kernel.subscribe.bind(kernel), [kernel]);
   const plan = useSyncExternalStore(subscribe, () => view.getPlan(page.ref));
 
+  const selection = kernel.tryCapability(SelectionToken, documentId);
+  const selectionRects = selection ? selection.listRects(page.ref) : [];
+  void selectionVersion;
+  const pressed = useRef(false);
+  const lastDown = useRef({ time: 0, x: 0, y: 0, count: 0 });
+  const at = (event: PointerEvent) => ({
+    x: event.nativeEvent.offsetX / zoom,
+    y: event.nativeEvent.offsetY / zoom,
+  });
+  const responder = selection
+    ? {
+        onPointerDown: (event: PointerEvent) => {
+          const point = at(event);
+          const now = Date.now();
+          const last = lastDown.current;
+          const clicks =
+            now - last.time < 450 &&
+            Math.hypot(point.x - last.x, point.y - last.y) < 4
+              ? last.count + 1
+              : 1;
+          lastDown.current = {
+            time: now,
+            x: point.x,
+            y: point.y,
+            count: clicks,
+          };
+          pressed.current = clicks < 2;
+          const act = () => {
+            if (clicks >= 3) selection.selectLineAt(page.ref, point);
+            else if (clicks === 2) {
+              selection.selectWordAt(page.ref, point);
+            } else {
+              selection.clear();
+              selection.beginGestureAt(page.ref, point);
+            }
+          };
+          if (selection.isLoaded(page.ref)) act();
+          else void selection.ensureLoaded(page.ref).then(act);
+        },
+        onPointerMove: (event: PointerEvent) => {
+          if (!pressed.current) return;
+          selection.extendTo(page.ref, at(event));
+        },
+        onPointerUp: () => {
+          if (!pressed.current) return;
+          pressed.current = false;
+          selection.endGesture();
+        },
+      }
+    : {};
+
   const scale = (width * dpr) / page.size.width;
   const key = render.getSourceKey(page.ref, { scale, view: viewId });
   const [base, setBase] = useState<number | null>(null);
@@ -125,7 +185,7 @@ export function PageView({
 
   return (
     <View
-      pointerEvents="none"
+      {...responder}
       style={{ width, height, backgroundColor: background, overflow: 'hidden' }}
     >
       {base !== null ? (
@@ -134,6 +194,41 @@ export function PageView({
           style={{ position: 'absolute', left: 0, top: 0, width, height }}
         />
       ) : null}
+      {hits.map((hit, index) =>
+        hit.segments.map((segment, part) => (
+          <View
+            key={`${index}:${part}`}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: segment.rect.x * zoom,
+              top: segment.rect.y * zoom,
+              width: segment.rect.width * zoom,
+              height: segment.rect.height * zoom,
+              backgroundColor:
+                hit === activeHit
+                  ? 'rgba(255, 140, 0, 0.5)'
+                  : 'rgba(255, 214, 0, 0.4)',
+              zIndex: 1000,
+            }}
+          />
+        )),
+      )}
+      {selectionRects.map((rect, index) => (
+        <View
+          key={`selection:${index}`}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: rect.x * zoom,
+            top: rect.y * zoom,
+            width: rect.width * zoom,
+            height: rect.height * zoom,
+            backgroundColor: 'rgba(37, 99, 235, 0.3)',
+            zIndex: 1001,
+          }}
+        />
+      ))}
       {plan.paint.map(entry => {
         const id = tileOf(entry.handle);
         if (id === null) return null;

@@ -14,3 +14,4 @@ All notable changes to `@react-native-gpui/pdf` are listed here. Each version's 
 - `PdfViewer`: a virtualised, continuous page view whose pages are drawn from the render plugin's tile plan by native `PdfTile` views, with zoom (in, out, fit width, fit page), page navigation, an unlock flow and download, driven through a controller ref.
 - Tile handles report the size of the bitmap they stand for, so the render plugin's raster store evicts them like pixel data.
 - Fix: the module no longer defines `crypto.getRandomValues`. `createPdfEngine` throws when the app has not installed a secure one, and `queueMicrotask` and `performance.now` are only added when missing.
+- `PdfViewer` search (`search`, `nextHit`, `previousHit`, `clearSearch`, with hit highlights and the active hit revealed) and text selection (drag, double-click for a word, triple-click for a line, `getSelectedText`, `clearSelection`), through EmbedPDF's search and selection plugins.

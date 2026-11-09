@@ -6205,7 +6205,6 @@ dependencies = [
 name = "rn-gpui-tester"
 version = "0.1.0"
 dependencies = [
- "aes-kw",
  "gpui",
  "react-native-gpui",
  "rn-gpui-autolink",
