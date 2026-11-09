@@ -1,12 +1,19 @@
 /**
  * A row item with an inner row that grows from a basis of nothing, inside the
- * row wrappers of the app's real chain: how wide is the item?
+ * row wrappers of the app's real chain: how wide is the item? With text, and
+ * with a box of a fixed width, which a browser measures exactly.
  *
  * @format
  */
 
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  experimental_LayoutConformance as LayoutConformance,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 
 const INNER: [string, object][] = [
   ['flex', { flex: 1 }],
@@ -15,7 +22,15 @@ const INNER: [string, object][] = [
   ['auto', { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' }],
 ];
 
-function Item({ id, inner }: { id: string; inner: object }) {
+function Item({
+  id,
+  inner,
+  box,
+}: {
+  id: string;
+  inner: object;
+  box?: boolean;
+}) {
   return (
     <View
       testID={`${id}-outer`}
@@ -38,13 +53,25 @@ function Item({ id, inner }: { id: string; inner: object }) {
             <View
               style={{ width: 13, height: 13, backgroundColor: '#3b82f6' }}
             />
-            <Text
-              testID={`${id}-title`}
-              numberOfLines={1}
-              style={{ marginLeft: 6 }}
-            >
-              A navigation item title
-            </Text>
+            {box ? (
+              <View
+                testID={`${id}-title`}
+                style={{
+                  width: 140,
+                  height: 14,
+                  marginLeft: 6,
+                  backgroundColor: '#999',
+                }}
+              />
+            ) : (
+              <Text
+                testID={`${id}-title`}
+                numberOfLines={1}
+                style={{ marginLeft: 6 }}
+              >
+                A navigation item title
+              </Text>
+            )}
           </View>
         </Pressable>
       </View>
@@ -52,14 +79,22 @@ function Item({ id, inner }: { id: string; inner: object }) {
   );
 }
 
-export default function FlexBasisFixture() {
-  return (
+export default function FlexBasisFixture({ strict }: { strict?: boolean }) {
+  const rows = (
     <ScrollView style={{ width: 400, height: 400 }}>
       <View testID="basis-column">
         {INNER.map(([id, inner]) => (
           <Item key={id} id={id} inner={inner} />
         ))}
+        {INNER.map(([id, inner]) => (
+          <Item key={id} id={`box-${id}`} inner={inner} box />
+        ))}
       </View>
     </ScrollView>
+  );
+  return strict ? (
+    <LayoutConformance mode="strict">{rows}</LayoutConformance>
+  ) : (
+    rows
   );
 }

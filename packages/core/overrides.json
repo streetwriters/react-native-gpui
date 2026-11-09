@@ -94,6 +94,34 @@
     },
     {
       "type": "patch",
+      "file": "ReactCommonOverrides/yoga/algorithm/CalculateLayout.cpp",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/algorithm/CalculateLayout.cpp",
+      "baseHash": "e9d62492daae89288c04d4ff11756257ae3e43a0",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/YGEnums.h",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/YGEnums.h",
+      "baseHash": "f96abdf2f58c960d3e82d0343733c18e9370c27c",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/YGEnums.cpp",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/YGEnums.cpp",
+      "baseHash": "1e823138684a1381fcd0a042a0b286d8413da589",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/enums/Errata.h",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/enums/Errata.h",
+      "baseHash": "5f59ab16a4b39d4e4452263ce78b1bf6a8a6d93a",
+      "issue": 0
+    },
+    {
+      "type": "patch",
       "file": "ReactCommonOverrides/react/renderer/components/view/HostPlatformViewProps.h",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/HostPlatformViewProps.h",
       "baseHash": "9c378b43b42022f3769b9fa788a353bf387ab391",

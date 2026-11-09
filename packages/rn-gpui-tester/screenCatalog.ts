@@ -132,6 +132,12 @@ export const screens = [
     fixture: 'FlexBasisFixture',
   },
   {
+    id: 'flex-basis-strict',
+    title: 'Flex basis, strict conformance',
+    group: 'Views',
+    fixture: 'FlexBasisStrictFixture',
+  },
+  {
     id: 'scrollbar-drag',
     title: 'Scroll bar drag',
     group: 'Views',

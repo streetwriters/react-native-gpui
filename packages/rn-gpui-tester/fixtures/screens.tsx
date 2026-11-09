@@ -314,6 +314,11 @@ export const renderScreen: Record<
       require('./components/FlexBasisFixture').default,
       props,
     ),
+  'flex-basis-strict': props =>
+    React.createElement(
+      require('./components/FlexBasisStrictFixture').default,
+      props,
+    ),
   'scrollbar-drag': props =>
     React.createElement(
       require('./components/ScrollBarDragFixture').default,
