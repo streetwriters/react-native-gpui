@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `onPointerMove` during a left press reports `buttons: 1`, as the web does while a button is held. It reported `0`, so a handler that tests the held button to tell a drag from a hover saw none. Needs a prebuilt runtime built with the change.
 - `View` takes `onWheel` and `onWheelCapture`, the web's wheel event for the mouse wheel and the trackpad: `deltaX`, `deltaY` and `deltaZ` with the web's signs, `deltaMode` (pixels at full precision for a trackpad, lines for a mouse wheel), `isTrackpad`, `phase` and `momentum` for a trackpad gesture, the modifier keys, the pointer position and `timestamp`. A trackpad pinch arrives as a wheel event with `ctrlKey` and the zoom in `deltaY`, and shift with a mouse wheel gives `deltaX`, as in a browser. The event bubbles; `preventDefault()` or `stopPropagation()` keeps a parent `ScrollView` from scrolling, and a view with no wheel handler on its path scrolls at once. Events are delivered in order and none is dropped. Needs a prebuilt runtime built with the change.
 - The keyboard focus ring of a focusable view follows its `borderRadius`, as Chromium's does. Needs a prebuilt runtime built with the change.
 - A solid `outline` follows the view's `borderRadius`, as CSS does: the ring is rounded, with the border radius plus `outlineOffset` as its inner radius, and a corner with no radius stays square. The square ring also had a notch in each outer corner, now filled. Needs a prebuilt runtime built with the change.

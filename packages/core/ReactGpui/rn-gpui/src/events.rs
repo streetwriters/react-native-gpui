@@ -639,8 +639,8 @@ pub fn send(
                     tag,
                     position,
                     location,
-                    button,
-                    button.map_or(0, Button::mask),
+                    None,
+                    Button::Left.mask(),
                     modifiers,
                 ),
             );

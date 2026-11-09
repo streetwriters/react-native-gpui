@@ -120,6 +120,12 @@ export const screens = [
     fixture: 'RoundedClipFixture',
   },
   {
+    id: 'scroll-pointer',
+    title: 'Pointer drag in a ScrollView',
+    group: 'Input',
+    fixture: 'ScrollPointerFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',
