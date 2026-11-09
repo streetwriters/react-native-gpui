@@ -138,6 +138,12 @@ export const screens = [
     fixture: 'SortableDragFixture',
   },
   {
+    id: 'scroll-remount',
+    title: 'ScrollView remounted with a new key',
+    group: 'Views',
+    fixture: 'ScrollRemountFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',
