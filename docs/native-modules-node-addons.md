@@ -48,7 +48,11 @@ The plugin removes the loader instead of running it, because most loaders need N
 
 ## Packaging
 
-`package-desktop` copies the addons that the release bundle loads next to the executable. To do this on your own, run:
+`run-desktop --release` and `package-desktop` collect the addons that the release bundle loads on their own, into `desktop/build/node-addons`, and keep the folder name when they ship it: `Resources/node-addons` in a macOS `.app`. A release run puts the folder next to the executable. Each `.node` file keeps its key path, and the shared libraries that sit next to it stay next to it, so an `@loader_path` or `$ORIGIN` lookup finds them. A debug build keeps loading from the path in the bundle and collects nothing. The build fails when a path in the bundle no longer exists.
+
+On macOS the hardened runtime refuses an addon or a library that is not signed. When `APPLE_SIGNING_IDENTITY` is set, the release build signs each collected `.node` and `.dylib` with that identity, the one it signs the app with. Without it nothing is signed. Linux and Windows collect the addons too, and only macOS has been checked in a packaged app so far.
+
+To collect the addons on your own, run:
 
 ```shell
 npx react-native collect-node-addons --bundle build/index.bundle --out build/node-addons

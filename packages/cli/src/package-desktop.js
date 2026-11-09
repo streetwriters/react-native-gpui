@@ -642,6 +642,7 @@ export function toPackagerConfig(config, build) {
     binaryName,
     bundleDir,
     assetsDir,
+    nodeAddonsDir,
     icons = [],
     libraries = [],
     formats,
@@ -672,6 +673,13 @@ export function toPackagerConfig(config, build) {
   }
   if (assetsDir !== undefined && fs.existsSync(assetsDir)) {
     resources.push(relative(assetsDir));
+  }
+  // Node addons keep their folder name, `node-addons`, and the libraries stay
+  // beside the addon that loads them: the runtime looks in
+  // `Resources/node-addons/<key>` on macOS and `node-addons/<key>` beside the
+  // executable elsewhere.
+  if (nodeAddonsDir !== undefined && fs.existsSync(nodeAddonsDir)) {
+    resources.push({ src: relative(nodeAddonsDir), target: 'node-addons' });
   }
   // On Windows the runtime DLLs are already staged beside the executable by the
   // app's build.rs, and the loader looks there — but NSIS installs only the

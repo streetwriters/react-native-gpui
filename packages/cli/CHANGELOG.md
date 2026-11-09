@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `run-desktop --release` and `package-desktop` collect the Node addons the release bundle loads into `desktop/build/node-addons` without a separate `collect-node-addons` step. A release run copies them beside the executable, and a packaged macOS app ships them as `Resources/node-addons`, with each shared library beside its addon. When `APPLE_SIGNING_IDENTITY` is set on macOS, the collected `.node` and `.dylib` files are signed with it, as the app is. A debug build collects nothing.
 - `desktop.json` accepts `window.visible`, which starts the main window hidden until the app shows it.
 - Autolink records the window options and flags of `desktop/desktop.json`, merged with the per-OS file, in the generated autolink crate, and `ensure_linked()` hands them to the runtime, so `window.titleBar`, `window.trafficLightPosition` and the other window keys apply to a hand-written `main.rs` without running `init-desktop` again.
 - `package-desktop` tells the engine which build it packages, so a release app ships the Hermes VM without the debugger.

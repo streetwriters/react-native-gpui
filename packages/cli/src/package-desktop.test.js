@@ -294,6 +294,27 @@ describe('toPackagerConfig', () => {
     expect(config.resources).toEqual(['build/index.bundle', 'build/assets']);
   });
 
+  test('collected Node addons ship as the node-addons resource folder', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-gpui-res-'));
+    roots.push(root);
+    const crateDir = path.join(root, 'desktop');
+    const addons = path.join(crateDir, 'build', 'node-addons');
+    fs.mkdirSync(addons, { recursive: true });
+    fs.writeFileSync(path.join(crateDir, 'build', 'index.bundle'), 'x');
+    const config = toPackagerConfig(
+      desktopConfig(),
+      build({
+        crateDir,
+        bundleDir: path.join(crateDir, 'build'),
+        nodeAddonsDir: addons,
+      }),
+    );
+    expect(config.resources).toEqual([
+      'build/index.bundle',
+      { src: 'build/node-addons', target: 'node-addons' },
+    ]);
+  });
+
   test('a missing staged bundle is an error, not a silent omission', () => {
     // A package without its bundle starts and then dies on a machine with no
     // build tree, so the failure belongs here rather than at first launch.

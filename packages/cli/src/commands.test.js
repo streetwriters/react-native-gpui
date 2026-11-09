@@ -19,6 +19,7 @@ import {
   runPackager,
   scanNodeAddonCalls,
   scaffoldDesktop,
+  signCollectedNodeAddons,
   stageBundle,
 } from './commands.js';
 
@@ -763,3 +764,38 @@ test.skipIf(process.platform === 'win32')(
     }
   },
 );
+
+test('collected addons and their libraries are signed with the given identity on macOS only', () => {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rn-gpui-sign-'));
+  temporaryRoots.push(root);
+  const lib = nodePath.join(root, 'node_modules', 'pkg', 'lib');
+  fs.mkdirSync(lib, { recursive: true });
+  fs.writeFileSync(nodePath.join(lib, 'a.node'), '');
+  fs.writeFileSync(nodePath.join(lib, 'libb.dylib'), '');
+  fs.writeFileSync(nodePath.join(lib, 'readme.txt'), '');
+  const calls = [];
+  const exec = (command, args) => calls.push([command, ...args]);
+  signCollectedNodeAddons({
+    directory: root,
+    identity: 'ID',
+    platform: 'darwin',
+    exec,
+  });
+  expect(calls.map(call => call.slice(0, 4))).toEqual([
+    ['codesign', '--force', '--sign', 'ID'],
+    ['codesign', '--force', '--sign', 'ID'],
+  ]);
+  expect(calls.map(call => nodePath.basename(call[4])).sort()).toEqual([
+    'a.node',
+    'libb.dylib',
+  ]);
+  calls.length = 0;
+  signCollectedNodeAddons({ directory: root, platform: 'darwin', exec });
+  signCollectedNodeAddons({
+    directory: root,
+    identity: 'ID',
+    platform: 'linux',
+    exec,
+  });
+  expect(calls).toEqual([]);
+});
