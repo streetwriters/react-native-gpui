@@ -329,6 +329,11 @@ export const renderScreen: Record<
       require('./components/AppShortcutFixture').default,
       props,
     ),
+  'hidden-start': props =>
+    React.createElement(
+      require('./components/HiddenStartFixture').default,
+      props,
+    ),
   stretch: props =>
     React.createElement(require('./components/StretchFixture').default, props),
   tooltip: props =>

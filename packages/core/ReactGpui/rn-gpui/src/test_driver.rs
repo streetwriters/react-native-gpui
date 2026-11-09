@@ -309,6 +309,11 @@ async fn serve_commands(
                 })
                 .unwrap_or_else(|error| json!({"error": error.to_string()}))
             }
+            "windowAlpha" => cx
+                .update_window(window, |_, window, _| {
+                    json!({"alpha": crate::desktop::platform_window::window_alpha(window)})
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "tooltip" => {
                 let active = crate::tooltip::active();
                 #[cfg(target_os = "macos")]

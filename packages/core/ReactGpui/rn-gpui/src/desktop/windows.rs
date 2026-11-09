@@ -654,12 +654,24 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
 /// mirror, as `open_window` does for the windows it creates. The main window
 /// resizes the store through its own observer in `bootstrap`, so this only
 /// reports.
+static MAIN_STARTED_HIDDEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The main window was opened without being shown (`window.visible: false` or
+/// `--hidden`), so it reports itself as not visible until it is shown.
+pub fn note_main_started_hidden() {
+    MAIN_STARTED_HIDDEN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     let Some(handle) = handle.downcast::<SurfaceRootView>() else {
         return;
     };
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
+    }
+    if MAIN_STARTED_HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
     }
     super::app_state::schedule(cx);
     let _ = handle.update(cx, |_root, window, cx| {
@@ -1003,12 +1015,29 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
     if let Some(run) = later.take() {
         run_outside_update(cx, run);
         recheck_window_state_later(cx, key);
+        reveal_later(cx, key);
     }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
     }
     result
+}
+
+/// How long a window that was hidden is kept clear after it is shown, so that
+/// its first frame is on screen before it appears and it does not flash blank.
+const REVEAL_DELAY: std::time::Duration = std::time::Duration::from_millis(80);
+
+fn reveal_later(cx: &mut App, key: u32) {
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(REVEAL_DELAY).await;
+        let _ = cx.update(|cx| {
+            let _ = with_window(cx, key, |window| {
+                platform_window::reveal_window(window).map_err(DesktopError::unsupported)
+            });
+        });
+    })
+    .detach();
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {

@@ -958,6 +958,11 @@ export class DesktopApp {
     return this.request('layoutStats', options);
   }
 
+  /** The main window's opacity (macOS), which is 0 while a window that was hidden is revealed. */
+  async windowAlpha(): Promise<number | null> {
+    return (await this.request<{ alpha: number | null }>('windowAlpha')).alpha;
+  }
+
   /**
    * The tooltip the window has set up for the view under the pointer: its text,
    * the view and its frame in the window, and the text of a tooltip the app

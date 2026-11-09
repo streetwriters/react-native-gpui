@@ -675,6 +675,10 @@ pub struct DesktopAppConfig {
     pub title: Option<String>,
     pub position: Option<(f32, f32)>,
     pub restore_window_state: bool,
+    /// Whether the main window is shown when the app starts. Without it the
+    /// window is created, and its React tree mounts and commits, but nothing is
+    /// shown and no focus or activation is taken until the app shows it.
+    pub visible: bool,
     pub quit_on_last_window_closed: bool,
     pub title_bar: WindowTitleBar,
     pub background: WindowBackground,
@@ -726,6 +730,7 @@ impl DesktopAppConfig {
             title: None,
             position: None,
             restore_window_state: true,
+            visible: true,
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
             background: WindowBackground::Opaque,
@@ -780,6 +785,9 @@ impl DesktopAppConfig {
         }
         if let Some(restore) = flag("restoreState") {
             self.restore_window_state = restore;
+        }
+        if let Some(visible) = flag("visible") {
+            self.visible = visible;
         }
         if let Some(resizable) = flag("resizable") {
             self.resizable = resizable;
@@ -869,6 +877,12 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn window_position(mut self, x: f32, y: f32) -> Self {
         self.position = Some((x, y));
+        self
+    }
+
+    #[must_use]
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
         self
     }
 
@@ -1575,9 +1589,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_options.show = false;
             window_options.focus = false;
         }
-        if std::env::args().skip(1).any(|argument| argument == START_HIDDEN_ARGUMENT) {
+        if !config.visible
+            || std::env::args()
+                .skip(1)
+                .any(|argument| argument == START_HIDDEN_ARGUMENT)
+        {
             window_options.show = false;
             window_options.focus = false;
+            crate::desktop::windows::note_main_started_hidden();
         }
         window_options.is_resizable = config.resizable;
         if let Some(display) = &test_display {
@@ -2732,6 +2751,7 @@ mod tests {
                 "trafficLightPosition": {"x": 10, "y": 14},
                 "resizable": false,
                 "menuBar": false,
+                "visible": false,
             },
             "accessory": true,
         });
@@ -2741,7 +2761,7 @@ mod tests {
         assert_eq!(config.title_bar, WindowTitleBar::Hidden);
         assert!(!config.window_buttons && !config.shadow && !config.menu_bar);
         assert_eq!(config.traffic_light_position, Some((10.0, 14.0)));
-        assert!(!config.resizable && config.accessory);
+        assert!(!config.resizable && config.accessory && !config.visible);
         let config = config.title_bar(WindowTitleBar::Transparent);
         assert_eq!(config.title_bar, WindowTitleBar::Transparent);
     }

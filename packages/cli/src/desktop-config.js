@@ -181,6 +181,7 @@ function withDefaults(config, { appConfig, packageJson }) {
   if (window.title === undefined) window.title = productName;
   if (window.resizable === undefined) window.resizable = true;
   if (window.restoreState === undefined) window.restoreState = true;
+  if (window.visible === undefined) window.visible = true;
 
   const tray =
     config.tray === undefined ? undefined : { accessory: true, ...config.tray };

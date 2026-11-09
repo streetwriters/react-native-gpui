@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'AppShortcutFixture',
   },
   {
+    id: 'hidden-start',
+    title: 'Hidden start',
+    group: 'Platform',
+    fixture: 'HiddenStartFixture',
+  },
+  {
     id: 'stretch',
     title: 'Row stretch',
     group: 'Views',

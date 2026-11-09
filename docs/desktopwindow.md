@@ -270,7 +270,7 @@ Shows the window on every Space, over full-screen apps when it is also on top. m
 show(): Promise<void>;
 ```
 
-Shows the window without opening a new one.
+Shows the window without opening a new one. A window that was hidden, such as the main window of an app started with [`window.visible: false`](desktop-json#visible) or `--hidden`, is shown clear and made opaque a moment later, once its first frame is presented, so it does not flash blank. It appears at the size and position it was created with, which is the restored state. Call `focus()` after `show()` to bring it to the front.
 
 ---
 

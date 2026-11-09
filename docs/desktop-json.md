@@ -162,6 +162,18 @@ Whether the window can be resized. Defaults to `true`.
 
 ---
 
+### `visible`
+
+Whether the main window is shown when the app starts. Defaults to `true`. With `false` the window is created, at its restored size and position, and the app runs and renders in it, but the window is not shown and the app takes no focus and is not activated until JavaScript calls [`DesktopWindow.show()`](desktopwindow#show). Use it to show the window only once the first screen is ready, instead of a loading screen. The window reports `isVisible: false` until then. A window shown this way is made visible once its first frame has had a moment to be presented, so it does not flash blank.
+
+The `--hidden` launch argument has the same effect for a single launch, such as a start at login; the app never shows the window itself then unless it calls `show()`.
+
+| Type    | Default |
+| ------- | ------- |
+| boolean | `true`  |
+
+---
+
 ### `restoreState`
 
 Whether the window remembers its size and position between launches. Defaults to `true`.

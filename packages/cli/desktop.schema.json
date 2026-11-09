@@ -68,6 +68,10 @@
           "description": "Whether the window can be resized. Defaults to true.",
           "type": "boolean"
         },
+        "visible": {
+          "description": "Whether the window is shown when the app starts. When false the window is created and the app runs and renders in it, but nothing is shown and no focus is taken until the app calls DesktopWindow.show(). Defaults to true.",
+          "type": "boolean"
+        },
         "restoreState": {
           "description": "Whether the window remembers its size and position between launches. Defaults to true.",
           "type": "boolean"
