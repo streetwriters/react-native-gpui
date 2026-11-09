@@ -47,6 +47,26 @@ Style that applies while the ancestor that set `group` to the given name is hove
 
 ---
 
+### `tooltip`
+
+Text shown in a tooltip after the pointer has rested over the view, as the web's `title` attribute does. It is a desktop extension that follows react-native-macos's prop of the same name.
+
+```jsx
+<View tooltip="Create a note" />
+```
+
+The view under the pointer, or its nearest ancestor with a `tooltip`, is the one that counts, so a button's children share the button's tooltip. The tooltip hides when the pointer leaves the view, a button is pressed, the content scrolls or the window loses focus, shows the new text when `tooltip` changes, and never takes focus. It is also the view's accessibility description when it has no `accessibilityHint`, and the view then appears in the accessibility tree as a group. A view with no `tooltip` shows nothing; an empty string removes it.
+
+On macOS the system draws it, so the delay, the look and the placement are the system's, and it can extend outside the window. On Windows and Linux the app draws it in front of the window's content after half a second, in a plain style, and it stays inside the window; the system tooltip control of those platforms is not used yet. Set `RN_GPUI_TOOLTIP=drawn` to use the drawn tooltip on macOS too, for example to capture one in a test.
+
+It is placed at the view's frame with the window's [zoom factor](desktopwindow#setzoomfactor) applied.
+
+| Type   |
+| ------ |
+| string |
+
+---
+
 ### `acceptsFiles`
 
 Whether the view takes files and folders dragged in from the operating system. The nearest view under the pointer that does, counting the view itself, receives the drag events below; a view with none of them in its path is not a drop target and nothing is sent. See [Files dropped from the system](#files-dropped-from-the-system).

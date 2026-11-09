@@ -42,6 +42,44 @@ struct Request {
 /// The generation of the React instance currently mounted, or 0 before the host
 /// has created one. Reported by `hello`, `tree` and `reload` so a client can
 /// wait for a *particular* instance after a reload.
+#[cfg(target_os = "macos")]
+fn dock_menu(command: &str, params: &Value) -> Value {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: AppKit is messaged on the main thread, where the driver runs; the
+    // menu is the delegate's own and outlives this call.
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: id = msg_send![app, delegate];
+        let menu: id = msg_send![delegate, applicationDockMenu: app];
+        if menu.is_null() {
+            return json!({"titles": Vec::<String>::new()});
+        }
+        if command == "dockMenuPress" {
+            let index = params.get("index").and_then(Value::as_i64).unwrap_or(0);
+            let _: () = msg_send![menu, performActionForItemAtIndex: index as isize];
+            return json!({"pressed": index});
+        }
+        let count: isize = msg_send![menu, numberOfItems];
+        let titles: Vec<String> = (0..count)
+            .map(|index| {
+                let item: id = msg_send![menu, itemAtIndex: index];
+                let title: id = msg_send![item, title];
+                let bytes: *const std::os::raw::c_char = msg_send![title, UTF8String];
+                std::ffi::CStr::from_ptr(bytes)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        json!({"titles": titles})
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dock_menu(_command: &str, _params: &Value) -> Value {
+    json!({"error": "the Dock menu is only available on macOS"})
+}
+
 fn instance_generation() -> u64 {
     // SAFETY: the C++ function takes no arguments and reads an atomic.
     unsafe { rn_gpui_instance_generation() }
@@ -225,14 +263,68 @@ async fn serve_commands(
                     json!({"width": f32::from(size.width), "height":f32::from(size.height)})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
-            "raiseWindow" => {
-                match cx.update_window(window, |_, window, _| {
-                    crate::desktop::platform_window::show_front(window)
-                }) {
-                    Ok(Ok(())) => json!({"raised": true}),
-                    Ok(Err(error)) => json!({"error": error}),
-                    Err(error) => json!({"error": error.to_string()}),
-                }
+            "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
+            "layoutStats" => {
+                let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
+                cx.update_window(window, |_, window, _| {
+                    let stats = window.layout_stats();
+                    let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+                    let report = json!({
+                        "frames": stats.frames,
+                        "nodesCreated": stats.nodes_created,
+                        "nodesReused": stats.nodes_reused,
+                        "nodesFreed": stats.nodes_freed,
+                        "styleCompares": stats.style_compares,
+                        "styleWrites": stats.style_writes,
+                        "childrenWrites": stats.children_writes,
+                        "measureRebinds": stats.measure_rebinds,
+                        "measurementsKept": stats.measurements_kept,
+                        "measurementsReplayed": stats.measurements_replayed,
+                        "measureCalls": stats.measure_calls,
+                        "measureMs": ms(stats.measure_time),
+                        "computeLayoutCalls": stats.compute_layout_calls,
+                        "buildMs": ms(stats.build_time),
+                        "prepaintMs": ms(stats.prepaint_time),
+                        "paintMs": ms(stats.paint_time),
+                        "computeLayoutMs": ms(stats.compute_layout_time),
+                        "linesShaped": stats.lines_shaped,
+                        "shapeMs": ms(stats.shape_time),
+                        "viewsBuilt": stats.views_built,
+                        "viewsReused": stats.views_reused,
+                        "layerFramesComposited": stats.layer_frames_composited,
+                        "layerFramesRepainted": stats.layer_frames_repainted,
+                        "tilesDirtied": stats.tiles_dirtied,
+                        "layerRebuildsForInput": stats.layer_rebuilds_for_input,
+                        "layersDemoted": stats.layers_demoted,
+                        "layoutNodes": window.layout_node_count(),
+                    });
+                    if reset {
+                        window.reset_layout_stats();
+                    }
+                    report
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
+            }
+            "tooltip" => {
+                let active = crate::tooltip::active();
+                #[cfg(target_os = "macos")]
+                let (owner_text, tracking_areas) = cx
+                    .update_window(window, |_, window, _| {
+                        crate::tooltip::native_probe(window, active.as_ref().map_or(0, |a| a.tag))
+                    })
+                    .unwrap_or((None, 0));
+                #[cfg(not(target_os = "macos"))]
+                let (owner_text, tracking_areas): (Option<String>, usize) = (None, 0);
+                let drawn = crate::tooltip::drawn();
+                json!({
+                    "mode": crate::tooltip::mode(),
+                    "tag": active.as_ref().map(|active| active.tag),
+                    "text": active.as_ref().map(|active| active.text.clone()),
+                    "rect": active.as_ref().map(|active| active.rect),
+                    "drawn": drawn.map(|drawn| drawn.text),
+                    "ownerText": owner_text,
+                    "trackingAreas": tracking_areas,
+                })
             }
             "focusWindow" => {
                 let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
@@ -1616,13 +1708,20 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
         return;
     };
     let store = store.0.clone();
-    let transitioning: Vec<Entity<RNNodeView>> = store
-        .read(app)
-        .nodes
-        .values()
-        .filter(|node| node.read(app).transition_active(app))
-        .cloned()
-        .collect();
+    let transitioning: Vec<Entity<RNNodeView>> = {
+        let store = store.read(app);
+        let mut tracked = store.transitioning.borrow_mut();
+        tracked.retain(|tag| {
+            store
+                .nodes
+                .get(tag)
+                .is_some_and(|node| node.read(app).transition_active(app))
+        });
+        tracked
+            .iter()
+            .filter_map(|tag| store.nodes.get(tag).cloned())
+            .collect()
+    };
     for node in transitioning {
         node.update(app, |_, cx| cx.notify());
     }

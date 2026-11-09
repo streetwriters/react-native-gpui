@@ -182,6 +182,26 @@ export const Tray = {
     return request(native => native.trayGetState()) as Promise<TrayState>;
   },
 
+  /**
+   * Calls `handler` when the icon is clicked. `double` is true for a second
+   * click of the same button within half a second, which also reports as a
+   * click. Where the icon opens a menu or the popover itself, the click is
+   * reported too.
+   */
+  onClick(
+    handler: (event: {
+      button: 'left' | 'right' | 'middle';
+      double: boolean;
+    }) => void,
+  ): { remove: () => void } {
+    const subscription = DeviceEventEmitter.addListener(
+      'gpuiDesktop:trayClick',
+      (event: { button?: 'left' | 'right' | 'middle'; double?: boolean }) =>
+        handler({ button: event?.button ?? 'left', double: !!event?.double }),
+    );
+    return { remove: () => subscription.remove() };
+  },
+
   onMenuPress(handler: (id: string) => void): { remove: () => void } {
     const subscription = DeviceEventEmitter.addListener(
       MENU_PRESS_EVENT,

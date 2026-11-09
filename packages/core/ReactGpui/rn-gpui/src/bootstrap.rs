@@ -1053,6 +1053,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
             move |args| {
                 let url = crate::desktop::deep_link::url_in_args(&args, &schemes);
                 crate::desktop::post_to_main(Box::new(move |cx| {
+                    crate::desktop::deep_link::second_instance(&args);
+                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() != Ok("1") {
+                        let _ = crate::desktop::windows::show(
+                            cx,
+                            crate::desktop::windows::MAIN_WINDOW_KEY,
+                        );
+                    }
                     let _ = crate::desktop::windows::focus(
                         cx,
                         crate::desktop::windows::MAIN_WINDOW_KEY,

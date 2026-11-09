@@ -339,6 +339,28 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/jni react_codegen_rncore)
 
 add_react_common_subdir(yoga)
 
+# Compile our copy of Yoga's CalculateLayout.cpp
+# (ReactCommonOverrides/yoga/algorithm/CalculateLayout.cpp) and YGEnums.cpp in
+# place of the upstream sources: they add the FlexBasisAsIntrinsicSize errata.
+# See ReactCommonOverrides/README.md for what changed and the React Native
+# version the copies came from.
+if(TARGET yogacore)
+  get_target_property(_rn_gpui_yoga_sources yogacore SOURCES)
+  foreach(_rn_gpui_yoga_file algorithm/CalculateLayout YGEnums)
+    set(_rn_gpui_yoga_override
+        "${RN_GPUI_OVERRIDES_DIR}/yoga/${_rn_gpui_yoga_file}.cpp")
+    if(EXISTS "${_rn_gpui_yoga_override}")
+      list(FILTER _rn_gpui_yoga_sources EXCLUDE
+           REGEX "yoga/${_rn_gpui_yoga_file}\\.cpp$")
+      list(APPEND _rn_gpui_yoga_sources "${_rn_gpui_yoga_override}")
+    else()
+      message(WARNING
+        "rn_gpui_core: Yoga override not found (${_rn_gpui_yoga_override})")
+    endif()
+  endforeach()
+  set_property(TARGET yogacore PROPERTY SOURCES "${_rn_gpui_yoga_sources}")
+endif()
+
 # On Android the `yoga` target (JNI bindings over yogacore) is defined
 # in ReactAndroid/src/main/jni/first-party/yogajni, and RN targets link
 # it by name to get yogacore's public include directories. The gpui

@@ -192,6 +192,20 @@ pub fn set_application_menu(cx: &mut App, items: Option<&Value>) -> DesktopResul
     Ok(json!({"items": current_model(cx).ids().len()}))
 }
 
+/// Sets the menu of the Dock icon. Its items report as `menuPress` like the
+/// application menu's. Other platforms have no Dock, so nothing happens there.
+pub fn set_dock_menu(cx: &mut App, items: Option<&Value>) -> DesktopResult {
+    let model = match items {
+        Some(value) => menu_model::parse_menu(value)?,
+        None => MenuModel { items: Vec::new() },
+    };
+    #[cfg(target_os = "macos")]
+    cx.set_dock_menu(build_items(&model.items));
+    #[cfg(not(target_os = "macos"))]
+    let _ = &model;
+    Ok(json!({"items": model.ids().len()}))
+}
+
 pub fn update_item(cx: &mut App, id: &str, patch: &Value) -> DesktopResult {
     let patch = patch
         .as_object()
@@ -320,6 +334,9 @@ fn role_name(role: MenuRole) -> &'static str {
         MenuRole::SelectAll => "selectAll",
         MenuRole::Minimize => "minimize",
         MenuRole::Zoom => "zoom",
+        MenuRole::ZoomIn => "zoomIn",
+        MenuRole::ZoomOut => "zoomOut",
+        MenuRole::ResetZoom => "resetZoom",
         MenuRole::ToggleFullscreen => "toggleFullscreen",
         MenuRole::Close => "close",
         MenuRole::Help => "help",
@@ -509,6 +526,9 @@ pub fn default_accelerator(role: MenuRole) -> Option<&'static str> {
         MenuRole::Hide => "secondary-h",
         MenuRole::HideOthers => "secondary-alt-h",
         MenuRole::ToggleFullscreen => "ctrl-cmd-f",
+        MenuRole::ZoomIn => "secondary-=",
+        MenuRole::ZoomOut => "secondary--",
+        MenuRole::ResetZoom => "secondary-0",
         _ => return None,
     })
 }
@@ -794,6 +814,9 @@ pub fn role_action_id(role: MenuRole) -> &'static str {
         MenuRole::SelectAll => "role:selectAll",
         MenuRole::Minimize => "role:minimize",
         MenuRole::Zoom => "role:zoom",
+        MenuRole::ZoomIn => "role:zoomIn",
+        MenuRole::ZoomOut => "role:zoomOut",
+        MenuRole::ResetZoom => "role:resetZoom",
         MenuRole::ToggleFullscreen => "role:toggleFullscreen",
         MenuRole::Close => "role:close",
         MenuRole::Quit => "role:quit",
@@ -1059,6 +1082,9 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
                 | "showAll"
                 | "minimize"
                 | "zoom"
+                | "zoomIn"
+                | "zoomOut"
+                | "resetZoom"
                 | "toggleFullscreen"
                 | "close"
                 | "about"
@@ -1241,6 +1267,9 @@ fn role_menu_item(role: MenuRole, label: Option<&str>) -> MenuItem {
         | MenuRole::Quit
         | MenuRole::Minimize
         | MenuRole::Zoom
+        | MenuRole::ZoomIn
+        | MenuRole::ZoomOut
+        | MenuRole::ResetZoom
         | MenuRole::ToggleFullscreen
         | MenuRole::Close => MenuItem::action(
             SharedString::from(label),
@@ -1347,6 +1376,7 @@ pub fn perform_role(cx: &mut App, role: &str) -> DesktopResult {
                 let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
             }
         }
+        "zoomIn" | "zoomOut" | "resetZoom" => step_zoom(cx, role, handle),
         "close" => {
             if let Some(handle) = handle {
                 let _ = handle.update(cx, |_, window, _| window.remove_window());
@@ -1432,6 +1462,13 @@ fn perform_dev_action(cx: &mut App, id: String) {
     cx.defer(move |cx| crate::desktop::dev_menu::perform(cx, &id));
 }
 
+fn step_zoom(cx: &mut App, role: &str, handle: Option<gpui::AnyWindowHandle>) {
+    let key = handle
+        .and_then(|handle| crate::desktop::windows::window_key_for_handle(cx, handle))
+        .unwrap_or(crate::desktop::windows::MAIN_WINDOW_KEY);
+    let _ = crate::desktop::windows::step_zoom(cx, key, role);
+}
+
 fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>) {
     match kind {
         "quit" => cx.quit(),
@@ -1441,6 +1478,13 @@ fn perform_host_action(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowH
         "about" => show_about_panel(cx),
         // Deferred: the accelerator runs inside the keystroke's window update.
         "devMenu" => cx.defer(|cx| crate::desktop::dev_menu::show(cx)),
+        "zoomIn" | "zoomOut" | "resetZoom" => {
+            let kind = kind.to_string();
+            cx.defer(move |cx| {
+                let handle = handle.or_else(|| cx.active_window());
+                step_zoom(cx, &kind, handle);
+            });
+        }
         "minimize" | "zoom" | "toggleFullscreen" | "close" => {
             let kind = kind.to_string();
             cx.defer(move |cx| {

@@ -101,6 +101,18 @@ impl Target {
         )
     }
 
+    /// A position of the surface's space in the window, the inverse of `page`.
+    pub(crate) fn window_point(&self, page: Point<Pixels>) -> Point<Pixels> {
+        point(
+            page.x * self.zoom + px(self.window_offset_x),
+            page.y * self.zoom + px(self.window_offset),
+        )
+    }
+
+    pub(crate) fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
     pub(crate) fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
         let position = self.inverses.iter().fold(position, |position, inverse| {
             inverse.transform_logical_point(position)
@@ -751,6 +763,7 @@ pub fn hover(window: &mut Window, cx: &mut App, target: Option<&Target>, positio
         store.read(cx).frame_hook.arm(window);
         crate::interaction::set_hover(&next, cx);
     }
+    crate::tooltip::pointer_over(window, cx, target, position);
 }
 
 /// Runs the hover retarget a mount batch asked for, once its frame is drawn.
@@ -804,6 +817,7 @@ pub fn leave_root(window: &mut Window, cx: &mut App) {
         )
     };
     store.read(cx).pointer_inside.set(false);
+    crate::tooltip::dismiss(window, cx);
     for tag in previous.iter() {
         let location = store
             .read(cx)

@@ -126,6 +126,42 @@ export const screens = [
     fixture: 'FileDropFixture',
   },
   {
+    id: 'flex-basis',
+    title: 'Flex basis',
+    group: 'Views',
+    fixture: 'FlexBasisFixture',
+  },
+  {
+    id: 'flex-basis-strict',
+    title: 'Flex basis, strict conformance',
+    group: 'Views',
+    fixture: 'FlexBasisStrictFixture',
+  },
+  {
+    id: 'scrollbar-drag',
+    title: 'Scroll bar drag',
+    group: 'Views',
+    fixture: 'ScrollBarDragFixture',
+  },
+  {
+    id: 'stretch',
+    title: 'Row stretch',
+    group: 'Views',
+    fixture: 'StretchFixture',
+  },
+  {
+    id: 'tooltip',
+    title: 'Tooltip',
+    group: 'Input',
+    fixture: 'TooltipFixture',
+  },
+  {
+    id: 'app',
+    title: 'App',
+    group: 'Platform',
+    fixture: 'AppFixture',
+  },
+  {
     id: 'drag-drop',
     title: 'Drag and drop',
     group: 'Input',

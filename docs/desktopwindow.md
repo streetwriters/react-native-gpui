@@ -100,7 +100,7 @@ setZoomFactor(factor: number): Promise<void>;
 
 Scales the window's content: `1` is the natural size and `2` doubles it. The content is laid out at the window's size divided by the factor, so `useWindowDimensions()` reports less room when zoomed in, and pointer input follows the zoomed content. The factor is clamped to 0.25 to 5 and lasts until the window closes. The app remembers it: listen for `stateChange` events (they carry `zoomFactor`), save the value, and call `setZoomFactor()` on the next launch.
 
-Menus, tooltips and popovers that the system positions from window coordinates are not scaled with the content yet.
+Menus and popovers that the system positions from window coordinates are not scaled with the content yet. A [`tooltip`](view#tooltip) is.
 
 ---
 

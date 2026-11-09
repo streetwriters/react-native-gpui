@@ -82,7 +82,9 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
-A test that reads real screen pixels needs its window in front. `app.raiseWindow()` puts it in front of the other windows without activating the app or moving focus; it is the only call that makes a run visible over other windows.
+### Layout and paint work
+
+`app.layoutStats({ reset })` returns what the window's layout and paint did since the counters were last reset, from gpui-fast's layout statistics: `frames`; `nodesCreated`, `nodesReused`, `nodesFreed`; `styleCompares`, `styleWrites`, `childrenWrites`; `measureCalls`, `measurementsKept`, `measurementsReplayed`; `linesShaped`; `viewsBuilt` and `viewsReused`; `layerFramesComposited`, `layerFramesRepainted`, `tilesDirtied`, `layerRebuildsForInput` and `layersDemoted` for scroll layers; `layoutNodes`, the nodes the window holds; and in milliseconds `buildMs`, `prepaintMs`, `paintMs`, `computeLayoutMs`, `measureMs` and `shapeMs`. The counts always run. The times are zero until the first call with `reset: true`, so start a measurement with one, do the work, and read it with another `reset: true` call, which also starts the next interval. Divide by `frames` for a per-frame figure. Frames that the driver draws itself count too.
 
 ### Which display
 

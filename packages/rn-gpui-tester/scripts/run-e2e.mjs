@@ -299,6 +299,19 @@ run(
 assertScreenIsUnlocked();
 preventSleep();
 
+const METRO_PORT = '8082';
+function listeningPids(port) {
+  if (process.platform === 'win32') return [];
+  const result = spawnSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], {
+    encoding: 'utf8',
+  });
+  return String(result.stdout ?? '')
+    .split('\n')
+    .map(line => Number(line.trim()))
+    .filter(Boolean);
+}
+const metroWasRunning = listeningPids(METRO_PORT).length > 0;
+
 run(
   npxCommand,
   npxArgs([
@@ -451,6 +464,16 @@ try {
   );
 } finally {
   networkFixture.kill('SIGTERM');
+  if (!metroWasRunning) {
+    for (const pid of listeningPids(METRO_PORT)) {
+      try {
+        process.kill(pid, 'SIGTERM');
+        console.log(`[e2e] stopped the Metro this run started (pid ${pid})`);
+      } catch {
+        // already gone
+      }
+    }
+  }
   if (!keepApp) {
     const reclaimed = stopTestApps();
     if (reclaimed.length)

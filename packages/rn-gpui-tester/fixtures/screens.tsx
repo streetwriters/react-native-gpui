@@ -309,6 +309,27 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'flex-basis': props =>
+    React.createElement(
+      require('./components/FlexBasisFixture').default,
+      props,
+    ),
+  'flex-basis-strict': props =>
+    React.createElement(
+      require('./components/FlexBasisStrictFixture').default,
+      props,
+    ),
+  'scrollbar-drag': props =>
+    React.createElement(
+      require('./components/ScrollBarDragFixture').default,
+      props,
+    ),
+  stretch: props =>
+    React.createElement(require('./components/StretchFixture').default, props),
+  tooltip: props =>
+    React.createElement(require('./components/TooltipFixture').default, props),
+  app: props =>
+    React.createElement(require('./components/AppFixture').default, props),
   'drag-drop': props =>
     React.createElement(require('./components/DragDropFixture').default, props),
   'file-drop': props =>

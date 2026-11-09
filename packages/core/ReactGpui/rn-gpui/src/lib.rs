@@ -32,6 +32,7 @@ pub mod surface;
 #[cfg(feature = "test-driver")]
 mod test_driver;
 pub(crate) mod text;
+pub(crate) mod tooltip;
 mod transform;
 pub(crate) mod virtual_view;
 

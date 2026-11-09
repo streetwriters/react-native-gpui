@@ -2,6 +2,7 @@ rn_gpui_module::include_specs!();
 
 pub mod activity_indicator;
 pub mod alert;
+pub mod app;
 pub mod app_menu;
 pub mod clipboard;
 pub mod context_menu;
@@ -31,6 +32,7 @@ pub mod windows;
 pub fn register() {
     activity_indicator::register();
     alert::register();
+    app::register();
     app_menu::register();
     clipboard::register();
     context_menu::register();

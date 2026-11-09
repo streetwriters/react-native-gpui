@@ -53,7 +53,6 @@ async function launch(
   // without DRI (headless sway) logs that probe as an error.
   app.allowErrors(/wgpu_hal::gles::egl\] EGL 'eglInitialize'/u);
   await app.setWindowSize(1024, 768);
-  if (onScreen) await app.raiseWindow();
   await app.waitForIdle();
   return app;
 }

@@ -701,6 +701,10 @@ impl RNNodeView {
         self.view.accepts_files
     }
 
+    pub(crate) fn tooltip(&self) -> &str {
+        &self.view.tooltip
+    }
+
     pub(crate) fn draggable(&self) -> bool {
         self.view.draggable
     }
@@ -3141,7 +3145,9 @@ impl Render for RNNodeView {
         if !self.view.accessibility_label.is_empty() {
             element = element.aria_label(self.view.accessibility_label.clone());
         }
-        if !self.view.accessibility_hint.is_empty() {
+        if self.view.accessibility_hint.is_empty() && !self.view.tooltip.is_empty() {
+            element = element.aria_description(self.view.tooltip.clone());
+        } else if !self.view.accessibility_hint.is_empty() {
             element = element.aria_description(self.view.accessibility_hint.clone());
         }
         if self.view.accessibility_label.is_empty() {
@@ -3195,6 +3201,8 @@ impl Render for RNNodeView {
         }
         if let Some(role) = self.accessibility_role() {
             element = element.role(role);
+        } else if accessibility_active && !self.view.tooltip.is_empty() {
+            element = element.role(Role::Group);
         }
         if accessibility_active && self.accessibility_role() == Some(Role::ListItem) {
             if let Some(parent) = self.parent.as_ref().and_then(|parent| parent.upgrade()) {
@@ -4121,22 +4129,24 @@ impl Render for RNNodeView {
                     }));
                 }
                 if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
-                    let (tag, position) = (
-                        self.scrollbar_tag.unwrap_or(self.tag),
-                        self.scroll_position.clone(),
-                    );
+                    let (tag, bar_tag, position) =
+                        (self.tag, self.scrollbar_tag, self.scroll_position.clone());
                     let emit: crate::scroll_indicator::EmitEvent = Rc::new(move |event, cx| {
                         let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
                             return;
                         };
                         let offset = position.get();
-                        store.0.read(cx).host.dispatch_event(
-                            tag,
-                            event,
-                            &serde_json::json!({
-                                "contentOffset": {"x": offset.x, "y": offset.y},
-                            }),
-                        );
+                        let payload = serde_json::json!({
+                            "contentOffset": {"x": offset.x, "y": offset.y},
+                        });
+                        let host = &store.0.read(cx).host;
+                        // The scroll view declares `onScrollBarDrag*`; a ScrollBar
+                        // child declares its own `onDrag*` under other event names.
+                        host.dispatch_event(tag, event, &payload);
+                        if let Some(bar_tag) = bar_tag {
+                            let thumb = event.replacen("topScrollBar", "topScrollBarThumb", 1);
+                            host.dispatch_event(bar_tag, &thumb, &payload);
+                        }
                     });
                     let spec = self.scrollbar.clone();
                     indicator.update(cx, |indicator, _| indicator.configure(spec, apply, emit));
