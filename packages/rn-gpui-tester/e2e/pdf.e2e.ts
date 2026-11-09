@@ -47,7 +47,11 @@ test('a page tile is rendered natively and painted by PdfTile', async () => {
   expect(pixel(0.75, 0.5)).toEqual([255, 0, 0]);
 });
 
-async function launchViewer(pages: number, budget?: number) {
+async function launchViewer(
+  pages: number,
+  budget?: number,
+  encrypted?: boolean,
+) {
   await app?.close();
   const bundle = path.resolve(
     'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
@@ -60,7 +64,7 @@ async function launchViewer(pages: number, budget?: number) {
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-pdf-viewer.json'),
     },
-    initialProps: { pages, budget },
+    initialProps: { pages, budget, encrypted },
     disableAnimations: true,
     offscreen: true,
   });
@@ -141,4 +145,13 @@ test('tiles are evicted under the byte budget while scrolling', async () => {
   expect(Number(evicted)).toBeGreaterThan(0);
   expect(Number(bytes)).toBeLessThan(80 * 1024 * 1024);
   expect(Number(tiles)).toBeGreaterThan(0);
+});
+
+test('an encrypted document asks for a password and opens after the right one', async () => {
+  await launchViewer(1, undefined, true);
+  await until(async () => /^locked/u.test(await stateText()));
+  await app.getByTestId('unlock-wrong').click();
+  await app.getByTestId('unlock').click();
+  await until(async () => /^ready page 1\/1/u.test(await stateText()));
+  await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
 });

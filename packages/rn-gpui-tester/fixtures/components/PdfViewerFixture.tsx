@@ -1,3 +1,4 @@
+import { ENCRYPTED_PDF_BASE64 } from './pdfEncryptedBytes';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
@@ -54,11 +55,21 @@ function Button({ id, onPress }: { id: string; onPress(): void }) {
 export default function PdfViewerFixture({
   pages = 3,
   budget,
+  encrypted,
 }: {
   pages?: number;
   budget?: number;
+  encrypted?: boolean;
 }) {
-  const bytes = useMemo(() => buildPdf(pages), [pages]);
+  const bytes = useMemo(
+    () =>
+      encrypted
+        ? Uint8Array.from(globalThis.atob(ENCRYPTED_PDF_BASE64), c =>
+            c.charCodeAt(0),
+          )
+        : buildPdf(pages),
+    [pages, encrypted],
+  );
   const controller = useRef<PdfViewerController>(null);
   const [state, setState] = useState<PdfViewerState | null>(null);
   const [stats, setStats] = useState('');
@@ -87,6 +98,14 @@ export default function PdfViewerFixture({
         <Button id="zoom-out" onPress={() => controller.current?.zoomOut()} />
         <Button id="fit-width" onPress={() => controller.current?.fitWidth()} />
         <Button id="fit-page" onPress={() => controller.current?.fitPage()} />
+        <Button
+          id="unlock-wrong"
+          onPress={() => void controller.current?.unlock('lion')}
+        />
+        <Button
+          id="unlock"
+          onPress={() => void controller.current?.unlock('1234')}
+        />
         <Button id="page-3" onPress={() => controller.current?.goToPage(3)} />
         <Text testID="pdf-state">
           {state
