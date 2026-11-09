@@ -7,4 +7,10 @@ const config = makeMetroConfig({
 
 // Fixtures and platform packages must share the app's React/Worklets copies.
 config.resolver.disableHierarchicalLookup = true;
-module.exports = config;
+config.watchFolders = [
+  ...(config.watchFolders || []),
+  path.resolve(__dirname, '../../../modules/pdf'),
+];
+const withPdfRuntime = require('@react-native-gpui/pdf/metro.cjs');
+
+module.exports = withPdfRuntime(config);

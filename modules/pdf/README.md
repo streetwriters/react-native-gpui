@@ -18,6 +18,10 @@ const withPdfRuntime = require('@react-native-gpui/pdf/metro.cjs');
 module.exports = withPdfRuntime(config);
 ```
 
+## Random bytes
+
+The engine names documents with random ids from `crypto.getRandomValues`, which it reads from the global. This module never installs or replaces anything on `crypto`; the app must install a secure implementation at startup (for example `import '@react-native-gpui/crypto'`). `createPdfEngine` throws if there is none.
+
 ## Usage
 
 ```js

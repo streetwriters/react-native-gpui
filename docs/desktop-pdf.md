@@ -29,8 +29,6 @@ const doc = await engine.open(
 
 `layerFile` lets PDFium read the file from disk, so the bytes never enter JavaScript. A password goes in the options (`password`), or later with `doc.security.unlock({ password })`.
 
-The engine needs `crypto.getRandomValues`, `AbortController` and `queueMicrotask` globals, as well as `Blob`, `URL.createObjectURL` and a PNG encoder (`imageEncoder`) when you ask it for page images.
-
 ## Packaging
 
 The CLI collects the runtime addon and its `libembedpdf` library into `Resources/node-addons` when it packages or runs a release build; see Packaging in [Native Modules: Node addons](native-modules-node-addons).
@@ -50,3 +48,17 @@ const id = tileIdOf(image.source.bytes);
 ```
 
 `sink.adopt(pointer, width, height, stride)` is called once per rendered bitmap with the address of its pixels and returns a tile id; it must copy the pixels before it returns. With a sink, `render.raw()` returns the token as well, so use `image()`.
+
+## Random bytes
+
+The engine names documents with random ids from `crypto.getRandomValues`, which it reads from the global. This module never installs or replaces anything on `crypto`: the app installs a secure implementation at startup, for example `import '@react-native-gpui/crypto'`, and `createPdfEngine` throws if there is none.
+
+## Viewer
+
+```js
+import { PdfViewer } from '@react-native-gpui/pdf';
+
+<PdfViewer source={{ path }} controllerRef={ref} onStateChange={setState} />;
+```
+
+`controllerRef` gives `zoomIn`, `zoomOut`, `setZoom`, `fitWidth`, `fitPage`, `goToPage`, `unlock`, `search`, `nextHit`, `previousHit`, `clearSearch`, `getSelectedText`, `clearSelection` and `download`. `onStateChange` reports the status (`loading`, `locked`, `ready`, `error`), page, page count, zoom and the search state. Drag selects text, a double-click selects a word and a triple-click a line.

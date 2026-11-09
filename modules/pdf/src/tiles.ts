@@ -14,8 +14,17 @@ interface Surface {
   stride: number;
 }
 
-export function tileToken(id: number): Uint8Array {
-  const token = new Uint8Array(8);
+class TileBytes extends Uint8Array {
+  cost = 8;
+
+  get byteLength() {
+    return this.cost;
+  }
+}
+
+export function tileToken(id: number, cost = 8): Uint8Array {
+  const token = new TileBytes(8);
+  token.cost = cost;
   const view = new DataView(token.buffer);
   view.setUint32(0, MAGIC, true);
   view.setUint32(4, id, true);
@@ -23,7 +32,7 @@ export function tileToken(id: number): Uint8Array {
 }
 
 export function tileIdOf(bytes: Uint8Array): number | null {
-  if (bytes.byteLength !== 8) return null;
+  if (bytes.length !== 8) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
   return view.getUint32(0, true) === MAGIC ? view.getUint32(4, true) : null;
 }
@@ -88,10 +97,11 @@ export function createTileImageEncoder() {
       signal: AbortSignal,
     ) {
       if (signal.aborted) throw new Error('image encoding aborted');
-      const token = new Uint8Array(raster.data);
-      if (tileIdOf(token) === null) {
+      const id = tileIdOf(new Uint8Array(raster.data));
+      if (id === null) {
         throw new Error('the tile engine did not produce a native tile');
       }
+      const token = tileToken(id, raster.width * raster.height * 4);
       return {
         width: raster.width,
         height: raster.height,

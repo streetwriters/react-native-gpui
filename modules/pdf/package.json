@@ -20,6 +20,8 @@
   },
   "files": [
     "src",
+    "desktop",
+    "react-native.config.js",
     "metro.cjs",
     "metro-babel-transformer.cjs",
     "scripts",
@@ -29,7 +31,13 @@
   "dependencies": {
     "@embedpdf/engine": "3.1.0",
     "@embedpdf/engine-core": "3.1.0",
-    "@embedpdf/engine-services": "3.1.0"
+    "@embedpdf/engine-services": "3.1.0",
+    "@embedpdf/default-fallback-fonts": "1.0.0",
+    "@embedpdf/core": "3.1.0",
+    "@embedpdf/plugin-render": "3.1.0",
+    "@embedpdf/plugin-search": "3.1.0",
+    "@embedpdf/plugin-selection": "3.1.0",
+    "@embedpdf/plugin-interaction": "3.1.0"
   },
   "optionalDependencies": {
     "@embedpdf/engine-runtime-darwin-arm64": "3.1.0",
@@ -44,5 +52,10 @@
   },
   "scripts": {
     "prepack": "node scripts/generate-notices.mjs"
+  },
+  "codegenConfig": {
+    "name": "RNGpuiPdfSpec",
+    "type": "all",
+    "jsSrcsDir": "src"
   }
 }

@@ -46,7 +46,6 @@ rn-gpui-module-build = { path = "../../core/ReactGpui/rn-gpui-module-build" }
 
 [dependencies]
 
-
 rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }
 react-native-gpui = { path = "../../core/ReactGpui/rn-gpui" }
