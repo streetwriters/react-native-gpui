@@ -4373,7 +4373,48 @@ impl Render for RNNodeView {
             },
         );
         let mut outline_rules = Vec::new();
-        if outline_color != 0 && outline_width > 0.0 {
+        let outline_radii = [
+            self.view.border_radii.tl,
+            self.view.border_radii.tr,
+            self.view.border_radii.br,
+            self.view.border_radii.bl,
+        ]
+        .map(|radius| {
+            if radius > 0.0 {
+                (radius + outline_offset).max(0.0)
+            } else {
+                0.0
+            }
+        });
+        let rounded_outline = self.view.outline_style == 0
+            && outline_color != 0
+            && outline_width > 0.0
+            && outline_radii.iter().any(|radius| *radius > 0.0);
+        if rounded_outline {
+            let scale = scale_x.min(scale_y);
+            let reach = (outline_offset + outline_width) * scale;
+            let mut ring = div()
+                .absolute()
+                .left(px(-reach))
+                .top(px(-reach))
+                .w(px(width + 2.0 * reach))
+                .h(px(height + 2.0 * reach))
+                .border(px(outline_width * scale))
+                .border_color(style::color(outline_color));
+            let radii = &mut ring.style().corner_radii;
+            let outer = |radius: f32| {
+                if radius > 0.0 {
+                    px((radius + outline_width) * scale).into()
+                } else {
+                    px(0.0).into()
+                }
+            };
+            radii.top_left = Some(outer(outline_radii[0]));
+            radii.top_right = Some(outer(outline_radii[1]));
+            radii.bottom_right = Some(outer(outline_radii[2]));
+            radii.bottom_left = Some(outer(outline_radii[3]));
+            outline_rules.push(ring);
+        } else if outline_color != 0 && outline_width > 0.0 {
             let outline_width_x = outline_width * scale_x;
             let outline_width_y = outline_width * scale_y;
             let offset_x = outline_offset * scale_x;
@@ -4383,7 +4424,7 @@ impl Render for RNNodeView {
             outline_rules.extend(rule_segments(
                 x,
                 y,
-                width + 2.0 * offset_x,
+                width + 2.0 * (offset_x + outline_width_x),
                 outline_width_y,
                 true,
                 outline_color,
@@ -4392,7 +4433,7 @@ impl Render for RNNodeView {
             outline_rules.extend(rule_segments(
                 x,
                 height + offset_y,
-                width + 2.0 * offset_x,
+                width + 2.0 * (offset_x + outline_width_x),
                 outline_width_y,
                 true,
                 outline_color,

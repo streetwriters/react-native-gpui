@@ -314,6 +314,11 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'outline-radius': props =>
+    React.createElement(
+      require('./components/OutlineRadiusFixture').default,
+      props,
+    ),
   'flex-basis': props =>
     React.createElement(
       require('./components/FlexBasisFixture').default,

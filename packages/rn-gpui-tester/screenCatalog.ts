@@ -120,6 +120,12 @@ export const screens = [
     fixture: 'RoundedClipFixture',
   },
   {
+    id: 'outline-radius',
+    title: 'Outline follows the border radius',
+    group: 'Views',
+    fixture: 'OutlineRadiusFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',
