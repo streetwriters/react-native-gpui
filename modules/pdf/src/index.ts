@@ -1,3 +1,4 @@
+import './polyfills';
 import { createLocalEngine } from '@embedpdf/engine';
 import { setTileSink } from './native-runtime';
 import { createTileImageEncoder, type TileSink } from './tiles';

@@ -81,7 +81,6 @@ export function withNativeTiles(
               surface.height,
               surface.stride,
             ),
-            surface.stride * surface.height,
           );
         }
         return runtime.mem.readBytes(ptr, length);

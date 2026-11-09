@@ -5939,6 +5939,7 @@ dependencies = [
  "rn-gpui-image-manipulator",
  "rn-gpui-native-fixture",
  "rn-gpui-notifications",
+ "rn-gpui-pdf",
  "rn-gpui-screens",
  "rn-gpui-spellcheck",
  "rn-gpui-svg",
@@ -6037,6 +6038,18 @@ dependencies = [
  "objc2-user-notifications",
  "rn-gpui-module",
  "rn-gpui-module-build",
+]
+
+[[package]]
+name = "rn-gpui-pdf"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "image",
+ "react-native-gpui",
+ "rn-gpui-module",
+ "rn-gpui-module-build",
+ "smallvec",
 ]
 
 [[package]]

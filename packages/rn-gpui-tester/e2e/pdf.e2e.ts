@@ -46,3 +46,99 @@ test('a page tile is rendered natively and painted by PdfTile', async () => {
   expect(pixel(0.25, 0.5)).toEqual([0, 0, 0]);
   expect(pixel(0.75, 0.5)).toEqual([255, 0, 0]);
 });
+
+async function launchViewer(pages: number, budget?: number) {
+  await app?.close();
+  const bundle = path.resolve(
+    'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+  );
+  app = await launchApp({
+    bundle,
+    env: {
+      RN_GPUI_MODULE: 'PdfViewerFixture',
+      RN_GPUI_BUNDLE: bundle,
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-pdf-viewer.json'),
+    },
+    initialProps: { pages, budget },
+    disableAnimations: true,
+    offscreen: true,
+  });
+  await app.setWindowSize(1024, 768);
+}
+
+async function stateText() {
+  return (await app.query('testID', 'pdf-state', true))[0]?.text ?? '';
+}
+
+async function until(check: () => Promise<boolean>, timeout = 8000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+  }
+  throw new Error(`timed out; state: ${await stateText()}`);
+}
+
+test('the viewer opens a document, zooms and goes to a page', async () => {
+  await launchViewer(5);
+  await until(async () => /^ready page 1\/5/u.test(await stateText()));
+  await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
+
+  const fitted = await stateText();
+  await app.getByTestId('zoom-in').click();
+  await until(async () => (await stateText()) !== fitted);
+  expect(Number(/zoom ([\d.]+)/u.exec(await stateText())![1])).toBeGreaterThan(
+    Number(/zoom ([\d.]+)/u.exec(fitted)![1]),
+  );
+
+  await app.getByTestId('fit-page').click();
+  await app.getByTestId('page-3').click();
+  await until(async () => /page 3\/5/u.test(await stateText()));
+});
+
+test('the viewer paints page content and keeps 300 pages smooth', async () => {
+  const opened = Date.now();
+  await launchViewer(300);
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  const openMs = Date.now() - opened;
+
+  const page = await app.getByTestId('pdf-page-1').screenshot();
+  const png = PNG.sync.read(page);
+  let blue = 0;
+  for (let at = 0; at < png.data.length; at += 4) {
+    if (png.data[at] < 90 && png.data[at + 2] > 200) blue++;
+  }
+  expect(blue).toBeGreaterThan(500);
+
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  const frames: number[] = [];
+  for (let step = 0; step < 60; step++) {
+    const result = await app.scroll(scroller.tag, 0, -400, 1, undefined, 0);
+    frames.push(result.drawMs);
+  }
+  await new Promise(resolve => setTimeout(resolve, 800));
+  const after = await stateText();
+  frames.sort((a, b) => a - b);
+  const stats = (await app.query('testID', 'pdf-stats', true))[0]?.text ?? '';
+  console.log(
+    `PDFPERF after: ${after}; open ${openMs} ms, frames median ${frames[30].toFixed(1)} p95 ${frames[57].toFixed(1)} max ${frames[59].toFixed(1)} ms, ${stats}`,
+  );
+  expect(frames[57]).toBeLessThan(50);
+});
+
+test('tiles are evicted under the byte budget while scrolling', async () => {
+  await launchViewer(300, 24 * 1024 * 1024);
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  for (let step = 0; step < 60; step++) {
+    await app.scroll(scroller.tag, 0, -400, 1, undefined, 0);
+  }
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  const stats = (await app.query('testID', 'pdf-stats', true))[0]?.text ?? '';
+  const [, tiles, bytes, evicted] =
+    /tiles (\d+) bytes (\d+) evicted (\d+)/u.exec(stats) ?? [];
+  console.log(`PDFPERF budget 24 MiB: ${stats}`);
+  expect(Number(evicted)).toBeGreaterThan(0);
+  expect(Number(bytes)).toBeLessThan(80 * 1024 * 1024);
+  expect(Number(tiles)).toBeGreaterThan(0);
+});
