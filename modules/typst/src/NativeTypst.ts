@@ -53,6 +53,8 @@ export type TypstPrintOptions = {
   title?: string;
   copies: number;
   pageRange?: string;
+  panel: boolean;
+  outputPath?: string;
 };
 
 export type TypstPrintResult = {

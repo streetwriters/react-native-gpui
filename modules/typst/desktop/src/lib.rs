@@ -175,7 +175,10 @@ async fn print(
     _pdf_path: String,
     _options: TypstPrintOptions,
 ) -> Result<TypstPrintResult, ModuleError> {
-    Err(failure("printing is not available on this platform yet"))
+    Err(ModuleError::with_code(
+        "ERR_PRINT_UNSUPPORTED",
+        "printing is not available on this platform yet",
+    ))
 }
 
 pub fn rn_gpui_register() {

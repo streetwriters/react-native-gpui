@@ -141,6 +141,8 @@ export interface PrintOptions {
   title?: string;
   copies?: number;
   pageRange?: string;
+  panel?: boolean;
+  outputPath?: string;
 }
 
 export async function print(
@@ -151,6 +153,8 @@ export async function print(
     title: options.title,
     copies: options.copies ?? 1,
     pageRange: options.pageRange,
+    panel: options.panel ?? true,
+    outputPath: options.outputPath,
   };
   const result = await NativeTypst.print(pdfPath, request);
   return { status: result.status === 'printed' ? 'printed' : 'cancelled' };

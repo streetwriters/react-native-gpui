@@ -45,5 +45,9 @@ test('Typst compiles a note, refuses file reads, reports errors with a line, and
   const [denied, broken] = (await text('typst-errors')).split(' | ');
   expect(denied).toMatch(/^ERR_TYPST 2 .*access denied/u);
   expect(broken).toMatch(/^ERR_TYPST 2 /u);
+  while (Date.now() < deadline && (await text('typst-printed')) === '') {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  expect(await text('typst-printed')).toBe('3 printed 2 ERR_PRINT_RANGE');
   await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
 });

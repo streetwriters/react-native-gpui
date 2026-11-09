@@ -1,8 +1,8 @@
 import '@react-native-gpui/crypto';
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { compile, TypstError } from '@react-native-gpui/typst';
-import { PdfViewer } from '@react-native-gpui/pdf';
+import { compile, print, TypstError } from '@react-native-gpui/typst';
+import { PdfViewer, createPdfEngine } from '@react-native-gpui/pdf';
 
 const SOURCE = `#set page(paper: "a4", margin: 2cm)
 #set text(font: "DejaVu Sans Mono", size: 11pt)
@@ -18,6 +18,7 @@ export default function TypstFixture() {
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [errors, setErrors] = useState('');
   const [viewer, setViewer] = useState('');
+  const [printed, setPrinted] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -39,6 +40,32 @@ export default function TypstFixture() {
             : String(error),
       );
       setErrors(`${bad} | ${broken}`);
+      const three = await compile(
+        '#set page(width: 100pt, height: 100pt)\nOne\n#pagebreak()\nTwo\n#pagebreak()\nThree',
+        { output: { path: '/tmp/rn-gpui-typst-three.pdf' } },
+      );
+      const printResult = await print('/tmp/rn-gpui-typst-three.pdf', {
+        panel: false,
+        pageRange: '2-3',
+        outputPath: '/tmp/rn-gpui-typst-printed.pdf',
+      });
+      const engine = createPdfEngine({ fallbackFonts: false });
+      const doc = await engine.open({
+        kind: 'layerFile',
+        basePath: '/tmp/rn-gpui-typst-printed.pdf',
+      });
+      const list = await doc.pages.list();
+      const invalid = await print('/tmp/rn-gpui-typst-three.pdf', {
+        panel: false,
+        pageRange: '9',
+        outputPath: '/tmp/rn-gpui-typst-never.pdf',
+      }).then(
+        () => 'no error',
+        error => String(error?.code ?? error),
+      );
+      setPrinted(
+        `${three.pages} ${printResult.status} ${list.pageCount} ${invalid}`,
+      );
     })().catch(error => setStatus(`error ${String(error?.message ?? error)}`));
   }, []);
 
@@ -47,6 +74,7 @@ export default function TypstFixture() {
       <Text testID="typst-status">{status}</Text>
       <Text testID="typst-errors">{errors}</Text>
       <Text testID="typst-viewer">{viewer}</Text>
+      <Text testID="typst-printed">{printed}</Text>
       {bytes ? (
         <PdfViewer
           source={{ bytes }}

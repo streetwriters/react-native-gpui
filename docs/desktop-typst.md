@@ -39,7 +39,9 @@ Only the `files` map. `#read("/etc/passwd")`, `#image("/...")`, `#include` of an
 
 ## Printing
 
-`print(pdfPath, options)` shows the system print panel and resolves with `printed` or `cancelled`. It is implemented on macOS (PDFKit). Other platforms reject with `ERR_TYPST`.
+`print(pdfPath, { title, copies, pageRange, panel, outputPath })` shows the system print panel and resolves with `printed` or `cancelled`. It is implemented on macOS (PDFKit, run on the main thread). `pageRange` takes ranges like `1-3,5` or `2-` and prints those pages only; a range that is not valid rejects with `ERR_PRINT_RANGE`. With `panel: false` and an `outputPath`, the job is saved as a PDF file instead of going to a printer, with no panel, which is how to print to a file or test the page selection. Windows and Linux reject with `ERR_PRINT_UNSUPPORTED`. Other print failures reject with `ERR_PRINT`.
+
+The panel is application-modal and takes focus, so call `print` only in response to a user action.
 
 ## Binary size
 
