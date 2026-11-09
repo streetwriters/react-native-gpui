@@ -75,6 +75,33 @@ export default function PdfViewerFixture({
   const [state, setState] = useState<PdfViewerState | null>(null);
   const [stats, setStats] = useState('');
   const [selected, setSelected] = useState('');
+  const [frames, setFrames] = useState('');
+  const gaps = useRef<number[]>([]);
+  const measuring = useRef(false);
+  const startFrames = () => {
+    gaps.current = [];
+    measuring.current = true;
+    let last = Date.now();
+    const tick = () => {
+      if (!measuring.current) return;
+      const now = Date.now();
+      gaps.current.push(now - last);
+      last = now;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  const stopFrames = () => {
+    measuring.current = false;
+    const sorted = [...gaps.current].sort((a, b) => a - b);
+    const at = (q: number) =>
+      sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
+    setFrames(
+      sorted.length === 0
+        ? 'none'
+        : `n ${sorted.length} median ${at(0.5)} p95 ${at(0.95)} p99 ${at(0.99)} max ${sorted[sorted.length - 1]}`,
+    );
+  };
   useEffect(() => {
     if (budget) {
       const {
@@ -120,6 +147,9 @@ export default function PdfViewerFixture({
           }
         />
         <Text testID="pdf-selected">{selected}</Text>
+        <Button id="start-frames" onPress={startFrames} />
+        <Button id="stop-frames" onPress={stopFrames} />
+        <Text testID="pdf-frames">{frames}</Text>
         <Button id="page-3" onPress={() => controller.current?.goToPage(3)} />
         <Text testID="pdf-state">
           {state

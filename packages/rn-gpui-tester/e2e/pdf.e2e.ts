@@ -181,3 +181,24 @@ test('search finds and reveals matches, and a double-click selects a word', asyn
     return text === 'Page' || text === 'Page ';
   });
 });
+
+test('scrolling keeps the JS thread under a frame (rAF gaps)', async () => {
+  await launchViewer(300);
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const start = (await app.query('testID', 'start-frames', true))[0];
+  const stop = (await app.query('testID', 'stop-frames', true))[0];
+  await app.click(start.tag);
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  for (let step = 0; step < 120; step++) {
+    await app.scroll(scroller.tag, 0, -120, 1, undefined, 0);
+    await new Promise(resolve => setTimeout(resolve, 16));
+  }
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await app.click(stop.tag);
+  await app.waitForIdle();
+  const text = (await app.query('testID', 'pdf-frames', true))[0]?.text ?? '';
+  console.log(`PDFPERF js frames during scroll: ${text}`);
+  const max = Number(/max (\d+)/u.exec(text)?.[1] ?? 1e9);
+  expect(max).toBeLessThan(100);
+});
