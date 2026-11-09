@@ -596,30 +596,4 @@ mod tests {
         assert!(outcome.pdf.is_some());
         assert!(loaded_before <= outcome.system_fonts_loaded);
     }
-
-    #[test]
-    #[ignore]
-    fn measure() {
-        let dir = std::env::var("NOTE_DIR").unwrap();
-        let mut input = job(&std::fs::read_to_string(format!("{dir}/main.typ")).unwrap());
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            if name != "main.typ" {
-                input.files.push(FileInput {
-                    name,
-                    data: Some(std::fs::read(&path).unwrap()),
-                    path: None,
-                });
-            }
-        }
-        let start = Instant::now();
-        let outcome = run(input);
-        println!(
-            "MEASURE {dir}: {} ms, {} pages, {} KB",
-            start.elapsed().as_millis(),
-            outcome.pages,
-            outcome.pdf.map_or(0, |p| p.len() / 1024)
-        );
-    }
 }
