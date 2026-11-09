@@ -117,6 +117,12 @@ export function PageView({
   const selectionRects = selection ? selection.listRects(page.ref) : [];
   void selectionVersion;
   const pressed = useRef(false);
+  const latest = useRef<{ x: number; y: number } | null>(null);
+  const gesture = useRef<'idle' | 'pending' | 'active'>('idle');
+  const released = useRef(false);
+  useEffect(() => {
+    if (selection) void selection.ensureLoaded(page.ref);
+  }, [selection, page.ref]);
   const lastDown = useRef({ time: 0, x: 0, y: 0, count: 0 });
   const at = (event: PointerEvent) => ({
     x: event.nativeEvent.offsetX / zoom,
@@ -140,6 +146,8 @@ export function PageView({
             count: clicks,
           };
           pressed.current = clicks < 2;
+          released.current = false;
+          latest.current = point;
           const act = () => {
             if (clicks >= 3) selection.selectLineAt(page.ref, point);
             else if (clicks === 2) {
@@ -147,18 +155,35 @@ export function PageView({
             } else {
               selection.clear();
               selection.beginGestureAt(page.ref, point);
+              gesture.current = 'active';
+              const moved = latest.current;
+              if (moved && (moved.x !== point.x || moved.y !== point.y)) {
+                selection.extendTo(page.ref, moved);
+              }
+              if (released.current) {
+                selection.endGesture();
+                gesture.current = 'idle';
+              }
             }
           };
           if (selection.isLoaded(page.ref)) act();
-          else void selection.ensureLoaded(page.ref).then(act);
+          else {
+            gesture.current = 'pending';
+            void selection.ensureLoaded(page.ref).then(act);
+          }
         },
         onPointerMove: (event: PointerEvent) => {
           if (!pressed.current) return;
-          selection.extendTo(page.ref, at(event));
+          const point = at(event);
+          latest.current = point;
+          if (gesture.current === 'active') selection.extendTo(page.ref, point);
         },
         onPointerUp: () => {
           if (!pressed.current) return;
           pressed.current = false;
+          released.current = true;
+          if (gesture.current === 'pending') return;
+          gesture.current = 'idle';
           selection.endGesture();
         },
       }

@@ -12,16 +12,21 @@ export interface PageBox {
   height: number;
 }
 
-export function layoutPages(sizes: readonly PageSize[], zoom: number) {
+export function layoutPages(
+  sizes: readonly PageSize[],
+  zoom: number,
+  gap = PAGE_GAP,
+  padding = PAGE_PADDING,
+) {
   const boxes: PageBox[] = [];
-  let top = PAGE_PADDING;
+  let top = padding;
   for (const size of sizes) {
     const width = size.width * zoom;
     const height = size.height * zoom;
     boxes.push({ top, width, height });
-    top += height + PAGE_GAP;
+    top += height + gap;
   }
-  return { boxes, height: top - PAGE_GAP + PAGE_PADDING };
+  return { boxes, height: top - gap + padding };
 }
 
 export function visibleRange(
@@ -44,13 +49,31 @@ export function visibleRange(
   return first === -1 ? { first: 0, last: -1 } : { first, last };
 }
 
-export function pageAt(boxes: readonly PageBox[], y: number) {
-  let found = 0;
-  for (let index = 0; index < boxes.length; index++) {
-    if (boxes[index].top <= y) found = index;
-    else break;
+export function currentPage(
+  boxes: readonly PageBox[],
+  contentHeight: number,
+  offset: number,
+  viewport: number,
+) {
+  if (boxes.length === 0) return 0;
+  if (viewport > 0 && offset + viewport >= contentHeight - 1 && offset > 0) {
+    return boxes.length - 1;
   }
-  return found;
+  const bottom = offset + viewport;
+  let best = 0;
+  let bestArea = -1;
+  for (let index = 0; index < boxes.length; index++) {
+    const box = boxes[index];
+    if (box.top > bottom) break;
+    const visible =
+      Math.min(bottom, box.top + box.height) - Math.max(offset, box.top);
+    const area = visible * box.width;
+    if (area > bestArea) {
+      best = index;
+      bestArea = area;
+    }
+  }
+  return best;
 }
 
 export function fitZoom(
@@ -58,13 +81,14 @@ export function fitZoom(
   viewport: PageSize,
   mode: 'width' | 'page',
   current: number,
+  padding = PAGE_PADDING,
 ) {
   if (sizes.length === 0 || viewport.width <= 0) return current;
   const widest = Math.max(...sizes.map(size => size.width));
-  const byWidth = (viewport.width - PAGE_PADDING * 2) / widest;
+  const byWidth = (viewport.width - padding * 2) / widest;
   if (mode === 'width') return byWidth;
   const tallest = Math.max(...sizes.map(size => size.height));
-  return Math.min(byWidth, (viewport.height - PAGE_PADDING * 2) / tallest);
+  return Math.min(byWidth, (viewport.height - padding * 2) / tallest);
 }
 
 export const MIN_ZOOM = 0.1;

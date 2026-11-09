@@ -53,6 +53,7 @@ async function launchViewer(
   encrypted?: boolean,
 ) {
   await app?.close();
+  await new Promise(resolve => setTimeout(resolve, 1000));
   const bundle = path.resolve(
     'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
   );
@@ -62,7 +63,9 @@ async function launchViewer(
       RN_GPUI_MODULE: 'PdfViewerFixture',
       RN_GPUI_BUNDLE: bundle,
       RN_GPUI_DEV_PORT: '1',
-      RN_GPUI_WINDOW_STATE: path.resolve('.local/e2e-pdf-viewer.json'),
+      RN_GPUI_WINDOW_STATE: path.resolve(
+        `.local/e2e-pdf-viewer-${process.pid}-${Date.now()}.json`,
+      ),
     },
     initialProps: { pages, budget, encrypted },
     disableAnimations: true,
@@ -207,6 +210,8 @@ test('dragging across a word selects it', async () => {
   await launchViewer(5);
   await until(async () => /^ready page 1\/5/u.test(await stateText()), 20000);
   await app.getByTestId('fit-width').click();
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
   const page = (await app.query('testID', 'pdf-page-1', true))[0];
   const zoom = Number(/zoom ([\d.]+)/u.exec(await stateText())![1]);
   const top = (await app.menuBarState()).inset;
@@ -221,4 +226,26 @@ test('dragging across a word selects it', async () => {
     const text = (await app.query('testID', 'pdf-selected', true))[0]?.text;
     return /^Pag/u.test(text ?? '');
   });
+});
+
+test('the current page is the one with the most visible area', async () => {
+  await launchViewer(6);
+  await until(async () => /^ready page 1\/6/u.test(await stateText()), 20000);
+  for (let step = 0; step < 7; step++) {
+    await app.getByTestId('zoom-out').click();
+  }
+  await until(async () => {
+    const zoom = Number(/zoom ([\d.]+)/u.exec(await stateText())?.[1] ?? 9);
+    return zoom < 0.4;
+  });
+  expect(await stateText()).toMatch(/page 1\/6/u);
+
+  await app.getByTestId('page-3').click();
+  await until(async () => /page 3\/6/u.test(await stateText()));
+
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  for (let step = 0; step < 30; step++) {
+    await app.scroll(scroller.tag, 0, -2000, 1, undefined, 0);
+  }
+  await until(async () => /page 6\/6/u.test(await stateText()));
 });
