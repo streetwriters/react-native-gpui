@@ -132,6 +132,12 @@ export const screens = [
     fixture: 'ReuseUnderPointerFixture',
   },
   {
+    id: 'sortable-drag',
+    title: 'Sortable list drag',
+    group: 'Input',
+    fixture: 'SortableDragFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',

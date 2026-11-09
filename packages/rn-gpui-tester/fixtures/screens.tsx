@@ -333,6 +333,11 @@ export const renderScreen: Record<
       require('./components/ReuseUnderPointerFixture').default,
       props,
     ),
+  'sortable-drag': props =>
+    React.createElement(
+      require('./components/SortableDragFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>

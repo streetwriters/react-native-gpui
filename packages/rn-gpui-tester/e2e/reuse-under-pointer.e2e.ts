@@ -95,3 +95,30 @@ test('typing into a field with the pointer inside the window keeps the views tha
   expect(typed.text).toBe('apple');
   expect(Math.max(...built.slice(0, 3))).toBeLessThan(400);
 });
+
+test('reading the accessibility tree again does not rebuild the views', async () => {
+  await app.a11yTree();
+  await app.waitForIdle();
+  await app.layoutStats({ reset: true });
+  await app.a11yTree();
+  await app.a11yTree();
+  const stats = await app.layoutStats({ reset: true });
+  expect(stats.viewsBuilt).toBeLessThan(20);
+});
+
+test('layout nodes return to the baseline after a thousand views are mounted and unmounted', async () => {
+  const [mount] = await app.query('testID', 'reuse-mount', true);
+  await app.focus(mount.tag);
+  await app.waitForIdle();
+  const baseline = (await app.layoutStats()).layoutNodes;
+  await app.press('x');
+  await app.waitForIdle();
+  const mounted = (await app.layoutStats()).layoutNodes;
+  expect(mounted).toBeGreaterThan(baseline + 900);
+  await app.press('x');
+  await app.waitForIdle();
+  await app.waitForIdle();
+  expect((await app.layoutStats()).layoutNodes).toBeLessThanOrEqual(
+    baseline + 5,
+  );
+});

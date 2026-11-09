@@ -273,6 +273,7 @@ async fn serve_commands(
                 cx.update_window(window, |_, window, _| {
                     let stats = window.layout_stats();
                     let target_at = crate::wheel::target_at_stats(reset);
+                    let scroll_deltas = crate::wheel::scroll_delta_stats(reset);
                     let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
                     let report = json!({
                         "frames": stats.frames,
@@ -304,6 +305,8 @@ async fn serve_commands(
                         "layoutNodes": window.layout_node_count(),
                         "targetAtCalls": target_at.0,
                         "targetAtMs": target_at.1,
+                        "scrollEvents": scroll_deltas.0,
+                        "scrollEventsWholePixel": scroll_deltas.1,
                     });
                     if reset {
                         window.reset_layout_stats();
@@ -399,15 +402,23 @@ async fn serve_commands(
                 readout
             }
             "a11yTree" => {
-                let _ = cx.update_window(window, |_, window, _| {
-                    #[cfg(target_os = "macos")]
-                    crate::native_view::activate_accessibility_probe(window);
-                    #[cfg(target_os = "windows")]
-                    activate_accessibility_probe(window);
-                    window.refresh();
-                });
-                wait_for_frame(window, cx, Duration::from_millis(16)).await;
-                wait_for_frame(window, cx, Duration::from_millis(16)).await;
+                let activated = cx
+                    .update_window(window, |_, window, _| {
+                        if window.is_a11y_active() {
+                            return false;
+                        }
+                        #[cfg(target_os = "macos")]
+                        crate::native_view::activate_accessibility_probe(window);
+                        #[cfg(target_os = "windows")]
+                        activate_accessibility_probe(window);
+                        window.refresh();
+                        true
+                    })
+                    .unwrap_or(false);
+                if activated {
+                    wait_for_frame(window, cx, Duration::from_millis(16)).await;
+                    wait_for_frame(window, cx, Duration::from_millis(16)).await;
+                }
                 cx.update_window(window, |_, window, _| window.debug_a11y_tree_json())
                     .map(|tree| {
                         tree.and_then(|tree| serde_json::from_str::<Value>(&tree).ok())
