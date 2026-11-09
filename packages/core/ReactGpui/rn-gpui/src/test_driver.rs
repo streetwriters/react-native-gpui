@@ -311,7 +311,10 @@ async fn serve_commands(
             }
             "windowAlpha" => cx
                 .update_window(window, |_, window, _| {
-                    json!({"alpha": crate::desktop::platform_window::window_alpha(window)})
+                    json!({
+                        "alpha": crate::desktop::platform_window::window_alpha(window),
+                        "revealedBy": crate::desktop::windows::last_reveal(),
+                    })
                 })
                 .unwrap_or_else(|error| json!({"error": error.to_string()})),
             "tooltip" => {

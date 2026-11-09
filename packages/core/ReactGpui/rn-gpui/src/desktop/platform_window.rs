@@ -1358,8 +1358,16 @@ pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String
             if miniaturized {
                 let _: () = msg_send![native, deminiaturize: nil];
             }
-            if crate::desktop::background::enabled() {
+            if crate::desktop::background::enabled()
+                && !std::env::var("RN_GPUI_TEST_ON_TOP").is_ok_and(|value| value == "1")
+            {
                 let _: () = msg_send![native, orderBack: nil];
+            } else if crate::desktop::background::enabled() {
+                let visible: bool = msg_send![native, isVisible];
+                if !visible {
+                    let _: () = msg_send![native, setAlphaValue: 0.0f64];
+                }
+                let _: () = msg_send![native, orderFrontRegardless];
             } else {
                 // A window that was hidden has drawn nothing yet: it is shown
                 // clear, and `reveal_window` makes it opaque once its first

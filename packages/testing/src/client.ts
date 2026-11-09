@@ -960,7 +960,15 @@ export class DesktopApp {
 
   /** The main window's opacity (macOS), which is 0 while a window that was hidden is revealed. */
   async windowAlpha(): Promise<number | null> {
-    return (await this.request<{ alpha: number | null }>('windowAlpha')).alpha;
+    return (await this.windowReveal()).alpha;
+  }
+
+  /** The opacity, and what made the window opaque after it was shown: `frame` (its first frame was drawn) or `timeout` (no frame came in time), `null` before that. */
+  async windowReveal(): Promise<{
+    alpha: number | null;
+    revealedBy: 'frame' | 'timeout' | null;
+  }> {
+    return this.request('windowAlpha');
   }
 
   /**

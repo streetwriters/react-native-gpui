@@ -19,6 +19,7 @@ beforeAll(async () => {
       RN_GPUI_MODULE: 'RNGPUITester--hidden-start',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+      RN_GPUI_TEST_ON_TOP: '1',
     },
     disableAnimations: true,
     offscreen: false,
@@ -40,7 +41,9 @@ test('showing it makes the window visible and opaque with its content, without t
     .poll(async () => (await app.windowState(1)).isVisible, { timeout: 8_000 })
     .toBe(true);
   await desktopExpect(app.getByTestId('hidden-visible')).toHaveText('true');
-  await expect.poll(() => app.windowAlpha(), { timeout: 2_000 }).toBe(1);
+  await expect
+    .poll(() => app.windowReveal(), { timeout: 2_000 })
+    .toEqual({ alpha: 1, revealedBy: 'frame' });
   const screenshot = await app.screenshot();
   expect(screenshot.length).toBeGreaterThan(1000);
   expect(frontmostApplicationPid()).not.toBe(app.pid);

@@ -1024,16 +1024,53 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
     result
 }
 
-/// How long a window that was hidden is kept clear after it is shown, so that
-/// its first frame is on screen before it appears and it does not flash blank.
-const REVEAL_DELAY: std::time::Duration = std::time::Duration::from_millis(80);
+/// The longest a window that was hidden is kept clear after it is shown. It is
+/// revealed sooner, when the frames that follow the show have been drawn.
+const REVEAL_LIMIT: std::time::Duration = std::time::Duration::from_millis(80);
 
+static LAST_REVEAL: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+
+/// What made the last revealed window opaque: `frame` when the frames after the
+/// show had been drawn, `timeout` when the limit came first.
+pub fn last_reveal() -> Option<&'static str> {
+    *LAST_REVEAL.lock().expect("reveal state poisoned")
+}
+
+/// Makes a window that was shown clear opaque once its first frame has been
+/// drawn and handed to the compositor. The first frame callback runs as the
+/// first frame after the show begins, the second as the next one begins, so the
+/// first has been drawn by then. The limit covers a window that gets no frames,
+/// such as one that other windows cover.
 fn reveal_later(cx: &mut App, key: u32) {
+    *LAST_REVEAL.lock().expect("reveal state poisoned") = None;
+    let done = std::rc::Rc::new(std::cell::Cell::new(false));
+    let reveal = {
+        let done = done.clone();
+        move |window: &mut gpui::Window, reason: &'static str| {
+            if done.replace(true) {
+                return;
+            }
+            let _ = platform_window::reveal_window(window);
+            *LAST_REVEAL.lock().expect("reveal state poisoned") = Some(reason);
+        }
+    };
+    let _ = with_window(cx, key, {
+        let reveal = reveal.clone();
+        move |window| {
+            window.refresh();
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |window, _| reveal(window, "frame"));
+                window.refresh();
+            });
+            Ok(())
+        }
+    });
     cx.spawn(async move |cx| {
-        cx.background_executor().timer(REVEAL_DELAY).await;
+        cx.background_executor().timer(REVEAL_LIMIT).await;
         let _ = cx.update(|cx| {
             let _ = with_window(cx, key, |window| {
-                platform_window::reveal_window(window).map_err(DesktopError::unsupported)
+                reveal(window, "timeout");
+                Ok(())
             });
         });
     })
