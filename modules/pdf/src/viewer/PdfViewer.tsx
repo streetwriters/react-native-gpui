@@ -26,7 +26,9 @@ import {
   clampZoom,
   fitZoom,
   layoutPages,
-  pageAt,
+  currentPage,
+  PAGE_GAP,
+  PAGE_PADDING,
   visibleRange,
 } from './layout';
 
@@ -73,6 +75,9 @@ export interface PdfViewerProps {
   style?: StyleProp<ViewStyle>;
   backgroundColor?: string;
   pageBackground?: string;
+  pageGap?: number;
+  padding?: number;
+  pageShadow?: boolean;
 }
 
 const ZOOM_STEP = 1.25;
@@ -87,6 +92,9 @@ export function PdfViewer({
   style,
   backgroundColor = '#52525b',
   pageBackground,
+  pageGap = PAGE_GAP,
+  padding = PAGE_PADDING,
+  pageShadow = false,
 }: PdfViewerProps) {
   const [session] = useState<PdfSession>(createPdfSession);
   const [documentId, setDocumentId] = useState<string | null>(null);
@@ -113,7 +121,10 @@ export function PdfViewer({
   latest.current = { zoom, offset, viewport };
 
   const sizes = useMemo(() => pages.map(page => page.size), [pages]);
-  const layout = useMemo(() => layoutPages(sizes, zoom), [sizes, zoom]);
+  const layout = useMemo(
+    () => layoutPages(sizes, zoom, pageGap, padding),
+    [sizes, zoom, pageGap, padding],
+  );
 
   const load = useCallback(
     async (id: string) => {
@@ -171,10 +182,17 @@ export function PdfViewer({
       setZoom(clampZoom(fit));
       return;
     }
-    setZoom(current => clampZoom(fitZoom(sizes, viewport, fit, current)));
-  }, [fit, sizes, viewport]);
+    setZoom(current =>
+      clampZoom(fitZoom(sizes, viewport, fit, current, padding)),
+    );
+  }, [fit, sizes, viewport, padding]);
 
-  const current = pageAt(layout.boxes, offset + viewport.height / 2);
+  const current = currentPage(
+    layout.boxes,
+    layout.height,
+    offset,
+    viewport.height,
+  );
   const state: PdfViewerState = {
     status,
     pageCount: pages.length,
@@ -244,7 +262,10 @@ export function PdfViewer({
       goToPage: page => {
         const box = layout.boxes[Math.min(layout.boxes.length, page) - 1];
         if (box) {
-          scroller.current?.scrollTo({ y: box.top - 8, animated: false });
+          scroller.current?.scrollTo({
+            y: Math.max(0, box.top - pageGap),
+            animated: false,
+          });
         }
       },
       unlock: async password => {
@@ -285,7 +306,7 @@ export function PdfViewer({
       },
       getState: () => stateRef.current,
     }),
-    [changeZoom, layout, documentId, session, load, found.capability],
+    [changeZoom, layout, documentId, session, load, found.capability, pageGap],
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);
 
@@ -331,6 +352,9 @@ export function PdfViewer({
                     style={{
                       position: 'absolute',
                       top: box.top,
+                      boxShadow: pageShadow
+                        ? '0 2px 6px rgba(0, 0, 0, 0.2)'
+                        : undefined,
                       left: Math.max(0, (viewport.width - box.width) / 2),
                     }}
                   >

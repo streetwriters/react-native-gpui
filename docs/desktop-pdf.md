@@ -62,3 +62,5 @@ import { PdfViewer } from '@react-native-gpui/pdf';
 ```
 
 `controllerRef` gives `zoomIn`, `zoomOut`, `setZoom`, `fitWidth`, `fitPage`, `goToPage`, `unlock`, `search`, `nextHit`, `previousHit`, `clearSearch`, `getSelectedText`, `clearSelection` and `download`. `onStateChange` reports the status (`loading`, `locked`, `ready`, `error`), page, page count, zoom and the search state. Drag selects text, a double-click selects a word and a triple-click a line.
+
+`pageGap` (default 12), `padding` (default 16) and `pageShadow` (default false, draws `0 2px 6px rgba(0, 0, 0, 0.2)`) shape the page column. The current page is the one with the largest visible area, the first on a tie.

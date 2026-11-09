@@ -15,3 +15,6 @@ All notable changes to `@react-native-gpui/pdf` are listed here. Each version's 
 - Tile handles report the size of the bitmap they stand for, so the render plugin's raster store evicts them like pixel data.
 - Fix: the module no longer defines `crypto.getRandomValues`. `createPdfEngine` throws when the app has not installed a secure one, and `queueMicrotask` and `performance.now` are only added when missing.
 - `PdfViewer` search (`search`, `nextHit`, `previousHit`, `clearSearch`, with hit highlights and the active hit revealed) and text selection (drag, double-click for a word, triple-click for a line, `getSelectedText`, `clearSelection`), through EmbedPDF's search and selection plugins.
+- The current page (`state.page`) is the page with the largest visible area in the viewport, the first on a tie and the last when scrolled to the bottom, instead of the page under the viewport centre.
+- `PdfViewer` takes `pageGap`, `padding` and `pageShadow` (defaults unchanged: 12, 16, no shadow); `pageShadow` draws a soft `0 2px 6px rgba(0, 0, 0, 0.2)` shadow.
+- Fix: a drag that starts before the page's text geometry has loaded now selects text once it arrives instead of doing nothing; the geometry of a page is loaded when the page appears.
