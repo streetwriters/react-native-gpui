@@ -144,6 +144,12 @@ export const screens = [
     fixture: 'ScrollBarDragFixture',
   },
   {
+    id: 'app-shortcut',
+    title: 'App shortcut over a menu accelerator',
+    group: 'Input',
+    fixture: 'AppShortcutFixture',
+  },
+  {
     id: 'stretch',
     title: 'Row stretch',
     group: 'Views',
