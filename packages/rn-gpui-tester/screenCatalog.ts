@@ -198,6 +198,12 @@ export const screens = [
     fixture: 'SingleLineTextInputFixture',
   },
   {
+    id: 'input-line-height',
+    title: 'Input line height',
+    group: 'Input',
+    fixture: 'TextInputLineHeightFixture',
+  },
+  {
     id: 'pan-responder',
     title: 'PanResponder',
     group: 'Input',

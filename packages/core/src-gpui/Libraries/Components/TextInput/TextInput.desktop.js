@@ -66,7 +66,9 @@ const TextInput = React.forwardRef(function GPUITextInput(props, ref) {
             },
             style,
           ]
-        : [{ minHeight: minimumLineHeight }, style];
+        : multiline
+          ? [{ minHeight: minimumLineHeight }, style]
+          : style;
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue == null ? '' : String(defaultValue),
   );

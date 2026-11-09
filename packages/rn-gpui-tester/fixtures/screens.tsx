@@ -35,6 +35,11 @@ export const renderScreen: Record<
       require('./components/SingleLineTextInputFixture').default,
       props,
     ),
+  'input-line-height': props =>
+    React.createElement(
+      require('./components/TextInputLineHeightFixture').default,
+      props,
+    ),
   'pan-responder': props =>
     React.createElement(
       require('./components/PanResponderFixture').default,

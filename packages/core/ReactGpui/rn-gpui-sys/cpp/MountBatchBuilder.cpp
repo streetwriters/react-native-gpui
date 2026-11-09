@@ -656,6 +656,11 @@ ParagraphFlat paragraphForMeasure(
     const AttributedString& text,
     const ParagraphAttributes& attributes) {
   ParagraphFlat paragraph = flattenInputText(text);
+  if (paragraph.fragments.empty()) {
+    paragraph.fragments.push_back(
+        flattenTextFragment(text.getBaseTextAttributes(), ""));
+    paragraph.measure_empty_line = true;
+  }
 
   // Alignment lives on TextAttributes, not on ParagraphAttributes; the
   // TextAlignment enum values already match the ParagraphFlat encoding.

@@ -161,6 +161,9 @@ pub mod ffi {
         pub shadow_dx: f32,
         pub shadow_dy: f32,
         pub shadow_radius: f32,
+        /// An empty single-line input measured for the height of one line of
+        /// its font.
+        pub measure_empty_line: bool,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
