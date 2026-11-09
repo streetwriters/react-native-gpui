@@ -97,7 +97,7 @@ npx react-native create-library AwesomeStorage --type cpp
 
 ## collect-node-addons
 
-Copies the Node addons a bundle loads next to the packaged executable.
+Copies the Node addons a bundle loads next to the packaged executable. `run-desktop --release` and `package-desktop` run it for you.
 
 ```shell
 npx react-native collect-node-addons --bundle build/index.bundle --out build/node-addons

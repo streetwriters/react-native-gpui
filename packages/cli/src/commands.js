@@ -507,6 +507,8 @@ export async function runDesktop({
   // format (`.hbc` bytecode, for example).
   let runtimeBundlePath = bundlePath;
   let extraResources = [];
+  // The addons a release bundle loads, collected next to it.
+  let nodeAddonsDir;
 
   // A debug build normally loads its JavaScript from Metro. The test driver has
   // no Metro, so a build made for it also writes the bundle it will load.
@@ -535,6 +537,21 @@ export async function runDesktop({
     ];
     if (fs.existsSync(metroConfig)) bundleArgs.push('--config', metroConfig);
     run(npxCommand, npxArgs(bundleArgs), { cwd: projectRoot, shell: npxShell });
+
+    if (release) {
+      nodeAddonsDir = path.join(path.dirname(bundlePath), 'node-addons');
+      const collected = collectNodeAddons({
+        bundle: bundlePath,
+        out: nodeAddonsDir,
+      });
+      if (collected.copied.length === 0) nodeAddonsDir = undefined;
+      else {
+        signCollectedNodeAddons({
+          directory: nodeAddonsDir,
+          identity: process.env.APPLE_SIGNING_IDENTITY,
+        });
+      }
+    }
 
     if (release && engineBundle && typeof engineBundle.compile === 'function') {
       const extension =
@@ -682,9 +699,23 @@ export async function runDesktop({
     if (!noLaunch) run(binary, [], { cwd: projectRoot, env: cargoEnv });
   }
 
+  // A release run finds its addons next to the executable. A packaged app gets
+  // them from the packager as `Resources/node-addons`.
+  if (release && !packaging && nodeAddonsDir !== undefined) {
+    const targetDir = cargoTargetDirectory(appCargoManifest, {
+      cwd: projectRoot,
+      env: cargoEnv,
+    });
+    if (targetDir) {
+      const beside = path.join(targetDir, 'release', 'node-addons');
+      fs.rmSync(beside, { recursive: true, force: true });
+      fs.cpSync(nodeAddonsDir, beside, { recursive: true });
+    }
+  }
+
   // The file the runtime was told to load: the engine's compiled output in a
   // release build, the Metro bundle otherwise. `package-desktop` stages it.
-  return { runtimeBundlePath, bundlePath, extraResources };
+  return { runtimeBundlePath, bundlePath, extraResources, nodeAddonsDir };
 }
 
 const appPackageName = (projectRoot, packageJson) =>
@@ -1595,6 +1626,38 @@ export function collectNodeAddons({
 }
 
 /**
+ * Signs the collected addons and the libraries beside them with the identity the
+ * CLI signs the app binary with, because the hardened runtime refuses to load an
+ * unsigned library. Nothing happens off macOS or without an identity: an
+ * unsigned release is still built, and an ad-hoc signed one needs no change.
+ */
+export function signCollectedNodeAddons({
+  directory,
+  identity,
+  platform = process.platform,
+  exec = execFileSync,
+}) {
+  if (platform !== 'darwin' || !identity || !fs.existsSync(directory)) {
+    return [];
+  }
+  const files = [];
+  const walk = current => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const file = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (/\.(node|dylib)$/u.test(entry.name)) files.push(file);
+    }
+  };
+  walk(directory);
+  for (const file of files) {
+    exec('codesign', ['--force', '--sign', identity, file], {
+      stdio: 'inherit',
+    });
+  }
+  return files;
+}
+
+/**
  * Strip the symbol table from the release binary, once its debug info is safe.
  *
  * Cargo's own `strip = "symbols"` runs inside the linker, before `dsymutil`, so
@@ -1757,6 +1820,7 @@ export async function packageDesktop({
   // What the release ships: one bundle, always named `index.bundle`, holding
   // whatever the engine compiled the JavaScript into.
   const shippedBundle = stageBundle({ projectRoot, build });
+  const nodeAddonsDir = build.nodeAddonsDir;
 
   const crateDir = path.join(projectRoot, 'desktop');
   // The executable is the crate's name, which is what `scaffoldDesktop` writes
@@ -1803,6 +1867,7 @@ export async function packageDesktop({
     extraResources: (build.extraResources ?? []).map(resource =>
       path.join(path.dirname(shippedBundle), path.basename(resource)),
     ),
+    nodeAddonsDir,
     icons,
     libraries,
     formats,
