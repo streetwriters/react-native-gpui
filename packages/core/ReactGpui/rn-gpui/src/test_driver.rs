@@ -20,6 +20,7 @@ unsafe extern "C" {
     fn rn_gpui_http_requests_not_ignored(patterns: *const std::ffi::c_char) -> u64;
     fn rn_gpui_mount_batches_in_flight() -> u64;
     fn rn_gpui_pending_timers_due_within(window_ms: u64) -> u64;
+    fn rn_gpui_pending_timers_dump(window_ms: u64, buffer: *mut u8, capacity: u64) -> u64;
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
     fn rn_gpui_pending_js_tasks_dump(buffer: *mut u8, capacity: u64) -> u64;
@@ -1872,7 +1873,17 @@ fn idle_status(
     // SAFETY: these C++ probes take no pointers and only read counters.
     let pending_timers = unsafe { rn_gpui_pending_timers_due_within(1_500) };
     if pending_timers > 0 && !ignore.iter().any(|item| item == "timers") {
-        busy.push(json!({"source": "timers", "detail": format!("{pending_timers} one-shot timer(s) due within 1500 ms")}));
+        let mut detail = format!("{pending_timers} one-shot timer(s) due within 1500 ms");
+        let mut buffer = vec![0u8; 2048];
+        // SAFETY: the buffer is valid for the capacity given, and the call
+        // writes at most that many bytes.
+        let length =
+            unsafe { rn_gpui_pending_timers_dump(1_500, buffer.as_mut_ptr(), buffer.len() as u64) }
+                as usize;
+        buffer.truncate(length.min(buffer.len()));
+        detail.push_str(":\n");
+        detail.push_str(&String::from_utf8_lossy(&buffer));
+        busy.push(json!({"source": "timers", "detail": detail}));
     }
     if !ignore.iter().any(|item| item == "animations") {
         for (tag, entity) in &store.nodes {

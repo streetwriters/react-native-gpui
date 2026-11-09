@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 ## Unreleased
 
+- `app.idleStatus()` lists the pending timers that keep the app from being idle, each with the delay it was set for and the time left. Needs a runtime built with the change.
 - `app.layoutStats({ reset })` reports the layout and paint statistics of the window: frames, layout node reuse, style writes, measurements, lines shaped, views built and reused, scroll layer repaints and dirtied tiles, and the time of each phase.
 - `app.tooltip()` reports the tooltip set up for the view under the pointer: its text, view and frame, the system's view of it on macOS, and the text of a drawn one.
 - `app.dockMenu()` and `app.pressDockMenuItem(index)` read the Dock menu and choose one of its items, on macOS.
