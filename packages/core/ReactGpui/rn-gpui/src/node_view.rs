@@ -421,6 +421,44 @@ fn dispatch_pointer_button(
     cx.stop_propagation();
 }
 
+fn dispatch_pointer_release(
+    node: &gpui::WeakEntity<RNNodeView>,
+    event: &MouseUpEvent,
+    button: crate::events::Button,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let pressed = store.read(cx).button_target.borrow().clone();
+    let held = store.read(cx).buttons_held.get() & button.mask() != 0;
+    if !held {
+        return;
+    }
+    let target = pressed.or_else(|| {
+        let this = node.read(cx);
+        crate::events::target(cx, this)
+    });
+    let Some(target) = target else {
+        return;
+    };
+    crate::events::send_pointer(
+        window,
+        cx,
+        &target,
+        event.position,
+        crate::events::Phase::End,
+        Some(button),
+        button.mask(),
+        modifier_state(event.modifiers),
+    );
+    cx.stop_propagation();
+}
+
 /// Dispatches `topContextMenu` for a press, once `events` says it is a trigger.
 ///
 /// `is_left` distinguishes the Ctrl + click case from the right click so the same
@@ -699,6 +737,18 @@ impl RNNodeView {
     /// Whether this view takes files dropped from the operating system.
     pub(crate) fn accepts_files(&self) -> bool {
         self.view.accepts_files
+    }
+
+    pub(crate) fn tooltip(&self) -> &str {
+        &self.view.tooltip
+    }
+
+    pub(crate) fn draggable(&self) -> bool {
+        self.view.draggable
+    }
+
+    pub(crate) fn droppable(&self) -> bool {
+        self.view.droppable
     }
 
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
@@ -3133,7 +3183,9 @@ impl Render for RNNodeView {
         if !self.view.accessibility_label.is_empty() {
             element = element.aria_label(self.view.accessibility_label.clone());
         }
-        if !self.view.accessibility_hint.is_empty() {
+        if self.view.accessibility_hint.is_empty() && !self.view.tooltip.is_empty() {
+            element = element.aria_description(self.view.tooltip.clone());
+        } else if !self.view.accessibility_hint.is_empty() {
             element = element.aria_description(self.view.accessibility_hint.clone());
         }
         if self.view.accessibility_label.is_empty() {
@@ -3187,6 +3239,8 @@ impl Render for RNNodeView {
         }
         if let Some(role) = self.accessibility_role() {
             element = element.role(role);
+        } else if accessibility_active && !self.view.tooltip.is_empty() {
+            element = element.role(Role::Group);
         }
         if accessibility_active && self.accessibility_role() == Some(Role::ListItem) {
             if let Some(parent) = self.parent.as_ref().and_then(|parent| parent.upgrade()) {
@@ -4113,22 +4167,24 @@ impl Render for RNNodeView {
                     }));
                 }
                 if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
-                    let (tag, position) = (
-                        self.scrollbar_tag.unwrap_or(self.tag),
-                        self.scroll_position.clone(),
-                    );
+                    let (tag, bar_tag, position) =
+                        (self.tag, self.scrollbar_tag, self.scroll_position.clone());
                     let emit: crate::scroll_indicator::EmitEvent = Rc::new(move |event, cx| {
                         let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
                             return;
                         };
                         let offset = position.get();
-                        store.0.read(cx).host.dispatch_event(
-                            tag,
-                            event,
-                            &serde_json::json!({
-                                "contentOffset": {"x": offset.x, "y": offset.y},
-                            }),
-                        );
+                        let payload = serde_json::json!({
+                            "contentOffset": {"x": offset.x, "y": offset.y},
+                        });
+                        let host = &store.0.read(cx).host;
+                        // The scroll view declares `onScrollBarDrag*`; a ScrollBar
+                        // child declares its own `onDrag*` under other event names.
+                        host.dispatch_event(tag, event, &payload);
+                        if let Some(bar_tag) = bar_tag {
+                            let thumb = event.replacen("topScrollBar", "topScrollBarThumb", 1);
+                            host.dispatch_event(bar_tag, &thumb, &payload);
+                        }
                     });
                     let spec = self.scrollbar.clone();
                     indicator.update(cx, |indicator, _| indicator.configure(spec, apply, emit));
@@ -4358,7 +4414,27 @@ impl Render for RNNodeView {
             },
         );
         let mut outline_rules = Vec::new();
-        if outline_color != 0 && outline_width > 0.0 {
+        let outline_radii = [
+            self.view.border_radii.tl,
+            self.view.border_radii.tr,
+            self.view.border_radii.br,
+            self.view.border_radii.bl,
+        ];
+        let rounded_outline = self.view.outline_style == 0
+            && outline_color != 0
+            && outline_width > 0.0
+            && outline_radii.iter().any(|radius| *radius > 0.0);
+        if rounded_outline {
+            outline_rules.push(rounded_ring(
+                width,
+                height,
+                outline_offset,
+                outline_width,
+                outline_color,
+                outline_radii,
+                scale_x.min(scale_y),
+            ));
+        } else if outline_color != 0 && outline_width > 0.0 {
             let outline_width_x = outline_width * scale_x;
             let outline_width_y = outline_width * scale_y;
             let offset_x = outline_offset * scale_x;
@@ -4368,7 +4444,7 @@ impl Render for RNNodeView {
             outline_rules.extend(rule_segments(
                 x,
                 y,
-                width + 2.0 * offset_x,
+                width + 2.0 * (offset_x + outline_width_x),
                 outline_width_y,
                 true,
                 outline_color,
@@ -4377,7 +4453,7 @@ impl Render for RNNodeView {
             outline_rules.extend(rule_segments(
                 x,
                 height + offset_y,
-                width + 2.0 * offset_x,
+                width + 2.0 * (offset_x + outline_width_x),
                 outline_width_y,
                 true,
                 outline_color,
@@ -4415,42 +4491,60 @@ impl Render for RNNodeView {
         {
             let focus_color = 0xff60a5fa;
             let ring = 2.0;
-            outline_rules.extend(rule_segments(
-                -ring,
-                -ring,
-                width + ring * 2.0,
-                ring,
-                true,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                -ring,
-                height,
-                width + ring * 2.0,
-                ring,
-                true,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                -ring,
-                0.0,
-                height,
-                ring,
-                false,
-                focus_color,
-                0,
-            ));
-            outline_rules.extend(rule_segments(
-                width,
-                0.0,
-                height,
-                ring,
-                false,
-                focus_color,
-                0,
-            ));
+            let radii = [
+                self.view.border_radii.tl,
+                self.view.border_radii.tr,
+                self.view.border_radii.br,
+                self.view.border_radii.bl,
+            ];
+            if radii.iter().any(|radius| *radius > 0.0) {
+                outline_rules.push(rounded_ring(
+                    width,
+                    height,
+                    0.0,
+                    ring,
+                    focus_color,
+                    radii,
+                    scale_x.min(scale_y),
+                ));
+            } else {
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    -ring,
+                    width + ring * 2.0,
+                    ring,
+                    true,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    height,
+                    width + ring * 2.0,
+                    ring,
+                    true,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    -ring,
+                    0.0,
+                    height,
+                    ring,
+                    false,
+                    focus_color,
+                    0,
+                ));
+                outline_rules.extend(rule_segments(
+                    width,
+                    0.0,
+                    height,
+                    ring,
+                    false,
+                    focus_color,
+                    0,
+                ));
+            }
         }
         let element = element.children(outline_rules).into_any_element();
         let element = match self.gpui_transform((scale_x, scale_y)) {
@@ -4472,6 +4566,39 @@ impl Render for RNNodeView {
             element
         }
     }
+}
+
+fn rounded_ring(
+    width: f32,
+    height: f32,
+    offset: f32,
+    ring: f32,
+    argb: u32,
+    radii: [f32; 4],
+    scale: f32,
+) -> gpui::Div {
+    let reach = (offset + ring) * scale;
+    let mut element = div()
+        .absolute()
+        .left(px(-reach))
+        .top(px(-reach))
+        .w(px(width + 2.0 * reach))
+        .h(px(height + 2.0 * reach))
+        .border(px(ring * scale))
+        .border_color(style::color(argb));
+    let corners = &mut element.style().corner_radii;
+    let outer = |radius: f32| {
+        if radius > 0.0 {
+            px(((radius + offset).max(0.0) + ring) * scale).into()
+        } else {
+            px(0.0).into()
+        }
+    };
+    corners.top_left = Some(outer(radii[0]));
+    corners.top_right = Some(outer(radii[1]));
+    corners.bottom_right = Some(outer(radii[2]));
+    corners.bottom_left = Some(outer(radii[3]));
+    element
 }
 
 fn rule_segments(
@@ -4989,6 +5116,7 @@ impl RNNodeView {
                         Some(crate::events::Button::Left),
                         modifier_state(event.modifiers),
                     );
+                    crate::drag_drop::press(cx, &target, event.position);
                     cx.stop_propagation();
                 }));
             // Every other button reports the DOM pointer events only, with no
@@ -5004,6 +5132,30 @@ impl RNNodeView {
                         &middle_node,
                         event,
                         crate::events::Button::Middle,
+                        window,
+                        cx,
+                    );
+                }));
+            let middle_up_node = node.clone();
+            handlers
+                .middle_up
+                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    dispatch_pointer_release(
+                        &middle_up_node,
+                        event,
+                        crate::events::Button::Middle,
+                        window,
+                        cx,
+                    );
+                }));
+            let right_up_node = node.clone();
+            handlers
+                .right_up
+                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    dispatch_pointer_release(
+                        &right_up_node,
+                        event,
+                        crate::events::Button::Right,
                         window,
                         cx,
                     );
@@ -5087,6 +5239,17 @@ impl RNNodeView {
                             this.text_selection_anchor.is_some(),
                         )
                     };
+                    if crate::drag_drop::tracking() {
+                        crate::drag_drop::moved(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            event.pressed_button.is_some(),
+                        );
+                        cx.stop_propagation();
+                        return;
+                    }
                     if crate::file_drop::active() {
                         crate::file_drop::over(window, cx, hit_target.as_ref(), event.position);
                         cx.stop_propagation();
@@ -5111,21 +5274,22 @@ impl RNNodeView {
                         }
                         // RN keeps the touch target fixed from mouse-down to
                         // release, including when the pointer leaves the view.
-                        let target =
-                            crate::events::active_touch_target(cx).or_else(|| hit_target.clone());
-                        if let Some(target) = target.as_ref() {
-                            crate::events::send(
-                                window,
-                                cx,
-                                target,
-                                event.position,
-                                crate::events::Phase::Move,
-                                None,
-                                modifier_state(event.modifiers),
-                            );
-                        }
+                        crate::events::move_pressed(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            modifier_state(event.modifiers),
+                        );
                     } else {
                         crate::events::hover(window, cx, hit_target.as_ref(), event.position);
+                        crate::events::move_hovered(
+                            window,
+                            cx,
+                            hit_target.as_ref(),
+                            event.position,
+                            modifier_state(event.modifiers),
+                        );
                     }
                     if hit_target.is_some() || crate::events::active_touch_target(cx).is_some() {
                         cx.stop_propagation();
@@ -5145,6 +5309,12 @@ impl RNNodeView {
                     let Some(node) = node.upgrade() else {
                         return;
                     };
+                    if crate::drag_drop::tracking() {
+                        let target = crate::events::target(cx, node.read(cx));
+                        if crate::drag_drop::released(window, cx, target.as_ref(), event.position) {
+                            return;
+                        }
+                    }
                     if crate::file_drop::active() {
                         let target = crate::events::target(cx, node.read(cx));
                         crate::file_drop::landing(target, event.position);

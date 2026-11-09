@@ -654,12 +654,24 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
 /// mirror, as `open_window` does for the windows it creates. The main window
 /// resizes the store through its own observer in `bootstrap`, so this only
 /// reports.
+static MAIN_STARTED_HIDDEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The main window was opened without being shown (`window.visible: false` or
+/// `--hidden`), so it reports itself as not visible until it is shown.
+pub fn note_main_started_hidden() {
+    MAIN_STARTED_HIDDEN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     let Some(handle) = handle.downcast::<SurfaceRootView>() else {
         return;
     };
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
+    }
+    if MAIN_STARTED_HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
     }
     super::app_state::schedule(cx);
     let _ = handle.update(cx, |_root, window, cx| {
@@ -812,6 +824,38 @@ fn report_state_change(cx: &mut App, key: u32, fields: &[(&str, Value)]) {
         payload.insert((*name).to_string(), value.clone());
     }
     emit_window_event(cx, "gpuiDesktop:windowStateChange", Value::Object(payload));
+}
+
+const ZOOM_STEPS: [f32; 17] = [
+    0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0,
+];
+
+/// The factor one step from `current` in `direction`: `zoomIn`, `zoomOut`, or
+/// `resetZoom` for 1. The steps are the ones a browser offers.
+pub(crate) fn zoom_step(current: f32, direction: &str) -> f32 {
+    match direction {
+        "zoomIn" => ZOOM_STEPS
+            .iter()
+            .copied()
+            .find(|step| *step > current + 0.001)
+            .unwrap_or(5.0),
+        "zoomOut" => ZOOM_STEPS
+            .iter()
+            .rev()
+            .copied()
+            .find(|step| *step < current - 0.001)
+            .unwrap_or(0.25),
+        _ => 1.0,
+    }
+}
+
+/// Zooms a window in or out by a step, or back to its natural size.
+pub fn step_zoom(cx: &mut App, key: u32, direction: &str) -> DesktopResult {
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    let factor = zoom_step(super::zoom::get(entry.surface_id), direction);
+    set_zoom_factor(cx, key, factor)
 }
 
 /// Scales a window's content, `1.0` being its natural size. The factor is
@@ -971,12 +1015,66 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
     if let Some(run) = later.take() {
         run_outside_update(cx, run);
         recheck_window_state_later(cx, key);
+        reveal_later(cx, key);
     }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
     }
     result
+}
+
+/// The longest a window that was hidden is kept clear after it is shown. It is
+/// revealed sooner, when the frames that follow the show have been drawn.
+const REVEAL_LIMIT: std::time::Duration = std::time::Duration::from_millis(80);
+
+static LAST_REVEAL: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+
+/// What made the last revealed window opaque: `frame` when the frames after the
+/// show had been drawn, `timeout` when the limit came first.
+pub fn last_reveal() -> Option<&'static str> {
+    *LAST_REVEAL.lock().expect("reveal state poisoned")
+}
+
+/// Makes a window that was shown clear opaque once its first frame has been
+/// drawn and handed to the compositor. The first frame callback runs as the
+/// first frame after the show begins, the second as the next one begins, so the
+/// first has been drawn by then. The limit covers a window that gets no frames,
+/// such as one that other windows cover.
+fn reveal_later(cx: &mut App, key: u32) {
+    *LAST_REVEAL.lock().expect("reveal state poisoned") = None;
+    let done = std::rc::Rc::new(std::cell::Cell::new(false));
+    let reveal = {
+        let done = done.clone();
+        move |window: &mut gpui::Window, reason: &'static str| {
+            if done.replace(true) {
+                return;
+            }
+            let _ = platform_window::reveal_window(window);
+            *LAST_REVEAL.lock().expect("reveal state poisoned") = Some(reason);
+        }
+    };
+    let _ = with_window(cx, key, {
+        let reveal = reveal.clone();
+        move |window| {
+            window.refresh();
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |window, _| reveal(window, "frame"));
+                window.refresh();
+            });
+            Ok(())
+        }
+    });
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(REVEAL_LIMIT).await;
+        let _ = cx.update(|cx| {
+            let _ = with_window(cx, key, |window| {
+                reveal(window, "timeout");
+                Ok(())
+            });
+        });
+    })
+    .detach();
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {
@@ -1390,6 +1488,9 @@ fn install_activation_observer(
         move |window, cx| report_activation(window, cx, key, &last)
     });
     cx.observe_window_activation(window, move |_root, window, cx| {
+        if !window.is_window_active() {
+            crate::tooltip::dismiss(window, cx);
+        }
         report_activation(window, cx, key, &last);
     })
 }
@@ -1450,6 +1551,9 @@ fn report_activation(
         return;
     }
     last.set(active);
+    if !active {
+        crate::events::cancel_presses(window, cx);
+    }
     super::window_mirror::patch(key, &[("isFocused", json!(active))]);
     super::app_state::schedule(cx);
     let Some(store) = cx.try_global::<StoreGlobal>() else {
@@ -1655,6 +1759,16 @@ pub fn window_id_for_surface(cx: &App, surface_id: i32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn zoom_steps_follow_the_browser_levels() {
+        assert_eq!(zoom_step(1.0, "zoomIn"), 1.1);
+        assert_eq!(zoom_step(1.0, "zoomOut"), 0.9);
+        assert_eq!(zoom_step(1.3, "zoomIn"), 1.5);
+        assert_eq!(zoom_step(5.0, "zoomIn"), 5.0);
+        assert_eq!(zoom_step(0.25, "zoomOut"), 0.25);
+        assert_eq!(zoom_step(2.0, "resetZoom"), 1.0);
+    }
+
     use super::*;
 
     #[test]

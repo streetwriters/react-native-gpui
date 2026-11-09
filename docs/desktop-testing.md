@@ -82,11 +82,21 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 `launchApp` checks it on macOS: a test fails if the launched app is the frontmost application once it is idle. The check uses `lsappinfo`; `frontmostApplicationPid()` is exported for your own assertions.
 
+### Wheel and pinch
+
+`app.scroll(tag, dx, dy, repeat, phase, intervalMs, options)` sends a platform scroll event to the node's centre, the event a trackpad or wheel sends, so it goes through [`onWheel`](desktop-input#wheel-events) handlers before it scrolls anything. `options.lines` sends a mouse wheel notch in lines instead of trackpad pixels, and `options.modifiers` holds keys (`shift`, `control`, `alt`, `platform`). `phase` is `started`, `moved` or `ended`. A negative `dy` scrolls down. `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch, where `delta` is the magnification change. `waitForIdle` waits for a wheel event that is still waiting for its handlers.
+
+### Layout and paint work
+
+`app.layoutStats({ reset })` returns what the window's layout and paint did since the counters were last reset, from gpui-fast's layout statistics: `frames`; `nodesCreated`, `nodesReused`, `nodesFreed`; `styleCompares`, `styleWrites`, `childrenWrites`; `measureCalls`, `measurementsKept`, `measurementsReplayed`; `linesShaped`; `viewsBuilt` and `viewsReused`; `layerFramesComposited`, `layerFramesRepainted`, `tilesDirtied`, `layerRebuildsForInput` and `layersDemoted` for scroll layers; `layoutNodes`, the nodes the window holds; `targetAtCalls` and `targetAtMs`, the lookups of the view under the pointer that the hover pass makes after keyboard input, and their time; and in milliseconds `buildMs`, `prepaintMs`, `paintMs`, `computeLayoutMs`, `measureMs` and `shapeMs`. The counts always run. The times are zero until the first call with `reset: true`, so start a measurement with one, do the work, and read it with another `reset: true` call, which also starts the next interval. Divide by `frames` for a per-frame figure. Frames that the driver draws itself count too.
+
 ### Which display
 
 A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, centred in it; `launchApp` and the runtime default to the secondary display when there is one. Hidden windows are placed there too. `RN_GPUI_TEST_DISPLAY` chooses another: `main`, `secondary`, or an index into `app.displays()`. A display that does not exist falls back to the main one, with a log line. `app.displays()` lists the displays and their bounds in the app's coordinates.
 
 A window ordered behind the others can be covered by them, and macOS stops presenting frames for a covered (occluded) window, so a test that reads the real screen back with `app.compositeScreenshot()` needs the window in front. `RN_GPUI_TEST_ON_TOP=1` orders the window front without activating the app or giving it focus; the compositor test of native views sets it.
+
+`RN_GPUI_TEST_DISPLAY=retina` opens the window on the display with the highest scale factor when that is at least 2, and on the main display otherwise. Use it for a test that depends on the display's own scale, which no override changes: AppKit places a native view (`NativeViewFixture`, a web view) at the real display's scale, so the layout of such a test, which is at 2x, only matches a 2x display. Choose it by scale and not by `main` or `secondary`, because which display is main changes with the arrangement. A test that does not care about the scale keeps the default, the secondary display, to stay out of the user's way. `app.displays()` reports each display's `scaleFactor` (macOS; `null` elsewhere), so a test can skip when it finds no 2x display.
 
 `launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
 
@@ -133,7 +143,9 @@ await expectNoA11yViolations(app);
 
 When the wait times out because JavaScript work never finishes, start the app with `RN_GPUI_DEBUG_JS_TASKS=1` (in `env`): the error then lists each queued or running JavaScript task with how long it has been there and the call stack that queued it. The stacks are symbols of the native runtime, so they name the C++ entry point that scheduled the task. The variable is for debugging; it costs a stack capture per task. macOS and Linux only.
 
-Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work.
+`app.click()` and `locator.click()` move the pointer onto the target, then dispatch a press and a release through the window's own input path, the one a real pointer reaches, both in one step. Several listeners see each event, deepest view first and the window's root last, so a listener that drops the release can be covered by one that comes later; a test of the press and release path itself uses `app.mouseDown()` and `app.mouseUp()` at positions of its choice, such as a release outside the window, which only the window-level listener sees.
+
+Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work. `app.idleStatus()` says what is holding it up: for pending timers it lists each one with the delay it was set for and the time left (`timer 12: set for 700 ms, due in 640 ms`), which is how to tell a timer of the app's own from work the runtime is doing. Only one-shot timers due within 1.5 seconds count.
 
 ### Screenshots
 
@@ -154,7 +166,7 @@ Baselines are stored next to the test, in `__screenshots__/gpui/<platform>-<arch
 | Dialogs          | `alertState`, `alertRespond`, `alertEscape`                                                                                                  |
 | Share and links  | `shareOpen`, `shareAnchor`, `shareChoose`, `openUrl`                                                                                         |
 | Clipboard        | `clipboardText`, `setClipboardText`                                                                                                          |
-| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `hover`                                                 |
+| Pointer and keys | `mouseDown`, `mouseUp`, `mouseMove`, `focus`, `press`, `typeText`, `drag`, `scroll`, `pinch`, `hover`                                        |
 | Accessibility    | `a11yTree`, `a11yNode`                                                                                                                       |
 | Other            | `tree`, `screenshot`, `reload`, `getPerfMonitor`, `readLogs`, `allowErrors`, `assertNoErrors`                                                |
 
@@ -183,3 +195,13 @@ import desktopPreset from '@react-native-gpui/testing/vitest-preset';
 
 export default mergeConfig(defineConfig(desktopPreset), defineConfig({}));
 ```
+
+## Building for the test driver
+
+```shell
+npx react-native run-desktop --features test-driver --no-launch
+```
+
+A debug build normally loads its JavaScript from Metro. With the `test-driver` feature and `--no-launch`, `run-desktop` also writes the bundle (`desktop/build/index.bundle` by default) with the development flag on, so a test run needs no Metro. Point `RN_GPUI_TEST_BINARY` at the binary in `desktop/build/target/debug` and `RN_GPUI_TEST_BUNDLE` at that bundle. When a bundle is given, `launchApp` also tells the app not to look for a dev server (`RN_GPUI_DEV_PORT=1`) unless the environment already sets that variable.
+
+On macOS an unsigned binary is a new app to the keychain on every build, and one that reads a keychain item written by another build waits for a prompt. Pass `--sign-identity <identity>` (or set `APPLE_SIGNING_IDENTITY`) to sign the binary under the app's identifier, with or without `--no-launch`.

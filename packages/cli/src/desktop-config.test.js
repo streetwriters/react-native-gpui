@@ -67,6 +67,7 @@ describe('defaults', () => {
       title: 'My App',
       resizable: true,
       restoreState: true,
+      visible: true,
     });
     expect(config.devMenu).toBe(true);
     expect(config.urlSchemes).toEqual([]);

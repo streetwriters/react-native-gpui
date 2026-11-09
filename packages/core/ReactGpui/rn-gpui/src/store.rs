@@ -74,7 +74,15 @@ pub struct ViewStore {
     pub pointer: Cell<Point<Pixels>>,
     /// Whether the pointer is over the window, as the last pointer event left it.
     pub pointer_inside: Cell<bool>,
+    /// The mouse buttons held, as the DOM's `buttons` mask: 1 left, 2 right, 4 middle.
+    pub(crate) buttons_held: Cell<i32>,
+    /// Where a press of a button other than the left one started, which its
+    /// moves and its release follow.
+    pub(crate) button_target: RefCell<Option<crate::events::Target>>,
     pub(crate) hover_retarget_pending: Rc<Cell<bool>>,
+    /// Nodes a transition was started on and has not been seen to finish, for
+    /// the test driver to keep drawing without scanning every node.
+    pub(crate) transitioning: RefCell<std::collections::HashSet<i32>>,
     pub top_inset: f32,
     /// Target fixed at primary-button down. RN keeps a touch's target stable
     /// across drags, so responder moves/releases must still reach this node
@@ -129,7 +137,10 @@ impl ViewStore {
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
             pointer_inside: Cell::new(false),
+            buttons_held: Cell::new(0),
+            button_target: RefCell::new(None),
             hover_retarget_pending: Rc::default(),
+            transitioning: RefCell::default(),
             top_inset: 0.0,
             active_touch_target: None,
             retained_subtrees: HashMap::new(),
@@ -559,7 +570,6 @@ impl ViewStore {
                 window.on_next_frame(move |window, cx| {
                     window.defer(cx, crate::events::flush_hover_retarget);
                 });
-                window.refresh();
             });
         });
     }
@@ -1307,6 +1317,7 @@ pub(crate) fn start_component_transition(
                 node.transition_forward = forward;
                 cx.notify();
             });
+            store.transitioning.borrow_mut().insert(tag);
             store.record_subtree_nodes(&[tag], cx);
         }
     });
@@ -1323,6 +1334,7 @@ fn start_component_transition_here(
             node.transition = Some((transition, Instant::now()));
             cx.notify();
         });
+        store.transitioning.borrow_mut().insert(tag);
         store.record_subtree_nodes(&[tag], cx);
     }
 }
@@ -2847,13 +2859,21 @@ impl Render for SurfaceRootView {
             .relative()
             // Ahead of every node's listener, so a press that a title bar handed
             // to the window does not leave the next press marked as well.
-            .capture_any_mouse_down(|_, _, _| crate::events::begin_press_dispatch())
+            .capture_any_mouse_down(|_, window, cx| {
+                crate::tooltip::dismiss(window, cx);
+                crate::events::begin_press_dispatch()
+            })
             .capture_any_mouse_up(|_, _, _| crate::events::begin_press_dispatch())
             // The root stays hovered while any descendant is hit, so this only fires when
             // the pointer left the window.
             .on_mouse_exit(cx.listener(|_this, _event, window, cx| {
                 crate::events::leave_root(window, cx);
             }))
+            .capture_key_down(|event, window, cx| {
+                if event.keystroke.key == "escape" && crate::drag_drop::cancel(window, cx) {
+                    cx.stop_propagation();
+                }
+            })
             // A press that started on a node follows the pointer wherever it
             // goes: over a node, the node moves and ends it first; anywhere
             // else it moves and ends here, so a drag that left every touchable
@@ -2865,6 +2885,16 @@ impl Render for SurfaceRootView {
             .on_drop::<gpui::ExternalPaths>(|_, window, cx| crate::file_drop::dropped(window, cx))
             .on_file_drop_exit(|_, window, cx| crate::file_drop::exited(window, cx))
             .on_mouse_move(|event, window, cx| {
+                if crate::drag_drop::tracking() {
+                    crate::drag_drop::moved(
+                        window,
+                        cx,
+                        None,
+                        event.position,
+                        event.pressed_button.is_some(),
+                    );
+                    return;
+                }
                 if crate::file_drop::active() {
                     crate::file_drop::left_unanswered(window, cx, event.position);
                     return;
@@ -2872,19 +2902,20 @@ impl Render for SurfaceRootView {
                 if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
                     return;
                 }
-                if let Some(target) = crate::events::active_touch_target(cx) {
-                    crate::events::send(
-                        window,
-                        cx,
-                        &target,
-                        event.position,
-                        crate::events::Phase::Move,
-                        None,
-                        crate::node_view::modifier_state(event.modifiers),
-                    );
-                }
+                crate::events::move_pressed(
+                    window,
+                    cx,
+                    None,
+                    event.position,
+                    crate::node_view::modifier_state(event.modifiers),
+                );
             })
             .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
+                if crate::drag_drop::tracking() {
+                    if crate::drag_drop::released(window, cx, None, event.position) {
+                        return;
+                    }
+                }
                 if crate::events::press_belongs_to_window() {
                     return;
                 }
@@ -2900,6 +2931,7 @@ impl Render for SurfaceRootView {
                     );
                 }
             })
+            .child(crate::events::outside_window_pointer())
             .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
@@ -2968,6 +3000,9 @@ impl Render for SurfaceRootView {
             .flex_col()
             .relative()
             .key_context(app_context);
+        if let Some(tooltip) = crate::tooltip::drawn_element(_window) {
+            window_root = window_root.child(tooltip);
+        }
         window_root = match (
             menu_bar,
             crate::desktop::gpui_menu::menu_bar_slot(window_id),

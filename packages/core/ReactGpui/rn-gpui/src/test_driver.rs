@@ -20,6 +20,7 @@ unsafe extern "C" {
     fn rn_gpui_http_requests_not_ignored(patterns: *const std::ffi::c_char) -> u64;
     fn rn_gpui_mount_batches_in_flight() -> u64;
     fn rn_gpui_pending_timers_due_within(window_ms: u64) -> u64;
+    fn rn_gpui_pending_timers_dump(window_ms: u64, buffer: *mut u8, capacity: u64) -> u64;
     fn rn_gpui_websocket_messages_in_flight() -> u64;
     fn rn_gpui_pending_js_tasks() -> u64;
     fn rn_gpui_pending_js_tasks_dump(buffer: *mut u8, capacity: u64) -> u64;
@@ -42,6 +43,44 @@ struct Request {
 /// The generation of the React instance currently mounted, or 0 before the host
 /// has created one. Reported by `hello`, `tree` and `reload` so a client can
 /// wait for a *particular* instance after a reload.
+#[cfg(target_os = "macos")]
+fn dock_menu(command: &str, params: &Value) -> Value {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: AppKit is messaged on the main thread, where the driver runs; the
+    // menu is the delegate's own and outlives this call.
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: id = msg_send![app, delegate];
+        let menu: id = msg_send![delegate, applicationDockMenu: app];
+        if menu.is_null() {
+            return json!({"titles": Vec::<String>::new()});
+        }
+        if command == "dockMenuPress" {
+            let index = params.get("index").and_then(Value::as_i64).unwrap_or(0);
+            let _: () = msg_send![menu, performActionForItemAtIndex: index as isize];
+            return json!({"pressed": index});
+        }
+        let count: isize = msg_send![menu, numberOfItems];
+        let titles: Vec<String> = (0..count)
+            .map(|index| {
+                let item: id = msg_send![menu, itemAtIndex: index];
+                let title: id = msg_send![item, title];
+                let bytes: *const std::os::raw::c_char = msg_send![title, UTF8String];
+                std::ffi::CStr::from_ptr(bytes)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        json!({"titles": titles})
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dock_menu(_command: &str, _params: &Value) -> Value {
+    json!({"error": "the Dock menu is only available on macOS"})
+}
+
 fn instance_generation() -> u64 {
     // SAFETY: the C++ function takes no arguments and reads an atomic.
     unsafe { rn_gpui_instance_generation() }
@@ -216,6 +255,9 @@ async fn serve_commands(
                         "primary": Some(display.id()) == primary,
                         "bounds": rect(display.bounds()),
                         "visibleBounds": rect(display.visible_bounds()),
+                        "scaleFactor": crate::desktop::background::display_scale(
+                            display.id().into()
+                        ),
                     }))
                     .collect::<Vec<_>>())
             }),
@@ -225,6 +267,80 @@ async fn serve_commands(
                     json!({"width": f32::from(size.width), "height":f32::from(size.height)})
                 })
                 .unwrap_or_else(|error| json!({"error":error.to_string()})),
+            "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
+            "layoutStats" => {
+                let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
+                cx.update_window(window, |_, window, _| {
+                    let stats = window.layout_stats();
+                    let target_at = crate::wheel::target_at_stats(reset);
+                    let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+                    let report = json!({
+                        "frames": stats.frames,
+                        "nodesCreated": stats.nodes_created,
+                        "nodesReused": stats.nodes_reused,
+                        "nodesFreed": stats.nodes_freed,
+                        "styleCompares": stats.style_compares,
+                        "styleWrites": stats.style_writes,
+                        "childrenWrites": stats.children_writes,
+                        "measureRebinds": stats.measure_rebinds,
+                        "measurementsKept": stats.measurements_kept,
+                        "measurementsReplayed": stats.measurements_replayed,
+                        "measureCalls": stats.measure_calls,
+                        "measureMs": ms(stats.measure_time),
+                        "computeLayoutCalls": stats.compute_layout_calls,
+                        "buildMs": ms(stats.build_time),
+                        "prepaintMs": ms(stats.prepaint_time),
+                        "paintMs": ms(stats.paint_time),
+                        "computeLayoutMs": ms(stats.compute_layout_time),
+                        "linesShaped": stats.lines_shaped,
+                        "shapeMs": ms(stats.shape_time),
+                        "viewsBuilt": stats.views_built,
+                        "viewsReused": stats.views_reused,
+                        "layerFramesComposited": stats.layer_frames_composited,
+                        "layerFramesRepainted": stats.layer_frames_repainted,
+                        "tilesDirtied": stats.tiles_dirtied,
+                        "layerRebuildsForInput": stats.layer_rebuilds_for_input,
+                        "layersDemoted": stats.layers_demoted,
+                        "layoutNodes": window.layout_node_count(),
+                        "targetAtCalls": target_at.0,
+                        "targetAtMs": target_at.1,
+                    });
+                    if reset {
+                        window.reset_layout_stats();
+                    }
+                    report
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
+            }
+            "windowAlpha" => cx
+                .update_window(window, |_, window, _| {
+                    json!({
+                        "alpha": crate::desktop::platform_window::window_alpha(window),
+                        "revealedBy": crate::desktop::windows::last_reveal(),
+                    })
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()})),
+            "tooltip" => {
+                let active = crate::tooltip::active();
+                #[cfg(target_os = "macos")]
+                let (owner_text, tracking_areas) = cx
+                    .update_window(window, |_, window, _| {
+                        crate::tooltip::native_probe(window, active.as_ref().map_or(0, |a| a.tag))
+                    })
+                    .unwrap_or((None, 0));
+                #[cfg(not(target_os = "macos"))]
+                let (owner_text, tracking_areas): (Option<String>, usize) = (None, 0);
+                let drawn = crate::tooltip::drawn();
+                json!({
+                    "mode": crate::tooltip::mode(),
+                    "tag": active.as_ref().map(|active| active.tag),
+                    "text": active.as_ref().map(|active| active.text.clone()),
+                    "rect": active.as_ref().map(|active| active.rect),
+                    "drawn": drawn.map(|drawn| drawn.text),
+                    "ownerText": owner_text,
+                    "trackingAreas": tracking_areas,
+                })
+            }
             "focusWindow" => {
                 let offscreen = std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() == Ok("1");
                 if !offscreen && crate::desktop::background::enabled() {
@@ -617,7 +733,7 @@ async fn serve_commands(
                     None => json!({"error": "click requires a mounted tag"}),
                 }
             }
-            "hover" | "scroll" => {
+            "hover" | "scroll" | "pinch" => {
                 let viewport = cx
                     .update_window(window, |_, window, _| {
                         let size = window.viewport_size();
@@ -657,6 +773,27 @@ async fn serve_commands(
                             Some("ended") => gpui::TouchPhase::Ended,
                             _ => gpui::TouchPhase::Moved,
                         };
+                        let lines = params.get("lines").and_then(Value::as_bool).unwrap_or(false);
+                        let held = |name: &str| {
+                            params
+                                .get("modifiers")
+                                .and_then(|modifiers| modifiers.get(name))
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                        };
+                        let modifiers = gpui::Modifiers {
+                            shift: held("shift"),
+                            control: held("control"),
+                            alt: held("alt"),
+                            platform: held("platform"),
+                            ..Default::default()
+                        };
+                        let pinch_delta = params.get("delta").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                        let scroll_delta = if lines {
+                            gpui::ScrollDelta::Lines(point(dx, dy))
+                        } else {
+                            gpui::ScrollDelta::Pixels(point(px(dx), px(dy)))
+                        };
                         let preflight = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
                             window.dispatch_event(
@@ -692,13 +829,29 @@ async fn serve_commands(
                             .clamp(1, 1000);
                         let result: Result<(), String> = match hit {
                             Some((true, _)) if kind == "hover" => Ok(()),
+                            Some((true, _)) if kind == "pinch" => cx
+                                .update_window(window, |_root, window, app| {
+                                    draw_frame(window, app);
+                                    window.dispatch_event(
+                                        gpui::PlatformInput::Pinch(gpui::PinchEvent {
+                                            position,
+                                            delta: pinch_delta,
+                                            modifiers,
+                                            phase: touch_phase,
+                                        }),
+                                        app,
+                                    );
+                                    draw_frame(window, app);
+                                })
+                                .map_err(|error| error.to_string()),
                             Some((true, _)) => cx
                                 .update_window(window, |_root, window, app| {
                                     draw_frame(window, app);
                                     window.dispatch_event(
                                         gpui::PlatformInput::Scroll(gpui::ScrollEvent {
                                             position,
-                                            delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+                                            delta: scroll_delta,
+                                            modifiers,
                                             touch_phase,
                                             ..Default::default()
                                         }),
@@ -716,10 +869,8 @@ async fn serve_commands(
                                                 gpui::PlatformInput::Scroll(
                                                     gpui::ScrollEvent {
                                                         position,
-                                                        delta: gpui::ScrollDelta::Pixels(point(
-                                                            px(dx),
-                                                            px(dy),
-                                                        )),
+                                                        delta: scroll_delta,
+                                                        modifiers,
                                                         touch_phase,
                                                         ..Default::default()
                                                     },
@@ -1607,13 +1758,20 @@ fn draw_frame(window: &mut gpui::Window, app: &mut App) {
         return;
     };
     let store = store.0.clone();
-    let transitioning: Vec<Entity<RNNodeView>> = store
-        .read(app)
-        .nodes
-        .values()
-        .filter(|node| node.read(app).transition_active(app))
-        .cloned()
-        .collect();
+    let transitioning: Vec<Entity<RNNodeView>> = {
+        let store = store.read(app);
+        let mut tracked = store.transitioning.borrow_mut();
+        tracked.retain(|tag| {
+            store
+                .nodes
+                .get(tag)
+                .is_some_and(|node| node.read(app).transition_active(app))
+        });
+        tracked
+            .iter()
+            .filter_map(|tag| store.nodes.get(tag).cloned())
+            .collect()
+    };
     for node in transitioning {
         node.update(app, |_, cx| cx.notify());
     }
@@ -1736,6 +1894,11 @@ fn idle_status(
             json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
         );
     }
+    if crate::wheel::pending() && !ignore.iter().any(|item| item == "wheel") {
+        busy.push(
+            json!({"source": "wheel", "detail": "a wheel event is waiting for its JS handlers"}),
+        );
+    }
     if store.frame_hook.gesture_is_active() && !ignore.iter().any(|item| item == "gestures") {
         busy.push(json!({"source": "gestures", "detail": "native pointer gesture is active"}));
     }
@@ -1761,7 +1924,17 @@ fn idle_status(
     // SAFETY: these C++ probes take no pointers and only read counters.
     let pending_timers = unsafe { rn_gpui_pending_timers_due_within(1_500) };
     if pending_timers > 0 && !ignore.iter().any(|item| item == "timers") {
-        busy.push(json!({"source": "timers", "detail": format!("{pending_timers} one-shot timer(s) due within 1500 ms")}));
+        let mut detail = format!("{pending_timers} one-shot timer(s) due within 1500 ms");
+        let mut buffer = vec![0u8; 2048];
+        // SAFETY: the buffer is valid for the capacity given, and the call
+        // writes at most that many bytes.
+        let length =
+            unsafe { rn_gpui_pending_timers_dump(1_500, buffer.as_mut_ptr(), buffer.len() as u64) }
+                as usize;
+        buffer.truncate(length.min(buffer.len()));
+        detail.push_str(":\n");
+        detail.push_str(&String::from_utf8_lossy(&buffer));
+        busy.push(json!({"source": "timers", "detail": detail}));
     }
     if !ignore.iter().any(|item| item == "animations") {
         for (tag, entity) in &store.nodes {

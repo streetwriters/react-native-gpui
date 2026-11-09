@@ -196,6 +196,17 @@ function backgroundExpected(): boolean {
   return value === undefined || !['', '0', 'false', 'no'].includes(value);
 }
 
+export interface WheelOptions {
+  /** Scrolls by lines, as a mouse wheel notch does, instead of pixels, as a trackpad does. */
+  lines?: boolean;
+  modifiers?: {
+    shift?: boolean;
+    control?: boolean;
+    alt?: boolean;
+    platform?: boolean;
+  };
+}
+
 export class DesktopApp {
   readonly logs: string[];
   readonly logFile: string;
@@ -331,6 +342,9 @@ export class DesktopApp {
                 'assets/assets',
               ),
             }
+          : {}),
+        ...(bundlePath && !process.env.RN_GPUI_DEV_PORT
+          ? { RN_GPUI_DEV_PORT: '1' }
           : {}),
         ...options.env,
         ...(options.initialProps
@@ -938,9 +952,64 @@ export class DesktopApp {
       primary: boolean;
       bounds: { x: number; y: number; width: number; height: number };
       visibleBounds: { x: number; y: number; width: number; height: number };
+      /** Device pixels per point, `null` where the platform cannot say. */
+      scaleFactor: number | null;
     }[]
   > {
     return this.request('displays');
+  }
+
+  /**
+   * The work the window's layout and paint did since `reset` was last passed:
+   * frames, layout nodes created and reused, style writes, measurements, lines
+   * shaped, views built and reused, scroll layer repaints and dirtied tiles,
+   * and the time each phase took in milliseconds. The times are zero until the
+   * first call with `reset: true`; pass it again to start the next interval.
+   */
+  async layoutStats(
+    options: { reset?: boolean } = {},
+  ): Promise<Record<string, number>> {
+    return this.request('layoutStats', options);
+  }
+
+  /** The main window's opacity (macOS), which is 0 while a window that was hidden is revealed. */
+  async windowAlpha(): Promise<number | null> {
+    return (await this.windowReveal()).alpha;
+  }
+
+  /** The opacity, and what made the window opaque after it was shown: `frame` (its first frame was drawn) or `timeout` (no frame came in time), `null` before that. */
+  async windowReveal(): Promise<{
+    alpha: number | null;
+    revealedBy: 'frame' | 'timeout' | null;
+  }> {
+    return this.request('windowAlpha');
+  }
+
+  /**
+   * The tooltip the window has set up for the view under the pointer: its text,
+   * the view and its frame in the window, and the text of a tooltip the app
+   * draws itself once it shows (`mode` is `native` when the system draws it).
+   */
+  async tooltip(): Promise<{
+    mode: 'native' | 'drawn';
+    tag: number | null;
+    text: string | null;
+    rect: [number, number, number, number] | null;
+    drawn: string | null;
+    ownerText: string | null;
+    trackingAreas: number;
+  }> {
+    return this.request('tooltip');
+  }
+
+  /** The titles of the Dock menu's items (macOS). */
+  async dockMenu(): Promise<string[]> {
+    return (await this.request<{ titles: string[] }>('dockMenu')).titles;
+  }
+
+  /** Chooses an item of the Dock menu by its position, as a click would (macOS). */
+  async pressDockMenuItem(index: number): Promise<void> {
+    await this.request('dockMenuPress', { index });
   }
 
   async windowState(windowId: number): Promise<{
@@ -1212,6 +1281,7 @@ export class DesktopApp {
     repeat = 1,
     phase?: 'started' | 'moved' | 'ended',
     intervalMs = 0,
+    options: WheelOptions = {},
   ): Promise<{
     drawMs: number;
     renderedViews: number;
@@ -1225,6 +1295,7 @@ export class DesktopApp {
       repeat,
       phase,
       intervalMs,
+      ...options,
     })) as {
       drawMs?: number;
       renderedViews?: number;
@@ -1236,6 +1307,20 @@ export class DesktopApp {
       renderedViewsTotal: result?.renderedViewsTotal ?? 0,
       a11yActive: (result as { a11yActive?: boolean })?.a11yActive ?? false,
     };
+  }
+
+  /**
+   * A trackpad pinch over the node's centre: `delta` is the magnification
+   * change, as the platform reports it (0.1 is a 10% zoom in), and `phase`
+   * brackets the gesture.
+   */
+  async pinch(
+    tag: number,
+    delta: number,
+    phase?: 'started' | 'moved' | 'ended',
+    modifiers: WheelOptions['modifiers'] = {},
+  ): Promise<void> {
+    await this.request('pinch', { tag, delta, phase, modifiers });
   }
 
   async mouseDown(

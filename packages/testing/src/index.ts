@@ -11,4 +11,5 @@ export {
   type LaunchOptions,
   type Match,
   type ScreenshotOptions,
+  type WheelOptions,
 } from './client';

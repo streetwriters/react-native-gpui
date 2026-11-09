@@ -3,6 +3,7 @@ pub(crate) mod animation_policy;
 pub mod builtins;
 pub(crate) mod counters;
 pub(crate) mod desktop;
+pub(crate) mod drag_drop;
 pub(crate) mod events;
 pub mod extensions;
 pub(crate) mod file_drop;
@@ -31,8 +32,10 @@ pub mod surface;
 #[cfg(feature = "test-driver")]
 mod test_driver;
 pub(crate) mod text;
+pub(crate) mod tooltip;
 mod transform;
 pub(crate) mod virtual_view;
+mod wheel;
 
 mod bootstrap;
 mod http_client;

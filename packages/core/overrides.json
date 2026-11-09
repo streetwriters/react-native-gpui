@@ -15,6 +15,13 @@
       "issue": 0
     },
     {
+      "type": "derived",
+      "file": "src-gpui/Libraries/Components/ScrollView/ScrollViewNativeComponent.desktop.js",
+      "baseFile": "packages/react-native/Libraries/Components/ScrollView/ScrollViewNativeComponent.js",
+      "baseHash": "eeee1a603e7211afa2441c4eb10d9f25a8c3bb48",
+      "issue": 0
+    },
+    {
       "type": "platform",
       "file": "src-gpui/Libraries/Utilities/Platform.desktop.js"
     },
@@ -83,6 +90,34 @@
       "file": "ReactCommonOverrides/react/renderer/textlayoutmanager/TextLayoutManager.h",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.h",
       "baseHash": "63f2c1afcbc99cde197f9b306bc56384fd6f2e6c",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/algorithm/CalculateLayout.cpp",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/algorithm/CalculateLayout.cpp",
+      "baseHash": "e9d62492daae89288c04d4ff11756257ae3e43a0",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/YGEnums.h",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/YGEnums.h",
+      "baseHash": "f96abdf2f58c960d3e82d0343733c18e9370c27c",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/YGEnums.cpp",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/YGEnums.cpp",
+      "baseHash": "1e823138684a1381fcd0a042a0b286d8413da589",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides/yoga/enums/Errata.h",
+      "baseFile": "packages/react-native/ReactCommon/yoga/yoga/yoga/enums/Errata.h",
+      "baseHash": "5f59ab16a4b39d4e4452263ce78b1bf6a8a6d93a",
       "issue": 0
     },
     {

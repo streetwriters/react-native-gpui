@@ -63,6 +63,7 @@ struct ParagraphKey {
     ellipsize: u8,
     fit: Option<u32>,
     scale: u32,
+    empty_line: bool,
 }
 
 impl ParagraphKey {
@@ -77,6 +78,7 @@ impl ParagraphKey {
                 .adjusts_to_fit
                 .then_some(paragraph.min_font_scale.to_bits()),
             scale: device_scale().to_bits(),
+            empty_line: paragraph.measure_empty_line,
         }
     }
 }
@@ -624,18 +626,15 @@ impl TextService {
         }
 
         let (mut text, mut runs) = make_runs(paragraph);
-        let font_size = paragraph
+        let base_fragment = paragraph
             .fragments
             .iter()
             .find(|fragment| !fragment.text.is_empty())
+            .or_else(|| paragraph.fragments.first());
+        let font_size = base_fragment
             .map(|fragment| font_size_of(fragment.font_size))
             .unwrap_or(14.0);
-        let base_font = paragraph
-            .fragments
-            .iter()
-            .find(|fragment| !fragment.text.is_empty())
-            .map(font_of)
-            .unwrap_or_default();
+        let base_font = base_fragment.map(font_of).unwrap_or_default();
 
         let window_text_system = gpui::WindowTextSystem::new(self.text_system.clone());
         // The box a text was measured into is rounded to the pixel grid, so it can
@@ -666,7 +665,9 @@ impl TextService {
         }
 
         if !fits && paragraph.max_lines > 0 && !text.is_empty() && width < f32::MAX {
-            let mut wrapper = self.text_system.line_wrapper(base_font, px(font_size));
+            let mut wrapper = self
+                .text_system
+                .line_wrapper(base_font.clone(), px(font_size));
             let truncation = match paragraph.ellipsize {
                 1 => Some(gpui::TruncateFrom::Start),
                 2 => Some(gpui::TruncateFrom::Middle),
@@ -729,6 +730,17 @@ impl TextService {
             measured_height += line_height * visual_lines as f32;
             lines.push(line);
             line_heights.push(line_height);
+        }
+
+        if paragraph.measure_empty_line {
+            let font_id = self.text_system.resolve_font(&base_font);
+            let size = px(font_size);
+            let ascent = f32::from(self.text_system.ascent(font_id, size));
+            let descent = f32::from(self.text_system.descent(font_id, size)).abs();
+            measured_height = explicit_line_height.unwrap_or_else(|| {
+                let scale = device_scale();
+                (((ascent * scale).round() + (descent * scale).round()) / scale).max(1.0)
+            });
         }
 
         let visual_lines = lines

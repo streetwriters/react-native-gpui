@@ -285,6 +285,14 @@ impl Host {
         self.on_render();
     }
 
+    pub fn dispatch_wheel(&self, tag: i32, id: u64, payload: &serde_json::Value) {
+        #[cfg(test)]
+        let _ = (self, tag, id, payload);
+        #[cfg(not(test))]
+        self.lock().dispatch_wheel(tag, id, &payload.to_string());
+        self.on_render();
+    }
+
     pub fn emit_device_event(&self, event_name: &str) {
         #[cfg(test)]
         let _ = (self, event_name);

@@ -39,11 +39,13 @@ export default {
     ],
     'Environment setup': ['environment-setup', 'set-up-your-environment'],
     Desktop: [
+      'desktop-app',
       'desktop-windows',
       'desktop-title-bar',
       'desktop-application-menu',
       'desktop-context-menus',
       'desktop-input',
+      'desktop-drag-and-drop',
       'desktop-keyboard-shortcuts',
       'desktop-tray',
     ],

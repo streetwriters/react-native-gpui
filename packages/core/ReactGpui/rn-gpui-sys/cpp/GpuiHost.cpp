@@ -1114,6 +1114,12 @@ void GpuiHost::dispatch_event(
       tag, std::string(type), folly::parseJson(std::string(payloadJson)));
 }
 
+void GpuiHost::dispatch_wheel(int32_t tag, uint64_t id, rust::Str payloadJson)
+    const {
+  mountingManager_->dispatchWheel(
+      tag, id, folly::parseJson(std::string(payloadJson)));
+}
+
 void GpuiHost::dispatch_pointer_event(
     rust::Str targetChainJson,
     float x,

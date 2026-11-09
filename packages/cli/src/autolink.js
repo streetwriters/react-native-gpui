@@ -200,6 +200,56 @@ export function managedPatchEntries(platformRoot, base) {
 }
 
 /**
+ * Whether `section` of a manifest declares `name`, inline or as its own
+ * `[section.name]` table. The managed `[patch.crates-io]` block names the same
+ * crates, so a search of the whole file finds them there and wrongly concludes
+ * the dependency exists.
+ */
+function declaresDependency(manifest, section, name) {
+  const header = new RegExp(`^\\[${section}\\]\\s*$`, 'mu').exec(manifest);
+  if (header !== null) {
+    const start = header.index + header[0].length;
+    const next = manifest.indexOf('\n[', start);
+    const body = manifest.slice(start, next < 0 ? manifest.length : next);
+    if (new RegExp(`^${name}\\s*=`, 'mu').test(body)) return true;
+  }
+  return new RegExp(`^\\[${section}\\.${name}\\]\\s*$`, 'mu').test(manifest);
+}
+
+/**
+ * Points an app dependency on a core crate at its canonical path. A dependency
+ * written as a version is left alone, because the managed patch block already
+ * redirects it. A path that goes through a symlink (a `file:`-linked core) is
+ * replaced: Cargo treats the linked and the real path as two different crates
+ * and refuses the lockfile.
+ */
+function ensurePathDependency(manifest, section, name, tomlPath) {
+  const entry = `${name} = { path = ${tomlPath} }`;
+  if (!declaresDependency(manifest, section, name)) {
+    const header = new RegExp(`^\\[${section}\\]\\s*$`, 'mu');
+    return header.test(manifest)
+      ? manifest.replace(header, line => `${line}\n${entry}`)
+      : `${manifest}\n[${section}]\n${entry}\n`;
+  }
+  const header = new RegExp(`^\\[${section}\\]\\s*$`, 'mu').exec(manifest);
+  const start = header.index + header[0].length;
+  const next = manifest.indexOf('\n[', start);
+  const end = next < 0 ? manifest.length : next;
+  const inline = new RegExp(`^(${name}\\s*=\\s*)\\{([^\\n]*)\\}$`, 'mu');
+  const body = manifest
+    .slice(start, end)
+    .replace(inline, (line, prefix, properties) => {
+      if (!/(?:^|,)\s*path\s*=/u.test(properties)) return line;
+      const rest = properties
+        .replace(/(?:^|,)\s*path\s*=\s*"[^"]*"\s*/gu, '')
+        .trim()
+        .replace(/^,\s*|\s*,\s*$/gu, '');
+      return `${prefix}{ path = ${tomlPath}${rest ? `, ${rest}` : ''} }`;
+    });
+  return `${manifest.slice(0, start)}${body}${manifest.slice(end)}`;
+}
+
+/**
  * Insert or replace the managed block in an app manifest.
  *
  * Idempotent: a second run must produce the same bytes, because `writeIfChanged`
@@ -1311,7 +1361,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     .join('/');
   const runtimeCrateTomlPath = escapeToml(runtimeCrateRelativePath);
   const runtimeDependencyPattern = /^(react-native-gpui\s*=\s*)\{([^\n]*)\}$/mu;
-  if (runtimeDependencyPattern.test(appCargo)) {
+  if (declaresDependency(appCargo, 'dependencies', 'react-native-gpui')) {
     appCargo = appCargo.replace(
       runtimeDependencyPattern,
       (_line, prefix, properties) => {
@@ -1332,7 +1382,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   if (!/^react-native-gpui\s*=/mu.test(appCargo)) {
     throw new Error(`could not add react-native-gpui to ${appCargoManifest}`);
   }
-  if (!/^rn-gpui-autolink\s*=/mu.test(appCargo)) {
+  if (!declaresDependency(appCargo, 'dependencies', 'rn-gpui-autolink')) {
     appCargo = appCargo.replace(
       /^\[dependencies\]\s*$/mu,
       section => `${section}\nrn-gpui-autolink = { path = "autolink" }`,
@@ -1357,24 +1407,18 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
     )
     .split(path.sep)
     .join('/');
-  const moduleDependency = `rn-gpui-module = { path = ${escapeToml(moduleCrate)} }`;
-  if (!/^rn-gpui-module\s*=/mu.test(appCargo)) {
-    appCargo = appCargo.replace(
-      /^\[dependencies\]\s*$/mu,
-      section => `${section}\n${moduleDependency}`,
-    );
-  }
-  const moduleBuildDependency = `rn-gpui-module-build = { path = ${escapeToml(moduleBuildCrate)} }`;
-  if (!/^rn-gpui-module-build\s*=/mu.test(appCargo)) {
-    if (/^\[build-dependencies\]\s*$/mu.test(appCargo)) {
-      appCargo = appCargo.replace(
-        /^\[build-dependencies\]\s*$/mu,
-        section => `${section}\n${moduleBuildDependency}`,
-      );
-    } else {
-      appCargo += `\n[build-dependencies]\n${moduleBuildDependency}\n`;
-    }
-  }
+  appCargo = ensurePathDependency(
+    appCargo,
+    'dependencies',
+    'rn-gpui-module',
+    escapeToml(moduleCrate),
+  );
+  appCargo = ensurePathDependency(
+    appCargo,
+    'build-dependencies',
+    'rn-gpui-module-build',
+    escapeToml(moduleBuildCrate),
+  );
   if (!/^\[features\]\s*$/mu.test(appCargo)) {
     appCargo = appCargo.replace(
       /^\[dependencies\]\s*$/mu,

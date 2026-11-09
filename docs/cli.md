@@ -47,19 +47,20 @@ npx react-native run-desktop
 npx react-native run-desktop --release
 ```
 
-| Option                | Description                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `--release`           | Bundles the JavaScript and builds the optimized app.                                       |
-| `--entry-file <path>` | The application entry file.                                                                |
-| `--port <number>`     | The Metro port. Defaults to `8081`.                                                        |
-| `--host <host>`       | The Metro host. Defaults to `localhost`.                                                   |
-| `--config <path>`     | The Metro configuration file.                                                              |
-| `--bundle <path>`     | Where to write the bundle.                                                                 |
-| `--features <list>`   | Comma-separated Cargo features for the desktop app.                                        |
-| `--no-launch`         | Builds the app without launching it.                                                       |
-| `--no-packager`       | Does not start Metro if it is not already running.                                         |
-| `--terminal <app>`    | The terminal app Metro opens in. Defaults to `$REACT_TERMINAL`, then the platform default. |
-| `--packager-log`      | Runs Metro in the background and logs to `desktop/build/metro.log`.                        |
+| Option                 | Description                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--release`            | Bundles the JavaScript and builds the optimized app.                                                                              |
+| `--entry-file <path>`  | The application entry file.                                                                                                       |
+| `--port <number>`      | The Metro port. Defaults to `8081`.                                                                                               |
+| `--host <host>`        | The Metro host. Defaults to `localhost`.                                                                                          |
+| `--config <path>`      | The Metro configuration file.                                                                                                     |
+| `--bundle <path>`      | Where to write the bundle.                                                                                                        |
+| `--features <list>`    | Comma-separated Cargo features for the desktop app.                                                                               |
+| `--no-launch`          | Builds the app without launching it. With `--features test-driver` it also writes the JavaScript bundle the test driver loads.    |
+| `--sign-identity <id>` | macOS only. Signs the built binary with this code signing identity (default: `$APPLE_SIGNING_IDENTITY`), also with `--no-launch`. |
+| `--no-packager`        | Does not start Metro if it is not already running.                                                                                |
+| `--terminal <app>`     | The terminal app Metro opens in. Defaults to `$REACT_TERMINAL`, then the platform default.                                        |
+| `--packager-log`       | Runs Metro in the background and logs to `desktop/build/metro.log`.                                                               |
 
 On macOS, each build is signed ad hoc, and the keychain treats every rebuilt app as a new one: it asks again for each item the app stored. Set `APPLE_SIGNING_IDENTITY` to a signing identity, such as your Apple Development certificate, and `run-desktop` signs the app with it under the identifier from `desktop.json`. Choose "Always Allow" once and later builds keep that access.
 
@@ -96,7 +97,7 @@ npx react-native create-library AwesomeStorage --type cpp
 
 ## collect-node-addons
 
-Copies the Node addons a bundle loads next to the packaged executable.
+Copies the Node addons a bundle loads next to the packaged executable. `run-desktop --release` and `package-desktop` run it for you.
 
 ```shell
 npx react-native collect-node-addons --bundle build/index.bundle --out build/node-addons

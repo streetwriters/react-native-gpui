@@ -47,6 +47,26 @@ Style that applies while the ancestor that set `group` to the given name is hove
 
 ---
 
+### `tooltip`
+
+Text shown in a tooltip after the pointer has rested over the view, as the web's `title` attribute does. It is a desktop extension that follows react-native-macos's prop of the same name.
+
+```jsx
+<View tooltip="Create a note" />
+```
+
+The view under the pointer, or its nearest ancestor with a `tooltip`, is the one that counts, so a button's children share the button's tooltip. The tooltip hides when the pointer leaves the view, a button is pressed, the content scrolls or the window loses focus, shows the new text when `tooltip` changes, and never takes focus. It is also the view's accessibility description when it has no `accessibilityHint`, and the view then appears in the accessibility tree as a group. A view with no `tooltip` shows nothing; an empty string removes it.
+
+On macOS the system draws it, so the delay, the look and the placement are the system's, and it can extend outside the window. On Windows and Linux the app draws it in front of the window's content after half a second, in a plain style, and it stays inside the window; the system tooltip control of those platforms is not used yet. Set `RN_GPUI_TOOLTIP=drawn` to use the drawn tooltip on macOS too, for example to capture one in a test.
+
+It is placed at the view's frame with the window's [zoom factor](desktopwindow#setzoomfactor) applied.
+
+| Type   |
+| ------ |
+| string |
+
+---
+
 ### `acceptsFiles`
 
 Whether the view takes files and folders dragged in from the operating system. The nearest view under the pointer that does, counting the view itself, receives the drag events below; a view with none of them in its path is not a drop target and nothing is sent. See [Files dropped from the system](#files-dropped-from-the-system).
@@ -89,7 +109,7 @@ Lets the view take keyboard focus. Required to receive `onKeyDown`, `onKeyUp`, `
 
 ### `onFocus`, `onBlur`
 
-The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`.
+The view gained or lost keyboard focus. `focusVisible` is `true` when focus arrived through the keyboard. A focused view shows a ring for keyboard users, which follows the view's `borderRadius`, except a `TextInput` and a view that sets its own `outlineColor` and `outlineWidth`.
 
 | Type              |
 | ----------------- |
@@ -161,7 +181,7 @@ Includes the view in, or excludes it from, keyboard tab navigation.
 A state style can change `backgroundColor`, `opacity`, `boxShadow`, `borderColor` and the per-side `borderLeftColor`, `borderTopColor`, `borderRightColor` and `borderBottomColor`, `transform`, `color`, `outlineColor`, `outlineWidth` and `outlineOffset`. Colors must be plain colors, not `PlatformColor` or `DynamicColorIOS`. Any other property is ignored, with a warning in development. A style may be an array, as with `style`.
 
 - `borderColor` changes the color of borders the view already has. It does not add a border or change its width.
-- The outline properties draw a ring such as a keyboard focus ring: `outlineColor` with `outlineWidth` and `outlineOffset` replace the view's own. A view that sets an outline does not get the default focus ring.
+- The outline properties draw a ring such as a keyboard focus ring: `outlineColor` with `outlineWidth` and `outlineOffset` replace the view's own. A solid outline follows the view's `borderRadius`, as CSS `outline` does: its inner radius is the border radius plus the offset and its outer radius adds the outline width, and a corner with no radius stays square. A dashed or dotted outline is drawn square. A view that sets an outline does not get the default focus ring.
 - `transform` takes translate, scale, rotate, skew and matrix. It replaces the view's own transform while the state holds, and an animated transform wins over it.
 - `color` sets the color of all text inside the view, replacing the colors the text sets itself. A `color` on a `Text` colors that text and the text nested in it.
 
@@ -227,6 +247,19 @@ A state style's `opacity` applies to the view and everything inside it, per shap
 Dragging files over the window sends `onDragEnter` to the view that takes them, `onDragOver` as the pointer moves, and `onDragLeave` when it moves to another view, leaves the window or is cancelled. Dropping sends `onDrop`, and no leave. A view that does not set `acceptsFiles` is never the target: the nearest ancestor that does is, and when there is none a drop does nothing. The event is a bubbling event, so a handler on an ancestor of the target also runs.
 
 `path` is a path the app can read, so a file is read from disk, not delivered as bytes. The drop does not copy or open anything. Dragging files out of the app is not supported.
+
+## Dragging views inside the app
+
+```jsx
+<View draggable onDragStart={() => DragDrop.setPayload({ id: note.id })} />
+<View
+  droppable
+  dragOverStyle={{ backgroundColor: '#dbeafe' }}
+  onDrop={() => move(DragDrop.getPayload().id)}
+/>
+```
+
+A press on a `draggable` view that moves 4 points starts a drag: the press is cancelled, so a `Pressable` around it does not fire, and the view gets `onDragStart`. The drag follows the pointer wherever it goes, also out of the view and over a scroll view. The nearest `droppable` view under it gets `onDragEnter`, `onDragOver` and `onDragLeave`, and the release sends it `onDrop` with no leave. The source gets `onDrag` as the pointer moves and `onDragEnd` at the end, with `dropped` saying whether a droppable view took it. See [Dragging views](desktop-drag-and-drop) for the payload, the preview and auto-scrolling.
 
 ## Borders
 

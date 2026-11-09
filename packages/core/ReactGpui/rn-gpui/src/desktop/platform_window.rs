@@ -1358,13 +1358,60 @@ pub fn show_later(window: &mut gpui::Window) -> Result<Box<dyn FnOnce()>, String
             if miniaturized {
                 let _: () = msg_send![native, deminiaturize: nil];
             }
-            if crate::desktop::background::enabled() {
+            if crate::desktop::background::enabled()
+                && !std::env::var("RN_GPUI_TEST_ON_TOP").is_ok_and(|value| value == "1")
+            {
                 let _: () = msg_send![native, orderBack: nil];
+            } else if crate::desktop::background::enabled() {
+                let visible: bool = msg_send![native, isVisible];
+                if !visible {
+                    let _: () = msg_send![native, setAlphaValue: 0.0f64];
+                }
+                let _: () = msg_send![native, orderFrontRegardless];
             } else {
+                // A window that was hidden has drawn nothing yet: it is shown
+                // clear, and `reveal_window` makes it opaque once its first
+                // frame has had time to be presented.
+                let visible: bool = msg_send![native, isVisible];
+                if !visible {
+                    let _: () = msg_send![native, setAlphaValue: 0.0f64];
+                }
                 let _: () = msg_send![native, orderFront: nil];
             }
         }
     }))
+}
+
+/// Makes a window opaque again after [`show_later`] showed it clear.
+#[cfg(target_os = "macos")]
+pub fn reveal_window(window: &mut gpui::Window) -> Result<(), String> {
+    use objc::{msg_send, sel, sel_impl};
+    let native = imp::ns_window(window)?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    unsafe {
+        let _: () = msg_send![native, setAlphaValue: 1.0f64];
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn reveal_window(_window: &mut gpui::Window) -> Result<(), String> {
+    Ok(())
+}
+
+/// The window's opacity, where the platform says: 0 while it is being revealed.
+#[cfg(target_os = "macos")]
+pub fn window_alpha(window: &gpui::Window) -> Option<f32> {
+    use objc::{msg_send, sel, sel_impl};
+    let native = imp::ns_window(window).ok()?;
+    // SAFETY: `native` is the live `NSWindow` from `ns_window`, and AppKit is only messaged from the main thread.
+    let alpha: f64 = unsafe { msg_send![native, alphaValue] };
+    Some(alpha as f32)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn window_alpha(_window: &gpui::Window) -> Option<f32> {
+    None
 }
 
 /// Shows a window behind every other window, without making it key. A window

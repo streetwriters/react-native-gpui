@@ -64,8 +64,43 @@ pub fn show_behind(window: &mut gpui::Window) {
     }
 }
 
+/// The backing scale factor of the display with this id, where the platform can
+/// say: how many device pixels a point is on that display.
+#[cfg(target_os = "macos")]
+pub(crate) fn display_scale(id: u64) -> Option<f32> {
+    use cocoa::base::{id as object, nil};
+    use cocoa::foundation::{NSArray, NSString};
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: AppKit is read on the main thread, where displays are chosen; the
+    // objects are autoreleased and only read here.
+    unsafe {
+        let screens: object = msg_send![class!(NSScreen), screens];
+        let key = NSString::alloc(nil).init_str("NSScreenNumber");
+        for index in 0..NSArray::count(screens) {
+            let screen: object = NSArray::objectAtIndex(screens, index);
+            let description: object = msg_send![screen, deviceDescription];
+            let number: object = msg_send![description, objectForKey: key];
+            if number == nil {
+                continue;
+            }
+            let screen_id: u32 = msg_send![number, unsignedIntValue];
+            if u64::from(screen_id) == id {
+                let scale: f64 = msg_send![screen, backingScaleFactor];
+                return Some(scale as f32);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn display_scale(_id: u64) -> Option<f32> {
+    None
+}
+
 /// The display a test window opens on: `RN_GPUI_TEST_DISPLAY` names an index
-/// into the platform's list of displays, `main`, or `secondary`. A background
+/// into the platform's list of displays, `main`, `secondary`, or `retina`, the
+/// display with the highest scale factor when that is at least 2. A background
 /// run opens on the secondary display when there is one. A display that does
 /// not exist falls back to the main one, with a log line.
 pub fn test_display(cx: &gpui::App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
@@ -78,6 +113,14 @@ pub fn test_display(cx: &gpui::App) -> Option<std::rc::Rc<dyn gpui::PlatformDisp
     let wanted = requested.as_deref().unwrap_or("secondary");
     let chosen = match wanted {
         "main" | "primary" => Some(primary.clone()),
+        "retina" => displays
+            .iter()
+            .filter_map(|display| {
+                let scale = display_scale(display.id().into())?;
+                (scale >= 2.0).then_some((scale, display.clone()))
+            })
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, display)| display),
         "secondary" => displays
             .iter()
             .find(|display| display.id() != primary.id())

@@ -583,9 +583,34 @@ pub fn is_installed(cx: &App, id: &str) -> bool {
 /// `Keymap::bindings_for_input` does it: deepest matching context first, later
 /// bindings before earlier ones.
 ///
-/// Only a *scoped* binding counts. An app-scope shortcut and a menu accelerator
-/// both live in the window root's context, where the menu keeps the key — which
-/// is what it did before this work, so nothing changes for the window scope.
+/// A scoped shortcut wins at a greater depth. A shortcut with no scope lives in
+/// the same context as a menu accelerator and wins the tie, as the documented
+/// order has it: shortcuts before menu accelerators.
+/// The shortcut with no scope that `keystroke` belongs to when nothing in the
+/// window has focus. The keymap resolves a key from the focused element's
+/// context, so with no focus no binding can match, and neither would the
+/// shortcut: it is taken here, ahead of the menu accelerator that would otherwise
+/// take the key.
+pub fn unfocused_app_shortcut(
+    cx: &App,
+    window: &gpui::Window,
+    keystroke: &gpui::Keystroke,
+) -> Option<String> {
+    if !window.context_stack().is_empty() {
+        return None;
+    }
+    shortcuts(cx)
+        .into_iter()
+        .find(|shortcut| {
+            shortcut.enabled
+                && !shortcut.global
+                && shortcut.scope.is_none()
+                && !shortcut.keys.contains(' ')
+                && shortcut.key_matches(keystroke)
+        })
+        .map(|shortcut| shortcut.id)
+}
+
 pub fn claims_keystroke(cx: &App, window: &gpui::Window, keystroke: &gpui::Keystroke) -> bool {
     let stack = window.context_stack();
     // The menu accelerator this key would trigger is in the app context, which
@@ -596,7 +621,7 @@ pub fn claims_keystroke(cx: &App, window: &gpui::Window, keystroke: &gpui::Keyst
         .and_then(|predicate| predicate.depth_of(&stack))
         .unwrap_or(0);
     shortcuts(cx).iter().any(|shortcut| {
-        if !shortcut.enabled || shortcut.scope.is_none() {
+        if !shortcut.enabled {
             return false;
         }
         // The shortcut's *own* context, not a guessed one: a shortcut that opted
@@ -609,7 +634,12 @@ pub fn claims_keystroke(cx: &App, window: &gpui::Window, keystroke: &gpui::Keyst
         else {
             return false;
         };
-        depth > app_depth && shortcut.key_matches(keystroke)
+        let wins = if shortcut.scope.is_some() {
+            depth > app_depth
+        } else {
+            depth >= app_depth
+        };
+        wins && shortcut.key_matches(keystroke)
     })
 }
 
@@ -781,7 +811,7 @@ fn rebuild_now(cx: &mut App) {
     state.scheduled = false;
 }
 
-fn is_shortcut_action(action: &dyn Action) -> bool {
+pub(crate) fn is_shortcut_action(action: &dyn Action) -> bool {
     action.as_any().downcast_ref::<ShortcutAction>().is_some()
 }
 

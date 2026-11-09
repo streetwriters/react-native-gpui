@@ -18,6 +18,8 @@ export type MenuDescription = {
 export interface Spec extends TurboModule {
   menuSetApplicationMenu(items: Array<Object> | null): Promise<void>;
   menuUpdate(id: string, patch: MenuItemPatch): Promise<void>;
+  /** Sets the menu of the Dock icon (macOS), or removes it with `null`. */
+  menuSetDockMenu(items: Array<Object> | null): Promise<void>;
   menuGet(): Promise<MenuDescription>;
   /** Hides or shows the in-window menu bar. A no-op on macOS. */
   menuSetMenuBarVisible(visible: boolean, windowId?: number): Promise<void>;

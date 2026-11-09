@@ -94,6 +94,20 @@ impl NativeGpuiAppMenuSpec for AppMenuModule {
         .map_err(module_error)
     }
 
+    async fn menu_set_dock_menu(&self, items: Option<Vec<Value>>) -> Result<(), ModuleError> {
+        let items = json_items(items);
+        if let Some(items) = &items {
+            crate::desktop::icon::preload_menu(items).await;
+        }
+        on_main(move |cx| {
+            app_menu::set_dock_menu(cx, items.as_ref())?;
+            Ok(serde_json::Value::Null)
+        })
+        .await?
+        .map(|_| ())
+        .map_err(module_error)
+    }
+
     async fn menu_update(&self, id: String, patch: MenuItemPatch) -> Result<(), ModuleError> {
         on_main(move |cx| {
             app_menu::update_item(cx, &id, &value_json(patch.into_value()))?;

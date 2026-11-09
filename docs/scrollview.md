@@ -7,7 +7,15 @@ All upstream props work as documented in the [React Native ScrollView reference]
 
 ## Desktop props
 
-None. Style the scrollbar with the `ScrollBar` component below.
+### `onScrollBarDragStart`, `onScrollBarDrag`, `onScrollBarDragEnd`
+
+```tsx
+<ScrollView
+  onScrollBarDragEnd={event => save(event.nativeEvent.contentOffset.y)}
+/>
+```
+
+Called when the scrollbar's thumb is dragged with the pointer: the first move, each move, and the release. The event's `nativeEvent.contentOffset` is the scroll offset, `{ x, y }`. They are props of every scroll view, so `FlatList`, `SectionList` and `VirtualizedList` pass them on. A thumb can be dragged without any handler set. Style the scrollbar with the `ScrollBar` component below; its own `onDrag*` props report the same drags.
 
 ## ScrollBar
 

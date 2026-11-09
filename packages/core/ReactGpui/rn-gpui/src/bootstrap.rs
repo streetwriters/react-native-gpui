@@ -523,6 +523,10 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
+    WheelDone {
+        id: u64,
+        prevented: bool,
+    },
     BuiltinCommand {
         tag: i32,
         component: String,
@@ -675,6 +679,10 @@ pub struct DesktopAppConfig {
     pub title: Option<String>,
     pub position: Option<(f32, f32)>,
     pub restore_window_state: bool,
+    /// Whether the main window is shown when the app starts. Without it the
+    /// window is created, and its React tree mounts and commits, but nothing is
+    /// shown and no focus or activation is taken until the app shows it.
+    pub visible: bool,
     pub quit_on_last_window_closed: bool,
     pub title_bar: WindowTitleBar,
     pub background: WindowBackground,
@@ -726,6 +734,7 @@ impl DesktopAppConfig {
             title: None,
             position: None,
             restore_window_state: true,
+            visible: true,
             quit_on_last_window_closed: true,
             title_bar: WindowTitleBar::Default,
             background: WindowBackground::Opaque,
@@ -780,6 +789,9 @@ impl DesktopAppConfig {
         }
         if let Some(restore) = flag("restoreState") {
             self.restore_window_state = restore;
+        }
+        if let Some(visible) = flag("visible") {
+            self.visible = visible;
         }
         if let Some(resizable) = flag("resizable") {
             self.resizable = resizable;
@@ -869,6 +881,12 @@ impl DesktopAppConfig {
     #[must_use]
     pub fn window_position(mut self, x: f32, y: f32) -> Self {
         self.position = Some((x, y));
+        self
+    }
+
+    #[must_use]
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
         self
     }
 
@@ -1053,6 +1071,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
             move |args| {
                 let url = crate::desktop::deep_link::url_in_args(&args, &schemes);
                 crate::desktop::post_to_main(Box::new(move |cx| {
+                    crate::desktop::deep_link::second_instance(&args);
+                    if std::env::var("RN_GPUI_TEST_OFFSCREEN").as_deref() != Ok("1") {
+                        let _ = crate::desktop::windows::show(
+                            cx,
+                            crate::desktop::windows::MAIN_WINDOW_KEY,
+                        );
+                    }
                     let _ = crate::desktop::windows::focus(
                         cx,
                         crate::desktop::windows::MAIN_WINDOW_KEY,
@@ -1188,6 +1213,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let text_input_clear_tx = tx.clone();
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
+    }));
+    let wheel_done_tx = tx.clone();
+    let _ = rn_gpui_sys::WHEEL_DONE_HANDLER.set(Box::new(move |id, prevented| {
+        let _ = wheel_done_tx.send_blocking(MainEvent::WheelDone { id, prevented });
     }));
     let builtin_command_tx = tx.clone();
     let _ =
@@ -1568,9 +1597,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
             window_options.show = false;
             window_options.focus = false;
         }
-        if std::env::args().skip(1).any(|argument| argument == START_HIDDEN_ARGUMENT) {
+        if !config.visible
+            || std::env::args()
+                .skip(1)
+                .any(|argument| argument == START_HIDDEN_ARGUMENT)
+        {
             window_options.show = false;
             window_options.focus = false;
+            crate::desktop::windows::note_main_started_hidden();
         }
         window_options.is_resizable = config.resizable;
         if let Some(display) = &test_display {
@@ -2626,6 +2660,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                             });
                         }
                     }
+                    MainEvent::WheelDone { id, prevented } => {
+                        crate::wheel::done(id, prevented, cx);
+                    }
                     MainEvent::TextInputClear(tag) => {
                         let target = {
                             let mut target = None;
@@ -2725,6 +2762,7 @@ mod tests {
                 "trafficLightPosition": {"x": 10, "y": 14},
                 "resizable": false,
                 "menuBar": false,
+                "visible": false,
             },
             "accessory": true,
         });
@@ -2734,7 +2772,7 @@ mod tests {
         assert_eq!(config.title_bar, WindowTitleBar::Hidden);
         assert!(!config.window_buttons && !config.shadow && !config.menu_bar);
         assert_eq!(config.traffic_light_position, Some((10.0, 14.0)));
-        assert!(!config.resizable && config.accessory);
+        assert!(!config.resizable && config.accessory && !config.visible);
         let config = config.title_bar(WindowTitleBar::Transparent);
         assert_eq!(config.title_bar, WindowTitleBar::Transparent);
     }

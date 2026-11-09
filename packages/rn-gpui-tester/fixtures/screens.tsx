@@ -35,6 +35,11 @@ export const renderScreen: Record<
       require('./components/SingleLineTextInputFixture').default,
       props,
     ),
+  'input-line-height': props =>
+    React.createElement(
+      require('./components/TextInputLineHeightFixture').default,
+      props,
+    ),
   'pan-responder': props =>
     React.createElement(
       require('./components/PanResponderFixture').default,
@@ -318,6 +323,56 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'scroll-pointer': props =>
+    React.createElement(
+      require('./components/ScrollPointerFixture').default,
+      props,
+    ),
+  'reuse-under-pointer': props =>
+    React.createElement(
+      require('./components/ReuseUnderPointerFixture').default,
+      props,
+    ),
+  wheel: props =>
+    React.createElement(require('./components/WheelFixture').default, props),
+  'outline-radius': props =>
+    React.createElement(
+      require('./components/OutlineRadiusFixture').default,
+      props,
+    ),
+  'flex-basis': props =>
+    React.createElement(
+      require('./components/FlexBasisFixture').default,
+      props,
+    ),
+  'flex-basis-strict': props =>
+    React.createElement(
+      require('./components/FlexBasisStrictFixture').default,
+      props,
+    ),
+  'scrollbar-drag': props =>
+    React.createElement(
+      require('./components/ScrollBarDragFixture').default,
+      props,
+    ),
+  'app-shortcut': props =>
+    React.createElement(
+      require('./components/AppShortcutFixture').default,
+      props,
+    ),
+  'hidden-start': props =>
+    React.createElement(
+      require('./components/HiddenStartFixture').default,
+      props,
+    ),
+  stretch: props =>
+    React.createElement(require('./components/StretchFixture').default, props),
+  tooltip: props =>
+    React.createElement(require('./components/TooltipFixture').default, props),
+  app: props =>
+    React.createElement(require('./components/AppFixture').default, props),
+  'drag-drop': props =>
+    React.createElement(require('./components/DragDropFixture').default, props),
   'file-drop': props =>
     React.createElement(require('./components/FileDropFixture').default, props),
   'state-styles': props =>
