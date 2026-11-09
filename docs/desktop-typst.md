@@ -43,6 +43,8 @@ Only the `files` map. `#read("/etc/passwd")`, `#image("/...")`, `#include` of an
 
 The panel is application-modal and takes focus, so call `print` only in response to a user action.
 
+To try the panel by hand from the tester, with a person at the keyboard: `RN_GPUI_TEST_PRINT_PANEL=1 node packages/rn-gpui-tester/scripts/run-e2e.mjs --headed packages/rn-gpui-tester/e2e/print-panel.e2e.ts`, then click "Open the print panel" and print or cancel. Without the variable the test is skipped, so unattended runs never open a panel.
+
 ## Binary size
 
 The compiler adds about 24 to 28 MB to the app. Building the Typst crates for size keeps it at the low end; add this to the app's `desktop/Cargo.toml`:

@@ -163,6 +163,11 @@ export const renderScreen: Record<
       require('./components/HostComponentsFixture').default,
       props,
     ),
+  'typst-print': props =>
+    React.createElement(
+      require('./components/TypstPrintPanelFixture').default,
+      props,
+    ),
   typst: props =>
     React.createElement(require('./components/TypstFixture').default, props),
   'pdf-viewer': props =>
