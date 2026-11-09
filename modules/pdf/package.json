@@ -21,6 +21,9 @@
   "files": [
     "src",
     "metro.cjs",
+    "metro-babel-transformer.cjs",
+    "scripts",
+    "THIRD_PARTY_NOTICES.md",
     "CHANGELOG.md"
   ],
   "dependencies": {
@@ -38,5 +41,8 @@
   },
   "peerDependencies": {
     "react-native": "0.87.x"
+  },
+  "scripts": {
+    "prepack": "node scripts/generate-notices.mjs"
   }
 }

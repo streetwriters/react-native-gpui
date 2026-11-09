@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { createPdfRuntimeFromAddon, NULL_PTR } from './runtime';
+import { withNativeTiles, type TileSink } from './tiles';
 
 type Addon = Record<string, any>;
 
@@ -33,11 +34,18 @@ export function packageNameForTarget(target: string): string {
   return `@embedpdf/engine-runtime-${target}`;
 }
 
+let tileSink: TileSink | null = null;
+
+export function setTileSink(sink: TileSink | null) {
+  tileSink = sink;
+}
+
 export async function createPdfRuntime() {
   const platform = resolveRuntimeTarget();
   const load = loaders[platform];
   if (!load) throw new Error(`no PDF runtime for ${platform}`);
-  return createPdfRuntimeFromAddon(load(), platform);
+  const runtime = createPdfRuntimeFromAddon(load(), platform);
+  return tileSink ? withNativeTiles(runtime, tileSink) : runtime;
 }
 
 export const init = createPdfRuntime;
