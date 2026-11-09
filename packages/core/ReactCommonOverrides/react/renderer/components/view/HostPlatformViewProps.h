@@ -113,6 +113,19 @@ class HostPlatformViewProps : public BaseViewProps {
                 rawProps,
                 "onContextMenuCapture",
                 false,
+                false)),
+        onWheel(
+            convertRawProp(
+                context,
+                rawProps,
+                "onWheel",
+                sourceProps.onWheel,
+                false) ||
+            convertRawProp(
+                context,
+                rawProps,
+                "onWheelCapture",
+                false,
                 false)) {}
 
   void setProp(
@@ -143,6 +156,7 @@ class HostPlatformViewProps : public BaseViewProps {
       // OR'd, so a view that swaps `onContextMenu` for `onContextMenuCapture`
       // keeps its listener.
       RAW_SET_PROP_SWITCH_CASE_BASIC(onContextMenu);
+      RAW_SET_PROP_SWITCH_CASE_BASIC(onWheel);
     }
   }
 
@@ -165,6 +179,8 @@ class HostPlatformViewProps : public BaseViewProps {
   /// True when the view has an `onContextMenu` handler (RN turns a function
   /// prop into this boolean marker).
   bool onContextMenu{false};
+  /// True when the view has an `onWheel` or `onWheelCapture` handler.
+  bool onWheel{false};
 };
 
 } // namespace facebook::react

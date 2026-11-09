@@ -130,6 +130,8 @@ export type {
 export type {
   DesktopContextMenuEvent,
   DesktopContextMenuEventData,
+  DesktopWheelEvent,
+  DesktopWheelEventData,
 } from './types';
 export type {
   ContextMenuOpenEvent,

@@ -120,6 +120,18 @@ export const screens = [
     fixture: 'RoundedClipFixture',
   },
   {
+    id: 'wheel',
+    title: 'Wheel events',
+    group: 'Input',
+    fixture: 'WheelFixture',
+  },
+  {
+    id: 'outline-radius',
+    title: 'Outline follows the border radius',
+    group: 'Views',
+    fixture: 'OutlineRadiusFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',
@@ -196,6 +208,12 @@ export const screens = [
     title: 'Single-line input',
     group: 'Input',
     fixture: 'SingleLineTextInputFixture',
+  },
+  {
+    id: 'input-line-height',
+    title: 'Input line height',
+    group: 'Input',
+    fixture: 'TextInputLineHeightFixture',
   },
   {
     id: 'pan-responder',

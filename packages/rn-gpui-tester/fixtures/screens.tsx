@@ -35,6 +35,11 @@ export const renderScreen: Record<
       require('./components/SingleLineTextInputFixture').default,
       props,
     ),
+  'input-line-height': props =>
+    React.createElement(
+      require('./components/TextInputLineHeightFixture').default,
+      props,
+    ),
   'pan-responder': props =>
     React.createElement(
       require('./components/PanResponderFixture').default,
@@ -307,6 +312,13 @@ export const renderScreen: Record<
   'rounded-clip': props =>
     React.createElement(
       require('./components/RoundedClipFixture').default,
+      props,
+    ),
+  wheel: props =>
+    React.createElement(require('./components/WheelFixture').default, props),
+  'outline-radius': props =>
+    React.createElement(
+      require('./components/OutlineRadiusFixture').default,
       props,
     ),
   'flex-basis': props =>

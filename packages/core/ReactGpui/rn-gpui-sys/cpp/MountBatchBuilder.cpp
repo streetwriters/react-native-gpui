@@ -465,6 +465,7 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
     out.focusable = platformProps->focusable;
     out.desktop_drag_region = platformProps->desktopDragRegion;
     out.on_context_menu = platformProps->onContextMenu;
+    out.on_wheel = platformProps->onWheel;
     out.group = platformProps->group;
     out.hover_style = platformProps->hoverStyle;
     out.active_style = platformProps->activeStyle;
@@ -656,6 +657,11 @@ ParagraphFlat paragraphForMeasure(
     const AttributedString& text,
     const ParagraphAttributes& attributes) {
   ParagraphFlat paragraph = flattenInputText(text);
+  if (paragraph.fragments.empty()) {
+    paragraph.fragments.push_back(
+        flattenTextFragment(text.getBaseTextAttributes(), ""));
+    paragraph.measure_empty_line = true;
+  }
 
   // Alignment lives on TextAttributes, not on ParagraphAttributes; the
   // TextAlignment enum values already match the ParagraphFlat encoding.

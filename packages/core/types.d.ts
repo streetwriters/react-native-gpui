@@ -133,6 +133,45 @@ export type DesktopDragSourceEvent =
 
 export type DesktopDragEvent = NativeSyntheticEvent<DesktopDragEventData>;
 
+export interface DesktopWheelEventData {
+  /** The view the wheel event was sent to. */
+  target: number;
+  /** The change in the horizontal and vertical position, as the web's `WheelEvent` reports it: positive scrolls right and down. */
+  deltaX: number;
+  deltaY: number;
+  deltaZ: number;
+  /** `0` when the deltas are pixels, `1` when they are lines. A mouse wheel reports lines; a trackpad reports pixels. */
+  deltaMode: 0 | 1;
+  /** Whether the event comes from a trackpad or another continuous device, rather than a mouse wheel. */
+  isTrackpad: boolean;
+  /** `'began'`, `'changed'` and `'ended'` bracket a trackpad gesture; `'none'` is a mouse wheel notch. */
+  phase: 'none' | 'began' | 'changed' | 'ended' | 'cancelled';
+  /** `true` for the inertial events a trackpad sends after the fingers lift. */
+  momentum: boolean;
+  /** `true` for a pinch: the deltas are the zoom change, and `ctrlKey` is `true`, as a browser reports a pinch. */
+  isPinch: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+  /** The pointer position in the window, in points. */
+  clientX: number;
+  clientY: number;
+  x: number;
+  y: number;
+  pageX: number;
+  pageY: number;
+  screenX: number;
+  screenY: number;
+  /** The pointer position in the target view. */
+  offsetX: number;
+  offsetY: number;
+  /** When the platform delivered the event, in milliseconds since the epoch. */
+  timestamp: number;
+}
+
+export type DesktopWheelEvent = NativeSyntheticEvent<DesktopWheelEventData>;
+
 export type DesktopContextMenuEvent =
   NativeSyntheticEvent<DesktopContextMenuEventData>;
 
@@ -166,6 +205,14 @@ declare module 'react-native' {
      * set, so a view with only the capture handler still receives events.
      */
     onContextMenuCapture?: (event: DesktopContextMenuEvent) => void;
+    /**
+     * The mouse wheel or a trackpad scrolled or pinched over this view. It
+     * bubbles. `preventDefault()` or `stopPropagation()` keeps a parent
+     * `ScrollView` from scrolling for the event.
+     */
+    onWheel?: (event: DesktopWheelEvent) => void;
+    /** The capturing counterpart, called before the handlers of the views below. */
+    onWheelCapture?: (event: DesktopWheelEvent) => void;
     /**
      * Whether the view takes files dragged in from the operating system. The
      * nearest view under the pointer that does gets the drag events.

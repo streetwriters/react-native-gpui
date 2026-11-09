@@ -1,11 +1,13 @@
 #include "GpuiMountingManager.h"
 #include <react/runtime/GpuiDebug.h>
 
+#include <jsi/JSIDynamic.h>
 #include <react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.h>
 #include <react/renderer/components/desktopscrollbar/DesktopScrollBar.h>
 #include <react/renderer/components/desktopswitch/DesktopSwitch.h>
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
+#include <atomic>
 #include "GpuiHost.h" // KAllSurfacesStopped
 #include "GpuiHostComponentsCpp.h"
 #include "MountBatchBuilder.h"
@@ -636,6 +638,61 @@ void GpuiMountingManager::dispatchEvent(
     return;
   }
   emitter->dispatchEvent(type, std::move(payload));
+}
+
+void GpuiMountingManager::dispatchWheel(
+    Tag tag,
+    uint64_t id,
+    folly::dynamic&& payload) {
+  SharedEventEmitter emitter;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = emitters_.find(tag);
+    if (it != emitters_.end()) {
+      emitter = it->second;
+    }
+  }
+  if (!emitter) {
+    rn_gpui_on_wheel_done(id, false);
+    return;
+  }
+  auto prevented = std::make_shared<std::atomic<bool>>(false);
+  auto shared = std::make_shared<folly::dynamic>(std::move(payload));
+  emitter->dispatchEvent(
+      "topWheel",
+      ValueFactory{
+          [shared,
+           prevented](facebook::jsi::Runtime& runtime) -> facebook::jsi::Value {
+            auto value = facebook::jsi::valueFromDynamic(runtime, *shared);
+            auto event = value.asObject(runtime);
+            auto stop = [prevented](
+                            facebook::jsi::Runtime&,
+                            const facebook::jsi::Value&,
+                            const facebook::jsi::Value*,
+                            size_t) -> facebook::jsi::Value {
+              prevented->store(true);
+              return facebook::jsi::Value::undefined();
+            };
+            for (const char* name : {"preventDefault", "stopPropagation"}) {
+              event.setProperty(
+                  runtime,
+                  name,
+                  facebook::jsi::Function::createFromHostFunction(
+                      runtime,
+                      facebook::jsi::PropNameID::forAscii(runtime, name),
+                      0,
+                      stop));
+            }
+            return value;
+          }});
+  emitter->dispatchEvent(
+      "topWheelEnd",
+      ValueFactory{
+          [id,
+           prevented](facebook::jsi::Runtime& runtime) -> facebook::jsi::Value {
+            rn_gpui_on_wheel_done(id, prevented->load());
+            return facebook::jsi::Object(runtime);
+          }});
 }
 
 void GpuiMountingManager::setAccessibilityFocusedView(Tag viewTag) {

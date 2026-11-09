@@ -523,6 +523,10 @@ pub(crate) enum MainEvent {
     },
     AccessibilityFocus(i32),
     TextInputClear(i32),
+    WheelDone {
+        id: u64,
+        prevented: bool,
+    },
     BuiltinCommand {
         tag: i32,
         component: String,
@@ -1209,6 +1213,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let text_input_clear_tx = tx.clone();
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
+    }));
+    let wheel_done_tx = tx.clone();
+    let _ = rn_gpui_sys::WHEEL_DONE_HANDLER.set(Box::new(move |id, prevented| {
+        let _ = wheel_done_tx.send_blocking(MainEvent::WheelDone { id, prevented });
     }));
     let builtin_command_tx = tx.clone();
     let _ =
@@ -2651,6 +2659,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 );
                             });
                         }
+                    }
+                    MainEvent::WheelDone { id, prevented } => {
+                        crate::wheel::done(id, prevented, cx);
                     }
                     MainEvent::TextInputClear(tag) => {
                         let target = {

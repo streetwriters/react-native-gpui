@@ -697,6 +697,7 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
         gpui::canvas(
             |_, _, _| (),
             |_, _, window, _| {
+                crate::wheel::install(window);
                 window.on_mouse_event(|event: &gpui::MouseMoveEvent, phase, window, cx| {
                     if phase != gpui::DispatchPhase::Capture
                         || event.pressed_button.is_none()

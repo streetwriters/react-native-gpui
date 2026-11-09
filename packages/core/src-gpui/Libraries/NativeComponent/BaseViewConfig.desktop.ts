@@ -210,12 +210,22 @@ export default {
   //. It is registered the same way RN registers `onPointerEnter`
   // (a bubbling event plus a `validAttributes` marker), because Fabric converts
   // the JS handler function into the boolean marker that creates the listener.
+  directEventTypes: {
+    ...iosConfig.directEventTypes,
+    topWheelEnd: { registrationName: 'onWheelEnd' },
+  },
   bubblingEventTypes: {
     ...iosConfig.bubblingEventTypes,
     topContextMenu: {
       phasedRegistrationNames: {
         bubbled: 'onContextMenu',
         captured: 'onContextMenuCapture',
+      },
+    },
+    topWheel: {
+      phasedRegistrationNames: {
+        bubbled: 'onWheel',
+        captured: 'onWheelCapture',
       },
     },
     topDragEnter: {
@@ -277,6 +287,8 @@ export default {
     groupActiveStyle: { process: processGroupStateStyle('groupActiveStyle') },
     onContextMenu: true,
     onContextMenuCapture: true,
+    onWheel: true,
+    onWheelCapture: true,
     acceptsFiles: true,
     tooltip: true,
     draggable: true,

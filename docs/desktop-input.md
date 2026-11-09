@@ -62,7 +62,44 @@ The event's `nativeEvent` has these fields:
 
 ## Scrolling
 
-The mouse wheel and the trackpad scroll a [`ScrollView`](scrollview) and the lists built on it. There is no wheel event for other views. For scrolling in your own components, wrap the content in a `ScrollView`.
+The mouse wheel and the trackpad scroll a [`ScrollView`](scrollview) and the lists built on it. To take the wheel for your own content, such as a canvas, a map or a document viewer, use the wheel events below.
+
+## Wheel events
+
+`View` takes `onWheel` and `onWheelCapture`. The event bubbles like the pointer events: the capture handlers run from the outermost view to the one under the pointer, then the bubble handlers from the innermost outwards. It is sent to the innermost view under the pointer.
+
+```tsx
+<View
+  onWheel={event => {
+    event.preventDefault();
+    const { deltaX, deltaY, ctrlKey } = event.nativeEvent;
+    if (ctrlKey) zoomBy(-deltaY * 0.01);
+    else panBy(-deltaX, -deltaY);
+  }}
+/>
+```
+
+The `nativeEvent` follows the web's `WheelEvent`:
+
+| Field                                                                        | Meaning                                                                                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `deltaX`, `deltaY`, `deltaZ`                                                 | The change, with the signs of the web: positive `deltaY` scrolls down and positive `deltaX` scrolls right.                      |
+| `deltaMode`                                                                  | `0` when the deltas are pixels, `1` when they are lines. A trackpad reports pixels at full precision, not rounded.              |
+| `isTrackpad`                                                                 | `true` for a trackpad or another continuous device, `false` for a mouse wheel.                                                  |
+| `phase`                                                                      | `'began'`, `'changed'`, `'ended'` or `'cancelled'` for a trackpad gesture, and `'none'` for a mouse wheel notch.                |
+| `momentum`                                                                   | `true` for the inertial events a trackpad sends after the fingers lift.                                                         |
+| `isPinch`                                                                    | `true` for a trackpad pinch.                                                                                                    |
+| `ctrlKey`, `shiftKey`, `altKey`, `metaKey`                                   | The modifier keys held. A pinch reports `ctrlKey: true`, as browsers do, so web zoom code works unchanged.                      |
+| `clientX`, `clientY` (also `x`, `y`, `pageX`, `pageY`, `screenX`, `screenY`) | The pointer position in the window, in points.                                                                                  |
+| `offsetX`, `offsetY`                                                         | The position inside the view that the event is sent to.                                                                         |
+| `target`                                                                     | The tag of the view that the event is sent to.                                                                                  |
+| `timestamp`                                                                  | When the platform delivered the event, in milliseconds since the epoch. `Date.now() - timestamp` is the latency to the handler. |
+
+A pinch is a wheel event whose `deltaY` is the magnification change, negated and multiplied by 100, so a 5% zoom in is `-5`. A mouse wheel with shift held reports the vertical notch as `deltaX`, as browsers do. Every event is delivered in the order the platform sent it, and none is dropped.
+
+`preventDefault()` and `stopPropagation()` keep the event from scrolling a parent `ScrollView`, so a view can take the wheel from the scroll view around it. An event that no handler prevents scrolls as before, once the handlers have run. A view with no wheel handler on its path scrolls at once, without waiting for JavaScript.
+
+Pinch events come from the macOS trackpad. Windows and Linux report a pinch as nothing. Momentum is recognised on a trackpad that sends precise deltas: the `'moved'` events after a gesture ends are `momentum`.
 
 ## Keyboard
 

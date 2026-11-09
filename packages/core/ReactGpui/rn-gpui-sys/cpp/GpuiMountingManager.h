@@ -93,6 +93,7 @@ class GpuiMountingManager : public IMountingManager {
   // Called from the GPUI main thread via GpuiHost::dispatch_event.
   void
   dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
+  void dispatchWheel(Tag tag, uint64_t id, folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
 
   /// Pushes a size a host component reported into its shadow node's state,
