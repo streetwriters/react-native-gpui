@@ -95,3 +95,13 @@ test('typing into a field with the pointer inside the window keeps the views tha
   expect(typed.text).toBe('apple');
   expect(Math.max(...built.slice(0, 3))).toBeLessThan(400);
 });
+
+test('reading the accessibility tree again does not rebuild the views', async () => {
+  await app.a11yTree();
+  await app.waitForIdle();
+  await app.layoutStats({ reset: true });
+  await app.a11yTree();
+  await app.a11yTree();
+  const stats = await app.layoutStats({ reset: true });
+  expect(stats.viewsBuilt).toBeLessThan(20);
+});

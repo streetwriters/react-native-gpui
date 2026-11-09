@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 ## Unreleased
 
+- `app.a11yTree()` refreshes the window only the first time, when it turns the accessibility tree on. Each call refreshed it, which rebuilt every view and perturbed a layout or performance measurement taken around it. Needs a runtime built with the change.
 - `app.typeText` and `locator.type` click the input only when it does not have focus. Each call used to click first, which flipped the window's input mode from keyboard to mouse and back, so every typed key refreshed the window twice and rebuilt every view; a measurement of typing saw that cost that real typing does not have. Needs a runtime built with the change.
 - `app.layoutStats` reports `targetAtCalls` and `targetAtMs`, the lookups of the view under the pointer that the hover pass makes after keyboard input and the time they took. Needs a runtime built with the change.
 - `app.scroll` takes `{ lines, modifiers }` as a last argument to send a mouse wheel notch or hold keys, and `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch. Both are platform events, so they reach `onWheel` handlers before they scroll. `waitForIdle` waits for a wheel event that is still waiting for its handlers. Needs a runtime built with the change.
