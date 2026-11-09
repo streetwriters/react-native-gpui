@@ -117,6 +117,12 @@ impl Updater {
     }
 }
 
+fn fetch_release(feed_url: &str, channel: &str) -> Result<feed::Release, String> {
+    let location = feed::feed_location(feed_url, channel)?;
+    let text = http::fetch_text(location.as_str())?;
+    feed::parse(&text, &location)
+}
+
 fn cache_folder(version: &Version) -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -161,12 +167,7 @@ impl NativeUpdaterSpec for Updater {
         let (sender, receiver) = oneshot::channel();
         let feed_config = config.clone();
         std::thread::spawn(move || {
-            let result = feed::feed_location(&feed_config.feed_url, &feed_config.channel).and_then(
-                |location| {
-                    let text = http::fetch_text(location.as_str())?;
-                    feed::parse(&text, &location)
-                },
-            );
+            let result = fetch_release(&feed_config.feed_url, &feed_config.channel);
             let _ = sender.send(result);
         });
         let outcome = receiver
@@ -328,4 +329,90 @@ impl NativeUpdaterSpec for Updater {
 
 pub fn rn_gpui_register() {
     rn_gpui_module::register(native_updater_module::<Updater>());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    const FEED: &str =
+        "version: 2.0.0\nfiles:\n  - url: App-2.0.0-mac.zip\n    sha512: abc\n    size: 10\n";
+
+    fn serve(body: &'static str) -> (String, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/feed", listener.local_addr().unwrap());
+        let (paths, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buffer = [0u8; 4096];
+                let read = stream.read(&mut buffer).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                let _ = paths.send(path);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (base, received)
+    }
+
+    fn check(
+        feed_url: &str,
+        channel: &str,
+        current: &str,
+        allow_downgrade: bool,
+    ) -> Result<Option<feed::Release>, String> {
+        let release = fetch_release(feed_url, channel)?;
+        let current = feed::current_version(current)?;
+        Ok(feed::is_newer(&release.version, &current, allow_downgrade).then_some(release))
+    }
+
+    #[test]
+    fn each_channel_requests_its_own_feed_file() {
+        let (base, received) = serve(FEED);
+        for (channel, path) in [
+            ("latest", "/feed/latest-mac.yml"),
+            ("beta", "/feed/beta-mac.yml"),
+            ("", "/feed/latest-mac.yml"),
+        ] {
+            fetch_release(&base, channel).unwrap();
+            assert_eq!(received.recv().unwrap(), path);
+        }
+    }
+
+    #[test]
+    fn a_newer_feed_is_available() {
+        let (base, _received) = serve(FEED);
+        let release = check(&base, "latest", "1.9.0", false).unwrap().unwrap();
+        assert_eq!(release.version.to_string(), "2.0.0");
+    }
+
+    #[test]
+    fn the_same_or_older_feed_is_not_available() {
+        let (base, _received) = serve(FEED);
+        assert!(check(&base, "latest", "2.0.0", false).unwrap().is_none());
+        assert!(check(&base, "latest", "2.0.0", true).unwrap().is_none());
+        assert!(check(&base, "latest", "3.0.0", false).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_older_feed_is_offered_when_downgrades_are_allowed() {
+        let (base, _received) = serve(FEED);
+        assert!(check(&base, "latest", "3.0.0", true).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_malformed_feed_is_an_updater_error() {
+        let (base, _received) = serve("version: [unclosed\n  - : :");
+        let message = check(&base, "latest", "1.0.0", false).unwrap_err();
+        assert!(message.contains("the feed is not valid"));
+        assert_eq!(failure(message).code.as_deref(), Some("ERR_UPDATER"));
+    }
 }
