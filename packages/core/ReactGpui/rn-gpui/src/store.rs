@@ -74,6 +74,11 @@ pub struct ViewStore {
     pub pointer: Cell<Point<Pixels>>,
     /// Whether the pointer is over the window, as the last pointer event left it.
     pub pointer_inside: Cell<bool>,
+    /// The mouse buttons held, as the DOM's `buttons` mask: 1 left, 2 right, 4 middle.
+    pub(crate) buttons_held: Cell<i32>,
+    /// Where a press of a button other than the left one started, which its
+    /// moves and its release follow.
+    pub(crate) button_target: RefCell<Option<crate::events::Target>>,
     pub(crate) hover_retarget_pending: Rc<Cell<bool>>,
     /// Nodes a transition was started on and has not been seen to finish, for
     /// the test driver to keep drawing without scanning every node.
@@ -132,6 +137,8 @@ impl ViewStore {
             hovered: RefCell::new(Vec::new()),
             pointer: Cell::new(point(px(0.), px(0.))),
             pointer_inside: Cell::new(false),
+            buttons_held: Cell::new(0),
+            button_target: RefCell::new(None),
             hover_retarget_pending: Rc::default(),
             transitioning: RefCell::default(),
             top_inset: 0.0,
@@ -2896,17 +2903,13 @@ impl Render for SurfaceRootView {
                 if event.pressed_button.is_none() || crate::events::press_belongs_to_window() {
                     return;
                 }
-                if let Some(target) = crate::events::active_touch_target(cx) {
-                    crate::events::send(
-                        window,
-                        cx,
-                        &target,
-                        event.position,
-                        crate::events::Phase::Move,
-                        None,
-                        crate::node_view::modifier_state(event.modifiers),
-                    );
-                }
+                crate::events::move_pressed(
+                    window,
+                    cx,
+                    None,
+                    event.position,
+                    crate::node_view::modifier_state(event.modifiers),
+                );
             })
             .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
                 if crate::drag_drop::tracking() {
