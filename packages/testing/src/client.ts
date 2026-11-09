@@ -941,6 +941,8 @@ export class DesktopApp {
       primary: boolean;
       bounds: { x: number; y: number; width: number; height: number };
       visibleBounds: { x: number; y: number; width: number; height: number };
+      /** Device pixels per point, `null` where the platform cannot say. */
+      scaleFactor: number | null;
     }[]
   > {
     return this.request('displays');

@@ -14,7 +14,19 @@ const macOnly = process.platform === 'darwin';
 /** Linux draws its own title bar inside the window, above the React root. */
 const CLIENT_FRAME = process.platform === 'linux' ? 26 : 0;
 /** The fixture's probe view exists on every desktop OS. */
-const probeOs = ['darwin', 'linux', 'win32'].includes(process.platform);
+const hasRetinaDisplay =
+  process.platform !== 'darwin' ||
+  (() => {
+    try {
+      return execFileSync('system_profiler', ['SPDisplaysDataType'], {
+        encoding: 'utf8',
+      }).includes('Retina');
+    } catch {
+      return false;
+    }
+  })();
+const probeOs =
+  ['darwin', 'linux', 'win32'].includes(process.platform) && hasRetinaDisplay;
 
 /** How long a web view may take to report a navigation finished. */
 const LOAD_TIMEOUT = 15_000;
@@ -40,7 +52,7 @@ async function launch(
       RN_GPUI_WINDOW_STATE: path.resolve(`.local/e2e-${module}.json`),
       // Native views are placed by the operating system at the display's own
       // scale, which these tests compare with layout at 2x.
-      RN_GPUI_TEST_DISPLAY: 'main',
+      RN_GPUI_TEST_DISPLAY: 'retina',
       // A window that other windows cover is occluded and macOS stops
       // presenting it, so the screen read back would show no React view.
       ...(onScreen ? { RN_GPUI_TEST_ON_TOP: '1' } : {}),

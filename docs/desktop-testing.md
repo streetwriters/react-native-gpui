@@ -92,6 +92,8 @@ A background run opens its windows on the display `RN_GPUI_TEST_DISPLAY` names, 
 
 A window ordered behind the others can be covered by them, and macOS stops presenting frames for a covered (occluded) window, so a test that reads the real screen back with `app.compositeScreenshot()` needs the window in front. `RN_GPUI_TEST_ON_TOP=1` orders the window front without activating the app or giving it focus; the compositor test of native views sets it.
 
+`RN_GPUI_TEST_DISPLAY=retina` opens the window on the display with the highest scale factor when that is at least 2, and on the main display otherwise. Use it for a test that depends on the display's own scale, which no override changes: AppKit places a native view (`NativeViewFixture`, a web view) at the real display's scale, so the layout of such a test, which is at 2x, only matches a 2x display. Choose it by scale and not by `main` or `secondary`, because which display is main changes with the arrangement. A test that does not care about the scale keeps the default, the secondary display, to stay out of the user's way. `app.displays()` reports each display's `scaleFactor` (macOS; `null` elsewhere), so a test can skip when it finds no 2x display.
+
 `launchApp` also sets `RN_GPUI_TEST_SCALE_FACTOR=2`, so windows lay out and draw at 2x whichever display they are on, and a pixel comparison against a 2x reference does not depend on the display. Set it to another value, or set the variable yourself, to test another scale. It needs a runtime built with a gpui-fast revision that carries the override.
 
 `RN_GPUI_TEST_HEADED=1` turns background mode off for a run you are watching, and `RN_GPUI_BACKGROUND=0` does the same for any run.
