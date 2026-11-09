@@ -45,7 +45,7 @@ serde_json = "1"
 rn-gpui-module-build = { path = "../../core/ReactGpui/rn-gpui-module-build" }
 
 [dependencies]
-
+aes-kw = { version = "0.2", features = ["alloc"] }
 
 rn-gpui-module = { path = "../../core/ReactGpui/rn-gpui-module" }
 rn-gpui-autolink = { path = "autolink" }

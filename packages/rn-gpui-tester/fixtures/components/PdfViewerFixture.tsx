@@ -1,3 +1,4 @@
+import '@react-native-gpui/crypto';
 import { ENCRYPTED_PDF_BASE64 } from './pdfEncryptedBytes';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';

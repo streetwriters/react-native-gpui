@@ -1,3 +1,4 @@
+import '@react-native-gpui/crypto';
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { createPdfEngine, nativeTiles, tileIdOf } from '@react-native-gpui/pdf';
