@@ -25,6 +25,7 @@
     "@react-native-gpui/host-components-fixture": "file:./host-components-module",
     "@react-native-gpui/native-module-fixture": "file:./gpui-native-module",
     "@react-native-gpui/node-addon-fixture": "file:./node-addon-fixture",
+    "@react-native-gpui/pdf": "file:../../modules/pdf",
     "@react-native-gpui/reanimated": "file:../../modules/reanimated",
     "@react-native-gpui/notifications": "file:../../modules/notifications",
     "@react-native-gpui/safe-area-context": "file:../../modules/safe-area-context",
