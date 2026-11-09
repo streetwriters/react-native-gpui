@@ -384,6 +384,12 @@ export const screens = [
     fixture: 'HostComponentsFixture',
   },
   {
+    id: 'typst',
+    title: 'Typst',
+    group: 'Native modules',
+    fixture: 'TypstFixture',
+  },
+  {
     id: 'pdf-viewer',
     title: 'PDF viewer',
     group: 'Native modules',
