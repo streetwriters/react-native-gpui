@@ -22,6 +22,7 @@
     "modules/notifications",
     "modules/system",
     "modules/updater",
+    "modules/pdf",
     "modules/webauthn",
     "modules/spellcheck",
     "packages/rn-gpui-tester",
