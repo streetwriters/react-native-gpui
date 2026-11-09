@@ -2928,6 +2928,7 @@ impl Render for SurfaceRootView {
                     );
                 }
             })
+            .child(crate::events::outside_window_pointer())
             .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
