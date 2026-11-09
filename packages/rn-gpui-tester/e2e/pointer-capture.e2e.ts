@@ -70,3 +70,18 @@ test('a view the pointer passes over while pressed elsewhere gets no moves', asy
   await app.waitForIdle();
   expect((await log()).slice(before.length)).not.toContain('other-move');
 });
+
+test('a release outside the window reaches the pressed view and ends the gesture', async () => {
+  const [target] = await app.query('testID', 'capture-target', true);
+  const top = (await app.menuBarState()).inset;
+  const y = target.frame.y + 25 + top;
+  const before = await log();
+  await app.mouseDown({ x: target.frame.x + 50, y });
+  await app.mouseMove({ x: target.frame.x + 80, y });
+  await app.mouseMove({ x: 5000, y });
+  await app.mouseUp({ x: 5000, y });
+  await app.waitForIdle();
+  const added = (await log()).slice(before.length);
+  expect(added).toContain('move@5000');
+  expect(added.endsWith('up@5000')).toBe(true);
+});

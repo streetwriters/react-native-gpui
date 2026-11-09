@@ -37,6 +37,28 @@ beforeAll(async () => {
 
 afterAll(() => app?.close());
 
+test('idleStatus names the pending timers with their delays', async () => {
+  const [button] = await app.query('testID', 'app-timer', true);
+  const top = (await app.menuBarState()).inset;
+  const at = {
+    x: button.frame.x + button.frame.width / 2,
+    y: button.frame.y + button.frame.height / 2 + top,
+  };
+  await app.mouseDown(at);
+  await app.mouseUp(at);
+  let status = await app.idleStatus();
+  for (
+    let tries = 0;
+    tries < 20 && !status.busySources.some(s => s.source === 'timers');
+    tries++
+  ) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    status = await app.idleStatus();
+  }
+  const timers = status.busySources.find(source => source.source === 'timers');
+  expect(timers?.detail).toMatch(/timer \d+: set for 1400 ms, due in \d+ ms/);
+});
+
 test('launchArgs gives the arguments the app was started with', async () => {
   await desktopExpect(app.getByTestId('app-launch-args')).toHaveText(
     '--first run',

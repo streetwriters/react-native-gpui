@@ -2910,8 +2910,9 @@ impl Render for SurfaceRootView {
             })
             .on_mouse_up(gpui::MouseButton::Left, |event, window, cx| {
                 if crate::drag_drop::tracking() {
-                    crate::drag_drop::released(window, cx, None, event.position);
-                    return;
+                    if crate::drag_drop::released(window, cx, None, event.position) {
+                        return;
+                    }
                 }
                 if crate::events::press_belongs_to_window() {
                     return;
@@ -2928,6 +2929,7 @@ impl Render for SurfaceRootView {
                     );
                 }
             })
+            .child(crate::events::outside_window_pointer())
             .children(self.app_content.clone())
             .children(self.children.iter().map(|(_, child)| child.clone()));
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]

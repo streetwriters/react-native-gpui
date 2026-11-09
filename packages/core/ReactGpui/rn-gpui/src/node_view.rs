@@ -5177,8 +5177,9 @@ impl RNNodeView {
                     };
                     if crate::drag_drop::tracking() {
                         let target = crate::events::target(cx, node.read(cx));
-                        crate::drag_drop::released(window, cx, target.as_ref(), event.position);
-                        return;
+                        if crate::drag_drop::released(window, cx, target.as_ref(), event.position) {
+                            return;
+                        }
                     }
                     if crate::file_drop::active() {
                         let target = crate::events::target(cx, node.read(cx));

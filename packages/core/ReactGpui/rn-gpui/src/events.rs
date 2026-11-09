@@ -679,6 +679,78 @@ pub fn send(
     frame_hook.arm(window);
 }
 
+fn outside_window(window: &Window, position: Point<Pixels>) -> bool {
+    let size = window.viewport_size();
+    position.x < px(0.)
+        || position.y < px(0.)
+        || position.x > size.width
+        || position.y > size.height
+}
+
+/// Listens for the pointer moving and the button being released outside the
+/// window while a press is held. The root's own listeners only run while the
+/// pointer is over it, so without this a release outside the window never ends
+/// the press and the press keeps the app busy.
+pub fn outside_window_pointer() -> impl gpui::IntoElement {
+    use gpui::{ParentElement as _, Styled as _};
+    gpui::div().absolute().size_0().child(
+        gpui::canvas(
+            |_, _, _| (),
+            |_, _, window, _| {
+                window.on_mouse_event(|event: &gpui::MouseMoveEvent, phase, window, cx| {
+                    if phase != gpui::DispatchPhase::Capture
+                        || event.pressed_button.is_none()
+                        || !outside_window(window, event.position)
+                        || press_belongs_to_window()
+                        || crate::drag_drop::tracking()
+                    {
+                        return;
+                    }
+                    if let Some(target) = active_touch_target(cx) {
+                        send(
+                            window,
+                            cx,
+                            &target,
+                            event.position,
+                            Phase::Move,
+                            None,
+                            crate::node_view::modifier_state(event.modifiers),
+                        );
+                    }
+                });
+                window.on_mouse_event(|event: &gpui::MouseUpEvent, phase, window, cx| {
+                    if phase != gpui::DispatchPhase::Capture
+                        || event.button != gpui::MouseButton::Left
+                        || !outside_window(window, event.position)
+                    {
+                        return;
+                    }
+                    if crate::drag_drop::tracking() {
+                        if crate::drag_drop::released(window, cx, None, event.position) {
+                            return;
+                        }
+                    }
+                    if press_belongs_to_window() {
+                        return;
+                    }
+                    if let Some(target) = active_touch_target(cx) {
+                        send(
+                            window,
+                            cx,
+                            &target,
+                            event.position,
+                            Phase::End,
+                            Some(Button::Left),
+                            crate::node_view::modifier_state(event.modifiers),
+                        );
+                    }
+                });
+            },
+        )
+        .size_0(),
+    )
+}
+
 pub fn cancel_active_touch(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
     if let Some(target) = active_touch_target(cx) {
         send(

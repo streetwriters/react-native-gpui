@@ -139,7 +139,9 @@ await expectNoA11yViolations(app);
 
 When the wait times out because JavaScript work never finishes, start the app with `RN_GPUI_DEBUG_JS_TASKS=1` (in `env`): the error then lists each queued or running JavaScript task with how long it has been there and the call stack that queued it. The stacks are symbols of the native runtime, so they name the C++ entry point that scheduled the task. The variable is for debugging; it costs a stack capture per task. macOS and Linux only.
 
-Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work.
+`app.click()` and `locator.click()` move the pointer onto the target, then dispatch a press and a release through the window's own input path, the one a real pointer reaches, both in one step. Several listeners see each event, deepest view first and the window's root last, so a listener that drops the release can be covered by one that comes later; a test of the press and release path itself uses `app.mouseDown()` and `app.mouseUp()` at positions of its choice, such as a release outside the window, which only the window-level listener sees.
+
+Assertions wait until they pass or time out, so a test does not need explicit sleeps. `app.waitForIdle()` waits until the app has no pending frames, animations, timers, network requests or JavaScript work. `app.idleStatus()` says what is holding it up: for pending timers it lists each one with the delay it was set for and the time left (`timer 12: set for 700 ms, due in 640 ms`), which is how to tell a timer of the app's own from work the runtime is doing. Only one-shot timers due within 1.5 seconds count.
 
 ### Screenshots
 

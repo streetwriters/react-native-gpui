@@ -161,17 +161,19 @@ pub(crate) fn moved(
 }
 
 /// The left button was released over `target`, if a node answered.
+/// Whether a drag was under way and this ended it. A press that never became a
+/// drag is only forgotten, and the release still belongs to the touch.
 pub(crate) fn released(
     window: &mut Window,
     cx: &mut App,
     target: Option<&Target>,
     position: Point<Pixels>,
-) {
+) -> bool {
     let Some(session) = SESSION.with_borrow_mut(Option::take) else {
-        return;
+        return false;
     };
     let Session::Active(active) = session else {
-        return;
+        return false;
     };
     let accepting = target.and_then(|target| droppable_view(cx, target));
     if let (Some(tag), Some(target)) = (accepting, target) {
@@ -187,6 +189,7 @@ pub(crate) fn released(
     }
     crate::interaction::set_drag(None, cx);
     finish(window, cx, active, position, accepting.is_some());
+    true
 }
 
 /// The drag ended without a drop.

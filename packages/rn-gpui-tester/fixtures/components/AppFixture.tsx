@@ -62,6 +62,9 @@ export default function AppFixture() {
           <Text>{role}</Text>
         </Pressable>
       ))}
+      <Pressable testID="app-timer" onPress={() => setTimeout(() => {}, 1400)}>
+        <Text>Timer</Text>
+      </Pressable>
       <Pressable testID="app-quit" onPress={() => App.quit()}>
         <Text>Quit</Text>
       </Pressable>

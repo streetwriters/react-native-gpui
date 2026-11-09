@@ -66,6 +66,7 @@ test('a press that does not move far enough is not a drag', async () => {
   await app.getByTestId('drag-item-gamma').click();
   await app.waitForIdle();
   expect(await log()).toBe(before);
+  expect(await app.getByTestId('drag-taps').textContent()).toBe('gamma');
 });
 
 test('holding a drag near the edge of a scroll view scrolls it', async () => {
@@ -135,4 +136,16 @@ test('Escape cancels a drag: the target is left, nothing drops and the state res
   expect(entries).toEqual(['start:beta', 'enter', 'leave', 'end:beta:false']);
   expect(await app.getByTestId('drag-state').textContent()).toBe('idle');
   await desktopExpect(app.getByTestId('drag-preview')).toBeHidden();
+});
+
+test('a press on a draggable view released outside the window ends the touch', async () => {
+  const [item] = await app.query('testID', 'drag-item-alpha', true);
+  const top = (await app.menuBarState()).inset;
+  const before = await app.getByTestId('drag-taps').textContent();
+  await app.mouseDown({ x: item.frame.x + 10, y: item.frame.y + 10 + top });
+  await app.mouseUp({ x: 5000, y: item.frame.y + 10 + top });
+  await app.waitForIdle();
+  expect(await app.getByTestId('drag-taps').textContent()).toBe(
+    `${before},alpha`,
+  );
 });

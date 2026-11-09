@@ -654,12 +654,24 @@ pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
 /// mirror, as `open_window` does for the windows it creates. The main window
 /// resizes the store through its own observer in `bootstrap`, so this only
 /// reports.
+static MAIN_STARTED_HIDDEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The main window was opened without being shown (`window.visible: false` or
+/// `--hidden`), so it reports itself as not visible until it is shown.
+pub fn note_main_started_hidden() {
+    MAIN_STARTED_HIDDEN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
     let Some(handle) = handle.downcast::<SurfaceRootView>() else {
         return;
     };
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
+    }
+    if MAIN_STARTED_HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+        super::window_mirror::patch(key, &[("isVisible", json!(false))]);
     }
     super::app_state::schedule(cx);
     let _ = handle.update(cx, |_root, window, cx| {
@@ -1003,12 +1015,66 @@ pub fn show(cx: &mut App, key: u32) -> DesktopResult {
     if let Some(run) = later.take() {
         run_outside_update(cx, run);
         recheck_window_state_later(cx, key);
+        reveal_later(cx, key);
     }
     if result.is_ok() {
         report_state_change(cx, key, &[("isVisible", json!(true))]);
         super::app_state::schedule(cx);
     }
     result
+}
+
+/// The longest a window that was hidden is kept clear after it is shown. It is
+/// revealed sooner, when the frames that follow the show have been drawn.
+const REVEAL_LIMIT: std::time::Duration = std::time::Duration::from_millis(80);
+
+static LAST_REVEAL: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+
+/// What made the last revealed window opaque: `frame` when the frames after the
+/// show had been drawn, `timeout` when the limit came first.
+pub fn last_reveal() -> Option<&'static str> {
+    *LAST_REVEAL.lock().expect("reveal state poisoned")
+}
+
+/// Makes a window that was shown clear opaque once its first frame has been
+/// drawn and handed to the compositor. The first frame callback runs as the
+/// first frame after the show begins, the second as the next one begins, so the
+/// first has been drawn by then. The limit covers a window that gets no frames,
+/// such as one that other windows cover.
+fn reveal_later(cx: &mut App, key: u32) {
+    *LAST_REVEAL.lock().expect("reveal state poisoned") = None;
+    let done = std::rc::Rc::new(std::cell::Cell::new(false));
+    let reveal = {
+        let done = done.clone();
+        move |window: &mut gpui::Window, reason: &'static str| {
+            if done.replace(true) {
+                return;
+            }
+            let _ = platform_window::reveal_window(window);
+            *LAST_REVEAL.lock().expect("reveal state poisoned") = Some(reason);
+        }
+    };
+    let _ = with_window(cx, key, {
+        let reveal = reveal.clone();
+        move |window| {
+            window.refresh();
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |window, _| reveal(window, "frame"));
+                window.refresh();
+            });
+            Ok(())
+        }
+    });
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(REVEAL_LIMIT).await;
+        let _ = cx.update(|cx| {
+            let _ = with_window(cx, key, |window| {
+                reveal(window, "timeout");
+                Ok(())
+            });
+        });
+    })
+    .detach();
 }
 
 pub fn hide(cx: &mut App, key: u32) -> DesktopResult {

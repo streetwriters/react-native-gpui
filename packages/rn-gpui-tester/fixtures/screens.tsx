@@ -324,6 +324,16 @@ export const renderScreen: Record<
       require('./components/ScrollBarDragFixture').default,
       props,
     ),
+  'app-shortcut': props =>
+    React.createElement(
+      require('./components/AppShortcutFixture').default,
+      props,
+    ),
+  'hidden-start': props =>
+    React.createElement(
+      require('./components/HiddenStartFixture').default,
+      props,
+    ),
   stretch: props =>
     React.createElement(require('./components/StretchFixture').default, props),
   tooltip: props =>

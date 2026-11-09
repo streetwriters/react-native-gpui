@@ -115,6 +115,16 @@ pub fn install(cx: &mut App, app_name: &str, dev_menu: bool) {
         // consulted, so handling the key here would take it away from a shortcut
         // that is entitled to it. Asking the keymap first is what keeps the
         // precedence the rest of this design promises.
+        if let Some(id) =
+            crate::desktop::keymap::unfocused_app_shortcut(cx, window, &event.keystroke)
+        {
+            crate::desktop::keymap::emit_app_shortcut(cx, &id, None);
+            if let Some(store) = store_from(cx) {
+                store.read(cx).frame_hook.arm(window);
+            }
+            cx.stop_propagation();
+            return;
+        }
         if crate::desktop::keymap::claims_keystroke(cx, window, &event.keystroke) {
             return;
         }
@@ -1033,6 +1043,12 @@ fn replace_accelerator_bindings(
         .filter(|binding| !is_desktop_action(binding.action()))
         .cloned()
         .collect();
+    // Of two bindings for one key in one context the later one wins, and a
+    // shortcut has to win over a menu accelerator, so the shortcut bindings go
+    // back after the menu's.
+    let (shortcut_bindings, kept): (Vec<KeyBinding>, Vec<KeyBinding>) = kept
+        .into_iter()
+        .partition(|binding| crate::desktop::keymap::is_shortcut_action(binding.action()));
     {
         let mut keymap = keymap.borrow_mut();
         keymap.clear();
@@ -1057,6 +1073,9 @@ fn replace_accelerator_bindings(
         }
     }
     cx.bind_keys(new_bindings);
+    cx.key_bindings()
+        .borrow_mut()
+        .add_bindings(shortcut_bindings);
     accelerators
 }
 

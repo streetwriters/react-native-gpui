@@ -18,7 +18,7 @@ useEffect(() => {
 
 ## Launch arguments
 
-`App.launchArgs()` returns the command line arguments the process was started with, without the executable, such as `['new', 'note']` or `['--hidden']`. Parse them in JavaScript. A URL for one of your `urlSchemes` is also in the list, and [`Linking`](linking) reports it too.
+`App.launchArgs()` returns the command line arguments the process was started with, without the executable, such as `['new', 'note']` or `['--hidden']`. Parse them in JavaScript. `--hidden` starts the app without showing its window (see [Starting hidden](desktop-tray#starting-hidden)); the app shows the window itself, with `DesktopWindow.current().show()`, when it should appear. A URL for one of your `urlSchemes` is also in the list, and [`Linking`](linking) reports it too.
 
 ## A second launch
 
