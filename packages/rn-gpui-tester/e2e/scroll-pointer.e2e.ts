@@ -135,3 +135,38 @@ test('with two buttons held the mask is combined and shrinks as each is released
     entries.map(entry => `${entry.split(':')[0]}:${entry.split(':')[2]}`),
   ).toEqual(['down:1', 'down:3', 'move:3', 'up:1', 'move:1', 'up:0']);
 });
+
+async function cancelledBy(button: 'left' | 'right') {
+  const { x, y } = await point();
+  const before = (await log()).length;
+  await app.mouseDown({ x, y }, { button });
+  await app.mouseMove({ x: x + 20, y });
+  await app.setWindowActive(1, false);
+  await app.waitForIdle();
+  await app.setWindowActive(1, true);
+  await app.waitForIdle();
+  await app.mouseUp({ x: x + 20, y }, { button });
+  await app.mouseMove({ x: x + 30, y });
+  await app.waitForIdle();
+  return (await log()).slice(before);
+}
+
+test.each([
+  ['left', '1'],
+  ['right', '2'],
+] as const)(
+  'losing the window while the %s button is held cancels the press and clears the buttons',
+  async (button, mask) => {
+    const entries = await cancelledBy(button);
+    const kinds = entries.map(
+      entry => `${entry.split(':')[0]}:${entry.split(':')[2]}`,
+    );
+    expect(kinds.slice(0, 3)).toEqual([
+      `down:${mask}`,
+      `move:${mask}`,
+      'cancel:0',
+    ]);
+    expect(kinds).not.toContain(`up:0`);
+    expect(kinds[kinds.length - 1]).toBe('move:0');
+  },
+);

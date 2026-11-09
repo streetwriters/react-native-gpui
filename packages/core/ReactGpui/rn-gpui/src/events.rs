@@ -840,6 +840,49 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
     )
 }
 
+/// The window stopped being active: every press still held ends with a cancel,
+/// as in a browser, and no button counts as held any more.
+pub fn cancel_presses(window: &mut Window, cx: &mut App) {
+    let Some(store) = store_from(cx) else {
+        return;
+    };
+    let (position, held, pressed) = {
+        let store = store.read(cx);
+        (
+            store.pointer.get(),
+            store.buttons_held.get(),
+            store.button_target.borrow().clone(),
+        )
+    };
+    if let Some(target) = active_touch_target(cx) {
+        send(
+            window,
+            cx,
+            &target,
+            position,
+            Phase::Cancel,
+            Some(Button::Left),
+            ModifierState::none(),
+        );
+    } else if held != 0 {
+        if let Some(target) = pressed {
+            send_pointer(
+                window,
+                cx,
+                &target,
+                position,
+                Phase::Cancel,
+                None,
+                0,
+                ModifierState::none(),
+            );
+        }
+    }
+    let store = store.read(cx);
+    store.buttons_held.set(0);
+    *store.button_target.borrow_mut() = None;
+}
+
 pub fn cancel_active_touch(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
     if let Some(target) = active_touch_target(cx) {
         send(

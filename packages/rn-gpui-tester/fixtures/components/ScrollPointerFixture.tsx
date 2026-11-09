@@ -28,6 +28,7 @@ export default function ScrollPointerFixture() {
           onPointerDown={record('down')}
           onPointerMove={record('move')}
           onPointerUp={record('up')}
+          onPointerCancel={record('cancel')}
           style={{ height: 120, backgroundColor: '#3b82f6' }}
         />
         <View style={{ height: 600 }} />
