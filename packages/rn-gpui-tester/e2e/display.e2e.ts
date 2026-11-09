@@ -76,3 +76,17 @@ for (const offscreen of [false, true]) {
     );
   });
 }
+
+test.runIf(process.platform === 'darwin')(
+  'RN_GPUI_TEST_DISPLAY=retina opens a window on the display with the highest scale of at least 2',
+  async () => {
+    const probe = await start({ RN_GPUI_TEST_DISPLAY: 'retina' }, true);
+    const displays = await probe.displays();
+    const main = displays.find(display => display.primary)!;
+    const retina = displays
+      .filter(display => (display.scaleFactor ?? 0) >= 2)
+      .sort((a, b) => (b.scaleFactor ?? 0) - (a.scaleFactor ?? 0))[0];
+    const bounds = (await probe.windowState(1)).bounds;
+    expect(inside(bounds, (retina ?? main).bounds)).toBe(true);
+  },
+);

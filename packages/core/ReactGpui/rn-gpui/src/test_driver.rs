@@ -254,6 +254,9 @@ async fn serve_commands(
                         "primary": Some(display.id()) == primary,
                         "bounds": rect(display.bounds()),
                         "visibleBounds": rect(display.visible_bounds()),
+                        "scaleFactor": crate::desktop::background::display_scale(
+                            display.id().into()
+                        ),
                     }))
                     .collect::<Vec<_>>())
             }),
