@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Dragging a scroll bar thumb no longer fails with "Unsupported top level event type topScrollBarDrag" when the scroll view has no `ScrollBar` child. `ScrollView`, and so `FlatList`, `SectionList` and `VirtualizedList`, take `onScrollBarDragStart`, `onScrollBarDrag` and `onScrollBarDragEnd`, which report the thumb drags with the scroll offset. The `ScrollBar` component's `onDrag*` props work as before. Needs a prebuilt runtime built with the change.
 - The test driver no longer scans every node after each draw for running transitions; it follows only the nodes a transition was started on, which shortens each draw by about a millisecond on a large tree.
 - `App.beep()` plays the system alert sound. Needs a prebuilt runtime built with the change.
 - `Tray.onClick(handler)` reports a click on the tray icon with its button and whether it is a double click. Needs a prebuilt runtime built with the change.

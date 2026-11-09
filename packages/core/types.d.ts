@@ -110,6 +110,14 @@ export interface DesktopDragEventData {
   source?: number;
 }
 
+export interface DesktopScrollBarDragEventData {
+  /** The scroll offset when the event fired. */
+  contentOffset: { x: number; y: number };
+}
+
+export type DesktopScrollBarDragEvent =
+  NativeSyntheticEvent<DesktopScrollBarDragEventData>;
+
 export interface DesktopDragSourceEventData {
   /** The view being dragged. */
   target: number;
@@ -132,6 +140,15 @@ export type DesktopContextMenuEvent =
 export type ContextMenuEvent = DesktopContextMenuEvent;
 
 declare module 'react-native' {
+  interface ScrollViewProps {
+    /** The scroll bar's thumb started to be dragged. */
+    onScrollBarDragStart?: (event: DesktopScrollBarDragEvent) => void;
+    /** The thumb moved while it was dragged. */
+    onScrollBarDrag?: (event: DesktopScrollBarDragEvent) => void;
+    /** The thumb was released. */
+    onScrollBarDragEnd?: (event: DesktopScrollBarDragEvent) => void;
+  }
+
   interface ViewProps {
     /**
      * Marks this view as part of a custom title bar: a primary press drags the

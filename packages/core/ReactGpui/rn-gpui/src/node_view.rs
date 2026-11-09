@@ -4126,22 +4126,24 @@ impl Render for RNNodeView {
                     }));
                 }
                 if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
-                    let (tag, position) = (
-                        self.scrollbar_tag.unwrap_or(self.tag),
-                        self.scroll_position.clone(),
-                    );
+                    let (tag, bar_tag, position) =
+                        (self.tag, self.scrollbar_tag, self.scroll_position.clone());
                     let emit: crate::scroll_indicator::EmitEvent = Rc::new(move |event, cx| {
                         let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
                             return;
                         };
                         let offset = position.get();
-                        store.0.read(cx).host.dispatch_event(
-                            tag,
-                            event,
-                            &serde_json::json!({
-                                "contentOffset": {"x": offset.x, "y": offset.y},
-                            }),
-                        );
+                        let payload = serde_json::json!({
+                            "contentOffset": {"x": offset.x, "y": offset.y},
+                        });
+                        let host = &store.0.read(cx).host;
+                        // The scroll view declares `onScrollBarDrag*`; a ScrollBar
+                        // child declares its own `onDrag*` under other event names.
+                        host.dispatch_event(tag, event, &payload);
+                        if let Some(bar_tag) = bar_tag {
+                            let thumb = event.replacen("topScrollBar", "topScrollBarThumb", 1);
+                            host.dispatch_event(bar_tag, &thumb, &payload);
+                        }
                     });
                     let spec = self.scrollbar.clone();
                     indicator.update(cx, |indicator, _| indicator.configure(spec, apply, emit));

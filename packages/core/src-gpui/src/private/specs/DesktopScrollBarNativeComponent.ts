@@ -53,12 +53,15 @@ export interface NativeProps extends ViewProps {
   interactive?: boolean;
   onDragStart?: CodegenTypes.DirectEventHandler<
     ScrollBarEvent,
-    'topScrollBarDragStart'
+    'topScrollBarThumbDragStart'
   >;
-  onDrag?: CodegenTypes.DirectEventHandler<ScrollBarEvent, 'topScrollBarDrag'>;
+  onDrag?: CodegenTypes.DirectEventHandler<
+    ScrollBarEvent,
+    'topScrollBarThumbDrag'
+  >;
   onDragEnd?: CodegenTypes.DirectEventHandler<
     ScrollBarEvent,
-    'topScrollBarDragEnd'
+    'topScrollBarThumbDragEnd'
   >;
 }
 

@@ -314,6 +314,11 @@ export const renderScreen: Record<
       require('./components/FlexBasisFixture').default,
       props,
     ),
+  'scrollbar-drag': props =>
+    React.createElement(
+      require('./components/ScrollBarDragFixture').default,
+      props,
+    ),
   stretch: props =>
     React.createElement(require('./components/StretchFixture').default, props),
   tooltip: props =>

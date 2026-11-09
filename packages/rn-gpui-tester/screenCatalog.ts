@@ -132,6 +132,12 @@ export const screens = [
     fixture: 'FlexBasisFixture',
   },
   {
+    id: 'scrollbar-drag',
+    title: 'Scroll bar drag',
+    group: 'Views',
+    fixture: 'ScrollBarDragFixture',
+  },
+  {
     id: 'stretch',
     title: 'Row stretch',
     group: 'Views',
