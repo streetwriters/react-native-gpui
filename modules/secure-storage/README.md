@@ -30,7 +30,7 @@ const data = await encryptString('com.example.app', 'a secret'); // Uint8Array
 const text = await decryptString('com.example.app', data);
 ```
 
-macOS (the login keychain) is tested. Windows (Credential Manager, DPAPI) and Linux (Secret Service) are written but untested.
+Items are namespaced under the app's own bundle identifier (the executable's name outside a bundle) by the native side, so one app cannot reach another's, and the encryption key is not reachable as an item. macOS (the login keychain) is tested. Windows (Credential Manager, DPAPI) and Linux (Secret Service) are written but untested.
 
 ## Documentation
 
