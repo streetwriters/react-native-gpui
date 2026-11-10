@@ -156,6 +156,12 @@ export const screens = [
     fixture: 'SurfaceProbeFixture',
   },
   {
+    id: 'native-matrix',
+    title: 'Native trees under each kind of React Native parent',
+    group: 'Views',
+    fixture: 'NativeMatrixFixture',
+  },
+  {
     id: 'native-root-load',
     title: 'A native tree of a thousand instances',
     group: 'Views',

@@ -431,7 +431,15 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
             element.flex_col()
         };
         let element = if pressable {
-            element.on_click(move |_, _, _| emitter.emit("onPress", serde_json::json!({})))
+            let hover = emitter.clone();
+            element
+                .on_click(move |_, _, _| emitter.emit("onPress", serde_json::json!({})))
+                .on_hover(move |hovered, _, _| {
+                    hover.emit(
+                        if *hovered { "onHoverIn" } else { "onHoverOut" },
+                        serde_json::json!({}),
+                    )
+                })
         } else {
             element
         };

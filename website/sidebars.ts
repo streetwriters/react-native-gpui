@@ -238,6 +238,7 @@ export default {
             label: 'Host components',
           },
           { type: 'doc', id: 'native-views', label: 'Native views' },
+          { type: 'doc', id: 'mixed-views', label: 'Mixed views' },
         ],
       },
       {

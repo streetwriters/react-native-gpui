@@ -344,6 +344,11 @@ export const renderScreen: Record<
       require('./components/SurfaceProbeFixture').default,
       props,
     ),
+  'native-matrix': props =>
+    React.createElement(
+      require('./components/NativeMatrixFixture').default,
+      props,
+    ),
   'native-root-load': props =>
     React.createElement(
       require('./components/NativeRootLoadFixture').default,
