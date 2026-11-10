@@ -346,6 +346,11 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'xhr-headers': props =>
+    React.createElement(
+      require('./components/XhrHeadersFixture').default,
+      props,
+    ),
   'scroll-reserve': props =>
     React.createElement(
       require('./components/ScrollReserveFixture').default,
