@@ -156,6 +156,12 @@ export const screens = [
     fixture: 'SurfaceProbeFixture',
   },
   {
+    id: 'native-root',
+    title: 'A native tree built by a second reconciler',
+    group: 'Views',
+    fixture: 'NativeRootFixture',
+  },
+  {
     id: 'mixed-views',
     title: 'React content inside host components',
     group: 'Views',

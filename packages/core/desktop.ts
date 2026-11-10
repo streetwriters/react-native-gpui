@@ -81,6 +81,9 @@ export {
   Shortcuts,
 } from './src-gpui/src/private/desktop/shortcuts';
 
+export { NativeRoot } from './src-gpui/src/private/desktop/nativeRoot/NativeRoot';
+export type { NativeRootProps } from './src-gpui/src/private/desktop/nativeRoot/NativeRoot';
+
 export {
   ShortcutScope,
   useShortcut,

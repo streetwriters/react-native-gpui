@@ -370,9 +370,117 @@ impl FixtureSurfaceHostSpec for SurfaceHost {
     }
 }
 
+/// A box of the native tree fixture: a colored column or row that lays its
+/// children out with GPUI, and tells JavaScript when it is pressed.
+struct NativeBox {
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativeBox {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        Self {
+            emitter: cx.emitter(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let number = |name: &str, default: f64| {
+            props
+                .get(name)
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(default) as f32
+        };
+        let emitter = self.emitter.clone();
+        let pressable = props.get("onPress").is_some();
+        let element = div()
+            .id(("native-box", 0usize))
+            .flex()
+            .gap(px(number("gap", 0.0)))
+            .p(px(number("padding", 0.0)))
+            .bg(rgb(number("color", 0x334155 as f64) as u32));
+        let element = match props.get("width").and_then(serde_json::Value::as_f64) {
+            Some(width) => element.w(px(width as f32)),
+            None => element,
+        };
+        let element = match props.get("height").and_then(serde_json::Value::as_f64) {
+            Some(height) => element.h(px(height as f32)),
+            None => element,
+        };
+        let element = if props.get("direction").and_then(serde_json::Value::as_str) == Some("row") {
+            element.flex_row()
+        } else {
+            element.flex_col()
+        };
+        let element = if pressable {
+            element.on_click(move |_, _, _| emitter.emit("onPress", serde_json::json!({})))
+        } else {
+            element
+        };
+        element.children(children).into_any_element()
+    }
+}
+
+/// A line of text in the native tree fixture.
+struct NativeText;
+
+impl react_native_gpui::native_tree::NativeComponent for NativeText {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        NativeText
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        _children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let text = props
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        div()
+            .text_color(rgb(0xf8fafc))
+            .text_size(px(12.0))
+            .child(text)
+            .into_any_element()
+    }
+}
+
 /// Registers the fixtures. Autolink calls this through the crate's
 /// `rn_gpui_register()`, exactly like a published package.
 pub fn rn_gpui_register() {
+    react_native_gpui::native_tree::register_native_component::<NativeBox>("FixtureNativeBox");
+    react_native_gpui::native_tree::register_native_component::<NativeText>("FixtureNativeText");
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());

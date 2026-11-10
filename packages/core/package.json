@@ -70,7 +70,9 @@
     "react-native": "0.87.x"
   },
   "dependencies": {
-    "@react-native-gpui/codegen": "0.87.0-alpha.0"
+    "@react-native-gpui/codegen": "0.87.0-alpha.0",
+    "its-fine": "2.1.1",
+    "react-reconciler": "0.33.0"
   },
   "keywords": [
     "react-native",

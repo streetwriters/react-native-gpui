@@ -192,6 +192,20 @@ A component of the tree implements `react_native_gpui::native_tree::NativeCompon
 
 A batch is an array of `["create", id, type, props]`, `["append", parent, child]`, `["insert", parent, child, before]`, `["remove", parent, child]` and `["update", id, set, unset]`. Appending or inserting an instance that has a parent moves it, which is how a keyed reorder arrives. Removing drops the instance and everything under it. An operation that cannot apply (an unknown id or type, a move that would put an instance inside itself) is logged and skipped, and the instance tree is left as it was.
 
+#### NativeRoot
+
+`NativeRoot` from `@react-native-gpui/core/desktop` renders its children into a native tree with a second React reconciler. The elements' types are strings that name registered native components, their props that are not functions go to the runtime as data, and their function props stay in JavaScript and run when the instance sends the event of the same name.
+
+```tsx
+<NativeRoot style={{ width: 240, height: 120 }}>
+  <Dialog title="Delete">
+    <Button label="Cancel" onPress={close} />
+  </Dialog>
+</NativeRoot>
+```
+
+Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
+
 ## 4. Use it from JavaScript
 
 ```tsx

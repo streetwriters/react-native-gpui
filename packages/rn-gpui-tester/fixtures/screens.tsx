@@ -344,6 +344,11 @@ export const renderScreen: Record<
       require('./components/SurfaceProbeFixture').default,
       props,
     ),
+  'native-root': props =>
+    React.createElement(
+      require('./components/NativeRootFixture').default,
+      props,
+    ),
   'mixed-views': props =>
     React.createElement(
       require('./components/MixedViewsFixture').default,
