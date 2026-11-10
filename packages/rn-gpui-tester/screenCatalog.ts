@@ -138,6 +138,24 @@ export const screens = [
     fixture: 'SortableDragFixture',
   },
   {
+    id: 'scroll-remount',
+    title: 'ScrollView remounted with a new key',
+    group: 'Views',
+    fixture: 'ScrollRemountFixture',
+  },
+  {
+    id: 'scroll-indicator',
+    title: 'Scroll indicator visibility',
+    group: 'Views',
+    fixture: 'ScrollIndicatorFixture',
+  },
+  {
+    id: 'menu-under-pointer',
+    title: 'Menu item under a stationary pointer',
+    group: 'Input',
+    fixture: 'MenuUnderPointerFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',

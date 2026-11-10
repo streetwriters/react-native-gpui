@@ -6,6 +6,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 - `launchApp` sets `RN_GPUI_DEV_PORT=1` when it is given a bundle and the environment does not set it, so the app loads the bundle at once instead of trying a dev server first.
 - `app.raiseWindow()` puts the window in front of the other windows without activating the app, for a test that reads the screen. Needs a runtime built with the `raiseWindow` driver command.
+- `app.tree()` nodes of a scroll view carry `scrollIndicatorShown`, whether its thumb is shown right now. Needs a runtime built with the change.
 - `app.layoutStats` reports `scrollEvents` and `scrollEventsWholePixel`: the precise scroll events seen since the last reset and how many moved by a whole number of device pixels on both axes. Needs a runtime built with the change.
 - `app.a11yTree()` refreshes the window only the first time, when it turns the accessibility tree on. Each call refreshed it, which rebuilt every view and perturbed a layout or performance measurement taken around it. Needs a runtime built with the change.
 - `app.typeText` and `locator.type` click the input only when it does not have focus. Each call used to click first, which flipped the window's input mode from keyboard to mouse and back, so every typed key refreshed the window twice and rebuilt every view; a measurement of typing saw that cost that real typing does not have. Needs a runtime built with the change.

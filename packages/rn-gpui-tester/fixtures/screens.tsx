@@ -343,6 +343,21 @@ export const renderScreen: Record<
       require('./components/SortableDragFixture').default,
       props,
     ),
+  'scroll-remount': props =>
+    React.createElement(
+      require('./components/ScrollRemountFixture').default,
+      props,
+    ),
+  'scroll-indicator': props =>
+    React.createElement(
+      require('./components/ScrollIndicatorFixture').default,
+      props,
+    ),
+  'menu-under-pointer': props =>
+    React.createElement(
+      require('./components/MenuUnderPointerFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>
