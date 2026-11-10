@@ -8,6 +8,7 @@ rn-gpui-module-build = "0.1"
 
 [dependencies]
 rn-gpui-module = "0.1"
+react-native-gpui = "0.1"
 futures = "0.3"
 typst = "=0.15.1"
 typst-layout = "=0.15.1"

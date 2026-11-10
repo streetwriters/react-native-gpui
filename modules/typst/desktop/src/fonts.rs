@@ -157,7 +157,7 @@ pub fn combined(app: &[AppFont], with_system: bool) -> Arc<FontSet> {
     for font in app {
         let data = match (&font.data, &font.path) {
             (Some(data), _) => Some(data.clone()),
-            (None, Some(path)) => std::fs::read(path).ok(),
+            (None, Some(path)) => std::fs::read(resolve_path(path)).ok(),
             _ => None,
         };
         if let Some(data) = data {
@@ -173,6 +173,31 @@ pub fn combined(app: &[AppFont], with_system: bool) -> Arc<FontSet> {
     let set = Arc::new(builder.finish());
     cache().lock().unwrap()[which] = Some((key, set.clone()));
     set
+}
+
+pub fn resolve_path(path: &str) -> PathBuf {
+    let Some(relative) = path.strip_prefix("file://assets/") else {
+        return PathBuf::from(path.strip_prefix("file://").unwrap_or(path));
+    };
+    let relative = std::path::Path::new(relative);
+    let escapes = relative.components().any(|part| {
+        matches!(
+            part,
+            std::path::Component::ParentDir | std::path::Component::RootDir
+        )
+    });
+    if escapes {
+        return PathBuf::new();
+    }
+    let assets = react_native_gpui::default_assets_dir().or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .map(|cwd| react_native_gpui::assets_in(&cwd))
+    });
+    match assets {
+        Some(assets) => assets.join(relative),
+        None => PathBuf::new(),
+    }
 }
 
 fn requested_families(source: &str) -> Vec<String> {
@@ -217,6 +242,21 @@ pub fn needs_system(source: &str, set: &FontSet) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asset_font_uris_resolve_inside_the_assets_directory() {
+        std::env::set_var("RN_GPUI_ASSETS_DIR", "/opt/app/assets");
+        assert_eq!(
+            resolve_path("file://assets/fonts/Inter-Regular.ttf"),
+            PathBuf::from("/opt/app/assets/fonts/Inter-Regular.ttf")
+        );
+        assert_eq!(resolve_path("file://assets/../etc/passwd"), PathBuf::new());
+        assert_eq!(resolve_path("/tmp/a.ttf"), PathBuf::from("/tmp/a.ttf"));
+        assert_eq!(
+            resolve_path("file:///tmp/a.ttf"),
+            PathBuf::from("/tmp/a.ttf")
+        );
+    }
 
     #[test]
     fn reads_font_families_from_set_rules() {

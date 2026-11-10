@@ -17,7 +17,7 @@ import { compile, print } from '@react-native-gpui/typst';
 
 const { pdf, pages } = await compile('= Hello\nSome *Typst*.', {
   files: { 'img-0.png': pngBytes },
-  fonts: [interBytes],
+  fonts: [interBytes, { path: 'file://assets/fonts/Inter-Bold.ttf' }],
   title: 'My note',
 });
 ```
