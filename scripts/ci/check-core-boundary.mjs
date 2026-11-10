@@ -62,40 +62,15 @@ export function classifyHits(hits) {
 
 const CORE_PRIVATE = /\/\/\s*core-private:\s*(.*)$/u;
 
-function escapeRegExp(value) {
-  return value.replaceAll(/[.*+?^${}()|[\]\\/]/gu, '\\$&');
+export function denyNames() {
+  return LIBRARY_PATTERNS.map(({ name }) => name);
 }
 
-export function readModuleNames(root) {
-  const dir = path.join(root, 'modules');
-  if (!fs.existsSync(dir)) return [];
-  const names = [];
-  for (const entry of fs.readdirSync(dir).sort()) {
-    const file = path.join(dir, entry, 'package.json');
-    if (!fs.existsSync(file)) continue;
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (typeof parsed.name === 'string' && parsed.name.length > 0)
-      names.push(parsed.name);
-  }
-  return [...new Set(names)].sort();
-}
-
-export function denyNames(root) {
-  return [
-    ...LIBRARY_PATTERNS.map(({ name }) => name),
-    ...readModuleNames(root),
-  ];
-}
-
-function denyMatchers(root) {
-  const matchers = LIBRARY_PATTERNS.map(({ name, pattern }) => ({
+function denyMatchers() {
+  return LIBRARY_PATTERNS.map(({ name, pattern }) => ({
     name,
     pattern: new RegExp(pattern.source, `${pattern.flags}g`),
   }));
-  for (const name of readModuleNames(root)) {
-    matchers.push({ name, pattern: new RegExp(escapeRegExp(name), 'gu') });
-  }
-  return matchers;
 }
 
 const TEST_DIRS = new Set(['__tests__', 'test', 'tests']);

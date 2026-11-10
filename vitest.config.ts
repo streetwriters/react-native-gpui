@@ -15,7 +15,6 @@ export default mergeConfig(
         'packages/hermes/scripts/**/*.test.mjs',
         'packages/core/**/*.test.js',
         'packages/core/**/*.test.mjs',
-        'modules/*/desktop/**/*.test.mjs',
       ],
     },
   }),

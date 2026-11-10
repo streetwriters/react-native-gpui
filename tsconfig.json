@@ -1,5 +1,5 @@
 {
-  // Files without a tsconfig of their own: the modules and the CLI's templates.
+  // Files without a tsconfig of their own: the CLI's templates.
   // `packages/core`, `packages/testing` and `packages/rn-gpui-tester` have their
   // own, and the root config files are in `tsconfig.node.json`.
   "extends": "./tsconfig.base.json",
@@ -8,8 +8,6 @@
   },
   "include": [
     "types/**/*.d.ts",
-    "modules/*/src/**/*.ts",
-    "modules/*/src/**/*.tsx",
     "packages/cli/templates/**/*.ts",
     "packages/cli/templates/**/*.tsx"
   ],

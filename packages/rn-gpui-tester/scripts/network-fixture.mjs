@@ -27,11 +27,6 @@ function handleHttp(request, response) {
     // know where this platform keeps its temporary files.
     response.setHeader('content-type', 'text/plain');
     response.end(uploadFileUri);
-  } else if (url.pathname === '/svg') {
-    response.setHeader('content-type', 'image/svg+xml');
-    response.end(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" rx="12" fill="#152238"/><path d="M18 57 43 25l19 21 14-17 26 28" fill="none" stroke="#64d2ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="88" cy="25" r="6" fill="#ff6584"/></svg>',
-    );
   } else if (url.pathname === '/json') {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ ok: true, source: 'gpui-network-fixture' }));

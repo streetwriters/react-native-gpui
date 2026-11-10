@@ -22,11 +22,11 @@ const repoRoot = path.resolve(
 );
 
 /// Every `<dir>/<name>/package.json` one level below the repository root, in
-/// the two directories that hold packages. Deliberately not a recursive glob:
+/// the directory that holds packages. Deliberately not a recursive glob:
 /// a package nested inside another package is not published on its own.
 function packageManifests() {
   const manifests = [];
-  for (const group of ['packages', 'modules']) {
+  for (const group of ['packages']) {
     const groupDir = path.join(repoRoot, group);
     if (!fs.existsSync(groupDir)) continue;
     for (const entry of fs.readdirSync(groupDir).sort()) {

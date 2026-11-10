@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOTS = ['packages/core/ReactGpui', 'modules', 'packages/rn-gpui-tester'];
+const ROOTS = ['packages/core/ReactGpui', 'packages/rn-gpui-tester'];
 
 /// Every `.rs` file under `root`, skipping build output and dependencies.
 function rustFiles(root) {
