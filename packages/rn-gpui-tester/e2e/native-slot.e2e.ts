@@ -157,6 +157,28 @@ test('a slot taller than the height its native parent allows is clipped there', 
   expect(at(70)).toBe(false);
 });
 
+test('keyboard: typing goes to the React Native input in a slot, and a key it does not handle reaches the native component that owns the slot', async () => {
+  await app.getByTestId('slot-input').type('a');
+  await desktopExpect(app.getByTestId('slot-typed')).toHaveText('typed:a');
+  await app.press('F2');
+  await expect.poll(log, { timeout: 5000 }).toContain('owner:f2,');
+});
+
+test('focus: Tab moves from a native component into the slot and out of it', async () => {
+  await pressCentre('slot-focus-before');
+  await app.press('F3');
+  await expect.poll(log, { timeout: 5000 }).toContain('before:f3,');
+  await app.press('Tab');
+  await app.press('F5');
+  await expect.poll(log, { timeout: 5000 }).toContain('owner:f5,');
+  await app.press('Tab');
+  await app.press('F4');
+  await expect.poll(log, { timeout: 5000 }).toContain('after:f4,');
+  await app.press('shift-Tab');
+  await app.press('F7');
+  await expect.poll(log, { timeout: 5000 }).toContain('owner:f7,');
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({

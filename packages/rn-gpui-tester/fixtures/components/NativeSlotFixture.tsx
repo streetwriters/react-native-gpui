@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
@@ -20,6 +20,7 @@ export default function NativeSlotFixture() {
   const [log, setLog] = useState('');
   const [lines, setLines] = useState(1);
   const [shown, setShown] = useState(true);
+  const [typed, setTyped] = useState('');
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
     <Box
@@ -104,6 +105,43 @@ export default function NativeSlotFixture() {
             </NativeSlot>
           </Box>
         </NativeRoot>
+        <NativeRoot testID="slot-keys-root" style={{ width: 240, height: 140 }}>
+          <Box direction="column">
+            <Box
+              testID="slot-focus-before"
+              accessibilityRole="button"
+              focusable
+              color={0x444444}
+              height={20}
+              onKeyDown={(event: { key: string }) =>
+                note(`before:${event.key}`)
+              }
+            />
+            <Box
+              testID="slot-key-owner"
+              direction="column"
+              color={0x555555}
+              onKeyDown={(event: { key: string }) => note(`owner:${event.key}`)}
+            >
+              <NativeSlot>
+                <TextInput
+                  testID="slot-input"
+                  style={{ height: 30, backgroundColor: '#ffffff' }}
+                  onChangeText={setTyped}
+                />
+              </NativeSlot>
+            </Box>
+            <Box
+              testID="slot-focus-after"
+              accessibilityRole="button"
+              focusable
+              color={0x444444}
+              height={20}
+              onKeyDown={(event: { key: string }) => note(`after:${event.key}`)}
+            />
+          </Box>
+        </NativeRoot>
+        <Text testID="slot-typed">{`typed:${typed}`}</Text>
         <Pressable
           testID="slot-toggle"
           onPress={() => setShown(value => !value)}

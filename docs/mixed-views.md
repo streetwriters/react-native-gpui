@@ -27,19 +27,21 @@ React Native views and native trees (a [`NativeRoot`](fabric-native-components#n
 
 ## React Native inside a native tree, and deeper
 
-| Behaviour                                                                        | State | Checked by                                                          |
-| -------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------- |
-| Width from the tree's layout, height from the content                            | works | `native-slot`: the content is as wide as the slot                   |
-| Native components after the slot move with its height                            | works | `native-slot`: grows and is removed                                 |
-| Painting where the slot is                                                       | works | `native-slot`: a screenshot of the tree                             |
-| Hit testing of the content and of the components around it                       | works | `native-slot`: presses on each                                      |
-| Contexts of the native tree and of the `NativeRoot` in the content               | works | `native-slot`                                                       |
-| Native inside React Native inside native                                         | works | `native-slot`: a press on the innermost component                   |
-| A fixed-height native parent: `fill` gives the height, a taller slot is clipped  | works | `native-slot`: a `ScrollView` in the slot scrolls and takes presses |
-| A virtual list: only the range exists, recycled by slot, a press after scrolling | works | `native-virtual-list`                                               |
-| A slot inside a list item scrolls with the list                                  | works | `native-virtual-list`                                               |
-| A list the component owns (kit List, Table, Tree) with React Native rows         | waits | when gpui-kit adopts `NativeRoot`                                   |
-| Removing the slot                                                                | works | `native-slot`                                                       |
-| Layout positions seen by `measure` and the test driver                           | works | `native-slot`: presses use the driver's frames                      |
+| Behaviour                                                                                      | State | Checked by                                                          |
+| ---------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------- |
+| Width from the tree's layout, height from the content                                          | works | `native-slot`: the content is as wide as the slot                   |
+| Native components after the slot move with its height                                          | works | `native-slot`: grows and is removed                                 |
+| Painting where the slot is                                                                     | works | `native-slot`: a screenshot of the tree                             |
+| Hit testing of the content and of the components around it                                     | works | `native-slot`: presses on each                                      |
+| Contexts of the native tree and of the `NativeRoot` in the content                             | works | `native-slot`                                                       |
+| Native inside React Native inside native                                                       | works | `native-slot`: a press on the innermost component                   |
+| A fixed-height native parent: `fill` gives the height, a taller slot is clipped                | works | `native-slot`: a `ScrollView` in the slot scrolls and takes presses |
+| A virtual list: only the range exists, recycled by slot, a press after scrolling               | works | `native-virtual-list`                                               |
+| A slot inside a list item scrolls with the list                                                | works | `native-virtual-list`                                               |
+| A list the component owns (kit List, Table, Tree) with React Native rows                       | waits | when gpui-kit adopts `NativeRoot`                                   |
+| Typing into React Native input in a slot; a key it does not handle bubbles to the native owner | works | `native-slot`                                                       |
+| Tab and Shift+Tab through native, slot and native in document order                            | works | `native-slot`                                                       |
+| Removing the slot                                                                              | works | `native-slot`                                                       |
+| Layout positions seen by `measure` and the test driver                                         | works | `native-slot`: presses use the driver's frames                      |
 
-Lists, tables, tabs, dialogs, popovers and menus of either kind holding the other, native scroll containers holding React Native content, focus and keyboard across the boundary, and popovers that cross the boundary wait for the steps that add the virtual range, recycling and focus, and are todos in `mixed-matrix` until then.
+Lists, tables, tabs, dialogs, popovers and menus of either kind holding the other, native scroll containers holding React Native content, and popovers that cross the boundary wait for the steps that add the virtual range, recycling and focus, and are todos in `mixed-matrix` until then.

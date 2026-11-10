@@ -374,6 +374,7 @@ impl FixtureSurfaceHostSpec for SurfaceHost {
 /// children out with GPUI, and tells JavaScript when it is pressed.
 struct NativeBox {
     emitter: react_native_gpui::native_tree::NativeEmitter,
+    focus: gpui::FocusHandle,
 }
 
 impl react_native_gpui::native_tree::NativeComponent for NativeBox {
@@ -383,6 +384,7 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
     ) -> Self {
         Self {
             emitter: cx.emitter(),
+            focus: cx.app.focus_handle().tab_stop(true),
         }
     }
 
@@ -404,6 +406,7 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
         cx: &mut react_native_gpui::native_tree::NativeContext,
     ) -> bool {
         self.emitter = cx.emitter();
+        self.focus = cx.app.focus_handle().tab_stop(true);
         true
     }
 
@@ -422,6 +425,9 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
         };
         let emitter = self.emitter.clone();
         let pressable = props.get("onPress").is_some();
+        let focusable = props.get("focusable").and_then(serde_json::Value::as_bool) == Some(true);
+        let keys = props.get("onKeyDown").is_some();
+        let key_emitter = emitter.clone();
         let element = div()
             .id("native-box")
             .flex()
@@ -440,6 +446,21 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
             element.flex_row()
         } else {
             element.flex_col()
+        };
+        let element = if focusable {
+            element.track_focus(&self.focus).tab_stop(true)
+        } else {
+            element
+        };
+        let element = if keys {
+            element.on_key_down(move |event, _, _| {
+                key_emitter.emit(
+                    "onKeyDown",
+                    serde_json::json!({ "key": event.keystroke.key.to_string() }),
+                )
+            })
+        } else {
+            element
         };
         let element = if pressable {
             let hover = emitter.clone();

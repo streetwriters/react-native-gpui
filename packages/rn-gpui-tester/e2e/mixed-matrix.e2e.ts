@@ -108,9 +108,6 @@ describe('cells that wait for a later step', () => {
     'a list a component owns (gpui-kit List, Table, Tree) with React Native rows, through the range and slot protocol (when gpui-kit adopts NativeRoot)',
   );
   test.todo(
-    'focus, Tab order and keyboard bubbling across the boundary (step 5)',
-  );
-  test.todo(
     'text input and IME inside a native tree, and a React Native input beside it',
   );
   test.todo(

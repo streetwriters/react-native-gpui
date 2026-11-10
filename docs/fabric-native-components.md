@@ -222,6 +222,8 @@ In tests, the instances appear in `app.tree()` under the node that shows them an
 
 The content is as wide as the tree's layout makes the slot and as high as it needs to be, and the native components after it move with its height. The tree paints, clips and hit-tests it where the slot is. The children are rendered by the React Native tree the `NativeRoot` is in, so contexts from there reach them, and contexts provided inside the native tree reach them as well. A `NativeRoot` may be nested in a slot.
 
+Focus is the window's: a native component that takes focus (a GPUI `FocusHandle` with `tab_stop`) and the React Native nodes in a slot are in one tab order, in document order. Keys go to the focused node and bubble up through the slot to the native components around it, unless a node handles them. Keep in mind that a character typed into a React Native text input bubbles too, so a native ancestor's key handler sees it.
+
 A slot that is as high as its content is clipped where its native parent's layout makes it shorter. For a slot that should fill a space the parent sizes (a tab, a dialog body) or that holds a `ScrollView` or a list, use `<NativeSlot fill>`: its height is the one the layout gives it, and the content is laid out in that.
 
 #### NativeVirtualList

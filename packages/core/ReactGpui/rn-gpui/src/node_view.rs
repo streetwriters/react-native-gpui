@@ -2380,6 +2380,8 @@ pub(crate) struct Inherited {
     pub(crate) hidden_by_hidden_ancestor: bool,
     pub(crate) hidden_by_modal_sibling: bool,
     pub(crate) hidden_by_hiding_ancestor: bool,
+    /// Whether the node is inside the content of a native slot.
+    pub(crate) in_native_slot: bool,
 }
 
 impl Default for Inherited {
@@ -2396,6 +2398,7 @@ impl Default for Inherited {
             hidden_by_hidden_ancestor: false,
             hidden_by_modal_sibling: false,
             hidden_by_hiding_ancestor: false,
+            in_native_slot: false,
             hides_subtree_self: false,
         }
     }
@@ -2471,6 +2474,7 @@ pub(crate) fn inherit(
                 }
                 None => parent.scrollers.clone(),
             };
+            inherited.in_native_slot = parent.in_native_slot || own.slot_shift.is_some();
             if let Some(shift) = &own.slot_shift {
                 let mut links = inherited.scrollers.to_vec();
                 links.push(ScrollLink {
@@ -3478,7 +3482,11 @@ impl Render for RNNodeView {
                 let handle = cx
                     .focus_handle()
                     .tab_stop(self.focusable || self.view.accessibility_has_escape_listener)
-                    .tab_index(self.tag as isize);
+                    .tab_index(if self.inherited.in_native_slot {
+                        0
+                    } else {
+                        self.tag as isize
+                    });
                 if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                     let host = store.0.read(cx).host.clone();
                     let tag = self.tag;

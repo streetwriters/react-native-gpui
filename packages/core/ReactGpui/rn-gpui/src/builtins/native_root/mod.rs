@@ -208,6 +208,18 @@ impl ComponentRenderer for NativeRootRenderer {
                     .size_full()
                     .flex()
                     .flex_col()
+                    .tab_group()
+                    .tab_index(node.tag as isize)
+                    .on_key_down(|event, window, cx| {
+                        if event.keystroke.key == "tab" {
+                            if event.keystroke.modifiers.shift {
+                                window.focus_prev(cx);
+                            } else {
+                                window.focus_next(cx);
+                            }
+                            cx.stop_propagation();
+                        }
+                    })
                     .children(elements)
                     .into_any_element(),
             )
