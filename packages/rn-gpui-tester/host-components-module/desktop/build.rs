@@ -5,6 +5,7 @@ fn main() {
         "../src/FixtureChartNativeComponent.ts",
         "../src/FixtureMeasuredLabelNativeComponent.ts",
         "../src/FixtureCardNativeComponent.ts",
+        "../src/FixtureSurfaceHostNativeComponent.ts",
         "../src/FixtureNativeProbeNativeComponent.ts",
         "../src/FixtureWebViewNativeComponent.ts",
     ]);

@@ -360,18 +360,18 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
         }
     }
     let store_for_root = store;
-    let handle = cx
-        .open_window(window_options, move |window, cx| {
-            let root = cx.new(|_| SurfaceRootView::new(surface_id));
-            let window_handle: AnyWindowHandle = window.window_handle().into();
-            store_for_root.update(cx, |store, cx| {
-                store.register_root(surface_id, root.clone());
-                store.register_window(surface_id, window_handle);
-                cx.notify();
-            });
-            root
-        })
-        .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
+    crate::app_hooks::run_app_init(cx);
+    let handle = crate::app_hooks::open_root_window(cx, window_options, move |window, cx| {
+        let root = cx.new(|_| SurfaceRootView::new(surface_id));
+        let window_handle: AnyWindowHandle = window.window_handle().into();
+        store_for_root.update(cx, |store, cx| {
+            store.register_root(surface_id, root.clone());
+            store.register_window(surface_id, window_handle);
+            cx.notify();
+        });
+        root
+    })
+    .map_err(|error| DesktopError::failed(format!("could not open the window: {error}")))?;
     if show_behind {
         let _ = handle.update(cx, |_root, window, _cx| {
             crate::desktop::background::show_behind(window);
@@ -502,10 +502,15 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
                 platform_window::apply_app_icon(window);
             }
             frame_hook.arm(window);
-            subscriptions.push(install_bounds_observer(window, cx, surface_id));
-            subscriptions.push(install_state_observer(window, cx));
-            subscriptions.push(install_activation_observer(window, cx, key));
-            install_close_hook(window, cx, key);
+            let ((bounds, state, activation), keep_alive) =
+                crate::app_hooks::observer_context(cx, |observers| {
+                    let bounds = install_bounds_observer(window, observers, surface_id);
+                    let state = install_state_observer(window, observers);
+                    let activation = install_activation_observer(window, observers, key);
+                    install_close_hook(window, observers, key);
+                    (bounds, state, activation)
+                });
+            subscriptions.extend([bounds, state, activation, keep_alive]);
             subscriptions
         })
         .map_err(|error| {
@@ -640,13 +645,10 @@ pub fn os_close(cx: &mut App, key: u32) -> bool {
 }
 
 pub fn install_close_hook_for(cx: &mut App, handle: AnyWindowHandle, key: u32) {
-    // `AnyWindowHandle::update` hands back an `AnyView`; the hook needs the
-    // window's own context, so the handle is downcast to the root view first.
-    let Some(handle) = handle.downcast::<SurfaceRootView>() else {
-        return;
-    };
     let _ = handle.update(cx, |_root, window, cx| {
-        install_close_hook(window, cx, key);
+        crate::app_hooks::observer_context_for_good(cx, |observers| {
+            install_close_hook(window, observers, key);
+        });
     });
 }
 
@@ -664,9 +666,6 @@ pub fn note_main_started_hidden() {
 }
 
 pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u32) {
-    let Some(handle) = handle.downcast::<SurfaceRootView>() else {
-        return;
-    };
     if let Ok(state) = window_state(cx, key) {
         super::window_mirror::set(key, &state);
     }
@@ -674,51 +673,53 @@ pub fn install_main_window_events(cx: &mut App, handle: AnyWindowHandle, key: u3
         super::window_mirror::patch(key, &[("isVisible", json!(false))]);
     }
     super::app_state::schedule(cx);
-    let _ = handle.update(cx, |_root, window, cx| {
-        let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
-        cx.observe_window_bounds(window, move |_root, window, cx| {
-            let bounds = window.bounds();
-            let now = (
-                f32::from(bounds.origin.x),
-                f32::from(bounds.origin.y),
-                f32::from(bounds.size.width),
-                f32::from(bounds.size.height),
-            );
-            let previous = last.replace(Some(now));
-            if previous == Some(now) {
-                return;
+    let _ = handle.update(cx, |_root, window, app| {
+        crate::app_hooks::observer_context_for_good(app, |cx| {
+            let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
+            cx.observe_window_bounds(window, move |_root, window, cx| {
+                let bounds = window.bounds();
+                let now = (
+                    f32::from(bounds.origin.x),
+                    f32::from(bounds.origin.y),
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                );
+                let previous = last.replace(Some(now));
+                if previous == Some(now) {
+                    return;
+                }
+                super::window_mirror::patch(
+                    key,
+                    &[
+                        (
+                            "bounds",
+                            json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
+                        ),
+                        ("scaleFactor", json!(window.scale_factor())),
+                        ("topInset", json!(top_inset(window, key))),
+                    ],
+                );
+                let Some(store) = cx.try_global::<StoreGlobal>() else {
+                    return;
+                };
+                let host = store.0.read(cx).host.clone();
+                if key == MAIN_WINDOW_KEY {
+                    super::display::report(window, cx, &host);
+                }
+                emit_geometry(&host, key, previous, now);
+            })
+            .detach();
+            install_activation_observer(window, cx, key).detach();
+            #[cfg(target_os = "windows")]
+            if let Some(store) = cx.try_global::<StoreGlobal>() {
+                let host = store.0.read(cx).host.clone();
+                super::keyboard::watch(window, host);
             }
-            super::window_mirror::patch(
-                key,
-                &[
-                    (
-                        "bounds",
-                        json!({"x": now.0, "y": now.1, "width": now.2, "height": now.3}),
-                    ),
-                    ("scaleFactor", json!(window.scale_factor())),
-                    ("topInset", json!(top_inset(window, key))),
-                ],
-            );
-            let Some(store) = cx.try_global::<StoreGlobal>() else {
-                return;
-            };
-            let host = store.0.read(cx).host.clone();
-            if key == MAIN_WINDOW_KEY {
-                super::display::report(window, cx, &host);
+            // Windows installs its own state observer for the main window.
+            if !cfg!(windows) {
+                install_state_observer(window, cx).detach();
             }
-            emit_geometry(&host, key, previous, now);
-        })
-        .detach();
-        install_activation_observer(window, cx, key).detach();
-        #[cfg(target_os = "windows")]
-        if let Some(store) = cx.try_global::<StoreGlobal>() {
-            let host = store.0.read(cx).host.clone();
-            super::keyboard::watch(window, host);
-        }
-        // Windows installs its own state observer for the main window.
-        if !cfg!(windows) {
-            install_state_observer(window, cx).detach();
-        }
+        });
     });
 }
 
@@ -1281,9 +1282,9 @@ pub fn list_windows(cx: &App) -> DesktopResult {
     Ok(json!({"windows": list}))
 }
 
-fn install_bounds_observer(
+fn install_bounds_observer<T: 'static>(
     window: &mut gpui::Window,
-    cx: &mut gpui::Context<SurfaceRootView>,
+    cx: &mut gpui::Context<T>,
     surface_id: i32,
 ) -> Subscription {
     let last = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32, f32, f32)>));
@@ -1484,9 +1485,9 @@ fn recheck_window_state_later(cx: &mut App, key: u32) {
 /// window's state is published and then holds no state, so the window counts as
 /// not focused until it is reported: one check runs once the install has
 /// finished and reports a window that is already active.
-fn install_activation_observer(
+fn install_activation_observer<T: 'static>(
     window: &mut gpui::Window,
-    cx: &mut gpui::Context<SurfaceRootView>,
+    cx: &mut gpui::Context<T>,
     key: u32,
 ) -> Subscription {
     let last = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -1647,11 +1648,7 @@ pub(crate) fn request_modal_close(window: &mut gpui::Window, cx: &mut gpui::App)
     true
 }
 
-fn install_close_hook(
-    window: &mut gpui::Window,
-    cx: &mut gpui::Context<SurfaceRootView>,
-    key: u32,
-) {
+fn install_close_hook<T: 'static>(window: &mut gpui::Window, cx: &mut gpui::Context<T>, key: u32) {
     let last_request: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>> =
         std::rc::Rc::new(std::cell::Cell::new(None));
     window.on_window_should_close(cx, move |window, cx| {

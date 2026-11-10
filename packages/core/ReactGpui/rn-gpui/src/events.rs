@@ -32,6 +32,23 @@ thread_local! {
 /// listener.
 pub(crate) fn begin_press_dispatch() {
     WINDOW_OWNS_PRESS.with(|owned| owned.set(false));
+    PRESS_CLAIMED.with(|claimed| claimed.set(false));
+}
+
+thread_local! {
+    static PRESS_CLAIMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the press as taken by a React Native node, for a node whose press must
+/// still reach the GPUI elements around it: the nodes it bubbles to read this
+/// instead of the press being stopped.
+pub(crate) fn claim_press() {
+    PRESS_CLAIMED.with(|claimed| claimed.set(true));
+}
+
+/// Whether a node nearer the pointer already took this press.
+pub(crate) fn press_claimed() -> bool {
+    PRESS_CLAIMED.with(std::cell::Cell::get)
 }
 
 /// Marks the press as the window's. The node under the pointer is the first to

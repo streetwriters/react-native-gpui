@@ -89,6 +89,23 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {',
     );
+    expect(header).toContain(
+      'pub fn app(&mut self) -> Option<&mut gpui::App> {',
+    );
+    expect(header).toContain(
+      'pub fn window(&mut self) -> Option<&mut gpui::Window> {',
+    );
+    expect(header).toContain('pub fn with_window<R>(');
+  });
+
+  test('generates a measure method the component may implement, and the adapter that reads the props handle for it', () => {
+    expect(header).toContain(
+      'fn measure(props: &FixtureChartProps, constraint: &MeasureConstraint) -> Option<MeasuredSize> {',
+    );
+    expect(header).toContain(
+      'fn measure(props: *const core::ffi::c_void, constraint: &MeasureConstraint) -> Option<MeasuredSize> {',
+    );
+    expect(header).toContain('T::measure(&view, constraint)');
   });
 
   test('generates one typed event method per event', () => {

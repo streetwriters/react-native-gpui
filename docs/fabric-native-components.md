@@ -133,7 +133,23 @@ Props are read in place from React's props, without being copied or turned into 
 The context passed to every method does the rest:
 
 - `cx.events()` sends the events the specification declares, one typed method per event. An event named `onBadgeTapped` becomes `cx.events().badge_tapped(OnBadgeTapped { count })`, and an event with no payload becomes a method with no argument. The payload is built as a typed value and not as JSON.
+- `Spec::measure(props, constraint)` is a function of the trait, with no `self`, that Yoga calls on the layout thread to size a `measured` component under the room it offers: `constraint` has `min_width`, `min_height`, `max_width` and `max_height` (a maximum is infinite on an open axis), and the function returns `Some(MeasuredSize { width, height })`, or `None` to keep the size last reported with `set_intrinsic_size`. Core clamps the result to the constraint. It has no context, `App` or `Window`, because the layout thread owns none; derive the size from `props`, and for text call `react_native_gpui::host_component::measure_text(text, &TextStyle { family, size, weight, .. }, constraint.text_width())`, which sets the text with the same fonts and rounding as `Text` and wraps it to the width. A label that wraps, or a button as wide as its caption plus its padding, is sized in the layout pass itself, with no second pass through state.
 - `cx.set_intrinsic_size(width, height)` reports the size of a `measured` component, and `cx.set_insets(top, right, bottom, left)` reports the padding a `container` needs around its children.
+
+- `cx.app()` returns `Option<&mut gpui::App>`, the `App` GPUI gave whatever called the component: a mount (`create` and `update`), a frame (`render`) or a command. Use it to create entities with `app.new(...)`, subscribe to them, or read a global such as a theme. It is `None` after the method returns, so do not keep the borrow, but an `Entity` created through it can be stored in the component and read in a later call.
+
+```rust
+use gpui::AppContext as _;
+
+fn create(props: &BadgeProps, cx: &mut BadgeContext) -> Self {
+    let count = cx.app().map(|app| app.new(|_| 0u32));
+    Self { count }
+}
+```
+
+- `cx.window()` returns `Option<&mut gpui::Window>` in a command and in the native view methods. A command gets the window of the view it was sent to, not the first window of the app. `create` and `update` run in a mount batch with no window of their own; `cx.with_window(|window, app| ...)` runs a closure with the node's own window and the `App` there (and anywhere else), and returns `None` when the window is not known yet or is busy. State that needs a window, such as `InputState::new(window, cx)`, is created inside it, or on the first `render`, which always has the window.
+
+A `container` component's own GPUI element hears the pointer over its React children too: hover, press, release and click reach it as they would reach a parent element, while the child's `Pressable` still gets its press. A press on a child that is not inside a container stops at the child, as before.
 
 A component can also paint above its React children, for a focus ring or a badge, by implementing `render_overlay`.
 
@@ -146,6 +162,27 @@ fn flash(&mut self, times: i32, cx: &mut BadgeContext) {
 ```
 
 Register the component in `rn_gpui_register`, as in the example. A component that is declared in `hostComponents` but never registered, or registered but not declared, is reported when the app starts.
+
+### Hooks for a module that needs the whole window
+
+A module that links a UI library whose views expect a particular window root (for overlays, say) registers two opt-in hooks from `rn_gpui_register`. An app that links no such module sees no change.
+
+```rust
+use std::sync::Arc;
+
+pub fn rn_gpui_register() {
+    react_native_gpui::register_app_init(Arc::new(|cx: &mut gpui::App| {
+        // runs once, before the first window opens: set globals, register actions
+    }));
+    react_native_gpui::register_root_wrapper(|inner: gpui::AnyView, window, cx| {
+        cx.new(|cx| MyRoot::new(inner, window, cx))
+    });
+}
+```
+
+`register_app_init(Arc<dyn Fn(&mut App) + Send + Sync>)` runs its function once, before the first window opens, in registration order.
+
+`register_root_wrapper<V: Render>(impl Fn(AnyView, &mut Window, &mut App) -> Entity<V> + Send + Sync)` receives the root view that takes the React tree and returns the view that becomes the window's root, which usually holds the given view as a child. Its type `V` is the window's root type, so `window.root::<V>()` finds it. It applies to the main window, to windows opened with `DesktopWindow.open` and to tray popovers, and a second registration replaces the first.
 
 ## 4. Use it from JavaScript
 

@@ -1,5 +1,6 @@
 pub(crate) mod accessibility;
 pub(crate) mod animation_policy;
+pub mod app_hooks;
 pub mod builtins;
 pub(crate) mod counters;
 pub(crate) mod desktop;
@@ -41,6 +42,7 @@ mod wheel;
 mod bootstrap;
 mod http_client;
 mod resources;
+pub use app_hooks::{register_app_init, register_root_wrapper};
 pub use bootstrap::{
     run, run_with, set_desktop_defaults, DesktopAppConfig, WindowBackground, WindowTitleBar,
 };

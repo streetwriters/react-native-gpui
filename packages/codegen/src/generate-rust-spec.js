@@ -949,7 +949,7 @@ use gpui::{AnyElement, Window};
 #[allow(unused_imports)]
 use react_native_gpui::host_component::{
     EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject,
-    PropsHandle, Value,
+    MeasureConstraint, MeasuredSize, PropsHandle, Value,
 };
 #[allow(unused_imports)]
 use react_native_gpui::native_surface::{NativeViewHandle, NativeViewParent};
@@ -2291,6 +2291,40 @@ function renderContext(generator) {
   lines.push('        self.host.tag');
   lines.push('    }');
   lines.push('');
+  lines.push(
+    "    /// GPUI's `App`, for creating entities, subscribing and reading globals.",
+  );
+  lines.push(
+    '    /// Present in the call core makes it for (a mount, a frame, a command);',
+  );
+  lines.push('    /// `None` in a unit test and after the method returned.');
+  lines.push('    pub fn app(&mut self) -> Option<&mut gpui::App> {');
+  lines.push('        self.host.app()');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// The `Window` of the call, for a command and the native view methods;',
+  );
+  lines.push(
+    '    /// `None` in `create` and `update`, which run in a mount batch.',
+  );
+  lines.push('    pub fn window(&mut self) -> Option<&mut gpui::Window> {');
+  lines.push('        self.host.window()');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    "    /// Runs `f` with the node's own window and the `App`: the window of the",
+  );
+  lines.push(
+    '    /// call if it has one, otherwise the window the node is shown in. `None`',
+  );
+  lines.push('    /// when that window is not known yet or is busy.');
+  lines.push(
+    '    pub fn with_window<R>(&mut self, f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R) -> Option<R> {',
+  );
+  lines.push('        self.host.with_window(f)');
+  lines.push('    }');
+  lines.push('');
   lines.push('    /// Reports the size this component wants, in DIPs.');
   lines.push(
     '    pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {',
@@ -2681,6 +2715,31 @@ function renderSpecTrait(generator) {
   lines.push('    ) {');
   lines.push('        let _ = (view, props, changed, cx);');
   lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// The size Yoga gives this node under `constraint`, for a component',
+  );
+  lines.push(
+    '    /// declared `measured: true`; `None` keeps the size the node last',
+  );
+  lines.push(
+    '    /// reported with `set_intrinsic_size`. Unlike every other method it runs',
+  );
+  lines.push(
+    "    /// on the layout thread, during Yoga's measure pass, with no `self`, no",
+  );
+  lines.push(
+    '    /// context, no `App` and no `Window`: derive the size from `props` alone,',
+  );
+  lines.push(
+    '    /// with `react_native_gpui::host_component::measure_text` for text.',
+  );
+  lines.push(
+    `    fn measure(props: &${generator.propsName}, constraint: &MeasureConstraint) -> Option<MeasuredSize> {`,
+  );
+  lines.push('        let _ = (props, constraint);');
+  lines.push('        None');
+  lines.push('    }');
   for (const command of generator.commands) {
     lines.push('');
     lines.push(`    /// JS dispatched the \`${command.jsName}\` command.`);
@@ -2909,6 +2968,15 @@ function renderComponentInstance(generator) {
   lines.push('            handle: props,');
   lines.push('            emitter,');
   lines.push('        })');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn measure(props: *const core::ffi::c_void, constraint: &MeasureConstraint) -> Option<MeasuredSize> {',
+  );
+  lines.push(
+    `        let view = unsafe { ${generator.propsName}::from_handle(props) };`,
+  );
+  lines.push('        T::measure(&view, constraint)');
   lines.push('    }');
   lines.push('}');
   return lines;

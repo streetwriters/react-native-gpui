@@ -1216,6 +1216,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
     let _ = rn_gpui_sys::SCROLLER_LEGACY_HANDLER.set(Box::new(crate::scroller_style::legacy));
+    let _ = rn_gpui_sys::HOST_MEASURE_HANDLER.set(Box::new(
+        |index, props, [min_w, min_h, max_w, max_h]| {
+            let constraint = crate::host_component::MeasureConstraint {
+                min_width: min_w,
+                min_height: min_h,
+                max_width: max_w,
+                max_height: max_h,
+            };
+            crate::host_component::measure_component(
+                index,
+                props as *const core::ffi::c_void,
+                &constraint,
+            )
+            .map(|size| (size.width, size.height))
+        },
+    ));
     let scroller_style_tx = tx.clone();
     crate::scroller_style::install(move || {
         let _ = scroller_style_tx.send_blocking(MainEvent::ScrollerStyleChanged);
@@ -1626,15 +1642,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
         }
         #[cfg(target_os = "windows")]
         let opens_hidden = !window_options.show;
-        let window = cx
-            .open_window(
-                window_options,
-                {
-                    let root = root.clone();
-                    move |_window, _cx| root
-                },
-            )
-            .expect("failed to open the GPUI window");
+        crate::app_hooks::run_app_init(cx);
+        let window = crate::app_hooks::open_root_window(cx, window_options, {
+            let root = root.clone();
+            move |_window, _cx| root
+        })
+        .expect("failed to open the GPUI window");
         startup_trace("window open");
         if show_behind {
             let _ = window.update(cx, |_root, window, _cx| {
@@ -1717,7 +1730,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
         log::info!("window {window_id:?} open at {window_bounds}");
 
         #[cfg(any(feature = "visual-capture", feature = "perf-timing"))]
-        let any_window = *window;
+        let any_window = window;
 
         // React Native is already running; the window supplies the three values
         // only it knows, and the surface is corrected if the estimate was wrong.
@@ -1844,7 +1857,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
                 .unwrap_or(false);
             crate::animation_policy::set_animations_disabled(animations_disabled);
-            crate::test_driver::start(cx, store.clone(), (*window).into());
+            crate::test_driver::start(cx, store.clone(), window);
         }
         let keyboard_host = store.read(cx).host.clone();
         let keyboard_hook = frame_hook.clone();
@@ -1893,7 +1906,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .0
             .adopt(
                 crate::desktop::windows::MAIN_WINDOW_KEY,
-                (*window).into(),
+                window,
                 1,
                 module.clone(),
                 serde_json::json!({}),
@@ -1902,14 +1915,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
         crate::desktop::windows::install_main_window_events(
             cx,
-            (*window).into(),
+            window,
             crate::desktop::windows::MAIN_WINDOW_KEY,
         );
 
         // Without the close hook `closeRequested` never fires for the main window.
         crate::desktop::windows::install_close_hook_for(
             cx,
-            (*window).into(),
+            window,
             crate::desktop::windows::MAIN_WINDOW_KEY,
         );
 
@@ -2262,7 +2275,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 let frame_hook = frame_hook.clone();
                 let window_state_path = window_state_path.clone();
                 let last_surface_size = last_surface_size.clone();
-                cx.observe_window_bounds(window, move |_root, window, cx| {
+                crate::app_hooks::observer_context_joined(cx, |observers| observers.observe_window_bounds(window, move |_root, window, cx| {
                     // GPUI calls bounds observers on every resize notification and layout, so
                     // nothing here may write to disk or log unless a value changed.
                     let size = window.viewport_size();
@@ -2339,7 +2352,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         });
                         frame_hook.arm(window);
                     }
-                })
+                }))
             })
             .expect("failed to observe the window's bounds");
         // Windows only: its caption buttons and the title bar's double click maximize
@@ -2348,7 +2361,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             Some(
                 window
                     .update(cx, |_root, window, cx| {
-                        crate::desktop::windows::install_state_observer(window, cx)
+                        crate::app_hooks::observer_context_joined(cx, |observers| {
+                            crate::desktop::windows::install_state_observer(window, observers)
+                        })
                     })
                     .expect("failed to observe the window's state"),
             )
@@ -2637,14 +2652,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         let target = {
                             let mut target = None;
                             store.update(cx, |store, _cx| {
-                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                                target = store.nodes.get(&tag).cloned().map(|node| {
+                                    let window = store
+                                        .window_for(node.read(_cx).surface_id)
+                                        .unwrap_or(store.window);
+                                    (window, node)
+                                });
                             });
                             target
                         };
                         if let Some((window_handle, node)) = target {
-                            let _ = cx.update_window(window_handle, move |_root, _window, cx| {
+                            let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
-                                    node.dispatch_host_command(command, &args, cx);
+                                    node.dispatch_host_command(command, &args, Some(window), cx);
                                 });
                             });
                         }

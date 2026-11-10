@@ -150,6 +150,18 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'surface-probe',
+    title: 'A screen hosted by a ReactSurface',
+    group: 'Views',
+    fixture: 'SurfaceProbeFixture',
+  },
+  {
+    id: 'mixed-views',
+    title: 'React content inside host components',
+    group: 'Views',
+    fixture: 'MixedViewsFixture',
+  },
+  {
     id: 'gradient-snap',
     title: 'Repeating gradients and scroll snapping',
     group: 'Views',

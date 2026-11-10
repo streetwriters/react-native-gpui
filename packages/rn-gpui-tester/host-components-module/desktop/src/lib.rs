@@ -7,7 +7,9 @@ mod native;
 use std::rc::Rc;
 
 use gpui::{div, point, prelude::*, px, rgb, AnyElement, PathBuilder, Window};
-use react_native_gpui::host_component::register_component;
+use react_native_gpui::host_component::{
+    measure_text, register_component, MeasureConstraint, MeasuredSize, TextStyle,
+};
 
 /// The chart's points, normalised to the box they are drawn in.
 type Series = Rc<[(f32, f32)]>;
@@ -172,14 +174,32 @@ struct MeasuredLabel {
 }
 
 impl MeasuredLabel {
-    fn measure(props: &FixtureMeasuredLabelProps) -> (f32, f32) {
+    fn size_of_text(props: &FixtureMeasuredLabelProps) -> (f32, f32) {
         measured_size(props.text(), props.character_width(), props.line_height())
     }
 }
 
 impl FixtureMeasuredLabelSpec for MeasuredLabel {
+    fn measure(
+        props: &FixtureMeasuredLabelProps,
+        constraint: &MeasureConstraint,
+    ) -> Option<MeasuredSize> {
+        if !props.wrap_text() {
+            return None;
+        }
+        let style = TextStyle {
+            size: 12.0,
+            ..TextStyle::default()
+        };
+        let extent = measure_text(props.text(), &style, constraint.text_width())?;
+        Some(constraint.clamp(MeasuredSize {
+            width: extent.width,
+            height: extent.height,
+        }))
+    }
+
     fn create(props: &FixtureMeasuredLabelProps, cx: &mut FixtureMeasuredLabelContext) -> Self {
-        let size = Self::measure(props);
+        let size = Self::size_of_text(props);
         cx.set_intrinsic_size(size.0, size.1);
         Self { size }
     }
@@ -190,7 +210,7 @@ impl FixtureMeasuredLabelSpec for MeasuredLabel {
         _changed: FixtureMeasuredLabelChanged,
         cx: &mut FixtureMeasuredLabelContext,
     ) {
-        let size = Self::measure(props);
+        let size = Self::size_of_text(props);
         if size != self.size {
             self.size = size;
             cx.set_intrinsic_size(size.0, size.1);
@@ -253,15 +273,39 @@ impl FixtureCardSpec for Card {
         &mut self,
         props: &FixtureCardProps,
         _window: &mut Window,
-        _cx: &mut FixtureCardContext,
+        cx: &mut FixtureCardContext,
     ) -> AnyElement {
         let title = props.title().to_string();
         let height = props.chrome_height() as f32;
         let side = props.chrome_width() as f32;
+        let sender = Rc::new(cx.event_sender());
+        let emit = |kind: &'static str| {
+            let sender = sender.clone();
+            move || {
+                sender.chrome_event(OnChromeEvent {
+                    kind: kind.to_string(),
+                })
+            }
+        };
+        let (click, down, up) = (emit("click"), emit("down"), emit("up"));
+        let (hover_in, hover_out) = (emit("hover-in"), emit("hover-out"));
         div()
+            .id("fixture-card-chrome")
             .size_full()
             .relative()
             .bg(rgb(0x1e293b))
+            .on_click(move |_, _, _| click())
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| down())
+            .on_mouse_up(gpui::MouseButton::Left, move |_, _, _| up())
+            .on_hover(
+                move |hovered, _, _| {
+                    if *hovered {
+                        hover_in()
+                    } else {
+                        hover_out()
+                    }
+                },
+            )
             .when(!title.is_empty(), |element| {
                 element.child(
                     div()
@@ -283,12 +327,56 @@ impl FixtureCardSpec for Card {
     }
 }
 
+/// A host component whose content is a React surface of its own.
+struct SurfaceHost {
+    surface: Option<gpui::Entity<react_native_gpui::ReactSurface>>,
+}
+
+impl FixtureSurfaceHostSpec for SurfaceHost {
+    fn create(_props: &FixtureSurfaceHostProps, _cx: &mut FixtureSurfaceHostContext) -> Self {
+        Self { surface: None }
+    }
+
+    fn update(
+        &mut self,
+        _props: &FixtureSurfaceHostProps,
+        _changed: FixtureSurfaceHostChanged,
+        _cx: &mut FixtureSurfaceHostContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &FixtureSurfaceHostProps,
+        _window: &mut Window,
+        cx: &mut FixtureSurfaceHostContext,
+    ) -> AnyElement {
+        use gpui::AppContext as _;
+        if self.surface.is_none() {
+            let module = props.module().to_string();
+            let greeting = props.greeting().to_string();
+            self.surface = cx.app().map(|app| {
+                app.new(|cx| {
+                    react_native_gpui::ReactSurface::new(module, cx)
+                        .props(serde_json::json!({ "greeting": greeting }))
+                })
+            });
+        }
+        let content = self
+            .surface
+            .clone()
+            .map(|surface| div().size_full().child(surface).into_any_element());
+        content.unwrap_or_else(|| div().into_any_element())
+    }
+}
+
 /// Registers the fixtures. Autolink calls this through the crate's
 /// `rn_gpui_register()`, exactly like a published package.
 pub fn rn_gpui_register() {
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());
+    register_component(fixture_surface_host_component::<SurfaceHost>());
     register_component(fixture_native_probe_component::<native::NativeProbe>());
     register_component(fixture_web_view_component::<native::WebView>());
 }
