@@ -74,6 +74,9 @@ pub struct RNNodeView {
     forms_effect_group: bool,
     extension_props_json: String,
     pub(crate) extension_props: std::sync::Arc<serde_json::Value>,
+    /// A native slot's content is painted where its placeholder is, not where
+    /// layout put it; this is the difference, kept up to date by the placeholder.
+    pub(crate) slot_shift: Option<Rc<Cell<Point<f32>>>>,
     /// The composition surface hosting the OS view of a `nativeSurface`
     /// component, created when the node is first painted.
     native_surface: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
@@ -1112,6 +1115,8 @@ impl RNNodeView {
             surface_id,
             component: op.component.clone(),
             extension_props_json: op.extension_props_json.clone(),
+            slot_shift: (op.component == crate::builtins::native_slot::COMPONENT)
+                .then(|| Rc::new(Cell::new(point(0.0, 0.0)))),
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
@@ -1513,6 +1518,17 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
+    /// A native slot's content is sized by the tree that places it, so the node
+    /// that shows the tree repaints when the slot's frame changes.
+    pub(crate) fn notify_slot_owner(&self, cx: &mut Context<Self>) {
+        if self.component != crate::builtins::native_slot::COMPONENT {
+            return;
+        }
+        if let Some(parent) = self.parent.as_ref().and_then(|parent| parent.upgrade()) {
+            parent.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     /// Asks every ancestor to render again, so that what they paint after this
     /// node reads its new composition surface.
     fn notify_ancestors(&self, cx: &mut Context<Self>) {
@@ -1552,6 +1568,9 @@ impl RNNodeView {
         let mut above = None;
         children
             .iter()
+            .filter(|(_, child)| {
+                child.read(cx).component != crate::builtins::native_slot::COMPONENT
+            })
             .map(|(_, child)| {
                 let element = child.clone().into_any_element();
                 let element = match above {
@@ -1856,6 +1875,7 @@ impl RNNodeView {
             origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
+            slot_shift: self.slot_shift.clone(),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
@@ -2407,6 +2427,8 @@ pub(crate) struct InheritInput {
     pub(crate) origin_frame: (f32, f32),
     pub(crate) transform: (f32, f32, f32, f32),
     pub(crate) scroll: Option<Rc<Cell<Point<f32>>>>,
+    /// For a native slot: how far its content is moved from where layout put it.
+    pub(crate) slot_shift: Option<Rc<Cell<Point<f32>>>>,
     pub(crate) accessible: bool,
     pub(crate) hides_descendants: bool,
     pub(crate) hides_subtree: bool,
@@ -2444,6 +2466,14 @@ pub(crate) fn inherit(
                 }
                 None => parent.scrollers.clone(),
             };
+            if let Some(shift) = &own.slot_shift {
+                let mut links = inherited.scrollers.to_vec();
+                links.push(ScrollLink {
+                    position: shift.clone(),
+                    scale: inherited.parent_scale,
+                });
+                inherited.scrollers = Rc::from(links);
+            }
             inherited.accessible_ancestor = parent.accessible_ancestor || input.accessible;
             inherited.hidden_by_hidden_ancestor =
                 parent.hidden_by_hidden_ancestor || input.hides_descendants;
@@ -2557,6 +2587,7 @@ mod inherited_tests {
             origin_frame,
             transform,
             scroll: None,
+            slot_shift: None,
             accessible: false,
             hides_descendants: false,
             hides_subtree: false,

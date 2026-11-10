@@ -23,7 +23,9 @@ import * as React from 'react';
 import { FiberProvider, useContextBridge } from 'its-fine';
 import type { ViewProps } from 'react-native';
 import DesktopNativeRootNativeComponent from '../../specs/DesktopNativeRootNativeComponent';
+import DesktopNativeSlotNativeComponent from '../../specs/DesktopNativeSlotNativeComponent';
 import { createNativeRoot, type NativeRootHandle } from './reconciler';
+import { SlotContext, type SlotApi, type SlotContent } from './slots';
 
 export type NativeRootProps = ViewProps & {
   children?: React.ReactNode;
@@ -49,8 +51,51 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
     };
   }, [rootId]);
 
+  const [slots, setSlots] = React.useState<ReadonlyMap<number, SlotContent>>(
+    () => new Map(),
+  );
+  const api = React.useMemo<SlotApi>(() => {
+    let nextSlotId = 1;
+    return {
+      rootId,
+      allocate: () => nextSlotId++,
+      set(slotId, content) {
+        setSlots(previous => {
+          const current = previous.get(slotId);
+          if (
+            current != null &&
+            current.children === content.children &&
+            current.width === content.width &&
+            current.style === content.style
+          ) {
+            return previous;
+          }
+          const next = new Map(previous);
+          next.set(slotId, content);
+          return next;
+        });
+      },
+      remove(slotId) {
+        setSlots(previous => {
+          if (!previous.has(slotId)) {
+            return previous;
+          }
+          const next = new Map(previous);
+          next.delete(slotId);
+          return next;
+        });
+      },
+    };
+  }, [rootId]);
+
   React.useLayoutEffect(() => {
-    handle.current?.render(<Bridge>{children}</Bridge>);
+    handle.current?.render(
+      <FiberProvider>
+        <Bridge>
+          <SlotContext.Provider value={api}>{children}</SlotContext.Provider>
+        </Bridge>
+      </FiberProvider>,
+    );
   });
 
   const onNativeEvent = React.useCallback(
@@ -67,7 +112,22 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
       {...viewProps}
       rootId={rootId}
       onNativeEvent={onNativeEvent}
-    />
+    >
+      {Array.from(slots, ([slotId, content]) => (
+        <DesktopNativeSlotNativeComponent
+          key={slotId}
+          rootId={rootId}
+          slotId={slotId}
+          style={[
+            { position: 'absolute', left: 0, top: 0 },
+            content.width > 0 ? { width: content.width } : null,
+            content.style,
+          ]}
+        >
+          {content.children}
+        </DesktopNativeSlotNativeComponent>
+      ))}
+    </DesktopNativeRootNativeComponent>
   );
 }
 

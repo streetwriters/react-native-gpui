@@ -35,6 +35,10 @@ struct RootState {
 }
 
 thread_local! {
+    /// The nodes that hold the React Native children of the slots of the tree
+    /// being rendered, by slot id.
+    static SLOT_HOSTS: RefCell<HashMap<i64, gpui::Entity<crate::node_view::RNNodeView>>> =
+        RefCell::new(HashMap::new());
     static TREES: RefCell<HashMap<u32, RootState>> = RefCell::new(HashMap::new());
 }
 
@@ -124,6 +128,29 @@ fn drop_stale_trees(cx: &App, keep: u32) {
     });
 }
 
+fn collect_slot_hosts(node: &ComponentNode, cx: &App) {
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let store = store.read(cx);
+    let hosts = node
+        .children
+        .iter()
+        .filter(|child| child.component == crate::builtins::native_slot::COMPONENT)
+        .filter_map(|child| {
+            let slot = child.props.get("slotId").and_then(Value::as_i64)?;
+            Some((slot, store.nodes.get(&child.tag)?.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+    SLOT_HOSTS.with(|slots| *slots.borrow_mut() = hosts);
+}
+
+/// The node holding the React Native children of slot `slot` in the tree being
+/// rendered.
+pub(crate) fn slot_host(slot: i64) -> Option<gpui::Entity<crate::node_view::RNNodeView>> {
+    SLOT_HOSTS.with(|slots| slots.borrow().get(&slot).cloned())
+}
+
 struct NativeRootRenderer;
 
 impl ComponentRenderer for NativeRootRenderer {
@@ -134,6 +161,10 @@ impl ComponentRenderer for NativeRootRenderer {
         _cx: &mut App,
     ) -> Option<AnyElement> {
         None
+    }
+
+    fn reads_children(&self) -> bool {
+        true
     }
 
     fn content(
@@ -148,6 +179,7 @@ impl ComponentRenderer for NativeRootRenderer {
             let state = trees.get_mut(&root)?;
             state.tag.set(Some(node.tag));
             let started = std::time::Instant::now();
+            collect_slot_hosts(node, cx);
             let ids: Vec<_> = state.tree.roots().to_vec();
             let elements: Vec<AnyElement> = ids
                 .into_iter()

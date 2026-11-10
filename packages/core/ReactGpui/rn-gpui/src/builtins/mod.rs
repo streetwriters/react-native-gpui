@@ -15,6 +15,7 @@ pub mod linking;
 pub mod main_thread;
 pub mod modal;
 pub mod native_root;
+pub mod native_slot;
 pub mod network;
 pub mod perf_monitor;
 pub mod scrollview;
@@ -44,6 +45,7 @@ pub fn register() {
     linking::register();
     modal::register();
     native_root::register();
+    native_slot::register();
     network::register();
     perf_monitor::register();
     scrollview::register();

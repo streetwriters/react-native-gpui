@@ -879,6 +879,7 @@ impl ViewStore {
                             node.update_from_op(op, Some(&mut **cx));
                             node.sync_effect_group();
                             cx.notify();
+                            node.notify_slot_owner(cx);
                         });
                         let (after, effects_after) = {
                             let node = node.read(cx);

@@ -349,6 +349,11 @@ export const renderScreen: Record<
       require('./components/NativeRootDevFixture').default,
       props,
     ),
+  'native-slot': props =>
+    React.createElement(
+      require('./components/NativeSlotFixture').default,
+      props,
+    ),
   'native-matrix': props =>
     React.createElement(
       require('./components/NativeMatrixFixture').default,

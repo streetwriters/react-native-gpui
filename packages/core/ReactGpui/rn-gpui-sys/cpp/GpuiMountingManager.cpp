@@ -6,6 +6,7 @@
 #include <react/renderer/components/desktopscrollbar/DesktopScrollBar.h>
 #include <react/renderer/components/desktopswitch/DesktopSwitch.h>
 #include <react/renderer/components/nativeroot/NativeRoot.h>
+#include <react/renderer/components/nativeslot/NativeSlot.h>
 #include <react/renderer/components/shortcutscope/ShortcutScope.h>
 #include <react/renderer/components/windowcontrol/WindowControl.h>
 #include <atomic>
@@ -848,6 +849,9 @@ ComponentRegistryFactory GpuiMountingManager::getComponentRegistryFactory() {
       addProvider(
           *result,
           concreteComponentDescriptorProvider<NativeRootComponentDescriptor>());
+      addProvider(
+          *result,
+          concreteComponentDescriptorProvider<NativeSlotComponentDescriptor>());
       addProvider(
           *result,
           concreteComponentDescriptorProvider<

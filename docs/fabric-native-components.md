@@ -206,6 +206,22 @@ A batch is an array of `["create", id, type, props]`, `["append", parent, child]
 
 In tests, the instances appear in `app.tree()` under the node that shows them and `getByTestId`, `getByText` and `getByRole` find them; give a native component the props `testID`, `accessibilityRole` and `accessibilityLabel` for that and for the accessibility tree. Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
 
+#### NativeSlot
+
+`NativeSlot` puts React Native content inside a native tree:
+
+```tsx
+<NativeRoot style={{ width: 240 }}>
+  <Panel>
+    <NativeSlot>
+      <Text>Any React Native view</Text>
+    </NativeSlot>
+  </Panel>
+</NativeRoot>
+```
+
+The content is as wide as the tree's layout makes the slot and as high as it needs to be, and the native components after it move with its height. The tree paints, clips and hit-tests it where the slot is. The children are rendered by the React Native tree the `NativeRoot` is in, so contexts from there reach them, and contexts provided inside the native tree reach them as well. A `NativeRoot` may be nested in a slot.
+
 ## 4. Use it from JavaScript
 
 ```tsx

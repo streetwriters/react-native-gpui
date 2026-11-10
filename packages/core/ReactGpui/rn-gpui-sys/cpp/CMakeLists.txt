@@ -680,6 +680,7 @@ target_sources(rn_gpui_core PRIVATE
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/desktopcontextmenuview/DesktopContextMenuView.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/shortcutscope/ShortcutScope.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeroot/NativeRoot.cpp"
+  "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/nativeslot/NativeSlot.cpp"
   "${REACT_CXX_PLATFORM_DIR}/react/renderer/components/desktopscrollbar/DesktopScrollBar.cpp"
   builtins/window_control/GpuiWindowControlProps.cpp
   builtins/switch/GpuiSwitchProps.cpp
@@ -687,6 +688,7 @@ target_sources(rn_gpui_core PRIVATE
   builtins/context_menu_view/GpuiContextMenuViewProps.cpp
   builtins/shortcut_scope/GpuiShortcutScopeProps.cpp
   builtins/native_root/GpuiNativeRootProps.cpp
+  builtins/native_slot/GpuiNativeSlotProps.cpp
   builtins/desktop_scroll_bar/GpuiDesktopScrollBarProps.cpp)
 if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
@@ -900,7 +902,7 @@ list(APPEND RN_GPUI_MODULE_DEFINITIONS ${RN_GPUI_JS_ENGINE_DEFINITIONS})
 
 # Core's own built-in modules register their renderers through the same
 # generated installer, so a built-in is wired exactly like a package module.
-list(APPEND RN_GPUI_MODULE_INSTALLERS activity_indicator context_menu_view desktop_scroll_bar image modal native_root scroll_view shortcut_scope switch text_input window_control)
+list(APPEND RN_GPUI_MODULE_INSTALLERS activity_indicator context_menu_view desktop_scroll_bar image modal native_root native_slot scroll_view shortcut_scope switch text_input window_control)
 
 # The generated installer list depends on which packages are present, so it is
 # written at configure time. file(CONFIGURE) only rewrites it when it changes.

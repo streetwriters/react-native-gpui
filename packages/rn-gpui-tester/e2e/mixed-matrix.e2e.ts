@@ -99,16 +99,10 @@ describe('native tree in a React Native view', () => {
 
 describe('cells that wait for a later step', () => {
   test.todo(
-    'React Native inside a native tree: layout, painting, hit testing, focus, keyboard (NativeSlot, step 3)',
+    'lists, tables, tabs, dialogs, popovers and menus of either kind containing the other (steps 4 and 5)',
   );
   test.todo(
-    'native inside React Native inside native, and deeper alternations (NativeSlot, step 3)',
-  );
-  test.todo(
-    'lists, tables, tabs, dialogs, popovers and menus of either kind containing the other (steps 3 to 5)',
-  );
-  test.todo(
-    'scrolling that a native component owns, with React Native content inside (step 3)',
+    'scrolling that a native component owns, with React Native content inside (step 4)',
   );
   test.todo('virtualisation and recycling across the boundary (step 4)');
   test.todo(
@@ -118,6 +112,6 @@ describe('cells that wait for a later step', () => {
     'text input and IME inside a native tree, and a React Native input beside it',
   );
   test.todo(
-    'overlays: a React Native popover from a native view, and a native popover from a React Native view (step 3)',
+    'overlays: a React Native popover from a native view, and a native popover from a React Native view (step 5)',
   );
 });
