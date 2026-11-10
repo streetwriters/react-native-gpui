@@ -30,6 +30,33 @@ pub const COMPONENT: &str = "DesktopNativeSlot";
 /// The type of the placeholder instance in a native tree.
 pub const PLACEHOLDER: &str = "NativeSlot";
 
+thread_local! {
+    static HOSTS: std::cell::RefCell<std::collections::HashMap<(u32, i64), i32>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Notes the node that holds slot `slot` of tree `root`, when the node is made.
+pub(crate) fn register_host(props: &Value, tag: i32) {
+    let root = props.get("rootId").and_then(Value::as_u64);
+    let slot = props.get("slotId").and_then(Value::as_i64);
+    if let (Some(root), Some(slot)) = (root, slot) {
+        HOSTS.with(|hosts| hosts.borrow_mut().insert((root as u32, slot), tag));
+    }
+}
+
+/// The tags of the nodes that hold the slots of tree `root`, by slot id. A tag
+/// whose node is gone is dropped by whoever looks it up.
+pub(crate) fn hosts_of(root: u32) -> Vec<(i64, i32)> {
+    HOSTS.with(|hosts| {
+        hosts
+            .borrow()
+            .iter()
+            .filter(|((tree, _), _)| *tree == root)
+            .map(|((_, slot), tag)| (*slot, *tag))
+            .collect()
+    })
+}
+
 struct NativeSlotRenderer;
 
 impl ComponentRenderer for NativeSlotRenderer {

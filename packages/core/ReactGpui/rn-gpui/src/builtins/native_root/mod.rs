@@ -128,19 +128,14 @@ fn drop_stale_trees(cx: &App, keep: u32) {
     });
 }
 
-fn collect_slot_hosts(node: &ComponentNode, cx: &App) {
+fn collect_slot_hosts(root: u32, cx: &App) {
     let Some(store) = crate::store::store_from(cx) else {
         return;
     };
     let store = store.read(cx);
-    let hosts = node
-        .children
-        .iter()
-        .filter(|child| child.component == crate::builtins::native_slot::COMPONENT)
-        .filter_map(|child| {
-            let slot = child.props.get("slotId").and_then(Value::as_i64)?;
-            Some((slot, store.nodes.get(&child.tag)?.clone()))
-        })
+    let hosts = crate::builtins::native_slot::hosts_of(root)
+        .into_iter()
+        .filter_map(|(slot, tag)| Some((slot, store.nodes.get(&tag)?.clone())))
         .collect::<HashMap<_, _>>();
     SLOT_HOSTS.with(|slots| *slots.borrow_mut() = hosts);
 }
@@ -163,10 +158,6 @@ impl ComponentRenderer for NativeRootRenderer {
         None
     }
 
-    fn reads_children(&self) -> bool {
-        true
-    }
-
     fn content(
         &self,
         node: &ComponentNode,
@@ -179,7 +170,7 @@ impl ComponentRenderer for NativeRootRenderer {
             let state = trees.get_mut(&root)?;
             state.tag.set(Some(node.tag));
             let started = std::time::Instant::now();
-            collect_slot_hosts(node, cx);
+            collect_slot_hosts(root, cx);
             let ids: Vec<_> = state.tree.roots().to_vec();
             let elements: Vec<AnyElement> = ids
                 .into_iter()

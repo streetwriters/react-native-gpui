@@ -126,3 +126,31 @@ test('removing the slot removes its content and the native components after it m
     .poll(async () => (await frameOf('slot-below')).y, { timeout: 5000 })
     .toBeLessThan(before.y);
 });
+
+test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
+  await app.close();
+  app = await launchApp({
+    bundle: path.resolve(
+      'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    ),
+    env: {
+      RN_GPUI_MODULE: 'NativeSlotLoadFixture',
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+    },
+    initialProps: { count: 1000 },
+    disableAnimations: true,
+    offscreen: true,
+  });
+  await app.setWindowSize(600, 500);
+  await desktopExpect(app.getByTestId('slot-load-root')).toBeVisible();
+  await app.hostCounters({ reset: true });
+  for (let step = 0; step < 5; step++) {
+    await app.getByTestId('slot-load-tick').click();
+    await app.waitForIdle();
+  }
+  const counters = await app.hostCounters();
+  console.log(
+    `native render ${(counters.nativeRenderMicros / 5 / 1000).toFixed(2)} ms per commit`,
+  );
+});

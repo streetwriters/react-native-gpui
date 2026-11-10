@@ -1115,8 +1115,13 @@ impl RNNodeView {
             surface_id,
             component: op.component.clone(),
             extension_props_json: op.extension_props_json.clone(),
-            slot_shift: (op.component == crate::builtins::native_slot::COMPONENT)
-                .then(|| Rc::new(Cell::new(point(0.0, 0.0)))),
+            slot_shift: (op.component == crate::builtins::native_slot::COMPONENT).then(|| {
+                crate::builtins::native_slot::register_host(
+                    &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    op.tag,
+                );
+                Rc::new(Cell::new(point(0.0, 0.0)))
+            }),
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),

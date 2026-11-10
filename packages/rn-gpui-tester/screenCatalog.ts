@@ -162,6 +162,12 @@ export const screens = [
     fixture: 'NativeRootDevFixture',
   },
   {
+    id: 'native-slot-load',
+    title: 'A native slot holding a thousand React Native views',
+    group: 'Views',
+    fixture: 'NativeSlotLoadFixture',
+  },
+  {
     id: 'native-slot',
     title: 'React Native content inside the slots of a native tree',
     group: 'Views',
