@@ -148,6 +148,7 @@ export function PdfViewer({
       if (openViewers === 0) {
         const { NativePdfTiles } = require('../native-tiles');
         NativePdfTiles.setBudget(0);
+        setTimeout(() => NativePdfTiles.trim(), 300);
       }
     };
   }, []);

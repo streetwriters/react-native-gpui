@@ -144,7 +144,9 @@ export default function PdfViewerFixture({
         NativePdfTiles,
       } = require('@react-native-gpui/pdf/src/native-tiles');
       const s = NativePdfTiles.stats();
-      setStats(`tiles ${s.tiles} bytes ${s.bytes} evicted ${s.evicted}`);
+      setStats(
+        `tiles ${s.tiles} bytes ${s.bytes} evicted ${s.evicted} live ${s.live}`,
+      );
     }, 300);
     return () => clearInterval(timer);
   }, []);
@@ -153,6 +155,15 @@ export default function PdfViewerFixture({
       <View
         style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 6 }}
       >
+        <Button
+          id="trim"
+          onPress={() => {
+            const {
+              NativePdfTiles,
+            } = require('@react-native-gpui/pdf/src/native-tiles');
+            setOutlineText(`trimmed ${NativePdfTiles.trim()}`);
+          }}
+        />
         <Button id="close-viewer" onPress={() => setClosed(true)} />
         <Button id="open-viewer" onPress={() => setClosed(false)} />
         <Button id="zoom-in" onPress={() => controller.current?.zoomIn()} />

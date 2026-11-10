@@ -76,6 +76,10 @@ impl<T> Store<T> {
         self.evict(0);
     }
 
+    pub fn reevaluate(&mut self) {
+        self.evict(0);
+    }
+
     pub fn take_dropped(&mut self) -> Vec<Arc<T>> {
         std::mem::take(&mut self.dropped)
     }
