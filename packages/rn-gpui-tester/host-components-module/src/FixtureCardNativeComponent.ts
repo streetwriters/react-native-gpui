@@ -19,7 +19,8 @@ export type FixtureCardChromeEvent = Readonly<{
 
 /** What `reportDetails` reports about the props that are not scalars. */
 export type FixtureCardDetailsEvent = Readonly<{
-  mode: string;
+  mode: 'compact' | 'roomy';
+  icon: string;
   tags: string[];
   sizes: CodegenTypes.Double[];
   nested: Readonly<{ flag: boolean; count: CodegenTypes.Int32 }>;

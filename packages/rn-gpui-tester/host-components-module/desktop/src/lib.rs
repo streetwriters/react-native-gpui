@@ -252,9 +252,10 @@ impl Card {
     fn details(props: &FixtureCardProps) -> OnDetails {
         OnDetails {
             mode: match props.mode() {
-                FixtureCardMode::Compact => "compact".to_string(),
-                FixtureCardMode::Roomy => "roomy".to_string(),
+                FixtureCardMode::Compact => FixtureCardMode2::Compact,
+                FixtureCardMode::Roomy => FixtureCardMode2::Roomy,
             },
+            icon: props.icon().uri().to_string(),
             tags: props.labels().iter().map(str::to_string).collect(),
             sizes: props.items().iter().map(|item| item.size()).collect(),
             nested: OnDetailsNested {
