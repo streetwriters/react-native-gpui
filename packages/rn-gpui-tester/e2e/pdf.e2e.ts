@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { PNG } from 'pngjs';
 import {
   launchApp,
@@ -51,6 +52,9 @@ async function launchViewer(
   pages: number,
   budget?: number,
   encrypted?: boolean,
+  outline?: boolean,
+  rotate?: number,
+  startClosed?: boolean,
 ) {
   await app?.close();
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -67,7 +71,7 @@ async function launchViewer(
         `.local/e2e-pdf-viewer-${process.pid}-${Date.now()}.json`,
       ),
     },
-    initialProps: { pages, budget, encrypted },
+    initialProps: { pages, budget, encrypted, outline, rotate, startClosed },
     disableAnimations: true,
     offscreen: true,
   });
@@ -91,6 +95,7 @@ test('the viewer opens a document, zooms and goes to a page', async () => {
   await until(async () => /^ready page 1\/5/u.test(await stateText()));
   await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
 
+  await new Promise(resolve => setTimeout(resolve, 500));
   const fitted = await stateText();
   await app.getByTestId('zoom-in').click();
   await until(async () => (await stateText()) !== fitted);
@@ -248,4 +253,82 @@ test('the current page is the one with the most visible area', async () => {
     await app.scroll(scroller.tag, 0, -2000, 1, undefined, 0);
   }
   await until(async () => /page 6\/6/u.test(await stateText()));
+});
+
+test('the outline is read as a tree and an item goes to its page', async () => {
+  await launchViewer(5, undefined, false, true);
+  await until(async () => /^ready page 1\/5/u.test(await stateText()));
+  await app.getByTestId('read-outline').click();
+  await until(async () => {
+    const text = (await app.query('testID', 'pdf-outline', true))[0]?.text;
+    return text === 'Chapter 1@0|-Section 1.1@1|Chapter 2@2';
+  });
+  await app.getByTestId('fit-page').click();
+  await app.getByTestId('outline-chapter-2').click();
+  await until(async () => /page 3\/5/u.test(await stateText()));
+});
+
+test('a rotated page is laid out and painted turned', async () => {
+  await launchViewer(2, undefined, false, false, 90);
+  await until(async () => /^ready page 1\/2/u.test(await stateText()));
+  await app.getByTestId('fit-page').click();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const png = PNG.sync.read(await app.getByTestId('pdf-page-1').screenshot());
+  expect(png.width / png.height).toBeCloseTo(792 / 612, 1);
+  const blueAt = (fx: number, fy: number) => {
+    const at =
+      (Math.floor(fy * png.height) * png.width + Math.floor(fx * png.width)) *
+      4;
+    return png.data[at] < 90 && png.data[at + 2] > 200;
+  };
+  expect(blueAt(0.58, 0.2)).toBe(true);
+  expect(blueAt(0.1, 0.35)).toBe(false);
+});
+
+test('memory stays bounded while scrolling through 300 pages', async () => {
+  await launchViewer(
+    300,
+    Number(process.env.PDFMEM_BUDGET) || undefined,
+    false,
+    false,
+    undefined,
+    true,
+  );
+  const pid = (app as unknown as { pid?: number }).pid;
+  expect(pid).toBeGreaterThan(0);
+  const rssMb = () =>
+    Number(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)]).toString()) /
+    1024;
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const baseline = rssMb();
+  await app.getByTestId('open-viewer').click();
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  const curve: string[] = [];
+  const samples: number[] = [];
+  const start = rssMb();
+  for (let step = 1; step <= 900; step++) {
+    await app.scroll(scroller.tag, 0, -440, 1, undefined, 0);
+    if (step % 75 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      const stats =
+        (await app.query('testID', 'pdf-stats', true))[0]?.text ?? '';
+      const used = rssMb();
+      samples.push(used);
+      curve.push(
+        `${await stateText().then(t => /page (\d+)/u.exec(t)?.[1])}:${used.toFixed(0)}MB(${stats.replace(/tiles (\d+) bytes (\d+) evicted (\d+)/u, 't$1 b$2 e$3')})`,
+      );
+    }
+  }
+  console.log(
+    `PDFMEM baseline ${baseline.toFixed(0)}MB start ${start.toFixed(0)}MB; ${curve.join(' ')}`,
+  );
+  const half = samples.slice(Math.floor(samples.length / 2));
+  expect(Math.max(...half) - Math.min(...half)).toBeLessThan(40);
+  expect(Math.max(...samples)).toBeLessThan(baseline + 230);
+  await app.getByTestId('close-viewer').click();
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  const afterClose = rssMb();
+  console.log(`PDFMEM after close ${afterClose.toFixed(0)}MB`);
+  expect(afterClose).toBeLessThan(baseline + 230);
 });

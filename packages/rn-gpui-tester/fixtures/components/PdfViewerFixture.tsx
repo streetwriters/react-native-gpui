@@ -6,9 +6,14 @@ import {
   PdfViewer,
   type PdfViewerController,
   type PdfViewerState,
+  type PdfOutlineItem,
 } from '@react-native-gpui/pdf';
 
-function buildPdf(pageCount: number): Uint8Array {
+function buildPdf(
+  pageCount: number,
+  withOutline = false,
+  rotateFirst = 0,
+): Uint8Array {
   const objects: string[] = [];
   const kids: string[] = [];
   objects.push('<< /Type /Catalog /Pages 2 0 R >>');
@@ -19,11 +24,33 @@ function buildPdf(pageCount: number): Uint8Array {
     kids.push(`${pageObject} 0 R`);
     const content = `BT /F1 48 Tf 240 560 Td (Page ${page + 1}) Tj ET 0.2 0.4 0.9 rg 72 400 ${100 + (page % 5) * 60} 120 re f`;
     objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageObject + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]${page === 0 && rotateFirst ? ` /Rotate ${rotateFirst}` : ''} /Contents ${pageObject + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
     );
     objects.push(
       `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
     );
+  }
+  if (withOutline && pageCount >= 3) {
+    const pageAt = (index: number) => 4 + index * 2;
+    const root = objects.length + 1;
+    const one = root + 1;
+    const oneA = root + 2;
+    const two = root + 3;
+    const destination = (index: number, y: number) =>
+      `/Dest [${pageAt(index)} 0 R /XYZ 0 ${y} null]`;
+    objects.push(
+      `<< /Type /Outlines /First ${one} 0 R /Last ${two} 0 R /Count 3 >>`,
+    );
+    objects.push(
+      `<< /Title (Chapter 1) /Parent ${root} 0 R /Next ${two} 0 R /First ${oneA} 0 R /Last ${oneA} 0 R /Count 1 ${destination(0, 700)} /F 2 >>`,
+    );
+    objects.push(
+      `<< /Title (Section 1.1) /Parent ${one} 0 R ${destination(1, 400)} >>`,
+    );
+    objects.push(
+      `<< /Title (Chapter 2) /Parent ${root} 0 R /Prev ${one} 0 R ${destination(2, 792)} >>`,
+    );
+    objects[0] = `<< /Type /Catalog /Pages 2 0 R /Outlines ${root} 0 R >>`;
   }
   objects[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pageCount} >>`;
   let text = '%PDF-1.4\n';
@@ -57,10 +84,16 @@ export default function PdfViewerFixture({
   pages = 3,
   budget,
   encrypted,
+  outline,
+  rotate,
+  startClosed,
 }: {
   pages?: number;
   budget?: number;
   encrypted?: boolean;
+  outline?: boolean;
+  rotate?: number;
+  startClosed?: boolean;
 }) {
   const bytes = useMemo(
     () =>
@@ -68,13 +101,16 @@ export default function PdfViewerFixture({
         ? Uint8Array.from(globalThis.atob(ENCRYPTED_PDF_BASE64), c =>
             c.charCodeAt(0),
           )
-        : buildPdf(pages),
-    [pages, encrypted],
+        : buildPdf(pages, outline, rotate),
+    [pages, encrypted, outline, rotate],
   );
   const controller = useRef<PdfViewerController>(null);
   const [state, setState] = useState<PdfViewerState | null>(null);
   const [stats, setStats] = useState('');
   const [selected, setSelected] = useState('');
+  const [outlineText, setOutlineText] = useState('');
+  const [closed, setClosed] = useState(Boolean(startClosed));
+  const outlineItems = useRef<PdfOutlineItem[]>([]);
   const [frames, setFrames] = useState('');
   const gaps = useRef<number[]>([]);
   const measuring = useRef(false);
@@ -103,14 +139,6 @@ export default function PdfViewerFixture({
     );
   };
   useEffect(() => {
-    if (budget) {
-      const {
-        NativePdfTiles,
-      } = require('@react-native-gpui/pdf/src/native-tiles');
-      NativePdfTiles.setBudget(budget);
-    }
-  }, [budget]);
-  useEffect(() => {
     const timer = setInterval(() => {
       const {
         NativePdfTiles,
@@ -122,7 +150,11 @@ export default function PdfViewerFixture({
   }, []);
   return (
     <View testID="pdf-viewer-fixture" style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', gap: 6, padding: 6 }}>
+      <View
+        style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 6 }}
+      >
+        <Button id="close-viewer" onPress={() => setClosed(true)} />
+        <Button id="open-viewer" onPress={() => setClosed(false)} />
         <Button id="zoom-in" onPress={() => controller.current?.zoomIn()} />
         <Button id="zoom-out" onPress={() => controller.current?.zoomOut()} />
         <Button id="fit-width" onPress={() => controller.current?.fitWidth()} />
@@ -146,6 +178,28 @@ export default function PdfViewerFixture({
             void controller.current?.getSelectedText().then(setSelected)
           }
         />
+        <Button
+          id="read-outline"
+          onPress={() =>
+            void controller.current?.getOutline().then(items => {
+              outlineItems.current = items;
+              const flat = (nodes: PdfOutlineItem[], depth: number): string[] =>
+                nodes.flatMap(node => [
+                  `${'-'.repeat(depth)}${node.title}@${node.pageIndex}`,
+                  ...flat(node.children, depth + 1),
+                ]);
+              setOutlineText(flat(items, 0).join('|'));
+            })
+          }
+        />
+        <Button
+          id="outline-chapter-2"
+          onPress={() => {
+            const item = outlineItems.current[1];
+            if (item) controller.current?.goToOutlineItem(item);
+          }}
+        />
+        <Text testID="pdf-outline">{outlineText}</Text>
         <Text testID="pdf-selected">{selected}</Text>
         <Button id="start-frames" onPress={startFrames} />
         <Button id="stop-frames" onPress={stopFrames} />
@@ -158,11 +212,14 @@ export default function PdfViewerFixture({
         </Text>
         <Text testID="pdf-stats">{stats}</Text>
       </View>
-      <PdfViewer
-        source={{ bytes }}
-        controllerRef={controller}
-        onStateChange={setState}
-      />
+      {closed ? null : (
+        <PdfViewer
+          tileBudget={budget}
+          source={{ bytes }}
+          controllerRef={controller}
+          onStateChange={setState}
+        />
+      )}
     </View>
   );
 }

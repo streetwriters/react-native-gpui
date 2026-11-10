@@ -13,6 +13,7 @@ export interface Spec extends TurboModule {
   release(id: number): void;
   has(id: number): boolean;
   setBudget(bytes: number): void;
+  trim(): void;
   stats(): PdfTileStats;
 }
 

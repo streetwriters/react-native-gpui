@@ -27,6 +27,11 @@ fn bgra(pixels: &[u8], width: usize, height: usize, stride: usize) -> Vec<u8> {
     out
 }
 
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+}
+
 pub struct NativePdfTiles;
 
 impl NativePdfTilesSpec for NativePdfTiles {
@@ -68,6 +73,13 @@ impl NativePdfTilesSpec for NativePdfTiles {
 
     fn set_budget(&self, bytes: f64) {
         tiles().lock().unwrap().set_budget(bytes.max(0.0) as usize);
+    }
+
+    fn trim(&self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
     }
 
     fn stats(&self) -> Result<PdfTileStats, ModuleError> {

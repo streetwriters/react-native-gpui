@@ -8,6 +8,7 @@ import React, {
   type Ref,
 } from 'react';
 import {
+  PixelRatio,
   ScrollView,
   View,
   type LayoutChangeEvent,
@@ -20,6 +21,9 @@ import {
 import type { PageInfo } from '@embedpdf/core';
 import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import { PageView } from './PageView';
+import { displaySize, normalizeTurn, toDisplayPoint } from './rotation';
+import { tileBudget } from './budget';
+import { OutlineToken, type PdfOutlineItem } from './outline';
 import { useSearch, type SearchState } from './search';
 import { createPdfSession, type PdfSession } from './session';
 import {
@@ -55,6 +59,8 @@ export interface PdfViewerController {
   fitWidth(): void;
   fitPage(): void;
   goToPage(page: number): void;
+  getOutline(): Promise<PdfOutlineItem[]>;
+  goToOutlineItem(item: PdfOutlineItem): void;
   unlock(password: string): Promise<void>;
   search(query: string, options?: { matchCase?: boolean }): Promise<void>;
   nextHit(): void;
@@ -78,9 +84,11 @@ export interface PdfViewerProps {
   pageGap?: number;
   padding?: number;
   pageShadow?: boolean;
+  tileBudget?: number;
 }
 
 const ZOOM_STEP = 1.25;
+let openViewers = 0;
 const EMPTY: readonly PageInfo[] = [];
 
 export function PdfViewer({
@@ -95,6 +103,7 @@ export function PdfViewer({
   pageGap = PAGE_GAP,
   padding = PAGE_PADDING,
   pageShadow = false,
+  tileBudget: tileBudgetOverride,
 }: PdfViewerProps) {
   const [session] = useState<PdfSession>(createPdfSession);
   const [documentId, setDocumentId] = useState<string | null>(null);
@@ -117,10 +126,39 @@ export function PdfViewer({
     const stops = [selection.onChanged(bump), selection.onCleared(bump)];
     return () => stops.forEach(stop => stop());
   }, [session, documentId]);
+  useEffect(
+    () => () => {
+      void session.kernel
+        .destroy()
+        .then(() => session.engine.destroy())
+        .catch(() => {});
+    },
+    [session],
+  );
+  const ratio = PixelRatio.get();
+  useEffect(() => {
+    if (viewport.width <= 0 || viewport.height <= 0) return;
+    const { NativePdfTiles } = require('../native-tiles');
+    NativePdfTiles.setBudget(tileBudgetOverride ?? tileBudget(viewport, ratio));
+  }, [viewport, ratio, tileBudgetOverride]);
+  useEffect(() => {
+    openViewers++;
+    return () => {
+      openViewers--;
+      if (openViewers === 0) {
+        const { NativePdfTiles } = require('../native-tiles');
+        NativePdfTiles.setBudget(0);
+      }
+    };
+  }, []);
   const latest = useRef({ zoom, offset, viewport });
   latest.current = { zoom, offset, viewport };
 
-  const sizes = useMemo(() => pages.map(page => page.size), [pages]);
+  const sizes = useMemo(
+    () =>
+      pages.map(page => displaySize(page.size, normalizeTurn(page.rotation))),
+    [pages],
+  );
   const layout = useMemo(
     () => layoutPages(sizes, zoom, pageGap, padding),
     [sizes, zoom, pageGap, padding],
@@ -231,24 +269,36 @@ export function PdfViewer({
     });
   }, []);
 
+  const displayY = useCallback(
+    (pageIndex: number, x: number, y: number) => {
+      const info = pages[pageIndex];
+      if (!info) return y;
+      return toDisplayPoint({ x, y }, info.size, normalizeTurn(info.rotation))
+        .y;
+    },
+    [pages],
+  );
+
   const revealHit = useCallback(
-    (pageIndex: number, y: number) => {
+    (pageIndex: number, x: number, y: number) => {
       const box = layout.boxes[pageIndex];
       if (!box) return;
       scroller.current?.scrollTo({
         y: Math.max(
           0,
-          box.top + y * zoom - latest.current.viewport.height * 0.35,
+          box.top +
+            displayY(pageIndex, x, y) * zoom -
+            latest.current.viewport.height * 0.35,
         ),
         animated: false,
       });
     },
-    [layout, zoom],
+    [layout, zoom, displayY],
   );
 
   useEffect(() => {
     const hit = found.capability?.getActiveHit();
-    if (hit) revealHit(hit.pageIndex, hit.bounds?.y ?? 0);
+    if (hit) revealHit(hit.pageIndex, hit.bounds?.x ?? 0, hit.bounds?.y ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reveal only when the active hit changes
   }, [found.state.active, found.state.activePage, found.capability]);
 
@@ -267,6 +317,26 @@ export function PdfViewer({
             animated: false,
           });
         }
+      },
+      getOutline: async () => {
+        if (!documentId) return [];
+        const outline = session.kernel.tryCapability(OutlineToken);
+        if (!outline) return [];
+        return outline.read(documentId, page =>
+          session.kernel.documents.getPageIndex(page as never, documentId),
+        );
+      },
+      goToOutlineItem: item => {
+        if (item.pageIndex === null) return;
+        const box = layout.boxes[item.pageIndex];
+        if (!box) return;
+        scroller.current?.scrollTo({
+          y: Math.max(
+            0,
+            box.top + displayY(item.pageIndex, 0, item.y ?? 0) * zoom - pageGap,
+          ),
+          animated: false,
+        });
       },
       unlock: async password => {
         if (!documentId) return;
@@ -306,12 +376,44 @@ export function PdfViewer({
       },
       getState: () => stateRef.current,
     }),
-    [changeZoom, layout, documentId, session, load, found.capability, pageGap],
+    [
+      changeZoom,
+      layout,
+      documentId,
+      session,
+      load,
+      found.capability,
+      pageGap,
+      zoom,
+      displayY,
+    ],
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);
 
+  const trimTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const lastTrim = useRef(0);
+  useEffect(
+    () => () => {
+      clearTimeout(trimTimer.current);
+      const { NativePdfTiles } = require('../native-tiles');
+      NativePdfTiles.trim();
+    },
+    [],
+  );
+
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      clearTimeout(trimTimer.current);
+      const now = Date.now();
+      const trim = () => {
+        lastTrim.current = Date.now();
+        const { NativePdfTiles } = require('../native-tiles');
+        NativePdfTiles.trim();
+      };
+      if (now - lastTrim.current > 1500) trim();
+      else trimTimer.current = setTimeout(trim, 600);
       setOffset(event.nativeEvent.contentOffset.y);
     },
     [],

@@ -16,6 +16,7 @@ import {
 } from '@embedpdf/plugin-render/contract/host';
 import { PdfTile } from '../native-tiles';
 import { tileIdOf } from '../tiles';
+import { displaySize, normalizeTurn, visibleRectInPage } from './rotation';
 
 interface Props {
   kernel: Kernel;
@@ -82,24 +83,25 @@ export function PageView({
 }: Props) {
   const render = kernel.capability(RenderToken, documentId);
   const dpr = PixelRatio.get();
+  const turn = normalizeTurn(page.rotation);
   const width = page.size.width * zoom;
   const height = page.size.height * zoom;
+  const shown = displaySize(page.size, turn);
+  const outerWidth = shown.width * zoom;
+  const outerHeight = shown.height * zoom;
   const viewId = `view:${documentId}`;
   const view = useMemo(() => render.createViewDemand(viewId), [render, viewId]);
   useEffect(() => () => view.destroy(), [view]);
 
   const rect = useMemo(
-    () => ({
-      x: 0,
-      y: Math.max(0, visible.top / zoom),
-      width: page.size.width,
-      height: Math.max(
-        0,
-        Math.min(page.size.height, visible.bottom / zoom) -
-          Math.max(0, visible.top / zoom),
+    () =>
+      visibleRectInPage(
+        page.size,
+        turn,
+        visible.top / zoom,
+        visible.bottom / zoom,
       ),
-    }),
-    [visible.top, visible.bottom, zoom, page.size.width, page.size.height],
+    [visible.top, visible.bottom, zoom, page.size, turn],
   );
 
   useLayoutEffect(() => {
@@ -120,9 +122,6 @@ export function PageView({
   const latest = useRef<{ x: number; y: number } | null>(null);
   const gesture = useRef<'idle' | 'pending' | 'active'>('idle');
   const released = useRef(false);
-  useEffect(() => {
-    if (selection) void selection.ensureLoaded(page.ref);
-  }, [selection, page.ref]);
   const lastDown = useRef({ time: 0, x: 0, y: 0, count: 0 });
   const at = (event: PointerEvent) => ({
     x: event.nativeEvent.offsetX / zoom,
@@ -210,68 +209,85 @@ export function PageView({
 
   return (
     <View
-      {...responder}
-      style={{ width, height, backgroundColor: background, overflow: 'hidden' }}
+      style={{
+        width: outerWidth,
+        height: outerHeight,
+        backgroundColor: background,
+        overflow: 'hidden',
+      }}
     >
-      {base !== null ? (
-        <PdfTile
-          tileId={base}
-          style={{ position: 'absolute', left: 0, top: 0, width, height }}
-        />
-      ) : null}
-      {hits.map((hit, index) =>
-        hit.segments.map((segment, part) => (
+      <View
+        {...responder}
+        style={{
+          position: 'absolute',
+          left: (outerWidth - width) / 2,
+          top: (outerHeight - height) / 2,
+          width,
+          height,
+          overflow: 'hidden',
+          transform: turn ? [{ rotate: `${turn}deg` }] : undefined,
+        }}
+      >
+        {base !== null ? (
+          <PdfTile
+            tileId={base}
+            style={{ position: 'absolute', left: 0, top: 0, width, height }}
+          />
+        ) : null}
+        {hits.map((hit, index) =>
+          hit.segments.map((segment, part) => (
+            <View
+              key={`${index}:${part}`}
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: segment.rect.x * zoom,
+                top: segment.rect.y * zoom,
+                width: segment.rect.width * zoom,
+                height: segment.rect.height * zoom,
+                backgroundColor:
+                  hit === activeHit
+                    ? 'rgba(255, 140, 0, 0.5)'
+                    : 'rgba(255, 214, 0, 0.4)',
+                zIndex: 1000,
+              }}
+            />
+          )),
+        )}
+        {selectionRects.map((rect, index) => (
           <View
-            key={`${index}:${part}`}
+            key={`selection:${index}`}
             pointerEvents="none"
             style={{
               position: 'absolute',
-              left: segment.rect.x * zoom,
-              top: segment.rect.y * zoom,
-              width: segment.rect.width * zoom,
-              height: segment.rect.height * zoom,
-              backgroundColor:
-                hit === activeHit
-                  ? 'rgba(255, 140, 0, 0.5)'
-                  : 'rgba(255, 214, 0, 0.4)',
-              zIndex: 1000,
+              left: rect.x * zoom,
+              top: rect.y * zoom,
+              width: rect.width * zoom,
+              height: rect.height * zoom,
+              backgroundColor: 'rgba(37, 99, 235, 0.3)',
+              zIndex: 1001,
             }}
           />
-        )),
-      )}
-      {selectionRects.map((rect, index) => (
-        <View
-          key={`selection:${index}`}
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: rect.x * zoom,
-            top: rect.y * zoom,
-            width: rect.width * zoom,
-            height: rect.height * zoom,
-            backgroundColor: 'rgba(37, 99, 235, 0.3)',
-            zIndex: 1001,
-          }}
-        />
-      ))}
-      {plan.paint.map(entry => {
-        const id = tileOf(entry.handle);
-        if (id === null) return null;
-        return (
-          <Sprite
-            key={entry.key}
-            id={id}
-            left={entry.rect.x * zoom}
-            top={entry.rect.y * zoom}
-            width={entry.rect.width * zoom}
-            height={entry.rect.height * zoom}
-            z={entry.z + 1}
-            view={view}
-            pageRef={page.ref}
-            tileKey={entry.key}
-          />
-        );
-      })}
+        ))}
+        {plan.paint.map(entry => {
+          const id = tileOf(entry.handle);
+          if (id === null) return null;
+          return (
+            <Sprite
+              key={entry.key}
+              id={id}
+              left={entry.rect.x * zoom}
+              top={entry.rect.y * zoom}
+              width={entry.rect.width * zoom}
+              height={entry.rect.height * zoom}
+              z={entry.z + 1}
+              view={view}
+              pageRef={page.ref}
+              tileKey={entry.key}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 }
