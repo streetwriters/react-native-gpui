@@ -31,7 +31,7 @@ await setBadge(3); // the number on the Dock icon
 await requestAttention(); // bounce the Dock icon
 ```
 
-macOS is supported first. `getIdleTime` also has a Windows implementation (`GetLastInputInfo`) that is untested, and rejects with `ERR_UNSUPPORTED` on Linux. Start at login is written for Windows and Linux too, but only macOS has been tested; restart works on Unix, and content protection, the badge and the bounce are macOS only for now.
+macOS is supported first. `getIdleTime` also has a Windows implementation (`GetLastInputInfo`) that is untested, and rejects with `ERR_UNSUPPORTED` on Linux. Start at login is written for Windows and Linux too, but only macOS has been tested; restart works on Unix, and content protection has an untested Windows implementation.
 
 ## Documentation
 

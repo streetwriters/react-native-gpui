@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'long-menu',
+    title: 'Custom context menu taller than the window',
+    group: 'Input',
+    fixture: 'LongMenuFixture',
+  },
+  {
     id: 'xhr-headers',
     title: 'XMLHttpRequest response headers',
     group: 'Network',

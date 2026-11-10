@@ -93,7 +93,7 @@ A menu is an array of `MenuItemSpec` values.
 
 ### Roles
 
-- **Edit:** `undo`, `redo`, `cut`, `copy`, `paste`, `selectAll`
+- **Edit:** `undo`, `redo`, `cut`, `copy`, `paste`, `pasteWithoutFormatting`, `selectAll`. `pasteWithoutFormatting` (default accelerator Command or Ctrl with Shift and `v`) pastes the clipboard as plain text into the focused text input; a text input holds no formatting, so it does what `paste` does there
 - **Window:** `minimize`, `zoom`, `toggleFullscreen`, `close`
 - **View:** `zoomIn`, `zoomOut`, `resetZoom`. They step the focused window's [zoom factor](desktopwindow#setzoomfactor) through 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400 and 500 percent, as a browser does, and go back to 100. Their default accelerators are Command or Ctrl with `=`, `-` and `0`. The factor is not saved: store it and apply it with `setZoomFactor` when the window opens
 - **App:** `about`, `services`, `hide`, `hideOthers`, `showAll`, `quit`

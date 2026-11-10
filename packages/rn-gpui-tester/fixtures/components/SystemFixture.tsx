@@ -12,6 +12,7 @@ import {
   isContentProtected,
   restart,
   setContentProtected,
+  setJumpList,
   setLaunchAtLogin,
 } from '@react-native-gpui/system';
 
@@ -115,6 +116,12 @@ export function SystemFixture({
       await requestAttention();
       await cancelAttention();
       record('attention ok');
+      const jumpList = await setJumpList([{ title: 'New note', args: ['new'] }])
+        .then(() => 'accepted')
+        .catch((error: { code?: string }) => error.code ?? 'rejected');
+      record(
+        `jumpList ${jumpList === 'ERR_UNSUPPORTED' ? 'ok' : `BAD ${jumpList}`}`,
+      );
       record('done ok');
     })().catch(error => {
       if (!cancelled) {

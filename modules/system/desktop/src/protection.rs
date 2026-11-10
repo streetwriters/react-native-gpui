@@ -1,14 +1,98 @@
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use rn_gpui_module::ModuleError;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn set(_enabled: bool) -> Result<(), ModuleError> {
     Err(crate::unsupported("content protection"))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn is_enabled() -> bool {
     false
+}
+
+#[cfg(windows)]
+pub use win::{is_enabled, set};
+
+#[cfg(windows)]
+mod win {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Once;
+    use std::time::Duration;
+
+    use rn_gpui_module::ModuleError;
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowDisplayAffinity, GetWindowThreadProcessId, IsWindowVisible,
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    };
+
+    static PROTECTED: AtomicBool = AtomicBool::new(false);
+    static WATCH: Once = Once::new();
+
+    struct Pass {
+        enabled: bool,
+        all: bool,
+    }
+
+    unsafe extern "system" fn visit(window: HWND, param: LPARAM) -> BOOL {
+        let pass = &mut *(param as *mut Pass);
+        let mut owner = 0u32;
+        GetWindowThreadProcessId(window, &mut owner);
+        if owner != GetCurrentProcessId() || IsWindowVisible(window) == 0 {
+            return 1;
+        }
+        let wanted = if pass.enabled {
+            WDA_EXCLUDEFROMCAPTURE
+        } else {
+            WDA_NONE
+        };
+        let mut current = 0u32;
+        GetWindowDisplayAffinity(window, &mut current);
+        if current != wanted {
+            SetWindowDisplayAffinity(window, wanted);
+            GetWindowDisplayAffinity(window, &mut current);
+        }
+        if current != wanted {
+            pass.all = false;
+        }
+        1
+    }
+
+    fn sweep(enabled: bool) -> bool {
+        let mut pass = Pass { enabled, all: true };
+        unsafe { EnumWindows(Some(visit), &mut pass as *mut Pass as LPARAM) };
+        pass.all
+    }
+
+    /// Windows opened after protection was switched on are protected within half a second.
+    fn watch() {
+        WATCH.call_once(|| {
+            std::thread::spawn(|| loop {
+                std::thread::sleep(Duration::from_millis(500));
+                if PROTECTED.load(Ordering::SeqCst) {
+                    sweep(true);
+                }
+            });
+        });
+    }
+
+    pub fn set(enabled: bool) -> Result<(), ModuleError> {
+        watch();
+        PROTECTED.store(enabled, Ordering::SeqCst);
+        if sweep(enabled) {
+            Ok(())
+        } else {
+            Err(crate::failure(
+                "the system did not apply content protection to every window",
+            ))
+        }
+    }
+
+    pub fn is_enabled() -> bool {
+        PROTECTED.load(Ordering::SeqCst) && sweep(true)
+    }
 }
 
 #[cfg(target_os = "macos")]

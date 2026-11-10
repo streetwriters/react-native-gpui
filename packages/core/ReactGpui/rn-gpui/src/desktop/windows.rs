@@ -850,6 +850,13 @@ pub(crate) fn zoom_step(current: f32, direction: &str) -> f32 {
 }
 
 /// Zooms a window in or out by a step, or back to its natural size.
+pub fn main_window_handle(cx: &App) -> Option<AnyWindowHandle> {
+    cx.global::<DesktopWindowsGlobal>()
+        .0
+        .get(MAIN_WINDOW_KEY)
+        .map(|entry| entry.handle)
+}
+
 pub fn step_zoom(cx: &mut App, key: u32, direction: &str) -> DesktopResult {
     let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
         return Err(DesktopError::not_found(format!("window {key} is not open")));
