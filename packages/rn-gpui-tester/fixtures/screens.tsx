@@ -339,6 +339,16 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'surface-probe': props =>
+    React.createElement(
+      require('./components/SurfaceProbeFixture').default,
+      props,
+    ),
+  'mixed-views': props =>
+    React.createElement(
+      require('./components/MixedViewsFixture').default,
+      props,
+    ),
   'gradient-snap': props =>
     React.createElement(
       require('./components/GradientSnapFixture').default,

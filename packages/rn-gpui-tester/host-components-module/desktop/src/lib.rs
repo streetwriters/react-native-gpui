@@ -283,12 +283,56 @@ impl FixtureCardSpec for Card {
     }
 }
 
+/// A host component whose content is a React surface of its own.
+struct SurfaceHost {
+    surface: Option<gpui::Entity<react_native_gpui::ReactSurface>>,
+}
+
+impl FixtureSurfaceHostSpec for SurfaceHost {
+    fn create(_props: &FixtureSurfaceHostProps, _cx: &mut FixtureSurfaceHostContext) -> Self {
+        Self { surface: None }
+    }
+
+    fn update(
+        &mut self,
+        _props: &FixtureSurfaceHostProps,
+        _changed: FixtureSurfaceHostChanged,
+        _cx: &mut FixtureSurfaceHostContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &FixtureSurfaceHostProps,
+        _window: &mut Window,
+        cx: &mut FixtureSurfaceHostContext,
+    ) -> AnyElement {
+        use gpui::AppContext as _;
+        if self.surface.is_none() {
+            let module = props.module().to_string();
+            let greeting = props.greeting().to_string();
+            self.surface = cx.app().map(|app| {
+                app.new(|cx| {
+                    react_native_gpui::ReactSurface::new(module, cx)
+                        .props(serde_json::json!({ "greeting": greeting }))
+                })
+            });
+        }
+        let content = self
+            .surface
+            .clone()
+            .map(|surface| div().size_full().child(surface).into_any_element());
+        content.unwrap_or_else(|| div().into_any_element())
+    }
+}
+
 /// Registers the fixtures. Autolink calls this through the crate's
 /// `rn_gpui_register()`, exactly like a published package.
 pub fn rn_gpui_register() {
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());
+    register_component(fixture_surface_host_component::<SurfaceHost>());
     register_component(fixture_native_probe_component::<native::NativeProbe>());
     register_component(fixture_web_view_component::<native::WebView>());
 }
