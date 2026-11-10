@@ -232,6 +232,10 @@ pub fn needs_system(source: &str, set: &FontSet) -> bool {
     {
         return true;
     }
+    lacks_glyphs(source, set)
+}
+
+pub fn lacks_glyphs(source: &str, set: &FontSet) -> bool {
     let mut seen = std::collections::HashSet::new();
     source.chars().any(|c| {
         let code = c as u32;
@@ -256,6 +260,16 @@ mod tests {
             resolve_path("file:///tmp/a.ttf"),
             PathBuf::from("/tmp/a.ttf")
         );
+    }
+
+    #[test]
+    fn fallback_mode_skips_unavailable_family_names_and_scans_for_missing_glyphs() {
+        let set = bundled();
+        let stack = "#set text(font: (\"Hack\", \"Consolas\", \"Frutiger\", \"DejaVu Sans Mono\"))\nHello world";
+        assert!(needs_system(stack, set));
+        assert!(!lacks_glyphs(stack, set));
+        let cjk = "#set text(font: (\"Frutiger\"))\nHello \u{4f60}\u{597d}";
+        assert!(lacks_glyphs(cjk, set));
     }
 
     #[test]

@@ -41,6 +41,7 @@ pub struct Job {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SystemFonts {
     Auto,
+    Fallback,
     Always,
     Never,
 }
@@ -315,7 +316,12 @@ fn compile(job: Job, abort: Arc<AtomicBool>) -> Outcome {
     }
 
     let mut set = fonts::combined(&job.fonts, job.system_fonts == SystemFonts::Always);
-    if job.system_fonts == SystemFonts::Auto && fonts::needs_system(&job.source, &set) {
+    let scan = match job.system_fonts {
+        SystemFonts::Auto => fonts::needs_system(&job.source, &set),
+        SystemFonts::Fallback => fonts::lacks_glyphs(&job.source, &set),
+        _ => false,
+    };
+    if scan {
         set = fonts::combined(&job.fonts, true);
     }
     let system_fonts_loaded = fonts::system_loaded();

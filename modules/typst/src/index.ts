@@ -8,7 +8,7 @@ export type { TypstDiagnostic };
 export interface CompileOptions {
   files?: Record<string, ArrayBuffer | Uint8Array | { path: string }>;
   fonts?: Array<ArrayBuffer | Uint8Array | { path: string }>;
-  systemFonts?: 'auto' | 'always' | 'never';
+  systemFonts?: 'auto' | 'fallback' | 'always' | 'never';
   inputs?: Record<string, string>;
   title?: string;
   author?: string;
