@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useRef, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -11,6 +11,7 @@ import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
 const Box = 'FixtureNativeBox' as unknown as NativeElement;
+const Card = 'FixtureCard' as unknown as NativeElement;
 const Input = 'FixtureNativeInput' as unknown as NativeElement;
 const Popover = 'FixtureNativePopover' as unknown as NativeElement;
 
@@ -33,6 +34,9 @@ export default function NativeSlotFixture() {
   const [popover, setPopover] = useState(false);
   const [modal, setModal] = useState(false);
   const [nativeTyped, setNativeTyped] = useState('');
+  const card = useRef<{
+    command(name: string, ...args: unknown[]): void;
+  } | null>(null);
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
     <Box
@@ -190,6 +194,26 @@ export default function NativeSlotFixture() {
           </Box>
         </NativeRoot>
         <Text testID="native-typed">{`native:${nativeTyped}`}</Text>
+        <NativeRoot testID="slot-card-root" style={{ width: 240, height: 90 }}>
+          <Card
+            ref={card}
+            testID="native-card"
+            title="card title"
+            chromeHeight={24}
+            chromeWidth={8}
+            onChromeEvent={(event: { nativeEvent: { kind: string } }) =>
+              note(`card:${event.nativeEvent.kind}`)
+            }
+          >
+            <Box testID="native-card-child" color={0x00aa66} height={30} />
+          </Card>
+        </NativeRoot>
+        <Pressable
+          testID="native-card-ping"
+          onPress={() => card.current?.command('ping', 'now')}
+        >
+          <Text>ping</Text>
+        </Pressable>
         <Pressable testID="slot-modal-open" onPress={() => setModal(true)}>
           <Text>modal</Text>
         </Pressable>

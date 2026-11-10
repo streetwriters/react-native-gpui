@@ -1,4 +1,6 @@
+import type * as React from 'react';
 import {
+  codegenNativeCommands,
   codegenNativeComponent,
   type CodegenTypes,
   type ViewProps,
@@ -21,6 +23,17 @@ export interface NativeProps extends ViewProps {
   chromeHeight?: CodegenTypes.WithDefault<CodegenTypes.Double, 28>;
   chromeWidth?: CodegenTypes.WithDefault<CodegenTypes.Double, 12>;
 }
+
+export interface FixtureCardCommands {
+  /** Reports `ping:<label>` as a chrome event. */
+  ping: (ref: React.ComponentRef<typeof FixtureCard>, label: string) => void;
+}
+
+export const Commands = codegenNativeCommands<FixtureCardCommands>({
+  supportedCommands: ['ping'],
+});
+
+const FixtureCard: any = null;
 
 export default codegenNativeComponent<NativeProps>('FixtureCard', {
   interfaceOnly: true,

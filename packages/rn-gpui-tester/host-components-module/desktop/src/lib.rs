@@ -278,6 +278,7 @@ impl FixtureCardSpec for Card {
         let title = props.title().to_string();
         let height = props.chrome_height() as f32;
         let side = props.chrome_width() as f32;
+        let children = cx.children();
         let sender = Rc::new(cx.event_sender());
         let emit = |kind: &'static str| {
             let sender = sender.clone();
@@ -323,7 +324,23 @@ impl FixtureCardSpec for Card {
                         .child(title),
                 )
             })
+            .child(
+                div()
+                    .absolute()
+                    .top(px(height))
+                    .left(px(side))
+                    .right(px(side))
+                    .flex()
+                    .flex_col()
+                    .children(children),
+            )
             .into_any_element()
+    }
+
+    fn ping(&mut self, label: String, cx: &mut FixtureCardContext) {
+        cx.events().chrome_event(OnChromeEvent {
+            kind: format!("ping:{label}"),
+        });
     }
 }
 
@@ -784,6 +801,7 @@ pub fn rn_gpui_register() {
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());
+    FixtureCardComponent::<Card>::register_native_tree();
     register_component(fixture_surface_host_component::<SurfaceHost>());
     register_component(fixture_native_probe_component::<native::NativeProbe>());
     register_component(fixture_web_view_component::<native::WebView>());

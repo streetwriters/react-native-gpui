@@ -250,6 +250,16 @@ test('input methods: composition in a native text field arrives through its inpu
   );
 });
 
+test('a component that is also a Fabric host component renders in a native tree, with its children, events and commands', async () => {
+  const card = (await frameOf('native-card'))!;
+  const child = (await frameOf('native-card-child'))!;
+  expect(Math.round(child.y - card.y)).toBe(24);
+  await pressCentre('native-card-child');
+  await expect.poll(log, { timeout: 5000 }).toContain('card:click,');
+  await app.getByTestId('native-card-ping').click();
+  await expect.poll(log, { timeout: 5000 }).toContain('card:ping:now,');
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({
