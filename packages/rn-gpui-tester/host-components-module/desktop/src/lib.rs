@@ -243,9 +243,27 @@ fn card_insets(chrome_height: f64, chrome_width: f64) -> (f32, f32, f32, f32) {
 }
 
 /// A container host component: chrome drawn around React children.
-struct Card;
+struct Card {
+    details: OnDetails,
+}
 
 impl Card {
+    /// What the card read from the props that are not scalars.
+    fn details(props: &FixtureCardProps) -> OnDetails {
+        OnDetails {
+            mode: match props.mode() {
+                FixtureCardMode::Compact => "compact".to_string(),
+                FixtureCardMode::Roomy => "roomy".to_string(),
+            },
+            tags: props.labels().iter().map(str::to_string).collect(),
+            sizes: props.items().iter().map(|item| item.size()).collect(),
+            nested: OnDetailsNested {
+                flag: !props.icon().uri().is_empty(),
+                count: props.badge().level(),
+            },
+        }
+    }
+
     fn report_insets(props: &FixtureCardProps, cx: &mut FixtureCardContext) {
         let (top, right, bottom, left) = card_insets(props.chrome_height(), props.chrome_width());
         cx.set_insets(top, right, bottom, left);
@@ -255,7 +273,9 @@ impl Card {
 impl FixtureCardSpec for Card {
     fn create(props: &FixtureCardProps, cx: &mut FixtureCardContext) -> Self {
         Self::report_insets(props, cx);
-        Self
+        Self {
+            details: Self::details(props),
+        }
     }
 
     fn update(
@@ -267,6 +287,7 @@ impl FixtureCardSpec for Card {
         if changed.chrome_height() || changed.chrome_width() {
             Self::report_insets(props, cx);
         }
+        self.details = Self::details(props);
     }
 
     fn render(
@@ -335,6 +356,10 @@ impl FixtureCardSpec for Card {
                     .children(children),
             )
             .into_any_element()
+    }
+
+    fn report_details(&mut self, cx: &mut FixtureCardContext) {
+        cx.events().details(self.details.clone());
     }
 
     fn ping(&mut self, label: String, cx: &mut FixtureCardContext) {

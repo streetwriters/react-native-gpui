@@ -260,6 +260,25 @@ test('a component that is also a Fabric host component renders in a native tree,
   await expect.poll(log, { timeout: 5000 }).toContain('card:ping:now,');
 });
 
+test('one Commands API for a Fabric node and a native tree instance, and structured props and payloads on both', async () => {
+  const expected = {
+    mode: 'roomy',
+    nested: { count: 7, flag: true },
+    sizes: [1.5, 2.5],
+    tags: ['x', 'y'],
+  };
+  const read = async (testID: string) =>
+    JSON.parse(((await app.getByTestId(testID).textContent()) ?? '').trim());
+  await app.getByTestId('native-card-details').click();
+  await expect
+    .poll(() => read('native-details'), { timeout: 5000 })
+    .toMatchObject(expected);
+  await app.getByTestId('fabric-card-details').click();
+  await expect
+    .poll(() => read('fabric-details'), { timeout: 5000 })
+    .toMatchObject(expected);
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({

@@ -8,6 +8,8 @@ import {
   View,
 } from 'react-native';
 import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
+import { FixtureCard } from '@react-native-gpui/host-components-fixture';
+import { Commands as CardCommands } from '@react-native-gpui/host-components-fixture/src/FixtureCardNativeComponent';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
 const Box = 'FixtureNativeBox' as unknown as NativeElement;
@@ -34,9 +36,10 @@ export default function NativeSlotFixture() {
   const [popover, setPopover] = useState(false);
   const [modal, setModal] = useState(false);
   const [nativeTyped, setNativeTyped] = useState('');
-  const card = useRef<{
-    command(name: string, ...args: unknown[]): void;
-  } | null>(null);
+  const card = useRef<any>(null);
+  const fabricCard = useRef<any>(null);
+  const [details, setDetails] = useState('none');
+  const [fabricDetails, setFabricDetails] = useState('none');
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
     <Box
@@ -201,6 +204,17 @@ export default function NativeSlotFixture() {
             title="card title"
             chromeHeight={24}
             chromeWidth={8}
+            mode="roomy"
+            badge={{ label: 'b', level: 7 }}
+            labels={['x', 'y']}
+            items={[
+              { name: 'a', size: 1.5 },
+              { name: 'b', size: 2.5 },
+            ]}
+            icon={{ uri: 'file:///icon.png' }}
+            onDetails={(event: { nativeEvent: object }) =>
+              setDetails(JSON.stringify(event.nativeEvent))
+            }
             onChromeEvent={(event: { nativeEvent: { kind: string } }) =>
               note(`card:${event.nativeEvent.kind}`)
             }
@@ -210,10 +224,40 @@ export default function NativeSlotFixture() {
         </NativeRoot>
         <Pressable
           testID="native-card-ping"
-          onPress={() => card.current?.command('ping', 'now')}
+          onPress={() => CardCommands.ping(card.current, 'now')}
         >
           <Text>ping</Text>
         </Pressable>
+        <Pressable
+          testID="native-card-details"
+          onPress={() => CardCommands.reportDetails(card.current)}
+        >
+          <Text>details</Text>
+        </Pressable>
+        <Text testID="native-details">{details}</Text>
+        <FixtureCard
+          ref={fabricCard}
+          testID="fabric-card"
+          style={{ width: 100, height: 40 }}
+          mode="roomy"
+          badge={{ label: 'b', level: 7 }}
+          labels={['x', 'y']}
+          items={[
+            { name: 'a', size: 1.5 },
+            { name: 'b', size: 2.5 },
+          ]}
+          icon={{ uri: 'file:///icon.png' }}
+          onDetails={event =>
+            setFabricDetails(JSON.stringify(event.nativeEvent))
+          }
+        />
+        <Pressable
+          testID="fabric-card-details"
+          onPress={() => CardCommands.reportDetails(fabricCard.current)}
+        >
+          <Text>fabric details</Text>
+        </Pressable>
+        <Text testID="fabric-details">{fabricDetails}</Text>
         <Pressable testID="slot-modal-open" onPress={() => setModal(true)}>
           <Text>modal</Text>
         </Pressable>
