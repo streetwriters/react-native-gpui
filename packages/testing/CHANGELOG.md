@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 
 ## Unreleased
 
+- `app.setScrollerStyle('legacy' | 'overlay')` switches the scroller style as a change of the system setting does. Needs a runtime built with the change.
 - `app.tree()` nodes of a scroll view carry `scrollIndicatorShown`, whether its thumb is shown right now. Needs a runtime built with the change.
 - `app.layoutStats` reports `scrollEvents` and `scrollEventsWholePixel`: the precise scroll events seen since the last reset and how many moved by a whole number of device pixels on both axes. Needs a runtime built with the change.
 - `app.a11yTree()` refreshes the window only the first time, when it turns the accessibility tree on. Each call refreshed it, which rebuilt every view and perturbed a layout or performance measurement taken around it. Needs a runtime built with the change.

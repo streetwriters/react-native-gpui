@@ -306,6 +306,8 @@ pub mod ffi {
         /// A wheel event's JS handlers have run: `prevented` is whether one called
         /// `preventDefault` or `stopPropagation`. Called on the JS thread.
         fn rn_gpui_on_wheel_done(id: u64, prevented: bool);
+        /// Whether scrollers are drawn the legacy way, always shown.
+        fn rn_gpui_scroller_legacy() -> bool;
         /// Whether surfaces start right to left, and whether left and right
         /// swap in that direction.
         fn rn_gpui_layout_direction_rtl() -> bool;
@@ -628,6 +630,7 @@ pub type AnimatedActiveHandler = Box<dyn Fn(bool) + Send + Sync>;
 pub type TextInputCommandHandler = Box<dyn Fn(i32, bool) + Send + Sync>;
 pub type TextInputClearHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub type WheelDoneHandler = Box<dyn Fn(u64, bool) + Send + Sync>;
+pub type ScrollerLegacyHandler = Box<dyn Fn() -> bool + Send + Sync>;
 pub type LayoutDirectionHandler = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
 pub static LAYOUT_DIRECTION_HANDLER: OnceLock<LayoutDirectionHandler> = OnceLock::new();
 pub type BuiltinCommandHandler = Box<dyn Fn(i32, &str, &str, &str) + Send + Sync>;
@@ -646,6 +649,7 @@ pub static ANIMATED_ACTIVE_HANDLER: OnceLock<AnimatedActiveHandler> = OnceLock::
 pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceLock::new();
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
 pub static WHEEL_DONE_HANDLER: OnceLock<WheelDoneHandler> = OnceLock::new();
+pub static SCROLLER_LEGACY_HANDLER: OnceLock<ScrollerLegacyHandler> = OnceLock::new();
 pub static BUILTIN_COMMAND_HANDLER: OnceLock<BuiltinCommandHandler> = OnceLock::new();
 pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
@@ -780,6 +784,12 @@ fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
     }
+}
+
+fn rn_gpui_scroller_legacy() -> bool {
+    SCROLLER_LEGACY_HANDLER
+        .get()
+        .is_some_and(|handler| handler())
 }
 
 fn rn_gpui_on_wheel_done(id: u64, prevented: bool) {

@@ -45,6 +45,11 @@ import Keyboard from '../Keyboard/Keyboard';
 import TextInputState from '../TextInput/TextInputState';
 import View from '../View/View';
 import processDecelerationRate from './processDecelerationRate';
+import {
+  LEGACY_SCROLLER_WIDTH,
+  isLegacyScroller,
+  subscribeScrollerStyle,
+} from '@react-native-gpui/core/src-gpui/src/private/desktop/scrollerStyle';
 import Commands from './ScrollViewCommands';
 import ScrollViewContext, { HORIZONTAL, VERTICAL } from './ScrollViewContext';
 import ScrollViewStickyHeader from './ScrollViewStickyHeader';
@@ -883,7 +888,12 @@ class ScrollView extends React.Component<ScrollViewProps, ScrollViewState> {
     layoutHeight: null,
   };
 
+  _unsubscribeScrollerStyle: ?() => void = null;
+
   componentDidMount() {
+    this._unsubscribeScrollerStyle = subscribeScrollerStyle(() =>
+      this.forceUpdate(),
+    );
     this._keyboardMetrics = Keyboard.metrics();
     this._additionalScrollOffset = 0;
 
@@ -922,6 +932,7 @@ class ScrollView extends React.Component<ScrollViewProps, ScrollViewState> {
   }
 
   componentWillUnmount() {
+    this._unsubscribeScrollerStyle?.();
     if (this._subscriptionKeyboardWillShow != null) {
       this._subscriptionKeyboardWillShow.remove();
     }
@@ -1747,9 +1758,20 @@ class ScrollView extends React.Component<ScrollViewProps, ScrollViewState> {
       ? HScrollContentViewNativeComponent
       : VScrollContentViewNativeComponent;
 
+    const showsIndicator = horizontal
+      ? this.props.showsHorizontalScrollIndicator !== false
+      : this.props.showsVerticalScrollIndicator !== false;
+    const reserveScroller =
+      isLegacyScroller() &&
+      showsIndicator &&
+      this.props.scrollEnabled !== false;
     const contentContainerStyle = [
       horizontal && styles.contentContainerHorizontal,
       this.props.contentContainerStyle,
+      reserveScroller &&
+        (horizontal
+          ? { marginBottom: LEGACY_SCROLLER_WIDTH }
+          : { marginRight: LEGACY_SCROLLER_WIDTH }),
     ];
     if (__DEV__ && this.props.style !== undefined) {
       // $FlowFixMe[underconstrained-implicit-instantiation]

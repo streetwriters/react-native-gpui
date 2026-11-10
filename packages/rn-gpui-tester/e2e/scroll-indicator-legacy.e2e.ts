@@ -31,6 +31,7 @@ afterAll(() => app?.close());
 type TreeNode = {
   testID?: string;
   scrollIndicatorShown?: boolean;
+  frame?: [number, number, number, number];
   children?: TreeNode[];
 };
 
@@ -41,4 +42,13 @@ test('with legacy scrollers the thumb is always shown at rest', async () => {
       : node.children?.map(find).find(Boolean);
   const node = find((await app.tree()) as TreeNode)!;
   expect(node.scrollIndicatorShown).toBe(true);
+});
+
+test('with legacy scrollers the content is narrower than the scroll view by the scroller width from the start', async () => {
+  const find = (node: TreeNode): TreeNode | undefined =>
+    node.testID === 'indicator-scroll'
+      ? node
+      : node.children?.map(find).find(Boolean);
+  const scroll = find((await app.tree()) as TreeNode)!;
+  expect(scroll.children![0].frame![2]).toBe(scroll.frame![2] - 12);
 });

@@ -538,6 +538,8 @@ GpuiHost::GpuiHost(
       /* animatedNodesManagerProvider */ animatedNodesManagerProvider_,
       /* bindingsInstallFunc */
       [](facebook::jsi::Runtime& runtime) {
+        runtime.global().setProperty(
+            runtime, "__gpuiScrollerLegacy", rn_gpui_scroller_legacy());
         // `_requireNodeLibrary` must exist before the app bundle runs, and a
         // reload creates a new runtime, so it is installed here rather than at
         // module-registration time. ReactInstance installs the

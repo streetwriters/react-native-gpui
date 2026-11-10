@@ -23,6 +23,24 @@ fn forced() -> Option<bool> {
     }
 }
 
+/// Tells JavaScript and the windows that the style changed.
+pub(crate) fn announce(cx: &mut gpui::App) {
+    cx.refresh_windows();
+    if let Some(store) = crate::store::store_from(cx) {
+        store.read(cx).host.emit_device_event_json(
+            "gpuiDesktop:scrollerStyle",
+            &serde_json::json!({ "legacy": legacy() }).to_string(),
+        );
+    }
+}
+
+/// Sets the style, as a change of the system setting does, for tests.
+#[cfg(feature = "test-driver")]
+pub(crate) fn set_for_test(value: bool, cx: &mut gpui::App) {
+    LEGACY.store(value, Ordering::Relaxed);
+    announce(cx);
+}
+
 /// Reads the style, and on macOS calls `changed` whenever it changes.
 pub(crate) fn install(changed: impl Fn() + Send + Sync + 'static) {
     if let Some(forced) = forced() {

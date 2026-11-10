@@ -1215,6 +1215,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
+    let _ = rn_gpui_sys::SCROLLER_LEGACY_HANDLER.set(Box::new(crate::scroller_style::legacy));
     let scroller_style_tx = tx.clone();
     crate::scroller_style::install(move || {
         let _ = scroller_style_tx.send_blocking(MainEvent::ScrollerStyleChanged);
@@ -2666,7 +2667,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         }
                     }
                     MainEvent::ScrollerStyleChanged => {
-                        let _ = cx.update(|cx| cx.refresh_windows());
+                        let _ = cx.update(crate::scroller_style::announce);
                     }
                     MainEvent::WheelDone { id, prevented } => {
                         crate::wheel::done(id, prevented, cx);
