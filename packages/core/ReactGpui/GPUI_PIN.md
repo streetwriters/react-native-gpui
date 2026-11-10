@@ -18,8 +18,9 @@ so we pin by commit SHA and bump on purpose.
   layer and allocation fixes)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
-  `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and
-  `packages/rn-gpui-tester/host-components-module/desktop`
+  `packages/rn-gpui-tester/desktop` and
+  `packages/rn-gpui-tester/host-components-module/desktop`. The modules in
+  react-native-gpui-modules follow the same commit; see AGENTS.md
 - Pinned in: `Cargo.toml` `[workspace.dependencies] gpui.rev`
 
 ## Startup deferrals
