@@ -2636,14 +2636,19 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         let target = {
                             let mut target = None;
                             store.update(cx, |store, _cx| {
-                                target = store.nodes.get(&tag).cloned().map(|node| (store.window, node));
+                                target = store.nodes.get(&tag).cloned().map(|node| {
+                                    let window = store
+                                        .window_for(node.read(_cx).surface_id)
+                                        .unwrap_or(store.window);
+                                    (window, node)
+                                });
                             });
                             target
                         };
                         if let Some((window_handle, node)) = target {
-                            let _ = cx.update_window(window_handle, move |_root, _window, cx| {
+                            let _ = cx.update_window(window_handle, move |_root, window, cx| {
                                 node.update(cx, |node, cx| {
-                                    node.dispatch_host_command(command, &args, cx);
+                                    node.dispatch_host_command(command, &args, Some(window), cx);
                                 });
                             });
                         }

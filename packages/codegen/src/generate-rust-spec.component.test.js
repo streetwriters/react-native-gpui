@@ -92,6 +92,10 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'pub fn app(&mut self) -> Option<&mut gpui::App> {',
     );
+    expect(header).toContain(
+      'pub fn window(&mut self) -> Option<&mut gpui::Window> {',
+    );
+    expect(header).toContain('pub fn with_window<R>(');
   });
 
   test('generates one typed event method per event', () => {

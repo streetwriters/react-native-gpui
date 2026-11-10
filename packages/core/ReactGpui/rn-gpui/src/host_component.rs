@@ -416,6 +416,19 @@ impl Drop for AppScope {
     }
 }
 
+/// The same for the `Window` of the call, when the caller has one to give.
+#[derive(Clone, Default)]
+struct WindowSlot(Rc<Cell<Option<std::ptr::NonNull<Window>>>>);
+
+/// Ends the borrow of the `Window` a [`HostContext`] was entered with.
+pub(crate) struct WindowScope(WindowSlot);
+
+impl Drop for WindowScope {
+    fn drop(&mut self) {
+        (self.0).0.set(None);
+    }
+}
+
 /// What a host component is given besides its props.
 pub struct HostContext {
     /// The Fabric tag of the node. A command, an event or a measurement is
@@ -430,6 +443,9 @@ pub struct HostContext {
     pending_insets: Option<EdgeInsets>,
     queue: HostReportQueue,
     app: AppSlot,
+    window: WindowSlot,
+    /// The surface the node belongs to, which says which window is its own.
+    surface_id: Option<i32>,
 }
 
 impl HostContext {
@@ -443,7 +459,52 @@ impl HostContext {
             pending_insets: None,
             queue,
             app: AppSlot::default(),
+            window: WindowSlot::default(),
+            surface_id: None,
         }
+    }
+
+    /// Says which surface the node belongs to, so [`with_window`](Self::with_window)
+    /// finds the node's own window.
+    pub(crate) fn on_surface(mut self, surface_id: i32) -> Self {
+        self.surface_id = Some(surface_id);
+        self
+    }
+
+    /// Lets the component reach `window` through [`window`](Self::window) until
+    /// the returned scope drops.
+    pub(crate) fn enter_window(self, window: &mut Window) -> (Self, WindowScope) {
+        self.window.0.set(Some(std::ptr::NonNull::from(window)));
+        let scope = WindowScope(self.window.clone());
+        (self, scope)
+    }
+
+    /// The `Window` of the call, when the caller had one: a command and the
+    /// native view methods do. `None` in `create` and `update`, which run in a
+    /// mount batch; use [`with_window`](Self::with_window) there.
+    pub fn window(&mut self) -> Option<&mut Window> {
+        // SAFETY: as for `app`.
+        self.window
+            .0
+            .get()
+            .map(|mut window| unsafe { window.as_mut() })
+    }
+
+    /// Runs `f` with the node's own window and the `App`, the window of the call
+    /// if it has one and otherwise the window its surface belongs to. `None` when
+    /// there is no `App` in this call, the surface has no window yet, or that
+    /// window is busy.
+    pub fn with_window<R>(&mut self, f: impl FnOnce(&mut Window, &mut App) -> R) -> Option<R> {
+        let mut app = self.app.0.get()?;
+        if let Some(mut window) = self.window.0.get() {
+            // SAFETY: both pointers are live for the length of the call.
+            return Some(unsafe { f(window.as_mut(), app.as_mut()) });
+        }
+        // SAFETY: as for `app`.
+        let app = unsafe { app.as_mut() };
+        let surface = self.surface_id?;
+        let handle = crate::store::window_of_surface(surface)?;
+        handle.update(app, |_root, window, app| f(window, app)).ok()
     }
 
     /// Lets the component reach `app` through [`app`](Self::app) until the

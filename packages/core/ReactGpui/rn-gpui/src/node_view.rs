@@ -1102,7 +1102,8 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
-        let (host_component, host_container) = Self::create_host_component(op, &host_reports, app);
+        let (host_component, host_container) =
+            Self::create_host_component(op, &host_reports, surface_id, app);
         let mut view = Self {
             tag: op.tag,
             render_count: 0,
@@ -1381,6 +1382,7 @@ impl RNNodeView {
     fn create_host_component(
         op: &MountOp,
         host_reports: &crate::store::HostReportQueue,
+        surface_id: i32,
         app: Option<&mut gpui::App>,
     ) -> (Option<Box<dyn crate::host_component::HostObject>>, bool) {
         // SAFETY: C++ made these handles for this op and gave them to Rust; this
@@ -1401,7 +1403,8 @@ impl RNNodeView {
             }
             return (None, entry.options.container);
         };
-        let cx = crate::host_component::HostContext::queued(op.tag, host_reports.clone());
+        let cx = crate::host_component::HostContext::queued(op.tag, host_reports.clone())
+            .on_surface(surface_id);
         let (cx, _scope) = cx.enter_with(app);
         let object = entry.create(props, emitter, cx);
         if object.is_none() {
@@ -1439,22 +1442,20 @@ impl RNNodeView {
         }
         // SAFETY: as in `create_host_component`; an `Update` op's props handle is
         let props = unsafe { crate::host_component::PropsHandle::from_raw(op.host_props_handle) };
+        let (cx, view_cx) = (self.host_context(), self.host_context());
         let Some(component) = self.host_component.as_mut() else {
             return;
         };
         let mut changed = Vec::with_capacity(1 + op.host_changed_more.len());
         changed.push(op.host_changed);
         changed.extend_from_slice(&op.host_changed_more);
-        let cx = crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
         crate::counters::bump(crate::counters::Counter::HostUpdateCalls);
         {
             let (cx, _scope) = cx.enter_with(app.as_deref_mut());
             component.update(props, &changed, cx);
         }
         if let Some(surface) = &self.native_surface {
-            let cx =
-                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
-            let (cx, _scope) = cx.enter_with(app);
+            let (cx, _scope) = view_cx.enter_with(app);
             component.update_view(surface.view(), &changed, cx);
         }
     }
@@ -1466,11 +1467,10 @@ impl RNNodeView {
             return;
         }
         if self.native_surface.is_none() && visible {
+            let host_cx = self.host_context();
             let Some(component) = self.host_component.as_mut() else {
                 return;
             };
-            let host_cx =
-                crate::host_component::HostContext::queued(self.tag, self.host_reports.clone());
             let created =
                 crate::native_surface::NativeSurface::new(window, cx).and_then(|surface| {
                     let (host_cx, _scope) = host_cx.enter(&mut *cx);
@@ -4875,11 +4875,19 @@ mod host_component_node_tests {
         }
 
         fn command(&mut self, _index: u32, _args: &[HostArg], mut cx: HostContext) {
-            let Some(app) = cx.app() else {
+            if cx.app().is_none() {
                 LOG.with(|log| log.borrow_mut().push("command without app".to_string()));
                 return;
-            };
+            }
             let counter = self.counter.clone().expect("created with an app");
+            let with_window = cx.window().is_some();
+            let Some(app) = cx.app() else {
+                return;
+            };
+            LOG.with(|log| {
+                log.borrow_mut()
+                    .push(format!("command window {with_window}"))
+            });
             counter.update(app, |value, _| *value += 1);
             let value = *counter.read(app);
             LOG.with(|log| log.borrow_mut().push(format!("counter {value}")));
@@ -4897,9 +4905,10 @@ mod host_component_node_tests {
             mut cx: HostContext,
         ) -> Box<dyn HostObject> {
             let counter = cx.app().map(|app| app.new(|_| 41u32));
+            let window = cx.with_window(|_, _| ()).is_some();
             LOG.with(|log| {
                 log.borrow_mut()
-                    .push(format!("create app {}", counter.is_some()))
+                    .push(format!("create app {} window {window}", counter.is_some()))
             });
             Box::new(AppProbe { counter })
         }
@@ -4927,20 +4936,57 @@ mod host_component_node_tests {
             update.host_props_handle = TEST_HANDLE;
             update.host_changed = 1;
             node.update_from_op(&update, Some(app));
-            node.dispatch_host_command(0, &[], app);
-            node.dispatch_host_command(0, &[], app);
+            node.dispatch_host_command(0, &[], None, app);
+            node.dispatch_host_command(0, &[], None, app);
             node
         });
         assert_eq!(
             log(),
             vec![
-                "create app true".to_string(),
+                "create app true window false".to_string(),
                 "update app true".to_string(),
+                "command window false".to_string(),
                 "counter 42".to_string(),
+                "command window false".to_string(),
                 "counter 43".to_string(),
             ]
         );
         drop(node);
+    }
+
+    #[gpui::test]
+    fn a_component_reaches_the_window_of_its_surface_and_the_window_of_a_command(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        declare_host_component(
+            APP_PROBE,
+            AppProbeSpec::NAME,
+            HostComponentOptions::default(),
+        );
+        register_component(AppProbeSpec);
+        let window = cx.add_window(|_, _| gpui::Empty);
+        crate::store::note_surface_window(1, Some(window.into()));
+        LOG.with(|log| log.borrow_mut().clear());
+        let mut create = op(MountKind::Create, APP_PROBE as i32);
+        create.host_props_handle = TEST_HANDLE;
+        create.host_emitter_handle = TEST_HANDLE;
+        let mut node = cx.update(|app| RNNodeView::from_op(&create, 1, queue(), Some(app)));
+        cx.update(|app| {
+            window
+                .update(app, |_, window, app| {
+                    node.dispatch_host_command(0, &[], Some(window), app);
+                })
+                .unwrap();
+        });
+        crate::store::note_surface_window(1, None);
+        assert_eq!(
+            log(),
+            vec![
+                "create app true window true".to_string(),
+                "command window true".to_string(),
+                "counter 42".to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -4956,7 +5002,7 @@ mod host_component_node_tests {
         create.host_props_handle = TEST_HANDLE;
         create.host_emitter_handle = TEST_HANDLE;
         let _node = RNNodeView::from_op(&create, 1, queue(), None);
-        assert_eq!(log(), vec!["create app false".to_string()]);
+        assert_eq!(log(), vec!["create app false window false".to_string()]);
     }
 }
 
@@ -5571,6 +5617,7 @@ impl RNNodeView {
 
     fn host_context(&self) -> crate::host_component::HostContext {
         crate::host_component::HostContext::queued(self.tag, self.host_reports.clone())
+            .on_surface(self.surface_id)
     }
 
     /// The same, with the store handle a command can act through.
@@ -5583,6 +5630,7 @@ impl RNNodeView {
             self.host_reports.clone(),
             handle,
         )
+        .on_surface(self.surface_id)
     }
 
     pub fn scroll_offset(&self) -> Point<f32> {
@@ -5845,6 +5893,7 @@ impl RNNodeView {
         &mut self,
         command: u32,
         args: &[crate::host_component::HostArg],
+        window: Option<&mut Window>,
         cx: &mut gpui::App,
     ) {
         if self.host_component.is_none() {
@@ -5862,6 +5911,13 @@ impl RNNodeView {
         };
         if let Some(component) = self.host_component.as_mut() {
             let (host, _scope) = host.enter(&mut *cx);
+            let (host, _window_scope) = match window {
+                Some(window) => {
+                    let (host, scope) = host.enter_window(window);
+                    (host, Some(scope))
+                }
+                None => (host, None),
+            };
             component.command(command, args, host);
         }
         if !self.host_reports.is_empty() {

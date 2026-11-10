@@ -2300,6 +2300,29 @@ function renderContext(generator) {
   lines.push('        self.host.app()');
   lines.push('    }');
   lines.push('');
+  lines.push(
+    '    /// The `Window` of the call, for a command and the native view methods;',
+  );
+  lines.push(
+    '    /// `None` in `create` and `update`, which run in a mount batch.',
+  );
+  lines.push('    pub fn window(&mut self) -> Option<&mut gpui::Window> {');
+  lines.push('        self.host.window()');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    "    /// Runs `f` with the node's own window and the `App`: the window of the",
+  );
+  lines.push(
+    '    /// call if it has one, otherwise the window the node is shown in. `None`',
+  );
+  lines.push('    /// when that window is not known yet or is busy.');
+  lines.push(
+    '    pub fn with_window<R>(&mut self, f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R) -> Option<R> {',
+  );
+  lines.push('        self.host.with_window(f)');
+  lines.push('    }');
+  lines.push('');
   lines.push('    /// Reports the size this component wants, in DIPs.');
   lines.push(
     '    pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {',

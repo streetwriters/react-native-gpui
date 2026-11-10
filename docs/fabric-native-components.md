@@ -146,6 +146,8 @@ fn create(props: &BadgeProps, cx: &mut BadgeContext) -> Self {
 }
 ```
 
+- `cx.window()` returns `Option<&mut gpui::Window>` in a command and in the native view methods. A command gets the window of the view it was sent to, not the first window of the app. `create` and `update` run in a mount batch with no window of their own; `cx.with_window(|window, app| ...)` runs a closure with the node's own window and the `App` there (and anywhere else), and returns `None` when the window is not known yet or is busy. State that needs a window, such as `InputState::new(window, cx)`, is created inside it, or on the first `render`, which always has the window.
+
 A `container` component's own GPUI element hears the pointer over its React children too: hover, press, release and click reach it as they would reach a parent element, while the child's `Pressable` still gets its press. A press on a child that is not inside a container stops at the child, as before.
 
 A component can also paint above its React children, for a focus ring or a badge, by implementing `render_overlay`.

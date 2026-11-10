@@ -121,6 +121,7 @@ impl ViewStore {
         overlay_host: Entity<OverlayHost>,
     ) -> Self {
         let window = window.into();
+        note_surface_window(APP_SURFACE_ID, Some(window));
         Self {
             host,
             frame_hook,
@@ -162,10 +163,12 @@ impl ViewStore {
 
     pub fn register_window(&mut self, surface_id: i32, window: AnyWindowHandle) {
         self.windows.insert(surface_id, window);
+        note_surface_window(surface_id, Some(window));
     }
 
     pub fn unregister_window(&mut self, surface_id: i32) {
         self.windows.remove(&surface_id);
+        note_surface_window(surface_id, None);
     }
 
     pub fn window_for(&self, surface_id: i32) -> Option<AnyWindowHandle> {
@@ -3068,6 +3071,27 @@ struct ScrollAnchor {
     anchor: i32,
     start: f32,
     threshold: Option<f32>,
+}
+
+thread_local! {
+    static SURFACE_WINDOWS: std::cell::RefCell<HashMap<i32, AnyWindowHandle>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+pub(crate) fn note_surface_window(surface_id: i32, window: Option<AnyWindowHandle>) {
+    SURFACE_WINDOWS.with(|windows| {
+        let mut windows = windows.borrow_mut();
+        match window {
+            Some(window) => windows.insert(surface_id, window),
+            None => windows.remove(&surface_id),
+        };
+    });
+}
+
+/// The window a surface is shown in, read without the store, which a mount
+/// batch has leased while it runs.
+pub(crate) fn window_of_surface(surface_id: i32) -> Option<AnyWindowHandle> {
+    SURFACE_WINDOWS.with(|windows| windows.borrow().get(&surface_id).copied())
 }
 
 pub fn store_from(cx: &App) -> Option<Entity<ViewStore>> {
