@@ -52,6 +52,7 @@ async function launchViewer(
   budget?: number,
   encrypted?: boolean,
   outline?: boolean,
+  rotate?: number,
 ) {
   await app?.close();
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -68,7 +69,7 @@ async function launchViewer(
         `.local/e2e-pdf-viewer-${process.pid}-${Date.now()}.json`,
       ),
     },
-    initialProps: { pages, budget, encrypted, outline },
+    initialProps: { pages, budget, encrypted, outline, rotate },
     disableAnimations: true,
     offscreen: true,
   });
@@ -92,6 +93,7 @@ test('the viewer opens a document, zooms and goes to a page', async () => {
   await until(async () => /^ready page 1\/5/u.test(await stateText()));
   await desktopExpect(app.getByTestId('pdf-page-1')).toBeVisible();
 
+  await new Promise(resolve => setTimeout(resolve, 500));
   const fitted = await stateText();
   await app.getByTestId('zoom-in').click();
   await until(async () => (await stateText()) !== fitted);
@@ -262,4 +264,21 @@ test('the outline is read as a tree and an item goes to its page', async () => {
   await app.getByTestId('fit-page').click();
   await app.getByTestId('outline-chapter-2').click();
   await until(async () => /page 3\/5/u.test(await stateText()));
+});
+
+test('a rotated page is laid out and painted turned', async () => {
+  await launchViewer(2, undefined, false, false, 90);
+  await until(async () => /^ready page 1\/2/u.test(await stateText()));
+  await app.getByTestId('fit-page').click();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const png = PNG.sync.read(await app.getByTestId('pdf-page-1').screenshot());
+  expect(png.width / png.height).toBeCloseTo(792 / 612, 1);
+  const blueAt = (fx: number, fy: number) => {
+    const at =
+      (Math.floor(fy * png.height) * png.width + Math.floor(fx * png.width)) *
+      4;
+    return png.data[at] < 90 && png.data[at + 2] > 200;
+  };
+  expect(blueAt(0.58, 0.2)).toBe(true);
+  expect(blueAt(0.1, 0.35)).toBe(false);
 });

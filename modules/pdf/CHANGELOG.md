@@ -19,3 +19,4 @@ All notable changes to `@react-native-gpui/pdf` are listed here. Each version's 
 - `PdfViewer` takes `pageGap`, `padding` and `pageShadow` (defaults unchanged: 12, 16, no shadow); `pageShadow` draws a soft `0 2px 6px rgba(0, 0, 0, 0.2)` shadow.
 - Fix: a drag that starts before the page's text geometry has loaded now selects text once it arrives instead of doing nothing; the geometry of a page is loaded when the page appears.
 - `PdfViewer` can read the document's outline: `controller.getOutline()` returns a tree of `{ title, pageIndex, y, uri, open, bold, italic, color, children }` and `controller.goToOutlineItem(item)` scrolls to the item's page and position.
+- Pages with a `/Rotate` of 90, 180 or 270 are shown turned: the page takes its turned size, tiles, search highlights and the selection turn with it, and a pointer on a turned page selects the text under it.

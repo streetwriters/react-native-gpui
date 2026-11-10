@@ -20,6 +20,7 @@ import {
 import type { PageInfo } from '@embedpdf/core';
 import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import { PageView } from './PageView';
+import { displaySize, normalizeTurn, toDisplayPoint } from './rotation';
 import { OutlineToken, type PdfOutlineItem } from './outline';
 import { useSearch, type SearchState } from './search';
 import { createPdfSession, type PdfSession } from './session';
@@ -123,7 +124,11 @@ export function PdfViewer({
   const latest = useRef({ zoom, offset, viewport });
   latest.current = { zoom, offset, viewport };
 
-  const sizes = useMemo(() => pages.map(page => page.size), [pages]);
+  const sizes = useMemo(
+    () =>
+      pages.map(page => displaySize(page.size, normalizeTurn(page.rotation))),
+    [pages],
+  );
   const layout = useMemo(
     () => layoutPages(sizes, zoom, pageGap, padding),
     [sizes, zoom, pageGap, padding],
@@ -234,24 +239,36 @@ export function PdfViewer({
     });
   }, []);
 
+  const displayY = useCallback(
+    (pageIndex: number, x: number, y: number) => {
+      const info = pages[pageIndex];
+      if (!info) return y;
+      return toDisplayPoint({ x, y }, info.size, normalizeTurn(info.rotation))
+        .y;
+    },
+    [pages],
+  );
+
   const revealHit = useCallback(
-    (pageIndex: number, y: number) => {
+    (pageIndex: number, x: number, y: number) => {
       const box = layout.boxes[pageIndex];
       if (!box) return;
       scroller.current?.scrollTo({
         y: Math.max(
           0,
-          box.top + y * zoom - latest.current.viewport.height * 0.35,
+          box.top +
+            displayY(pageIndex, x, y) * zoom -
+            latest.current.viewport.height * 0.35,
         ),
         animated: false,
       });
     },
-    [layout, zoom],
+    [layout, zoom, displayY],
   );
 
   useEffect(() => {
     const hit = found.capability?.getActiveHit();
-    if (hit) revealHit(hit.pageIndex, hit.bounds?.y ?? 0);
+    if (hit) revealHit(hit.pageIndex, hit.bounds?.x ?? 0, hit.bounds?.y ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reveal only when the active hit changes
   }, [found.state.active, found.state.activePage, found.capability]);
 
@@ -284,7 +301,10 @@ export function PdfViewer({
         const box = layout.boxes[item.pageIndex];
         if (!box) return;
         scroller.current?.scrollTo({
-          y: Math.max(0, box.top + (item.y ?? 0) * zoom - pageGap),
+          y: Math.max(
+            0,
+            box.top + displayY(item.pageIndex, 0, item.y ?? 0) * zoom - pageGap,
+          ),
           animated: false,
         });
       },
@@ -335,6 +355,7 @@ export function PdfViewer({
       found.capability,
       pageGap,
       zoom,
+      displayY,
     ],
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);

@@ -9,7 +9,11 @@ import {
   type PdfOutlineItem,
 } from '@react-native-gpui/pdf';
 
-function buildPdf(pageCount: number, withOutline = false): Uint8Array {
+function buildPdf(
+  pageCount: number,
+  withOutline = false,
+  rotateFirst = 0,
+): Uint8Array {
   const objects: string[] = [];
   const kids: string[] = [];
   objects.push('<< /Type /Catalog /Pages 2 0 R >>');
@@ -20,7 +24,7 @@ function buildPdf(pageCount: number, withOutline = false): Uint8Array {
     kids.push(`${pageObject} 0 R`);
     const content = `BT /F1 48 Tf 240 560 Td (Page ${page + 1}) Tj ET 0.2 0.4 0.9 rg 72 400 ${100 + (page % 5) * 60} 120 re f`;
     objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageObject + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]${page === 0 && rotateFirst ? ` /Rotate ${rotateFirst}` : ''} /Contents ${pageObject + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
     );
     objects.push(
       `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
@@ -81,11 +85,13 @@ export default function PdfViewerFixture({
   budget,
   encrypted,
   outline,
+  rotate,
 }: {
   pages?: number;
   budget?: number;
   encrypted?: boolean;
   outline?: boolean;
+  rotate?: number;
 }) {
   const bytes = useMemo(
     () =>
@@ -93,8 +99,8 @@ export default function PdfViewerFixture({
         ? Uint8Array.from(globalThis.atob(ENCRYPTED_PDF_BASE64), c =>
             c.charCodeAt(0),
           )
-        : buildPdf(pages, outline),
-    [pages, encrypted, outline],
+        : buildPdf(pages, outline, rotate),
+    [pages, encrypted, outline, rotate],
   );
   const controller = useRef<PdfViewerController>(null);
   const [state, setState] = useState<PdfViewerState | null>(null);
@@ -149,7 +155,9 @@ export default function PdfViewerFixture({
   }, []);
   return (
     <View testID="pdf-viewer-fixture" style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', gap: 6, padding: 6 }}>
+      <View
+        style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 6 }}
+      >
         <Button id="zoom-in" onPress={() => controller.current?.zoomIn()} />
         <Button id="zoom-out" onPress={() => controller.current?.zoomOut()} />
         <Button id="fit-width" onPress={() => controller.current?.fitWidth()} />
