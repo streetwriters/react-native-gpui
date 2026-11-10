@@ -42,6 +42,9 @@ export type NativeInstance = {
 
 type Op = unknown[];
 
+/** What the last commit of any native root cost, for measuring. */
+export const nativeRootStats = { ops: 0, bytes: 0, ms: 0 };
+
 export type NativeRootHandle = {
   readonly rootId: number;
   render(element: React.ReactNode): void;
@@ -282,16 +285,21 @@ export function createNativeRoot(
     if (batch.ops.length > 0 && apply != null) {
       const ops = batch.ops;
       batch.ops = [];
-      apply(rootId, JSON.stringify(ops));
+      const payload = JSON.stringify(ops);
+      nativeRootStats.ops = ops.length;
+      nativeRootStats.bytes = payload.length;
+      apply(rootId, payload);
     }
   };
 
   return {
     rootId,
     render(element) {
+      const started = Date.now();
       reconciler.updateContainerSync(element, fiberRoot, null, null);
       reconciler.flushSyncWork();
       flush();
+      nativeRootStats.ms = Date.now() - started;
     },
     dispatch(event) {
       const instance = byId.get(event.id);

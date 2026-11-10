@@ -90,7 +90,14 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
                 tag,
             }
         });
+        let started = std::time::Instant::now();
+        let count = ops.len() as u64;
         state.tree.apply(ops, cx);
+        crate::counters::add(crate::counters::Counter::NativeOpsApplied, count);
+        crate::counters::add(
+            crate::counters::Counter::NativeApplyMicros,
+            started.elapsed().as_micros() as u64,
+        );
         state.tag.get()
     });
     if let Some(node) = tag.and_then(|tag| store.read(cx).nodes.get(&tag).cloned()) {
@@ -121,11 +128,16 @@ impl ComponentRenderer for NativeRootRenderer {
             let mut trees = trees.borrow_mut();
             let state = trees.get_mut(&root)?;
             state.tag.set(Some(node.tag));
+            let started = std::time::Instant::now();
             let ids: Vec<_> = state.tree.roots().to_vec();
             let elements: Vec<AnyElement> = ids
                 .into_iter()
                 .map(|id| state.tree.render(id, window, cx))
                 .collect();
+            crate::counters::add(
+                crate::counters::Counter::NativeRenderMicros,
+                started.elapsed().as_micros() as u64,
+            );
             Some(
                 div()
                     .absolute()

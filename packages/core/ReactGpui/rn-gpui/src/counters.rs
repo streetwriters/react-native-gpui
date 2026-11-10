@@ -16,6 +16,12 @@ pub(crate) enum Counter {
     HostUpdateCalls,
     /// Reports the store's delivery point applied.
     HostReportsDelivered,
+    /// Operations applied to native trees.
+    NativeOpsApplied,
+    /// Microseconds spent applying them.
+    NativeApplyMicros,
+    /// Microseconds spent building native tree elements.
+    NativeRenderMicros,
 }
 
 #[cfg(feature = "test-driver")]
@@ -23,8 +29,11 @@ mod enabled {
     use super::Counter;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    const COUNT: usize = 5;
+    const COUNT: usize = 8;
     static VALUES: [AtomicU64; COUNT] = [
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
         AtomicU64::new(0),
         AtomicU64::new(0),
         AtomicU64::new(0),

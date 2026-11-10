@@ -156,6 +156,12 @@ export const screens = [
     fixture: 'SurfaceProbeFixture',
   },
   {
+    id: 'native-root-load',
+    title: 'A native tree of a thousand instances',
+    group: 'Views',
+    fixture: 'NativeRootLoadFixture',
+  },
+  {
     id: 'native-root',
     title: 'A native tree built by a second reconciler',
     group: 'Views',

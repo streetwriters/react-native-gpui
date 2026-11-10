@@ -231,6 +231,9 @@ async fn serve_commands(
                     "hostPropsBytesCopied": read(Counter::HostPropsBytesCopied),
                     "hostUpdateCalls": read(Counter::HostUpdateCalls),
                     "hostReportsDelivered": read(Counter::HostReportsDelivered),
+                    "nativeOpsApplied": read(Counter::NativeOpsApplied),
+                    "nativeApplyMicros": read(Counter::NativeApplyMicros),
+                    "nativeRenderMicros": read(Counter::NativeRenderMicros),
                 });
                 if params.get("reset").and_then(Value::as_bool).unwrap_or(false) {
                     reset();

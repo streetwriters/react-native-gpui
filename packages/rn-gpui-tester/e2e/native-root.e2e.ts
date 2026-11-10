@@ -54,6 +54,53 @@ async function press(x: number, y: number) {
   await app.waitForIdle();
 }
 
+test('measures: what one commit of a thousand-instance native tree costs', async () => {
+  await app.close();
+  app = await launchApp({
+    bundle: path.resolve(
+      'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    ),
+    env: {
+      RN_GPUI_MODULE: 'NativeRootLoadFixture',
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+    },
+    initialProps: { count: 1000 },
+    disableAnimations: true,
+    offscreen: true,
+  });
+  await app.setWindowSize(600, 500);
+  await desktopExpect(app.getByTestId('load-root')).toBeVisible();
+  await app.hostCounters({ reset: true });
+  const samples: string[] = [];
+  for (let step = 0; step < 5; step++) {
+    await app.getByTestId('load-tick').click();
+    await app.waitForIdle();
+    samples.push(await app.getByTestId('load-stats').textContent());
+  }
+  const counters = await app.hostCounters();
+  console.log('per commit (ops,bytes,js ms):', samples.join(' | '));
+  console.log(
+    `native: ${counters.nativeOpsApplied / 5} ops, apply ${(counters.nativeApplyMicros / 5 / 1000).toFixed(2)} ms, render ${(counters.nativeRenderMicros / 5 / 1000).toFixed(2)} ms per commit`,
+  );
+  expect(counters.nativeOpsApplied).toBeGreaterThanOrEqual(5000);
+  await app.close();
+  app = await launchApp({
+    bundle: path.resolve(
+      'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    ),
+    env: {
+      RN_GPUI_MODULE: 'NativeRootFixture',
+      RN_GPUI_DEV_PORT: '1',
+      RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+    },
+    disableAnimations: true,
+    offscreen: true,
+  });
+  await app.setWindowSize(600, 500);
+  await desktopExpect(app.getByTestId('native-root')).toBeVisible();
+});
+
 test('a native tree is laid out by gpui inside the box Yoga sized', async () => {
   const [root] = await app.query('testID', 'native-root', true);
   expect(root.frame.width).toBe(240);

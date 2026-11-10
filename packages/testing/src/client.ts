@@ -541,6 +541,10 @@ export class DesktopApp {
     hostPropsBytesCopied: number;
     hostUpdateCalls: number;
     hostReportsDelivered: number;
+    /** Operations applied to native trees, and the microseconds spent applying them and building their elements. */
+    nativeOpsApplied: number;
+    nativeApplyMicros: number;
+    nativeRenderMicros: number;
   }> {
     return this.request('hostCounters', { reset: options.reset ?? false });
   }
