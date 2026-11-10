@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'menu-under-pointer',
+    title: 'Menu item under a stationary pointer',
+    group: 'Input',
+    fixture: 'MenuUnderPointerFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',

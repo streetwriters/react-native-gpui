@@ -339,6 +339,11 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'menu-under-pointer': props =>
+    React.createElement(
+      require('./components/MenuUnderPointerFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>
