@@ -72,7 +72,7 @@ impl ComponentRenderer for NativeSlotRenderer {
 
 struct Placeholder {
     emitter: NativeEmitter,
-    reported_width: Rc<Cell<f32>>,
+    reported: Rc<Cell<(f32, f32)>>,
 }
 
 fn slot_id(props: &Map<String, Value>) -> i64 {
@@ -83,7 +83,7 @@ impl NativeComponent for Placeholder {
     fn create(_props: &Map<String, Value>, cx: &mut NativeContext) -> Self {
         Self {
             emitter: cx.emitter(),
-            reported_width: Rc::new(Cell::new(-1.0)),
+            reported: Rc::new(Cell::new((-1.0, -1.0))),
         }
     }
 
@@ -108,9 +108,15 @@ impl NativeComponent for Placeholder {
             .map(|host| host.read(cx).frame.h)
             .unwrap_or(0.0);
         let emitter = self.emitter.clone();
-        let reported = self.reported_width.clone();
+        let reported = self.reported.clone();
+        let fill = props.get("fill").and_then(Value::as_bool).unwrap_or(false);
         let measured = host.clone();
-        let mut element = div().relative().w_full().h(px(height));
+        let mut element = div().relative().w_full().min_h(px(0.0)).overflow_hidden();
+        element = if fill {
+            element.flex_grow(1.0).flex_shrink(1.0).flex_basis(px(0.0))
+        } else {
+            element.flex_shrink(1.0).h(px(height))
+        };
         if let Some(host) = host {
             element = element.child(host);
         }
@@ -134,8 +140,10 @@ impl NativeComponent for Placeholder {
                                 }
                             }
                         }
-                        if (reported.get() - width).abs() > 0.01 {
-                            reported.set(width);
+                        let (last_width, last_height) = reported.get();
+                        let height_matters = fill && (last_height - height).abs() > 0.01;
+                        if (last_width - width).abs() > 0.01 || height_matters {
+                            reported.set((width, height));
                             emitter
                                 .emit("onSlotLayout", json!({ "width": width, "height": height }));
                         }

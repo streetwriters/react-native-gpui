@@ -22,7 +22,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(600, 700);
+  await app.setWindowSize(600, 900);
   await desktopExpect(app.getByTestId('slot-content')).toBeVisible();
 });
 
@@ -125,6 +125,36 @@ test('removing the slot removes its content and the native components after it m
   await expect
     .poll(async () => (await frameOf('slot-below')).y, { timeout: 5000 })
     .toBeLessThan(before.y);
+});
+
+test('a slot in a native parent of fixed height gets that height, and a ScrollView in it scrolls', async () => {
+  const panel = await frameOf('slot-panel-root');
+  await expect
+    .poll(async () => (await frameOf('slot-scroll')).height, { timeout: 5000 })
+    .toBe(80);
+  const scroll = await frameOf('slot-scroll');
+  expect(Math.round(scroll.y - panel.y)).toBe(20);
+  const [node] = await app.query('testID', 'slot-scroll', true);
+  await app.scroll(node.tag, 0, -60);
+  await app.waitForIdle();
+  const first = await frameOf('slot-row-3');
+  expect(Math.round(first.y - scroll.y)).toBe(0);
+  await pressCentre('slot-row-3');
+  expect(await log()).toContain('row3,');
+});
+
+test('a slot taller than the height its native parent allows is clipped there', async () => {
+  const image = PNG.sync.read(
+    await app.getByTestId('slot-clip-root').screenshot(),
+  );
+  const scale = image.width / 240;
+  const at = (y: number) => {
+    const index =
+      (Math.round(y * scale) * image.width + Math.round(10 * scale)) * 4;
+    return image.data[index + 2] > 200 && image.data[index] < 60;
+  };
+  expect(at(30)).toBe(true);
+  expect(at(70)).toBe(false);
 });
 
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {

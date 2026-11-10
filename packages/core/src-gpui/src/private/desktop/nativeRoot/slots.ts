@@ -5,6 +5,9 @@ export type SlotContent = {
   children: React.ReactNode;
   /** The width the native layout gave the slot; zero until it has. */
   width: number;
+  /** The height the native layout gave a `fill` slot; zero until it has. */
+  height: number;
+  fill: boolean;
   style?: ViewStyle;
 };
 

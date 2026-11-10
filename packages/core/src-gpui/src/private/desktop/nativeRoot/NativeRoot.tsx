@@ -66,6 +66,8 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
             current != null &&
             current.children === content.children &&
             current.width === content.width &&
+            current.height === content.height &&
+            current.fill === content.fill &&
             current.style === content.style
           ) {
             return previous;
@@ -121,6 +123,9 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
           style={[
             { position: 'absolute', left: 0, top: 0 },
             content.width > 0 ? { width: content.width } : null,
+            content.fill && content.height > 0
+              ? { height: content.height }
+              : null,
             content.style,
           ]}
         >

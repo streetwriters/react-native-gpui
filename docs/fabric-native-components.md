@@ -222,6 +222,8 @@ In tests, the instances appear in `app.tree()` under the node that shows them an
 
 The content is as wide as the tree's layout makes the slot and as high as it needs to be, and the native components after it move with its height. The tree paints, clips and hit-tests it where the slot is. The children are rendered by the React Native tree the `NativeRoot` is in, so contexts from there reach them, and contexts provided inside the native tree reach them as well. A `NativeRoot` may be nested in a slot.
 
+A slot that is as high as its content is clipped where its native parent's layout makes it shorter. For a slot that should fill a space the parent sizes (a tab, a dialog body) or that holds a `ScrollView` or a list, use `<NativeSlot fill>`: its height is the one the layout gives it, and the content is laid out in that.
+
 ## 4. Use it from JavaScript
 
 ```tsx

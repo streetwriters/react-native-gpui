@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
@@ -71,6 +71,39 @@ export default function NativeSlotFixture() {
             </Box>
           </NativeRoot>
         </View>
+        <NativeRoot
+          testID="slot-panel-root"
+          style={{ width: 240, height: 100 }}
+        >
+          <Box direction="column" height={100}>
+            {red('panel-header')}
+            <NativeSlot fill>
+              <ScrollView testID="slot-scroll" style={{ flex: 1 }}>
+                {Array.from({ length: 30 }, (_, index) => (
+                  <Pressable
+                    key={index}
+                    testID={`slot-row-${index}`}
+                    onPress={() => note(`row${index}`)}
+                    style={{
+                      height: 20,
+                      backgroundColor: index % 2 ? '#aaa' : '#ccc',
+                    }}
+                  />
+                ))}
+              </ScrollView>
+            </NativeSlot>
+          </Box>
+        </NativeRoot>
+        <NativeRoot testID="slot-clip-root" style={{ width: 240, height: 80 }}>
+          <Box direction="column" height={60}>
+            <NativeSlot>
+              <View
+                testID="slot-tall"
+                style={{ height: 200, backgroundColor: '#0000ff' }}
+              />
+            </NativeSlot>
+          </Box>
+        </NativeRoot>
         <Pressable
           testID="slot-toggle"
           onPress={() => setShown(value => !value)}
