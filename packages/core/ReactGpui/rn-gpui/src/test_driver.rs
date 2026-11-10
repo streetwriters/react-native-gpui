@@ -377,6 +377,11 @@ async fn serve_commands(
                 }
                 }
             }
+            "setScrollerStyle" => {
+                let legacy = params.get("legacy").and_then(Value::as_bool).unwrap_or(false);
+                cx.update(|cx| crate::scroller_style::set_for_test(legacy, cx));
+                json!({"legacy": legacy})
+            }
             "setWindowActive" => {
                 let key = params.get("windowId").and_then(Value::as_u64).unwrap_or(1) as u32;
                 let active = params.get("active").and_then(Value::as_bool).unwrap_or(true);

@@ -793,6 +793,14 @@ export class DesktopApp {
    * asking the operating system, so a test does not depend on which application
    * is in front. The window ignores real activation changes afterwards.
    */
+  /**
+   * Makes scrollers legacy (always shown, taking room from the content) or
+   * overlay, as a change of the system's scroller style does.
+   */
+  async setScrollerStyle(style: 'legacy' | 'overlay'): Promise<void> {
+    await this.request('setScrollerStyle', { legacy: style === 'legacy' });
+  }
+
   async setWindowActive(windowId: number, active = true): Promise<void> {
     await this.request('setWindowActive', { windowId, active });
   }

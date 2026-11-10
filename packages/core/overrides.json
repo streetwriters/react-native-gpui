@@ -248,6 +248,10 @@
     },
     {
       "type": "platform",
+      "file": "src-gpui/src/private/desktop/scrollerStyle.ts"
+    },
+    {
+      "type": "platform",
       "file": "src-gpui/src/private/desktop/network.ts"
     },
     {

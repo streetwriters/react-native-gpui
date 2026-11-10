@@ -150,10 +150,22 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'scroll-reserve',
+    title: 'Scroller width reserved in the layout',
+    group: 'Views',
+    fixture: 'ScrollReserveFixture',
+  },
+  {
     id: 'menu-under-pointer',
     title: 'Menu item under a stationary pointer',
     group: 'Input',
     fixture: 'MenuUnderPointerFixture',
+  },
+  {
+    id: 'hover-rows',
+    title: 'Hover rows in a ScrollView',
+    group: 'Views',
+    fixture: 'HoverRowsFixture',
   },
   {
     id: 'wheel',

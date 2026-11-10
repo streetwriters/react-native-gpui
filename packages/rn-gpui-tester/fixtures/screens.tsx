@@ -346,9 +346,19 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'scroll-reserve': props =>
+    React.createElement(
+      require('./components/ScrollReserveFixture').default,
+      props,
+    ),
   'menu-under-pointer': props =>
     React.createElement(
       require('./components/MenuUnderPointerFixture').default,
+      props,
+    ),
+  'hover-rows': props =>
+    React.createElement(
+      require('./components/HoverRowsFixture').default,
       props,
     ),
   wheel: props =>
