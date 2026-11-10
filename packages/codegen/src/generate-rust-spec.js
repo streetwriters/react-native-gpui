@@ -1584,6 +1584,24 @@ export class ComponentGenerator {
           kind: 'enum',
           typeName: this.enumFor(fieldName, annotation).name,
         };
+      case 'UnionTypeAnnotation': {
+        const options = (annotation.types ?? []).map(option => option.value);
+        if (
+          options.length === 0 ||
+          options.some(option => typeof option !== 'string')
+        ) {
+          this.fail(
+            `event ${payload} field ${fieldName}`,
+            'a union in an event payload must be a union of string literals',
+          );
+        }
+        const declared = this.enumFor(fieldName, {
+          type: 'StringEnumTypeAnnotation',
+          options,
+        });
+        declared.eventEnum = true;
+        return { kind: 'enum', typeName: declared.name };
+      }
       case 'ObjectTypeAnnotation': {
         const name = this.claim(`${payload}${pascal(fieldName)}`);
         const declared = {

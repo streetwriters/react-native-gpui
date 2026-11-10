@@ -177,6 +177,7 @@ class ComponentCpp {
       });
     }
     for (const declared of generator.enums) {
+      if (declared.eventEnum) continue;
       const type = `rr::${this.enumCppName(declared)}`;
       this.push(`static_assert(sizeof(${type}) == sizeof(int32_t));`);
       for (const member of declared.members) {

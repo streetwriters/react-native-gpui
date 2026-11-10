@@ -475,3 +475,12 @@ export default codegenNativeComponent<NativeProps>('Many', { interfaceOnly: true
     }, 240_000);
   },
 );
+
+describe('an enum in an event payload', () => {
+  test('is filled from its discriminant, and no layout check names a type for it', () => {
+    expect(cpp).toContain(
+      'rn_payload.speed = static_cast<decltype(rn_payload.speed)>(',
+    );
+    expect(cpp).not.toContain('FixtureChartSpeed');
+  });
+});

@@ -503,7 +503,11 @@ const nativeSpec = `import {
   type ViewProps,
 } from 'react-native';
 
-type Reported = Readonly<{ kind: string; level: CodegenTypes.Int32 }>;
+type Reported = Readonly<{
+  kind: string;
+  level: CodegenTypes.Int32;
+  speed: 'fast' | 'slow';
+}>;
 
 export interface NativeProps extends ViewProps {
   title: string;
@@ -630,5 +634,17 @@ describe('a component spec is also a component of a native tree', () => {
     expect(header).toContain(
       'pub fn from_json(source: &Map<String, Value>) -> Self {',
     );
+  });
+
+  test('sends an enum field of an event payload, as its discriminant to C++ and its name to a native tree', () => {
+    expect(generated).toContain('pub speed: NativeFixtureSpeed,');
+    expect(generated).toContain('pub enum NativeFixtureSpeed {');
+    expect(generated).toContain('Fast = 0,');
+    expect(generated).toContain('Slow = 1,');
+    expect(generated).toContain(
+      'object.insert("speed".to_string(), self.speed.to_json());',
+    );
+    expect(generated).toContain('Self::Slow => Value::from("slow"),');
+    expect(generated).toContain('speed.as_raw()');
   });
 });
