@@ -479,6 +479,74 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
     }
 }
 
+/// A popover in the native tree fixture: a button, and while `open` a panel
+/// over everything else that holds its children. A press outside the panel
+/// reports `onDismiss`.
+struct NativePopover {
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativePopover {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        Self {
+            emitter: cx.emitter(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let open = props.get("open").and_then(serde_json::Value::as_bool) == Some(true);
+        let width = props
+            .get("width")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(200.0) as f32;
+        let emitter = self.emitter.clone();
+        let button = div()
+            .id("native-popover-button")
+            .h(px(20.0))
+            .bg(rgb(0x666666))
+            .on_click({
+                let emitter = emitter.clone();
+                move |_, _, _| emitter.emit("onToggle", serde_json::json!({}))
+            });
+        let mut root = div().relative().child(button);
+        if open {
+            root = root.child(gpui::deferred(
+                gpui::anchored().anchor(gpui::Anchor::TopLeft).child(
+                    div()
+                        .id("native-popover-panel")
+                        .occlude()
+                        .w(px(width))
+                        .bg(rgb(0xeeeeee))
+                        .flex()
+                        .flex_col()
+                        .on_mouse_down_out(move |_, _, _| {
+                            emitter.emit("onDismiss", serde_json::json!({}))
+                        })
+                        .children(children),
+                ),
+            ));
+        }
+        root.into_any_element()
+    }
+}
+
 /// A line of text in the native tree fixture.
 struct NativeText;
 
@@ -535,6 +603,9 @@ impl react_native_gpui::native_tree::NativeComponent for NativeText {
 pub fn rn_gpui_register() {
     react_native_gpui::native_tree::register_native_component::<NativeBox>("FixtureNativeBox");
     react_native_gpui::native_tree::register_native_component::<NativeText>("FixtureNativeText");
+    react_native_gpui::native_tree::register_native_component::<NativePopover>(
+        "FixtureNativePopover",
+    );
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());

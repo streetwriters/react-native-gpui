@@ -1,9 +1,17 @@
 import React, { createContext, useContext, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
 const Box = 'FixtureNativeBox' as unknown as NativeElement;
+const Popover = 'FixtureNativePopover' as unknown as NativeElement;
 
 const Where = createContext('none');
 
@@ -21,6 +29,8 @@ export default function NativeSlotFixture() {
   const [lines, setLines] = useState(1);
   const [shown, setShown] = useState(true);
   const [typed, setTyped] = useState('');
+  const [popover, setPopover] = useState(false);
+  const [modal, setModal] = useState(false);
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
     <Box
@@ -142,6 +152,57 @@ export default function NativeSlotFixture() {
           </Box>
         </NativeRoot>
         <Text testID="slot-typed">{`typed:${typed}`}</Text>
+        <NativeRoot
+          testID="slot-popover-root"
+          style={{ width: 240, height: 40 }}
+        >
+          <Box direction="column">
+            <Popover
+              testID="slot-popover"
+              open={popover}
+              onToggle={() => setPopover(value => !value)}
+              onDismiss={() => {
+                note('dismiss');
+                setPopover(false);
+              }}
+            >
+              <NativeSlot>
+                <Pressable
+                  testID="slot-popover-press"
+                  onPress={() => note('popover-press')}
+                  style={{ height: 30, backgroundColor: '#ff00ff' }}
+                />
+              </NativeSlot>
+            </Popover>
+          </Box>
+        </NativeRoot>
+        <Pressable testID="slot-modal-open" onPress={() => setModal(true)}>
+          <Text>modal</Text>
+        </Pressable>
+        <Modal
+          visible={modal}
+          transparent
+          onRequestClose={() => setModal(false)}
+        >
+          <View style={{ padding: 20 }}>
+            <NativeRoot
+              testID="slot-modal-root"
+              style={{ width: 200, height: 60 }}
+            >
+              <Box direction="column">
+                <Box
+                  testID="slot-modal-box"
+                  color={0x00aa00}
+                  height={40}
+                  onPress={() => {
+                    note('modal-box');
+                    setModal(false);
+                  }}
+                />
+              </Box>
+            </NativeRoot>
+          </View>
+        </Modal>
         <Pressable
           testID="slot-toggle"
           onPress={() => setShown(value => !value)}

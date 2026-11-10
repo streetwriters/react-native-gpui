@@ -110,7 +110,4 @@ describe('cells that wait for a later step', () => {
   test.todo(
     'a native text field in a native tree: typing, IME and selection (needs a native text component)',
   );
-  test.todo(
-    'overlays: a React Native popover from a native view, and a native popover from a React Native view (step 5)',
-  );
 });

@@ -22,7 +22,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(600, 900);
+  await app.setWindowSize(600, 1600);
   await desktopExpect(app.getByTestId('slot-content')).toBeVisible();
 });
 
@@ -198,6 +198,45 @@ test('focus: Tab moves from a native component into the slot and out of it', asy
   await app.press('shift-Tab');
   await app.press('F7');
   await expect.poll(log, { timeout: 5000 }).toContain('owner:f7,');
+});
+
+test('overlays: React Native content in a native popover takes presses while the popover is open, and a press outside dismisses it', async () => {
+  const count = async () =>
+    ((await log()).match(/popover-press,/g) ?? []).length;
+  await app.waitForIdle();
+  const popover = (await frameOf('slot-popover'))!;
+  const top = (await app.menuBarState()).inset;
+  const press = async (x: number, y: number) => {
+    const at = { x, y: y + top };
+    await app.mouseMove(at);
+    await app.mouseDown(at);
+    await app.mouseUp(at);
+    await app.waitForIdle();
+  };
+  await press(popover.x + 10, popover.y + 5);
+  await expect
+    .poll(async () => (await frameOf('slot-popover-press'))?.width ?? 0, {
+      timeout: 5000,
+    })
+    .toBeGreaterThan(0);
+  await pressCentre('slot-popover-press');
+  await expect.poll(count, { timeout: 5000 }).toBe(1);
+  const outside = (await frameOf('slot-log'))!;
+  await press(outside.x + 2, outside.y + 2);
+  await expect.poll(log, { timeout: 5000 }).toContain('dismiss,');
+  await pressCentre('slot-popover-press');
+  expect(await count()).toBe(1);
+});
+
+test('overlays: a native tree in a React Native modal takes presses', async () => {
+  await app.getByTestId('slot-modal-open').click();
+  await expect
+    .poll(async () => (await frameOf('slot-modal-box'))?.width ?? 0, {
+      timeout: 5000,
+    })
+    .toBeGreaterThan(0);
+  await pressCentre('slot-modal-box');
+  await expect.poll(log, { timeout: 5000 }).toContain('modal-box,');
 });
 
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
