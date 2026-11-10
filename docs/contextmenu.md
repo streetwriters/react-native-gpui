@@ -77,7 +77,7 @@ The platform's own menu. It opens without JavaScript, so it works while JavaScri
 
 ### `custom`
 
-A menu drawn by React in the window, which looks the same on every platform and can be themed.
+A menu drawn by React in the window, which looks the same on every platform and can be themed. It is at most 80% of the window's height; a menu with more rows scrolls with the wheel, and the arrow keys, Home and End keep the highlighted row in view. A submenu stays anchored to its row while the list is scrolled.
 
 ---
 

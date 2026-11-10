@@ -339,6 +339,8 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'long-menu': props =>
+    React.createElement(require('./components/LongMenuFixture').default, props),
   'xhr-headers': props =>
     React.createElement(
       require('./components/XhrHeadersFixture').default,
