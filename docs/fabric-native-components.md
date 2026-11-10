@@ -206,6 +206,26 @@ A batch is an array of `["create", id, type, props]`, `["append", parent, child]
 
 In tests, the instances appear in `app.tree()` under the node that shows them and `getByTestId`, `getByText` and `getByRole` find them; give a native component the props `testID`, `accessibilityRole` and `accessibilityLabel` for that and for the accessibility tree. Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
 
+#### One component for both
+
+A component generated from a spec (the `FooSpec` trait of section 3) also runs in a `NativeRoot`, with the same `impl`:
+
+```rust
+register_component(foo_component::<Foo>());
+FooComponent::<Foo>::register_native_tree();
+```
+
+```tsx
+<NativeRoot>
+  <Foo ref={foo} title="Hello" onFooEvent={event => use(event.nativeEvent)}>
+    <Bar />
+  </Foo>
+</NativeRoot>;
+foo.current.command('focus', 2);
+```
+
+In a native tree the component's props come from the JSON the tree's instance has, through the accessors it already has, so there is no second set of methods. `cx.children()` holds the elements of its children, which the component places in its own element (a Fabric node's children are painted by core around the component instead, so it is empty there), events arrive in JavaScript as `{ nativeEvent }` like a Fabric node's, and commands are called by name on the instance's ref. What only a Fabric node has (`cx.host()`, the window of a mount batch, intrinsic size and insets, `measure`, a native surface) is absent or ignored in a native tree. A spec with props that are views over C++ structures (images, structs, arrays of structs) is Fabric-only.
+
 #### NativeSlot
 
 `NativeSlot` puts React Native content inside a native tree:

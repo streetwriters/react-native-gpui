@@ -121,11 +121,15 @@ describe('a component spec becomes the generated API', () => {
   });
 
   test('queues an event with an owned payload instead of sending it mid-call', () => {
-    expect(header).toContain('self.context.host.queue_event(move || {');
-    expect(header).toContain('let emitter = self.context.emitter.clone();');
+    expect(header).toContain(
+      'self.context.host.as_mut().expect("a Fabric node has a host context").queue_event(move || {',
+    );
+    expect(header).toContain(
+      'let emitter = self.context.emitter.clone().expect("a Fabric node has an emitter");',
+    );
     expect(header).toContain('rn_gpui_fixture_chart_event_point_selected(');
     expect(header).toContain(
-      'pub struct FixtureChartContext {\n    host: HostContext,\n    emitter: EmitterHandle,\n}',
+      'pub struct FixtureChartContext {\n    host: Option<HostContext>,\n    emitter: Option<EmitterHandle>,\n    native: Option<NativeCall>,\n}',
     );
   });
 
@@ -140,7 +144,9 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'pub fn event_sender(&self) -> FixtureChartEventSender',
     );
-    expect(header).toContain('self.host.send(move || {');
+    expect(header).toContain(
+      'self.host.as_ref().expect("a Fabric node has an event sender").send(move || {',
+    );
     expect(header).toContain(
       'pub fn point_selected(&self, value: OnPointSelected)',
     );
@@ -486,6 +492,131 @@ describe('the generator fails, naming the prop', () => {
   test('for a prop type it does not know', () => {
     expect(() => generateFrom(withProps('  host?: HostObject;'))).toThrow(
       /Unknown prop type for "host": "HostObject"/u,
+    );
+  });
+});
+
+const nativeSpec = `import {
+  codegenNativeCommands,
+  codegenNativeComponent,
+  type CodegenTypes,
+  type ViewProps,
+} from 'react-native';
+
+type Reported = Readonly<{ kind: string; level: CodegenTypes.Int32 }>;
+
+export interface NativeProps extends ViewProps {
+  title: string;
+  size?: CodegenTypes.Double;
+  count?: CodegenTypes.Int32;
+  active?: boolean;
+  mode?: CodegenTypes.WithDefault<'compact' | 'roomy', 'compact'>;
+  values?: ReadonlyArray<CodegenTypes.Double>;
+  onReported?: CodegenTypes.DirectEventHandler<Reported>;
+  onPlain?: CodegenTypes.DirectEventHandler<null>;
+}
+
+export interface NativeFixtureCommands {
+  ping: (
+    ref: React.ComponentRef<typeof NativeFixture>,
+    label: string,
+    times: CodegenTypes.Int32,
+  ) => void;
+}
+
+export const Commands = codegenNativeCommands<NativeFixtureCommands>({
+  supportedCommands: ['ping'],
+});
+
+const NativeFixture: any = null;
+
+export default codegenNativeComponent<NativeProps>('NativeFixture', {
+  interfaceOnly: true,
+});
+`;
+
+describe('a component spec is also a component of a native tree', () => {
+  const generated = generateFrom(nativeSpec);
+
+  test('reads its props from the JSON of a native tree instance, with the accessors it has for C++', () => {
+    expect(generated).toContain(
+      'pub fn from_json(json: &Map<String, Value>) -> Self {',
+    );
+    expect(generated).toContain('if !self.json.is_null() {');
+    expect(generated).toContain(
+      'return json.get("title").and_then(Value::as_str).unwrap_or_default();',
+    );
+    expect(generated).toContain(
+      'return json.get("size").and_then(Value::as_f64).unwrap_or_default() as f64;',
+    );
+    expect(generated).toContain(
+      'return json.get("count").and_then(Value::as_i64).unwrap_or_default() as i32;',
+    );
+    expect(generated).toContain(
+      'return json.get("active").and_then(Value::as_bool).unwrap_or_default();',
+    );
+    expect(generated).toContain('return NativeFixtureMode::from_json(');
+    expect(generated).toContain('return self.native_values.get_or_init(|| {');
+  });
+
+  test('names the props an update changed by their JavaScript names', () => {
+    expect(generated).toContain(
+      'pub fn from_names(names: &[String]) -> Self {',
+    );
+    expect(generated).toContain('"title" => out[0] |= 1u64 << 0,');
+    expect(generated).toContain('"size" => out[0] |= 1u64 << 1,');
+  });
+
+  test('sends an event of a native tree as the payload of a native event', () => {
+    expect(generated).toContain(
+      'if let Some(native) = self.context.native.as_ref().map(|call| &call.emitter) {',
+    );
+    expect(generated).toContain(
+      'event.insert("nativeEvent".to_string(), value.to_json());',
+    );
+    expect(generated).toContain(
+      'native.emit("onReported", Value::Object(event));',
+    );
+    expect(generated).toContain('pub fn to_json(&self) -> Value {');
+    expect(generated).toContain(
+      'event.insert("nativeEvent".to_string(), Value::Object(Map::new()));',
+    );
+    expect(generated).toContain('if let Some(native) = self.native.as_ref() {');
+  });
+
+  test('gives the component its children and tells it apart from a Fabric node', () => {
+    expect(generated).toContain(
+      'pub fn children(&mut self) -> Vec<AnyElement> {',
+    );
+    expect(generated).toContain(
+      'pub fn new_native(call: NativeCall) -> Self {',
+    );
+    expect(generated).toContain(
+      'impl<T: NativeFixtureSpec> NativeComponent for NativeFixtureNative<T> {',
+    );
+    expect(generated).toContain(
+      'children: Vec<AnyElement>,\n        window: &mut Window,\n        app: &mut gpui::App,',
+    );
+    expect(generated).toContain('pub fn register_native_tree() {');
+    expect(generated).toContain(
+      'react_native_gpui::native_tree::register_native_component::<NativeFixtureNative<T>>(Self::NAME);',
+    );
+  });
+
+  test('calls a command by name with its JSON arguments', () => {
+    expect(generated).toContain('"ping" => self.component.ping(');
+    expect(generated).toContain(
+      'args.get(0).and_then(Value::as_str).unwrap_or_default().to_string()',
+    );
+    expect(generated).toContain(
+      'args.get(1).and_then(Value::as_i64).unwrap_or_default() as i32',
+    );
+  });
+
+  test('leaves a spec with props that only exist in C++ a Fabric-only component', () => {
+    expect(header).not.toContain('register_native_tree');
+    expect(header).toContain(
+      'unreachable!("the points prop has no value in a native tree");',
     );
   });
 });
