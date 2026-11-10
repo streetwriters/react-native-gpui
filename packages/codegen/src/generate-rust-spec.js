@@ -948,7 +948,7 @@ use gpui::{AnyElement, Window};
 use react_native_gpui::host_component::{
     EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject, Map,
     MeasureConstraint, MeasuredSize, NativeCall, NativeComponent, NativeContext, NativeEmitter,
-    PropsHandle, Value,
+    PropsHandle, Value, empty_map,
 };
 #[allow(unused_imports)]
 use react_native_gpui::native_surface::{NativeViewHandle, NativeViewParent};
@@ -1097,7 +1097,8 @@ type RnGpuiTextSink = unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, us
 pub struct RnGpuiStrArray<'a> {
     owner: *const core::ffi::c_void,
     len: usize,
-    at: unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr,
+    at: Option<unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr>,
+    json: Option<&'a [Value]>,
     _borrow: core::marker::PhantomData<&'a ()>,
 }
 
@@ -1115,7 +1116,19 @@ impl<'a> RnGpuiStrArray<'a> {
         Self {
             owner,
             len,
-            at,
+            at: Some(at),
+            json: None,
+            _borrow: core::marker::PhantomData,
+        }
+    }
+
+    /// The strings of a native tree prop.
+    pub fn from_json(items: &'a [Value]) -> Self {
+        Self {
+            owner: core::ptr::null(),
+            len: items.len(),
+            at: None,
+            json: Some(items),
             _borrow: core::marker::PhantomData,
         }
     }
@@ -1132,7 +1145,11 @@ impl<'a> RnGpuiStrArray<'a> {
         if index >= self.len {
             return None;
         }
-        Some(unsafe { rn_gpui_str((self.at)(self.owner, index)) })
+        if let Some(items) = self.json {
+            return items.get(index).and_then(Value::as_str);
+        }
+        let at = self.at?;
+        Some(unsafe { rn_gpui_str(at(self.owner, index)) })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &'a str> + '_ {
@@ -1147,6 +1164,7 @@ const COMPONENT_IMAGE_SOURCE = `/// A borrowed view over React Native's C++ \`Im
 #[derive(Clone, Copy)]
 pub struct RnGpuiImageSource {
     handle: *const core::ffi::c_void,
+    json: *const Map<String, Value>,
 }
 
 impl RnGpuiImageSource {
@@ -1155,41 +1173,84 @@ impl RnGpuiImageSource {
     /// \`handle\` must be the address of a live C++ \`ImageSource\` that outlives
     /// the borrow the accessor returns.
     unsafe fn from_handle(handle: *const core::ffi::c_void) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            json: core::ptr::null(),
+        }
+    }
+
+    /// The source of a native tree prop: an object with the same fields React
+    /// Native's resolved image source has (\`uri\`, \`bundle\`, \`scale\`, \`width\`,
+    /// \`height\`, \`body\`, \`method\`).
+    pub fn from_json(source: &Map<String, Value>) -> Self {
+        Self {
+            handle: core::ptr::null(),
+            json: source,
+        }
+    }
+
+    fn text(&self, key: &str) -> Option<&str> {
+        unsafe { self.json.as_ref() }.map(|source| source.get(key).and_then(Value::as_str).unwrap_or(""))
+    }
+
+    fn number(&self, key: &str, default: f64) -> Option<f32> {
+        unsafe { self.json.as_ref() }
+            .map(|source| source.get(key).and_then(Value::as_f64).unwrap_or(default) as f32)
     }
 
     /// The URI; empty when React did not set one.
     pub fn uri(&self) -> &str {
+        if let Some(text) = self.text("uri") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_uri(self.handle)) }
     }
 
     /// The bundle name, for an image bundled with the app.
     pub fn bundle(&self) -> &str {
+        if let Some(text) = self.text("bundle") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_bundle(self.handle)) }
     }
 
     /// The image scale, 3 by default as in React Native.
     pub fn scale(&self) -> f32 {
+        if let Some(number) = self.number("scale", 3.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_scale(self.handle) }
     }
 
     /// The intrinsic width.
     pub fn width(&self) -> f32 {
+        if let Some(number) = self.number("width", 0.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_width(self.handle) }
     }
 
     /// The intrinsic height.
     pub fn height(&self) -> f32 {
+        if let Some(number) = self.number("height", 0.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_height(self.handle) }
     }
 
     /// The request body, for a remote image.
     pub fn body(&self) -> &str {
+        if let Some(text) = self.text("body") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_body(self.handle)) }
     }
 
     /// The request method, for a remote image.
     pub fn method(&self) -> &str {
+        if let Some(text) = self.text("method") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_method(self.handle)) }
     }
 }
@@ -1939,6 +2000,21 @@ function renderMirror(mirror) {
     lines.push(`    pub ${field.name}: ${field.rustType},`);
   }
   lines.push('}');
+  lines.push('');
+  lines.push(`impl ${mirror.name} {`);
+  lines.push(
+    '    /// The value of a native tree prop: the fields of a JSON object.',
+  );
+  lines.push('    pub fn from_json(json: &Map<String, Value>) -> Self {');
+  lines.push('        Self {');
+  for (const field of mirror.fields) {
+    lines.push(
+      `            ${field.name}: ${jsonScalar(`json.get(${rustString(field.jsName)})`, field.rustType)},`,
+    );
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('}');
   return lines;
 }
 
@@ -2513,11 +2589,16 @@ function renderView(generator, view) {
     ]),
   );
   const mixedFields = view.fields.filter(field => field.shape.kind === 'mixed');
+  const caches = ownedCacheFields(view.fields);
   lines.push(`pub struct ${view.name}<'a> {`);
   lines.push(`    handle: ${HANDLE},`);
+  lines.push('    json: *const Map<String, Value>,');
   lines.push("    _borrow: core::marker::PhantomData<&'a ()>,");
   for (const field of mixedFields) {
     lines.push(`    mixed_${field.name}: std::cell::OnceCell<Value>,`);
+  }
+  for (const cache of caches) {
+    lines.push(`    ${cache.name}: ${cache.type},`);
   }
   lines.push('}');
   lines.push('');
@@ -2533,9 +2614,28 @@ function renderView(generator, view) {
   lines.push(`    unsafe fn from_handle(handle: ${HANDLE}) -> Self {`);
   lines.push('        Self {');
   lines.push('            handle,');
+  lines.push('            json: core::ptr::null(),');
   lines.push('            _borrow: core::marker::PhantomData,');
   for (const field of mixedFields) {
     lines.push(`            mixed_${field.name}: std::cell::OnceCell::new(),`);
+  }
+  for (const cache of caches) {
+    lines.push(`            ${cache.name}: std::cell::OnceCell::new(),`);
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// A view over the fields of a native tree prop.');
+  lines.push("    pub fn from_json(json: &'a Map<String, Value>) -> Self {");
+  lines.push('        Self {');
+  lines.push(`            handle: core::ptr::null(),`);
+  lines.push('            json,');
+  lines.push('            _borrow: core::marker::PhantomData,');
+  for (const field of mixedFields) {
+    lines.push(`            mixed_${field.name}: std::cell::OnceCell::new(),`);
+  }
+  for (const cache of caches) {
+    lines.push(`            ${cache.name}: std::cell::OnceCell::new(),`);
   }
   lines.push('        }');
   lines.push('    }');
@@ -2549,7 +2649,11 @@ function renderView(generator, view) {
     });
     lines.push('');
     lines.push(`    /// ${accessorDoc(field.shape)}`);
-    lines.push(...rendered.lines);
+    lines.push(
+      rendered.lines[0],
+      ...nativeAccessorLines(field),
+      ...rendered.lines.slice(1),
+    );
     generator.shims.push(...rendered.externs);
   }
   lines.push('}');
@@ -2567,6 +2671,7 @@ function renderSlice(slice, view, atShim) {
   lines.push(`pub struct ${slice.name}<'a> {`);
   lines.push(`    handle: ${HANDLE},`);
   lines.push('    len: usize,');
+  lines.push("    json: Option<&'a [Value]>,");
   lines.push("    _borrow: core::marker::PhantomData<&'a ()>,");
   lines.push('}');
   lines.push('');
@@ -2575,6 +2680,17 @@ function renderSlice(slice, view, atShim) {
   lines.push('        Self {');
   lines.push('            handle,');
   lines.push('            len,');
+  lines.push('            json: None,');
+  lines.push('            _borrow: core::marker::PhantomData,');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// The elements of a native tree prop.');
+  lines.push("    pub fn from_json(items: &'a [Value]) -> Self {");
+  lines.push('        Self {');
+  lines.push('            handle: core::ptr::null(),');
+  lines.push('            len: items.len(),');
+  lines.push('            json: Some(items),');
   lines.push('            _borrow: core::marker::PhantomData,');
   lines.push('        }');
   lines.push('    }');
@@ -2593,6 +2709,11 @@ function renderSlice(slice, view, atShim) {
   lines.push('        if index >= self.len {');
   lines.push('            return None;');
   lines.push('        }');
+  lines.push('        if let Some(items) = self.json {');
+  lines.push(
+    `            return items.get(index).and_then(Value::as_object).map(${view.name}::from_json);`,
+  );
+  lines.push('        }');
   lines.push(`        let handle = unsafe { ${atShim}(self.handle, index) };`);
   lines.push('        if handle.is_null() {');
   lines.push('            return None;');
@@ -2609,43 +2730,52 @@ function renderSlice(slice, view, atShim) {
   return lines;
 }
 
-/// The prop shapes a native tree can read from its JSON props. The others are
-/// views over C++ structures that only a Fabric node has.
-const NATIVE_TREE_SHAPES = new Set([
-  'scalar',
-  'string',
-  'enum',
-  'color',
-  'mixed',
-  'array-scalar',
-]);
-
-function supportsNativeTree(generator) {
-  return generator.props.every(prop => NATIVE_TREE_SHAPES.has(prop.shape.kind));
+/// A scalar read from an optional JSON value, as `rustType`.
+function jsonScalar(value, rustType) {
+  if (rustType === 'bool') {
+    return `${value}.and_then(Value::as_bool).unwrap_or_default()`;
+  }
+  if (rustType === 'f32' || rustType === 'f64') {
+    return `${value}.and_then(Value::as_f64).unwrap_or_default() as ${rustType}`;
+  }
+  return `${value}.and_then(Value::as_i64).unwrap_or_default() as ${rustType}`;
 }
 
-/// The lines that read prop `prop` from the JSON props of a native tree
+/// Every spec is a component of a native tree: each prop shape has a reading
+/// of its JSON value.
+function supportsNativeTree() {
+  return true;
+}
+
+/// The fields a view over props or over a nested struct caches for the shapes
+/// whose accessor lends a slice.
+function ownedCacheFields(fields) {
+  return fields
+    .filter(
+      field =>
+        field.shape.kind === 'array-scalar' ||
+        field.shape.kind === 'array-plain',
+    )
+    .map(field => ({
+      name: `native_${field.name}`,
+      type: `std::cell::OnceCell<Vec<${field.shape.kind === 'array-scalar' ? field.shape.rustType : field.shape.name}>>`,
+    }));
+}
+
+/// The lines that read prop or field `prop` from the JSON of a native tree
 /// instance, returned from the accessor before it reads the C++ ones.
 function nativeAccessorLines(prop) {
   const { shape, jsName, name } = prop;
   const key = rustString(jsName);
   const lines = ['        if !self.json.is_null() {'];
   lines.push('            let json = unsafe { &*self.json };');
+  const object = `json.get(${key}).and_then(Value::as_object).unwrap_or_else(empty_map)`;
+  const array = `json.get(${key}).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])`;
   switch (shape.kind) {
     case 'scalar':
-      if (shape.rustType === 'bool') {
-        lines.push(
-          `            return json.get(${key}).and_then(Value::as_bool).unwrap_or_default();`,
-        );
-      } else if (shape.rustType === 'f32' || shape.rustType === 'f64') {
-        lines.push(
-          `            return json.get(${key}).and_then(Value::as_f64).unwrap_or_default() as ${shape.rustType};`,
-        );
-      } else {
-        lines.push(
-          `            return json.get(${key}).and_then(Value::as_i64).unwrap_or_default() as ${shape.rustType};`,
-        );
-      }
+      lines.push(
+        `            return ${jsonScalar(`json.get(${key})`, shape.rustType)};`,
+      );
       break;
     case 'string':
       lines.push(
@@ -2677,13 +2807,37 @@ function nativeAccessorLines(prop) {
       const cast = shape.rustType === 'bool' ? '' : ` as ${shape.rustType}`;
       lines.push(`            return self.native_${name}.get_or_init(|| {`);
       lines.push(
-        `                json.get(${key}).and_then(Value::as_array).map(|items| items.iter().filter_map(${read}).map(|item| item${cast}).collect()).unwrap_or_default()`,
+        `                ${array}.iter().filter_map(${read}).map(|item| item${cast}).collect()`,
       );
       lines.push('            });');
       break;
     }
+    case 'array-string':
+      lines.push(`            return RnGpuiStrArray::from_json(${array});`);
+      break;
+    case 'image':
+      lines.push(`            return RnGpuiImageSource::from_json(${object});`);
+      break;
+    case 'mirror':
+      lines.push(`            return ${shape.name}::from_json(${object});`);
+      break;
+    case 'array-plain':
+      lines.push(`            return self.native_${name}.get_or_init(|| {`);
+      lines.push(
+        `                ${array}.iter().filter_map(Value::as_object).map(${shape.name}::from_json).collect()`,
+      );
+      lines.push('            });');
+      break;
+    case 'view':
+      lines.push(`            return ${shape.name}::from_json(${object});`);
+      break;
+    case 'array-view':
+      lines.push(`            return ${shape.sliceName}::from_json(${array});`);
+      break;
     default:
-      return [];
+      throw new Error(
+        `generate-rust-spec: unsupported accessor shape ${shape.kind}`,
+      );
   }
   lines.push('        }');
   return lines;
@@ -2707,9 +2861,7 @@ function renderPropsView(generator) {
       '`create`/`update` instead of holding the view.',
     ]),
   );
-  const arrays = generator.props.filter(
-    prop => prop.shape.kind === 'array-scalar',
-  );
+  const arrays = ownedCacheFields(generator.props);
   lines.push(`pub struct ${generator.propsName} {`);
   lines.push(`    handle: ${HANDLE},`);
   lines.push(
@@ -2719,10 +2871,8 @@ function renderPropsView(generator) {
   for (const prop of mixed) {
     lines.push(`    mixed_${prop.name}: std::cell::OnceCell<Value>,`);
   }
-  for (const prop of arrays) {
-    lines.push(
-      `    native_${prop.name}: std::cell::OnceCell<Vec<${prop.shape.rustType}>>,`,
-    );
+  for (const cache of arrays) {
+    lines.push(`    ${cache.name}: ${cache.type},`);
   }
   lines.push('}');
   lines.push('');
@@ -2738,7 +2888,7 @@ function renderPropsView(generator) {
   lines.push('    /// until the next update replaces it.');
   const fieldInits = [
     ...mixed.map(prop => `mixed_${prop.name}: std::cell::OnceCell::new(),`),
-    ...arrays.map(prop => `native_${prop.name}: std::cell::OnceCell::new(),`),
+    ...arrays.map(cache => `${cache.name}: std::cell::OnceCell::new(),`),
   ];
   lines.push(`    pub unsafe fn from_handle(handle: ${HANDLE}) -> Self {`);
   lines.push('        Self {');
@@ -2769,18 +2919,11 @@ function renderPropsView(generator) {
     });
     lines.push('');
     lines.push(`    /// ${accessorDoc(prop.shape)}`);
-    const native = nativeAccessorLines(prop);
-    if (native.length > 0) {
-      lines.push(rendered.lines[0], ...native, ...rendered.lines.slice(1));
-    } else {
-      lines.push(
-        rendered.lines[0],
-        '        if !self.json.is_null() {',
-        `            unreachable!("the ${prop.jsName} prop has no value in a native tree");`,
-        '        }',
-        ...rendered.lines.slice(1),
-      );
-    }
+    lines.push(
+      rendered.lines[0],
+      ...nativeAccessorLines(prop),
+      ...rendered.lines.slice(1),
+    );
     generator.shims.push(...rendered.externs);
   }
   lines.push('}');

@@ -221,10 +221,10 @@ FooComponent::<Foo>::register_native_tree();
     <Bar />
   </Foo>
 </NativeRoot>;
-foo.current.command('focus', 2);
+Commands.focus(foo.current, 2);
 ```
 
-In a native tree the component's props come from the JSON the tree's instance has, through the accessors it already has, so there is no second set of methods. `cx.children()` holds the elements of its children, which the component places in its own element (a Fabric node's children are painted by core around the component instead, so it is empty there), events arrive in JavaScript as `{ nativeEvent }` like a Fabric node's, and commands are called by name on the instance's ref. What only a Fabric node has (`cx.host()`, the window of a mount batch, intrinsic size and insets, `measure`, a native surface) is absent or ignored in a native tree. A spec with props that are views over C++ structures (images, structs, arrays of structs) is Fabric-only.
+In a native tree the component's props come from the JSON the tree's instance has, through the accessors it already has, so there is no second set of methods. `cx.children()` holds the elements of its children, which the component places in its own element (a Fabric node's children are painted by core around the component instead, so it is empty there), events arrive in JavaScript as `{ nativeEvent }` like a Fabric node's, and commands are the same `Commands.*` of the spec, called with the instance's ref. What only a Fabric node has (`cx.host()`, the window of a mount batch, intrinsic size and insets, `measure`, a native surface) is absent or ignored in a native tree. Every prop shape is read from the JSON props, structs and arrays of structs from objects and arrays, and an image prop from an object with the fields of a resolved image source (`{ uri: 'file:///icon.png', scale: 2 }`, as `Image.resolveAssetSource` returns).
 
 #### NativeSlot
 

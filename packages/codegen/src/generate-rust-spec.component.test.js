@@ -613,10 +613,22 @@ describe('a component spec is also a component of a native tree', () => {
     );
   });
 
-  test('leaves a spec with props that only exist in C++ a Fabric-only component', () => {
-    expect(header).not.toContain('register_native_tree');
+  test('reads structs, arrays of structs, mirrors, images and arrays of strings from JSON too', () => {
+    expect(header).toContain('pub fn register_native_tree() {');
+    expect(header).not.toContain('unreachable!');
     expect(header).toContain(
-      'unreachable!("the points prop has no value in a native tree");',
+      'pub fn from_json(json: &Map<String, Value>) -> Self {',
+    );
+    expect(header).toContain(
+      "pub fn from_json(json: &'a Map<String, Value>) -> Self {",
+    );
+    expect(header).toContain("pub fn from_json(items: &'a [Value]) -> Self {");
+    expect(header).toContain('return self.native_points.get_or_init(|| {');
+    expect(header).toContain('FixtureChartPoints::from_json');
+    expect(header).toContain('return RnGpuiStrArray::from_json(');
+    expect(header).toContain('return RnGpuiImageSource::from_json(');
+    expect(header).toContain(
+      'pub fn from_json(source: &Map<String, Value>) -> Self {',
     );
   });
 });
