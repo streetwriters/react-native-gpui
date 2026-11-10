@@ -156,4 +156,4 @@ A callback may be called once, from any thread. For work that finishes later, pr
 
 ## Native modules in the platform
 
-The desktop shell itself is built from the same modules: windows, menus, the tray and the file system (`@react-native-gpui/fs`) are Rust modules, so their source is a good reference. `@react-native-gpui/fs` in particular shows a larger module split across files by concern, with one `impl` block that hands each method to a helper.
+The desktop shell itself is built from the same modules: windows, menus and the tray are Rust modules, so their source is a good reference. [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules) holds more, including larger modules split across files by concern.

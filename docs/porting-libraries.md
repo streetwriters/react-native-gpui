@@ -5,7 +5,7 @@ title: Port an existing library
 
 Most React Native apps depend on libraries that have native code for iOS and Android. To use such a library on desktop, you supply its **desktop native side** while keeping the library's own JavaScript. Apps keep importing the original package, and need few or no `Platform.OS` branches.
 
-This is how the `@react-native-gpui/*` packages work. For example, `@react-native-gpui/safe-area-context` is not a copy of `react-native-safe-area-context`: it contains only the desktop implementation, and depends on the original.
+This is how the `@react-native-gpui/*` packages work. An adapter is not a copy of the library it adapts: it contains only the desktop implementation, and depends on the original. The adapters are maintained in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules).
 
 ## The adapter package
 
@@ -13,13 +13,13 @@ An adapter is a small package named `@react-native-gpui/<name>`. It lists the up
 
 ```json title="package.json"
 {
-  "name": "@react-native-gpui/safe-area-context",
+  "name": "@react-native-gpui/example-library",
   "peerDependencies": {
     "react-native": "0.87.1",
-    "react-native-safe-area-context": "5.10.x"
+    "react-native-example-library": "5.10.x"
   },
   "codegenConfig": {
-    "name": "GPUISafeAreaContextSpec",
+    "name": "GPUIExampleLibrarySpec",
     "type": "modules",
     "jsSrcsDir": "src"
   }
@@ -34,14 +34,14 @@ module.exports = {
     platforms: {
       desktop: {
         cmake: 'desktop',
-        cppProvider: 'create_gpui_safe_area_context_module',
-        componentCodegenPackage: 'react-native-safe-area-context',
+        cppProvider: 'create_gpui_example_library_module',
+        componentCodegenPackage: 'react-native-example-library',
         componentDescriptors: [
-          'RNCSafeAreaProviderComponentDescriptor',
-          'RNCSafeAreaViewComponentDescriptor',
+          'ExampleProviderComponentDescriptor',
+          'ExampleViewComponentDescriptor',
         ],
         componentHeaders: [
-          'react/renderer/components/safeareacontext/ComponentDescriptors.h',
+          'react/renderer/components/examplelibrary/ComponentDescriptors.h',
         ],
       },
     },
@@ -65,7 +65,7 @@ When a library's JavaScript must differ on desktop, `sourceOverrides` maps a fil
 
 ```js
 sourceOverrides: {
-  'react-native-screens/src/core.ts': './src/core.desktop.ts',
+  'react-native-example-library/src/core.ts': './src/core.desktop.ts',
 },
 ```
 

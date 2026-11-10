@@ -15,14 +15,7 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 | `react-native-svg`               | `@react-native-gpui/svg`               | `15.15.x`                                              |
 | `@react-native-vector-icons/*`   | `@react-native-gpui/vector-icons`      | Icon fonts rasterized by the desktop shell             |
 
-Two packages have no upstream library, because they provide desktop APIs:
-
-| Package                    | Purpose                                               |
-| -------------------------- | ----------------------------------------------------- |
-| `@react-native-gpui/fs`    | [A Node-shaped file system API](desktop-file-system). |
-| `@react-native-gpui/fonts` | [Custom font loading](desktop-fonts).                 |
-
-More libraries and desktop modules (clipboard, keychain with secure storage, netinfo, webview, device info, PDF viewer, notifications, system, updater, spell checking, WebAuthn, image manipulation and others) live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
+The desktop packages, and the desktop-only modules that have no upstream library (a Node-shaped file system API, custom font loading, notifications, a PDF viewer and others), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 
 ## Installing
 

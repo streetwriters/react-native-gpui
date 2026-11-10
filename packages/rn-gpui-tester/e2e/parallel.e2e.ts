@@ -12,7 +12,7 @@ test('isolates a worker app and captures its hidden window', async () => {
     disableAnimations: true,
     offscreen: true,
     env: {
-      RN_GPUI_MODULE: 'NavigationFixture',
+      RN_GPUI_MODULE: 'E2EProbesFixture',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_WINDOW_STATE: path.resolve(`.local/worker-${worker}.json`),
     },

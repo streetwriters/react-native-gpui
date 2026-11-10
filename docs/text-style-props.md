@@ -11,5 +11,5 @@ None. This page has no props of its own on desktop.
 
 ## Differences
 
-- `fontFamily` accepts the generic families `system-ui`, `ui-sans-serif`, `ui-serif` and `ui-monospace`, and families loaded with [Fonts](desktop-fonts).
+- `fontFamily` accepts the generic families `system-ui`, `ui-sans-serif`, `ui-serif` and `ui-monospace`, and families loaded with [Fonts](https://github.com/streetwriters/react-native-gpui-modules/blob/main/modules/fonts/docs/fonts.md).
 - `fontVariationSettings` does not exist in React Native 0.87 and is not supported.

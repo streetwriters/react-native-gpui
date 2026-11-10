@@ -107,7 +107,11 @@ export default {
             label: 'Handling Touches',
             href: 'https://reactnative.dev/docs/0.87/handling-touches',
           },
-          'navigation',
+          {
+            type: 'link',
+            label: 'Navigating Between Screens',
+            href: 'https://github.com/streetwriters/react-native-gpui-modules/blob/main/modules/screens/docs/navigation.md',
+          },
           {
             type: 'link',
             label: 'Animations',
@@ -176,7 +180,6 @@ export default {
       'profiling',
     ],
     Reference: ['desktop-json', 'cli'],
-    'Desktop libraries': ['desktop-file-system', 'desktop-fonts'],
     'JavaScript Runtime': [
       'javascript-environment',
       {
