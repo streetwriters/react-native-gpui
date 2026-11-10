@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'scroll-reserve',
+    title: 'Scroller width reserved in the layout',
+    group: 'Views',
+    fixture: 'ScrollReserveFixture',
+  },
+  {
     id: 'menu-under-pointer',
     title: 'Menu item under a stationary pointer',
     group: 'Input',
