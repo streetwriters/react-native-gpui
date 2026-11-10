@@ -151,6 +151,7 @@ pub struct RNNodeView {
     scroll_position: Rc<Cell<Point<f32>>>,
     pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
     scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
+    scroll_programmatic: Rc<Cell<bool>>,
     /// The settings of the `ScrollBar` inside this scroll view and the tag its
     /// events go out on, handed over by that node when it renders.
     scrollbar: crate::scroll_indicator::ScrollbarSpec,
@@ -1198,6 +1199,7 @@ impl RNNodeView {
                 &crate::extensions::parse_extension_props(&op.extension_props_json),
             ),
             scroll_indicator: None,
+            scroll_programmatic: Rc::new(Cell::new(false)),
             scrollbar: crate::scroll_indicator::ScrollbarSpec::default(),
             scrollbar_tag: None,
             scrollbar_release: None,
@@ -4159,8 +4161,13 @@ impl Render for RNNodeView {
                     .is_none_or(|indicator| indicator.read(cx).horizontal() != horizontal)
                 {
                     let handle = self.scroll_handle.clone();
+                    let programmatic = self.scroll_programmatic.clone();
                     self.scroll_indicator = Some(cx.new(|_| {
-                        crate::scroll_indicator::ScrollIndicator::new(handle, horizontal)
+                        crate::scroll_indicator::ScrollIndicator::new(
+                            handle,
+                            horizontal,
+                            programmatic,
+                        )
                     }));
                 }
                 if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
@@ -5524,6 +5531,13 @@ impl RNNodeView {
         )
     }
 
+    /// Whether this scroll view's thumb is shown right now, for the test driver.
+    pub(crate) fn scroll_indicator_shown(&self, cx: &App) -> bool {
+        self.scroll_indicator
+            .as_ref()
+            .is_some_and(|indicator| indicator.read(cx).shown())
+    }
+
     /// Runs `scrollTo`, `scrollToEnd` and `flashScrollIndicators`.
     pub(crate) fn scroll_command(
         &mut self,
@@ -5558,7 +5572,12 @@ impl RNNodeView {
                 },
                 flag(0),
             ),
-            "flashScrollIndicators" => return true,
+            "flashScrollIndicators" => {
+                if let Some(indicator) = self.scroll_indicator.clone() {
+                    indicator.update(cx, |indicator, cx| indicator.flash(cx));
+                }
+                return true;
+            }
             _ => return false,
         };
         let target = point(target.x.clamp(0.0, max.0), target.y.clamp(0.0, max.1));
@@ -5587,9 +5606,11 @@ impl RNNodeView {
         };
         let from = self.scroll_position.get();
         if !animated || (from.x - target.x).abs() + (from.y - target.y).abs() < 0.5 {
+            self.scroll_programmatic.set(true);
             self.set_scroll_offset(target, &host, cx);
             return;
         }
+        let programmatic = self.scroll_programmatic.clone();
         let gesture = self.scroll_gesture.clone();
         cx.spawn(async move |this, cx| {
             for step in 1..=STEPS {
@@ -5605,6 +5626,7 @@ impl RNNodeView {
                     from.x + (target.x - from.x) * eased,
                     from.y + (target.y - from.y) * eased,
                 );
+                programmatic.set(true);
                 if this
                     .update(cx, |node, cx| node.set_scroll_offset(next, &host, cx))
                     .is_err()

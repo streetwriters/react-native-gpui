@@ -144,6 +144,12 @@ export const screens = [
     fixture: 'ScrollRemountFixture',
   },
   {
+    id: 'scroll-indicator',
+    title: 'Scroll indicator visibility',
+    group: 'Views',
+    fixture: 'ScrollIndicatorFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',

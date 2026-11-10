@@ -119,11 +119,20 @@ pub(crate) struct ScrollIndicator {
     apply: Option<ApplyOffset>,
     emit: Option<EmitEvent>,
     hide_task: Task<()>,
+    /// Set by a scroll that the app asked for (`scrollTo`, `scrollToEnd`), which
+    /// moves the content without showing the thumb, as a script's scroll does
+    /// under a browser's overlay scrollbars.
+    programmatic: Rc<std::cell::Cell<bool>>,
 }
 
 impl ScrollIndicator {
-    pub(crate) fn new(handle: ScrollHandle, horizontal: bool) -> Self {
+    pub(crate) fn new(
+        handle: ScrollHandle,
+        horizontal: bool,
+        programmatic: Rc<std::cell::Cell<bool>>,
+    ) -> Self {
         Self {
+            programmatic,
             last_offset: handle.offset(),
             handle,
             horizontal,
@@ -145,6 +154,29 @@ impl ScrollIndicator {
         self.spec = spec;
         self.apply = Some(apply);
         self.emit = Some(emit);
+    }
+
+    /// Whether the thumb is shown right now.
+    pub(crate) fn shown(&self) -> bool {
+        let (viewport, max_offset) = self.main_extents();
+        if thumb(&self.spec, viewport, max_offset, self.main_offset()).is_none() {
+            return false;
+        }
+        match self.spec.visibility {
+            Visibility::Always => true,
+            Visibility::Auto | Visibility::Hover => {
+                self.hovered
+                    || self
+                        .visible_until
+                        .is_some_and(|until| Instant::now() < until)
+            }
+        }
+    }
+
+    /// Shows the thumb for its auto-hide delay, as `flashScrollIndicators` does.
+    pub(crate) fn flash(&mut self, cx: &mut Context<Self>) {
+        self.reveal(cx);
+        cx.notify();
     }
 
     /// Shows the thumb, and hides it again once nothing has touched it.
@@ -266,7 +298,8 @@ impl Render for ScrollIndicator {
         let now = Instant::now();
         if offset != self.last_offset {
             self.last_offset = offset;
-            if self.spec.visibility != Visibility::Hover {
+            if self.programmatic.replace(false) {
+            } else if self.spec.visibility != Visibility::Hover {
                 self.reveal(cx);
             }
         }
