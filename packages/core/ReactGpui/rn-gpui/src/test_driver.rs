@@ -1110,9 +1110,53 @@ async fn serve_commands(
                     Err(error) => json!({"error": format!("invalid keystroke {key:?}: {error}")}),
                 }
             }
+            "ime" => {
+                let tag = params.get("tag").and_then(Value::as_i64).unwrap_or(0) as i32;
+                let steps = params
+                    .get("steps")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let node = cx.read_entity(&store, |store, _| store.nodes.get(&tag).cloned());
+                match node {
+                    None => json!({"error": "ime requires a mounted TextInput"}),
+                    Some(node) => {
+                        let result = cx.update_window(window, move |_root, window, app| {
+                            draw_frame(window, app);
+                            node.update(app, |node, cx| {
+                                for step in &steps {
+                                    if let Some(text) = step.get("mark").and_then(Value::as_str) {
+                                        gpui::EntityInputHandler::replace_and_mark_text_in_range(
+                                            node, None, text, None, window, cx,
+                                        );
+                                    } else if let Some(text) =
+                                        step.get("commit").and_then(Value::as_str)
+                                    {
+                                        let marked = gpui::EntityInputHandler::marked_text_range(
+                                            node, window, cx,
+                                        );
+                                        gpui::EntityInputHandler::replace_text_in_range(
+                                            node, marked, text, window, cx,
+                                        );
+                                        gpui::EntityInputHandler::unmark_text(node, window, cx);
+                                    }
+                                }
+                            });
+                            draw_frame(window, app);
+                        });
+                        match result {
+                            Ok(()) => json!({"composed": true}),
+                            Err(error) => json!({"error": error.to_string()}),
+                        }
+                    }
+                }
+            }
             "type" => {
                 let target = cx.update_entity(&store, |store, cx| {
                     let tag = params.get("tag").and_then(Value::as_i64)? as i32;
+                    if let Some((position, _)) = crate::builtins::native_root::pointer_target(tag) {
+                        return Some(position);
+                    }
                     let entity = store.nodes.get(&tag)?;
                     let node = entity.read(cx);
                     if node.component != "TextInput" || !node.input_editable {

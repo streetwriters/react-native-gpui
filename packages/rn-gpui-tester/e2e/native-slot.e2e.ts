@@ -160,8 +160,29 @@ test('a slot taller than the height its native parent allows is clipped there', 
 test('keyboard: typing goes to the React Native input in a slot, and a key it does not handle reaches the native component that owns the slot', async () => {
   await app.getByTestId('slot-input').type('a');
   await desktopExpect(app.getByTestId('slot-typed')).toHaveText('typed:a');
+  expect(await log()).not.toContain('owner:a');
+  await app.getByTestId('slot-input').press('Backspace');
+  expect(await log()).not.toContain('owner:backspace');
   await app.press('F2');
   await expect.poll(log, { timeout: 5000 }).toContain('owner:f2,');
+});
+
+test('input methods: composition, dead keys and the emoji picker reach the input in a slot and none of it reaches the native owner', async () => {
+  const [input] = await app.query('testID', 'slot-input', true);
+  await app.click(input.tag);
+  const before = await log();
+  await app.compose(input.tag, [
+    { mark: 'に' },
+    { mark: 'にほ' },
+    { commit: '日本' },
+    { mark: '´' },
+    { commit: 'é' },
+    { commit: '😀' },
+  ]);
+  await desktopExpect(app.getByTestId('slot-typed')).toHaveText(
+    'typed:日本é😀',
+  );
+  expect(await log()).toBe(before);
 });
 
 test('focus: Tab moves from a native component into the slot and out of it', async () => {

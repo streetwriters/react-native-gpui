@@ -1382,6 +1382,22 @@ export class DesktopApp {
     await this.request('press', { key });
   }
 
+  /**
+   * Runs an input method's steps on a text input: `{ mark }` shows text being
+   * composed, `{ commit }` replaces what is composed with final text. Dead keys,
+   * Japanese or Chinese composition and the emoji picker all arrive this way.
+   */
+  async compose(
+    tag: number,
+    steps: Array<{ mark: string } | { commit: string }>,
+  ): Promise<void> {
+    const result = await this.request<{ composed: boolean }>('ime', {
+      tag,
+      steps,
+    });
+    if (!result.composed) throw new Error('GPUI test driver did not compose');
+  }
+
   async typeText(tag: number, text: string): Promise<void> {
     const result = await this.request<{ typed: boolean }>('type', {
       tag,

@@ -44,4 +44,4 @@ React Native views and native trees (a [`NativeRoot`](fabric-native-components#n
 | Removing the slot                                                                              | works | `native-slot`                                                       |
 | Layout positions seen by `measure` and the test driver                                         | works | `native-slot`: presses use the driver's frames                      |
 
-Tables, tabs, dialogs, popovers and menus of either kind holding the other, lists a component owns with React Native rows, native scroll containers holding React Native content, text input and IME inside a native tree, and popovers that cross the boundary are todos in `mixed-matrix`: they wait for component kits that use `NativeRoot`.
+Tables, tabs, dialogs, popovers and menus of either kind holding the other, lists a component owns with React Native rows, native scroll containers holding React Native content, a native text field, and popovers that cross the boundary are todos in `mixed-matrix`: they wait for component kits that use `NativeRoot`.
