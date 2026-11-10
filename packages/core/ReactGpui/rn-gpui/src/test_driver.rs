@@ -1117,35 +1117,64 @@ async fn serve_commands(
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                let node = cx.read_entity(&store, |store, _| store.nodes.get(&tag).cloned());
-                match node {
-                    None => json!({"error": "ime requires a mounted TextInput"}),
-                    Some(node) => {
+                let target = cx.update_entity(&store, |store, cx| {
+                    if let Some((position, _)) = crate::builtins::native_root::pointer_target(tag) {
+                        return Some(position);
+                    }
+                    let node = store.nodes.get(&tag)?.read(cx);
+                    if node.component != "TextInput" || !node.input_editable {
+                        return None;
+                    }
+                    node_frame(store, tag, cx)
+                        .map(|frame| frame_center(frame, window_offset(store, tag, cx)))
+                });
+                match target {
+                    None => json!({"error": "ime requires a mounted, editable text input"}),
+                    Some(position) => {
+                        let store = store.clone();
                         let result = cx.update_window(window, move |_root, window, app| {
                             draw_frame(window, app);
-                            node.update(app, |node, cx| {
-                                for step in &steps {
-                                    if let Some(text) = step.get("mark").and_then(Value::as_str) {
-                                        gpui::EntityInputHandler::replace_and_mark_text_in_range(
-                                            node, None, text, None, window, cx,
-                                        );
-                                    } else if let Some(text) =
-                                        step.get("commit").and_then(Value::as_str)
-                                    {
-                                        let marked = gpui::EntityInputHandler::marked_text_range(
-                                            node, window, cx,
-                                        );
-                                        gpui::EntityInputHandler::replace_text_in_range(
-                                            node, marked, text, window, cx,
-                                        );
-                                        gpui::EntityInputHandler::unmark_text(node, window, cx);
-                                    }
-                                }
-                            });
+                            let focused = store
+                                .read(app)
+                                .nodes
+                                .get(&tag)
+                                .and_then(|node| node.read(app).accessibility_focus_handle())
+                                .is_some_and(|handle| handle.is_focused(window));
+                            if !focused {
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                        button: gpui::MouseButton::Left,
+                                        position,
+                                        ..Default::default()
+                                    }),
+                                    app,
+                                );
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                        button: gpui::MouseButton::Left,
+                                        position,
+                                        ..Default::default()
+                                    }),
+                                    app,
+                                );
+                            }
                             draw_frame(window, app);
+                            let mut all = true;
+                            for step in &steps {
+                                if let Some(text) = step.get("mark").and_then(Value::as_str) {
+                                    all &= window.simulate_marked_text(text, app);
+                                } else if let Some(text) =
+                                    step.get("commit").and_then(Value::as_str)
+                                {
+                                    all &= window.simulate_committed_text(text, app);
+                                }
+                                draw_frame(window, app);
+                            }
+                            all
                         });
                         match result {
-                            Ok(()) => json!({"composed": true}),
+                            Ok(true) => json!({"composed": true}),
+                            Ok(false) => json!({"error": "focused view has no text input handler"}),
                             Err(error) => json!({"error": error.to_string()}),
                         }
                     }

@@ -235,6 +235,21 @@ test('typing into a native text field with the driver, by locator', async () => 
   await desktopExpect(app.getByTestId('native-typed')).toHaveText('native:hi');
 });
 
+test('input methods: composition in a native text field arrives through its input handler', async () => {
+  const [field] = await app.query('testID', 'native-input', true);
+  await app.compose(field.tag, [
+    { mark: 'に' },
+    { mark: 'にほ' },
+    { commit: '日本' },
+    { mark: '´' },
+    { commit: 'é' },
+    { commit: '😀' },
+  ]);
+  await desktopExpect(app.getByTestId('native-typed')).toHaveText(
+    'native:hi日本é😀',
+  );
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({
