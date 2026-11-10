@@ -73,7 +73,7 @@ pub struct RNNodeView {
     /// Whether this node counts itself in `effect_group_descendants`.
     forms_effect_group: bool,
     extension_props_json: String,
-    extension_props: std::sync::Arc<serde_json::Value>,
+    pub(crate) extension_props: std::sync::Arc<serde_json::Value>,
     /// The composition surface hosting the OS view of a `nativeSurface`
     /// component, created when the node is first painted.
     native_surface: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
@@ -2063,7 +2063,7 @@ fn verify_inherited_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_VERIFY_INHERITED").is_some())
 }
 
-fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
+pub(crate) fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
     Some(match role {
         "none" | "presentation" => return None,
         "button" | "imagebutton" | "togglebutton" => Role::Button,

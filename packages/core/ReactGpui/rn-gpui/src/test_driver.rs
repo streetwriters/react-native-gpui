@@ -635,6 +635,11 @@ async fn serve_commands(
                 let target = viewport.and_then(|viewport| {
                     cx.update_entity(&store, |store, cx| {
                         let tag = params.get("tag").and_then(Value::as_i64)? as i32;
+                        if let Some((position, root_tag)) =
+                            crate::builtins::native_root::pointer_target(tag)
+                        {
+                            return Some(Ok((position, root_tag)));
+                        }
                         let node = store.nodes.get(&tag)?;
                         if node.read(cx).view.accessibility_disabled {
                             return Some(Err("click target is disabled"));
@@ -767,6 +772,11 @@ async fn serve_commands(
                 let target = viewport.and_then(|viewport| {
                     cx.read_entity(&store, |store, cx| {
                         let tag = params.get("tag").and_then(Value::as_i64)? as i32;
+                        if let Some((position, root_tag)) =
+                            crate::builtins::native_root::pointer_target(tag)
+                        {
+                            return Some(Ok((root_tag, position)));
+                        }
                         let node = store.nodes.get(&tag)?;
                         if node.read(cx).view.accessibility_disabled {
                             return Some(Err("pointer target is disabled"));
@@ -2084,7 +2094,7 @@ pub(crate) fn node_frame(store: &ViewStore, tag: i32, cx: &gpui::App) -> Option<
 /// The GPUI menu bar is drawn inside the window (Linux by default), so the RN
 /// surface starts below it: surface frames become window coordinates by adding
 /// the inset. It is zero on platforms whose menu bar is native.
-fn menu_bar_offset() -> f32 {
+pub(crate) fn menu_bar_offset() -> f32 {
     crate::desktop::gpui_menu::menu_bar_inset_for_window_id(
         crate::desktop::windows::MAIN_WINDOW_KEY,
     )
@@ -2275,6 +2285,8 @@ fn query(store: &ViewStore, params: &Value, viewport: RectF, cx: &gpui::App) -> 
             "visible": node_visible_frame(store, *tag, viewport, cx).is_some(),
             "enabled": !node.view.accessibility_disabled}))
     }).collect();
+    let mut items = items;
+    items.extend(native_query(by, value, exact, name));
     json!(items)
 }
 
@@ -2351,11 +2363,19 @@ fn tree_node(
     cx: &gpui::Context<ViewStore>,
 ) -> Value {
     let node = entity.read(cx);
-    let children = node
+    let mut children = node
         .children
         .iter()
         .map(|(_, child)| tree_node(child, store, cx))
         .collect::<Vec<_>>();
+    if node.component == crate::builtins::native_root::COMPONENT {
+        let root = node
+            .extension_props
+            .get("rootId")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        children.extend(native_tree_json(root));
+    }
     json!({"tag": node.tag, "component": node.component, "testID": node.view.test_id,
         "text": paragraph_text(node), "role": node.view.accessibility_role,
         "label": node.view.accessibility_label,
@@ -2367,6 +2387,106 @@ fn tree_node(
         "scrollIndicatorShown": node.scroll_indicator_shown(cx),
         "intrinsicSize": node.intrinsic_size().map(|(width, height)| json!([width, height])).unwrap_or(Value::Null),
         "children": children})
+}
+
+/// The frame of an instance as the test driver reports frames: the window's
+/// coordinates less the menu bar the surface starts below.
+fn native_frame(bounds: Option<gpui::Bounds<gpui::Pixels>>) -> [f32; 4] {
+    bounds.map_or([0.0; 4], |bounds| {
+        [
+            f32::from(bounds.origin.x),
+            f32::from(bounds.origin.y) - menu_bar_offset(),
+            f32::from(bounds.size.width),
+            f32::from(bounds.size.height),
+        ]
+    })
+}
+
+fn native_text(props: &serde_json::Map<String, Value>, name: &str) -> String {
+    props
+        .get(name)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The instances of a native tree, nested as the tree is.
+fn native_tree_json(root: u32) -> Vec<Value> {
+    let infos = crate::builtins::native_root::instances(root);
+    let by_tag: std::collections::HashMap<i32, usize> = infos
+        .iter()
+        .enumerate()
+        .map(|(index, info)| (info.tag, index))
+        .collect();
+    fn build(
+        infos: &[crate::builtins::native_root::InstanceInfo],
+        by_tag: &std::collections::HashMap<i32, usize>,
+        index: usize,
+    ) -> Value {
+        let info = &infos[index];
+        let children: Vec<Value> = info
+            .children
+            .iter()
+            .filter_map(|tag| by_tag.get(tag))
+            .map(|child| build(infos, by_tag, *child))
+            .collect();
+        json!({
+            "tag": info.tag,
+            "component": info.type_name,
+            "native": true,
+            "testID": native_text(&info.props, "testID"),
+            "text": native_text(&info.props, "text"),
+            "role": native_text(&info.props, "accessibilityRole"),
+            "label": native_text(&info.props, "accessibilityLabel"),
+            "frame": native_frame(info.bounds),
+            "children": children,
+        })
+    }
+    infos
+        .first()
+        .map(|_| vec![build(&infos, &by_tag, 0)])
+        .unwrap_or_default()
+}
+
+fn native_query(by: &str, value: &str, exact: bool, name: &str) -> Vec<Value> {
+    let mut items = Vec::new();
+    for root in crate::builtins::native_root::root_ids() {
+        for info in crate::builtins::native_root::instances(root) {
+            let text = native_text(&info.props, "text");
+            let label = {
+                let label = native_text(&info.props, "accessibilityLabel");
+                if label.is_empty() {
+                    text.clone()
+                } else {
+                    label
+                }
+            };
+            let role = native_text(&info.props, "accessibilityRole");
+            let test_id = native_text(&info.props, "testID");
+            let actual = match by {
+                "testID" => test_id.as_str(),
+                "text" => text.as_str(),
+                "role" => role.as_str(),
+                "label" => label.as_str(),
+                _ => continue,
+            };
+            if actual.is_empty()
+                || !matches_query(actual, value, exact)
+                || (!name.is_empty() && !label.contains(name) && !text.contains(name))
+            {
+                continue;
+            }
+            let frame = native_frame(info.bounds);
+            items.push(json!({
+                "tag": info.tag, "component": info.type_name, "testID": test_id,
+                "text": text, "role": role, "label": label,
+                "state": {"disabled": false, "selected": false, "checked": Value::Null},
+                "frame": {"x": frame[0], "y": frame[1], "width": frame[2], "height": frame[3]},
+                "visible": info.bounds.is_some(), "enabled": true,
+            }));
+        }
+    }
+    items
 }
 
 fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -> Value {

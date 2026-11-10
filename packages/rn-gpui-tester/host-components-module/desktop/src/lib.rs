@@ -373,6 +373,7 @@ impl FixtureSurfaceHostSpec for SurfaceHost {
 /// A box of the native tree fixture: a colored column or row that lays its
 /// children out with GPUI, and tells JavaScript when it is pressed.
 struct NativeBox {
+    id: usize,
     emitter: react_native_gpui::native_tree::NativeEmitter,
 }
 
@@ -382,6 +383,7 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
         cx: &mut react_native_gpui::native_tree::NativeContext,
     ) -> Self {
         Self {
+            id: cx.id as usize,
             emitter: cx.emitter(),
         }
     }
@@ -410,7 +412,7 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
         let emitter = self.emitter.clone();
         let pressable = props.get("onPress").is_some();
         let element = div()
-            .id(("native-box", 0usize))
+            .id(("native-box", self.id))
             .flex()
             .gap(px(number("gap", 0.0)))
             .p(px(number("padding", 0.0)))

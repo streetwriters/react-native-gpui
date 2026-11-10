@@ -14,8 +14,12 @@
 //! changed, and renders the element for its node from the elements of its
 //! children, which it places itself.
 
-use gpui::{AnyElement, App, IntoElement, Window};
+use gpui::{
+    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
+    LayoutId, Pixels, Role, Window,
+};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -237,9 +241,95 @@ struct Instance {
     component: Box<dyn ErasedComponent>,
 }
 
+type BoundsMap = Rc<RefCell<HashMap<NativeId, Bounds<Pixels>>>>;
+
+/// Wraps an instance's element without changing its layout: it records where the
+/// element was put, and gives the accessibility tree the role and label the
+/// instance's props name (`accessibilityRole`, `accessibilityLabel`, `testID`).
+struct Tracked {
+    inner: AnyElement,
+    id: NativeId,
+    bounds: BoundsMap,
+    role: Option<Role>,
+    label: Option<String>,
+    test_id: Option<String>,
+}
+
+impl IntoElement for Tracked {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Tracked {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        self.role.map(|_| ElementId::Integer(self.id))
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.inner.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.bounds.borrow_mut().insert(self.id, bounds);
+        self.inner.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        _prepaint: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.inner.paint(window, cx);
+    }
+
+    fn a11y_role(&self) -> Option<Role> {
+        self.role
+    }
+
+    fn write_a11y_info(&self, node: &mut gpui::accesskit::Node) {
+        if let Some(label) = &self.label {
+            node.set_label(label.clone());
+        }
+        if let Some(test_id) = &self.test_id {
+            node.set_author_id(test_id.clone());
+        }
+    }
+}
+
 /// The instances of one native root, and the operations that change them.
 pub struct NativeTree {
     instances: HashMap<NativeId, Instance>,
+    /// Where each instance was put the last time it painted.
+    bounds: BoundsMap,
     /// The instances with no parent, in the order they were made: the roots a
     /// host attaches to its own node.
     roots: Vec<NativeId>,
@@ -250,6 +340,7 @@ impl NativeTree {
     pub fn new(sink: impl Fn(NativeEvent) + 'static) -> Self {
         Self {
             instances: HashMap::new(),
+            bounds: Rc::new(RefCell::new(HashMap::new())),
             roots: Vec::new(),
             sink: Rc::new(sink),
         }
@@ -481,12 +572,55 @@ impl NativeTree {
             .into_iter()
             .map(|child| self.render(child, window, app))
             .collect();
+        let bounds = self.bounds.clone();
         match self.instances.get_mut(&id) {
-            Some(instance) => instance
-                .component
-                .render(&instance.props, elements, window, app),
+            Some(instance) => {
+                let inner = instance
+                    .component
+                    .render(&instance.props, elements, window, app);
+                let text = |name: &str| {
+                    instance
+                        .props
+                        .get(name)
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string)
+                };
+                Tracked {
+                    inner,
+                    id,
+                    bounds,
+                    role: text("accessibilityRole").and_then(|role| {
+                        crate::node_view::role_for_accessibility_role(&role, true)
+                    }),
+                    label: text("accessibilityLabel"),
+                    test_id: text("testID"),
+                }
+                .into_any_element()
+            }
             None => gpui::div().into_any_element(),
         }
+    }
+
+    /// Where `id` was put the last time it painted, in window coordinates.
+    pub fn bounds_of(&self, id: NativeId) -> Option<Bounds<Pixels>> {
+        self.bounds.borrow().get(&id).copied()
+    }
+
+    /// The props of `id`.
+    pub fn props_of(&self, id: NativeId) -> Option<&Map<String, Value>> {
+        self.instances.get(&id).map(|instance| &instance.props)
+    }
+
+    /// Every instance, parents before their children.
+    pub fn ids(&self) -> Vec<NativeId> {
+        let mut ids = Vec::with_capacity(self.instances.len());
+        let mut pending: Vec<NativeId> = self.roots.iter().rev().copied().collect();
+        while let Some(id) = pending.pop() {
+            ids.push(id);
+            pending.extend(self.children(id).iter().rev().copied());
+        }
+        ids
     }
 }
 

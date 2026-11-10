@@ -68,6 +68,7 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
         return;
     };
     let host: Host = store.read(cx).host.clone();
+    drop_stale_trees(cx, root);
     let tag = TREES.with(|trees| {
         let mut trees = trees.borrow_mut();
         let state = trees.entry(root).or_insert_with(|| {
@@ -103,6 +104,24 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     if let Some(node) = tag.and_then(|tag| store.read(cx).nodes.get(&tag).cloned()) {
         node.update(cx, |_, cx| cx.notify());
     }
+}
+
+/// Drops the trees whose node is gone, which is what a reload or an unmount that
+/// never sent `destroy` leaves behind. `keep` is the tree being applied to.
+fn drop_stale_trees(cx: &App, keep: u32) {
+    let Some(store) = crate::store::store_from(cx) else {
+        return;
+    };
+    let store = store.read(cx);
+    TREES.with(|trees| {
+        trees.borrow_mut().retain(|root, state| {
+            *root == keep
+                || state
+                    .tag
+                    .get()
+                    .is_none_or(|tag| store.nodes.contains_key(&tag))
+        });
+    });
 }
 
 struct NativeRootRenderer;
@@ -190,4 +209,88 @@ impl NativeComponent for Container {
 pub fn register() {
     register_native_component::<Container>(CONTAINER);
     register_component_renderer(COMPONENT, Arc::new(NativeRootRenderer));
+}
+
+/// What the test driver and the accessibility checks see of one instance.
+pub(crate) struct InstanceInfo {
+    pub tag: i32,
+    pub type_name: String,
+    pub props: Map<String, Value>,
+    /// In window coordinates, once the instance has painted.
+    pub bounds: Option<gpui::Bounds<gpui::Pixels>>,
+    pub children: Vec<i32>,
+    pub root: u32,
+}
+
+thread_local! {
+    static SYNTHETIC: RefCell<Synthetic> = RefCell::new(Synthetic::default());
+}
+
+/// The tags the test driver gives instances. Fabric's are positive; these are
+/// negative, so one number says which kind it is and which instance.
+#[derive(Default)]
+struct Synthetic {
+    by_instance: HashMap<(u32, u64), i32>,
+    by_tag: HashMap<i32, (u32, u64)>,
+    last: i32,
+}
+
+fn synthetic_tag(root: u32, id: u64) -> i32 {
+    SYNTHETIC.with(|synthetic| {
+        let mut synthetic = synthetic.borrow_mut();
+        if let Some(tag) = synthetic.by_instance.get(&(root, id)) {
+            return *tag;
+        }
+        synthetic.last -= 1;
+        let tag = synthetic.last;
+        synthetic.by_instance.insert((root, id), tag);
+        synthetic.by_tag.insert(tag, (root, id));
+        tag
+    })
+}
+
+/// Every instance of the tree `root`, parents first.
+pub(crate) fn instances(root: u32) -> Vec<InstanceInfo> {
+    TREES.with(|trees| {
+        let trees = trees.borrow();
+        let Some(state) = trees.get(&root) else {
+            return Vec::new();
+        };
+        state
+            .tree
+            .ids()
+            .into_iter()
+            .map(|id| InstanceInfo {
+                tag: synthetic_tag(root, id),
+                type_name: state.tree.type_of(id).unwrap_or_default().to_string(),
+                props: state.tree.props_of(id).cloned().unwrap_or_default(),
+                bounds: state.tree.bounds_of(id),
+                children: state
+                    .tree
+                    .children(id)
+                    .iter()
+                    .map(|child| synthetic_tag(root, *child))
+                    .collect(),
+                root,
+            })
+            .collect()
+    })
+}
+
+/// Every tree that has a node showing it.
+pub(crate) fn root_ids() -> Vec<u32> {
+    TREES.with(|trees| trees.borrow().keys().copied().collect())
+}
+
+/// Where a click on the instance with this tag goes: its centre in window
+/// coordinates, and the tag of the node that shows its tree, which is what the
+/// pointer is over as far as React Native's hit testing goes.
+pub(crate) fn pointer_target(tag: i32) -> Option<(gpui::Point<gpui::Pixels>, i32)> {
+    let (root, id) = SYNTHETIC.with(|synthetic| synthetic.borrow().by_tag.get(&tag).copied())?;
+    TREES.with(|trees| {
+        let trees = trees.borrow();
+        let state = trees.get(&root)?;
+        let bounds = state.tree.bounds_of(id)?;
+        Some((bounds.center(), state.tag.get()?))
+    })
 }

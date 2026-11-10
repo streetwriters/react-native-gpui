@@ -121,6 +121,28 @@ test('a press on a nested native component reaches its handler in React, with th
   await desktopExpect(app.getByTestId('native-last')).toHaveText('last:red');
 });
 
+test('the test driver sees the instances: tree dump, locators by testID, a click through a locator, and the accessibility tree', async () => {
+  const find = (node: any, id: string): any =>
+    node.testID === id
+      ? node
+      : node.children?.map((child: any) => find(child, id)).find(Boolean);
+  const counter = find(await app.tree(), 'native-counter');
+  expect(counter.native).toBe(true);
+  expect(counter.component).toBe('FixtureNativeBox');
+  expect(counter.role).toBe('button');
+  expect(counter.frame[2]).toBeGreaterThan(100);
+
+  const [green] = await app.query('testID', 'native-swatch-green', true);
+  expect(green.visible).toBe(true);
+  expect(green.frame.width).toBe(40);
+  await app.getByTestId('native-swatch-green').click();
+  await desktopExpect(app.getByTestId('native-last')).toHaveText('last:green');
+
+  const node = await app.a11yNode('native-counter');
+  expect(node?.role).toMatch(/button/i);
+  expect(node?.name).toBe('Counter');
+});
+
 test('a keyed reorder in React moves the native instances', async () => {
   await app.getByTestId('native-reorder').click();
   await app.waitForIdle();

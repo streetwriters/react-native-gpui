@@ -32,12 +32,18 @@ type ReconcilerApi = {
   flushSyncWork(): void;
 };
 
+type RootState = {
+  batch: Batch;
+  byId: Map<number, NativeInstance>;
+};
+
 export type NativeInstance = {
   id: number;
   type: string;
   props: Props;
   handlers: Record<string, (payload: unknown) => void>;
   parent: NativeInstance | null;
+  root: RootState;
 };
 
 type Op = unknown[];
@@ -55,6 +61,7 @@ export type NativeRootHandle = {
 type Apply = (rootId: number, payload: string) => void;
 
 declare const globalThis: { __gpuiNativeRootApply?: Apply };
+declare const __DEV__: boolean | undefined;
 
 const CONTAINER_TYPE = 'NativeRootContainer';
 
@@ -109,13 +116,13 @@ class Batch {
   ops: Op[] = [];
 }
 
-function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
+function createHostConfig() {
   const append = (parent: NativeInstance, child: NativeInstance) => {
     child.parent = parent;
-    batch.ops.push(['append', parent.id, child.id]);
+    parent.root.batch.ops.push(['append', parent.id, child.id]);
   };
   const detach = (parent: NativeInstance, child: NativeInstance) => {
-    batch.ops.push(['remove', parent.id, child.id]);
+    parent.root.batch.ops.push(['remove', parent.id, child.id]);
     child.parent = null;
   };
   const insertBefore = (
@@ -124,7 +131,7 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
     before: NativeInstance,
   ) => {
     child.parent = parent;
-    batch.ops.push(['insert', parent.id, child.id, before.id]);
+    parent.root.batch.ops.push(['insert', parent.id, child.id, before.id]);
   };
 
   return {
@@ -139,7 +146,11 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
       Promise.resolve().then(callback);
     },
 
-    createInstance(type: string, props: Props): NativeInstance {
+    createInstance(
+      type: string,
+      props: Props,
+      container: NativeInstance,
+    ): NativeInstance {
       const { data, handlers } = wire(props);
       const instance: NativeInstance = {
         id: nextInstanceId++,
@@ -147,9 +158,10 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
         props: data,
         handlers,
         parent: null,
+        root: container.root,
       };
-      byId.set(instance.id, instance);
-      batch.ops.push(['create', instance.id, type, data]);
+      container.root.byId.set(instance.id, instance);
+      container.root.batch.ops.push(['create', instance.id, type, data]);
       return instance;
     },
     createTextInstance(): never {
@@ -189,7 +201,7 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
       }
       instance.props = data;
       if (unset.length > 0 || Object.keys(set).length > 0) {
-        batch.ops.push(['update', instance.id, set, unset]);
+        instance.root.batch.ops.push(['update', instance.id, set, unset]);
       }
     },
     finalizeInitialChildren: () => false,
@@ -202,7 +214,7 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
     preparePortalMount() {},
     clearContainer() {},
     detachDeletedInstance(instance: NativeInstance) {
-      byId.delete(instance.id);
+      instance.root.byId.delete(instance.id);
     },
     hideInstance() {},
     unhideInstance() {},
@@ -239,6 +251,33 @@ function createHostConfig(batch: Batch, byId: Map<number, NativeInstance>) {
   };
 }
 
+let reconciler: ReconcilerApi | undefined;
+
+/**
+ * One reconciler for every tree, so React's developer tools and Fast Refresh
+ * see a single renderer: an edit to a component of a tree re-renders it with
+ * its state kept.
+ */
+function sharedReconciler(): ReconcilerApi {
+  if (reconciler == null) {
+    const created = Reconciler(
+      createHostConfig() as never,
+    ) as unknown as ReconcilerApi & {
+      injectIntoDevTools(config: unknown): boolean;
+    };
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      created.injectIntoDevTools({
+        bundleType: 1,
+        version: React.version,
+        rendererPackageName: 'gpui-native-root',
+        findFiberByHostInstance: () => null,
+      });
+    }
+    reconciler = created;
+  }
+  return reconciler;
+}
+
 /**
  * Starts a tree. `onError` gets what a component of the tree throws while it
  * renders, so the caller can throw it again in the outer tree, where React
@@ -249,19 +288,18 @@ export function createNativeRoot(
   onError: (error: unknown) => void,
   apply: Apply | undefined = globalThis.__gpuiNativeRootApply,
 ): NativeRootHandle {
-  const batch = new Batch();
-  const byId = new Map<number, NativeInstance>();
+  const state: RootState = { batch: new Batch(), byId: new Map() };
+  const { batch, byId } = state;
   const container: NativeInstance = {
     id: 1,
     type: CONTAINER_TYPE,
     props: {},
     handlers: {},
     parent: null,
+    root: state,
   };
   byId.set(container.id, container);
-  const reconciler = Reconciler(
-    createHostConfig(batch, byId) as never,
-  ) as unknown as ReconcilerApi;
+  const reconciler = sharedReconciler();
   const fiberRoot = reconciler.createContainer(
     container,
     1,

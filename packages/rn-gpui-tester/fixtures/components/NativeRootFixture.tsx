@@ -15,7 +15,15 @@ const COLORS: Record<string, number> = {
 };
 
 function Swatch({ name, onPress }: { name: string; onPress?: () => void }) {
-  return <Box color={COLORS[name]} width={40} height={30} onPress={onPress} />;
+  return (
+    <Box
+      testID={`native-swatch-${name}`}
+      color={COLORS[name]}
+      width={40}
+      height={30}
+      onPress={onPress}
+    />
+  );
 }
 
 function Counter({ log }: { log: (line: string) => void }) {
@@ -23,6 +31,9 @@ function Counter({ log }: { log: (line: string) => void }) {
   const [count, setCount] = useState(0);
   return (
     <Box
+      testID="native-counter"
+      accessibilityRole="button"
+      accessibilityLabel="Counter"
       color={0x1e3a8a}
       padding={4}
       height={30}
