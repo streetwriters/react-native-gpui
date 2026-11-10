@@ -108,6 +108,6 @@ describe('cells that wait for a later step', () => {
     'a list a component owns (gpui-kit List, Table, Tree) with React Native rows, through the range and slot protocol (when gpui-kit adopts NativeRoot)',
   );
   test.todo(
-    'a native text field in a native tree: typing, IME and selection (needs a native text component)',
+    'input method composition in a native text field of a native tree (the driver cannot reach the platform input handler without a gpui-fast test hook)',
   );
 });

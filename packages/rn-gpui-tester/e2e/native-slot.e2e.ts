@@ -239,6 +239,11 @@ test('overlays: a native tree in a React Native modal takes presses', async () =
   await expect.poll(log, { timeout: 5000 }).toContain('modal-box,');
 });
 
+test('typing into a native text field with the driver, by locator', async () => {
+  await app.getByTestId('native-input').type('hi');
+  await desktopExpect(app.getByTestId('native-typed')).toHaveText('native:hi');
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({

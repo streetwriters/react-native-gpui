@@ -11,6 +11,7 @@ import { NativeRoot, NativeSlot } from '@react-native-gpui/core/desktop';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
 const Box = 'FixtureNativeBox' as unknown as NativeElement;
+const Input = 'FixtureNativeInput' as unknown as NativeElement;
 const Popover = 'FixtureNativePopover' as unknown as NativeElement;
 
 const Where = createContext('none');
@@ -31,6 +32,7 @@ export default function NativeSlotFixture() {
   const [typed, setTyped] = useState('');
   const [popover, setPopover] = useState(false);
   const [modal, setModal] = useState(false);
+  const [nativeTyped, setNativeTyped] = useState('');
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
     <Box
@@ -176,6 +178,18 @@ export default function NativeSlotFixture() {
             </Popover>
           </Box>
         </NativeRoot>
+        <NativeRoot testID="slot-input-root" style={{ width: 240, height: 30 }}>
+          <Box direction="column">
+            <Input
+              testID="native-input"
+              text={nativeTyped}
+              onChangeText={(event: { text: string }) =>
+                setNativeTyped(event.text)
+              }
+            />
+          </Box>
+        </NativeRoot>
+        <Text testID="native-typed">{`native:${nativeTyped}`}</Text>
         <Pressable testID="slot-modal-open" onPress={() => setModal(true)}>
           <Text>modal</Text>
         </Pressable>

@@ -547,6 +547,180 @@ impl react_native_gpui::native_tree::NativeComponent for NativePopover {
     }
 }
 
+/// What a native text field has typed into it.
+struct NativeInputState {
+    text: String,
+    marked: Option<std::ops::Range<usize>>,
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+}
+
+impl NativeInputState {
+    fn changed(&self) {
+        self.emitter
+            .emit("onChangeText", serde_json::json!({ "text": self.text }));
+    }
+}
+
+impl gpui::EntityInputHandler for NativeInputState {
+    fn text_for_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+        adjusted: &mut Option<std::ops::Range<usize>>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<String> {
+        let end = range.end.min(self.text.len());
+        let start = range.start.min(end);
+        *adjusted = Some(start..end);
+        self.text.get(start..end).map(str::to_string)
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _: bool,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<gpui::UTF16Selection> {
+        let end = self.text.encode_utf16().count();
+        Some(gpui::UTF16Selection {
+            range: end..end,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<std::ops::Range<usize>> {
+        self.marked.clone()
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) {
+        self.marked = None;
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _: Option<std::ops::Range<usize>>,
+        text: &str,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) {
+        if let Some(marked) = self.marked.take() {
+            self.text.replace_range(marked, text);
+        } else {
+            self.text.push_str(text);
+        }
+        self.changed();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _: Option<std::ops::Range<usize>>,
+        text: &str,
+        _: Option<std::ops::Range<usize>>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) {
+        let start = self
+            .marked
+            .take()
+            .map_or(self.text.len(), |range| range.start);
+        self.text.replace_range(start.., text);
+        self.marked = Some(start..start + text.len());
+        self.changed();
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        _: std::ops::Range<usize>,
+        element_bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<gpui::Bounds<gpui::Pixels>> {
+        Some(element_bounds)
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _: gpui::Point<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<usize> {
+        None
+    }
+}
+
+/// A text field in the native tree fixture: it takes text through the platform's
+/// input handler, shows the `text` prop, and reports `onChangeText`.
+struct NativeInput {
+    state: gpui::Entity<NativeInputState>,
+    focus: gpui::FocusHandle,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativeInput {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        let emitter = cx.emitter();
+        let focus = cx.app.focus_handle().tab_stop(true);
+        let state = cx.app.new(|_| NativeInputState {
+            text: String::new(),
+            marked: None,
+            emitter,
+        });
+        Self { state, focus }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        _children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let text = props
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let (state, focus) = (self.state.clone(), self.focus.clone());
+        div()
+            .id("native-input")
+            .relative()
+            .h(px(24.0))
+            .bg(rgb(0xffffff))
+            .text_color(rgb(0x000000))
+            .track_focus(&self.focus)
+            .child(text)
+            .child(
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, cx| {
+                        window.handle_input(
+                            &focus,
+                            gpui::ElementInputHandler::new(bounds, state),
+                            cx,
+                        )
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .into_any_element()
+    }
+}
+
 /// A line of text in the native tree fixture.
 struct NativeText;
 
@@ -603,6 +777,7 @@ impl react_native_gpui::native_tree::NativeComponent for NativeText {
 pub fn rn_gpui_register() {
     react_native_gpui::native_tree::register_native_component::<NativeBox>("FixtureNativeBox");
     react_native_gpui::native_tree::register_native_component::<NativeText>("FixtureNativeText");
+    react_native_gpui::native_tree::register_native_component::<NativeInput>("FixtureNativeInput");
     react_native_gpui::native_tree::register_native_component::<NativePopover>(
         "FixtureNativePopover",
     );
