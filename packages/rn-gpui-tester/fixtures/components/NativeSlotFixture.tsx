@@ -38,7 +38,9 @@ export default function NativeSlotFixture() {
   const [nativeTyped, setNativeTyped] = useState('');
   const card = useRef<any>(null);
   const fabricCard = useRef<any>(null);
+  const card2 = useRef<any>(null);
   const [details, setDetails] = useState('none');
+  const [details2, setDetails2] = useState('none');
   const [fabricDetails, setFabricDetails] = useState('none');
   const note = (name: string) => setLog(value => `${value}${name},`);
   const red = (name: string, height = 20) => (
@@ -211,7 +213,7 @@ export default function NativeSlotFixture() {
               { name: 'a', size: 1.5 },
               { name: 'b', size: 2.5 },
             ]}
-            icon={{ uri: 'file:///icon.png' }}
+            icon={require('../../assets/image-probe.png')}
             onDetails={(event: { nativeEvent: object }) =>
               setDetails(JSON.stringify(event.nativeEvent))
             }
@@ -228,6 +230,23 @@ export default function NativeSlotFixture() {
         >
           <Text>ping</Text>
         </Pressable>
+        <NativeRoot testID="slot-card2-root" style={{ width: 120, height: 40 }}>
+          <Card
+            ref={card2}
+            title="uri"
+            icon="file:///plain-uri.png"
+            onDetails={(event: { nativeEvent: object }) =>
+              setDetails2(JSON.stringify(event.nativeEvent))
+            }
+          />
+        </NativeRoot>
+        <Pressable
+          testID="native-card2-details"
+          onPress={() => CardCommands.reportDetails(card2.current)}
+        >
+          <Text>details 2</Text>
+        </Pressable>
+        <Text testID="native-details2">{details2}</Text>
         <Pressable
           testID="native-card-details"
           onPress={() => CardCommands.reportDetails(card.current)}

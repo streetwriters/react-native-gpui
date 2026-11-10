@@ -279,6 +279,19 @@ test('one Commands API for a Fabric node and a native tree instance, and structu
     .toMatchObject(expected);
 });
 
+test('image props of a native tree take what React Native accepts: a required asset and a uri string', async () => {
+  const read = async (testID: string) =>
+    JSON.parse(((await app.getByTestId(testID).textContent()) ?? '').trim());
+  await app.getByTestId('native-card-details').click();
+  await expect
+    .poll(async () => (await read('native-details')).icon, { timeout: 5000 })
+    .toMatch(/image-probe.*\.png$/);
+  await app.getByTestId('native-card2-details').click();
+  await expect
+    .poll(async () => (await read('native-details2')).icon, { timeout: 5000 })
+    .toBe('file:///plain-uri.png');
+});
+
 test('measures: what a native commit costs with a thousand React Native views in a slot', async () => {
   await app.close();
   app = await launchApp({

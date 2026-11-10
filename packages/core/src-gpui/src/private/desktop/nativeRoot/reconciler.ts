@@ -11,6 +11,7 @@
  */
 
 import * as React from 'react';
+import { resolveImageProps } from './imageProps';
 import Reconciler from 'react-reconciler';
 import * as constants from 'react-reconciler/constants';
 
@@ -85,10 +86,14 @@ function isHandler(value: unknown): value is (payload: unknown) => void {
 }
 
 /** What goes to the runtime: data props as they are, handlers as `true`. */
-function wire(props: Props): {
+function wire(
+  type: string,
+  rawProps: Props,
+): {
   data: Props;
   handlers: NativeInstance['handlers'];
 } {
+  const props = resolveImageProps(type, rawProps);
   const data: Props = {};
   const handlers: NativeInstance['handlers'] = {};
   for (const name of Object.keys(props)) {
@@ -163,7 +168,7 @@ function createHostConfig() {
       props: Props,
       container: NativeInstance,
     ): NativeInstance {
-      const { data, handlers } = wire(props);
+      const { data, handlers } = wire(type, props);
       const instance: NativeInstance = {
         id: nextInstanceId++,
         type,
@@ -202,7 +207,7 @@ function createHostConfig() {
       _oldProps: Props,
       newProps: Props,
     ) {
-      const { data, handlers } = wire(newProps);
+      const { data, handlers } = wire(instance.type, newProps);
       instance.handlers = handlers;
       const set: Props = {};
       const unset: string[] = [];

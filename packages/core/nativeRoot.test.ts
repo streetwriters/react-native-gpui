@@ -181,3 +181,12 @@ describe('the native root reconciler', () => {
     );
   });
 });
+
+describe('image props of a native tree', () => {
+  test('are left as they are where React Native is not available to resolve them', async () => {
+    const { resolveImageProps } =
+      await import('./src-gpui/src/private/desktop/nativeRoot/imageProps');
+    const props = { icon: { uri: 'file:///x.png' }, title: 't' };
+    expect(resolveImageProps('Anything', props)).toBe(props);
+  });
+});
