@@ -21,6 +21,7 @@
     "modules/image-manipulator",
     "modules/notifications",
     "modules/system",
+    "modules/secure-storage",
     "modules/updater",
     "modules/pdf",
     "modules/typst",

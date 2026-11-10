@@ -1,0 +1,35 @@
+{
+  "name": "@react-native-gpui/secure-storage",
+  "version": "0.0.1-alpha.0",
+  "description": "Secrets in the operating system's credential store, and strings encrypted with a key kept there, for React Native GPUI apps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streetwriters/react-native-gpui.git",
+    "directory": "modules/secure-storage"
+  },
+  "homepage": "https://streetwriters.github.io/react-native-gpui/",
+  "bugs": {
+    "url": "https://github.com/streetwriters/react-native-gpui/issues"
+  },
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "desktop",
+    "react-native.config.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "codegenConfig": {
+    "name": "RNGpuiSecureStorageSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
+  "peerDependencies": {
+    "react-native": "0.87.x"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}
