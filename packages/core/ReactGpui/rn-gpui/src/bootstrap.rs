@@ -1216,6 +1216,22 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
     let _ = rn_gpui_sys::SCROLLER_LEGACY_HANDLER.set(Box::new(crate::scroller_style::legacy));
+    let _ = rn_gpui_sys::HOST_MEASURE_HANDLER.set(Box::new(
+        |index, props, [min_w, min_h, max_w, max_h]| {
+            let constraint = crate::host_component::MeasureConstraint {
+                min_width: min_w,
+                min_height: min_h,
+                max_width: max_w,
+                max_height: max_h,
+            };
+            crate::host_component::measure_component(
+                index,
+                props as *const core::ffi::c_void,
+                &constraint,
+            )
+            .map(|size| (size.width, size.height))
+        },
+    ));
     let scroller_style_tx = tx.clone();
     crate::scroller_style::install(move || {
         let _ = scroller_style_tx.send_blocking(MainEvent::ScrollerStyleChanged);

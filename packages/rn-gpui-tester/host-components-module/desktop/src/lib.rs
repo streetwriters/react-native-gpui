@@ -7,7 +7,9 @@ mod native;
 use std::rc::Rc;
 
 use gpui::{div, point, prelude::*, px, rgb, AnyElement, PathBuilder, Window};
-use react_native_gpui::host_component::register_component;
+use react_native_gpui::host_component::{
+    measure_text, register_component, MeasureConstraint, MeasuredSize, TextStyle,
+};
 
 /// The chart's points, normalised to the box they are drawn in.
 type Series = Rc<[(f32, f32)]>;
@@ -172,14 +174,32 @@ struct MeasuredLabel {
 }
 
 impl MeasuredLabel {
-    fn measure(props: &FixtureMeasuredLabelProps) -> (f32, f32) {
+    fn size_of_text(props: &FixtureMeasuredLabelProps) -> (f32, f32) {
         measured_size(props.text(), props.character_width(), props.line_height())
     }
 }
 
 impl FixtureMeasuredLabelSpec for MeasuredLabel {
+    fn measure(
+        props: &FixtureMeasuredLabelProps,
+        constraint: &MeasureConstraint,
+    ) -> Option<MeasuredSize> {
+        if !props.wrap_text() {
+            return None;
+        }
+        let style = TextStyle {
+            size: 12.0,
+            ..TextStyle::default()
+        };
+        let extent = measure_text(props.text(), &style, constraint.text_width())?;
+        Some(constraint.clamp(MeasuredSize {
+            width: extent.width,
+            height: extent.height,
+        }))
+    }
+
     fn create(props: &FixtureMeasuredLabelProps, cx: &mut FixtureMeasuredLabelContext) -> Self {
-        let size = Self::measure(props);
+        let size = Self::size_of_text(props);
         cx.set_intrinsic_size(size.0, size.1);
         Self { size }
     }
@@ -190,7 +210,7 @@ impl FixtureMeasuredLabelSpec for MeasuredLabel {
         _changed: FixtureMeasuredLabelChanged,
         cx: &mut FixtureMeasuredLabelContext,
     ) {
-        let size = Self::measure(props);
+        let size = Self::size_of_text(props);
         if size != self.size {
             self.size = size;
             cx.set_intrinsic_size(size.0, size.1);

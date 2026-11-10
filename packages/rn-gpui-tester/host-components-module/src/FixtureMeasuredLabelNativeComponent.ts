@@ -12,6 +12,8 @@ export interface NativeProps extends ViewProps {
   text?: string;
   characterWidth?: CodegenTypes.WithDefault<CodegenTypes.Double, 8>;
   lineHeight?: CodegenTypes.WithDefault<CodegenTypes.Double, 20>;
+  /** Sets the text in its font and wraps it to the width Yoga offers. */
+  wrapText?: CodegenTypes.WithDefault<boolean, false>;
 }
 
 export default codegenNativeComponent<NativeProps>('FixtureMeasuredLabel', {

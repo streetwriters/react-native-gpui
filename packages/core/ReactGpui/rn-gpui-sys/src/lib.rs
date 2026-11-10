@@ -267,6 +267,14 @@ pub mod ffi {
         pub has_value: bool,
     }
 
+    /// What a host component measured under a constraint, if it measures.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct HostMeasure {
+        pub width: f32,
+        pub height: f32,
+        pub measured: bool,
+    }
+
     #[derive(Clone, Copy, Debug, Default)]
     pub struct MeasureResult {
         pub width: f32,
@@ -308,6 +316,16 @@ pub mod ffi {
         fn rn_gpui_on_wheel_done(id: u64, prevented: bool);
         /// Whether scrollers are drawn the legacy way, always shown.
         fn rn_gpui_scroller_legacy() -> bool;
+        /// Measures a host component under a constraint on the layout thread.
+        /// `props` is the address of the node's props handle.
+        fn rn_gpui_host_measure(
+            index: u32,
+            props: usize,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+        ) -> HostMeasure;
         /// Whether surfaces start right to left, and whether left and right
         /// swap in that direction.
         fn rn_gpui_layout_direction_rtl() -> bool;
@@ -650,6 +668,8 @@ pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceL
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
 pub static WHEEL_DONE_HANDLER: OnceLock<WheelDoneHandler> = OnceLock::new();
 pub static SCROLLER_LEGACY_HANDLER: OnceLock<ScrollerLegacyHandler> = OnceLock::new();
+pub type HostMeasureHandler = Box<dyn Fn(u32, usize, [f32; 4]) -> Option<(f32, f32)> + Send + Sync>;
+pub static HOST_MEASURE_HANDLER: OnceLock<HostMeasureHandler> = OnceLock::new();
 pub static BUILTIN_COMMAND_HANDLER: OnceLock<BuiltinCommandHandler> = OnceLock::new();
 pub static HOST_COMMAND_HANDLER: OnceLock<HostCommandHandler> = OnceLock::new();
 pub static ACCESSIBILITY_FOCUS_HANDLER: OnceLock<AccessibilityFocusHandler> = OnceLock::new();
@@ -783,6 +803,27 @@ fn rn_gpui_on_text_input_command(tag: i32, focus: bool) {
 fn rn_gpui_on_text_input_clear(tag: i32) {
     if let Some(handler) = TEXT_INPUT_CLEAR_HANDLER.get() {
         handler(tag);
+    }
+}
+
+fn rn_gpui_host_measure(
+    index: u32,
+    props: usize,
+    min_width: f32,
+    min_height: f32,
+    max_width: f32,
+    max_height: f32,
+) -> ffi::HostMeasure {
+    let measured = HOST_MEASURE_HANDLER
+        .get()
+        .and_then(|handler| handler(index, props, [min_width, min_height, max_width, max_height]));
+    match measured {
+        Some((width, height)) => ffi::HostMeasure {
+            width,
+            height,
+            measured: true,
+        },
+        None => ffi::HostMeasure::default(),
     }
 }
 

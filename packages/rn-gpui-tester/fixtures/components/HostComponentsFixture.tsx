@@ -141,6 +141,20 @@ export default function HostComponentsFixture({
 
         {/* A container: chrome around React children, with the chrome reported
             as insets so the children clear it. */}
+        <View style={{ width: 80 }}>
+          <FixtureMeasuredLabel
+            testID="host-wrapped-narrow"
+            text="a fairly long label that has to wrap"
+            wrapText
+          />
+        </View>
+        <View style={{ width: 400 }}>
+          <FixtureMeasuredLabel
+            testID="host-wrapped-wide"
+            text="a fairly long label that has to wrap"
+            wrapText
+          />
+        </View>
         <FixtureCard
           testID="host-card"
           title="Card"

@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/codegen` are listed here. Each versio
 
 ## Unreleased
 
+- The generated host component trait has an optional `measure(props, constraint)` for `measured` components.
 - An event payload field named `value` or `emitter` no longer breaks the generated C++ with a redefinition error: the shim's parameters carry a `p_` prefix and the payload local is `rn_payload`.
 - The generated host component context has `window()` and `with_window()`.
 - The generated host component context has `app()`, which returns the GPUI `App` of the call the component was made in.

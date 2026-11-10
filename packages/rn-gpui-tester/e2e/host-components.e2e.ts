@@ -121,6 +121,18 @@ test('a measured component reports its size and its parent lays out around it', 
   expect(sibling.y).toBeGreaterThanOrEqual(measured.y + measured.height);
 });
 
+test('a measured component sets its text under the width Yoga offers it', async () => {
+  await launch('HostComponentsFixture');
+  await app.waitForIdle();
+
+  const narrow = await frameOf('host-wrapped-narrow');
+  const wide = await frameOf('host-wrapped-wide');
+  expect(narrow.width).toBeLessThanOrEqual(80);
+  expect(wide.width).toBeGreaterThan(narrow.width);
+  expect(narrow.height).toBeGreaterThan(wide.height * 1.8);
+  expect(wide.height).toBeGreaterThan(10);
+});
+
 test('a measured component inside a scroll view keeps tracking the scroll', async () => {
   await launch('HostComponentsFixture');
   await app.waitForIdle();

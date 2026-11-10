@@ -738,16 +738,66 @@ pub trait HostObject: 'static {
     }
 }
 
+/// The room Yoga offers a measured component: its size is anywhere from the
+/// minimum to the maximum on each axis. A maximum is infinite when the parent
+/// leaves the axis open.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeasureConstraint {
+    pub min_width: f32,
+    pub min_height: f32,
+    pub max_width: f32,
+    pub max_height: f32,
+}
+
+impl MeasureConstraint {
+    /// `size` brought within the constraint.
+    pub fn clamp(&self, size: MeasuredSize) -> MeasuredSize {
+        MeasuredSize {
+            width: size
+                .width
+                .clamp(self.min_width, self.max_width.max(self.min_width)),
+            height: size
+                .height
+                .clamp(self.min_height, self.max_height.max(self.min_height)),
+        }
+    }
+
+    /// The width text may take, or `None` when the axis is open.
+    pub fn text_width(&self) -> Option<f32> {
+        self.max_width.is_finite().then_some(self.max_width)
+    }
+}
+
+pub use crate::text::{measure_text, TextExtent, TextStyle};
+
+/// A size a component measured, in DIPs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeasuredSize {
+    pub width: f32,
+    pub height: f32,
+}
+
 /// A generated registration value: a component's name and how to create it.
 pub trait HostComponentSpec: 'static {
     /// The Fabric component name the spec declares.
     const NAME: &'static str;
+
+    /// The size of a `measured` node under a constraint, on the layout thread.
+    /// `props` is the address of the node's props handle.
+    fn measure(
+        props: *const core::ffi::c_void,
+        constraint: &MeasureConstraint,
+    ) -> Option<MeasuredSize> {
+        let _ = (props, constraint);
+        None
+    }
 
     /// Creates the component for a node that just mounted.
     fn create(props: PropsHandle, emitter: EmitterHandle, cx: HostContext) -> Box<dyn HostObject>;
 }
 
 type CreateFn = fn(PropsHandle, EmitterHandle, HostContext) -> Box<dyn HostObject>;
+type MeasureFn = fn(*const core::ffi::c_void, &MeasureConstraint) -> Option<MeasuredSize>;
 
 /// One registry slot: what autolink declared, and what the package registered.
 #[derive(Clone)]
@@ -755,6 +805,7 @@ pub struct HostEntry {
     pub name: String,
     pub options: HostComponentOptions,
     create: Option<CreateFn>,
+    measure: Option<MeasureFn>,
 }
 
 impl HostEntry {
@@ -773,6 +824,17 @@ impl HostEntry {
     ) -> Option<Box<dyn HostObject>> {
         self.create.map(|create| create(props, emitter, cx))
     }
+}
+
+/// Measures node `index` under `constraint`; `None` when the component has no
+/// measure of its own. Called on the layout thread.
+pub(crate) fn measure_component(
+    index: u32,
+    props: *const core::ffi::c_void,
+    constraint: &MeasureConstraint,
+) -> Option<MeasuredSize> {
+    let measure = entry(index)?.measure?;
+    measure(props, constraint).map(|size| constraint.clamp(size))
 }
 
 impl std::fmt::Debug for HostEntry {
@@ -830,6 +892,7 @@ pub fn declare_host_component(index: u32, name: &str, options: HostComponentOpti
         name: name.to_string(),
         options,
         create: None,
+        measure: None,
     });
     any_declared_flag().store(true, Ordering::Relaxed);
 }
@@ -856,7 +919,10 @@ pub fn register_component<C: HostComponentSpec>(spec: C) {
         .flatten()
         .find(|entry| entry.name == C::NAME)
     {
-        Some(entry) => entry.create = Some(C::create as CreateFn),
+        Some(entry) => {
+            entry.create = Some(C::create as CreateFn);
+            entry.measure = Some(C::measure as MeasureFn);
+        }
         None => {
             log::error!(
                 "[host-component] {} is registered but not declared under platforms.desktop.hostComponents",

@@ -792,6 +792,70 @@ pub fn install_measure_handler(cx: &mut App) {
     }));
 }
 
+/// How a piece of text is set, for a host component that measures it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStyle {
+    /// The font family; empty for the system font.
+    pub family: String,
+    pub size: f32,
+    /// 100 to 900.
+    pub weight: u16,
+    pub italic: bool,
+    /// Zero for the font's own line height.
+    pub line_height: f32,
+    pub letter_spacing: f32,
+    /// Lines to show before cutting the text short, zero for all.
+    pub max_lines: u32,
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            family: String::new(),
+            size: 14.0,
+            weight: 400,
+            italic: false,
+            line_height: 0.0,
+            letter_spacing: 0.0,
+            max_lines: 0,
+        }
+    }
+}
+
+/// What a text takes once set.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextExtent {
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Sets `text` in `style`, wrapped to `max_width` when given, and returns the
+/// room it takes, with the rounding Fabric's own text gets. Safe from the layout
+/// thread. `None` before the text system exists, which is before the app starts.
+pub fn measure_text(text: &str, style: &TextStyle, max_width: Option<f32>) -> Option<TextExtent> {
+    let service = TEXT_SERVICE.get()?;
+    let paragraph = ParagraphFlat {
+        fragments: vec![TextFragmentFlat {
+            text: text.to_string(),
+            font_family: style.family.clone(),
+            font_size: style.size,
+            font_weight: style.weight,
+            italic: style.italic,
+            line_height: style.line_height,
+            letter_spacing: style.letter_spacing,
+            ..Default::default()
+        }],
+        max_lines: style.max_lines as i32,
+        ..Default::default()
+    };
+    let shaped = service.shape(&paragraph, max_width.unwrap_or(f32::MAX));
+    let scale = device_scale();
+    Some(TextExtent {
+        width: shaped.width,
+        height: (shaped.height * scale).round() / scale,
+    })
+}
+
 /// The height of the paragraph laid out on one line, or 0 when it is empty.
 pub(crate) fn single_line_height(paragraph: &ParagraphFlat) -> f32 {
     TEXT_SERVICE
