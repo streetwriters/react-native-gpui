@@ -8,6 +8,9 @@ const rings =
 
 export default function GradientSnapFixture() {
   const [offsets, setOffsets] = useState('0');
+  const [page, setPage] = useState('0');
+  const [outerX, setOuterX] = useState('0');
+  const [innerY, setInnerY] = useState('0');
   return (
     <View style={{ padding: 8, gap: 8 }}>
       <View
@@ -43,6 +46,43 @@ export default function GradientSnapFixture() {
         <View style={{ height: 600 }} />
       </ScrollView>
       <Text testID="snap-offsets-y">{offsets}</Text>
+      <ScrollView
+        testID="snap-pages"
+        horizontal
+        pagingEnabled
+        style={{ width: 200, height: 40 }}
+        onScroll={event =>
+          setPage(String(Math.round(event.nativeEvent.contentOffset.x)))
+        }
+        scrollEventThrottle={16}
+      >
+        {[0, 1, 2, 3].map(index => (
+          <View key={index} style={{ width: 200, height: 40 }} />
+        ))}
+      </ScrollView>
+      <Text testID="snap-pages-x">{page}</Text>
+      <ScrollView
+        testID="nest-outer"
+        horizontal
+        style={{ width: 200, height: 80 }}
+        onScroll={event =>
+          setOuterX(String(Math.round(event.nativeEvent.contentOffset.x)))
+        }
+        scrollEventThrottle={16}
+      >
+        <ScrollView
+          testID="nest-inner"
+          style={{ width: 200, height: 80 }}
+          onScroll={event =>
+            setInnerY(String(Math.round(event.nativeEvent.contentOffset.y)))
+          }
+          scrollEventThrottle={16}
+        >
+          <View style={{ height: 600 }} />
+        </ScrollView>
+        <View style={{ width: 400, height: 80 }} />
+      </ScrollView>
+      <Text testID="nest-offsets">{`${outerX},${innerY}`}</Text>
     </View>
   );
 }

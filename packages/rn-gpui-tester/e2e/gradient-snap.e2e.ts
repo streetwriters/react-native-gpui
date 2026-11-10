@@ -80,3 +80,39 @@ test('snapToOffsets rests on the nearest listed offset', async () => {
   await app.scroll(tag, 0, 0, 1, 'ended');
   await desktopExpect(app.getByTestId('snap-offsets-y')).toHaveText('350');
 });
+
+test('a sideways trackpad swipe scrolls a horizontal scroll view and pagingEnabled rests on a page', async () => {
+  const tag = (await app.query('testID', 'snap-pages', true))[0].tag;
+  await app.scroll(tag, -130, 0, 1, 'started');
+  await app.scroll(tag, 0, 0, 1, 'ended');
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('200');
+  await app.scroll(tag, 40, 0, 1, 'started');
+  await app.scroll(tag, 0, 0, 1, 'ended');
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('200');
+  await app.scroll(tag, 160, 0, 1, 'started');
+  await app.scroll(tag, 0, 0, 1, 'ended');
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('0');
+});
+
+test('a vertical wheel scrolls a horizontal scroll view only with shift held', async () => {
+  const tag = (await app.query('testID', 'snap-pages', true))[0].tag;
+  await app.scroll(tag, 0, -130, 1, 'started');
+  await app.scroll(tag, 0, 0, 1, 'ended');
+  await app.waitForIdle();
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('0');
+  const shift = { modifiers: { shift: true } };
+  await app.scroll(tag, 0, -130, 1, 'started', 0, shift);
+  await app.scroll(tag, 0, 0, 1, 'ended', 0, shift);
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('200');
+  await app.scroll(tag, 0, 160, 1, 'started', 0, shift);
+  await app.scroll(tag, 0, 0, 1, 'ended', 0, shift);
+  await desktopExpect(app.getByTestId('snap-pages-x')).toHaveText('0');
+});
+
+test('a vertical scroll view inside a horizontal one takes the vertical axis and leaves the sideways one to the outer', async () => {
+  const inner = (await app.query('testID', 'nest-inner', true))[0].tag;
+  await app.scroll(inner, 0, -50);
+  await desktopExpect(app.getByTestId('nest-offsets')).toHaveText('0,50');
+  await app.scroll(inner, -60, 0);
+  await desktopExpect(app.getByTestId('nest-offsets')).toHaveText('60,50');
+});

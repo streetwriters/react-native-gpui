@@ -23,6 +23,8 @@ Called when the scrollbar's thumb is dragged with the pointer: the first move, e
 
 ## Differences
 
+- A horizontal scroll view scrolls with a sideways trackpad swipe, and with a vertical wheel while shift is held, as a browser's does. A vertical wheel alone does not move it. A vertical scroll view takes only the vertical axis, so one inside a horizontal scroll view scrolls up and down while a sideways swipe over it moves the outer one.
+
 - `decelerationRate` applies to a touchpad flick on Windows and Linux: the fraction of its speed it keeps each millisecond, `0.998` for `'normal'` and `0.99` for `'fast'`. A mouse wheel has no momentum. On macOS the momentum comes from the system and the value has no effect.
 - `snapToInterval`, `snapToOffsets`, `snapToStart`, `snapToEnd` and `pagingEnabled` settle on the nearest point once a wheel, trackpad or drag scroll comes to rest, on the vertical and on the horizontal axis (`horizontal` with `pagingEnabled` rests on whole pages). `snapToAlignment` is `start`, `center` or `end`.
 - `scrollEventThrottle` above one frame sends one event per interval, and the last one carries the offset the scroll ended at.
