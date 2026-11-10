@@ -17,10 +17,10 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 
 Two packages have no upstream library, because they provide desktop APIs:
 
-| Package                             | Purpose                                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| `@react-native-gpui/fs`             | [A Node-shaped file system API](desktop-file-system).                   |
-| `@react-native-gpui/fonts`          | [Custom font loading](desktop-fonts).                                   |
+| Package                    | Purpose                                               |
+| -------------------------- | ----------------------------------------------------- |
+| `@react-native-gpui/fs`    | [A Node-shaped file system API](desktop-file-system). |
+| `@react-native-gpui/fonts` | [Custom font loading](desktop-fonts).                 |
 
 More libraries and desktop modules (clipboard, keychain with secure storage, netinfo, webview, device info, PDF viewer, notifications, system, updater, spell checking, WebAuthn, image manipulation and others) live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 

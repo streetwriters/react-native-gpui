@@ -176,10 +176,7 @@ export default {
       'profiling',
     ],
     Reference: ['desktop-json', 'cli'],
-    'Desktop libraries': [
-      'desktop-file-system',
-      'desktop-fonts',
-    ],
+    'Desktop libraries': ['desktop-file-system', 'desktop-fonts'],
     'JavaScript Runtime': [
       'javascript-environment',
       {

@@ -918,8 +918,6 @@ test('the file system module downloads, reports progress and aborts', async () =
   }
 });
 
-type Channel = {
-
 test('a filtered SVG keeps its old image while a new colour is drawn, then shows the new one', async () => {
   await launch('GPUISvgFilterFixture');
   await desktopExpect(app.getByTestId('svg-recolor')).toBeVisible();
