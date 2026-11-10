@@ -6,6 +6,7 @@ export type PdfTileStats = {
   bytes: number;
   budget: number;
   evicted: number;
+  live: number;
 };
 
 export interface Spec extends TurboModule {
@@ -13,7 +14,7 @@ export interface Spec extends TurboModule {
   release(id: number): void;
   has(id: number): boolean;
   setBudget(bytes: number): void;
-  trim(): void;
+  trim(): number;
   stats(): PdfTileStats;
 }
 

@@ -59,12 +59,13 @@ async function launchViewer(
   await app?.close();
   await new Promise(resolve => setTimeout(resolve, 1000));
   const bundle = path.resolve(
-    'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
+    `packages/rn-gpui-tester/desktop/build/${process.env.PDFMEM_BUNDLE ?? 'test-e2e.bundle'}`,
   );
   app = await launchApp({
     bundle,
     env: {
       RN_GPUI_MODULE: 'PdfViewerFixture',
+      ...(process.env.PDFMEM_ENV ? JSON.parse(process.env.PDFMEM_ENV) : {}),
       RN_GPUI_BUNDLE: bundle,
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_WINDOW_STATE: path.resolve(
@@ -300,9 +301,31 @@ test('memory stays bounded while scrolling through 300 pages', async () => {
     Number(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)]).toString()) /
     1024;
   await new Promise(resolve => setTimeout(resolve, 1500));
+  const dump = (label: string) => {
+    if (!process.env.PDFMEM_DUMP) return;
+    const dir = process.env.PDFMEM_DUMP;
+    for (const [name, args] of [
+      ['vmmap', ['-summary']],
+      ['heap', ['-s']],
+      ['malloc_history', ['-callTree', '-allBySize']],
+    ] as const) {
+      try {
+        const out = execFileSync(
+          name === 'malloc_history' ? 'malloc_history' : name,
+          [String(pid), ...args],
+          { maxBuffer: 1 << 28 },
+        ).toString();
+        require('node:fs').writeFileSync(`${dir}/${label}.${name}.txt`, out);
+      } catch (error) {
+        console.log(`dump ${name} failed: ${String(error).slice(0, 200)}`);
+      }
+    }
+  };
+  dump('0-baseline');
   const baseline = rssMb();
   await app.getByTestId('open-viewer').click();
   await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  dump('1-opened');
   const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
   const curve: string[] = [];
   const samples: number[] = [];
@@ -320,6 +343,7 @@ test('memory stays bounded while scrolling through 300 pages', async () => {
       );
     }
   }
+  dump('2-scrolled');
   console.log(
     `PDFMEM baseline ${baseline.toFixed(0)}MB start ${start.toFixed(0)}MB; ${curve.join(' ')}`,
   );
@@ -329,6 +353,14 @@ test('memory stays bounded while scrolling through 300 pages', async () => {
   await app.getByTestId('close-viewer').click();
   await new Promise(resolve => setTimeout(resolve, 3000));
   const afterClose = rssMb();
-  console.log(`PDFMEM after close ${afterClose.toFixed(0)}MB`);
+  await app.getByTestId('trim').click();
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  console.log(
+    `PDFMEM trim ${(await app.query('testID', 'pdf-outline', true))[0]?.text} rss ${rssMb().toFixed(0)}MB`,
+  );
+  dump('3-closed');
+  console.log(
+    `PDFMEM after close ${afterClose.toFixed(0)}MB ${(await app.query('testID', 'pdf-stats', true))[0]?.text}`,
+  );
   expect(afterClose).toBeLessThan(baseline + 230);
 });

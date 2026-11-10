@@ -75,11 +75,20 @@ impl NativePdfTilesSpec for NativePdfTiles {
         tiles().lock().unwrap().set_budget(bytes.max(0.0) as usize);
     }
 
-    fn trim(&self) {
+    fn trim(&self) -> Result<f64, ModuleError> {
+        let mut store = tiles().lock().unwrap();
+        store.reevaluate();
+        if LIVE_TILES.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+            let dropped = store.take_dropped();
+            drop(dropped);
+        }
+        drop(store);
         #[cfg(target_os = "macos")]
         unsafe {
-            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+            return Ok(malloc_zone_pressure_relief(std::ptr::null_mut(), 0) as f64);
         }
+        #[allow(unreachable_code)]
+        Ok(0.0)
     }
 
     fn stats(&self) -> Result<PdfTileStats, ModuleError> {
@@ -89,17 +98,27 @@ impl NativePdfTilesSpec for NativePdfTiles {
             bytes: bytes as f64,
             budget: budget as f64,
             evicted: evicted as f64,
+            live: LIVE_TILES.load(std::sync::atomic::Ordering::Relaxed) as f64,
         })
     }
 }
+
+static LIVE_TILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 struct Tile {
     image: Option<Arc<RenderImage>>,
     id: i32,
 }
 
+impl Drop for Tile {
+    fn drop(&mut self) {
+        LIVE_TILES.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 impl PdfTileSpec for Tile {
     fn create(props: &PdfTileProps, _cx: &mut PdfTileContext) -> Self {
+        LIVE_TILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             image: None,
             id: props.tile_id(),
