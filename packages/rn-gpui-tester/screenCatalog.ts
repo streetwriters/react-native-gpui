@@ -438,18 +438,6 @@ export const screens = [
     fixture: 'HostComponentsFixture',
   },
   {
-    id: 'pdf-viewer',
-    title: 'PDF viewer',
-    group: 'Native modules',
-    fixture: 'PdfViewerFixture',
-  },
-  {
-    id: 'pdf-tile',
-    title: 'PDF tile',
-    group: 'Native modules',
-    fixture: 'PdfTileFixture',
-  },
-  {
     id: 'fixture-module',
     title: 'Module-only component',
     group: 'Native modules',

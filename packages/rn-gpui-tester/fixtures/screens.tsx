@@ -163,13 +163,6 @@ export const renderScreen: Record<
       require('./components/HostComponentsFixture').default,
       props,
     ),
-  'pdf-viewer': props =>
-    React.createElement(
-      require('./components/PdfViewerFixture').default,
-      props,
-    ),
-  'pdf-tile': props =>
-    React.createElement(require('./components/PdfTileFixture').default, props),
   'fixture-module': props =>
     React.createElement(
       require('./components/FixtureModuleProbeFixture').default,

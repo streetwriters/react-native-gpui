@@ -6008,16 +6008,9 @@ dependencies = [
  "rn-gpui-fixture-badge",
  "rn-gpui-fs",
  "rn-gpui-host-components-fixture",
- "rn-gpui-image-manipulator",
  "rn-gpui-native-fixture",
- "rn-gpui-notifications",
- "rn-gpui-pdf",
  "rn-gpui-screens",
- "rn-gpui-spellcheck",
  "rn-gpui-svg",
- "rn-gpui-system",
- "rn-gpui-updater",
- "rn-gpui-webauthn",
 ]
 
 [[package]]
@@ -6084,17 +6077,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rn-gpui-image-manipulator"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "dirs 5.0.1",
- "image",
- "rn-gpui-module",
- "rn-gpui-module-build",
-]
-
-[[package]]
 name = "rn-gpui-module"
 version = "0.1.0"
 dependencies = [
@@ -6114,33 +6096,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rn-gpui-notifications"
-version = "0.1.0"
-dependencies = [
- "block2 0.6.2",
- "chrono",
- "futures",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "objc2-user-notifications",
- "rn-gpui-module",
- "rn-gpui-module-build",
-]
-
-[[package]]
-name = "rn-gpui-pdf"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "image",
- "react-native-gpui",
- "rn-gpui-module",
- "rn-gpui-module-build",
- "smallvec",
-]
-
-[[package]]
 name = "rn-gpui-screens"
 version = "0.1.0"
 dependencies = [
@@ -6149,17 +6104,6 @@ dependencies = [
  "react-native-gpui",
  "rn-gpui-sys",
  "serde_json",
-]
-
-[[package]]
-name = "rn-gpui-spellcheck"
-version = "0.1.0"
-dependencies = [
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "rn-gpui-module",
- "rn-gpui-module-build",
 ]
 
 [[package]]
@@ -6187,21 +6131,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rn-gpui-system"
-version = "0.1.0"
-dependencies = [
- "auto-launch",
- "block2 0.6.2",
- "libc",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "rn-gpui-module",
- "rn-gpui-module-build",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "rn-gpui-tester"
 version = "0.1.0"
 dependencies = [
@@ -6211,45 +6140,6 @@ dependencies = [
  "rn-gpui-module",
  "rn-gpui-module-build",
  "serde_json",
-]
-
-[[package]]
-name = "rn-gpui-updater"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "dirs 5.0.1",
- "futures",
- "libc",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "rn-gpui-module",
- "rn-gpui-module-build",
- "semver",
- "serde",
- "serde_yaml_ng",
- "sha2",
- "ureq",
- "url",
-]
-
-[[package]]
-name = "rn-gpui-webauthn"
-version = "0.1.0"
-dependencies = [
- "aes",
- "base64 0.22.1",
- "cbc",
- "ciborium",
- "futures",
- "hidapi",
- "hmac",
- "p256",
- "rand_core 0.6.4",
- "rn-gpui-module",
- "rn-gpui-module-build",
- "sha2",
 ]
 
 [[package]]

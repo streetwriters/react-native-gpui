@@ -179,13 +179,6 @@ export default {
     'Desktop libraries': [
       'desktop-file-system',
       'desktop-fonts',
-      'desktop-image-manipulator',
-      'desktop-notifications',
-      'desktop-system',
-      'desktop-secure-storage',
-      'desktop-spellcheck',
-      'desktop-webauthn',
-      'desktop-updater',
     ],
     'JavaScript Runtime': [
       'javascript-environment',

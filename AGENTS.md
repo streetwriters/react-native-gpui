@@ -27,6 +27,7 @@ A change is one unit of work: a feature, a fix, a refactor. It can span several 
 
 ## Packages
 
+- react-native-gpui contains no modules. Every module, our own or an adapter for a third-party library, lives in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules).
 - Every package and module has a human-readable `README.md`, a `LICENSE` and a `CHANGELOG.md`, with `license`, `repository` and `description` set in its `package.json`.
 
 ## Pull requests
