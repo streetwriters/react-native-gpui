@@ -36,6 +36,19 @@ test('works: a press and a hover reach React children inside a container host co
   await desktopExpect(app.getByTestId('mixed-hover')).toHaveText('hover:in');
 });
 
+test('a container own GPUI element hears hover, press and click over a React child', async () => {
+  await app.getByTestId('mixed-press').hover();
+  await app.waitForIdle();
+  expect(await text('mixed-chrome')).toContain('hover-in');
+  await app.getByTestId('mixed-press').click();
+  await app.waitForIdle();
+  const events = await text('mixed-chrome');
+  expect(events).toContain('down,');
+  expect(events).toContain('click,');
+  expect(events).toContain('up,');
+  await desktopExpect(app.getByTestId('mixed-presses')).toHaveText('presses:2');
+});
+
 test('works: a TextInput inside a container host component focuses and types', async () => {
   await app.getByTestId('mixed-input').type('abc');
   await desktopExpect(app.getByTestId('mixed-typed')).toHaveText('typed:abc');

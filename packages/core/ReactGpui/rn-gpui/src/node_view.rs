@@ -1629,6 +1629,23 @@ impl RNNodeView {
         }
     }
 
+    /// Whether a host component that holds React children, such as a container
+    /// with its own GPUI chrome, is among this node's ancestors.
+    pub(crate) fn in_host_container(&self, cx: &App) -> bool {
+        let mut parent = self.parent.clone();
+        while let Some(weak) = parent {
+            let Some(node) = weak.upgrade() else {
+                return false;
+            };
+            let node = node.read(cx);
+            if node.host_container && node.host_component.is_some() {
+                return true;
+            }
+            parent = node.parent.clone();
+        }
+        false
+    }
+
     /// Where this view lies in the content of the scroll view around it, that
     /// scroll view's viewport in the same space, and whether it scrolls
     /// sideways; `None` when no scroll view is around it.
@@ -5185,7 +5202,7 @@ impl RNNodeView {
                         crate::events::hand_press_to_window();
                         return;
                     }
-                    if crate::events::press_belongs_to_window() {
+                    if crate::events::press_belongs_to_window() || crate::events::press_claimed() {
                         return;
                     }
                     let Some(node) = down_node.upgrade() else {
@@ -5243,7 +5260,11 @@ impl RNNodeView {
                         modifier_state(event.modifiers),
                     );
                     crate::drag_drop::press(cx, &target, event.position);
-                    cx.stop_propagation();
+                    if node.read(cx).in_host_container(cx) {
+                        crate::events::claim_press();
+                    } else {
+                        cx.stop_propagation();
+                    }
                 }));
             // Every other button reports the DOM pointer events only, with no
             // touch or responder involvement, so `Pressable` never fires for a
@@ -5429,7 +5450,7 @@ impl RNNodeView {
                         crate::events::hand_press_to_window();
                         return;
                     }
-                    if crate::events::press_belongs_to_window() {
+                    if crate::events::press_belongs_to_window() || crate::events::press_claimed() {
                         return;
                     }
                     let Some(node) = node.upgrade() else {
@@ -5463,7 +5484,11 @@ impl RNNodeView {
                         crate::events::target(cx, this).is_some()
                     };
                     if active_target.is_some() || is_touch_target {
-                        cx.stop_propagation();
+                        if node.read(cx).in_host_container(cx) {
+                            crate::events::claim_press();
+                        } else {
+                            cx.stop_propagation();
+                        }
                     }
                 }));
         }

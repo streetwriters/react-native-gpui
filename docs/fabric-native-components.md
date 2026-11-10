@@ -146,6 +146,8 @@ fn create(props: &BadgeProps, cx: &mut BadgeContext) -> Self {
 }
 ```
 
+A `container` component's own GPUI element hears the pointer over its React children too: hover, press, release and click reach it as they would reach a parent element, while the child's `Pressable` still gets its press. A press on a child that is not inside a container stops at the child, as before.
+
 A component can also paint above its React children, for a focus ring or a badge, by implementing `render_overlay`.
 
 Each command in the specification becomes a typed method on the trait, in `snake_case`, with the arguments you declared:

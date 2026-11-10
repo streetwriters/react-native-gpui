@@ -28,11 +28,16 @@ export default function MixedViewsFixture() {
   const [rowPressed, setRowPressed] = useState('none');
   const [start, setStart] = useState(0);
   const [recycled, setRecycled] = useState(false);
+  const [chrome, setChrome] = useState('');
   return (
     <Theme.Provider value="blue">
       <ScrollView contentContainerStyle={{ padding: 8, gap: 8 }}>
         <FixtureCard
           testID="mixed-card"
+          onChromeEvent={event => {
+            const kind = event.nativeEvent.kind;
+            setChrome(value => `${value}${kind},`);
+          }}
           title="Mixed"
           chromeHeight={28}
           chromeWidth={12}
@@ -86,6 +91,7 @@ export default function MixedViewsFixture() {
             </View>
           </Modal>
         </FixtureCard>
+        <Text testID="mixed-chrome">{`chrome:${chrome}`}</Text>
         <Text testID="mixed-presses">{`presses:${presses}`}</Text>
         <Text testID="mixed-hover">{`hover:${hover}`}</Text>
         <Text testID="mixed-typed">{`typed:${typed}`}</Text>

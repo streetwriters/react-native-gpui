@@ -253,15 +253,39 @@ impl FixtureCardSpec for Card {
         &mut self,
         props: &FixtureCardProps,
         _window: &mut Window,
-        _cx: &mut FixtureCardContext,
+        cx: &mut FixtureCardContext,
     ) -> AnyElement {
         let title = props.title().to_string();
         let height = props.chrome_height() as f32;
         let side = props.chrome_width() as f32;
+        let sender = Rc::new(cx.event_sender());
+        let emit = |kind: &'static str| {
+            let sender = sender.clone();
+            move || {
+                sender.chrome_event(OnChromeEvent {
+                    kind: kind.to_string(),
+                })
+            }
+        };
+        let (click, down, up) = (emit("click"), emit("down"), emit("up"));
+        let (hover_in, hover_out) = (emit("hover-in"), emit("hover-out"));
         div()
+            .id("fixture-card-chrome")
             .size_full()
             .relative()
             .bg(rgb(0x1e293b))
+            .on_click(move |_, _, _| click())
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| down())
+            .on_mouse_up(gpui::MouseButton::Left, move |_, _, _| up())
+            .on_hover(
+                move |hovered, _, _| {
+                    if *hovered {
+                        hover_in()
+                    } else {
+                        hover_out()
+                    }
+                },
+            )
             .when(!title.is_empty(), |element| {
                 element.child(
                     div()
