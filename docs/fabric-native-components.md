@@ -229,15 +229,22 @@ A slot that is as high as its content is clipped where its native parent's layou
 ```tsx
 <NativeRoot style={{ width: 240, height: 200 }}>
   <NativeVirtualList
-    count={10000}
-    itemHeight={20}
-    overscan={3}
-    renderItem={index => <Row index={index} />}
+    ref={list}
+    count={rows.length}
+    estimatedItemHeight={32}
+    keyExtractor={index => rows[index].id}
+    renderItem={index => <Row row={rows[index]} />}
+    onEndReached={loadMore}
   />
 </NativeRoot>
 ```
 
-The list scrolls natively and tells JavaScript which items are in view. Only those and `overscan` more on each side are rendered, as items keyed by slot: scrolling gives an existing instance another index instead of creating one, and an item outside the range does not exist. All items have the same height. An item may hold native components and `NativeSlot`s.
+The list scrolls natively and tells JavaScript which items are in view. Only those and `overscan` more on each side are rendered.
+
+- **Heights:** an item is as high as its content. A native item is measured by GPUI, an item that holds a `NativeSlot` by the layout of its React Native content, and an item not measured yet counts as `estimatedItemHeight`. When an item above the viewport changes size the scroll position moves by the difference, so nothing on screen jumps.
+- **Scrolling:** `list.current.scrollToIndex({ index, align })` with `align` of `start`, `center` or `end`, and `scrollToOffset({ offset })`. An index that is not measured yet is scrolled to again as the items around it are measured. `onEndReached` fires once when the end is within `endReachedThreshold` (200) pixels of the viewport, and again after `count` changes.
+- **Identity:** items are keyed by `keyExtractor`, so their React state stays with their data. The runtime reuses the native components of removed items underneath, by type, which keeps scrolling cheap without changing what React sees (a native component opts in with `recyclable` and `recycle`). `recycleItems` keys items by their position in the window instead, as FlashList does: it reuses React state too, so a `useState` or a text field inside an item shows another row's value. Use it for rows that derive everything from `index`.
+- **Other lists:** a list a component owns itself (a table or a tree of a component kit) can use the same protocol: it reports its visible range through an event, JavaScript renders items for that range into the component's slots, and the slot content is measured and sized as above.
 
 ## 4. Use it from JavaScript
 

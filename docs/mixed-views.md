@@ -38,6 +38,7 @@ React Native views and native trees (a [`NativeRoot`](fabric-native-components#n
 | A fixed-height native parent: `fill` gives the height, a taller slot is clipped  | works | `native-slot`: a `ScrollView` in the slot scrolls and takes presses |
 | A virtual list: only the range exists, recycled by slot, a press after scrolling | works | `native-virtual-list`                                               |
 | A slot inside a list item scrolls with the list                                  | works | `native-virtual-list`                                               |
+| A list the component owns (kit List, Table, Tree) with React Native rows         | waits | when gpui-kit adopts `NativeRoot`                                   |
 | Removing the slot                                                                | works | `native-slot`                                                       |
 | Layout positions seen by `measure` and the test driver                           | works | `native-slot`: presses use the driver's frames                      |
 

@@ -105,6 +105,9 @@ describe('cells that wait for a later step', () => {
     'scrolling that a native component owns, with React Native content inside (step 4)',
   );
   test.todo(
+    'a list a component owns (gpui-kit List, Table, Tree) with React Native rows, through the range and slot protocol (when gpui-kit adopts NativeRoot)',
+  );
+  test.todo(
     'focus, Tab order and keyboard bubbling across the boundary (step 5)',
   );
   test.todo(

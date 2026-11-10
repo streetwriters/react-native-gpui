@@ -35,6 +35,7 @@ struct RootState {
 }
 
 thread_local! {
+    static CURRENT_ROOT: Cell<u32> = const { Cell::new(0) };
     /// The nodes that hold the React Native children of the slots of the tree
     /// being rendered, by slot id.
     static SLOT_HOSTS: RefCell<HashMap<i64, gpui::Entity<crate::node_view::RNNodeView>>> =
@@ -140,6 +141,26 @@ fn collect_slot_hosts(root: u32, cx: &App) {
     SLOT_HOSTS.with(|slots| *slots.borrow_mut() = hosts);
 }
 
+/// The tree whose components are being rendered.
+pub(crate) fn current_root() -> u32 {
+    CURRENT_ROOT.with(Cell::get)
+}
+
+/// Renders the node that shows tree `root` again, once the current frame is
+/// done. For a component that learns something while painting that changes what
+/// it renders, such as the size of an item.
+pub(crate) fn notify_root_later(root: u32, window: &mut Window, cx: &mut App) {
+    window.defer(cx, move |_, cx| {
+        let Some(store) = crate::store::store_from(cx) else {
+            return;
+        };
+        let tag = TREES.with(|trees| trees.borrow().get(&root).and_then(|state| state.tag.get()));
+        if let Some(node) = tag.and_then(|tag| store.read(cx).nodes.get(&tag).cloned()) {
+            node.update(cx, |_, cx| cx.notify());
+        }
+    });
+}
+
 /// The node holding the React Native children of slot `slot` in the tree being
 /// rendered.
 pub(crate) fn slot_host(slot: i64) -> Option<gpui::Entity<crate::node_view::RNNodeView>> {
@@ -170,6 +191,7 @@ impl ComponentRenderer for NativeRootRenderer {
             let state = trees.get_mut(&root)?;
             state.tag.set(Some(node.tag));
             let started = std::time::Instant::now();
+            CURRENT_ROOT.with(|current| current.set(root));
             collect_slot_hosts(root, cx);
             let ids: Vec<_> = state.tree.roots().to_vec();
             let elements: Vec<AnyElement> = ids
