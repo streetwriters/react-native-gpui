@@ -1,0 +1,23 @@
+[package]
+name = "rn-gpui-secure-storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rn-gpui-module = { version = "0.1" }
+aes-gcm = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+objc2-foundation = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+
+[build-dependencies]
+rn-gpui-module-build = { version = "0.1" }

@@ -182,6 +182,7 @@ export default {
       'desktop-image-manipulator',
       'desktop-notifications',
       'desktop-system',
+      'desktop-secure-storage',
       'desktop-spellcheck',
       'desktop-webauthn',
       'desktop-updater',
