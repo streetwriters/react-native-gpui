@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import {
   App,
   Menu,
@@ -15,6 +15,8 @@ import {
 
 export default function AppFixture() {
   const zoom = useWindowState()?.zoomFactor ?? 0;
+  const [pasted, setPasted] = useState('');
+  const [submits, setSubmits] = useState(0);
   const [dockPresses, setDockPresses] = useState<string[]>([]);
   const [trayClicks, setTrayClicks] = useState<string[]>([]);
   const [seconds, setSeconds] = useState<string[]>([]);
@@ -62,6 +64,20 @@ export default function AppFixture() {
           <Text>{role}</Text>
         </Pressable>
       ))}
+      <TextInput
+        testID="app-paste-input"
+        style={{ height: 24 }}
+        onChangeText={setPasted}
+        onFocus={() =>
+          setTimeout(() => {
+            setSubmits(count => count + 1);
+            Menu.performRole('pasteWithoutFormatting').catch(error =>
+              setPasted(`failed ${String(error)}`),
+            );
+          }, 500)
+        }
+      />
+      <Text testID="app-paste-state">{`${submits}:${pasted}`}</Text>
       <Pressable testID="app-timer" onPress={() => setTimeout(() => {}, 1400)}>
         <Text>Timer</Text>
       </Pressable>

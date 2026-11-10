@@ -91,6 +91,14 @@ test('the zoom roles step the window zoom and reset it', async () => {
   await desktopExpect(app.getByTestId('app-zoom')).toHaveText('1');
 });
 
+test('the pasteWithoutFormatting role pastes the clipboard text into the focused input', async () => {
+  await app.setClipboardText('plain text');
+  await app.getByTestId('app-paste-input').click();
+  await desktopExpect(app.getByTestId('app-paste-state')).toHaveText(
+    '1:plain text',
+  );
+});
+
 test.runIf(process.platform === 'darwin')(
   'the Dock menu shows its items and runs the one that is chosen',
   async () => {

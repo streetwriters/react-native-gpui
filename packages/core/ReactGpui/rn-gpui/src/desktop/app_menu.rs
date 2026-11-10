@@ -341,6 +341,7 @@ fn role_name(role: MenuRole) -> &'static str {
         MenuRole::Cut => "cut",
         MenuRole::Copy => "copy",
         MenuRole::Paste => "paste",
+        MenuRole::PasteWithoutFormatting => "pasteWithoutFormatting",
         MenuRole::SelectAll => "selectAll",
         MenuRole::Minimize => "minimize",
         MenuRole::Zoom => "zoom",
@@ -529,6 +530,7 @@ pub fn default_accelerator(role: MenuRole) -> Option<&'static str> {
         MenuRole::Cut => "secondary-x",
         MenuRole::Copy => "secondary-c",
         MenuRole::Paste => "secondary-v",
+        MenuRole::PasteWithoutFormatting => "secondary-shift-v",
         MenuRole::SelectAll => "secondary-a",
         MenuRole::Minimize => "secondary-m",
         MenuRole::Close => "secondary-w",
@@ -821,6 +823,7 @@ pub fn role_action_id(role: MenuRole) -> &'static str {
         MenuRole::Cut => "role:cut",
         MenuRole::Copy => "role:copy",
         MenuRole::Paste => "role:paste",
+        MenuRole::PasteWithoutFormatting => "role:pasteWithoutFormatting",
         MenuRole::SelectAll => "role:selectAll",
         MenuRole::Minimize => "role:minimize",
         MenuRole::Zoom => "role:zoom",
@@ -1089,7 +1092,7 @@ fn accelerator_action(id: &str) -> AcceleratorAction {
     if let Some(kind) = id.strip_prefix("role:") {
         if matches!(
             kind,
-            "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll"
+            "undo" | "redo" | "cut" | "copy" | "paste" | "pasteWithoutFormatting" | "selectAll"
         ) {
             return AcceleratorAction::Edit(kind.to_string());
         }
@@ -1271,6 +1274,7 @@ fn role_menu_item(role: MenuRole, label: Option<&str>) -> MenuItem {
         MenuRole::Cut
         | MenuRole::Copy
         | MenuRole::Paste
+        | MenuRole::PasteWithoutFormatting
         | MenuRole::SelectAll
         | MenuRole::Undo
         | MenuRole::Redo => MenuItem::action(
@@ -1372,13 +1376,16 @@ fn focused_text_input(cx: &mut App, window: gpui::AnyWindowHandle) -> Option<Ent
 /// It goes through the same dispatch the native menu uses, so the action, the
 /// window and the effect are identical however the user asked for it.
 pub fn perform_role(cx: &mut App, role: &str) -> DesktopResult {
-    let handle = cx.active_window();
+    let handle = cx
+        .active_window()
+        .or_else(|| crate::desktop::windows::main_window_handle(cx));
     match role {
         "undo" => perform_edit(cx, "undo", handle),
         "redo" => perform_edit(cx, "redo", handle),
         "cut" => perform_edit(cx, "cut", handle),
         "copy" => perform_edit(cx, "copy", handle),
         "paste" => perform_edit(cx, "paste", handle),
+        "pasteWithoutFormatting" => perform_edit(cx, "paste", handle),
         "selectAll" => perform_edit(cx, "selectAll", handle),
         "minimize" => {
             if let Some(handle) = handle {
@@ -1453,7 +1460,7 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
                 "cut" => {
                     crate::builtins::textinput::input::cut_selection(node, window, cx);
                 }
-                "paste" => {
+                "paste" | "pasteWithoutFormatting" => {
                     crate::builtins::textinput::input::paste_clipboard(node, window, cx);
                 }
                 "selectAll" => {
