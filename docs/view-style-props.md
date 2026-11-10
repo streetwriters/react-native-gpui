@@ -13,6 +13,7 @@ All upstream props work as documented in the [React Native View Style Props refe
 
 ## Differences
 
+- `experimental_backgroundImage` (and `backgroundImage`) draws `linear-gradient()` and `radial-gradient()` layers, with `experimental_backgroundSize`, `experimental_backgroundPosition` and `experimental_backgroundRepeat`, and follows the view's `borderRadius`. Desktop also reads `repeating-linear-gradient()` and `repeating-radial-gradient()`, which React Native does not: the stops from the first to the last are one period, repeated along the line or out from the centre as CSS does, so `repeating-linear-gradient(-45deg, transparent, transparent 20px, #ccc 20px, #ccc 21px)` draws diagonal hatching. A repeating layer can sit among plain ones in the same value.
 - `cursor` sets the mouse cursor over the view.
 - `filter` applies every function in the order listed. `blur` and `dropShadow` paint the view and its descendants into a picture of their own and work on that picture. The colour functions colour each drawn shape, image and glyph.
 - `mixBlendMode` blends the view and its descendants, painted into a picture of their own, with the nearest ancestor that is a stacking context (an `isolation: 'isolate'` view, a view with a `filter`, an `opacity` below 1 with children, or a `mixBlendMode` of its own); otherwise with the window.

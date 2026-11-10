@@ -6,11 +6,60 @@ import iosConfig from 'react-native/Libraries/NativeComponent/BaseViewConfig.ios
 // eslint-disable-next-line @react-native/no-deep-imports
 import flattenStyle from 'react-native/Libraries/StyleSheet/flattenStyle';
 // eslint-disable-next-line @react-native/no-deep-imports
+import processBackgroundImage from 'react-native/Libraries/StyleSheet/processBackgroundImage';
+// eslint-disable-next-line @react-native/no-deep-imports
 import processBoxShadow from 'react-native/Libraries/StyleSheet/processBoxShadow';
 // eslint-disable-next-line @react-native/no-deep-imports
 import processColor from 'react-native/Libraries/StyleSheet/processColor';
 // eslint-disable-next-line @react-native/no-deep-imports
 import processTransform from 'react-native/Libraries/StyleSheet/processTransform';
+
+// React Native parses only linear-gradient() and radial-gradient(). A repeating
+// one is parsed as the plain gradient and marked with a first color stop at this
+// position, which the renderer reads and removes.
+const REPEATING_MARKER = -100000000;
+
+function splitLayers(css: string): string[] {
+  const layers: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < css.length; index++) {
+    const character = css[index];
+    if (character === '(') {
+      depth++;
+    } else if (character === ')') {
+      depth--;
+    } else if (character === ',' && depth === 0) {
+      layers.push(css.slice(start, index));
+      start = index + 1;
+    }
+  }
+  layers.push(css.slice(start));
+  return layers;
+}
+
+function processBackgroundImageWithRepeat(value: unknown) {
+  if (typeof value !== 'string' || !/repeating-/i.test(value)) {
+    return processBackgroundImage(value);
+  }
+  const images: unknown[] = [];
+  for (const layer of splitLayers(value)) {
+    const repeating = /^\s*repeating-/i.test(layer);
+    const parsed = processBackgroundImage(
+      layer.replace(/^(\s*)repeating-/i, '$1'),
+    );
+    for (const image of parsed) {
+      if (repeating && image.colorStops != null) {
+        image.colorStops = [
+          { color: 0, position: REPEATING_MARKER },
+          ...image.colorStops,
+        ];
+      }
+      images.push(image);
+    }
+  }
+  return images;
+}
 
 const BORDER_SIDES = ['Left', 'Top', 'Right', 'Bottom'] as const;
 const STATE_STYLE_PROPS = new Set([
@@ -279,6 +328,13 @@ export default {
     focusable: true,
     desktopDragRegion: true,
     group: true,
+    style: {
+      ...(iosConfig.validAttributes.style as object),
+      backgroundImage: { process: processBackgroundImageWithRepeat },
+      experimental_backgroundImage: {
+        process: processBackgroundImageWithRepeat,
+      },
+    },
     hoverStyle: { process: processStateStyle('hoverStyle') },
     activeStyle: { process: processStateStyle('activeStyle') },
     focusStyle: { process: processStateStyle('focusStyle') },

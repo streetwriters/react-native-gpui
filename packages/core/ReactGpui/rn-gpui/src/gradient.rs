@@ -83,12 +83,14 @@ enum Layer {
         angle: Option<f32>,
         corner: Option<Corner>,
         stops: Vec<Stop>,
+        repeating: bool,
     },
     Radial {
         circle: bool,
         size: RadialSize,
         position: Edges,
         stops: Vec<Stop>,
+        repeating: bool,
     },
 }
 
@@ -172,6 +174,7 @@ impl Background {
                         },
                     ),
                     stops: stops_of(layer),
+                    repeating: layer.get("repeating").and_then(Value::as_bool) == Some(true),
                 }),
                 Some("radial") => Some(Layer::Radial {
                     circle: layer.get("shape").and_then(Value::as_str) == Some("circle"),
@@ -185,6 +188,7 @@ impl Background {
                     },
                     position: layer.get("position").map(Edges::parse).unwrap_or_default(),
                     stops: stops_of(layer),
+                    repeating: layer.get("repeating").and_then(Value::as_bool) == Some(true),
                 }),
                 _ => None,
             })
@@ -393,6 +397,7 @@ struct Prepared<'a> {
     /// For a linear gradient the unit direction, for a radial one the centre
     /// and the two radii.
     geometry: [f32; 4],
+    repeating: bool,
 }
 
 impl<'a> Prepared<'a> {
@@ -402,6 +407,7 @@ impl<'a> Prepared<'a> {
                 angle,
                 corner,
                 stops,
+                repeating,
             } => {
                 let (dx, dy) = match (corner, angle) {
                     (Some(corner), _) => {
@@ -426,6 +432,7 @@ impl<'a> Prepared<'a> {
                     layer,
                     stops: resolve_stops(stops, length),
                     geometry: [dx, dy, length.max(f32::EPSILON), 0.0],
+                    repeating: *repeating,
                 }
             }
             Layer::Radial {
@@ -433,6 +440,7 @@ impl<'a> Prepared<'a> {
                 size,
                 position,
                 stops,
+                repeating,
             } => {
                 let x = match (position.left, position.right) {
                     (Some(left), _) => left.resolve(width),
@@ -474,6 +482,7 @@ impl<'a> Prepared<'a> {
                     layer,
                     stops: resolve_stops(stops, rx),
                     geometry: [x, y, rx, ry],
+                    repeating: *repeating,
                 }
             }
         }
@@ -491,7 +500,23 @@ impl<'a> Prepared<'a> {
                 (((x - cx) / rx).powi(2) + ((y - cy) / ry).powi(2)).sqrt()
             }
         };
-        sample(&self.stops, t)
+        sample(&self.stops, self.wrapped(t))
+    }
+
+    /// The position in the first repetition of a repeating gradient: the stops
+    /// from the first to the last are the period.
+    fn wrapped(&self, t: f32) -> f32 {
+        if !self.repeating {
+            return t;
+        }
+        let (Some(first), Some(last)) = (self.stops.first(), self.stops.last()) else {
+            return t;
+        };
+        let period = last.0 - first.0;
+        if period <= f32::EPSILON {
+            return t;
+        }
+        first.0 + (t - first.0).rem_euclid(period)
     }
 }
 
@@ -657,6 +682,33 @@ mod tests {
         .render(100.0, 10.0, 512);
         assert!(pixel(&once, 5, 5)[3] > 0);
         assert_eq!(pixel(&once, 60, 5)[3], 0);
+    }
+
+    #[test]
+    fn a_repeating_gradient_repeats_its_stops_along_the_ray() {
+        let background = parse(
+            json!([{
+                "kind": "linear",
+                "angle": 90.0,
+                "repeating": true,
+                "stops": [
+                    stop(0xffff0000, Some(0.0)),
+                    stop(0xffff0000, Some(10.0)),
+                    stop(0xff0000ff, Some(10.0)),
+                    stop(0xff0000ff, Some(20.0)),
+                ],
+            }]),
+            json!({}),
+        );
+        let image = background.render(100.0, 10.0, 256);
+        let red = pixel(&image, 5, 5);
+        let blue = pixel(&image, 15, 5);
+        assert!(red[0] > 200 && red[2] < 60);
+        assert!(blue[2] > 200 && blue[0] < 60);
+        let later_red = pixel(&image, 45, 5);
+        let later_blue = pixel(&image, 95, 5);
+        assert!(later_red[0] > 200 && later_red[2] < 60);
+        assert!(later_blue[2] > 200 && later_blue[0] < 60);
     }
 
     #[test]

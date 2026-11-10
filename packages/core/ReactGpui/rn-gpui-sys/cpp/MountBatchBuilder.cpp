@@ -72,9 +72,18 @@ static folly::dynamic unitJson(const ValueUnit& unit) {
   }
 }
 
+// A repeating gradient arrives with a first color stop far before the start.
+static bool hasRepeatingMarker(const std::vector<ColorStop>& stops) {
+  return !stops.empty() && stops.front().position.unit == UnitType::Point &&
+      stops.front().position.value <= -99999999.f;
+}
+
 static folly::dynamic stopsJson(const std::vector<ColorStop>& stops) {
   folly::dynamic array = folly::dynamic::array;
   for (const auto& stop : stops) {
+    if (&stop == &stops.front() && hasRepeatingMarker(stops)) {
+      continue;
+    }
     array.push_back(folly::dynamic::object("color", argb(stop.color))(
         "position", unitJson(stop.position)));
   }
@@ -115,6 +124,7 @@ static std::string backgroundJson(const BaseViewProps& props) {
         }
       }
       layer["stops"] = stopsJson(linear->colorStops);
+      layer["repeating"] = hasRepeatingMarker(linear->colorStops);
       layers.push_back(std::move(layer));
     } else if (const auto* radial = std::get_if<RadialGradient>(&image)) {
       folly::dynamic layer = folly::dynamic::object("kind", "radial");
@@ -148,6 +158,7 @@ static std::string backgroundJson(const BaseViewProps& props) {
               "right", optionalUnitJson(radial->position.right))(
               "bottom", optionalUnitJson(radial->position.bottom));
       layer["stops"] = stopsJson(radial->colorStops);
+      layer["repeating"] = hasRepeatingMarker(radial->colorStops);
       layers.push_back(std::move(layer));
     }
   }

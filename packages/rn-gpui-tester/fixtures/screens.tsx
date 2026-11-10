@@ -339,6 +339,11 @@ export const renderScreen: Record<
       require('./components/ScrollIndicatorFixture').default,
       props,
     ),
+  'gradient-snap': props =>
+    React.createElement(
+      require('./components/GradientSnapFixture').default,
+      props,
+    ),
   'long-menu': props =>
     React.createElement(require('./components/LongMenuFixture').default, props),
   'xhr-headers': props =>
