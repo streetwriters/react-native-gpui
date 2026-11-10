@@ -26,6 +26,7 @@ pub(crate) mod scroll_indicator;
 pub(crate) mod scroll_layers;
 pub(crate) mod scroll_momentum;
 pub(crate) mod scroll_snap;
+mod scroller_style;
 pub(crate) mod store;
 pub(crate) mod style;
 pub mod surface;

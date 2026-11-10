@@ -17,6 +17,7 @@ beforeAll(async () => {
       RN_GPUI_MODULE: 'RNGPUITester--scroll-indicator',
       RN_GPUI_DEV_PORT: '1',
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
+      RN_GPUI_SCROLLER_STYLE: 'overlay',
     },
     disableAnimations: true,
     offscreen: true,

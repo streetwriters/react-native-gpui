@@ -527,6 +527,7 @@ pub(crate) enum MainEvent {
         id: u64,
         prevented: bool,
     },
+    ScrollerStyleChanged,
     BuiltinCommand {
         tag: i32,
         component: String,
@@ -1214,6 +1215,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let _ = rn_gpui_sys::TEXT_INPUT_CLEAR_HANDLER.set(Box::new(move |tag| {
         let _ = text_input_clear_tx.send_blocking(MainEvent::TextInputClear(tag));
     }));
+    let scroller_style_tx = tx.clone();
+    crate::scroller_style::install(move || {
+        let _ = scroller_style_tx.send_blocking(MainEvent::ScrollerStyleChanged);
+    });
     let wheel_done_tx = tx.clone();
     let _ = rn_gpui_sys::WHEEL_DONE_HANDLER.set(Box::new(move |id, prevented| {
         let _ = wheel_done_tx.send_blocking(MainEvent::WheelDone { id, prevented });
@@ -2659,6 +2664,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 );
                             });
                         }
+                    }
+                    MainEvent::ScrollerStyleChanged => {
+                        let _ = cx.update(|cx| cx.refresh_windows());
                     }
                     MainEvent::WheelDone { id, prevented } => {
                         crate::wheel::done(id, prevented, cx);

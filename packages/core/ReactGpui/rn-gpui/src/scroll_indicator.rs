@@ -39,6 +39,10 @@ pub struct ScrollbarSpec {
     pub visibility: Visibility,
     pub auto_hide: Duration,
     pub interactive: bool,
+    /// Whether the props set the visibility and the thickness, which the style of
+    /// the platform's scrollers does not override.
+    pub visibility_set: bool,
+    pub thickness_set: bool,
 }
 
 impl Default for ScrollbarSpec {
@@ -53,6 +57,8 @@ impl Default for ScrollbarSpec {
             visibility: Visibility::Auto,
             auto_hide: Duration::from_millis(1200),
             interactive: true,
+            visibility_set: false,
+            thickness_set: false,
         }
     }
 }
@@ -65,6 +71,8 @@ impl ScrollbarSpec {
         let number = |key: &str| bar.get(key).and_then(Value::as_f64).map(|n| n as f32);
         let color = |key: &str| bar.get(key).and_then(Value::as_u64).map(|n| n as u32);
         let flag = |key: &str| bar.get(key).and_then(Value::as_bool);
+        spec.thickness_set = number("thickness").is_some();
+        spec.visibility_set = bar.get("visibility").is_some();
         spec.thickness = number("thickness").unwrap_or(spec.thickness).max(1.0);
         spec.min_length = number("minLength").unwrap_or(spec.min_length).max(0.0);
         spec.margin = number("margin").unwrap_or(spec.margin).max(0.0);
@@ -80,6 +88,24 @@ impl ScrollbarSpec {
             spec.auto_hide = Duration::from_millis(ms.max(0.0) as u64);
         }
         spec.interactive = flag("interactive").unwrap_or(spec.interactive);
+        spec
+    }
+
+    /// This spec as the platform's scrollers are drawn: with legacy scrollers,
+    /// a bar that is always shown on a track, unless the props say otherwise.
+    fn styled(&self) -> ScrollbarSpec {
+        let mut spec = self.clone();
+        if crate::scroller_style::legacy() {
+            if !spec.visibility_set {
+                spec.visibility = Visibility::Always;
+            }
+            if !spec.thickness_set {
+                spec.thickness = 12.0;
+            }
+            if spec.track_color.is_none() {
+                spec.track_color = Some(0x0f00_0000);
+            }
+        }
         spec
     }
 
@@ -156,13 +182,17 @@ impl ScrollIndicator {
         self.emit = Some(emit);
     }
 
+    fn spec(&self) -> ScrollbarSpec {
+        self.spec.styled()
+    }
+
     /// Whether the thumb is shown right now.
     pub(crate) fn shown(&self) -> bool {
         let (viewport, max_offset) = self.main_extents();
-        if thumb(&self.spec, viewport, max_offset, self.main_offset()).is_none() {
+        if thumb(&self.spec(), viewport, max_offset, self.main_offset()).is_none() {
             return false;
         }
-        match self.spec.visibility {
+        match self.spec().visibility {
             Visibility::Always => true,
             Visibility::Auto | Visibility::Hover => {
                 self.hovered
@@ -240,7 +270,7 @@ impl ScrollIndicator {
             return;
         };
         let (viewport, max_offset) = self.main_extents();
-        let Some((_, length)) = thumb(&self.spec, viewport, max_offset, 0.0) else {
+        let Some((_, length)) = thumb(&self.spec(), viewport, max_offset, 0.0) else {
             return;
         };
         let track = viewport - 2.0 * self.spec.margin;
@@ -305,7 +335,7 @@ impl Render for ScrollIndicator {
         }
         let overlay = div().absolute().top_0().left_0().size_full();
         let (viewport, max_offset) = self.main_extents();
-        let spec = self.spec.clone();
+        let spec = self.spec();
         let Some((start, length)) = thumb(&spec, viewport, max_offset, self.main_offset()) else {
             return overlay;
         };
