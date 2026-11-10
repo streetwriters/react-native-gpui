@@ -344,6 +344,11 @@ export const renderScreen: Record<
       require('./components/MenuUnderPointerFixture').default,
       props,
     ),
+  'hover-rows': props =>
+    React.createElement(
+      require('./components/HoverRowsFixture').default,
+      props,
+    ),
   wheel: props =>
     React.createElement(require('./components/WheelFixture').default, props),
   'outline-radius': props =>

@@ -156,6 +156,12 @@ export const screens = [
     fixture: 'MenuUnderPointerFixture',
   },
   {
+    id: 'hover-rows',
+    title: 'Hover rows in a ScrollView',
+    group: 'Views',
+    fixture: 'HoverRowsFixture',
+  },
+  {
     id: 'wheel',
     title: 'Wheel events',
     group: 'Input',
