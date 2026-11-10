@@ -46,6 +46,11 @@ export type NativeInstance = {
   handlers: Record<string, (payload: unknown) => void>;
   parent: NativeInstance | null;
   root: RootState;
+  /**
+   * Calls the command `name` of the instance in the runtime, as a ref to a
+   * Fabric host component's `dispatchCommand` does.
+   */
+  command(name: string, ...args: unknown[]): void;
 };
 
 type Op = unknown[];
@@ -164,6 +169,10 @@ function createHostConfig() {
         handlers,
         parent: null,
         root: container.root,
+        command(name, ...args) {
+          instance.root.batch.ops.push(['command', instance.id, name, args]);
+          instance.root.flush();
+        },
       };
       container.root.byId.set(instance.id, instance);
       container.root.batch.ops.push(['create', instance.id, type, data]);
@@ -308,6 +317,7 @@ export function createNativeRoot(
     handlers: {},
     parent: null,
     root: state,
+    command() {},
   };
   byId.set(container.id, container);
   const reconciler = sharedReconciler();

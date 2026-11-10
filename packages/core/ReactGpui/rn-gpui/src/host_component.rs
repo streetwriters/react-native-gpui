@@ -23,8 +23,9 @@
 //! emitter handles, the registry, the report queue and command arguments.
 
 use crate::extensions::StoreHandle;
+pub use crate::native_tree::{NativeCall, NativeComponent, NativeContext, NativeEmitter};
 use gpui::{AnyElement, App, Window};
-pub use serde_json::Value;
+pub use serde_json::{Map, Value};
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;

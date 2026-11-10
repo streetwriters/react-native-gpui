@@ -72,6 +72,17 @@ impl NativeContext<'_> {
     }
 }
 
+/// What generated host component code is given when its component runs in a
+/// native tree instead of as a Fabric node.
+pub struct NativeCall {
+    pub id: NativeId,
+    pub emitter: NativeEmitter,
+    /// The `App` of the call, valid until the call returns.
+    pub app: *mut App,
+    /// The elements of the instance's children, taken by `children()`.
+    pub children: Vec<AnyElement>,
+}
+
 /// A component that lives in a native tree.
 pub trait NativeComponent: 'static {
     /// Created from its full props when its `create` operation arrives.
@@ -82,6 +93,17 @@ pub trait NativeComponent: 'static {
     /// Some props changed; `props` holds all of them now and `changed` names
     /// the ones that did, set or removed. Never called with nothing changed.
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext);
+
+    /// A command JavaScript sent to this instance, by name. Unknown names are
+    /// ignored.
+    fn command(
+        &mut self,
+        _props: &Map<String, Value>,
+        _name: &str,
+        _args: &[Value],
+        _cx: &mut NativeContext,
+    ) {
+    }
 
     /// Whether this component can be reused for another instance of its type
     /// once it is removed. A component that holds state a new instance must not
@@ -116,6 +138,13 @@ type Factory =
 /// `create` returns `Self`.
 trait ErasedComponent {
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext);
+    fn command(
+        &mut self,
+        props: &Map<String, Value>,
+        name: &str,
+        args: &[Value],
+        cx: &mut NativeContext,
+    );
     fn recyclable(&self) -> bool;
     fn recycle(&mut self, props: &Map<String, Value>, cx: &mut NativeContext) -> bool;
     fn render(
@@ -130,6 +159,16 @@ trait ErasedComponent {
 impl<T: NativeComponent> ErasedComponent for T {
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext) {
         NativeComponent::update(self, props, changed, cx);
+    }
+
+    fn command(
+        &mut self,
+        props: &Map<String, Value>,
+        name: &str,
+        args: &[Value],
+        cx: &mut NativeContext,
+    ) {
+        NativeComponent::command(self, props, name, args, cx);
     }
 
     fn recyclable(&self) -> bool {
@@ -189,12 +228,19 @@ pub enum NativeOp {
         set: Map<String, Value>,
         unset: Vec<String>,
     },
+    /// Calls the command `name` of an instance, with `args`.
+    Command {
+        id: NativeId,
+        name: String,
+        args: Vec<Value>,
+    },
 }
 
 impl NativeOp {
     /// Reads a batch: an array of arrays, `["create", id, type, props]`,
     /// `["append", parent, child]`, `["insert", parent, child, before]`,
-    /// `["remove", parent, child]` and `["update", id, set, unset]`.
+    /// `["remove", parent, child]`, `["update", id, set, unset]` and
+    /// `["command", id, name, args]`.
     pub fn parse_batch(batch: &Value) -> Result<Vec<NativeOp>, String> {
         let entries = batch.as_array().ok_or("a batch is an array")?;
         entries.iter().map(Self::parse).collect()
@@ -251,6 +297,19 @@ impl NativeOp {
                             .map(str::to_string)
                             .collect()
                     })
+                    .unwrap_or_default(),
+            }),
+            Some("command") => Ok(NativeOp::Command {
+                id: id(1)?,
+                name: parts
+                    .get(2)
+                    .and_then(Value::as_str)
+                    .ok_or("command needs a name")?
+                    .to_string(),
+                args: parts
+                    .get(3)
+                    .and_then(Value::as_array)
+                    .cloned()
                     .unwrap_or_default(),
             }),
             other => Err(format!("unknown operation {other:?}")),
@@ -513,6 +572,17 @@ impl NativeTree {
                 }
                 self.detach(child)?;
                 self.drop_subtree(child);
+                Ok(())
+            }
+            NativeOp::Command { id, name, args } => {
+                let mut cx = self.context(id, app);
+                let instance = self
+                    .instances
+                    .get_mut(&id)
+                    .ok_or_else(|| format!("command for unknown instance {id}"))?;
+                instance
+                    .component
+                    .command(&instance.props, &name, &args, &mut cx);
                 Ok(())
             }
             NativeOp::Update { id, set, unset } => {
