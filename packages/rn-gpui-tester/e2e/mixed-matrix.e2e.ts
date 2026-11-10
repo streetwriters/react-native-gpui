@@ -104,7 +104,6 @@ describe('cells that wait for a later step', () => {
   test.todo(
     'scrolling that a native component owns, with React Native content inside (step 4)',
   );
-  test.todo('virtualisation and recycling across the boundary (step 4)');
   test.todo(
     'focus, Tab order and keyboard bubbling across the boundary (step 5)',
   );

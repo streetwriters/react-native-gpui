@@ -224,6 +224,21 @@ The content is as wide as the tree's layout makes the slot and as high as it nee
 
 A slot that is as high as its content is clipped where its native parent's layout makes it shorter. For a slot that should fill a space the parent sizes (a tab, a dialog body) or that holds a `ScrollView` or a list, use `<NativeSlot fill>`: its height is the one the layout gives it, and the content is laid out in that.
 
+#### NativeVirtualList
+
+```tsx
+<NativeRoot style={{ width: 240, height: 200 }}>
+  <NativeVirtualList
+    count={10000}
+    itemHeight={20}
+    overscan={3}
+    renderItem={index => <Row index={index} />}
+  />
+</NativeRoot>
+```
+
+The list scrolls natively and tells JavaScript which items are in view. Only those and `overscan` more on each side are rendered, as items keyed by slot: scrolling gives an existing instance another index instead of creating one, and an item outside the range does not exist. All items have the same height. An item may hold native components and `NativeSlot`s.
+
 ## 4. Use it from JavaScript
 
 ```tsx

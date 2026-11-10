@@ -14,6 +14,7 @@ pub mod image;
 pub mod linking;
 pub mod main_thread;
 pub mod modal;
+pub mod native_list;
 pub mod native_root;
 pub mod native_slot;
 pub mod network;
@@ -44,6 +45,7 @@ pub fn register() {
     image::register();
     linking::register();
     modal::register();
+    native_list::register();
     native_root::register();
     native_slot::register();
     network::register();

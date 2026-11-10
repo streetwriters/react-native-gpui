@@ -162,6 +162,12 @@ export const screens = [
     fixture: 'NativeRootDevFixture',
   },
   {
+    id: 'native-virtual-list',
+    title: 'A virtual list in a native tree',
+    group: 'Views',
+    fixture: 'NativeVirtualListFixture',
+  },
+  {
     id: 'native-slot-load',
     title: 'A native slot holding a thousand React Native views',
     group: 'Views',
