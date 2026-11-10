@@ -1979,6 +1979,10 @@ fn idle_status(
             json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
         );
     }
+    if crate::builtins::native_slot::layouts_pending() && !ignore.iter().any(|item| item == "slots")
+    {
+        busy.push(json!({"source": "slots", "detail": "a native slot is waiting for its content to get its width"}));
+    }
     if crate::wheel::pending() && !ignore.iter().any(|item| item == "wheel") {
         busy.push(
             json!({"source": "wheel", "detail": "a wheel event is waiting for its JS handlers"}),
@@ -2042,7 +2046,7 @@ fn idle_status(
         "idle": busy.is_empty(),
         "stableFrames": stable_count,
         "busySources": busy,
-        "trackedSources": ["frames", "animations", "gestures", "mount", "timers", "network", "images", "js"],
+        "trackedSources": ["frames", "animations", "gestures", "mount", "timers", "network", "images", "js", "slots"],
         "untrackedSources": []
     })
 }

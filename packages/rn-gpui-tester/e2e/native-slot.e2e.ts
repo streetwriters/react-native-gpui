@@ -214,11 +214,6 @@ test('overlays: React Native content in a native popover takes presses while the
     await app.waitForIdle();
   };
   await press(popover.x + 10, popover.y + 5);
-  await expect
-    .poll(async () => (await frameOf('slot-popover-press'))?.width ?? 0, {
-      timeout: 5000,
-    })
-    .toBeGreaterThan(0);
   await pressCentre('slot-popover-press');
   await expect.poll(count, { timeout: 5000 }).toBe(1);
   const outside = (await frameOf('slot-log'))!;
@@ -230,11 +225,7 @@ test('overlays: React Native content in a native popover takes presses while the
 
 test('overlays: a native tree in a React Native modal takes presses', async () => {
   await app.getByTestId('slot-modal-open').click();
-  await expect
-    .poll(async () => (await frameOf('slot-modal-box'))?.width ?? 0, {
-      timeout: 5000,
-    })
-    .toBeGreaterThan(0);
+  await app.waitForIdle();
   await pressCentre('slot-modal-box');
   await expect.poll(log, { timeout: 5000 }).toContain('modal-box,');
 });

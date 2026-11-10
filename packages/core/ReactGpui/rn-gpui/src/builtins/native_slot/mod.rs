@@ -13,7 +13,8 @@
 //! accessibility tree) is corrected by `slot_shift`, a scroll link the placeholder
 //! keeps current with where it was painted.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -70,9 +71,36 @@ impl ComponentRenderer for NativeSlotRenderer {
     }
 }
 
+thread_local! {
+    static WAITING: RefCell<HashMap<u64, std::time::Instant>> = RefCell::new(HashMap::new());
+}
+
+static NEXT_KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Whether a slot has shown its first frame less than a moment ago and is still
+/// waiting for its content to get the width the tree gave it. A slot that stops
+/// being rendered while it waits is forgotten after that moment.
+pub(crate) fn layouts_pending() -> bool {
+    WAITING.with(|waiting| {
+        waiting
+            .borrow()
+            .values()
+            .any(|since| since.elapsed() < std::time::Duration::from_millis(750))
+    })
+}
+
 struct Placeholder {
     emitter: NativeEmitter,
     reported: Rc<Cell<(f32, f32)>>,
+    shown: Rc<Cell<bool>>,
+    key: u64,
+}
+
+impl Drop for Placeholder {
+    fn drop(&mut self) {
+        let key = self.key;
+        WAITING.with(|waiting| waiting.borrow_mut().remove(&key));
+    }
 }
 
 fn slot_id(props: &Map<String, Value>) -> i64 {
@@ -84,6 +112,8 @@ impl NativeComponent for Placeholder {
         Self {
             emitter: cx.emitter(),
             reported: Rc::new(Cell::new((-1.0, -1.0))),
+            shown: Rc::new(Cell::new(false)),
+            key: NEXT_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -117,7 +147,23 @@ impl NativeComponent for Placeholder {
         } else {
             element.flex_shrink(1.0).h(px(height))
         };
-        if let Some(host) = host {
+        let has_frame = host.as_ref().is_some_and(|host| {
+            let (width, _) = reported.get();
+            width >= 0.0 && (host.read(cx).frame.w - width).abs() < 0.5
+        });
+        if has_frame {
+            self.shown.set(true);
+        }
+        let key = self.key;
+        WAITING.with(|waiting| {
+            let mut waiting = waiting.borrow_mut();
+            if host.is_some() && !has_frame {
+                waiting.entry(key).or_insert_with(std::time::Instant::now);
+            } else {
+                waiting.remove(&key);
+            }
+        });
+        if let Some(host) = host.filter(|_| self.shown.get()) {
             element = element.child(host);
         }
         element
