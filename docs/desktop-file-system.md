@@ -109,6 +109,32 @@ const { status, headers, bytes } = await fs.download(
 
 The promise resolves with the final `status`, the response `headers` (lower-cased) and the `bytes` written. A status outside 200 to 299 rejects with `code` `ERR_HTTP_STATUS` and the `status`, `headers` and the first 2 KiB of the `body`, and writes nothing. Redirects are followed. A connection that closes before the announced length rejects, and the parent folder of `path` must exist. Certificates are checked against the operating system's store.
 
+## Uploading
+
+`upload(url, path, options)` sends a file, or a range of one, as an HTTP request body without holding it in memory. The native side reads the file in 64 KiB blocks while the connection takes them.
+
+```js
+const { status, headers } = await fs.upload(url, `${paths.temp}/part-1`, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/octet-stream' },
+  offset: 0,
+  length: 10 * 1024 * 1024,
+  onProgress: (sent, total) => setProgress(sent / total),
+  signal: controller.signal,
+});
+```
+
+| Option       | Description                                                         |
+| ------------ | ------------------------------------------------------------------- |
+| `method`     | `PUT` unless set.                                                   |
+| `headers`    | Request headers. `Content-Length` is set from the range.            |
+| `offset`     | Where in the file the body starts. Zero unless set.                 |
+| `length`     | How many bytes to send. Everything from `offset` unless set.        |
+| `onProgress` | `(sent, total)`.                                                    |
+| `signal`     | Aborting rejects with an `AbortError` within a fraction of a second. |
+
+The promise resolves with the final `status`, the response `headers` (lower-cased) and the first 2 KiB of the response `body`, whatever the status is, so a caller can read an `ETag` or an error document. A range past the end of the file rejects. Certificates are checked against the operating system's store.
+
 ## Watching
 
 `watch(path, listener)` watches a file or folder, as in Node. The listener receives `'rename'` or `'change'` and the file name, and the watcher it returns has a `close()` method.

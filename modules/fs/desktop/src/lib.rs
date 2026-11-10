@@ -30,6 +30,7 @@ mod handles;
 mod links;
 mod module;
 mod paths;
+mod upload;
 mod watching;
 
 pub use module::RNFsModule;
@@ -191,6 +192,19 @@ impl NativeFsSpec for RNFsModule {
         options: DownloadOptions,
     ) -> Result<DownloadResult, ModuleError> {
         download::download(self, url, path, options).await
+    }
+
+    async fn upload(
+        &self,
+        url: String,
+        path: String,
+        options: UploadOptions,
+    ) -> Result<UploadResult, ModuleError> {
+        upload::upload(self, url, path, options).await
+    }
+
+    fn cancel_upload(&self, id: f64) -> Result<bool, ModuleError> {
+        Ok(upload::cancel(self, id))
     }
 
     fn cancel_download(&self, id: f64) -> Result<bool, ModuleError> {

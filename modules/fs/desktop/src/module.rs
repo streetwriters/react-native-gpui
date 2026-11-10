@@ -64,6 +64,7 @@ pub struct RNFsModule {
     pub next_watcher: AtomicU32,
     /// Running downloads, keyed by the id JS chose, with the flag that stops each.
     pub downloads: crate::download::Downloads,
+    pub uploads: crate::upload::Uploads,
 }
 
 impl RNFsModule {
@@ -75,6 +76,7 @@ impl RNFsModule {
             watchers: Mutex::new(std::collections::HashMap::new()),
             next_watcher: AtomicU32::new(1),
             downloads: Default::default(),
+            uploads: Default::default(),
         }
     }
 
