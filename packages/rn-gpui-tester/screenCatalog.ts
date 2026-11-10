@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'gradient-snap',
+    title: 'Repeating gradients and scroll snapping',
+    group: 'Views',
+    fixture: 'GradientSnapFixture',
+  },
+  {
     id: 'long-menu',
     title: 'Custom context menu taller than the window',
     group: 'Input',

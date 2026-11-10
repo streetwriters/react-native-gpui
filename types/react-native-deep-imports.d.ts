@@ -47,6 +47,12 @@ declare module 'react-native/Libraries/StyleSheet/processColor' {
   ): number | object | null | undefined;
 }
 
+declare module 'react-native/Libraries/StyleSheet/processBackgroundImage' {
+  export default function processBackgroundImage(
+    backgroundImage: unknown,
+  ): Array<{ colorStops?: unknown[] }>;
+}
+
 declare module 'react-native/Libraries/StyleSheet/processBoxShadow' {
   export default function processBoxShadow(boxShadow: unknown): Array<{
     offsetX: number;

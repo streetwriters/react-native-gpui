@@ -4098,6 +4098,7 @@ impl Render for RNNodeView {
                     } else {
                         scroller.overflow_y_scroll().overflow_x_hidden()
                     };
+                    scroller = scroller.restrict_scroll_to_axis();
                     element = element
                         .overflow_hidden()
                         .overflow_clips_corners()
@@ -4127,9 +4128,11 @@ impl Render for RNNodeView {
                             scroller.on_scroll(move |event: &gpui::ScrollEvent, _window, _cx| {
                                 let delta = event.delta.pixel_delta(px(20.));
                                 let (dx, dy) = if horizontal {
-                                    (f32::from(delta.x) + f32::from(delta.y), 0.0)
+                                    let swapped =
+                                        f32::from(delta.x) == 0.0 && event.modifiers.shift;
+                                    (f32::from(if swapped { delta.y } else { delta.x }), 0.0)
                                 } else {
-                                    (0.0, f32::from(delta.y) + f32::from(delta.x))
+                                    (0.0, f32::from(delta.y))
                                 };
                                 let current = position.get();
                                 let next = point(
@@ -5992,6 +5995,20 @@ impl Scroller {
         }
     }
 
+    /// The wheel's movement along this scroll view's axis in points. A
+    /// horizontal one also takes a vertical wheel while shift is held, as a
+    /// browser does.
+    fn wheel_along(&self, event: &gpui::ScrollEvent) -> f32 {
+        let delta = event.delta.pixel_delta(px(20.));
+        if !self.horizontal {
+            f32::from(delta.y)
+        } else if f32::from(delta.x) == 0.0 && event.modifiers.shift {
+            f32::from(delta.y)
+        } else {
+            f32::from(delta.x)
+        }
+    }
+
     fn main_offset(&self) -> f32 {
         let offset = self.position.get();
         if self.horizontal {
@@ -6004,6 +6021,16 @@ impl Scroller {
     /// Reports the drag and momentum a wheel event is part of, and snaps once
     /// the scroll has come to rest.
     fn on_wheel(self: &Rc<Self>, event: &gpui::ScrollEvent, window: &mut Window, cx: &mut App) {
+        let along = self.wheel_along(event);
+        if self.horizontal && event.modifiers.shift {
+            let delta = event.delta.pixel_delta(px(20.));
+            if f32::from(delta.x) == 0.0 && f32::from(delta.y) != 0.0 {
+                let max = self.handle.max_offset();
+                let mut offset = self.handle.offset();
+                offset.x = (offset.x + delta.y).clamp(-max.x, px(0.0));
+                self.handle.set_offset(offset);
+            }
+        }
         let generation = {
             let mut gesture = self.gesture.borrow_mut();
             gesture.generation += 1;
@@ -6028,9 +6055,8 @@ impl Scroller {
                         }
                     } else {
                         gesture.wheel = true;
-                        if let gpui::ScrollDelta::Pixels(delta) = event.delta {
-                            let delta = f32::from(if self.horizontal { delta.x } else { delta.y });
-                            gesture.samples.push((std::time::Instant::now(), delta));
+                        if matches!(event.delta, gpui::ScrollDelta::Pixels(_)) {
+                            gesture.samples.push((std::time::Instant::now(), along));
                             if gesture.samples.len() > 32 {
                                 gesture.samples.remove(0);
                             }
