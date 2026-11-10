@@ -23,7 +23,7 @@
 //! emitter handles, the registry, the report queue and command arguments.
 
 use crate::extensions::StoreHandle;
-use gpui::{AnyElement, Window};
+use gpui::{AnyElement, App, Window};
 pub use serde_json::Value;
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
@@ -402,6 +402,20 @@ impl HostArg {
     }
 }
 
+/// Where the `&mut App` of the call in progress is kept, so a context can hand
+/// it to the component and only for the length of that call.
+#[derive(Clone, Default)]
+struct AppSlot(Rc<Cell<Option<std::ptr::NonNull<App>>>>);
+
+/// Ends the borrow of the `App` a [`HostContext`] was entered with.
+pub(crate) struct AppScope(AppSlot);
+
+impl Drop for AppScope {
+    fn drop(&mut self) {
+        (self.0).0.set(None);
+    }
+}
+
 /// What a host component is given besides its props.
 pub struct HostContext {
     /// The Fabric tag of the node. A command, an event or a measurement is
@@ -415,6 +429,7 @@ pub struct HostContext {
     /// needs around React's children.
     pending_insets: Option<EdgeInsets>,
     queue: HostReportQueue,
+    app: AppSlot,
 }
 
 impl HostContext {
@@ -427,7 +442,39 @@ impl HostContext {
             pending_size: None,
             pending_insets: None,
             queue,
+            app: AppSlot::default(),
         }
+    }
+
+    /// Lets the component reach `app` through [`app`](Self::app) until the
+    /// returned scope drops. Core holds the scope for the length of the call
+    /// and does not touch `app` meanwhile.
+    pub(crate) fn enter(self, app: &mut App) -> (Self, AppScope) {
+        self.app.0.set(Some(std::ptr::NonNull::from(app)));
+        let scope = AppScope(self.app.clone());
+        (self, scope)
+    }
+
+    /// [`enter`](Self::enter) when there is an `App` to give.
+    pub(crate) fn enter_with(self, app: Option<&mut App>) -> (Self, Option<AppScope>) {
+        match app {
+            Some(app) => {
+                let (context, scope) = self.enter(app);
+                (context, Some(scope))
+            }
+            None => (self, None),
+        }
+    }
+
+    /// The `App` of the call this context was given to: the one GPUI handed to
+    /// whatever called the component (a mount, a frame or a command). `None`
+    /// outside such a call, which includes a context a component kept after
+    /// its method returned, and in a component's unit test.
+    pub fn app(&mut self) -> Option<&mut App> {
+        // SAFETY: the pointer is set by `enter` from a live `&mut App` and cleared
+        // when its scope drops at the end of the call; `&mut self` allows one
+        // borrow at a time.
+        self.app.0.get().map(|mut app| unsafe { app.as_mut() })
     }
 
     /// The same, with the store handle a command can act through.

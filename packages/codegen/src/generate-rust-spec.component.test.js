@@ -89,6 +89,9 @@ describe('a component spec becomes the generated API', () => {
     expect(header).toContain(
       'pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {',
     );
+    expect(header).toContain(
+      'pub fn app(&mut self) -> Option<&mut gpui::App> {',
+    );
   });
 
   test('generates one typed event method per event', () => {

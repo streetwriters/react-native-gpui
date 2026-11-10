@@ -2289,6 +2289,17 @@ function renderContext(generator) {
   lines.push('        self.host.tag');
   lines.push('    }');
   lines.push('');
+  lines.push(
+    "    /// GPUI's `App`, for creating entities, subscribing and reading globals.",
+  );
+  lines.push(
+    '    /// Present in the call core makes it for (a mount, a frame, a command);',
+  );
+  lines.push('    /// `None` in a unit test and after the method returned.');
+  lines.push('    pub fn app(&mut self) -> Option<&mut gpui::App> {');
+  lines.push('        self.host.app()');
+  lines.push('    }');
+  lines.push('');
   lines.push('    /// Reports the size this component wants, in DIPs.');
   lines.push(
     '    pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {',

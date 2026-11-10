@@ -662,8 +662,8 @@ impl ViewStore {
                 MountKind::Create => {
                     let host_reports = host_reports.clone();
                     let origin = self.origin_for(surface_id);
-                    let node = cx.new(|_| {
-                        RNNodeView::from_op(op, surface_id, host_reports)
+                    let node = cx.new(|cx| {
+                        RNNodeView::from_op(op, surface_id, host_reports, Some(&mut **cx))
                             .with_surface_origin(origin)
                     });
                     self.nodes.insert(op.tag, node.clone());
@@ -873,7 +873,7 @@ impl ViewStore {
                             )
                         };
                         node.update(cx, |node, cx| {
-                            node.update_from_op(op);
+                            node.update_from_op(op, Some(&mut **cx));
                             node.sync_effect_group();
                             cx.notify();
                         });
