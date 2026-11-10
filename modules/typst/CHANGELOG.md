@@ -9,3 +9,4 @@ All notable changes to `@react-native-gpui/typst` are listed here. Each version'
 - Fonts: a small bundled set (New Computer Modern Math and DejaVu Sans Mono), the fonts the app passes, and the system fonts, which are scanned only when the source asks for a family or a character none of the others has.
 - Diagnostics with file, line and column; a timeout, an `AbortSignal`, and limits on source size, file count and file bytes.
 - `print(pdfPath)` opens the macOS print panel through PDFKit. It has not been exercised against a printer.
+- A font given as `{ path }` may be an app asset, `file://assets/fonts/Inter-Regular.ttf`, which is read from the app's assets directory like an image is. A path that climbs out of it is refused.
