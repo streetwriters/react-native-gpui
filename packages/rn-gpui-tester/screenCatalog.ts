@@ -150,6 +150,12 @@ export const screens = [
     fixture: 'ScrollIndicatorFixture',
   },
   {
+    id: 'xhr-headers',
+    title: 'XMLHttpRequest response headers',
+    group: 'Network',
+    fixture: 'XhrHeadersFixture',
+  },
+  {
     id: 'scroll-reserve',
     title: 'Scroller width reserved in the layout',
     group: 'Views',
