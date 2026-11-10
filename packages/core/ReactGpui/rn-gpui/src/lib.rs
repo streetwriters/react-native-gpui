@@ -47,7 +47,6 @@ pub use bootstrap::{
 pub use desktop::tray::TrayConfig;
 /// The runtime a Rust TurboModule is written against.
 pub use http_client::RnHttpClient;
-pub use resources::{assets_in, default_assets_dir};
 pub use rn_gpui_module as module;
 pub use rn_gpui_module::{register as register_module, ModuleError, ModuleThread, Value};
 pub use runtime::ReactRuntime;

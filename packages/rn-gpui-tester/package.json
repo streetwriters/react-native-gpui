@@ -34,7 +34,6 @@
     "@react-native-gpui/spellcheck": "file:../../modules/spellcheck",
     "@react-native-gpui/svg": "file:../../modules/svg",
     "@react-native-gpui/system": "file:../../modules/system",
-    "@react-native-gpui/typst": "file:../../modules/typst",
     "@react-native-gpui/updater": "file:../../modules/updater",
     "@react-native-gpui/vector-icons": "file:../../modules/vector-icons",
     "@react-native-gpui/webauthn": "file:../../modules/webauthn",
