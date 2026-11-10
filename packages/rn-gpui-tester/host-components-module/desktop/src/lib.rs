@@ -394,6 +394,19 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
     ) {
     }
 
+    fn recyclable(&self) -> bool {
+        true
+    }
+
+    fn recycle(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> bool {
+        self.emitter = cx.emitter();
+        true
+    }
+
     fn render(
         &mut self,
         props: &serde_json::Map<String, serde_json::Value>,
@@ -462,6 +475,18 @@ impl react_native_gpui::native_tree::NativeComponent for NativeText {
         _changed: &[String],
         _cx: &mut react_native_gpui::native_tree::NativeContext,
     ) {
+    }
+
+    fn recyclable(&self) -> bool {
+        true
+    }
+
+    fn recycle(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> bool {
+        true
     }
 
     fn render(

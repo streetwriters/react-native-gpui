@@ -234,6 +234,8 @@ async fn serve_commands(
                     "nativeOpsApplied": read(Counter::NativeOpsApplied),
                     "nativeApplyMicros": read(Counter::NativeApplyMicros),
                     "nativeRenderMicros": read(Counter::NativeRenderMicros),
+                    "nativeInstancesCreated": read(Counter::NativeInstancesCreated),
+                    "nativeInstancesRecycled": read(Counter::NativeInstancesRecycled),
                 });
                 if params.get("reset").and_then(Value::as_bool).unwrap_or(false) {
                     reset();

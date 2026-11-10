@@ -83,6 +83,21 @@ pub trait NativeComponent: 'static {
     /// the ones that did, set or removed. Never called with nothing changed.
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext);
 
+    /// Whether this component can be reused for another instance of its type
+    /// once it is removed. A component that holds state a new instance must not
+    /// see (focus, an in-progress gesture, a pending timer) says no, which is
+    /// the default.
+    fn recyclable(&self) -> bool {
+        false
+    }
+
+    /// Makes this removed component the instance `cx.id` with `props`, as
+    /// `create` would have. Whatever it kept from `cx` (its emitter) must be
+    /// taken again. Returning false discards it and `create` is called instead.
+    fn recycle(&mut self, _props: &Map<String, Value>, _cx: &mut NativeContext) -> bool {
+        false
+    }
+
     /// The element for this node. `children` are the elements of its child
     /// instances in order, ready to place wherever the component wants.
     fn render(
@@ -101,6 +116,8 @@ type Factory =
 /// `create` returns `Self`.
 trait ErasedComponent {
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext);
+    fn recyclable(&self) -> bool;
+    fn recycle(&mut self, props: &Map<String, Value>, cx: &mut NativeContext) -> bool;
     fn render(
         &mut self,
         props: &Map<String, Value>,
@@ -113,6 +130,14 @@ trait ErasedComponent {
 impl<T: NativeComponent> ErasedComponent for T {
     fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext) {
         NativeComponent::update(self, props, changed, cx);
+    }
+
+    fn recyclable(&self) -> bool {
+        NativeComponent::recyclable(self)
+    }
+
+    fn recycle(&mut self, props: &Map<String, Value>, cx: &mut NativeContext) -> bool {
+        NativeComponent::recycle(self, props, cx)
     }
 
     fn render(
@@ -342,7 +367,12 @@ pub struct NativeTree {
     /// host attaches to its own node.
     roots: Vec<NativeId>,
     sink: Rc<dyn Fn(NativeEvent)>,
+    /// Components of removed instances that said they can be reused, by type.
+    pool: HashMap<String, Vec<Box<dyn ErasedComponent>>>,
 }
+
+/// The most removed components kept per type.
+const POOL_LIMIT: usize = 256;
 
 impl NativeTree {
     pub fn new(sink: impl Fn(NativeEvent) + 'static) -> Self {
@@ -351,6 +381,7 @@ impl NativeTree {
             bounds: Rc::new(RefCell::new(HashMap::new())),
             roots: Vec::new(),
             sink: Rc::new(sink),
+            pool: HashMap::new(),
         }
     }
 
@@ -423,7 +454,23 @@ impl NativeTree {
                     .cloned()
                     .ok_or_else(|| format!("no native component {type_name:?} is registered"))?;
                 let mut cx = self.context(id, app);
-                let component = factory(&props, &mut cx);
+                let recycled =
+                    self.pool
+                        .get_mut(&type_name)
+                        .and_then(Vec::pop)
+                        .and_then(|mut component| {
+                            component.recycle(&props, &mut cx).then_some(component)
+                        });
+                let component = match recycled {
+                    Some(component) => {
+                        crate::counters::bump(crate::counters::Counter::NativeInstancesRecycled);
+                        component
+                    }
+                    None => {
+                        crate::counters::bump(crate::counters::Counter::NativeInstancesCreated);
+                        factory(&props, &mut cx)
+                    }
+                };
                 self.instances.insert(
                     id,
                     Instance {
@@ -569,6 +616,12 @@ impl NativeTree {
         if let Some(instance) = self.instances.remove(&id) {
             for child in instance.children {
                 self.drop_subtree(child);
+            }
+            if instance.component.recyclable() {
+                let pooled = self.pool.entry(instance.type_name).or_default();
+                if pooled.len() < POOL_LIMIT {
+                    pooled.push(instance.component);
+                }
             }
         }
     }

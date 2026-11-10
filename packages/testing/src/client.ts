@@ -545,6 +545,9 @@ export class DesktopApp {
     nativeOpsApplied: number;
     nativeApplyMicros: number;
     nativeRenderMicros: number;
+    /** Native components made by `create`, and taken from the pool of removed ones instead. */
+    nativeInstancesCreated: number;
+    nativeInstancesRecycled: number;
   }> {
     return this.request('hostCounters', { reset: options.reset ?? false });
   }
