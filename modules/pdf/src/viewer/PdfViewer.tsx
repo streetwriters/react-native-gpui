@@ -8,6 +8,7 @@ import React, {
   type Ref,
 } from 'react';
 import {
+  PixelRatio,
   ScrollView,
   View,
   type LayoutChangeEvent,
@@ -21,6 +22,7 @@ import type { PageInfo } from '@embedpdf/core';
 import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import { PageView } from './PageView';
 import { displaySize, normalizeTurn, toDisplayPoint } from './rotation';
+import { tileBudget } from './budget';
 import { OutlineToken, type PdfOutlineItem } from './outline';
 import { useSearch, type SearchState } from './search';
 import { createPdfSession, type PdfSession } from './session';
@@ -82,9 +84,11 @@ export interface PdfViewerProps {
   pageGap?: number;
   padding?: number;
   pageShadow?: boolean;
+  tileBudget?: number;
 }
 
 const ZOOM_STEP = 1.25;
+let openViewers = 0;
 const EMPTY: readonly PageInfo[] = [];
 
 export function PdfViewer({
@@ -99,6 +103,7 @@ export function PdfViewer({
   pageGap = PAGE_GAP,
   padding = PAGE_PADDING,
   pageShadow = false,
+  tileBudget: tileBudgetOverride,
 }: PdfViewerProps) {
   const [session] = useState<PdfSession>(createPdfSession);
   const [documentId, setDocumentId] = useState<string | null>(null);
@@ -121,6 +126,31 @@ export function PdfViewer({
     const stops = [selection.onChanged(bump), selection.onCleared(bump)];
     return () => stops.forEach(stop => stop());
   }, [session, documentId]);
+  useEffect(
+    () => () => {
+      void session.kernel
+        .destroy()
+        .then(() => session.engine.destroy())
+        .catch(() => {});
+    },
+    [session],
+  );
+  const ratio = PixelRatio.get();
+  useEffect(() => {
+    if (viewport.width <= 0 || viewport.height <= 0) return;
+    const { NativePdfTiles } = require('../native-tiles');
+    NativePdfTiles.setBudget(tileBudgetOverride ?? tileBudget(viewport, ratio));
+  }, [viewport, ratio, tileBudgetOverride]);
+  useEffect(() => {
+    openViewers++;
+    return () => {
+      openViewers--;
+      if (openViewers === 0) {
+        const { NativePdfTiles } = require('../native-tiles');
+        NativePdfTiles.setBudget(0);
+      }
+    };
+  }, []);
   const latest = useRef({ zoom, offset, viewport });
   latest.current = { zoom, offset, viewport };
 
@@ -360,8 +390,30 @@ export function PdfViewer({
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);
 
+  const trimTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const lastTrim = useRef(0);
+  useEffect(
+    () => () => {
+      clearTimeout(trimTimer.current);
+      const { NativePdfTiles } = require('../native-tiles');
+      NativePdfTiles.trim();
+    },
+    [],
+  );
+
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      clearTimeout(trimTimer.current);
+      const now = Date.now();
+      const trim = () => {
+        lastTrim.current = Date.now();
+        const { NativePdfTiles } = require('../native-tiles');
+        NativePdfTiles.trim();
+      };
+      if (now - lastTrim.current > 1500) trim();
+      else trimTimer.current = setTimeout(trim, 600);
       setOffset(event.nativeEvent.contentOffset.y);
     },
     [],

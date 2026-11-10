@@ -54,6 +54,7 @@ async function launchViewer(
   encrypted?: boolean,
   outline?: boolean,
   rotate?: number,
+  startClosed?: boolean,
 ) {
   await app?.close();
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -70,7 +71,7 @@ async function launchViewer(
         `.local/e2e-pdf-viewer-${process.pid}-${Date.now()}.json`,
       ),
     },
-    initialProps: { pages, budget, encrypted, outline, rotate },
+    initialProps: { pages, budget, encrypted, outline, rotate, startClosed },
     disableAnimations: true,
     offscreen: true,
   });
@@ -285,13 +286,23 @@ test('a rotated page is laid out and painted turned', async () => {
 });
 
 test('memory stays bounded while scrolling through 300 pages', async () => {
-  await launchViewer(300);
-  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  await launchViewer(
+    300,
+    Number(process.env.PDFMEM_BUDGET) || undefined,
+    false,
+    false,
+    undefined,
+    true,
+  );
   const pid = (app as unknown as { pid?: number }).pid;
   expect(pid).toBeGreaterThan(0);
   const rssMb = () =>
     Number(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)]).toString()) /
     1024;
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const baseline = rssMb();
+  await app.getByTestId('open-viewer').click();
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
   const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
   const curve: string[] = [];
   const samples: number[] = [];
@@ -309,8 +320,15 @@ test('memory stays bounded while scrolling through 300 pages', async () => {
       );
     }
   }
-  console.log(`PDFMEM start ${start.toFixed(0)}MB; ${curve.join(' ')}`);
+  console.log(
+    `PDFMEM baseline ${baseline.toFixed(0)}MB start ${start.toFixed(0)}MB; ${curve.join(' ')}`,
+  );
   const half = samples.slice(Math.floor(samples.length / 2));
-  expect(Math.max(...half) - Math.min(...half)).toBeLessThan(150);
-  expect(Math.max(...samples)).toBeLessThan(start + 700);
+  expect(Math.max(...half) - Math.min(...half)).toBeLessThan(40);
+  expect(Math.max(...samples)).toBeLessThan(baseline + 230);
+  await app.getByTestId('close-viewer').click();
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  const afterClose = rssMb();
+  console.log(`PDFMEM after close ${afterClose.toFixed(0)}MB`);
+  expect(afterClose).toBeLessThan(baseline + 230);
 });

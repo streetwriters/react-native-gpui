@@ -122,9 +122,6 @@ export function PageView({
   const latest = useRef<{ x: number; y: number } | null>(null);
   const gesture = useRef<'idle' | 'pending' | 'active'>('idle');
   const released = useRef(false);
-  useEffect(() => {
-    if (selection) void selection.ensureLoaded(page.ref);
-  }, [selection, page.ref]);
   const lastDown = useRef({ time: 0, x: 0, y: 0, count: 0 });
   const at = (event: PointerEvent) => ({
     x: event.nativeEvent.offsetX / zoom,

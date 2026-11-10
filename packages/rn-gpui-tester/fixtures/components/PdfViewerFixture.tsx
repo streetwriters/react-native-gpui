@@ -86,12 +86,14 @@ export default function PdfViewerFixture({
   encrypted,
   outline,
   rotate,
+  startClosed,
 }: {
   pages?: number;
   budget?: number;
   encrypted?: boolean;
   outline?: boolean;
   rotate?: number;
+  startClosed?: boolean;
 }) {
   const bytes = useMemo(
     () =>
@@ -107,6 +109,7 @@ export default function PdfViewerFixture({
   const [stats, setStats] = useState('');
   const [selected, setSelected] = useState('');
   const [outlineText, setOutlineText] = useState('');
+  const [closed, setClosed] = useState(Boolean(startClosed));
   const outlineItems = useRef<PdfOutlineItem[]>([]);
   const [frames, setFrames] = useState('');
   const gaps = useRef<number[]>([]);
@@ -136,14 +139,6 @@ export default function PdfViewerFixture({
     );
   };
   useEffect(() => {
-    if (budget) {
-      const {
-        NativePdfTiles,
-      } = require('@react-native-gpui/pdf/src/native-tiles');
-      NativePdfTiles.setBudget(budget);
-    }
-  }, [budget]);
-  useEffect(() => {
     const timer = setInterval(() => {
       const {
         NativePdfTiles,
@@ -158,6 +153,8 @@ export default function PdfViewerFixture({
       <View
         style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 6 }}
       >
+        <Button id="close-viewer" onPress={() => setClosed(true)} />
+        <Button id="open-viewer" onPress={() => setClosed(false)} />
         <Button id="zoom-in" onPress={() => controller.current?.zoomIn()} />
         <Button id="zoom-out" onPress={() => controller.current?.zoomOut()} />
         <Button id="fit-width" onPress={() => controller.current?.fitWidth()} />
@@ -215,11 +212,14 @@ export default function PdfViewerFixture({
         </Text>
         <Text testID="pdf-stats">{stats}</Text>
       </View>
-      <PdfViewer
-        source={{ bytes }}
-        controllerRef={controller}
-        onStateChange={setState}
-      />
+      {closed ? null : (
+        <PdfViewer
+          tileBudget={budget}
+          source={{ bytes }}
+          controllerRef={controller}
+          onStateChange={setState}
+        />
+      )}
     </View>
   );
 }
