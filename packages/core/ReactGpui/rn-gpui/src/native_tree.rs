@@ -243,8 +243,10 @@ struct Instance {
 
 type BoundsMap = Rc<RefCell<HashMap<NativeId, Bounds<Pixels>>>>;
 
-/// Wraps an instance's element without changing its layout: it records where the
-/// element was put, and gives the accessibility tree the role and label the
+/// Wraps an instance's element without changing its layout: it puts the element
+/// in a scope of its own, so two instances may use the same element id for
+/// their state (a `div().id("button")` in every button) without sharing it; it
+/// records where the element was put, and gives the accessibility tree the role and label the
 /// instance's props name (`accessibilityRole`, `accessibilityLabel`, `testID`).
 struct Tracked {
     inner: AnyElement,
@@ -282,7 +284,11 @@ impl Element for Tracked {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
-        (self.inner.request_layout(window, cx), ())
+        let scope = ElementId::Integer(self.id);
+        (
+            window.with_id(scope, |window| self.inner.request_layout(window, cx)),
+            (),
+        )
     }
 
     fn prepaint(
@@ -295,7 +301,8 @@ impl Element for Tracked {
         cx: &mut App,
     ) {
         self.bounds.borrow_mut().insert(self.id, bounds);
-        self.inner.prepaint(window, cx);
+        let scope = ElementId::Integer(self.id);
+        window.with_id(scope, |window| self.inner.prepaint(window, cx));
     }
 
     fn paint(
@@ -308,7 +315,8 @@ impl Element for Tracked {
         window: &mut Window,
         cx: &mut App,
     ) {
-        self.inner.paint(window, cx);
+        let scope = ElementId::Integer(self.id);
+        window.with_id(scope, |window| self.inner.paint(window, cx));
     }
 
     fn a11y_role(&self) -> Option<Role> {

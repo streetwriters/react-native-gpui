@@ -35,6 +35,8 @@ type ReconcilerApi = {
 type RootState = {
   batch: Batch;
   byId: Map<number, NativeInstance>;
+  /** Sends what the last commit changed. */
+  flush: () => void;
 };
 
 export type NativeInstance = {
@@ -64,6 +66,9 @@ declare const globalThis: { __gpuiNativeRootApply?: Apply };
 declare const __DEV__: boolean | undefined;
 
 const CONTAINER_TYPE = 'NativeRootContainer';
+
+/** React reads a host context at every host node and refuses a missing one. */
+const HOST_CONTEXT = {};
 
 let nextInstanceId = 2;
 let currentPriority = NoEventPriority;
@@ -206,11 +211,13 @@ function createHostConfig() {
     },
     finalizeInitialChildren: () => false,
     shouldSetTextContent: () => false,
-    getRootHostContext: () => null,
+    getRootHostContext: () => HOST_CONTEXT,
     getChildHostContext: (context: unknown) => context,
     getPublicInstance: (instance: NativeInstance) => instance,
     prepareForCommit: () => null,
-    resetAfterCommit() {},
+    resetAfterCommit(container: NativeInstance) {
+      container.root.flush();
+    },
     preparePortalMount() {},
     clearContainer() {},
     detachDeletedInstance(instance: NativeInstance) {
@@ -288,7 +295,11 @@ export function createNativeRoot(
   onError: (error: unknown) => void,
   apply: Apply | undefined = globalThis.__gpuiNativeRootApply,
 ): NativeRootHandle {
-  const state: RootState = { batch: new Batch(), byId: new Map() };
+  const state: RootState = {
+    batch: new Batch(),
+    byId: new Map(),
+    flush: () => {},
+  };
   const { batch, byId } = state;
   const container: NativeInstance = {
     id: 1,
@@ -329,6 +340,8 @@ export function createNativeRoot(
       apply(rootId, payload);
     }
   };
+
+  state.flush = flush;
 
   return {
     rootId,

@@ -117,6 +117,9 @@ test('a press on a nested native component reaches its handler in React, with th
   await desktopExpect(app.getByTestId('native-last')).toHaveText(
     'last:pressed blue 2',
   );
+  await expect
+    .poll(async () => (await app.query('text', 'count 2', true)).length)
+    .toBe(1);
   await press(4 + 20, 4 + 30 + 4 + 15);
   await desktopExpect(app.getByTestId('native-last')).toHaveText('last:red');
 });

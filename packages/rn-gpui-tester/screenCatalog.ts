@@ -156,6 +156,12 @@ export const screens = [
     fixture: 'SurfaceProbeFixture',
   },
   {
+    id: 'native-root-dev',
+    title: 'Fast Refresh and render errors inside a native tree',
+    group: 'Views',
+    fixture: 'NativeRootDevFixture',
+  },
+  {
     id: 'native-matrix',
     title: 'Native trees under each kind of React Native parent',
     group: 'Views',

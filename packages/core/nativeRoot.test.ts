@@ -136,7 +136,7 @@ describe('the native root reconciler', () => {
     root.dispatch({ id: 999, name: 'onPress' });
   });
 
-  test('state and effects of a component inside the tree work', () => {
+  test('a state update inside the tree sends its own batch', async () => {
     const { root, batches } = start();
     let bump: () => void = () => {};
     function Counter() {
@@ -145,9 +145,13 @@ describe('the native root reconciler', () => {
       return h('Label', { text: `n${count}` });
     }
     root.render(h(Counter));
-    React.act?.(() => {});
+    expect(batches).toHaveLength(1);
     bump();
-    expect(batches.length).toBeGreaterThanOrEqual(1);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(batches).toHaveLength(2);
+    expect(batches[1]).toEqual([
+      ['update', expect.any(Number), { text: 'n1' }, []],
+    ]);
   });
 
   test('a component that throws while rendering reports it', async () => {
