@@ -111,6 +111,7 @@ fn main() {
                 .display()
         );
     }
+    watch_cpp_tree(&react_cxx_platform_dir);
     let overrides_dir = package_dir.join("ReactCommonOverrides");
     println!("cargo:rerun-if-changed={}", overrides_dir.display());
 
@@ -223,6 +224,26 @@ fn main() {
             println!("cargo:rerun-if-changed={directory}");
         }
     }
+    // The C++ the app contributes: the sources and the headers it includes,
+    // among them the host component glue autolink generates.
+    for line in fs::read_to_string(&autolink_cmake)
+        .unwrap_or_default()
+        .lines()
+    {
+        let sources = line.contains("RN_GPUI_APP_CPP_SOURCES");
+        let includes = line.contains("RN_GPUI_APP_CPP_INCLUDE_DIRS");
+        if !sources && !includes {
+            continue;
+        }
+        for quoted in line.split('"').skip(1).step_by(2) {
+            let path = PathBuf::from(quoted);
+            if sources {
+                println!("cargo:rerun-if-changed={}", path.display());
+            } else {
+                watch_cpp_tree(&path);
+            }
+        }
+    }
     let cpp_provider = autolink_cmake
         .parent()
         .unwrap_or(&autolink_cmake)
@@ -301,8 +322,14 @@ fn main() {
             cmake_path(&generated_rncore),
         ),
         ("RN_GPUI_PROJECT_ROOT", cmake_path(&project_root)),
-        ("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake)),
+        ("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake.clone())),
     ];
+    let codegen_digest = autolink_codegen_digest(
+        &autolink_cmake
+            .parent()
+            .unwrap_or(&autolink_cmake)
+            .join("codegen"),
+    );
     // CMake deletes its cache when the compiler path changes, and the configure
     // it then re-runs has lost every -D argument and fails. Shells disagree on
     // the path (the /usr/bin shim or the Xcode toolchain binary behind it), so
@@ -353,7 +380,7 @@ fn main() {
     // `RN_GPUI_FORCE_CMAKE_CONFIGURE=1` is the escape hatch when the stamp
     // misses an input a future toolchain adds.
     let build_dir = cmake_out_dir.join("build");
-    let stamp = configure_stamp(&defines, cmake_build_type, &target_triple);
+    let stamp = configure_stamp(&defines, cmake_build_type, &target_triple, &codegen_digest);
     let stamp_path = cmake_out_dir.join(".configure-inputs");
     let generator_output_exists =
         build_dir.join("Makefile").is_file() || build_dir.join("build.ninja").is_file();
@@ -536,7 +563,12 @@ fn watch_cpp_tree(root: &Path) {
 /// variables through `target_envs` (see `configure_env_names`), and the values
 /// inside `cc`'s own cache depend on `OPT_LEVEL`/`DEBUG`, which Cargo rewrites
 /// for the whole build, not just this crate.
-fn configure_stamp(defines: &[(&str, String)], profile: &str, target: &str) -> String {
+fn configure_stamp(
+    defines: &[(&str, String)],
+    profile: &str,
+    target: &str,
+    autolink_codegen: &str,
+) -> String {
     let mut stamp = String::new();
     stamp.push_str("STAMP_VERSION=");
     stamp.push_str(STAMP_VERSION);
@@ -559,10 +591,44 @@ fn configure_stamp(defines: &[(&str, String)], profile: &str, target: &str) -> S
     stamp.push_str("target=");
     stamp.push_str(target);
     stamp.push('\n');
+    stamp.push_str("autolink_codegen=");
+    stamp.push_str(autolink_codegen);
+    stamp.push('\n');
     stamp.push_str("cmake_version=");
     stamp.push_str(&cmake_version());
     stamp.push('\n');
     stamp
+}
+
+/// A digest of the headers React Native's codegen made for the app's specs. The
+/// configure step runs the codegen again for the libraries that read it, so a
+/// changed spec has to configure again, and an unchanged one must not.
+fn autolink_codegen_digest(root: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut files = Vec::new();
+    collect_headers(root, &mut files);
+    files.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for file in files {
+        file.hash(&mut hasher);
+        fs::read(&file).unwrap_or_default().hash(&mut hasher);
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn collect_headers(root: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_headers(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "h") {
+            files.push(path);
+        }
+    }
 }
 
 /// Declares, once, every environment variable that `configure_stamp` reads, so
