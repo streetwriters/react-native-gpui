@@ -46,6 +46,8 @@ export type NativeInstance = {
   handlers: Record<string, (payload: unknown) => void>;
   parent: NativeInstance | null;
   root: RootState;
+  /** Tells `Commands.*` of a spec that this ref is not a Fabric node's. */
+  readonly __nativeTreeInstance: true;
   /**
    * Calls the command `name` of the instance in the runtime, as a ref to a
    * Fabric host component's `dispatchCommand` does.
@@ -169,6 +171,7 @@ function createHostConfig() {
         handlers,
         parent: null,
         root: container.root,
+        __nativeTreeInstance: true,
         command(name, ...args) {
           instance.root.batch.ops.push(['command', instance.id, name, args]);
           instance.root.flush();
@@ -317,6 +320,7 @@ export function createNativeRoot(
     handlers: {},
     parent: null,
     root: state,
+    __nativeTreeInstance: true,
     command() {},
   };
   byId.set(container.id, container);

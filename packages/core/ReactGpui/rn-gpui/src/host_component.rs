@@ -26,6 +26,12 @@ use crate::extensions::StoreHandle;
 pub use crate::native_tree::{NativeCall, NativeComponent, NativeContext, NativeEmitter};
 use gpui::{AnyElement, App, Window};
 pub use serde_json::{Map, Value};
+
+/// The object a missing struct prop of a native tree reads as.
+pub fn empty_map() -> &'static Map<String, Value> {
+    static EMPTY: std::sync::OnceLock<Map<String, Value>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(Map::new)
+}
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;
