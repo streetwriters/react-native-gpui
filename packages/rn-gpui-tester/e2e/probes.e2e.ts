@@ -232,7 +232,7 @@ test('starts the real RN app and drives idle tracking, probes and actionability 
     for (let cycle = 0; cycle < 3; cycle++) {
       await app.getByText('Open details').click();
       await expect(app.getByTestId('Details 1-title')).toBeVisible();
-      await app.press('escape');
+      await app.press('mod-[');
       await app.waitForIdle();
       await expect(app.getByTestId('Home-title')).toBeVisible();
       await app.reload();
