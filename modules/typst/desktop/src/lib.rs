@@ -35,6 +35,7 @@ impl NativeTypstSpec for Typst {
         let output_path = options.output_path.clone();
         let system_fonts = match options.system_fonts.as_str() {
             "always" => SystemFonts::Always,
+            "fallback" => SystemFonts::Fallback,
             "never" => SystemFonts::Never,
             _ => SystemFonts::Auto,
         };
