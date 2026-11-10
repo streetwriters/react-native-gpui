@@ -184,6 +184,14 @@ pub fn rn_gpui_register() {
 
 `register_root_wrapper<V: Render>(impl Fn(AnyView, &mut Window, &mut App) -> Entity<V> + Send + Sync)` receives the root view that takes the React tree and returns the view that becomes the window's root, which usually holds the given view as a child. Its type `V` is the window's root type, so `window.root::<V>()` finds it. It applies to the main window, to windows opened with `DesktopWindow.open` and to tray popovers, and a second registration replaces the first.
 
+### Native trees
+
+A host component made of other host components of its family, such as a dialog of buttons or a tab bar of tabs, can build the whole subtree as one GPUI element tree instead of paying a Fabric node, a Yoga node and a mount operation for each nested component. The nested components are instances of a native tree, made and changed by batches of operations and identified by the id the reconciler gave them.
+
+A component of the tree implements `react_native_gpui::native_tree::NativeComponent`: `create(props, cx)`, `update(props, changed, cx)` with the names of the props that changed, and `render(props, children, window, app)`, which receives the elements of its child instances in order and places them itself. It is registered with `register_native_component::<T>("Name")`. `cx.emit("onPress", payload)` (or a cloned `cx.emitter()` kept by a GPUI listener) tells JavaScript, naming the instance and the prop that holds the handler.
+
+A batch is an array of `["create", id, type, props]`, `["append", parent, child]`, `["insert", parent, child, before]`, `["remove", parent, child]` and `["update", id, set, unset]`. Appending or inserting an instance that has a parent moves it, which is how a keyed reorder arrives. Removing drops the instance and everything under it. An operation that cannot apply (an unknown id or type, a move that would put an instance inside itself) is logged and skipped, and the instance tree is left as it was.
+
 ## 4. Use it from JavaScript
 
 ```tsx
