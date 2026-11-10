@@ -20,6 +20,7 @@ import {
 import type { PageInfo } from '@embedpdf/core';
 import { SelectionToken } from '@embedpdf/plugin-selection/contract/host';
 import { PageView } from './PageView';
+import { OutlineToken, type PdfOutlineItem } from './outline';
 import { useSearch, type SearchState } from './search';
 import { createPdfSession, type PdfSession } from './session';
 import {
@@ -55,6 +56,8 @@ export interface PdfViewerController {
   fitWidth(): void;
   fitPage(): void;
   goToPage(page: number): void;
+  getOutline(): Promise<PdfOutlineItem[]>;
+  goToOutlineItem(item: PdfOutlineItem): void;
   unlock(password: string): Promise<void>;
   search(query: string, options?: { matchCase?: boolean }): Promise<void>;
   nextHit(): void;
@@ -268,6 +271,23 @@ export function PdfViewer({
           });
         }
       },
+      getOutline: async () => {
+        if (!documentId) return [];
+        const outline = session.kernel.tryCapability(OutlineToken);
+        if (!outline) return [];
+        return outline.read(documentId, page =>
+          session.kernel.documents.getPageIndex(page as never, documentId),
+        );
+      },
+      goToOutlineItem: item => {
+        if (item.pageIndex === null) return;
+        const box = layout.boxes[item.pageIndex];
+        if (!box) return;
+        scroller.current?.scrollTo({
+          y: Math.max(0, box.top + (item.y ?? 0) * zoom - pageGap),
+          animated: false,
+        });
+      },
       unlock: async password => {
         if (!documentId) return;
         try {
@@ -306,7 +326,16 @@ export function PdfViewer({
       },
       getState: () => stateRef.current,
     }),
-    [changeZoom, layout, documentId, session, load, found.capability, pageGap],
+    [
+      changeZoom,
+      layout,
+      documentId,
+      session,
+      load,
+      found.capability,
+      pageGap,
+      zoom,
+    ],
   );
   useImperativeHandle(controllerRef, () => controller, [controller]);
 

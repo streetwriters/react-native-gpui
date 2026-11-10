@@ -51,6 +51,7 @@ async function launchViewer(
   pages: number,
   budget?: number,
   encrypted?: boolean,
+  outline?: boolean,
 ) {
   await app?.close();
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -67,7 +68,7 @@ async function launchViewer(
         `.local/e2e-pdf-viewer-${process.pid}-${Date.now()}.json`,
       ),
     },
-    initialProps: { pages, budget, encrypted },
+    initialProps: { pages, budget, encrypted, outline },
     disableAnimations: true,
     offscreen: true,
   });
@@ -248,4 +249,17 @@ test('the current page is the one with the most visible area', async () => {
     await app.scroll(scroller.tag, 0, -2000, 1, undefined, 0);
   }
   await until(async () => /page 6\/6/u.test(await stateText()));
+});
+
+test('the outline is read as a tree and an item goes to its page', async () => {
+  await launchViewer(5, undefined, false, true);
+  await until(async () => /^ready page 1\/5/u.test(await stateText()));
+  await app.getByTestId('read-outline').click();
+  await until(async () => {
+    const text = (await app.query('testID', 'pdf-outline', true))[0]?.text;
+    return text === 'Chapter 1@0|-Section 1.1@1|Chapter 2@2';
+  });
+  await app.getByTestId('fit-page').click();
+  await app.getByTestId('outline-chapter-2').click();
+  await until(async () => /page 3\/5/u.test(await stateText()));
 });

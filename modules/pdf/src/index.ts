@@ -25,3 +25,4 @@ export {
   type PdfViewerProps,
   type PdfViewerState,
 } from './viewer/PdfViewer';
+export type { PdfOutlineItem } from './viewer/outline';

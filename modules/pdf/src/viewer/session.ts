@@ -4,6 +4,7 @@ import { renderPlugin } from '@embedpdf/plugin-render';
 import { searchPlugin } from '@embedpdf/plugin-search';
 import { selectionPlugin } from '@embedpdf/plugin-selection';
 import { createPdfEngine, nativeTiles } from '../index';
+import { outlinePlugin } from './outline';
 
 export function createPdfSession() {
   const engine = createPdfEngine({ tiles: nativeTiles() });
@@ -14,6 +15,7 @@ export function createPdfSession() {
       renderPlugin(),
       searchPlugin(),
       selectionPlugin(),
+      outlinePlugin(),
     ],
     report: error => console.warn('[pdf]', error),
   });
