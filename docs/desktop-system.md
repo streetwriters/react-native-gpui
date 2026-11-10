@@ -46,9 +46,25 @@ await setContentProtected(true);
 await isContentProtected(); // true
 ```
 
-Hides the app's windows from screenshots, screen recordings and screen sharing; others see nothing where the window is. It covers every window of the app, and windows opened later, such as a tray popover, are covered within half a second of appearing. `isContentProtected()` reads the windows back, so it is `true` only while every open window carries the protection. macOS only for now: on other systems `setContentProtected` rejects with `ERR_UNSUPPORTED` and `isContentProtected` resolves with `false`.
+Hides the app's windows from screenshots, screen recordings and screen sharing; others see nothing where the window is. It covers every window of the app, and windows opened later, such as a tray popover, are covered within half a second of appearing. `isContentProtected()` reads the windows back, so it is `true` only while every open window carries the protection. macOS uses the window's sharing type. Windows uses `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, which needs Windows 10 version 2004 or later, and the Windows code is not tested yet. On Linux `setContentProtected` rejects with `ERR_UNSUPPORTED` and `isContentProtected` resolves with `false`.
 
 The setting is not remembered between launches: set it again at startup.
+
+## Jump list
+
+```js
+import { setJumpList } from '@react-native-gpui/system';
+
+await setJumpList([
+  { title: 'New note', args: ['new', 'note'], description: 'Create a note' },
+  { title: 'New notebook', args: ['new', 'notebook'] },
+]);
+await setJumpList([]); // remove the tasks
+```
+
+Sets the tasks in the jump list of the app's taskbar button on Windows, the list that opens when the button is right-clicked. Each call replaces the earlier tasks. Choosing a task starts the app with its `args`; an app that allows [one instance](desktop-json#singleinstance) hands them to the running copy, which receives them in [`App.onSecondInstance`](desktop-app), and `App.launchArgs()` has them when the app was not running. A task takes `title`, `args`, `description` (its tooltip) and `iconPath` with `iconIndex` for an `.ico` file or an executable; the app's own icon is the default. The jump list is kept by Windows between launches, so it only needs to be set again when it changes.
+
+This is `ICustomDestinationList` and is not tested yet, since it needs a Windows machine. Elsewhere the call rejects with `ERR_UNSUPPORTED`; the macOS equivalent is [`Menu.setDockMenu`](menu#setdockmenu).
 
 ## Idle time
 

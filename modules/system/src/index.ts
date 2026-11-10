@@ -98,6 +98,30 @@ export function cancelAttention(): Promise<void> {
   return NativeSystem.cancelAttention();
 }
 
+export interface JumpListTask {
+  /** The label of the entry. */
+  title: string;
+  /** The arguments the app is started with when the entry is chosen. */
+  args?: string[];
+  /** The tooltip of the entry. */
+  description?: string;
+  /** A file with the entry's icon: an `.ico`, or an executable or library with icons. The app's own icon by default. */
+  iconPath?: string;
+  /** Which icon of `iconPath` to use. */
+  iconIndex?: number;
+}
+
+/**
+ * Sets the tasks in the jump list of the app's taskbar button on Windows, which
+ * replace the ones set earlier; an empty list removes them. Choosing a task starts
+ * the app with its `args`, and a single-instance app gets them in
+ * `App.onSecondInstance`. Windows only: elsewhere it rejects with
+ * `ERR_UNSUPPORTED`; on macOS use `Menu.setDockMenu`.
+ */
+export function setJumpList(tasks: JumpListTask[]): Promise<void> {
+  return NativeSystem.setJumpList(tasks);
+}
+
 export default {
   getLaunchAtLogin,
   setLaunchAtLogin,
@@ -109,4 +133,5 @@ export default {
   getBadge,
   requestAttention,
   cancelAttention,
+  setJumpList,
 };

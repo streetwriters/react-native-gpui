@@ -2,11 +2,12 @@ rn_gpui_module::include_specs!();
 
 mod badge;
 mod idle;
+mod jumplist;
 mod login;
 mod protection;
 mod restart;
 
-use rn_gpui_module::{ModuleError, ModuleThread};
+use rn_gpui_module::{ModuleError, ModuleThread, Value};
 
 pub struct System;
 
@@ -66,6 +67,10 @@ impl NativeSystemSpec for System {
 
     async fn cancel_attention(&self) -> Result<(), ModuleError> {
         badge::cancel_attention()
+    }
+
+    async fn set_jump_list(&self, tasks: Vec<Value>) -> Result<(), ModuleError> {
+        jumplist::set(&tasks)
     }
 
     async fn get_idle_time(&self) -> Result<f64, ModuleError> {
