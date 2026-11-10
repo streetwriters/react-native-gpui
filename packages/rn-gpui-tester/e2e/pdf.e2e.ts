@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { PNG } from 'pngjs';
 import {
   launchApp,
@@ -281,4 +282,35 @@ test('a rotated page is laid out and painted turned', async () => {
   };
   expect(blueAt(0.58, 0.2)).toBe(true);
   expect(blueAt(0.1, 0.35)).toBe(false);
+});
+
+test('memory stays bounded while scrolling through 300 pages', async () => {
+  await launchViewer(300);
+  await until(async () => /^ready page 1\/300/u.test(await stateText()), 20000);
+  const pid = (app as unknown as { pid?: number }).pid;
+  expect(pid).toBeGreaterThan(0);
+  const rssMb = () =>
+    Number(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)]).toString()) /
+    1024;
+  const scroller = (await app.query('testID', 'pdf-viewer-scroll'))[0];
+  const curve: string[] = [];
+  const samples: number[] = [];
+  const start = rssMb();
+  for (let step = 1; step <= 900; step++) {
+    await app.scroll(scroller.tag, 0, -440, 1, undefined, 0);
+    if (step % 75 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      const stats =
+        (await app.query('testID', 'pdf-stats', true))[0]?.text ?? '';
+      const used = rssMb();
+      samples.push(used);
+      curve.push(
+        `${await stateText().then(t => /page (\d+)/u.exec(t)?.[1])}:${used.toFixed(0)}MB(${stats.replace(/tiles (\d+) bytes (\d+) evicted (\d+)/u, 't$1 b$2 e$3')})`,
+      );
+    }
+  }
+  console.log(`PDFMEM start ${start.toFixed(0)}MB; ${curve.join(' ')}`);
+  const half = samples.slice(Math.floor(samples.length / 2));
+  expect(Math.max(...half) - Math.min(...half)).toBeLessThan(150);
+  expect(Math.max(...samples)).toBeLessThan(start + 700);
 });
