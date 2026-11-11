@@ -230,7 +230,7 @@ jobs:
           # yeslogic-fontconfig-sys (fontconfig) and freetype-sys (freetype2).
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build ccache nasm pkg-config \
-            xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
+            xvfb openbox mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
             libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
             libfontconfig-dev libfreetype-dev libwayland-dev \
             libxkbcommon-x11-0
@@ -484,7 +484,7 @@ jobs:
 
       # The Windows runner's screen is 1024x768, so a 1024x768 window plus its
       # title bar does not fit and Windows shrinks it (the navigation e2e saw a
-      # 1024x749 viewport). Linux gets 1280x900 from xvfb below.
+      # 1024x749 viewport). Linux gets a 2560x1800 screen from xvfb below, which is 1280x900 at 2x.
       - name: Enlarge the Windows screen
         if: runner.os == 'Windows'
         shell: pwsh
@@ -511,7 +511,11 @@ jobs:
           # run-e2e.mjs forwards unknown arguments to vitest, so the JUnit
           # reporter is added here rather than by changing what runs.
           if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a -s "-screen 0 1280x900x24" \
+            # The tester asks for a 2x display (RN_GPUI_TEST_SCALE_FACTOR), so the
+            # screen holds a 1280x900 window at 2x, and openbox is the window
+            # manager that maximising, minimising and a window's first focus need.
+            xvfb-run -a -s "-screen 0 2560x1800x24" \
+              bash -c 'openbox >/dev/null 2>&1 & sleep 1; exec "$@"' _ \
               node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "e2e" -- \
               npm run test:e2e -- --reporter=default --reporter=junit \
               --outputFile=ci-out/junit/e2e.xml
