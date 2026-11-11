@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'vitest';
 import { traceDisplays } from './ci-trace';
 import { FITS_SMALL_DISPLAY, scrollIntoView } from './scroll-into-view';
 import {
@@ -486,7 +493,9 @@ describe.runIf(onMac)('Share', () => {
     }
   }
 
-  beforeAll(async () => {
+  // The hosted macOS runner's picker does not open again in the same process,
+  // so each test starts the app afresh.
+  beforeEach(async () => {
     await launch({ offscreen: false });
     await app.focusWindow();
   });
