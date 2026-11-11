@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PNG } from 'pngjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { traceDisplays } from './ci-trace';
+import { FITS_SMALL_DISPLAY, scrollIntoView } from './scroll-into-view';
 import {
   launchApp,
   expect as desktopExpect,
@@ -16,7 +17,7 @@ const windowActivation = process.platform !== 'linux';
 let app: DesktopApp;
 afterAll(() => app?.disconnect());
 
-async function launch({ offscreen = true } = {}) {
+async function launch({ offscreen = true, height = 768 } = {}) {
   if (app) await app.close();
   app = await launchApp({
     bundle: path.resolve(
@@ -31,7 +32,7 @@ async function launch({ offscreen = true } = {}) {
     disableAnimations: true,
     offscreen,
   });
-  await app.setWindowSize(1024, 768);
+  await app.setWindowSize(1024, height);
   await desktopExpect(app.getByTestId('tester-screen-apis')).toBeVisible();
 }
 
@@ -298,30 +299,13 @@ describe('Alert', () => {
   });
 });
 
-async function scrollToCentre(testID: string) {
-  const [root] = await app.query('testID', 'apis-fixture', true);
-  const top = (await app.menuBarState()).inset;
-  const size = await app.getWindowSize();
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const [button] = await app.query('testID', testID, true);
-    if (
-      button?.visible &&
-      button.frame.y + top >= 0 &&
-      button.frame.y + button.frame.height / 2 + top < size.height
-    ) {
-      return;
-    }
-    await app.scroll(root.tag, 0, -300);
-  }
-}
-
 describe('Vibration', () => {
   beforeAll(async () => {
-    await launch();
+    await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
   });
 
   test('vibrate, a pattern and cancel do not throw', async () => {
-    await scrollToCentre('vibration-run');
+    await scrollIntoView(app, 'apis-fixture', 'vibration-run');
     await app.getByTestId('vibration-run').click();
     await poll(async () => (await text('vibration-result')) !== 'none');
     expect(await text('vibration-result')).toBe('ok');
@@ -330,7 +314,7 @@ describe('Vibration', () => {
 
 describe('Settings', () => {
   async function pressBottom(testID: string) {
-    await scrollToCentre(testID);
+    await scrollIntoView(app, 'apis-fixture', testID);
     await app.getByTestId(testID).click();
   }
 
@@ -338,13 +322,13 @@ describe('Settings', () => {
     fs.rmSync(path.resolve('.local/e2e-apis-state.settings.json'), {
       force: true,
     });
-    await launch();
+    await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
     await traceDisplays(app, 'apis settings');
     await pressBottom('settings-save');
     await poll(async () => (await text('settings-result')) !== 'none');
     // The repeated `dark` is no change; the cleared watch hears nothing more.
     expect(await text('settings-result')).toBe('watched:1');
-    await launch();
+    await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
     await pressBottom('settings-read');
     await poll(async () => (await text('settings-result')) !== 'none');
     expect(await text('settings-result')).toBe('light:3');

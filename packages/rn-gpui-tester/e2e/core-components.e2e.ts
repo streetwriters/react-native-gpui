@@ -11,6 +11,7 @@ import {
   test,
 } from 'vitest';
 import { traceDisplays } from './ci-trace';
+import { FITS_SMALL_DISPLAY, scrollIntoView } from './scroll-into-view';
 import {
   launchApp,
   expect as desktopExpect,
@@ -1261,15 +1262,8 @@ describe('font scale', () => {
       disableAnimations: true,
       offscreen: true,
     });
-    await scaled.setWindowSize(
-      1900,
-      process.platform === 'darwin' ? 2000 : 1000,
-    );
+    await scaled.setWindowSize(1900, FITS_SMALL_DISPLAY ?? 1000);
     await traceDisplays(scaled, 'core-components font scale');
-    if (process.env.CI) {
-      const [fixed] = await scaled.query('testID', 'font-fixed', true);
-      console.log(`FONTTRACE font-fixed=${JSON.stringify(fixed)}`);
-    }
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();
@@ -1277,6 +1271,7 @@ describe('font scale', () => {
   afterAll(() => scaled?.disconnect());
 
   async function width(testID: string) {
+    await scrollIntoView(scaled, 'core-components-fixture', testID);
     return PNG.sync.read(await scaled.getByTestId(testID).screenshot()).width;
   }
 
