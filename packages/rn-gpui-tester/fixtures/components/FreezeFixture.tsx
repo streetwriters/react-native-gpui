@@ -4,24 +4,30 @@
  * @format
  */
 
-import React, {
-  Activity,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import React, { Activity, useState, useSyncExternalStore } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { Freeze } from 'react-freeze';
 
 const listeners = new Set<() => void>();
 let version = 0;
-let ticking = false;
+let ticker: ReturnType<typeof setInterval> | undefined;
+let pinger: ReturnType<typeof setInterval> | undefined;
 const renders: Record<string, number> = {};
-setInterval(() => {
-  if (!ticking) return;
-  version += 1;
-  listeners.forEach(listener => listener());
-}, 100);
+// Nothing runs on a timer until a test asks: the ticker re-renders the visible
+// screen, the pinger only gives the JS queue small tasks to hold.
+function setTicking(on: boolean) {
+  clearInterval(ticker);
+  ticker = on
+    ? setInterval(() => {
+        version += 1;
+        listeners.forEach(listener => listener());
+      }, 100)
+    : undefined;
+}
+function setPinging(on: boolean) {
+  clearInterval(pinger);
+  pinger = on ? setInterval(() => {}, 50) : undefined;
+}
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => {
@@ -36,13 +42,7 @@ function Screen({ name }: { name: Route }) {
   renders[name] = (renders[name] ?? 0) + 1;
   const [count, setCount] = useState(0);
   const external = useSyncExternalStore(subscribe, () => version);
-  const [rows, setRows] = useState(40);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (ticking) setRows(value => (value % 5) + 40);
-    }, 200);
-    return () => clearInterval(timer);
-  }, []);
+  const rows = 40 + (Math.floor(external / 2) % 5);
   return (
     <View testID={`route-${name}`}>
       <Text
@@ -142,21 +142,17 @@ export default function FreezeFixture() {
       <Text
         testID="tick-burst"
         onPress={() => {
-          ticking = true;
-          setTimeout(() => {
-            ticking = false;
-          }, 800);
+          setTicking(true);
+          setTimeout(() => setTicking(false), 800);
         }}
       >
         tick
       </Text>
       <Text
-        testID="tick-toggle"
-        onPress={() => {
-          ticking = !ticking;
-        }}
+        testID="ping-toggle"
+        onPress={() => setPinging(pinger === undefined)}
       >
-        ticking
+        ping
       </Text>
       <RenderCounts />
       <HideCycle />

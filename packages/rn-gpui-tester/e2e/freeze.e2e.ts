@@ -67,28 +67,33 @@ test('hidden routes stay frozen while the visible one ticks, and the app settles
 
 test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is running', async () => {
   await desktopExpect(app.getByTestId('js-busy')).toBeVisible();
-  const [toggle] = await app.query('testID', 'tick-toggle', true);
-  await app.click(toggle.tag);
-  await new Promise(resolve => setTimeout(resolve, 500));
+  const [toggle] = await app.query('testID', 'ping-toggle', true);
   const [busy] = await app.query('testID', 'js-busy', true);
-  const pressed = app.click(busy.tag);
-  const failure = pressed.then(
-    () => undefined,
-    (error: unknown) => error,
-  );
-  let status = '';
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline && !status.includes('running for')) {
-    await new Promise(resolve => setTimeout(resolve, 50));
-    status = JSON.stringify(await app.idleStatus());
+  let pinging = false;
+  try {
+    await app.click(toggle.tag);
+    pinging = true;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const pressed = app.click(busy.tag);
+    const failure = pressed.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    let status = '';
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && !status.includes('running for')) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      status = JSON.stringify(await app.idleStatus());
+    }
+    expect(
+      await Promise.race([failure, Promise.resolve(undefined)]),
+    ).toBeUndefined();
+    expect(status).toContain('running for');
+    expect(status).toContain('queued from');
+    await pressed;
+  } finally {
+    if (pinging) await app.click(toggle.tag);
   }
-  expect(
-    await Promise.race([failure, Promise.resolve(undefined)]),
-  ).toBeUndefined();
-  expect(status).toContain('running for');
-  expect(status).toContain('queued from');
-  await pressed;
-  await app.click(toggle.tag);
   await app.waitForIdle({ timeout: 30_000 });
 });
 
