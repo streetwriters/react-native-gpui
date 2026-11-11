@@ -40,7 +40,11 @@ beforeAll(async () => {
       '--max-workers',
       '2',
     ],
-    { cwd: path.resolve('packages/rn-gpui-tester'), stdio: 'ignore' },
+    {
+      cwd: path.resolve('packages/rn-gpui-tester'),
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    },
   );
   app = await launchApp({
     bundle,
