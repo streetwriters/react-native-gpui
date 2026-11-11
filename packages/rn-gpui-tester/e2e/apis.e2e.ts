@@ -298,18 +298,30 @@ describe('Alert', () => {
   });
 });
 
+async function scrollToCentre(testID: string) {
+  const [root] = await app.query('testID', 'apis-fixture', true);
+  const top = (await app.menuBarState()).inset;
+  const size = await app.getWindowSize();
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [button] = await app.query('testID', testID, true);
+    if (
+      button?.visible &&
+      button.frame.y + top >= 0 &&
+      button.frame.y + button.frame.height / 2 + top < size.height
+    ) {
+      return;
+    }
+    await app.scroll(root.tag, 0, -300);
+  }
+}
+
 describe('Vibration', () => {
   beforeAll(async () => {
     await launch();
   });
 
   test('vibrate, a pattern and cancel do not throw', async () => {
-    const [root] = await app.query('testID', 'apis-fixture', true);
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const [button] = await app.query('testID', 'vibration-run', true);
-      if (button?.visible) break;
-      await app.scroll(root.tag, 0, -300);
-    }
+    await scrollToCentre('vibration-run');
     await app.getByTestId('vibration-run').click();
     await poll(async () => (await text('vibration-result')) !== 'none');
     expect(await text('vibration-result')).toBe('ok');
@@ -318,12 +330,7 @@ describe('Vibration', () => {
 
 describe('Settings', () => {
   async function pressBottom(testID: string) {
-    const [root] = await app.query('testID', 'apis-fixture', true);
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const [button] = await app.query('testID', testID, true);
-      if (button?.visible) break;
-      await app.scroll(root.tag, 0, -300);
-    }
+    await scrollToCentre(testID);
     await app.getByTestId(testID).click();
   }
 
