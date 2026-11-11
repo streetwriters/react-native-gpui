@@ -947,7 +947,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
                         bounds.size.height + px(reach * 2.0),
                     ),
                 };
-                window.with_content_mask(Some(ContentMask::new(wide)), |window| {
+                window.with_content_mask(Some(ContentMask { bounds: wide }), |window| {
                     for layer in layers {
                         for (dx, dy) in &layer.offsets {
                             let origin = bounds.origin
@@ -957,7 +957,7 @@ pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> 
                     }
                 });
             }
-            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
+            window.with_content_mask(Some(ContentMask { bounds: bounds }), |window| {
                 paint_lines(&shaped, bounds.origin, bounds, window, cx);
             });
         },
