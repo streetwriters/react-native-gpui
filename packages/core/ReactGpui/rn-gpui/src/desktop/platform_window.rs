@@ -225,7 +225,7 @@ mod imp {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         IsIconic, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindowAsync, HWND_NOTOPMOST,
         HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SW_HIDE, SW_SHOW,
+        SW_HIDE, SW_RESTORE, SW_SHOW,
     };
 
     const UNSUPPORTED_MIN_MAX: &str =
@@ -337,7 +337,15 @@ mod imp {
     pub fn show(window: &mut Window) -> Result<(), String> {
         let hwnd = hwnd(window)?;
         // SAFETY: `hwnd` is the live window handle `hwnd()` just returned, used on the window's own thread.
-        unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
+        unsafe {
+            // A window hidden while minimized stays minimized under SW_SHOW.
+            let command = if IsIconic(hwnd) != 0 {
+                SW_RESTORE
+            } else {
+                SW_SHOW
+            };
+            ShowWindowAsync(hwnd, command)
+        };
         Ok(())
     }
 
