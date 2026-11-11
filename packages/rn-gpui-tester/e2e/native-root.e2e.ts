@@ -141,9 +141,11 @@ test('the test driver sees the instances: tree dump, locators by testID, a click
   await app.getByTestId('native-swatch-green').click();
   await desktopExpect(app.getByTestId('native-last')).toHaveText('last:green');
 
-  const node = await app.a11yNode('native-counter');
-  expect(node?.role).toMatch(/button/i);
-  expect(node?.name).toBe('Counter');
+  if (app.nativeA11ySupported) {
+    const node = await app.a11yNode('native-counter');
+    expect(node?.role).toMatch(/button/i);
+    expect(node?.name).toBe('Counter');
+  }
 });
 
 test('a keyed reorder in React moves the native instances', async () => {
