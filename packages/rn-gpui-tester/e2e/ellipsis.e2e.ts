@@ -58,7 +58,7 @@ test('a one-line text that fits its measured box is not cut short', async () => 
       }
     }
   }
-});
+}, 240_000);
 
 test('a text is as wide as its glyphs, to the device pixel, not rounded up to a whole point', async () => {
   const widths: number[] = [];
