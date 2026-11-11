@@ -63,7 +63,11 @@ async function centre(testID: string) {
 }
 
 async function away() {
-  const [screen] = await app.query('testID', 'tester-screen-state-styles', true);
+  const [screen] = await app.query(
+    'testID',
+    'tester-screen-state-styles',
+    true,
+  );
   const top = (await app.menuBarState()).inset;
   await app.mouseMove({
     x: screen.frame.width - 6,

@@ -1,11 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import {
   FixtureCard,
   FixtureSurfaceHost,

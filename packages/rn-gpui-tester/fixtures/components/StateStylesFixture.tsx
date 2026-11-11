@@ -42,7 +42,8 @@ export default function StateStylesFixture() {
         flexWrap: 'wrap',
         alignContent: 'flex-start',
         alignItems: 'flex-start',
-      }}>
+      }}
+    >
       <Text testID="state-render-count">{`renders:${rendered.current}`}</Text>
 
       <View
