@@ -53,7 +53,15 @@ export default function NativeSlotFixture() {
   );
   return (
     <Where.Provider value="outer">
-      <View style={{ padding: 8, gap: 8 }}>
+      <View
+        style={{
+          padding: 8,
+          gap: 8,
+          flex: 1,
+          flexWrap: 'wrap',
+          alignContent: 'flex-start',
+        }}
+      >
         <Text testID="slot-log">{`log:${log}`}</Text>
         <View style={{ width: 240, height: 400 }}>
           <NativeRoot testID="slot-root" style={{ width: 240, height: 400 }}>

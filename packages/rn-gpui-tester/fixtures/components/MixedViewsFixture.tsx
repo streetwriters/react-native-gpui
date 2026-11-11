@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState } from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -31,7 +30,15 @@ export default function MixedViewsFixture() {
   const [chrome, setChrome] = useState('');
   return (
     <Theme.Provider value="blue">
-      <ScrollView contentContainerStyle={{ padding: 8, gap: 8 }}>
+      <View
+        style={{
+          padding: 8,
+          gap: 8,
+          flex: 1,
+          flexWrap: 'wrap',
+          alignContent: 'flex-start',
+        }}
+      >
         <FixtureCard
           testID="mixed-card"
           onChromeEvent={event => {
@@ -172,7 +179,7 @@ export default function MixedViewsFixture() {
           <Text>scroll</Text>
         </Pressable>
         <Text testID="mixed-row-pressed">{`pressed:${rowPressed}`}</Text>
-      </ScrollView>
+      </View>
     </Theme.Provider>
   );
 }

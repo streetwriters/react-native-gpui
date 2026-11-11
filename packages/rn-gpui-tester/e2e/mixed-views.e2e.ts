@@ -21,7 +21,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(600, 1400);
+  await app.setWindowSize(1400, 1000);
   await desktopExpect(app.getByTestId('mixed-card')).toBeVisible();
 });
 
