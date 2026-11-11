@@ -41,7 +41,10 @@ async function swatches() {
   const row = 4 + 30 + 4 + 15;
   return [0, 1, 2].map(index => {
     const [r, g, b] = rgbAt(image, (4 + index * 44 + 20) * scale, row * scale);
-    return r > 200 ? 'red' : g > 200 ? 'green' : b > 200 ? 'blue' : 'none';
+    if (r > 200 && g < 60 && b < 60) return 'red';
+    if (g > 200 && r < 60 && b < 60) return 'green';
+    if (b > 200 && r < 60 && g < 60) return 'blue';
+    return 'none';
   });
 }
 
