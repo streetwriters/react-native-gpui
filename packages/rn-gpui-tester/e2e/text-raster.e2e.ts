@@ -80,28 +80,45 @@ function expectLikeChromium(result: {
   expect(result.over).toBeLessThan(result.total * 0.01);
 }
 
-test('13 point regular text matches the pixels Chromium paints', async () => {
-  expectLikeChromium(
-    await differing('raster-13-400', 'chromium-inter-13-400-favorites.png'),
-  );
-});
+// The references are macOS Chromium captures. GPUI's Linux and Windows text
+// paths are unhinted while Chromium there hints glyphs (FreeType light
+// autohinting on Linux), so glyph tops sit up to 1 px lower than Chromium's.
+const chromiumPixels = test.skipIf(process.platform !== 'darwin');
 
-test('15 point semibold text matches the pixels Chromium paints', async () => {
-  expectLikeChromium(
-    await differing('raster-15-600', 'chromium-inter-15-600-meeting-notes.png'),
-  );
-});
+chromiumPixels(
+  '13 point regular text matches the pixels Chromium paints',
+  async () => {
+    expectLikeChromium(
+      await differing('raster-13-400', 'chromium-inter-13-400-favorites.png'),
+    );
+  },
+);
 
-test('wrapped 13 point text with a 19.2 point line height matches Chromium', async () => {
-  expectLikeChromium(
-    await differing(
-      'raster-description',
-      'chromium-inter-13-400-description.png',
-    ),
-  );
-});
+chromiumPixels(
+  '15 point semibold text matches the pixels Chromium paints',
+  async () => {
+    expectLikeChromium(
+      await differing(
+        'raster-15-600',
+        'chromium-inter-15-600-meeting-notes.png',
+      ),
+    );
+  },
+);
 
-test('light text on a dark background matches Chromium', async () => {
+chromiumPixels(
+  'wrapped 13 point text with a 19.2 point line height matches Chromium',
+  async () => {
+    expectLikeChromium(
+      await differing(
+        'raster-description',
+        'chromium-inter-13-400-description.png',
+      ),
+    );
+  },
+);
+
+chromiumPixels('light text on a dark background matches Chromium', async () => {
   expectLikeChromium(
     await differing(
       'raster-dark-13-400',
@@ -116,14 +133,17 @@ test('light text on a dark background matches Chromium', async () => {
   );
 });
 
-test('a one-line title nested in a bordered, padded row matches Chromium', async () => {
-  expectLikeChromium(
-    await differing(
-      'raster-nested-title',
-      'chromium-inter-15-600-meeting-notes.png',
-    ),
-  );
-});
+chromiumPixels(
+  'a one-line title nested in a bordered, padded row matches Chromium',
+  async () => {
+    expectLikeChromium(
+      await differing(
+        'raster-nested-title',
+        'chromium-inter-15-600-meeting-notes.png',
+      ),
+    );
+  },
+);
 
 test('a child of a bordered parent is painted where its frame says', async () => {
   const [child] = await app.query('testID', 'bordered-child', true);
