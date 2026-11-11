@@ -3561,7 +3561,7 @@ impl Render for RNNodeView {
                     && !self.inherited.hidden_by_accessible_ancestor,
             );
             if let Some(handle) = &self.focus_handle {
-                if accessibility_active || is_scroll {
+                if accessibility_active || is_scroll || self.component == "TextInput" {
                     // The accessibility tree needs the role, the label and the focus on one
                     // element.
                     element = element.track_focus(handle);
