@@ -22,7 +22,7 @@ beforeAll(async () => {
     disableAnimations: true,
     offscreen: true,
   });
-  await app.setWindowSize(1400, 1000);
+  await app.setWindowSize(1800, 1000);
   await desktopExpect(app.getByTestId('slot-content')).toBeVisible();
 });
 
