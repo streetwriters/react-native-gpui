@@ -414,7 +414,11 @@ async fn serve_commands(
             "a11yTree" => {
                 let activated = cx
                     .update_window(window, |_, window, _| {
-                        if window.is_a11y_active() {
+                        static ASKED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if window.is_a11y_active()
+                            || ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                        {
                             return false;
                         }
                         #[cfg(target_os = "macos")]
