@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { traceDisplays } from './ci-trace';
 import {
   launchApp,
   expect as desktopExpect,
@@ -331,6 +332,7 @@ describe('Settings', () => {
       force: true,
     });
     await launch();
+    await traceDisplays(app, 'apis settings');
     await pressBottom('settings-save');
     await poll(async () => (await text('settings-result')) !== 'none');
     // The repeated `dark` is no change; the cleared watch hears nothing more.

@@ -167,7 +167,16 @@ async function traceRemoval(label: string) {
   const samples: string[] = [];
   const started = Date.now();
   for (let step = 0; step < 10; step += 1) {
-    samples.push(`${Date.now() - started}ms ${(await swatches()).join(',')}`);
+    const raw = PNG.sync.read(
+      await app.getByTestId('native-root').screenshot(),
+    );
+    const scale = raw.width / 240;
+    const pixels = [0, 1, 2].map(index =>
+      rgbAt(raw, (4 + index * 44 + 20) * scale, (4 + 30 + 4 + 15) * scale),
+    );
+    samples.push(
+      `${Date.now() - started}ms ${(await swatches()).join(',')} rgb=${JSON.stringify(pixels)} image=${raw.width}x${raw.height}`,
+    );
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   const nodes = await app.query('testID', 'native-unmount', true);

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
+import { traceDisplays, traceIdle } from './ci-trace';
 import {
   launchApp,
   expect as desktopExpect,
@@ -24,6 +25,8 @@ beforeAll(async () => {
   });
   await app.setWindowSize(1024, 768);
   await desktopExpect(app.getByTestId('tester-screen-freeze')).toBeVisible();
+  await traceDisplays(app, 'freeze');
+  await traceIdle(app, 'freeze after launch');
 });
 
 afterAll(() => app?.close());
@@ -42,6 +45,7 @@ test('the app settles after moving through several frozen routes', async () => {
     'home',
   ]) {
     await app.getByTestId(`go-${route}`).click();
+    await traceIdle(app, `after go-${route}`, 1000);
     await app.waitForIdle({ timeout: 8000 });
   }
   await app.getByTestId('route-home-bump').click();
