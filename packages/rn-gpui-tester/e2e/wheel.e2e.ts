@@ -52,6 +52,29 @@ async function wheel(
   await app.waitForIdle();
 }
 
+async function traceFailure(label: string) {
+  const series: string[] = [];
+  const started = Date.now();
+  for (let step = 0; step < 12; step += 1) {
+    series.push(`${Date.now() - started}:${await text('wheel-offset')}`);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  const idle = await app.idleStatus();
+  console.log(
+    `WHEELTRACE ${label} offsets=${series.join(' ')} log=${await text('wheel-log')} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}`,
+  );
+}
+
+async function expectOffset(label: string, check: (offset: number) => void) {
+  const offset = Number(await text('wheel-offset'));
+  try {
+    check(offset);
+  } catch (error) {
+    await traceFailure(`${label} read ${offset}`);
+    throw error;
+  }
+}
+
 async function reset() {
   await app.scroll(await tag('wheel-scroll'), 0, 5000);
   await app.waitForIdle();
@@ -82,18 +105,18 @@ test('capture runs before bubble, from the outside in, and bubble from the insid
 
 test('an unhandled wheel still scrolls the parent ScrollView, and preventDefault keeps it still', async () => {
   await reset();
-  expect(Number(await text('wheel-offset'))).toBe(0);
+  await expectOffset('after reset', offset => expect(offset).toBe(0));
   await wheel('wheel-plain', 0, -30);
-  expect(Number(await text('wheel-offset'))).toBeGreaterThan(0);
+  await expectOffset('plain', offset => expect(offset).toBeGreaterThan(0));
   await reset();
   await wheel('wheel-target', 0, -30);
-  expect(Number(await text('wheel-offset'))).toBeGreaterThan(0);
+  await expectOffset('target', offset => expect(offset).toBeGreaterThan(0));
   const moved = Number(await text('wheel-offset'));
   await app.getByTestId('wheel-prevent-toggle').click();
   await app.waitForIdle();
   expect(await text('wheel-prevent')).toBe('prevent');
   await wheel('wheel-target', 0, -30);
-  expect(Number(await text('wheel-offset'))).toBe(moved);
+  await expectOffset('prevented', offset => expect(offset).toBe(moved));
   await app.getByTestId('wheel-prevent-toggle').click();
   await app.waitForIdle();
 });
@@ -102,7 +125,7 @@ test('a view with no wheel handler on its path scrolls the ScrollView without wa
   await reset();
   await app.scroll(await tag('wheel-scroll'), 0, -30);
   await app.waitForIdle();
-  expect(Number(await text('wheel-offset'))).toBeGreaterThan(0);
+  await expectOffset('direct', offset => expect(offset).toBeGreaterThan(0));
 });
 
 test('a mouse wheel notch reports lines, and shift turns it into a horizontal delta', async () => {
