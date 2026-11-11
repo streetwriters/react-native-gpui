@@ -46,7 +46,7 @@ async function start(offscreen: boolean) {
     // The OS activates the window on its own schedule.
     await poll(async () => (await app.windowState(1)).isFocused, 10000);
   }
-  await app.setWindowSize(1024, 1500);
+  await app.setWindowSize(1900, 1000);
   await desktopExpect(
     app.getByTestId('tester-screen-core-components'),
   ).toBeVisible();
@@ -1260,7 +1260,7 @@ describe('font scale', () => {
       disableAnimations: true,
       offscreen: true,
     });
-    await scaled.setWindowSize(1024, 1500);
+    await scaled.setWindowSize(1900, 1000);
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();
