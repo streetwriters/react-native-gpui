@@ -1411,7 +1411,8 @@ pub fn window_alpha(window: &gpui::Window) -> Option<f32> {
 
 #[cfg(not(target_os = "macos"))]
 pub fn window_alpha(_window: &gpui::Window) -> Option<f32> {
-    None
+    // No other platform hides a window being revealed by making it transparent.
+    Some(1.0)
 }
 
 /// Shows a window behind every other window, without making it key. A window
