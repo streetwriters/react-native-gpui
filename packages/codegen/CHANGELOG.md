@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/codegen` are listed here. Each versio
 
 ## Unreleased
 
+- A crate with both a module spec and a component spec generates a component that means `host_component::Value` (serde_json's): the component half of the file names it `HostValue` instead of losing it to the module runtime's `Value`, which broke `as_str`, `as_i64` and `Map::get` in the generated create, update and command code.
+
 - A spec file set with both a Turbo Native Module and a host component generates one Rust file that compiles (the `Value` import is no longer repeated).
 - An event payload field can be a union of string literals: it is an enum on the Rust side (`as_raw()` to C++, which fills the enum React Native generated; its name to a native tree).
 - Every component spec is also a component of a native tree (a `NativeRoot`): the generated props view reads either the C++ props or the JSON props of a native tree instance through the same accessors (scalars, strings, enums, colors, `UnsafeMixed`, arrays, structs, arrays of structs, image sources and arrays of strings, with no accessor that can panic), the change mask can be built from prop names, events are sent to a native tree as `{ nativeEvent }` payloads, commands are called by name with JSON arguments, and the context has `children()`. The same `impl <Spec>Spec for T` serves both; register it for a native tree with `<Spec>Component::<T>::register_native_tree()`. An image prop of a native tree is an object with the fields of a resolved React Native image source (`uri`, `scale`, ...). Existing implementations compile unchanged.

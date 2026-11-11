@@ -648,3 +648,80 @@ describe('a component spec is also a component of a native tree', () => {
     expect(generated).toContain('speed.as_raw()');
   });
 });
+
+describe('a crate with a module spec and a component spec', () => {
+  const moduleSpec = `import { TurboModuleRegistry, type TurboModule } from 'react-native';
+
+export interface Spec extends TurboModule {
+  greet(name: string): string;
+  load(options: { path: string }): Promise<Object>;
+}
+
+export default TurboModuleRegistry.getEnforcing<Spec>('NativeMixedCrate');
+`;
+  const componentSpec = `import {
+  codegenNativeCommands,
+  codegenNativeComponent,
+  type CodegenTypes,
+  type ViewProps,
+} from 'react-native';
+
+export interface NativeProps extends ViewProps {
+  title: string;
+  extra?: CodegenTypes.UnsafeMixed;
+  values?: ReadonlyArray<CodegenTypes.Double>;
+  items?: ReadonlyArray<Readonly<{ name: string; size: CodegenTypes.Double }>>;
+  onReported?: CodegenTypes.DirectEventHandler<Readonly<{ kind: string }>>;
+}
+
+export interface MixedCrateCommands {
+  ping: (ref: React.ComponentRef<typeof MixedCrate>, label: string) => void;
+}
+
+export const Commands = codegenNativeCommands<MixedCrateCommands>({
+  supportedCommands: ['ping'],
+});
+
+const MixedCrate: any = null;
+
+export default codegenNativeComponent<NativeProps>('MixedCrate', {
+  interfaceOnly: true,
+});
+`;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rust-mixed-crate-'));
+  const moduleFile = path.join(directory, 'NativeMixedCrate.ts');
+  const componentFile = path.join(directory, 'MixedCrateNativeComponent.ts');
+  fs.writeFileSync(moduleFile, moduleSpec);
+  fs.writeFileSync(componentFile, componentSpec);
+  const both = generateRustSpec({ specPaths: [moduleFile, componentFile] });
+  const componentOnly = generateRustSpec({ specPaths: [componentFile] });
+
+  test('keeps the module runtime Value for the module and names the component one HostValue', () => {
+    expect(both).toContain('ModuleThread, Value,');
+    expect(both).toContain('PropsHandle, Value as HostValue, empty_map,');
+    expect(both).toContain('pub fn extra(&self) -> &HostValue {');
+    expect(both).toContain('mixed_extra: std::cell::OnceCell<HostValue>,');
+    expect(both).toContain('and_then(HostValue::as_array)');
+    expect(both).toContain('and_then(HostValue::as_str)');
+    expect(both).toContain(
+      'pub fn from_json(json: &Map<String, HostValue>) -> Self {',
+    );
+    expect(both).toContain(
+      'fn create(props: &Map<String, HostValue>, cx: &mut NativeContext) -> Self {',
+    );
+    expect(both).toContain('"extra"');
+  });
+
+  test("leaves no module Value where the component means serde_json's", () => {
+    expect(both).not.toContain('Map<String, Value>');
+    expect(both).not.toContain('&Value');
+    expect(both).not.toContain('[Value]');
+    expect(both).toContain("json: Option<&'a [HostValue]>,");
+  });
+
+  test('a crate with only a component still uses the plain Value', () => {
+    expect(componentOnly).toContain('PropsHandle, Value, empty_map,');
+    expect(componentOnly).toContain('pub fn extra(&self) -> &Value {');
+    expect(componentOnly).not.toContain('HostValue');
+  });
+});
