@@ -4,6 +4,12 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `RN_GPUI_TEST_SCALE_FACTOR` is honoured on Linux too: the runtime hands it to the X11 backend as `GPUI_X11_SCALE_FACTOR` before the platform starts, so a test run gets the same 2x display it gets on macOS.
+- The test driver's `windowReveal` reports an alpha of 1 on platforms without a reveal alpha, instead of `null`.
+- A native slot corrects for the offset of the window's frame (the menu bar and the frame a Linux window draws), so its React Native content is placed and hit where the slot is.
+- On Linux a window's `isMaximized` reads the window manager's state, which it always reported as false.
+- The test driver's idle check waits for a window size that has not reached React yet, so a test that resizes a window and waits for idle sees the new layout.
+
 - The runtime builds on Linux and Windows again: the header the Rust bridge compiles no longer includes curl, whose headers only the C++ build has.
 - Every module moved to react-native-gpui-modules, with its documentation, fixtures and tests: `fonts`, `fs`, `gesture-handler`, `reanimated`, `safe-area-context`, `screens`, `svg`, `vector-icons` and `worklets`, and the desktop-only `image-manipulator`, `notifications`, `pdf`, `secure-storage` (now part of `keychain`), `spellcheck`, `system`, `updater` and `webauthn`. This repository has the runtime and its tools only; the tester covers the runtime without any module.
 - Escape cancels a view drag: the target gets `onDragLeave`, nothing drops and `onDragEnd` reports `dropped: false`.
