@@ -881,12 +881,25 @@ impl ViewStore {
                                 node.effect_group_descendants,
                             )
                         };
-                        node.update(cx, |node, cx| {
-                            node.update_from_op(op, Some(&mut **cx));
-                            node.sync_effect_group();
-                            cx.notify();
-                            node.notify_slot_owner(cx);
-                        });
+                        let unchanged = {
+                            let node = node.read(cx);
+                            !op.props_changed
+                                && !op.has_paragraph
+                                && !op.layout_changed
+                                && op.host_changed == 0
+                                && op.host_changed_more.iter().all(|word| *word == 0)
+                                && op.host_props_handle == 0
+                                && node.frame == op.frame
+                                && node.extension_props_json() == op.extension_props_json
+                        };
+                        if !unchanged {
+                            node.update(cx, |node, cx| {
+                                node.update_from_op(op, Some(&mut **cx));
+                                node.sync_effect_group();
+                                cx.notify();
+                                node.notify_slot_owner(cx);
+                            });
+                        }
                         let (after, effects_after) = {
                             let node = node.read(cx);
                             (

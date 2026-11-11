@@ -9,6 +9,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - The test driver's `windowReveal` reports an alpha of 1 on platforms without a reveal alpha, instead of `null`.
 - A native slot corrects for the offset of the window's frame (the menu bar and the frame a Linux window draws), so its React Native content is placed and hit where the slot is.
 - On Linux a window's `isMaximized` reads the window manager's state, which it always reported as false.
+- A mount update that changes nothing the runtime draws (no props, frame, text or host component change) no longer notifies its view. Fabric sends such updates for every ancestor of a node whose content overflows its parent, and each one rebuilt the whole screen under it on every commit.
 - The test driver's idle check waits for a window size that has not reached React yet, so a test that resizes a window and waits for idle sees the new layout.
 
 - The runtime builds on Linux and Windows again: the header the Rust bridge compiles no longer includes curl, whose headers only the C++ build has.
