@@ -1261,8 +1261,15 @@ describe('font scale', () => {
       disableAnimations: true,
       offscreen: true,
     });
-    await scaled.setWindowSize(1900, 1000);
+    await scaled.setWindowSize(
+      1900,
+      process.platform === 'darwin' ? 2000 : 1000,
+    );
     await traceDisplays(scaled, 'core-components font scale');
+    if (process.env.CI) {
+      const [fixed] = await scaled.query('testID', 'font-fixed', true);
+      console.log(`FONTTRACE font-fixed=${JSON.stringify(fixed)}`);
+    }
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();
