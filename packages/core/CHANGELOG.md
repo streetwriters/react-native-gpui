@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- The runtime builds on Linux and Windows again: the header the Rust bridge compiles no longer includes curl, whose headers only the C++ build has.
 - Every module moved to react-native-gpui-modules, with its documentation, fixtures and tests: `fonts`, `fs`, `gesture-handler`, `reanimated`, `safe-area-context`, `screens`, `svg`, `vector-icons` and `worklets`, and the desktop-only `image-manipulator`, `notifications`, `pdf`, `secure-storage` (now part of `keychain`), `spellcheck`, `system`, `updater` and `webauthn`. This repository has the runtime and its tools only; the tester covers the runtime without any module.
 - Escape cancels a view drag: the target gets `onDragLeave`, nothing drops and `onDragEnd` reports `dropped: false`.
 - Views can be dragged to other views in the app. `draggable` views start a drag when a press moves 4 points, with `onDragStart`, `onDrag` and `onDragEnd`; `droppable` views get `onDragEnter`, `onDragOver`, `onDragLeave` and `onDrop` and take `dragOverStyle`. The drag follows the pointer out of the source. `DragDrop` (`setPayload`, `getPayload`, `getState`, `onMove`), `useDragState`, `useIsDragging`, `DragPreview` and `useDragAutoScroll` are exported from `@react-native-gpui/core/desktop`. Needs a prebuilt runtime built with the change.

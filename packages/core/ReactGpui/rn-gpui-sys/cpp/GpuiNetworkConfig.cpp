@@ -1,4 +1,5 @@
 #include "GpuiNetworkConfig.h"
+#include "GpuiNetworkRequest.h"
 
 #include <glog/logging.h>
 

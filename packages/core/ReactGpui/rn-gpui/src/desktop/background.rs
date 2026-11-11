@@ -74,10 +74,10 @@ pub(crate) fn display_scale(id: u64) -> Option<f32> {
     // SAFETY: AppKit is read on the main thread, where displays are chosen; the
     // objects are autoreleased and only read here.
     unsafe {
-        let screens: object = msg_send![class!(NSScreen), screens];
+        let displays: object = msg_send![class!(NSScreen), screens];
         let key = NSString::alloc(nil).init_str("NSScreenNumber");
-        for index in 0..NSArray::count(screens) {
-            let screen: object = NSArray::objectAtIndex(screens, index);
+        for index in 0..NSArray::count(displays) {
+            let screen: object = NSArray::objectAtIndex(displays, index);
             let description: object = msg_send![screen, deviceDescription];
             let number: object = msg_send![description, objectForKey: key];
             if number == nil {

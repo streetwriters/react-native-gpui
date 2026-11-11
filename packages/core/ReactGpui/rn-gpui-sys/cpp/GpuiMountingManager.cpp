@@ -422,9 +422,9 @@ void GpuiMountingManager::synchronouslyUpdateViewOnUIThread(
                 << " props=" << folly::toJson(props);
     }
   }
-  // Reanimated hands colors over as signed 32-bit integers, so a color with a
-  // high alpha byte is negative; converting the double straight to unsigned is
-  // undefined for those.
+  // Animation libraries hand colors over as signed 32-bit integers, so a color
+  // with a high alpha byte is negative; converting the double straight to
+  // unsigned is undefined for those.
   const auto argb = [](const folly::dynamic& value) {
     return static_cast<uint32_t>(
         value.isInt() ? value.asInt() : static_cast<int64_t>(value.asDouble()));

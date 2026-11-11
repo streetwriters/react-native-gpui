@@ -1,6 +1,7 @@
 #include "GpuiHttpClient.h"
 #include <react/io/BlobModule.h>
 #include "GpuiNetworkConfig.h"
+#include "GpuiNetworkRequest.h"
 
 #include <curl/curl.h>
 
