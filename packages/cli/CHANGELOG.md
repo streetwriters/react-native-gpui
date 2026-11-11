@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `autolink` writes the GPUI Kit compat patches itself: when a linked module crate depends on `gpui-base`, `gpui-component`, a `gpui-kit*` or a `gpui-pre*` crate, the managed `[patch.crates-io]` block also has `gpui-pre`, `gpui-pre-macros` and `gpui-pre-sum-tree` (and `gpui-pre-platform`, `gpui-pre-web` and `gpui-pre-reqwest-client` when a module or the app's `Cargo.lock` names them), each at the gpui-fast git and rev of core's pin. Apps without such a module get none of them. A hand-written line for a managed crate in `[patch.crates-io]` is refused even when it sits beside an existing managed block; remove those lines.
+
 - `run-desktop --features test-driver --no-launch` also writes the JavaScript bundle the test driver loads, so a debug build can be tested without Metro or a separate `react-native bundle` step.
 - `run-desktop` takes `--sign-identity <identity>` (default `$APPLE_SIGNING_IDENTITY`) and signs the binary with `--no-launch` too, instead of only before a launch.
 - `autolink` adds `rn-gpui-module` and `rn-gpui-module-build` to an app manifest that already has the managed patch block, which it skipped because the block names the same crates. It also rewrites an existing path to either crate to the real path, so a `file:`-linked core no longer makes Cargo report two different packages.

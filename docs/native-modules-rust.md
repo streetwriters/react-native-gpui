@@ -25,6 +25,10 @@ fn main() {
 
 The paths are relative to the `desktop/` folder. Depend on these crates by **version**, never by path or git: autolinking points them at the copy installed with `@react-native-gpui/core`.
 
+### GPUI Kit
+
+A module crate may depend on GPUI Kit from crates.io (`gpui-base`, `gpui-component`, `gpui-kit-assets` or another `gpui-kit*` or `gpui-pre*` crate) by version. The kit is published against `gpui-pre`, so autolinking adds `gpui-pre`, `gpui-pre-macros` and `gpui-pre-sum-tree` to the managed `[patch.crates-io]` table of the app, pointing at the same gpui-fast revision as core's `gpui`. `gpui-pre-platform`, `gpui-pre-web` and `gpui-pre-reqwest-client` are added when a module names them or the app's `Cargo.lock` already has them. An app with no module that depends on the kit gets none of these, and a hand-written line for one of them in `[patch.crates-io]` is an error: remove it and let autolinking write it.
+
 ## The generated code
 
 `rn_gpui_module::include_specs!();` includes what the generator wrote into your crate:

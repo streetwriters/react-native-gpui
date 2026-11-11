@@ -56,6 +56,20 @@ const MANAGED_CRATES = [
 /// The version each managed crate is patched to, when it is a path dependency.
 const CORE_CRATE_VERSION = '0.1';
 
+/// The crates GPUI Kit (published on crates.io against `gpui-pre`) names, which
+/// autolink redirects to the gpui-fast compat crates of core's pin, so the kit
+/// runs on the same GPUI as core. The first three are patched whenever a linked
+/// module crate depends on the kit; the others only when something names them,
+/// because Cargo warns about a patch the crate graph does not use.
+const GPUI_KIT_PATCHES = ['gpui-pre', 'gpui-pre-macros', 'gpui-pre-sum-tree'];
+const GPUI_KIT_OPTIONAL_PATCHES = [
+  'gpui-pre-platform',
+  'gpui-pre-web',
+  'gpui-pre-reqwest-client',
+];
+const GPUI_KIT_DEPENDENCY =
+  /^(?:gpui-base|gpui-component|gpui-kit(?:-[a-z0-9-]+)?|gpui-pre(?:-[a-z0-9-]+)?)$/u;
+
 const PATCH_BEGIN =
   '# Managed by @react-native-gpui/cli autolink; do not edit between these markers.';
 const PATCH_END = '# End managed by autolink.';
@@ -173,7 +187,64 @@ export function specFilesFor(files, cppSpecs, side) {
   return files.filter(file => cppSpecs.includes(file) === (side === 'cpp'));
 }
 
-export function managedPatchEntries(platformRoot, base) {
+/**
+ * The crate names a manifest depends on, in any dependency section (also the
+ * target-specific, dev and build ones), with a renamed dependency under the
+ * name of the package it points at.
+ */
+export function manifestDependencyNames(manifest) {
+  const names = [];
+  const lines = manifest.replace(/\r\n/gu, '\n').split('\n');
+  let section = '';
+  let tableName = null;
+  for (const line of lines) {
+    const table = /^\[([^\]]+)\]\s*$/u.exec(line);
+    if (table !== null) {
+      if (tableName !== null) names.push(tableName.name);
+      tableName = null;
+      section = table[1].trim();
+      const single =
+        /^(?:target\..+\.)?(?:dev-|build-)?dependencies\.([A-Za-z0-9_-]+)$/u.exec(
+          section,
+        );
+      if (single !== null) tableName = { name: single[1] };
+      continue;
+    }
+    if (tableName !== null) {
+      const renamed = /^package\s*=\s*"([^"]+)"/u.exec(line.trim());
+      if (renamed !== null) tableName.name = renamed[1];
+      continue;
+    }
+    if (!/^(?:target\..+\.)?(?:dev-|build-)?dependencies$/u.test(section)) {
+      continue;
+    }
+    const entry = /^([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*(?:#.*)?$/u.exec(line);
+    if (entry === null) continue;
+    names.push(/package\s*=\s*"([^"]+)"/u.exec(entry[2])?.[1] ?? entry[1]);
+  }
+  if (tableName !== null) names.push(tableName.name);
+  return names;
+}
+
+/**
+ * The GPUI Kit crates to patch for the linked module crates' manifests, and
+ * the app's lockfile when it has one: none when no module depends on the kit.
+ */
+export function gpuiKitPatchNames(moduleManifests, appLockfile = '') {
+  const named = moduleManifests.flatMap(manifestDependencyNames);
+  if (!named.some(name => GPUI_KIT_DEPENDENCY.test(name))) return [];
+  const locked = [...appLockfile.matchAll(/^name = "([^"]+)"$/gmu)].map(
+    match => match[1],
+  );
+  return [
+    ...GPUI_KIT_PATCHES,
+    ...GPUI_KIT_OPTIONAL_PATCHES.filter(
+      name => named.includes(name) || locked.includes(name),
+    ),
+  ];
+}
+
+export function managedPatchEntries(platformRoot, base, kitCrates = []) {
   const runtimeCrate = path.join(platformRoot, 'ReactGpui/rn-gpui');
   const pin = gpuiPin(platformRoot);
   const relative = target =>
@@ -196,6 +267,10 @@ export function managedPatchEntries(platformRoot, base) {
       'gpui_platform',
       `{ git = "${pin.gpuiPlatform.git}", rev = "${pin.gpuiPlatform.rev}" }`,
     ],
+    ...kitCrates.map(crate => [
+      crate,
+      `{ git = "${pin.gpui.git}", rev = "${pin.gpui.rev}" }`,
+    ]),
   ];
 }
 
@@ -262,6 +337,19 @@ export function applyPatchBlock(manifest, manifestPath, entries) {
     'u',
   );
   if (managed.test(manifest)) {
+    const outside = manifest.replace(managed, '');
+    const table = /^\[patch\.crates-io\]\s*$/mu.exec(outside);
+    if (table !== null) {
+      const next = outside.indexOf('\n[', table.index + 1);
+      const body = outside.slice(table.index, next < 0 ? outside.length : next);
+      for (const [name] of entries) {
+        if (new RegExp(`^${name}\\s*=`, 'mu').test(body)) {
+          throw new Error(
+            `${manifestPath}: [patch.crates-io] already sets ${name}, which autolink owns; remove that line so it can be managed`,
+          );
+        }
+      }
+    }
     return manifest.replace(managed, block);
   }
 
@@ -1443,10 +1531,21 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   }
   // `[patch]` is only honoured in the root manifest, so the redirection lives in
   // the app's rather than in each module crate.
+  const moduleManifests = rustCrates.map(({ cargoPath }) =>
+    fs.readFileSync(path.join(cargoPath, 'Cargo.toml'), 'utf8'),
+  );
+  const appLockfile = path.join(desktopRoot, 'Cargo.lock');
   appCargo = applyPatchBlock(
     appCargo,
     appCargoManifest,
-    managedPatchEntries(platformRoot, desktopRoot),
+    managedPatchEntries(
+      platformRoot,
+      desktopRoot,
+      gpuiKitPatchNames(
+        moduleManifests,
+        fs.existsSync(appLockfile) ? fs.readFileSync(appLockfile, 'utf8') : '',
+      ),
+    ),
   );
   writeIfChanged(appCargoManifest, appCargo);
   const appMain = path.join(desktopRoot, 'src/main.rs');

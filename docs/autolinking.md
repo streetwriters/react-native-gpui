@@ -26,7 +26,7 @@ module.exports = {
 - Runs React Native Codegen over the specifications of every package with a `codegenConfig`, and compiles the generated C++ into the app.
 - Generates the Rust and C++ spec glue for modules, and the typed glue for host components.
 - Registers Fabric component descriptors and host components.
-- Writes a `[patch.crates-io]` table into the app's `desktop/Cargo.toml`, which points core's crates at the copy the app installed and pins GPUI to core's revision. It is regenerated on every run, so leave it alone.
+- Writes a `[patch.crates-io]` table into the app's `desktop/Cargo.toml`, which points core's crates at the copy the app installed and pins GPUI to core's revision. When a linked module crate depends on GPUI Kit it also points the `gpui-pre` crates the kit is built on at that revision (see [native modules in Rust](native-modules-rust)). It is regenerated on every run, so leave it alone.
 - Records the installed JavaScript engines.
 
 ## platforms.desktop
