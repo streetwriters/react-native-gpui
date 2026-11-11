@@ -26,6 +26,7 @@ pub mod platform_window;
 pub mod popover_placement;
 #[cfg(target_os = "linux")]
 pub mod portal_shortcuts;
+pub mod test_scale;
 pub mod tray;
 pub mod window_frame;
 pub mod window_icons;

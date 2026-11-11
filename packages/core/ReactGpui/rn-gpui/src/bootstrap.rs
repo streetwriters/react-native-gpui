@@ -1339,6 +1339,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     } else {
         "using GPUI AppKit platform"
     });
+    crate::desktop::test_scale::apply_to_environment();
     let platform = gpui_platform::current_platform(headless);
     startup_trace("platform created");
     // A locked or absent session on macOS cannot launch AppKit, and the platform
