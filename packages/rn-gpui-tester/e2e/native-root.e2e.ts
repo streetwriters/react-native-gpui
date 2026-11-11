@@ -156,8 +156,32 @@ test('a keyed reorder in React moves the native instances', async () => {
   await desktopExpect(app.getByTestId('native-last')).toHaveText('last:blue');
 });
 
+async function traceRemoval(label: string) {
+  if (!process.env.CI) return;
+  const count = (node: any): number =>
+    (node.native ? 1 : 0) +
+    (node.children ?? []).reduce(
+      (sum: number, child: any) => sum + count(child),
+      0,
+    );
+  const samples: string[] = [];
+  const started = Date.now();
+  for (let step = 0; step < 10; step += 1) {
+    samples.push(`${Date.now() - started}ms ${(await swatches()).join(',')}`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  const nodes = await app.query('testID', 'native-unmount', true);
+  const idle = await app.idleStatus();
+  const tree = await app.tree();
+  console.log(
+    `NATIVEROOTTRACE ${label} unmount=${JSON.stringify(nodes.map((node: any) => ({ tag: node.tag, frame: node.frame, visible: node.visible })))} nativeInstances=${count(tree)} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}\n${samples.join('\n')}`,
+  );
+}
+
 test('removing a component from the tree removes its instances', async () => {
+  await traceRemoval('before click');
   await app.getByTestId('native-unmount').click();
   await app.waitForIdle();
+  await traceRemoval('after click');
   expect(await swatches()).toEqual(['none', 'none', 'none']);
 });
