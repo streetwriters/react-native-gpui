@@ -670,9 +670,9 @@ mod imp {
         .unwrap_or(false)
     }
 
-    pub fn is_maximized(_window: &Window) -> bool {
-        // Only the window manager knows; it would need a `_NET_WM_STATE` read.
-        false
+    pub fn is_maximized(window: &Window) -> bool {
+        // GPUI keeps the window manager's `_NET_WM_STATE` as it reports it.
+        window.is_maximized()
     }
 
     /// Turns a just-created, still-unmapped window into a tray popover.
