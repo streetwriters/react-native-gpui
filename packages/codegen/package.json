@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/codegen",
-  "version": "0.87.0-alpha.0",
+  "version": "0.87.0-alpha.1",
   "description": "C++ and Rust code generators for react-native-gpui, plugged into @react-native/codegen.",
   "license": "MIT",
   "repository": {

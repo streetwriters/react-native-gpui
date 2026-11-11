@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/codegen` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.1 - 2026-11-12
 
 - A crate with both a module spec and a component spec generates a component that means `host_component::Value` (serde_json's): the component half of the file names it `HostValue` instead of losing it to the module runtime's `Value`, which broke `as_str`, `as_i64` and `Map::get` in the generated create, update and command code.
 

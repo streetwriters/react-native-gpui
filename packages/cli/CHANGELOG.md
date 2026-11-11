@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.2 - 2026-11-12
 
 - `autolink` writes the GPUI Kit compat patches itself: when a linked module crate depends on `gpui-base`, `gpui-component`, a `gpui-kit*` or a `gpui-pre*` crate, the managed `[patch.crates-io]` block also has `gpui-pre`, `gpui-pre-macros` and `gpui-pre-sum-tree` (and `gpui-pre-platform`, `gpui-pre-web` and `gpui-pre-reqwest-client` when a module or the app's `Cargo.lock` names them), each at the gpui-fast git and rev of core's pin. Apps without such a module get none of them. A hand-written line for a managed crate in `[patch.crates-io]` is refused even when it sits beside an existing managed block; remove those lines.
 

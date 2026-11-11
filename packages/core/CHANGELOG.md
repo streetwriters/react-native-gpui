@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.2 - 2026-11-12
 
 - Builds against gpui-fast `3ad00a0`: on macOS, a test run's windows keep the frame they were given instead of being shrunk to a small display; on Linux, windows report themselves active while the test driver runs the app, so focus and blur reach the elements of a test window, as on macOS; on Windows, a test run's window scale factor (`RN_GPUI_TEST_SCALE_FACTOR`) applies, as on macOS and Linux, and unmaximizing a maximized window restores it; on macOS, a test run's windows open behind the user's and never activate; and accessibility names an unlabelled button, link or tab by its painted text, treats a clickable element with no role as a button, and supports hover and tooltips through the accessibility API.
 - `RN_GPUI_TEST_SCALE_FACTOR` is honoured on Linux too: the runtime hands it to the X11 backend as `GPUI_X11_SCALE_FACTOR` before the platform starts, so a test run gets the same 2x display it gets on macOS.

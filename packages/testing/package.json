@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/testing",
-  "version": "0.87.0-alpha.0",
+  "version": "0.87.0-alpha.1",
   "description": "Test presets and desktop test-driver client for React Native GPUI",
   "license": "MIT",
   "repository": {
