@@ -497,10 +497,6 @@ jobs:
           Get-CimInstance Win32_VideoController |
             Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
 
-      - name: Show the macOS screen
-        if: runner.os == 'macOS'
-        run: system_profiler SPDisplaysDataType | grep -iE 'resolution|display type|main display' || true
-
       # B0 answered this for all three runners: each one renders a first frame,
       # so e2e runs everywhere rather than being skipped.
       - name: e2e
