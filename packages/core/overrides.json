@@ -280,6 +280,13 @@
       "baseFile": "packages/react-native/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/ImageManager.cpp",
       "baseHash": "604eb031600c654f84bd021091e764fa107ddd86",
       "issue": 0
+    },
+    {
+      "type": "derived",
+      "file": "src-gpui/Libraries/ReactNative/RendererProxy.desktop.js",
+      "baseFile": "packages/react-native/Libraries/ReactNative/RendererProxy.js",
+      "baseHash": "83c98fa706b08494398f4e47b06c83b6ae8c7f7e",
+      "issue": 0
     }
   ]
 }

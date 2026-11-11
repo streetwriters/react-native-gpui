@@ -351,6 +351,41 @@ export const renderScreen: Record<
       require('./components/SurfaceProbeFixture').default,
       props,
     ),
+  'native-root-dev': props =>
+    React.createElement(
+      require('./components/NativeRootDevFixture').default,
+      props,
+    ),
+  'native-virtual-list': props =>
+    React.createElement(
+      require('./components/NativeVirtualListFixture').default,
+      props,
+    ),
+  'native-slot-load': props =>
+    React.createElement(
+      require('./components/NativeSlotLoadFixture').default,
+      props,
+    ),
+  'native-slot': props =>
+    React.createElement(
+      require('./components/NativeSlotFixture').default,
+      props,
+    ),
+  'native-matrix': props =>
+    React.createElement(
+      require('./components/NativeMatrixFixture').default,
+      props,
+    ),
+  'native-root-load': props =>
+    React.createElement(
+      require('./components/NativeRootLoadFixture').default,
+      props,
+    ),
+  'native-root': props =>
+    React.createElement(
+      require('./components/NativeRootFixture').default,
+      props,
+    ),
   'mixed-views': props =>
     React.createElement(
       require('./components/MixedViewsFixture').default,

@@ -16,6 +16,7 @@ pub mod host_component;
 pub(crate) mod image_loader;
 pub(crate) mod interaction;
 pub mod native_surface;
+pub mod native_tree;
 #[cfg(target_os = "macos")]
 pub mod native_view;
 #[cfg(all(target_os = "macos", feature = "visual-capture"))]

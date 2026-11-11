@@ -948,8 +948,9 @@ const COMPONENT_IMPORTS = `#[allow(unused_imports)]
 use gpui::{AnyElement, Window};
 #[allow(unused_imports)]
 use react_native_gpui::host_component::{
-    EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject,
-    MeasureConstraint, MeasuredSize, PropsHandle, Value,
+    EmitterHandle, HostArg, HostComponentSpec, HostContext, HostEventSender, HostObject, Map,
+    MeasureConstraint, MeasuredSize, NativeCall, NativeComponent, NativeContext, NativeEmitter,
+    PropsHandle, Value, empty_map,
 };
 #[allow(unused_imports)]
 use react_native_gpui::native_surface::{NativeViewHandle, NativeViewParent};
@@ -1098,7 +1099,8 @@ type RnGpuiTextSink = unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, us
 pub struct RnGpuiStrArray<'a> {
     owner: *const core::ffi::c_void,
     len: usize,
-    at: unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr,
+    at: Option<unsafe extern "C" fn(*const core::ffi::c_void, usize) -> RnGpuiStr>,
+    json: Option<&'a [Value]>,
     _borrow: core::marker::PhantomData<&'a ()>,
 }
 
@@ -1116,7 +1118,19 @@ impl<'a> RnGpuiStrArray<'a> {
         Self {
             owner,
             len,
-            at,
+            at: Some(at),
+            json: None,
+            _borrow: core::marker::PhantomData,
+        }
+    }
+
+    /// The strings of a native tree prop.
+    pub fn from_json(items: &'a [Value]) -> Self {
+        Self {
+            owner: core::ptr::null(),
+            len: items.len(),
+            at: None,
+            json: Some(items),
             _borrow: core::marker::PhantomData,
         }
     }
@@ -1133,7 +1147,11 @@ impl<'a> RnGpuiStrArray<'a> {
         if index >= self.len {
             return None;
         }
-        Some(unsafe { rn_gpui_str((self.at)(self.owner, index)) })
+        if let Some(items) = self.json {
+            return items.get(index).and_then(Value::as_str);
+        }
+        let at = self.at?;
+        Some(unsafe { rn_gpui_str(at(self.owner, index)) })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &'a str> + '_ {
@@ -1148,6 +1166,7 @@ const COMPONENT_IMAGE_SOURCE = `/// A borrowed view over React Native's C++ \`Im
 #[derive(Clone, Copy)]
 pub struct RnGpuiImageSource {
     handle: *const core::ffi::c_void,
+    json: *const Map<String, Value>,
 }
 
 impl RnGpuiImageSource {
@@ -1156,41 +1175,84 @@ impl RnGpuiImageSource {
     /// \`handle\` must be the address of a live C++ \`ImageSource\` that outlives
     /// the borrow the accessor returns.
     unsafe fn from_handle(handle: *const core::ffi::c_void) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            json: core::ptr::null(),
+        }
+    }
+
+    /// The source of a native tree prop: an object with the same fields React
+    /// Native's resolved image source has (\`uri\`, \`bundle\`, \`scale\`, \`width\`,
+    /// \`height\`, \`body\`, \`method\`).
+    pub fn from_json(source: &Map<String, Value>) -> Self {
+        Self {
+            handle: core::ptr::null(),
+            json: source,
+        }
+    }
+
+    fn text(&self, key: &str) -> Option<&str> {
+        unsafe { self.json.as_ref() }.map(|source| source.get(key).and_then(Value::as_str).unwrap_or(""))
+    }
+
+    fn number(&self, key: &str, default: f64) -> Option<f32> {
+        unsafe { self.json.as_ref() }
+            .map(|source| source.get(key).and_then(Value::as_f64).unwrap_or(default) as f32)
     }
 
     /// The URI; empty when React did not set one.
     pub fn uri(&self) -> &str {
+        if let Some(text) = self.text("uri") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_uri(self.handle)) }
     }
 
     /// The bundle name, for an image bundled with the app.
     pub fn bundle(&self) -> &str {
+        if let Some(text) = self.text("bundle") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_bundle(self.handle)) }
     }
 
     /// The image scale, 3 by default as in React Native.
     pub fn scale(&self) -> f32 {
+        if let Some(number) = self.number("scale", 3.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_scale(self.handle) }
     }
 
     /// The intrinsic width.
     pub fn width(&self) -> f32 {
+        if let Some(number) = self.number("width", 0.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_width(self.handle) }
     }
 
     /// The intrinsic height.
     pub fn height(&self) -> f32 {
+        if let Some(number) = self.number("height", 0.0) {
+            return number;
+        }
         unsafe { rn_gpui_image_source_height(self.handle) }
     }
 
     /// The request body, for a remote image.
     pub fn body(&self) -> &str {
+        if let Some(text) = self.text("body") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_body(self.handle)) }
     }
 
     /// The request method, for a remote image.
     pub fn method(&self) -> &str {
+        if let Some(text) = self.text("method") {
+            return text;
+        }
         unsafe { rn_gpui_str(rn_gpui_image_source_method(self.handle)) }
     }
 }
@@ -1524,6 +1586,24 @@ export class ComponentGenerator {
           kind: 'enum',
           typeName: this.enumFor(fieldName, annotation).name,
         };
+      case 'UnionTypeAnnotation': {
+        const options = (annotation.types ?? []).map(option => option.value);
+        if (
+          options.length === 0 ||
+          options.some(option => typeof option !== 'string')
+        ) {
+          this.fail(
+            `event ${payload} field ${fieldName}`,
+            'a union in an event payload must be a union of string literals',
+          );
+        }
+        const declared = this.enumFor(fieldName, {
+          type: 'StringEnumTypeAnnotation',
+          options,
+        });
+        declared.eventEnum = true;
+        return { kind: 'enum', typeName: declared.name };
+      }
       case 'ObjectTypeAnnotation': {
         const name = this.claim(`${payload}${pascal(fieldName)}`);
         const declared = {
@@ -1940,6 +2020,21 @@ function renderMirror(mirror) {
     lines.push(`    pub ${field.name}: ${field.rustType},`);
   }
   lines.push('}');
+  lines.push('');
+  lines.push(`impl ${mirror.name} {`);
+  lines.push(
+    '    /// The value of a native tree prop: the fields of a JSON object.',
+  );
+  lines.push('    pub fn from_json(json: &Map<String, Value>) -> Self {');
+  lines.push('        Self {');
+  for (const field of mirror.fields) {
+    lines.push(
+      `            ${field.name}: ${jsonScalar(`json.get(${rustString(field.jsName)})`, field.rustType)},`,
+    );
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('}');
   return lines;
 }
 
@@ -1993,6 +2088,37 @@ function renderComponentEnum(declared) {
   lines.push('            }');
   lines.push('        }');
   lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// The member a native tree prop holds: the JavaScript string, or the',
+  );
+  lines.push('    /// number. An unknown value keeps the first member.');
+  lines.push('    pub fn from_json(value: Option<&Value>) -> Self {');
+  lines.push('        match value {');
+  for (const member of declared.members) {
+    lines.push(
+      `            Some(Value::String(text)) if text == ${rustString(member.text)} => Self::${member.name},`,
+    );
+  }
+  lines.push('            Some(Value::Number(number)) => {');
+  lines.push(
+    '                Self::from_raw(number.as_i64().unwrap_or_default() as i32)',
+  );
+  lines.push('            }');
+  lines.push(`            _ => Self::${declared.members[0].name},`);
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// The JavaScript string a native tree event carries.');
+  lines.push('    pub fn to_json(self) -> Value {');
+  lines.push('        match self {');
+  for (const member of declared.members) {
+    lines.push(
+      `            Self::${member.name} => Value::from(${rustString(member.text)}),`,
+    );
+  }
+  lines.push('        }');
+  lines.push('    }');
   lines.push('}');
   return lines;
 }
@@ -2039,6 +2165,31 @@ function renderPayload(payload) {
     lines.push(`    /// \`${field.jsName}\``);
     lines.push(`    pub ${field.name}: ${payloadRustType(field.shape)},`);
   }
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl ${payload.name} {`);
+  lines.push('    /// The payload as a native tree event carries it.');
+  lines.push('    pub fn to_json(&self) -> Value {');
+  lines.push('        let mut object = Map::new();');
+  for (const field of payload.fields) {
+    let expression;
+    switch (field.shape.kind) {
+      case 'enum':
+      case 'object':
+        expression = `self.${field.name}.to_json()`;
+        break;
+      case 'scalar':
+        expression = `Value::from(self.${field.name})`;
+        break;
+      default:
+        expression = `Value::from(self.${field.name}.clone())`;
+    }
+    lines.push(
+      `        object.insert(${rustString(field.jsName)}.to_string(), ${expression});`,
+    );
+  }
+  lines.push('        Value::Object(object)');
+  lines.push('    }');
   lines.push('}');
   return lines;
 }
@@ -2156,8 +2307,11 @@ function renderComponentEvents(generator) {
   lines.push(
     ...renderEventMethods(generator, {
       receiver: '&mut self',
-      emitter: 'self.context.emitter.clone()',
-      queue: 'self.context.host.queue_event',
+      native: 'self.context.native.as_ref().map(|call| &call.emitter)',
+      emitter:
+        'self.context.emitter.clone().expect("a Fabric node has an emitter")',
+      queue:
+        'self.context.host.as_mut().expect("a Fabric node has a host context").queue_event',
       verb: 'Queues',
       registerShims: true,
     }),
@@ -2178,16 +2332,19 @@ function renderComponentEvents(generator) {
   );
   lines.push('#[derive(Clone)]');
   lines.push(`pub struct ${generator.eventSenderName} {`);
-  lines.push('    host: HostEventSender,');
-  lines.push('    emitter: EmitterHandle,');
+  lines.push('    host: Option<HostEventSender>,');
+  lines.push('    emitter: Option<EmitterHandle>,');
+  lines.push('    native: Option<NativeEmitter>,');
   lines.push('}');
   lines.push('');
   lines.push(`impl ${generator.eventSenderName} {`);
   lines.push(
     ...renderEventMethods(generator, {
       receiver: '&self',
-      emitter: 'self.emitter.clone()',
-      queue: 'self.host.send',
+      native: 'self.native.as_ref()',
+      emitter: 'self.emitter.clone().expect("a Fabric node has an emitter")',
+      queue:
+        'self.host.as_ref().expect("a Fabric node has an event sender").send',
       verb: 'Sends',
       registerShims: false,
     }),
@@ -2200,7 +2357,7 @@ function renderComponentEvents(generator) {
 /// view and for the owned sender alike. `queue` is the call that takes the
 /// closure carrying the payload.
 function renderEventMethods(generator, options) {
-  const { receiver, emitter, queue, verb, registerShims } = options;
+  const { receiver, native, emitter, queue, verb, registerShims } = options;
   const lines = [];
   let first = true;
   for (const event of generator.events) {
@@ -2208,8 +2365,17 @@ function renderEventMethods(generator, options) {
     if (!first) lines.push('');
     first = false;
     lines.push(`    /// ${verb} \`${event.jsName}\`.`);
+    const nativeBranch = payload => [
+      `        if let Some(native) = ${native} {`,
+      '            let mut event = Map::new();',
+      `            event.insert("nativeEvent".to_string(), ${payload});`,
+      `            native.emit(${rustString(event.jsName)}, Value::Object(event));`,
+      '            return;',
+      '        }',
+    ];
     if (event.payload === null) {
       lines.push(`    pub fn ${event.name}(${receiver}) {`);
+      lines.push(...nativeBranch('Value::Object(Map::new())'));
       lines.push(`        let emitter = ${emitter};`);
       lines.push(`        ${queue}(move || {`);
       lines.push(`            unsafe { ${shim}(emitter.as_ptr()) }`);
@@ -2228,6 +2394,7 @@ function renderEventMethods(generator, options) {
     lines.push(
       `    pub fn ${event.name}(${receiver}, value: ${event.payload.name}) {`,
     );
+    lines.push(...nativeBranch('value.to_json()'));
     lines.push(`        let emitter = ${emitter};`);
     lines.push(`        ${queue}(move || {`);
     lines.push(...flatten);
@@ -2256,11 +2423,17 @@ function renderContext(generator) {
       'emitter handle it took at create. What the call reports goes straight',
       "into the store's queue, which delivers it after the batch, the command or",
       'the frame that produced it.',
+      '',
+      'A component that runs in a native tree (a `NativeRoot`) is given one built',
+      'from the tree instead: the same methods work, `children()` holds its',
+      "children's elements, and what only a Fabric node has (`host()`, the",
+      'window of a mount batch, intrinsic size and insets) is absent or ignored.',
     ]),
   );
   lines.push(`pub struct ${generator.contextName} {`);
-  lines.push('    host: HostContext,');
-  lines.push('    emitter: EmitterHandle,');
+  lines.push('    host: Option<HostContext>,');
+  lines.push('    emitter: Option<EmitterHandle>,');
+  lines.push('    native: Option<NativeCall>,');
   lines.push('}');
   lines.push('');
   lines.push(`impl ${generator.contextName} {`);
@@ -2270,25 +2443,52 @@ function renderContext(generator) {
   lines.push(
     '    pub fn new(host: HostContext, emitter: EmitterHandle) -> Self {',
   );
-  lines.push('        Self { host, emitter }');
+  lines.push(
+    '        Self { host: Some(host), emitter: Some(emitter), native: None }',
+  );
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// Core builds one for a call on an instance of a native tree.',
+  );
+  lines.push('    pub fn new_native(call: NativeCall) -> Self {');
+  lines.push('        Self { host: None, emitter: None, native: Some(call) }');
   lines.push('    }');
   lines.push('');
   lines.push("    /// Core's context: the node's tag and what it reported.");
+  lines.push('    ///');
+  lines.push('    /// # Panics');
+  lines.push('    ///');
+  lines.push('    /// In a native tree, which has no host context.');
   lines.push('    pub fn host(&self) -> &HostContext {');
-  lines.push('        &self.host');
+  lines.push(
+    '        self.host.as_ref().expect("a component in a native tree has no host context")',
+  );
   lines.push('    }');
   lines.push('');
   lines.push(
     "    /// Core's context, mutably, for a component that reads back what it",
   );
   lines.push('    /// reported in this call.');
+  lines.push('    ///');
+  lines.push('    /// # Panics');
+  lines.push('    ///');
+  lines.push('    /// In a native tree, which has no host context.');
   lines.push('    pub fn host_mut(&mut self) -> &mut HostContext {');
-  lines.push('        &mut self.host');
+  lines.push(
+    '        self.host.as_mut().expect("a component in a native tree has no host context")',
+  );
   lines.push('    }');
   lines.push('');
-  lines.push('    /// The Fabric tag of the node.');
+  lines.push(
+    '    /// The Fabric tag of the node; in a native tree, the id of the instance.',
+  );
   lines.push('    pub fn tag(&self) -> i32 {');
-  lines.push('        self.host.tag');
+  lines.push('        match (&self.host, &self.native) {');
+  lines.push('            (Some(host), _) => host.tag,');
+  lines.push('            (None, Some(call)) => call.id as i32,');
+  lines.push('            (None, None) => 0,');
+  lines.push('        }');
   lines.push('    }');
   lines.push('');
   lines.push(
@@ -2299,17 +2499,24 @@ function renderContext(generator) {
   );
   lines.push('    /// `None` in a unit test and after the method returned.');
   lines.push('    pub fn app(&mut self) -> Option<&mut gpui::App> {');
-  lines.push('        self.host.app()');
+  lines.push('        match (&mut self.host, &mut self.native) {');
+  lines.push('            (Some(host), _) => host.app(),');
+  lines.push(
+    '            (None, Some(call)) => Some(unsafe { &mut *call.app }),',
+  );
+  lines.push('            (None, None) => None,');
+  lines.push('        }');
   lines.push('    }');
   lines.push('');
   lines.push(
     '    /// The `Window` of the call, for a command and the native view methods;',
   );
   lines.push(
-    '    /// `None` in `create` and `update`, which run in a mount batch.',
+    '    /// `None` in `create` and `update`, which run in a mount batch, and in a',
   );
+  lines.push('    /// native tree.');
   lines.push('    pub fn window(&mut self) -> Option<&mut gpui::Window> {');
-  lines.push('        self.host.window()');
+  lines.push('        self.host.as_mut().and_then(|host| host.window())');
   lines.push('    }');
   lines.push('');
   lines.push(
@@ -2322,24 +2529,46 @@ function renderContext(generator) {
   lines.push(
     '    pub fn with_window<R>(&mut self, f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R) -> Option<R> {',
   );
-  lines.push('        self.host.with_window(f)');
+  lines.push('        self.host.as_mut().and_then(|host| host.with_window(f))');
   lines.push('    }');
   lines.push('');
-  lines.push('    /// Reports the size this component wants, in DIPs.');
+  lines.push(
+    '    /// Reports the size this component wants, in DIPs. A native tree',
+  );
+  lines.push(
+    "    /// lays out the component's elements instead, so it ignores this.",
+  );
   lines.push(
     '    pub fn set_intrinsic_size(&mut self, width: f32, height: f32) {',
   );
-  lines.push('        self.host.set_intrinsic_size(width, height);');
+  lines.push('        if let Some(host) = &mut self.host {');
+  lines.push('            host.set_intrinsic_size(width, height);');
+  lines.push('        }');
   lines.push('    }');
   lines.push('');
   lines.push(
     "    /// Reports the padding this container's chrome needs around React's",
   );
-  lines.push('    /// children, in DIPs.');
+  lines.push('    /// children, in DIPs. Ignored in a native tree.');
   lines.push(
     '    pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) {',
   );
-  lines.push('        self.host.set_insets(top, right, bottom, left);');
+  lines.push('        if let Some(host) = &mut self.host {');
+  lines.push('            host.set_insets(top, right, bottom, left);');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    "    /// The elements of the component's children in a native tree, taken: the",
+  );
+  lines.push(
+    '    /// component places them in its own element. Empty for a Fabric node, whose',
+  );
+  lines.push('    /// children core paints itself.');
+  lines.push('    pub fn children(&mut self) -> Vec<AnyElement> {');
+  lines.push(
+    '        self.native.as_mut().map(|call| std::mem::take(&mut call.children)).unwrap_or_default()',
+  );
   lines.push('    }');
   lines.push('');
   lines.push("    /// The component's typed events.");
@@ -2355,8 +2584,13 @@ function renderContext(generator) {
     `    pub fn event_sender(&self) -> ${generator.eventSenderName} {`,
   );
   lines.push(`        ${generator.eventSenderName} {`);
-  lines.push('            host: self.host.event_sender(),');
+  lines.push(
+    '            host: self.host.as_ref().map(|host| host.event_sender()),',
+  );
   lines.push('            emitter: self.emitter.clone(),');
+  lines.push(
+    '            native: self.native.as_ref().map(|call| call.emitter.clone()),',
+  );
   lines.push('        }');
   lines.push('    }');
   lines.push('}');
@@ -2375,11 +2609,16 @@ function renderView(generator, view) {
     ]),
   );
   const mixedFields = view.fields.filter(field => field.shape.kind === 'mixed');
+  const caches = ownedCacheFields(view.fields);
   lines.push(`pub struct ${view.name}<'a> {`);
   lines.push(`    handle: ${HANDLE},`);
+  lines.push('    json: *const Map<String, Value>,');
   lines.push("    _borrow: core::marker::PhantomData<&'a ()>,");
   for (const field of mixedFields) {
     lines.push(`    mixed_${field.name}: std::cell::OnceCell<Value>,`);
+  }
+  for (const cache of caches) {
+    lines.push(`    ${cache.name}: ${cache.type},`);
   }
   lines.push('}');
   lines.push('');
@@ -2395,9 +2634,28 @@ function renderView(generator, view) {
   lines.push(`    unsafe fn from_handle(handle: ${HANDLE}) -> Self {`);
   lines.push('        Self {');
   lines.push('            handle,');
+  lines.push('            json: core::ptr::null(),');
   lines.push('            _borrow: core::marker::PhantomData,');
   for (const field of mixedFields) {
     lines.push(`            mixed_${field.name}: std::cell::OnceCell::new(),`);
+  }
+  for (const cache of caches) {
+    lines.push(`            ${cache.name}: std::cell::OnceCell::new(),`);
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// A view over the fields of a native tree prop.');
+  lines.push("    pub fn from_json(json: &'a Map<String, Value>) -> Self {");
+  lines.push('        Self {');
+  lines.push(`            handle: core::ptr::null(),`);
+  lines.push('            json,');
+  lines.push('            _borrow: core::marker::PhantomData,');
+  for (const field of mixedFields) {
+    lines.push(`            mixed_${field.name}: std::cell::OnceCell::new(),`);
+  }
+  for (const cache of caches) {
+    lines.push(`            ${cache.name}: std::cell::OnceCell::new(),`);
   }
   lines.push('        }');
   lines.push('    }');
@@ -2411,7 +2669,11 @@ function renderView(generator, view) {
     });
     lines.push('');
     lines.push(`    /// ${accessorDoc(field.shape)}`);
-    lines.push(...rendered.lines);
+    lines.push(
+      rendered.lines[0],
+      ...nativeAccessorLines(field),
+      ...rendered.lines.slice(1),
+    );
     generator.shims.push(...rendered.externs);
   }
   lines.push('}');
@@ -2429,6 +2691,7 @@ function renderSlice(slice, view, atShim) {
   lines.push(`pub struct ${slice.name}<'a> {`);
   lines.push(`    handle: ${HANDLE},`);
   lines.push('    len: usize,');
+  lines.push("    json: Option<&'a [Value]>,");
   lines.push("    _borrow: core::marker::PhantomData<&'a ()>,");
   lines.push('}');
   lines.push('');
@@ -2437,6 +2700,17 @@ function renderSlice(slice, view, atShim) {
   lines.push('        Self {');
   lines.push('            handle,');
   lines.push('            len,');
+  lines.push('            json: None,');
+  lines.push('            _borrow: core::marker::PhantomData,');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    /// The elements of a native tree prop.');
+  lines.push("    pub fn from_json(items: &'a [Value]) -> Self {");
+  lines.push('        Self {');
+  lines.push('            handle: core::ptr::null(),');
+  lines.push('            len: items.len(),');
+  lines.push('            json: Some(items),');
   lines.push('            _borrow: core::marker::PhantomData,');
   lines.push('        }');
   lines.push('    }');
@@ -2455,6 +2729,11 @@ function renderSlice(slice, view, atShim) {
   lines.push('        if index >= self.len {');
   lines.push('            return None;');
   lines.push('        }');
+  lines.push('        if let Some(items) = self.json {');
+  lines.push(
+    `            return items.get(index).and_then(Value::as_object).map(${view.name}::from_json);`,
+  );
+  lines.push('        }');
   lines.push(`        let handle = unsafe { ${atShim}(self.handle, index) };`);
   lines.push('        if handle.is_null() {');
   lines.push('            return None;');
@@ -2468,6 +2747,119 @@ function renderSlice(slice, view, atShim) {
   lines.push('        (0..self.len).filter_map(move |index| self.get(index))');
   lines.push('    }');
   lines.push('}');
+  return lines;
+}
+
+/// A scalar read from an optional JSON value, as `rustType`.
+function jsonScalar(value, rustType) {
+  if (rustType === 'bool') {
+    return `${value}.and_then(Value::as_bool).unwrap_or_default()`;
+  }
+  if (rustType === 'f32' || rustType === 'f64') {
+    return `${value}.and_then(Value::as_f64).unwrap_or_default() as ${rustType}`;
+  }
+  return `${value}.and_then(Value::as_i64).unwrap_or_default() as ${rustType}`;
+}
+
+/// Every spec is a component of a native tree: each prop shape has a reading
+/// of its JSON value.
+function supportsNativeTree() {
+  return true;
+}
+
+/// The fields a view over props or over a nested struct caches for the shapes
+/// whose accessor lends a slice.
+function ownedCacheFields(fields) {
+  return fields
+    .filter(
+      field =>
+        field.shape.kind === 'array-scalar' ||
+        field.shape.kind === 'array-plain',
+    )
+    .map(field => ({
+      name: `native_${field.name}`,
+      type: `std::cell::OnceCell<Vec<${field.shape.kind === 'array-scalar' ? field.shape.rustType : field.shape.name}>>`,
+    }));
+}
+
+/// The lines that read prop or field `prop` from the JSON of a native tree
+/// instance, returned from the accessor before it reads the C++ ones.
+function nativeAccessorLines(prop) {
+  const { shape, jsName, name } = prop;
+  const key = rustString(jsName);
+  const lines = ['        if !self.json.is_null() {'];
+  lines.push('            let json = unsafe { &*self.json };');
+  const object = `json.get(${key}).and_then(Value::as_object).unwrap_or_else(empty_map)`;
+  const array = `json.get(${key}).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])`;
+  switch (shape.kind) {
+    case 'scalar':
+      lines.push(
+        `            return ${jsonScalar(`json.get(${key})`, shape.rustType)};`,
+      );
+      break;
+    case 'string':
+      lines.push(
+        `            return json.get(${key}).and_then(Value::as_str).unwrap_or_default();`,
+      );
+      break;
+    case 'enum':
+      lines.push(
+        `            return ${shape.typeName}::from_json(json.get(${key}));`,
+      );
+      break;
+    case 'color':
+      lines.push(
+        `            return json.get(${key}).and_then(Value::as_i64).map(|color| color as u32);`,
+      );
+      break;
+    case 'mixed':
+      lines.push(
+        `            return self.mixed_${name}.get_or_init(|| json.get(${key}).cloned().unwrap_or(Value::Null));`,
+      );
+      break;
+    case 'array-scalar': {
+      const read =
+        shape.rustType === 'bool'
+          ? 'Value::as_bool'
+          : shape.rustType === 'f32' || shape.rustType === 'f64'
+            ? 'Value::as_f64'
+            : 'Value::as_i64';
+      const cast = shape.rustType === 'bool' ? '' : ` as ${shape.rustType}`;
+      lines.push(`            return self.native_${name}.get_or_init(|| {`);
+      lines.push(
+        `                ${array}.iter().filter_map(${read}).map(|item| item${cast}).collect()`,
+      );
+      lines.push('            });');
+      break;
+    }
+    case 'array-string':
+      lines.push(`            return RnGpuiStrArray::from_json(${array});`);
+      break;
+    case 'image':
+      lines.push(`            return RnGpuiImageSource::from_json(${object});`);
+      break;
+    case 'mirror':
+      lines.push(`            return ${shape.name}::from_json(${object});`);
+      break;
+    case 'array-plain':
+      lines.push(`            return self.native_${name}.get_or_init(|| {`);
+      lines.push(
+        `                ${array}.iter().filter_map(Value::as_object).map(${shape.name}::from_json).collect()`,
+      );
+      lines.push('            });');
+      break;
+    case 'view':
+      lines.push(`            return ${shape.name}::from_json(${object});`);
+      break;
+    case 'array-view':
+      lines.push(`            return ${shape.sliceName}::from_json(${array});`);
+      break;
+    default:
+      throw new Error(
+        `generate-rust-spec: unsupported accessor shape ${shape.kind}`,
+      );
+  }
+  lines.push('        }');
   return lines;
 }
 
@@ -2489,10 +2881,18 @@ function renderPropsView(generator) {
       '`create`/`update` instead of holding the view.',
     ]),
   );
+  const arrays = ownedCacheFields(generator.props);
   lines.push(`pub struct ${generator.propsName} {`);
   lines.push(`    handle: ${HANDLE},`);
+  lines.push(
+    '    /// The props of a native tree instance, when this view is over those.',
+  );
+  lines.push('    json: *const Map<String, Value>,');
   for (const prop of mixed) {
     lines.push(`    mixed_${prop.name}: std::cell::OnceCell<Value>,`);
+  }
+  for (const cache of arrays) {
+    lines.push(`    ${cache.name}: ${cache.type},`);
   }
   lines.push('}');
   lines.push('');
@@ -2506,17 +2906,28 @@ function renderPropsView(generator) {
     '    /// and must stay alive for as long as the view is used: core holds it',
   );
   lines.push('    /// until the next update replaces it.');
+  const fieldInits = [
+    ...mixed.map(prop => `mixed_${prop.name}: std::cell::OnceCell::new(),`),
+    ...arrays.map(cache => `${cache.name}: std::cell::OnceCell::new(),`),
+  ];
   lines.push(`    pub unsafe fn from_handle(handle: ${HANDLE}) -> Self {`);
-  if (mixed.length === 0) {
-    lines.push('        Self { handle }');
-  } else {
-    lines.push('        Self {');
-    lines.push('            handle,');
-    for (const prop of mixed) {
-      lines.push(`            mixed_${prop.name}: std::cell::OnceCell::new(),`);
-    }
-    lines.push('        }');
-  }
+  lines.push('        Self {');
+  lines.push('            handle,');
+  lines.push('            json: core::ptr::null(),');
+  for (const init of fieldInits) lines.push(`            ${init}`);
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// A view over the props of a native tree instance. The view must not',
+  );
+  lines.push('    /// outlive the call that was given them.');
+  lines.push('    pub fn from_json(json: &Map<String, Value>) -> Self {');
+  lines.push('        Self {');
+  lines.push(`            handle: core::ptr::null(),`);
+  lines.push('            json,');
+  for (const init of fieldInits) lines.push(`            ${init}`);
+  lines.push('        }');
   lines.push('    }');
   for (const prop of generator.props) {
     const rendered = accessor({
@@ -2528,7 +2939,11 @@ function renderPropsView(generator) {
     });
     lines.push('');
     lines.push(`    /// ${accessorDoc(prop.shape)}`);
-    lines.push(...rendered.lines);
+    lines.push(
+      rendered.lines[0],
+      ...nativeAccessorLines(prop),
+      ...rendered.lines.slice(1),
+    );
     generator.shims.push(...rendered.externs);
   }
   lines.push('}');
@@ -2578,6 +2993,24 @@ function renderChanged(generator) {
   lines.push(`        let mut out = [0u64; ${words}];`);
   lines.push('        for (slot, word) in out.iter_mut().zip(words) {');
   lines.push('            *slot = *word;');
+  lines.push('        }');
+  lines.push('        Self { words: out }');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    /// A mask from the names of the props a native tree update changed.',
+  );
+  lines.push('    pub fn from_names(names: &[String]) -> Self {');
+  lines.push(`        let mut out = [0u64; ${words}];`);
+  lines.push('        for name in names {');
+  lines.push('            match name.as_str() {');
+  for (const prop of generator.props) {
+    lines.push(
+      `                ${rustString(prop.jsName)} => out[${Math.floor(prop.index / 64)}] |= 1u64 << ${prop.index % 64},`,
+    );
+  }
+  lines.push('                _ => {}');
+  lines.push('            }');
   lines.push('        }');
   lines.push('        Self { words: out }');
   lines.push('    }');
@@ -2982,6 +3415,153 @@ function renderComponentInstance(generator) {
   return lines;
 }
 
+/// How a command argument is read from the JSON a native tree sends.
+function nativeCommandArgument(rustType, argument) {
+  const item = {
+    i32: 'Value::as_i64).map(|item| item as i32',
+    f32: 'Value::as_f64).map(|item| item as f32',
+    f64: 'Value::as_f64).map(|item| item',
+    bool: 'Value::as_bool).map(|item| item',
+    String: 'Value::as_str).map(|item| item.to_string()',
+  };
+  switch (rustType) {
+    case 'i32':
+      return `${argument}.and_then(Value::as_i64).unwrap_or_default() as i32`;
+    case 'f32':
+      return `${argument}.and_then(Value::as_f64).unwrap_or_default() as f32`;
+    case 'f64':
+      return `${argument}.and_then(Value::as_f64).unwrap_or_default()`;
+    case 'bool':
+      return `${argument}.and_then(Value::as_bool).unwrap_or_default()`;
+    case 'String':
+      return `${argument}.and_then(Value::as_str).unwrap_or_default().to_string()`;
+    default: {
+      const element = /^Vec<(.+)>$/u.exec(rustType)?.[1];
+      if (element === undefined || item[element] === undefined) {
+        throw new Error(
+          `generate-rust-spec: unsupported command argument ${rustType}`,
+        );
+      }
+      return `${argument}.and_then(Value::as_array).map(|items| items.iter().filter_map(${item[element]}).collect()).unwrap_or_default()`;
+    }
+  }
+}
+
+/// The component as an instance of a native tree: the same spec trait, driven
+/// from JSON props, a list of changed prop names and the instance's children.
+function renderNativeTree(generator) {
+  const lines = [];
+  const spec = generator.specName;
+  const native = `${generator.name}Native`;
+  const context = generator.contextName;
+  lines.push(
+    docComment([
+      `One \`${generator.name}\` instance of a native tree (a \`NativeRoot\`): the same`,
+      `component as a Fabric node, given its props as JSON and its children as`,
+      'elements.',
+    ]),
+  );
+  lines.push(`struct ${native}<T: ${spec}> {`);
+  lines.push('    component: T,');
+  lines.push('    id: u64,');
+  lines.push('    emitter: NativeEmitter,');
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl<T: ${spec}> ${native}<T> {`);
+  lines.push(
+    `    fn call(cx: &mut NativeContext, children: Vec<AnyElement>) -> ${context} {`,
+  );
+  lines.push('        let app: *mut gpui::App = &mut *cx.app;');
+  lines.push(`        ${context}::new_native(NativeCall {`);
+  lines.push('            id: cx.id,');
+  lines.push('            emitter: cx.emitter(),');
+  lines.push('            app,');
+  lines.push('            children,');
+  lines.push('        })');
+  lines.push('    }');
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl<T: ${spec}> NativeComponent for ${native}<T> {`);
+  lines.push(
+    '    fn create(props: &Map<String, Value>, cx: &mut NativeContext) -> Self {',
+  );
+  lines.push(`        let view = ${generator.propsName}::from_json(props);`);
+  lines.push('        let mut call = Self::call(cx, Vec::new());');
+  lines.push('        Self {');
+  lines.push('            component: T::create(&view, &mut call),');
+  lines.push('            id: cx.id,');
+  lines.push('            emitter: cx.emitter(),');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn update(&mut self, props: &Map<String, Value>, changed: &[String], cx: &mut NativeContext) {',
+  );
+  lines.push(`        let view = ${generator.propsName}::from_json(props);`);
+  lines.push(
+    `        let changed = ${generator.changedName}::from_names(changed);`,
+  );
+  lines.push('        let mut call = Self::call(cx, Vec::new());');
+  lines.push('        self.component.update(&view, changed, &mut call);');
+  lines.push('    }');
+  lines.push('');
+  lines.push(
+    '    fn command(&mut self, props: &Map<String, Value>, name: &str, args: &[Value], cx: &mut NativeContext) {',
+  );
+  if (generator.commands.length === 0) {
+    lines.push('        let _ = (props, name, args, cx);');
+  } else {
+    lines.push('        let _ = props;');
+    lines.push('        let mut call = Self::call(cx, Vec::new());');
+    lines.push('        match name {');
+    for (const command of generator.commands) {
+      const values = command.params.map((parameter, position) =>
+        nativeCommandArgument(parameter.rustType, `args.get(${position})`),
+      );
+      lines.push(
+        `            ${rustString(command.jsName)} => self.component.${command.name}(${[...values, '&mut call'].join(', ')}),`,
+      );
+    }
+    lines.push('            _ => {}');
+    lines.push('        }');
+  }
+  lines.push('    }');
+  lines.push('');
+  lines.push('    fn render(');
+  lines.push('        &mut self,');
+  lines.push('        props: &Map<String, Value>,');
+  lines.push('        children: Vec<AnyElement>,');
+  lines.push('        window: &mut Window,');
+  lines.push('        app: &mut gpui::App,');
+  lines.push('    ) -> AnyElement {');
+  lines.push(`        let view = ${generator.propsName}::from_json(props);`);
+  lines.push('        let app: *mut gpui::App = &mut *app;');
+  lines.push(`        let mut call = ${context}::new_native(NativeCall {`);
+  lines.push('            id: self.id,');
+  lines.push('            emitter: self.emitter.clone(),');
+  lines.push('            app,');
+  lines.push('            children,');
+  lines.push('        });');
+  lines.push('        self.component.render(&view, window, &mut call)');
+  lines.push('    }');
+  lines.push('}');
+  lines.push('');
+  lines.push(`impl<T: ${spec}> ${generator.registrationType}<T> {`);
+  lines.push(
+    `    /// Registers \`T\` as the native tree component [\`NAME\`](Self::NAME), so a`,
+  );
+  lines.push(
+    '    /// `NativeRoot` can hold it. Call it next to `register_component`.',
+  );
+  lines.push('    pub fn register_native_tree() {');
+  lines.push(
+    `        react_native_gpui::native_tree::register_native_component::<${native}<T>>(Self::NAME);`,
+  );
+  lines.push('    }');
+  lines.push('}');
+  return lines;
+}
+
 /// How a command argument is read from the `HostArg` core hands the instance.
 /// The C++ dispatcher validated the type, so the read is infallible.
 function commandArgumentExpression(rustType, argument) {
@@ -3067,6 +3647,10 @@ function renderComponent(generator) {
   lines.push(...renderRegistration(generator));
   lines.push('');
   lines.push(...renderComponentInstance(generator));
+  if (supportsNativeTree(generator)) {
+    lines.push('');
+    lines.push(...renderNativeTree(generator));
+  }
   lines.push('');
   lines.push('// The shims the generated C++ file implements.');
   lines.push(

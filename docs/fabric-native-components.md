@@ -184,6 +184,90 @@ pub fn rn_gpui_register() {
 
 `register_root_wrapper<V: Render>(impl Fn(AnyView, &mut Window, &mut App) -> Entity<V> + Send + Sync)` receives the root view that takes the React tree and returns the view that becomes the window's root, which usually holds the given view as a child. Its type `V` is the window's root type, so `window.root::<V>()` finds it. It applies to the main window, to windows opened with `DesktopWindow.open` and to tray popovers, and a second registration replaces the first.
 
+### Native trees
+
+A host component made of other host components of its family, such as a dialog of buttons or a tab bar of tabs, can build the whole subtree as one GPUI element tree instead of paying a Fabric node, a Yoga node and a mount operation for each nested component. The nested components are instances of a native tree, made and changed by batches of operations and identified by the id the reconciler gave them.
+
+A component of the tree implements `react_native_gpui::native_tree::NativeComponent`: `create(props, cx)`, `update(props, changed, cx)` with the names of the props that changed, and `render(props, children, window, app)`, which receives the elements of its child instances in order and places them itself. It is registered with `register_native_component::<T>("Name")`. `cx.emit("onPress", payload)` (or a cloned `cx.emitter()` kept by a GPUI listener) tells JavaScript, naming the instance and the prop that holds the handler.
+
+A batch is an array of `["create", id, type, props]`, `["append", parent, child]`, `["insert", parent, child, before]`, `["remove", parent, child]` and `["update", id, set, unset]`. Appending or inserting an instance that has a parent moves it, which is how a keyed reorder arrives. Removing drops the instance and everything under it. An operation that cannot apply (an unknown id or type, a move that would put an instance inside itself) is logged and skipped, and the instance tree is left as it was.
+
+#### NativeRoot
+
+`NativeRoot` from `@react-native-gpui/core/desktop` renders its children into a native tree with a second React reconciler. The elements' types are strings that name registered native components, their props that are not functions go to the runtime as data, and their function props stay in JavaScript and run when the instance sends the event of the same name.
+
+```tsx
+<NativeRoot style={{ width: 240, height: 120 }}>
+  <Dialog title="Delete">
+    <Button label="Cancel" onPress={close} />
+  </Dialog>
+</NativeRoot>
+```
+
+In tests, the instances appear in `app.tree()` under the node that shows them and `getByTestId`, `getByText` and `getByRole` find them; give a native component the props `testID`, `accessibilityRole` and `accessibilityLabel` for that and for the accessibility tree. Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
+
+#### One component for both
+
+A component generated from a spec (the `FooSpec` trait of section 3) also runs in a `NativeRoot`, with the same `impl`:
+
+```rust
+register_component(foo_component::<Foo>());
+FooComponent::<Foo>::register_native_tree();
+```
+
+```tsx
+<NativeRoot>
+  <Foo ref={foo} title="Hello" onFooEvent={event => use(event.nativeEvent)}>
+    <Bar />
+  </Foo>
+</NativeRoot>;
+Commands.focus(foo.current, 2);
+```
+
+In a native tree the component's props come from the JSON the tree's instance has, through the accessors it already has, so there is no second set of methods. `cx.children()` holds the elements of its children, which the component places in its own element (a Fabric node's children are painted by core around the component instead, so it is empty there), events arrive in JavaScript as `{ nativeEvent }` like a Fabric node's, and commands are the same `Commands.*` of the spec, called with the instance's ref. What only a Fabric node has (`cx.host()`, the window of a mount batch, intrinsic size and insets, `measure`, a native surface) is absent or ignored in a native tree. Every prop shape is read from the JSON props, structs and arrays of structs from objects and arrays, and an image prop is resolved as React Native resolves it: `icon={require('./icon.png')}`, `icon="file:///icon.png"` and `icon={{ uri }}` all arrive as a resolved source.
+
+#### NativeSlot
+
+`NativeSlot` puts React Native content inside a native tree:
+
+```tsx
+<NativeRoot style={{ width: 240 }}>
+  <Panel>
+    <NativeSlot>
+      <Text>Any React Native view</Text>
+    </NativeSlot>
+  </Panel>
+</NativeRoot>
+```
+
+The content is as wide as the tree's layout makes the slot and as high as it needs to be, and the native components after it move with its height. The tree paints, clips and hit-tests it where the slot is. The children are rendered by the React Native tree the `NativeRoot` is in, so contexts from there reach them, and contexts provided inside the native tree reach them as well. A `NativeRoot` may be nested in a slot.
+
+Focus is the window's: a native component that takes focus (a GPUI `FocusHandle` with `tab_stop`) and the React Native nodes in a slot are in one tab order, in document order. Keys go to the focused node and bubble up through the slot to the native components around it, unless a node handles them. A character a React Native text input in a slot takes as text is not offered to the key listeners of the native components around it (gpui-fast's `fast::text_keys`), and input method composition, dead keys and the emoji picker reach the input through the platform's input handler as they would anywhere, so none of them reach the owner either.
+
+A slot that is as high as its content is clipped where its native parent's layout makes it shorter. For a slot that should fill a space the parent sizes (a tab, a dialog body) or that holds a `ScrollView` or a list, use `<NativeSlot fill>`: its height is the one the layout gives it, and the content is laid out in that.
+
+#### NativeVirtualList
+
+```tsx
+<NativeRoot style={{ width: 240, height: 200 }}>
+  <NativeVirtualList
+    ref={list}
+    count={rows.length}
+    estimatedItemHeight={32}
+    keyExtractor={index => rows[index].id}
+    renderItem={index => <Row row={rows[index]} />}
+    onEndReached={loadMore}
+  />
+</NativeRoot>
+```
+
+The list scrolls natively and tells JavaScript which items are in view. Only those and `overscan` more on each side are rendered.
+
+- **Heights:** an item is as high as its content. A native item is measured by GPUI, an item that holds a `NativeSlot` by the layout of its React Native content, and an item not measured yet counts as `estimatedItemHeight`. When an item above the viewport changes size the scroll position moves by the difference, so nothing on screen jumps.
+- **Scrolling:** `list.current.scrollToIndex({ index, align })` with `align` of `start`, `center` or `end`, and `scrollToOffset({ offset })`. An index that is not measured yet is scrolled to again as the items around it are measured. `onEndReached` fires once when the end is within `endReachedThreshold` (200) pixels of the viewport, and again after `count` changes.
+- **Identity:** items are keyed by `keyExtractor`, so their React state stays with their data. The runtime reuses the native components of removed items underneath, by type, which keeps scrolling cheap without changing what React sees (a native component opts in with `recyclable` and `recycle`). `recycleItems` keys items by their position in the window instead, as FlashList does: it reuses React state too, so a `useState` or a text field inside an item shows another row's value. Use it for rows that derive everything from `index`.
+- **Other lists:** a list a component owns itself (a table or a tree of a component kit) can use the same protocol: it reports its visible range through an event, JavaScript renders items for that range into the component's slots, and the slot content is measured and sized as above.
+
 ## 4. Use it from JavaScript
 
 ```tsx

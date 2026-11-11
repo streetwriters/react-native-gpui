@@ -73,7 +73,10 @@ pub struct RNNodeView {
     /// Whether this node counts itself in `effect_group_descendants`.
     forms_effect_group: bool,
     extension_props_json: String,
-    extension_props: std::sync::Arc<serde_json::Value>,
+    pub(crate) extension_props: std::sync::Arc<serde_json::Value>,
+    /// A native slot's content is painted where its placeholder is, not where
+    /// layout put it; this is the difference, kept up to date by the placeholder.
+    pub(crate) slot_shift: Option<Rc<Cell<Point<f32>>>>,
     /// The composition surface hosting the OS view of a `nativeSurface`
     /// component, created when the node is first painted.
     native_surface: Option<std::rc::Rc<crate::native_surface::NativeSurface>>,
@@ -1112,6 +1115,13 @@ impl RNNodeView {
             surface_id,
             component: op.component.clone(),
             extension_props_json: op.extension_props_json.clone(),
+            slot_shift: (op.component == crate::builtins::native_slot::COMPONENT).then(|| {
+                crate::builtins::native_slot::register_host(
+                    &crate::extensions::parse_extension_props(&op.extension_props_json),
+                    op.tag,
+                );
+                Rc::new(Cell::new(point(0.0, 0.0)))
+            }),
             extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
                 &op.extension_props_json,
             )),
@@ -1513,6 +1523,17 @@ impl RNNodeView {
 
     /// Whether any node in this subtree, this one included, renders a native
     /// surface.
+    /// A native slot's content is sized by the tree that places it, so the node
+    /// that shows the tree repaints when the slot's frame changes.
+    pub(crate) fn notify_slot_owner(&self, cx: &mut Context<Self>) {
+        if self.component != crate::builtins::native_slot::COMPONENT {
+            return;
+        }
+        if let Some(parent) = self.parent.as_ref().and_then(|parent| parent.upgrade()) {
+            parent.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     /// Asks every ancestor to render again, so that what they paint after this
     /// node reads its new composition surface.
     fn notify_ancestors(&self, cx: &mut Context<Self>) {
@@ -1552,6 +1573,9 @@ impl RNNodeView {
         let mut above = None;
         children
             .iter()
+            .filter(|(_, child)| {
+                child.read(cx).component != crate::builtins::native_slot::COMPONENT
+            })
             .map(|(_, child)| {
                 let element = child.clone().into_any_element();
                 let element = match above {
@@ -1856,6 +1880,7 @@ impl RNNodeView {
             origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
             scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
+            slot_shift: self.slot_shift.clone(),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
@@ -2063,7 +2088,7 @@ fn verify_inherited_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_VERIFY_INHERITED").is_some())
 }
 
-fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
+pub(crate) fn role_for_accessibility_role(role: &str, accessible: bool) -> Option<Role> {
     Some(match role {
         "none" | "presentation" => return None,
         "button" | "imagebutton" | "togglebutton" => Role::Button,
@@ -2355,6 +2380,8 @@ pub(crate) struct Inherited {
     pub(crate) hidden_by_hidden_ancestor: bool,
     pub(crate) hidden_by_modal_sibling: bool,
     pub(crate) hidden_by_hiding_ancestor: bool,
+    /// Whether the node is inside the content of a native slot.
+    pub(crate) in_native_slot: bool,
 }
 
 impl Default for Inherited {
@@ -2371,6 +2398,7 @@ impl Default for Inherited {
             hidden_by_hidden_ancestor: false,
             hidden_by_modal_sibling: false,
             hidden_by_hiding_ancestor: false,
+            in_native_slot: false,
             hides_subtree_self: false,
         }
     }
@@ -2407,6 +2435,8 @@ pub(crate) struct InheritInput {
     pub(crate) origin_frame: (f32, f32),
     pub(crate) transform: (f32, f32, f32, f32),
     pub(crate) scroll: Option<Rc<Cell<Point<f32>>>>,
+    /// For a native slot: how far its content is moved from where layout put it.
+    pub(crate) slot_shift: Option<Rc<Cell<Point<f32>>>>,
     pub(crate) accessible: bool,
     pub(crate) hides_descendants: bool,
     pub(crate) hides_subtree: bool,
@@ -2444,6 +2474,15 @@ pub(crate) fn inherit(
                 }
                 None => parent.scrollers.clone(),
             };
+            inherited.in_native_slot = parent.in_native_slot || own.slot_shift.is_some();
+            if let Some(shift) = &own.slot_shift {
+                let mut links = inherited.scrollers.to_vec();
+                links.push(ScrollLink {
+                    position: shift.clone(),
+                    scale: inherited.parent_scale,
+                });
+                inherited.scrollers = Rc::from(links);
+            }
             inherited.accessible_ancestor = parent.accessible_ancestor || input.accessible;
             inherited.hidden_by_hidden_ancestor =
                 parent.hidden_by_hidden_ancestor || input.hides_descendants;
@@ -2557,6 +2596,7 @@ mod inherited_tests {
             origin_frame,
             transform,
             scroll: None,
+            slot_shift: None,
             accessible: false,
             hides_descendants: false,
             hides_subtree: false,
@@ -3445,7 +3485,11 @@ impl Render for RNNodeView {
                 let handle = cx
                     .focus_handle()
                     .tab_stop(self.focusable || self.view.accessibility_has_escape_listener)
-                    .tab_index(self.tag as isize);
+                    .tab_index(if self.inherited.in_native_slot {
+                        0
+                    } else {
+                        self.tag as isize
+                    });
                 if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
                     let host = store.0.read(cx).host.clone();
                     let tag = self.tag;
@@ -3520,7 +3564,7 @@ impl Render for RNNodeView {
                     && !self.inherited.hidden_by_accessible_ancestor,
             );
             if let Some(handle) = &self.focus_handle {
-                if accessibility_active || is_scroll {
+                if accessibility_active || is_scroll || self.component == "TextInput" {
                     // The accessibility tree needs the role, the label and the focus on one
                     // element.
                     element = element.track_focus(handle);

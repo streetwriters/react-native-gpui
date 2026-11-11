@@ -65,7 +65,7 @@ fn tiled(uri: String, tint: u32, blur: f32) -> AnyElement {
             if tile_w < 1.0 || tile_h < 1.0 {
                 return;
             }
-            window.with_content_mask(Some(gpui::ContentMask::new(bounds)), |window| {
+            window.with_content_mask(Some(gpui::ContentMask { bounds: bounds }), |window| {
                 let mut y = 0.0;
                 while y < f32::from(bounds.size.height) {
                     let mut x = 0.0;

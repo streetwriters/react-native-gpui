@@ -243,9 +243,28 @@ fn card_insets(chrome_height: f64, chrome_width: f64) -> (f32, f32, f32, f32) {
 }
 
 /// A container host component: chrome drawn around React children.
-struct Card;
+struct Card {
+    details: OnDetails,
+}
 
 impl Card {
+    /// What the card read from the props that are not scalars.
+    fn details(props: &FixtureCardProps) -> OnDetails {
+        OnDetails {
+            mode: match props.mode() {
+                FixtureCardMode::Compact => FixtureCardMode2::Compact,
+                FixtureCardMode::Roomy => FixtureCardMode2::Roomy,
+            },
+            icon: props.icon().uri().to_string(),
+            tags: props.labels().iter().map(str::to_string).collect(),
+            sizes: props.items().iter().map(|item| item.size()).collect(),
+            nested: OnDetailsNested {
+                flag: !props.icon().uri().is_empty(),
+                count: props.badge().level(),
+            },
+        }
+    }
+
     fn report_insets(props: &FixtureCardProps, cx: &mut FixtureCardContext) {
         let (top, right, bottom, left) = card_insets(props.chrome_height(), props.chrome_width());
         cx.set_insets(top, right, bottom, left);
@@ -255,7 +274,9 @@ impl Card {
 impl FixtureCardSpec for Card {
     fn create(props: &FixtureCardProps, cx: &mut FixtureCardContext) -> Self {
         Self::report_insets(props, cx);
-        Self
+        Self {
+            details: Self::details(props),
+        }
     }
 
     fn update(
@@ -267,6 +288,7 @@ impl FixtureCardSpec for Card {
         if changed.chrome_height() || changed.chrome_width() {
             Self::report_insets(props, cx);
         }
+        self.details = Self::details(props);
     }
 
     fn render(
@@ -278,6 +300,7 @@ impl FixtureCardSpec for Card {
         let title = props.title().to_string();
         let height = props.chrome_height() as f32;
         let side = props.chrome_width() as f32;
+        let children = cx.children();
         let sender = Rc::new(cx.event_sender());
         let emit = |kind: &'static str| {
             let sender = sender.clone();
@@ -323,7 +346,27 @@ impl FixtureCardSpec for Card {
                         .child(title),
                 )
             })
+            .child(
+                div()
+                    .absolute()
+                    .top(px(height))
+                    .left(px(side))
+                    .right(px(side))
+                    .flex()
+                    .flex_col()
+                    .children(children),
+            )
             .into_any_element()
+    }
+
+    fn report_details(&mut self, cx: &mut FixtureCardContext) {
+        cx.events().details(self.details.clone());
+    }
+
+    fn ping(&mut self, label: String, cx: &mut FixtureCardContext) {
+        cx.events().chrome_event(OnChromeEvent {
+            kind: format!("ping:{label}"),
+        });
     }
 }
 
@@ -370,12 +413,421 @@ impl FixtureSurfaceHostSpec for SurfaceHost {
     }
 }
 
+/// A box of the native tree fixture: a colored column or row that lays its
+/// children out with GPUI, and tells JavaScript when it is pressed.
+struct NativeBox {
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+    focus: gpui::FocusHandle,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativeBox {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        Self {
+            emitter: cx.emitter(),
+            focus: cx.app.focus_handle().tab_stop(true),
+        }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn recyclable(&self) -> bool {
+        true
+    }
+
+    fn recycle(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> bool {
+        self.emitter = cx.emitter();
+        self.focus = cx.app.focus_handle().tab_stop(true);
+        true
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let number = |name: &str, default: f64| {
+            props
+                .get(name)
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(default) as f32
+        };
+        let emitter = self.emitter.clone();
+        let pressable = props.get("onPress").is_some();
+        let focusable = props.get("focusable").and_then(serde_json::Value::as_bool) == Some(true);
+        let keys = props.get("onKeyDown").is_some();
+        let key_emitter = emitter.clone();
+        let element = div()
+            .id("native-box")
+            .flex()
+            .gap(px(number("gap", 0.0)))
+            .p(px(number("padding", 0.0)))
+            .bg(rgb(number("color", 0x334155 as f64) as u32));
+        let element = match props.get("width").and_then(serde_json::Value::as_f64) {
+            Some(width) => element.w(px(width as f32)),
+            None => element,
+        };
+        let element = match props.get("height").and_then(serde_json::Value::as_f64) {
+            Some(height) => element.h(px(height as f32)),
+            None => element,
+        };
+        let element = if props.get("direction").and_then(serde_json::Value::as_str) == Some("row") {
+            element.flex_row()
+        } else {
+            element.flex_col()
+        };
+        let element = if focusable {
+            element.track_focus(&self.focus).tab_stop(true)
+        } else {
+            element
+        };
+        let element = if keys {
+            element.on_key_down(move |event, _, _| {
+                key_emitter.emit(
+                    "onKeyDown",
+                    serde_json::json!({ "key": event.keystroke.key.to_string() }),
+                )
+            })
+        } else {
+            element
+        };
+        let element = if pressable {
+            let hover = emitter.clone();
+            element
+                .on_click(move |_, _, _| emitter.emit("onPress", serde_json::json!({})))
+                .on_hover(move |hovered, _, _| {
+                    hover.emit(
+                        if *hovered { "onHoverIn" } else { "onHoverOut" },
+                        serde_json::json!({}),
+                    )
+                })
+        } else {
+            element
+        };
+        element.children(children).into_any_element()
+    }
+}
+
+/// A popover in the native tree fixture: a button, and while `open` a panel
+/// over everything else that holds its children. A press outside the panel
+/// reports `onDismiss`.
+struct NativePopover {
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativePopover {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        Self {
+            emitter: cx.emitter(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let open = props.get("open").and_then(serde_json::Value::as_bool) == Some(true);
+        let width = props
+            .get("width")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(200.0) as f32;
+        let emitter = self.emitter.clone();
+        let button = div()
+            .id("native-popover-button")
+            .h(px(20.0))
+            .bg(rgb(0x666666))
+            .on_click({
+                let emitter = emitter.clone();
+                move |_, _, _| emitter.emit("onToggle", serde_json::json!({}))
+            });
+        let mut root = div().relative().child(button);
+        if open {
+            root = root.child(gpui::deferred(
+                gpui::anchored().anchor(gpui::Anchor::TopLeft).child(
+                    div()
+                        .id("native-popover-panel")
+                        .occlude()
+                        .w(px(width))
+                        .bg(rgb(0xeeeeee))
+                        .flex()
+                        .flex_col()
+                        .on_mouse_down_out(move |_, _, _| {
+                            emitter.emit("onDismiss", serde_json::json!({}))
+                        })
+                        .children(children),
+                ),
+            ));
+        }
+        root.into_any_element()
+    }
+}
+
+/// What a native text field has typed into it.
+struct NativeInputState {
+    text: String,
+    marked: Option<std::ops::Range<usize>>,
+    emitter: react_native_gpui::native_tree::NativeEmitter,
+}
+
+impl NativeInputState {
+    fn changed(&self) {
+        self.emitter
+            .emit("onChangeText", serde_json::json!({ "text": self.text }));
+    }
+}
+
+impl gpui::EntityInputHandler for NativeInputState {
+    fn text_for_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+        adjusted: &mut Option<std::ops::Range<usize>>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<String> {
+        let end = range.end.min(self.text.len());
+        let start = range.start.min(end);
+        *adjusted = Some(start..end);
+        self.text.get(start..end).map(str::to_string)
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _: bool,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<gpui::UTF16Selection> {
+        let end = self.text.encode_utf16().count();
+        Some(gpui::UTF16Selection {
+            range: end..end,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<std::ops::Range<usize>> {
+        self.marked.clone()
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) {
+        self.marked = None;
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _: Option<std::ops::Range<usize>>,
+        text: &str,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) {
+        if let Some(marked) = self.marked.take() {
+            self.text.replace_range(marked, text);
+        } else {
+            self.text.push_str(text);
+        }
+        self.changed();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _: Option<std::ops::Range<usize>>,
+        text: &str,
+        _: Option<std::ops::Range<usize>>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) {
+        let start = self
+            .marked
+            .take()
+            .map_or(self.text.len(), |range| range.start);
+        self.text.replace_range(start.., text);
+        self.marked = Some(start..start + text.len());
+        self.changed();
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        _: std::ops::Range<usize>,
+        element_bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<gpui::Bounds<gpui::Pixels>> {
+        Some(element_bounds)
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _: gpui::Point<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut gpui::Context<Self>,
+    ) -> Option<usize> {
+        None
+    }
+}
+
+/// A text field in the native tree fixture: it takes text through the platform's
+/// input handler, shows the `text` prop, and reports `onChangeText`.
+struct NativeInput {
+    state: gpui::Entity<NativeInputState>,
+    focus: gpui::FocusHandle,
+}
+
+impl react_native_gpui::native_tree::NativeComponent for NativeInput {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        let emitter = cx.emitter();
+        let focus = cx.app.focus_handle().tab_stop(true);
+        let state = cx.app.new(|_| NativeInputState {
+            text: String::new(),
+            marked: None,
+            emitter,
+        });
+        Self { state, focus }
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        _children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let text = props
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let (state, focus) = (self.state.clone(), self.focus.clone());
+        div()
+            .id("native-input")
+            .relative()
+            .h(px(24.0))
+            .bg(rgb(0xffffff))
+            .text_color(rgb(0x000000))
+            .track_focus(&self.focus)
+            .child(text)
+            .child(
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, cx| {
+                        window.handle_input(
+                            &focus,
+                            gpui::ElementInputHandler::new(bounds, state),
+                            cx,
+                        )
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .into_any_element()
+    }
+}
+
+/// A line of text in the native tree fixture.
+struct NativeText;
+
+impl react_native_gpui::native_tree::NativeComponent for NativeText {
+    fn create(
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> Self {
+        NativeText
+    }
+
+    fn update(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _changed: &[String],
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) {
+    }
+
+    fn recyclable(&self) -> bool {
+        true
+    }
+
+    fn recycle(
+        &mut self,
+        _props: &serde_json::Map<String, serde_json::Value>,
+        _cx: &mut react_native_gpui::native_tree::NativeContext,
+    ) -> bool {
+        true
+    }
+
+    fn render(
+        &mut self,
+        props: &serde_json::Map<String, serde_json::Value>,
+        _children: Vec<AnyElement>,
+        _window: &mut Window,
+        _cx: &mut gpui::App,
+    ) -> AnyElement {
+        let text = props
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        div()
+            .text_color(rgb(0xf8fafc))
+            .text_size(px(12.0))
+            .child(text)
+            .into_any_element()
+    }
+}
+
 /// Registers the fixtures. Autolink calls this through the crate's
 /// `rn_gpui_register()`, exactly like a published package.
 pub fn rn_gpui_register() {
+    react_native_gpui::native_tree::register_native_component::<NativeBox>("FixtureNativeBox");
+    react_native_gpui::native_tree::register_native_component::<NativeText>("FixtureNativeText");
+    react_native_gpui::native_tree::register_native_component::<NativeInput>("FixtureNativeInput");
+    react_native_gpui::native_tree::register_native_component::<NativePopover>(
+        "FixtureNativePopover",
+    );
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
     register_component(fixture_card_component::<Card>());
+    FixtureCardComponent::<Card>::register_native_tree();
     register_component(fixture_surface_host_component::<SurfaceHost>());
     register_component(fixture_native_probe_component::<native::NativeProbe>());
     register_component(fixture_web_view_component::<native::WebView>());

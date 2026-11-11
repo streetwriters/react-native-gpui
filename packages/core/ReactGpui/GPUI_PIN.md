@@ -11,11 +11,15 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `5392403` (2026-11-08: `3a4aada` plus two test hooks on macOS: a window scale factor a test
-  run asks for (`RN_GPUI_TEST_SCALE_FACTOR`), and windows reporting themselves active while the test
-  driver runs the app in the background; `3a4aada` brought rounded overflow clips mapped through the
-  transform in force and glyph masks with Skia's coverage curve, on top of `ac7018a`'s transform,
-  layer and allocation fixes)
+- Commit: `9087620` (2026-11-11: `d5041b0` plus two commits for react-native-gpui. `d5041b0` is Longbridge's
+  gpui-fast `main` merged into `rn-gpui-linux`, with upstream's public API kept for `ContentMask`,
+  `Hitbox` and `paint_svg`, GPUI Kit 0.9.1 and gpui-pre 0.3.12 tracked, and the hover freeze (the end
+  of a freeze draws the window again without refreshing it). The two commits: a key the focused input
+  takes as text is not offered to the key listeners of its ancestors (`fast::text_keys`, with the
+  platform insertion untouched), and `test-support` methods that drive the focused input handler as an
+  input method would (`Window::simulate_marked_text` and `simulate_committed_text`). It still has
+  `5392403`'s test hooks: a window scale factor a test run asks for (`RN_GPUI_TEST_SCALE_FACTOR`) and
+  windows reporting themselves active while the test driver runs the app in the background)
 - Toolchain: Rust 1.98 or newer (gpui-fast pins 1.98.1 and uses `Option::map_or_default`)
 - Every manifest that names gpui-fast uses this commit: `packages/core/ReactGpui`,
   `modules/screens/desktop`, `packages/rn-gpui-tester/desktop` and

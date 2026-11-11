@@ -228,116 +228,125 @@ pub(crate) fn caret_canvas(
                         };
                         ((f32::from(content_box.size.height) - height) / 2.0).max(0.0)
                     };
-                    window.with_content_mask(Some(gpui::ContentMask::new(content_box)), |window| {
-                        if focus.as_ref().is_some_and(|f| f.is_focused(window)) {
-                            if !input_selection.is_empty() {
-                                let start = input_selection.start.min(caret_text.len());
-                                let end = input_selection.end.min(caret_text.len());
-                                let content_width = (f32::from(bounds.size.width)
-                                    - (content_insets.left + content_insets.right) * scale_x)
-                                    .max(0.0);
-                                let mut line_start = 0;
-                                for (line_number, raw_line) in
-                                    caret_text.split_inclusive('\n').enumerate()
-                                {
-                                    let line = raw_line.trim_end_matches('\n');
-                                    let line_end = line_start + line.len();
-                                    let selected_start = start.max(line_start).min(line_end);
-                                    let selected_end = end.min(line_end).max(selected_start);
-                                    let includes_newline = end > line_end
-                                        && start <= line_end
-                                        && raw_line.ends_with('\n');
-                                    if selected_end > selected_start || includes_newline {
-                                        let prefix = &line[..selected_start - line_start];
-                                        let through_selection = &line[..selected_end - line_start];
-                                        let mut x0 = crate::text::input_caret_x(
-                                            window.text_system(),
-                                            &caret_paragraph,
-                                            prefix,
-                                            prefix.len(),
-                                        );
-                                        let mut x1 = crate::text::input_caret_x(
-                                            window.text_system(),
-                                            &caret_paragraph,
-                                            through_selection,
-                                            through_selection.len(),
-                                        );
-                                        if !input_multiline {
-                                            x0 -= input_scroll_x;
-                                            x1 -= input_scroll_x;
-                                            x0 = x0.clamp(0.0, content_width);
-                                            x1 = x1.clamp(0.0, content_width);
+                    window.with_content_mask(
+                        Some(gpui::ContentMask {
+                            bounds: content_box,
+                        }),
+                        |window| {
+                            if focus.as_ref().is_some_and(|f| f.is_focused(window)) {
+                                if !input_selection.is_empty() {
+                                    let start = input_selection.start.min(caret_text.len());
+                                    let end = input_selection.end.min(caret_text.len());
+                                    let content_width = (f32::from(bounds.size.width)
+                                        - (content_insets.left + content_insets.right) * scale_x)
+                                        .max(0.0);
+                                    let mut line_start = 0;
+                                    for (line_number, raw_line) in
+                                        caret_text.split_inclusive('\n').enumerate()
+                                    {
+                                        let line = raw_line.trim_end_matches('\n');
+                                        let line_end = line_start + line.len();
+                                        let selected_start = start.max(line_start).min(line_end);
+                                        let selected_end = end.min(line_end).max(selected_start);
+                                        let includes_newline = end > line_end
+                                            && start <= line_end
+                                            && raw_line.ends_with('\n');
+                                        if selected_end > selected_start || includes_newline {
+                                            let prefix = &line[..selected_start - line_start];
+                                            let through_selection =
+                                                &line[..selected_end - line_start];
+                                            let mut x0 = crate::text::input_caret_x(
+                                                window.text_system(),
+                                                &caret_paragraph,
+                                                prefix,
+                                                prefix.len(),
+                                            );
+                                            let mut x1 = crate::text::input_caret_x(
+                                                window.text_system(),
+                                                &caret_paragraph,
+                                                through_selection,
+                                                through_selection.len(),
+                                            );
+                                            if !input_multiline {
+                                                x0 -= input_scroll_x;
+                                                x1 -= input_scroll_x;
+                                                x0 = x0.clamp(0.0, content_width);
+                                                x1 = x1.clamp(0.0, content_width);
+                                            }
+                                            let width = if includes_newline {
+                                                (content_width - x0).max(1.0)
+                                            } else {
+                                                (x1 - x0).max(1.0)
+                                            };
+                                            let selection = gpui::Bounds {
+                                                origin: gpui::point(
+                                                    bounds.origin.x
+                                                        + px(content_insets.left * scale_x + x0),
+                                                    bounds.origin.y
+                                                        + px(content_insets.top * scale_y
+                                                            + vertical
+                                                            + line_number as f32 * caret_height
+                                                            - input_scroll_y),
+                                                ),
+                                                size: gpui::size(px(width), px(caret_height)),
+                                            };
+                                            window.paint_quad(gpui::fill(
+                                                selection,
+                                                gpui::rgba(0x3875d788),
+                                            ));
                                         }
-                                        let width = if includes_newline {
-                                            (content_width - x0).max(1.0)
-                                        } else {
-                                            (x1 - x0).max(1.0)
-                                        };
-                                        let selection = gpui::Bounds {
-                                            origin: gpui::point(
-                                                bounds.origin.x
-                                                    + px(content_insets.left * scale_x + x0),
-                                                bounds.origin.y
-                                                    + px(content_insets.top * scale_y
-                                                        + vertical
-                                                        + line_number as f32 * caret_height
-                                                        - input_scroll_y),
-                                            ),
-                                            size: gpui::size(px(width), px(caret_height)),
-                                        };
-                                        window.paint_quad(gpui::fill(
-                                            selection,
-                                            gpui::rgba(0x3875d788),
-                                        ));
+                                        line_start += raw_line.len();
                                     }
-                                    line_start += raw_line.len();
+                                }
+                                if caret_visible {
+                                    let offset = caret_offset.min(caret_text.len());
+                                    let safe_offset = (0..=offset)
+                                        .rev()
+                                        .find(|index| caret_text.is_char_boundary(*index))
+                                        .unwrap_or(0);
+                                    let prefix = &caret_text[..safe_offset];
+                                    let line = prefix.rsplit('\n').next().unwrap_or(prefix);
+                                    let line_number =
+                                        prefix.bytes().filter(|byte| *byte == b'\n').count();
+                                    let x = crate::text::input_caret_x(
+                                        window.text_system(),
+                                        &caret_paragraph,
+                                        line,
+                                        line.len(),
+                                    );
+                                    let mut x = x - input_scroll_x;
+                                    let content_width = (f32::from(bounds.size.width)
+                                        - (content_insets.left + content_insets.right) * scale_x)
+                                        .max(0.0);
+                                    if !input_multiline {
+                                        x = x.clamp(
+                                            0.0,
+                                            (content_width - scale_x.max(1.0)).max(0.0),
+                                        );
+                                    }
+                                    let x = bounds.origin.x + px(content_insets.left * scale_x + x);
+                                    let y = bounds.origin.y
+                                        + px(content_insets.top * scale_y
+                                            + vertical
+                                            + line_number as f32 * caret_height
+                                            - input_scroll_y);
+                                    let caret = gpui::Bounds {
+                                        origin: gpui::point(x, y),
+                                        size: gpui::size(px(scale_x.max(1.0)), px(caret_height)),
+                                    };
+                                    let caret_color = if input_selection_color == 0 {
+                                        input_text_color
+                                    } else {
+                                        input_selection_color
+                                    };
+                                    window.paint_quad(gpui::fill(
+                                        caret,
+                                        crate::style::color(caret_color),
+                                    ));
                                 }
                             }
-                            if caret_visible {
-                                let offset = caret_offset.min(caret_text.len());
-                                let safe_offset = (0..=offset)
-                                    .rev()
-                                    .find(|index| caret_text.is_char_boundary(*index))
-                                    .unwrap_or(0);
-                                let prefix = &caret_text[..safe_offset];
-                                let line = prefix.rsplit('\n').next().unwrap_or(prefix);
-                                let line_number =
-                                    prefix.bytes().filter(|byte| *byte == b'\n').count();
-                                let x = crate::text::input_caret_x(
-                                    window.text_system(),
-                                    &caret_paragraph,
-                                    line,
-                                    line.len(),
-                                );
-                                let mut x = x - input_scroll_x;
-                                let content_width = (f32::from(bounds.size.width)
-                                    - (content_insets.left + content_insets.right) * scale_x)
-                                    .max(0.0);
-                                if !input_multiline {
-                                    x = x.clamp(0.0, (content_width - scale_x.max(1.0)).max(0.0));
-                                }
-                                let x = bounds.origin.x + px(content_insets.left * scale_x + x);
-                                let y = bounds.origin.y
-                                    + px(content_insets.top * scale_y
-                                        + vertical
-                                        + line_number as f32 * caret_height
-                                        - input_scroll_y);
-                                let caret = gpui::Bounds {
-                                    origin: gpui::point(x, y),
-                                    size: gpui::size(px(scale_x.max(1.0)), px(caret_height)),
-                                };
-                                let caret_color = if input_selection_color == 0 {
-                                    input_text_color
-                                } else {
-                                    input_selection_color
-                                };
-                                window.paint_quad(gpui::fill(
-                                    caret,
-                                    crate::style::color(caret_color),
-                                ));
-                            }
-                        }
-                    });
+                        },
+                    );
                     if let Some(focus) = focus.as_ref() {
                         window.handle_input(
                             focus,

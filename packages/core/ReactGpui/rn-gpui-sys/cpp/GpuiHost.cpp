@@ -540,6 +540,26 @@ GpuiHost::GpuiHost(
       [](facebook::jsi::Runtime& runtime) {
         runtime.global().setProperty(
             runtime, "__gpuiScrollerLegacy", rn_gpui_scroller_legacy());
+        // A native tree's batch of operations, from the second reconciler.
+        runtime.global().setProperty(
+            runtime,
+            "__gpuiNativeRootApply",
+            facebook::jsi::Function::createFromHostFunction(
+                runtime,
+                facebook::jsi::PropNameID::forAscii(
+                    runtime, "__gpuiNativeRootApply"),
+                2,
+                [](facebook::jsi::Runtime& rt,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) -> facebook::jsi::Value {
+                  if (count >= 2 && args[0].isNumber() && args[1].isString()) {
+                    rn_gpui_native_root_ops(
+                        static_cast<uint32_t>(args[0].asNumber()),
+                        args[1].asString(rt).utf8(rt));
+                  }
+                  return facebook::jsi::Value::undefined();
+                }));
         // `_requireNodeLibrary` must exist before the app bundle runs, and a
         // reload creates a new runtime, so it is installed here rather than at
         // module-registration time. ReactInstance installs the

@@ -81,6 +81,17 @@ export {
   Shortcuts,
 } from './src-gpui/src/private/desktop/shortcuts';
 
+export { NativeRoot } from './src-gpui/src/private/desktop/nativeRoot/NativeRoot';
+export type { NativeRootProps } from './src-gpui/src/private/desktop/nativeRoot/NativeRoot';
+export { NativeVirtualList } from './src-gpui/src/private/desktop/nativeRoot/NativeVirtualList';
+export type {
+  NativeVirtualListHandle,
+  NativeVirtualListProps,
+  ScrollAlign,
+} from './src-gpui/src/private/desktop/nativeRoot/NativeVirtualList';
+export { NativeSlot } from './src-gpui/src/private/desktop/nativeRoot/NativeSlot';
+export type { NativeSlotProps } from './src-gpui/src/private/desktop/nativeRoot/NativeSlot';
+
 export {
   ShortcutScope,
   useShortcut,

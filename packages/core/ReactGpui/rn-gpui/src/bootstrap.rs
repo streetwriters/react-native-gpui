@@ -542,6 +542,10 @@ pub(crate) enum MainEvent {
         command: u32,
         args: Vec<crate::host_component::HostArg>,
     },
+    NativeRootOps {
+        root: u32,
+        payload: String,
+    },
     DevMenuShow,
     DevSetting {
         name: String,
@@ -1205,6 +1209,13 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 .into_iter()
                 .map(crate::host_component::HostArg::from_ffi)
                 .collect(),
+        });
+    }));
+    let native_root_tx = tx.clone();
+    let _ = rn_gpui_sys::NATIVE_ROOT_OPS_HANDLER.set(Box::new(move |root, payload| {
+        let _ = native_root_tx.send_blocking(MainEvent::NativeRootOps {
+            root,
+            payload: payload.to_string(),
         });
     }));
     let accessibility_focus_tx = tx.clone();
@@ -2647,6 +2658,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                                 });
                             });
                         }
+                    }
+                    MainEvent::NativeRootOps { root, payload } => {
+                        let _ = cx.update(|cx| crate::builtins::native_root::apply_ops(cx, root, &payload));
                     }
                     MainEvent::HostCommand { tag, command, args } => {
                         let target = {

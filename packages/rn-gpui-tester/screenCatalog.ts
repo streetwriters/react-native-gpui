@@ -156,6 +156,48 @@ export const screens = [
     fixture: 'SurfaceProbeFixture',
   },
   {
+    id: 'native-root-dev',
+    title: 'Fast Refresh and render errors inside a native tree',
+    group: 'Views',
+    fixture: 'NativeRootDevFixture',
+  },
+  {
+    id: 'native-virtual-list',
+    title: 'A virtual list in a native tree',
+    group: 'Views',
+    fixture: 'NativeVirtualListFixture',
+  },
+  {
+    id: 'native-slot-load',
+    title: 'A native slot holding a thousand React Native views',
+    group: 'Views',
+    fixture: 'NativeSlotLoadFixture',
+  },
+  {
+    id: 'native-slot',
+    title: 'React Native content inside the slots of a native tree',
+    group: 'Views',
+    fixture: 'NativeSlotFixture',
+  },
+  {
+    id: 'native-matrix',
+    title: 'Native trees under each kind of React Native parent',
+    group: 'Views',
+    fixture: 'NativeMatrixFixture',
+  },
+  {
+    id: 'native-root-load',
+    title: 'A native tree of a thousand instances',
+    group: 'Views',
+    fixture: 'NativeRootLoadFixture',
+  },
+  {
+    id: 'native-root',
+    title: 'A native tree built by a second reconciler',
+    group: 'Views',
+    fixture: 'NativeRootFixture',
+  },
+  {
     id: 'mixed-views',
     title: 'React content inside host components',
     group: 'Views',

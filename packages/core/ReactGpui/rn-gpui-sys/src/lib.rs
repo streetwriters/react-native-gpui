@@ -316,6 +316,8 @@ pub mod ffi {
         fn rn_gpui_on_wheel_done(id: u64, prevented: bool);
         /// Whether scrollers are drawn the legacy way, always shown.
         fn rn_gpui_scroller_legacy() -> bool;
+        /// A batch of operations for a native tree, as JSON, from JavaScript.
+        fn rn_gpui_native_root_ops(root: u32, ops: &str);
         /// Measures a host component under a constraint on the layout thread.
         /// `props` is the address of the node's props handle.
         fn rn_gpui_host_measure(
@@ -668,6 +670,8 @@ pub static TEXT_INPUT_COMMAND_HANDLER: OnceLock<TextInputCommandHandler> = OnceL
 pub static TEXT_INPUT_CLEAR_HANDLER: OnceLock<TextInputClearHandler> = OnceLock::new();
 pub static WHEEL_DONE_HANDLER: OnceLock<WheelDoneHandler> = OnceLock::new();
 pub static SCROLLER_LEGACY_HANDLER: OnceLock<ScrollerLegacyHandler> = OnceLock::new();
+pub type NativeRootOpsHandler = Box<dyn Fn(u32, &str) + Send + Sync>;
+pub static NATIVE_ROOT_OPS_HANDLER: OnceLock<NativeRootOpsHandler> = OnceLock::new();
 pub type HostMeasureHandler = Box<dyn Fn(u32, usize, [f32; 4]) -> Option<(f32, f32)> + Send + Sync>;
 pub static HOST_MEASURE_HANDLER: OnceLock<HostMeasureHandler> = OnceLock::new();
 pub static BUILTIN_COMMAND_HANDLER: OnceLock<BuiltinCommandHandler> = OnceLock::new();
@@ -824,6 +828,12 @@ fn rn_gpui_host_measure(
             measured: true,
         },
         None => ffi::HostMeasure::default(),
+    }
+}
+
+fn rn_gpui_native_root_ops(root: u32, ops: &str) {
+    if let Some(handler) = NATIVE_ROOT_OPS_HANDLER.get() {
+        handler(root, ops);
     }
 }
 
