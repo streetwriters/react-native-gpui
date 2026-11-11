@@ -1892,6 +1892,20 @@ impl RNNodeView {
         }
     }
 
+    /// How far the window's own coordinates are from this node's: the menu bar
+    /// and the frame the window draws around its content.
+    pub(crate) fn window_offset(&self) -> (f32, f32) {
+        if self.surface_is_placed() {
+            return (0.0, 0.0);
+        }
+        let insets = crate::desktop::window_frame::insets_of(self.surface_id);
+        (
+            insets.left,
+            crate::desktop::gpui_menu::menu_bar_inset_for_window_id(self.surface_id as u32)
+                + insets.top,
+        )
+    }
+
     pub fn absolute_origin(&self, _cx: &App) -> Point<Pixels> {
         let (mut x, mut y) = self.inherited.origin_unscrolled;
         for link in self.inherited.scrollers.iter() {

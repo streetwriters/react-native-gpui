@@ -176,10 +176,13 @@ impl NativeComponent for Placeholder {
                             let shift = host.read(cx).slot_shift.clone();
                             if let Some(shift) = shift {
                                 let origin = host.read(cx).absolute_origin(cx);
+                                let (offset_x, offset_y) = host.read(cx).window_offset();
                                 let current = shift.get();
                                 let next = point(
-                                    f32::from(origin.x) + current.x - f32::from(bounds.origin.x),
-                                    f32::from(origin.y) + current.y - f32::from(bounds.origin.y),
+                                    f32::from(origin.x) + current.x
+                                        - (f32::from(bounds.origin.x) - offset_x),
+                                    f32::from(origin.y) + current.y
+                                        - (f32::from(bounds.origin.y) - offset_y),
                                 );
                                 if next != current {
                                     shift.set(next);
