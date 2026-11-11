@@ -10,7 +10,6 @@ import {
   expect,
   test,
 } from 'vitest';
-import { traceDisplays } from './ci-trace';
 import { FITS_SMALL_DISPLAY, scrollIntoView } from './scroll-into-view';
 import {
   launchApp,
@@ -1263,7 +1262,6 @@ describe('font scale', () => {
       offscreen: true,
     });
     await scaled.setWindowSize(1900, FITS_SMALL_DISPLAY ?? 1000);
-    await traceDisplays(scaled, 'core-components font scale');
     await desktopExpect(
       scaled.getByTestId('tester-screen-core-components'),
     ).toBeVisible();

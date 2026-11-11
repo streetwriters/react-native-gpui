@@ -4,7 +4,6 @@ import path from 'node:path';
 import { PNG } from 'pngjs';
 import { expect, test } from 'vitest';
 import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
-import { traceDisplays } from './ci-trace';
 
 /**
  * Native views as host components, end to end. The fixture components create
@@ -70,7 +69,6 @@ async function launch(
   app.allowErrors(/wgpu_hal::gles::egl\] EGL 'eglInitialize'/u);
   await app.setWindowSize(1024, 768);
   await app.waitForIdle();
-  await traceDisplays(app, module);
   return app;
 }
 
@@ -341,33 +339,6 @@ async function composited() {
   };
 }
 
-async function traceCompositor(
-  label: string,
-  points: Record<string, { x: number; y: number }>,
-) {
-  if (!process.env.CI) return;
-  const samples: string[] = [];
-  const started = Date.now();
-  for (let step = 0; step < 6; step += 1) {
-    const pixel = await composited();
-    samples.push(
-      `${Date.now() - started}ms ` +
-        Object.entries(points)
-          .map(([name, at]) => `${name}=${pixel(at.x, at.y)}`)
-          .join(' '),
-    );
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  const meta = await app.compositeScreenshot();
-  const image = PNG.sync.read(meta.png);
-  const state = await app.windowState(1);
-  const surfaces = await app.nativeSurfaces();
-  const idle = await app.idleStatus();
-  console.log(
-    `COMPOSITORTRACE ${label} capture=${JSON.stringify({ scale: meta.scale, viewport: meta.viewport, width: image.width, height: image.height, clientFrame: CLIENT_FRAME })} window=${JSON.stringify({ bounds: state.bounds, scale: state.scaleFactor, nativeFrame: state.nativeFrame, visible: state.isVisible })} surfaces=${JSON.stringify(surfaces)} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}\n${samples.join('\n')}`,
-  );
-}
-
 function expectColor(actual: Rgb, srgb: Rgb) {
   // A Mac's capture is in its display's colour space: Display P3 on a
   // wide-gamut screen, sRGB on a virtual display such as a CI runner's.
@@ -435,11 +406,6 @@ test.skipIf(!probeOs || !screenReadable)(
       y: host.y + host.height - 30,
     };
 
-    await traceCompositor('first', {
-      clear,
-      hostTopLeft: { x: host.x + 10, y: host.y + 10 },
-      hostCentre: { x: host.x + host.width / 2, y: host.y + host.height / 2 },
-    });
     let pixel = await composited();
     expectColor(pixel(clear.x, clear.y), PROBE);
 

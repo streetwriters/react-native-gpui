@@ -10,7 +10,6 @@ import {
   expect,
   test,
 } from 'vitest';
-import { traceDisplays } from './ci-trace';
 import { FITS_SMALL_DISPLAY, scrollIntoView } from './scroll-into-view';
 import {
   launchApp,
@@ -330,7 +329,6 @@ describe('Settings', () => {
       force: true,
     });
     await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
-    await traceDisplays(app, 'apis settings');
     await pressBottom('settings-save');
     await poll(async () => (await text('settings-result')) !== 'none');
     // The repeated `dark` is no change; the cleared watch hears nothing more.
