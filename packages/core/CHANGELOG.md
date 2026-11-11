@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Builds against gpui-fast `b015e2b`: on Linux, windows report themselves active while the test driver runs the app, so focus and blur reach the elements of a test window, as on macOS.
 - `RN_GPUI_TEST_SCALE_FACTOR` is honoured on Linux too: the runtime hands it to the X11 backend as `GPUI_X11_SCALE_FACTOR` before the platform starts, so a test run gets the same 2x display it gets on macOS.
 - The test driver's `windowReveal` reports an alpha of 1 on platforms without a reveal alpha, instead of `null`.
 - A native slot corrects for the offset of the window's frame (the menu bar and the frame a Linux window draws), so its React Native content is placed and hit where the slot is.

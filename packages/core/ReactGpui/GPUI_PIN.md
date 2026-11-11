@@ -11,7 +11,9 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `9087620` (2026-11-11: `d5041b0` plus two commits for react-native-gpui. `d5041b0` is Longbridge's
+- Commit: `b015e2b` (2026-11-11: `9087620` plus windows reporting themselves active on Linux while the
+  test driver runs the app, as macOS already did, so focus and blur reach elements of a test window
+  that is never mapped or focused. `9087620` is `d5041b0` plus two commits for react-native-gpui. `d5041b0` is Longbridge's
   gpui-fast `main` merged into `rn-gpui-linux`, with upstream's public API kept for `ContentMask`,
   `Hitbox` and `paint_svg`, GPUI Kit 0.9.1 and gpui-pre 0.3.12 tracked, and the hover freeze (the end
   of a freeze draws the window again without refreshing it). The two commits: a key the focused input
