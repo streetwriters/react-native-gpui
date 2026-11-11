@@ -50,11 +50,27 @@ async function wheel(
 ) {
   await app.scroll(await tag(testID), dx, dy, 1, phase, 0, options);
   await app.waitForIdle();
+  await trace(`after wheel ${testID} ${dy}`);
+}
+
+async function trace(label: string) {
+  if (!process.env.CI) return;
+  const series: string[] = [];
+  const started = Date.now();
+  for (let step = 0; step < 12; step += 1) {
+    series.push(`${Date.now() - started}:${await text('wheel-offset')}`);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  const idle = await app.idleStatus();
+  console.log(
+    `WHEELTRACE ${label} offsets=${series.join(' ')} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}`,
+  );
 }
 
 async function reset() {
   await app.scroll(await tag('wheel-scroll'), 0, 5000);
   await app.waitForIdle();
+  await trace('after reset');
 }
 
 test('wheel deltas reach the handler with the web signs and the pointer position', async () => {
@@ -102,6 +118,7 @@ test('a view with no wheel handler on its path scrolls the ScrollView without wa
   await reset();
   await app.scroll(await tag('wheel-scroll'), 0, -30);
   await app.waitForIdle();
+  await trace('after direct scroll');
   expect(Number(await text('wheel-offset'))).toBeGreaterThan(0);
 });
 
