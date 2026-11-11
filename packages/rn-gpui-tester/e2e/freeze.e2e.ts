@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import { traceDisplays, traceIdle } from './ci-trace';
 import {
   launchApp,
   expect as desktopExpect,
@@ -25,13 +24,11 @@ beforeAll(async () => {
   });
   await app.setWindowSize(1024, 768);
   await desktopExpect(app.getByTestId('tester-screen-freeze')).toBeVisible();
-  await traceDisplays(app, 'freeze');
-  await traceIdle(app, 'freeze after launch');
 });
 
 afterAll(() => app?.close());
 
-test('the app settles after moving through several frozen routes', async () => {
+test('hidden routes stay frozen while the visible one ticks, and the app settles after', async () => {
   for (const route of [
     'notebook',
     'tag',
@@ -45,9 +42,22 @@ test('the app settles after moving through several frozen routes', async () => {
     'home',
   ]) {
     await app.getByTestId(`go-${route}`).click();
-    await traceIdle(app, `after go-${route}`, 1000);
     await app.waitForIdle({ timeout: 8000 });
   }
+  const counts = async () =>
+    Object.fromEntries(
+      ((await app.getByTestId('render-counts').textContent()) ?? '')
+        .trim()
+        .split(' ')
+        .map(entry => entry.split('=')),
+    ) as Record<string, string>;
+  const before = await counts();
+  await app.getByTestId('tick-burst').click();
+  await app.waitForIdle({ timeout: 8000 });
+  const after = await counts();
+  expect(Number(after.home)).toBeGreaterThan(Number(before.home));
+  expect(after.notebook).toBe(before.notebook);
+  expect(after.tag).toBe(before.tag);
   await app.getByTestId('route-home-bump').click();
   await app.waitForIdle({ timeout: 8000 });
   expect(await app.getByTestId('route-home-title').textContent()).toMatch(
@@ -57,7 +67,11 @@ test('the app settles after moving through several frozen routes', async () => {
 
 test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is running', async () => {
   await desktopExpect(app.getByTestId('js-busy')).toBeVisible();
-  const pressed = app.getByTestId('js-busy').click();
+  const [toggle] = await app.query('testID', 'tick-toggle', true);
+  await app.click(toggle.tag);
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const [busy] = await app.query('testID', 'js-busy', true);
+  const pressed = app.click(busy.tag);
   const failure = pressed.then(
     () => undefined,
     (error: unknown) => error,
@@ -74,7 +88,8 @@ test('with RN_GPUI_DEBUG_JS_TASKS the idle probe names the JS task that is runni
   expect(status).toContain('running for');
   expect(status).toContain('queued from');
   await pressed;
-  await app.waitForIdle({ timeout: 8000 });
+  await app.click(toggle.tag);
+  await app.waitForIdle({ timeout: 30_000 });
 });
 
 for (const name of ['activity', 'freeze']) {

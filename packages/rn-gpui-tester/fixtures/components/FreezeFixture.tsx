@@ -15,7 +15,10 @@ import { Freeze } from 'react-freeze';
 
 const listeners = new Set<() => void>();
 let version = 0;
+let ticking = false;
+const renders: Record<string, number> = {};
 setInterval(() => {
+  if (!ticking) return;
   version += 1;
   listeners.forEach(listener => listener());
 }, 100);
@@ -30,18 +33,21 @@ const ROUTES = ['home', 'notebook', 'tag'] as const;
 type Route = (typeof ROUTES)[number];
 
 function Screen({ name }: { name: Route }) {
+  renders[name] = (renders[name] ?? 0) + 1;
   const [count, setCount] = useState(0);
   const external = useSyncExternalStore(subscribe, () => version);
   const [rows, setRows] = useState(40);
   useEffect(() => {
-    const timer = setInterval(() => setRows(value => (value % 5) + 40), 200);
+    const timer = setInterval(() => {
+      if (ticking) setRows(value => (value % 5) + 40);
+    }, 200);
     return () => clearInterval(timer);
   }, []);
   return (
     <View testID={`route-${name}`}>
       <Text
         testID={`route-${name}-title`}
-      >{`${name} ${count} ${external % 2}`}</Text>
+      >{`${name} ${count} ${external}`}</Text>
       <View style={{ height: 120 }}>
         <FlatList
           data={Array.from({ length: 50 + (rows % 5) }, (_, index) => index)}
@@ -60,6 +66,15 @@ function Screen({ name }: { name: Route }) {
         <Text>bump</Text>
       </Pressable>
     </View>
+  );
+}
+
+function RenderCounts() {
+  useSyncExternalStore(subscribe, () => version);
+  return (
+    <Text testID="render-counts">
+      {ROUTES.map(name => `${name}=${renders[name] ?? 0}`).join(' ')}
+    </Text>
   );
 }
 
@@ -124,6 +139,26 @@ export default function FreezeFixture() {
       >
         busy
       </Text>
+      <Text
+        testID="tick-burst"
+        onPress={() => {
+          ticking = true;
+          setTimeout(() => {
+            ticking = false;
+          }, 800);
+        }}
+      >
+        tick
+      </Text>
+      <Text
+        testID="tick-toggle"
+        onPress={() => {
+          ticking = !ticking;
+        }}
+      >
+        ticking
+      </Text>
+      <RenderCounts />
       <HideCycle />
       {ROUTES.map(name => (
         <Text key={name} testID={`go-${name}`} onPress={() => go(name)}>
