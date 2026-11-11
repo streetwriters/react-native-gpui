@@ -33,6 +33,22 @@ pub(crate) fn deceleration_from(props: &Value) -> f32 {
     rate.clamp(0.9, 0.9999)
 }
 
+/// Adds a wheel delta to the samples of the flick in progress. A delta that
+/// reverses the direction starts a new flick, so scrolling back after a long
+/// scroll is not carried on in the direction it came from.
+pub(crate) fn push_sample(samples: &mut Vec<(Instant, f32)>, at: Instant, delta: f32) {
+    if samples
+        .last()
+        .is_some_and(|(_, last)| last.signum() != delta.signum())
+    {
+        samples.clear();
+    }
+    samples.push((at, delta));
+    if samples.len() > 32 {
+        samples.remove(0);
+    }
+}
+
 /// The speed at the end of `samples`, in points per millisecond with the sign
 /// of the deltas, or `None` when it was not a flick.
 pub(crate) fn flick_speed(samples: &[(Instant, f32)]) -> Option<f32> {
@@ -87,6 +103,22 @@ mod tests {
         );
         assert_eq!(deceleration_from(&json!({"decelerationRate": 0.95})), 0.95);
         assert_eq!(deceleration_from(&json!({"decelerationRate": 5.0})), 0.9999);
+    }
+
+    #[test]
+    fn a_reversal_starts_a_new_flick() {
+        let start = Instant::now();
+        let mut samples = Vec::new();
+        for i in 0..4 {
+            push_sample(&mut samples, at(start, i * 8), -500.0);
+        }
+        push_sample(&mut samples, at(start, 40), 30.0);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(flick_speed(&samples), None);
+        for i in 0..40 {
+            push_sample(&mut samples, at(start, 48 + i), 30.0);
+        }
+        assert_eq!(samples.len(), 32);
     }
 
     #[test]

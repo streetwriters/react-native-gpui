@@ -6315,10 +6315,11 @@ impl Scroller {
                     } else {
                         gesture.wheel = true;
                         if matches!(event.delta, gpui::ScrollDelta::Pixels(_)) {
-                            gesture.samples.push((std::time::Instant::now(), along));
-                            if gesture.samples.len() > 32 {
-                                gesture.samples.remove(0);
-                            }
+                            crate::scroll_momentum::push_sample(
+                                &mut gesture.samples,
+                                std::time::Instant::now(),
+                                along,
+                            );
                         }
                     }
                 }
