@@ -406,10 +406,10 @@ test('create-library writes version requirements, not crate paths', () => {
   const outer = fs.mkdtempSync(nodePath.join(repoRoot, '.local', 'scaffold-'));
   try {
     createLibrary({
-      libraryName: 'fs',
+      libraryName: 'example',
       type: 'rust',
       destination: outer,
-      packageName: '@react-native-gpui/fs',
+      packageName: '@react-native-gpui/example',
     });
     const manifest = fs.readFileSync(
       nodePath.join(outer, 'desktop/Cargo.toml'),

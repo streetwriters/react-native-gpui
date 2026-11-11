@@ -45,28 +45,6 @@ export const renderScreen: Record<
       require('./components/PanResponderFixture').default,
       props,
     ),
-  gestures: props =>
-    React.createElement(
-      require('./components/NativeGestureFixture').default,
-      props,
-    ),
-  'gesture-tap': props =>
-    React.createElement(
-      require('./components/NativeGestureBasicFixture').default,
-      props,
-    ),
-  'gesture-buttons': props =>
-    React.createElement(
-      require('./components/GestureButtonsFixture').default,
-      props,
-    ),
-  'gesture-relations': props =>
-    React.createElement(
-      require('./components/GestureRelationsFixture').default,
-      props,
-    ),
-  'gesture-e2e': props =>
-    React.createElement(require('./components/GestureFixture').default, props),
   transforms: props =>
     React.createElement(
       require('./components/TransformFixture').default,
@@ -77,8 +55,6 @@ export const renderScreen: Record<
       require('./components/NativeAnimatedFixture').default,
       props,
     ),
-  reanimated: props =>
-    React.createElement(require('./components/ReanimatedDemo').default, props),
   frames: props =>
     React.createElement(require('./components/FrameFixture').default, props),
   retention: props =>
@@ -86,61 +62,6 @@ export const renderScreen: Record<
       require('./components/RetentionFixture').default,
       props,
     ),
-  tabs: props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'tabs',
-    }),
-  stack: props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'stack',
-    }),
-  drawer: props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'drawer',
-    }),
-  'native-stack': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack',
-    }),
-  'native-stack-hidden': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-hidden',
-    }),
-  'native-stack-lifecycle': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-lifecycle',
-    }),
-  'native-stack-native-back': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-native-back',
-    }),
-  'native-stack-modal': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-modal',
-    }),
-  'native-stack-transparent-modal': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-transparent-modal',
-    }),
-  'native-stack-overlay': props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'native-stack-overlay',
-    }),
-  nested: props =>
-    React.createElement(require('./navigation/NavigationFixture').default, {
-      ...props,
-      scenario: 'nested',
-    }),
   'rust-turbomodule': props =>
     React.createElement(
       require('./components/RustTurboModuleFixture').default,
@@ -163,13 +84,6 @@ export const renderScreen: Record<
       require('./components/HostComponentsFixture').default,
       props,
     ),
-  'pdf-viewer': props =>
-    React.createElement(
-      require('./components/PdfViewerFixture').default,
-      props,
-    ),
-  'pdf-tile': props =>
-    React.createElement(require('./components/PdfTileFixture').default, props),
   'fixture-module': props =>
     React.createElement(
       require('./components/FixtureModuleProbeFixture').default,
@@ -194,16 +108,6 @@ export const renderScreen: Record<
     React.createElement(require('./components/NativeViewFixture').default, {
       ...props,
       webView: true,
-    }),
-  svg: props =>
-    React.createElement(require('./components/SvgFixture').default, {
-      ...props,
-      ...(props.testMode ? { uri: 'http://127.0.0.1:43181/svg' } : {}),
-    }),
-  fonts: props =>
-    React.createElement(require('./components/FontFixture').default, {
-      ...props,
-      fontSource: require('../desktop/assets/fonts/Inter-Regular.ttf'),
     }),
   networking: props =>
     React.createElement(
@@ -271,11 +175,6 @@ export const renderScreen: Record<
   'desktop-menu': props =>
     React.createElement(
       require('./components/DesktopMenuFixture').default,
-      props,
-    ),
-  'css-animations': props =>
-    React.createElement(
-      require('./components/CssAnimationsFixture').default,
       props,
     ),
   network: props =>

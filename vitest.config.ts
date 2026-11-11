@@ -16,8 +16,6 @@ export default mergeConfig(
         'packages/core/**/*.test.js',
         'packages/core/**/*.test.mjs',
         'packages/core/**/*.test.ts',
-        'modules/*/desktop/**/*.test.mjs',
-        'modules/pdf/src/**/*.test.ts',
       ],
     },
   }),

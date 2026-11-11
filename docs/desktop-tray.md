@@ -60,7 +60,7 @@ Without a reported click the popover is near the icon, not on it: where along th
 
 ## Starting hidden
 
-An app launched with the argument `--hidden` opens its main window without showing it or taking focus. Together with a tray icon this is how an app starts at login in the background: the tray click, the Dock icon (macOS) or a second launch of a [single-instance](desktop-json#singleinstance) app brings the window up. [`setLaunchAtLogin(true, { hidden: true })`](desktop-system#start-at-login) registers the app with that argument. The argument is the `START_HIDDEN_ARGUMENT` constant of the Rust crate.
+An app launched with the argument `--hidden` opens its main window without showing it or taking focus. Together with a tray icon this is how an app starts at login in the background: the tray click, the Dock icon (macOS) or a second launch of a [single-instance](desktop-json#singleinstance) app brings the window up. [`setLaunchAtLogin(true, { hidden: true })`](https://github.com/streetwriters/react-native-gpui-modules/blob/main/modules/system/docs/system.md#start-at-login) registers the app with that argument. The argument is the `START_HIDDEN_ARGUMENT` constant of the Rust crate.
 
 ## Clicks
 

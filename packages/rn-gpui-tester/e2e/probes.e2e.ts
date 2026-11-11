@@ -17,7 +17,7 @@ beforeAll(async () => {
   app = await launchApp({
     executable,
     env: {
-      RN_GPUI_MODULE: 'NavigationFixture',
+      RN_GPUI_MODULE: 'E2EProbesFixture',
       RN_GPUI_BUNDLE: path.resolve(
         'packages/rn-gpui-tester/desktop/build/test-e2e.bundle',
       ),
@@ -40,7 +40,7 @@ afterAll(() => {
   app?.disconnect();
 });
 
-test('starts the real RN app and navigates through Fabric input', async () => {
+test('starts the real RN app and drives idle tracking, probes and actionability through Fabric input', async () => {
   try {
     await app.setAnimationsEnabled(false);
     await app.setWindowSize(1024, 768);
@@ -225,20 +225,6 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     if (!timerBusy) throw new Error('setTimeout was not tracked as busy');
     await app.waitForIdle({ timeout: 3_000 });
     await expect(app.getByTestId('e2e-timer-result')).toHaveText('timer-fired');
-    const uiStart = await app.query('testID', 'e2e-worklet-start', true);
-    await app.click(uiStart[0].tag);
-    let workletTimeout = '';
-    try {
-      await app.waitForIdle({ timeout: 500 });
-    } catch (error) {
-      workletTimeout = String(error);
-    }
-    if (!/[1-9]\d* pending module work item/u.test(workletTimeout))
-      throw new Error(`UI loop was not tracked: ${workletTimeout}`);
-    await app.waitForIdle({ ignore: ['animations'] });
-    const uiStop = await app.query('testID', 'e2e-worklet-stop', true);
-    await app.click(uiStop[0].tag);
-    await app.waitForIdle();
     await app.reload();
     await expect(app.getByText('Home')).toBeVisible();
     await expect(app.getByTestId('e2e-text-input')).toHaveValue('');
@@ -246,7 +232,7 @@ test('starts the real RN app and navigates through Fabric input', async () => {
     for (let cycle = 0; cycle < 3; cycle++) {
       await app.getByText('Open details').click();
       await expect(app.getByTestId('Details 1-title')).toBeVisible();
-      await app.press('escape');
+      await app.press('mod-[');
       await app.waitForIdle();
       await expect(app.getByTestId('Home-title')).toBeVisible();
       await app.reload();

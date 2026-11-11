@@ -15,132 +15,18 @@ export function registerScreens(testMode = false) {
     AppRegistry.registerComponent(`RNGPUITester--${screen.id}`, () => () => (
       <TesterApp screen={screen.id} testMode={testMode} />
     ));
-    if (screen.fixture !== 'NavigationFixture') {
-      AppRegistry.registerComponent(
-        screen.fixture,
-        () => (props: ScreenProps) => (
-          <>{renderScreen[screen.id]({ ...props, testMode })}</>
-        ),
-      );
-    }
+    AppRegistry.registerComponent(
+      screen.fixture,
+      () => (props: ScreenProps) => (
+        <>{renderScreen[screen.id]({ ...props, testMode })}</>
+      ),
+    );
   }
   AppRegistry.registerComponent(
-    'NavigationFixture',
-    () => (props: ScreenProps) =>
+    'E2EProbesFixture',
+    () => () =>
       React.createElement(
-        require('./fixtures/navigation/NavigationFixture').default,
-        { ...props, testMode },
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIFontFixture',
-    () => (props: ScreenProps) => (
-      <>{renderScreen.fonts({ ...props, testMode })}</>
-    ),
-  );
-  AppRegistry.registerComponent(
-    'GPUISvgFixture',
-    () => (props: ScreenProps) => (
-      <>{renderScreen.svg({ ...props, testMode })}</>
-    ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIFileSystemFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/FileSystemFixture').FileSystemFixture,
-        { ...props, testMode },
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUISvgEdgeFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/SvgEdgeFixture').SvgEdgeFixture,
-        props,
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUISpellcheckFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/SpellcheckFixture').SpellcheckFixture,
-        props,
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIWebauthnFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/WebauthnFixture').WebauthnFixture,
-        props,
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUISvgFilterFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/SvgFilterFixture').SvgFilterFixture,
-        props,
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIImageManipulatorFixture',
-    () => (props: ScreenProps & { source?: string }) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/ImageManipulatorFixture')
-          .ImageManipulatorFixture,
-        { ...props, testMode },
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIUpdaterFixture',
-    () =>
-      (
-        props: ScreenProps & {
-          feedUrl?: string;
-          mode?: 'check' | 'install';
-          currentVersion?: string;
-        },
-      ) =>
-        // Not in the screen catalog: only the e2e launches it, by this name.
-        React.createElement(
-          require('./fixtures/components/UpdaterFixture').UpdaterFixture,
-          { ...props, testMode },
-        ),
-  );
-  AppRegistry.registerComponent(
-    'GPUISystemFixture',
-    () => (props: ScreenProps & { restartMarker?: string }) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/SystemFixture').SystemFixture,
-        { ...props, testMode },
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUIDownloadFixture',
-    () => (props: ScreenProps & { server?: string }) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/DownloadFixture').DownloadFixture,
-        { ...props, testMode },
-      ),
-  );
-  AppRegistry.registerComponent(
-    'GPUINotificationsFixture',
-    () => (props: ScreenProps) =>
-      // Not in the screen catalog: only the e2e launches it, by this name.
-      React.createElement(
-        require('./fixtures/components/NotificationsFixture')
-          .NotificationsFixture,
-        { ...props, testMode },
+        require('./fixtures/components/E2EProbesFixture').default,
       ),
   );
   AppRegistry.registerComponent(

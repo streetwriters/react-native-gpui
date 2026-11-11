@@ -10,15 +10,14 @@
 // provenance, which only CI can sign. --stage uses `npm stage publish`: each
 // version waits for a maintainer to approve it with 2FA (`npm stage approve
 // <id>` or npmjs.com), and no GitHub releases are created; run again without
-// --stage after approval to create them. Modules are published before
-// packages, each group in dependency order. A rerun skips what is already on
+// --stage after approval to create them. Packages are published in dependency
+// order. A rerun skips what is already on
 // npm, already staged and already released. --skip-ci publishes without a
 // green CI run on HEAD.
 //
 // cli, codegen, core, hermes and testing are versioned
-// `0.<react-native minor>.<patch>[-alpha.N]`; a module takes the version of the
-// library it adapts, or `0.0.<patch>` when it is standalone. Dependencies between
-// our packages are exact.
+// `0.<react-native minor>.<patch>[-alpha.N]`. Dependencies between our packages
+// are exact. The modules are versioned and published from react-native-gpui-modules.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -74,31 +73,11 @@ export function dependencyOrder(packages) {
   return ordered;
 }
 
-/** The packages that follow React Native: everything outside `modules/`. */
-const FOLLOWS_REACT_NATIVE = new Set([
-  '@react-native-gpui/cli',
-  '@react-native-gpui/codegen',
-  '@react-native-gpui/core',
-  '@react-native-gpui/hermes',
-  '@react-native-gpui/testing',
-]);
-
-/** The upstream package a module adapts, named `react-native-<module>`. */
-function upstreamPeer(manifest) {
-  const short = manifest.name.split('/').pop();
-  const name = `react-native-${short}`;
-  const range = manifest.peerDependencies?.[name];
-  return range === undefined ? undefined : { name, range };
-}
-
 /**
  * The problems with the packages' versions, as readable lines.
  *
- * - cli, codegen, core, hermes and testing are `0.<minor>.<patch>[-alpha.N]` for
- *   the React Native minor in their peer dependency.
- * - A module that adapts a library (it has a `react-native-<module>` peer) takes
- *   that library's `<major>.<minor>`.
- * - Any other module is standalone and is `0.0.<patch>[-alpha.N]`.
+ * - Every package is `0.<minor>.<patch>[-alpha.N]` for the React Native minor in
+ *   its peer dependency.
  * - A dependency on another of our packages is exactly that package's version.
  */
 export function versionProblems(packages) {
@@ -109,51 +88,24 @@ export function versionProblems(packages) {
   const tail = '(?:-alpha\\.\\d+)?';
   for (const { manifest } of packages) {
     const { name, version } = manifest;
-    if (FOLLOWS_REACT_NATIVE.has(name)) {
-      const match = new RegExp(`^0\\.(\\d+)\\.\\d+${tail}$`, 'u').exec(version);
-      if (match === null) {
-        problems.push(
-          `${name}: version ${version} is not 0.<react-native minor>.<patch>[-alpha.N]`,
-        );
-      } else {
-        const peer = manifest.peerDependencies?.['react-native'];
-        if (peer !== undefined) {
-          const peerMinor = /^0\.(\d+)\.x$/u.exec(peer)?.[1];
-          if (peerMinor === undefined) {
-            problems.push(
-              `${name}: peer react-native ${peer} is not 0.<minor>.x`,
-            );
-          } else if (peerMinor !== match[1]) {
-            problems.push(
-              `${name}: version ${version} does not match peer react-native ${peer}`,
-            );
-          }
-        }
-      }
+    const match = new RegExp(`^0\\.(\\d+)\\.\\d+${tail}$`, 'u').exec(version);
+    if (match === null) {
+      problems.push(
+        `${name}: version ${version} is not 0.<react-native minor>.<patch>[-alpha.N]`,
+      );
     } else {
-      const upstream = upstreamPeer(manifest);
-      if (upstream !== undefined) {
-        const peer = /^(\d+)\.(\d+)\.x$/u.exec(upstream.range);
-        const match = new RegExp(`^(\\d+)\\.(\\d+)\\.\\d+${tail}$`, 'u').exec(
-          version,
-        );
-        if (peer === null) {
+      const peer = manifest.peerDependencies?.['react-native'];
+      if (peer !== undefined) {
+        const peerMinor = /^0\.(\d+)\.x$/u.exec(peer)?.[1];
+        if (peerMinor === undefined) {
           problems.push(
-            `${name}: peer ${upstream.name} ${upstream.range} is not <major>.<minor>.x`,
+            `${name}: peer react-native ${peer} is not 0.<minor>.x`,
           );
-        } else if (
-          match === null ||
-          match[1] !== peer[1] ||
-          match[2] !== peer[2]
-        ) {
+        } else if (peerMinor !== match[1]) {
           problems.push(
-            `${name}: version ${version} does not match peer ${upstream.name} ${upstream.range}`,
+            `${name}: version ${version} does not match peer react-native ${peer}`,
           );
         }
-      } else if (!new RegExp(`^0\\.0\\.\\d+${tail}$`, 'u').test(version)) {
-        problems.push(
-          `${name}: standalone module version ${version} is not 0.0.<patch>[-alpha.N]`,
-        );
       }
     }
     for (const field of [
@@ -177,14 +129,9 @@ export function versionProblems(packages) {
 const REPOSITORY = 'streetwriters/react-native-gpui';
 const DOCS = 'https://streetwriters.github.io/react-native-gpui/';
 
-/** Modules first, then packages, each group in dependency order. */
+/** Packages in dependency order. */
 export function publishOrder(packages) {
-  const isModule = entry =>
-    path.relative(repoRoot, entry.dir).split(path.sep)[0] === 'modules';
-  return [
-    ...dependencyOrder(packages.filter(isModule)),
-    ...dependencyOrder(packages.filter(entry => !isModule(entry))),
-  ];
+  return dependencyOrder(packages);
 }
 
 /** The fields npm and the registry page need, as readable lines. */

@@ -969,7 +969,7 @@ fn emit_rpaths(path: &Path) {
 ///
 /// A package's location must never be derived by counting parent directories:
 /// this repository keeps its own packages at different depths (`packages/core`,
-/// `modules/fonts`), while an app has every one of them in `node_modules`.
+/// `packages/hermes`), while an app has every one of them in `node_modules`.
 /// Walking up is the only rule that holds in both, and it also covers a package
 /// hoisted to an ancestor `node_modules` by a workspace.
 fn find_node_module(start: &Path, name: &str) -> Option<PathBuf> {

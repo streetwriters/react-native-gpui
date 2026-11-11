@@ -456,7 +456,7 @@ jobs:
         run: |
           $dirs = @("$PWD/packages/hermes/bin/win32-x64") + (Get-ChildItem target/rn-gpui-cmake -Recurse -Filter jsi.dll -ErrorAction SilentlyContinue | ForEach-Object { $_.DirectoryName })
           $env:PATH = (($dirs | Select-Object -Unique) -join ';') + ';' + $env:PATH
-          foreach ($prefix in 'react_native_gpui', 'rn_gpui_svg', 'rn_gpui_screens') {
+          foreach ($prefix in 'react_native_gpui') {
             $exe = Get-ChildItem target/debug/deps -Filter "$prefix-*.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
             if (-not $exe) { continue }
             Write-Host "== $($exe.Name)"

@@ -13,5 +13,5 @@ All upstream props work as documented in the [React Native Text reference](https
 
 ## Differences
 
-- The generic families `system-ui`, `ui-sans-serif`, `ui-serif` and `ui-monospace` resolve to the system fonts. See [Fonts](desktop-fonts) to load your own.
+- The generic families `system-ui`, `ui-sans-serif`, `ui-serif` and `ui-monospace` resolve to the system fonts. See [Fonts](https://github.com/streetwriters/react-native-gpui-modules/blob/main/modules/fonts/docs/fonts.md) to load your own.
 - Selection works with the mouse and the keyboard shortcuts of each platform when `selectable` is set.

@@ -48,12 +48,6 @@ export const screens = [
     fixture: 'HoverFixture',
   },
   {
-    id: 'css-animations',
-    title: 'CSS animations',
-    group: 'Views',
-    fixture: 'CssAnimationsFixture',
-  },
-  {
     id: 'network',
     title: 'Network settings',
     group: 'Platform',
@@ -342,36 +336,6 @@ export const screens = [
     fixture: 'PanResponderFixture',
   },
   {
-    id: 'gestures',
-    title: 'Native pan + worklets',
-    group: 'Input',
-    fixture: 'NativeGestureFixture',
-  },
-  {
-    id: 'gesture-tap',
-    title: 'Tap and long press',
-    group: 'Input',
-    fixture: 'NativeGestureBasicFixture',
-  },
-  {
-    id: 'gesture-buttons',
-    title: 'Gesture buttons',
-    group: 'Input',
-    fixture: 'GestureButtonsFixture',
-  },
-  {
-    id: 'gesture-relations',
-    title: 'Gesture relations',
-    group: 'Input',
-    fixture: 'GestureRelationsFixture',
-  },
-  {
-    id: 'gesture-e2e',
-    title: 'Gesture test fixture',
-    group: 'Input',
-    fixture: 'GestureFixture',
-  },
-  {
     id: 'transforms',
     title: 'Transforms',
     group: 'Animation',
@@ -384,12 +348,6 @@ export const screens = [
     fixture: 'NativeAnimatedFixture',
   },
   {
-    id: 'reanimated',
-    title: 'Reanimated + Worklets',
-    group: 'Animation',
-    fixture: 'ReanimatedDemo',
-  },
-  {
     id: 'frames',
     title: 'Frame scheduling',
     group: 'Animation',
@@ -400,72 +358,6 @@ export const screens = [
     title: 'View retention',
     group: 'Animation',
     fixture: 'RetentionFixture',
-  },
-  {
-    id: 'tabs',
-    title: 'Tabs',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'stack',
-    title: 'JS stack',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'drawer',
-    title: 'Drawer',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack',
-    title: 'Native stack',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-hidden',
-    title: 'Native stack: hidden header',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-lifecycle',
-    title: 'Native stack: lifecycle',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-native-back',
-    title: 'Native stack: native back button',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-modal',
-    title: 'Native stack: modal',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-transparent-modal',
-    title: 'Native stack: transparent modal',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'native-stack-overlay',
-    title: 'Full-window overlay',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
-  },
-  {
-    id: 'nested',
-    title: 'Nested navigation',
-    group: 'Navigation',
-    fixture: 'NavigationFixture',
   },
   {
     id: 'rust-turbomodule',
@@ -490,18 +382,6 @@ export const screens = [
     title: 'Host components',
     group: 'Native modules',
     fixture: 'HostComponentsFixture',
-  },
-  {
-    id: 'pdf-viewer',
-    title: 'PDF viewer',
-    group: 'Native modules',
-    fixture: 'PdfViewerFixture',
-  },
-  {
-    id: 'pdf-tile',
-    title: 'PDF tile',
-    group: 'Native modules',
-    fixture: 'PdfTileFixture',
   },
   {
     id: 'fixture-module',
@@ -532,18 +412,6 @@ export const screens = [
     title: 'Web view',
     group: 'Native modules',
     fixture: 'WebViewFixture',
-  },
-  {
-    id: 'svg',
-    title: 'SVG',
-    group: 'Libraries',
-    fixture: 'SvgFixture',
-  },
-  {
-    id: 'fonts',
-    title: 'Fonts and vector icons',
-    group: 'Libraries',
-    fixture: 'FontFixture',
   },
   {
     id: 'networking',

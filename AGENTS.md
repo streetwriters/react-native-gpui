@@ -9,15 +9,13 @@ A change is one unit of work: a feature, a fix, a refactor. It can span several 
 
 ## Every change
 
-- Add an entry to the `CHANGELOG.md` of each package or module it touches, under `## Unreleased`. Keep changelogs current; a release renames `Unreleased` to the version, and that section becomes the GitHub release notes.
+- Add an entry to the `CHANGELOG.md` of each package it touches, under `## Unreleased`. Keep changelogs current; a release renames `Unreleased` to the version, and that section becomes the GitHub release notes.
 - Update the docs in `docs/` when behaviour, APIs or setup change.
 - Find the simplest solution, and verify it before calling it done.
 
 ## Versions
 
 - `cli`, `codegen`, `core`, `hermes`, `testing`: `0.<react-native minor>.<patch>[-alpha.N]`, with a `react-native` peer of `0.<minor>.x`.
-- A module that adapts a library: that library's `<major>.<minor>` plus our own patch, for example `@react-native-gpui/screens` `4.28.x` for `react-native-screens` `4.28.x`. Its peer is the upstream `<major>.<minor>.x`.
-- A standalone module (`fonts`, `fs`, `vector-icons`): its own version, starting at `0.0.1`.
 - Dependencies between our packages use the exact version.
 
 ## Code
@@ -27,7 +25,13 @@ A change is one unit of work: a feature, a fix, a refactor. It can span several 
 
 ## Packages
 
-- Every package and module has a human-readable `README.md`, a `LICENSE` and a `CHANGELOG.md`, with `license`, `repository` and `description` set in its `package.json`.
+- react-native-gpui contains no modules. Every module, our own or an adapter for a third-party library, lives in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules).
+- Every package has a human-readable `README.md`, a `LICENSE` and a `CHANGELOG.md`, with `license`, `repository` and `description` set in its `package.json`.
+
+## The gpui pin
+
+- gpui-fast is pinned by revision in `packages/core/ReactGpui/Cargo.toml` (`[workspace.dependencies] gpui.rev`) and described in `packages/core/ReactGpui/GPUI_PIN.md`.
+- [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules) builds against the same revision: autolink writes it into the `[patch.crates-io]` block of the modules' example app and of each module crate that is its own workspace root. When the pin changes here, change it there in the same sitting: bump the core packages the modules use, run `npm run autolink` in its `example` and `npm run test:rust`, and commit the manifests they rewrite.
 
 ## Pull requests
 
