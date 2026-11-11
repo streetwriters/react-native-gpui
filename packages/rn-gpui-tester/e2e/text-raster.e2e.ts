@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
+import { goldenFile } from './golden-path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import {
   launchApp,
@@ -37,9 +38,7 @@ afterAll(() => app?.close());
  */
 async function differing(id: string, golden: string, columns = Infinity) {
   const mine = PNG.sync.read(await app.getByTestId(id).screenshot());
-  const reference = PNG.sync.read(
-    fs.readFileSync(path.resolve('packages/rn-gpui-tester/e2e/golden', golden)),
-  );
+  const reference = PNG.sync.read(fs.readFileSync(goldenFile(golden)));
   if (process.env.RASTER_DUMP) {
     fs.writeFileSync(
       path.resolve('.local/text', `mine-${id}.png`),

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
+import { goldenFile } from './golden-path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import {
   launchApp,
@@ -128,9 +129,19 @@ test('a truncated one-line text fills the width it was given, as a block with te
   expect(await width('short-title')).toBeLessThan(100);
 });
 
+// What Chromium makes of the two titles: the height of a line of Inter, and of
+// one that needs a fallback font, which is a different font on each platform.
+const chromiumMetrics: { shortTitle: number; fallbackTitle: number } = {
+  shortTitle: 18,
+  fallbackTitle: 21,
+  ...(fs.existsSync(goldenFile('chromium-metrics.json'))
+    ? JSON.parse(fs.readFileSync(goldenFile('chromium-metrics.json'), 'utf8'))
+    : {}),
+};
+
 test('a line with a fallback font is as tall as its tallest font', async () => {
   const [plain] = await app.query('testID', 'short-title', true);
   const [mixed] = await app.query('testID', 'fallback-title', true);
-  expect(plain.frame.height).toBe(18);
-  expect(mixed.frame.height).toBe(21);
+  expect(plain.frame.height).toBe(chromiumMetrics.shortTitle);
+  expect(mixed.frame.height).toBe(chromiumMetrics.fallbackTitle);
 });
