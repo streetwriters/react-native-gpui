@@ -233,7 +233,7 @@ jobs:
             xvfb openbox mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
             libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
             libfontconfig-dev libfreetype-dev libwayland-dev \
-            libxkbcommon-x11-0
+            libxkbcommon-x11-0 fonts-noto-cjk fonts-noto-color-emoji
 
       - name: Install macOS build tools
         if: runner.os == 'macOS'
