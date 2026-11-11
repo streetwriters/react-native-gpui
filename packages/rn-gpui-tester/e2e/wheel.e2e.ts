@@ -52,6 +52,14 @@ async function wheel(
   await app.waitForIdle();
 }
 
+const history: string[] = [];
+
+async function note(label: string) {
+  history.push(
+    `${Date.now() % 100000} ${label} offset=${await text('wheel-offset')} prevent=${await text('wheel-prevent')}`,
+  );
+}
+
 async function traceFailure(label: string) {
   const series: string[] = [];
   const started = Date.now();
@@ -61,7 +69,7 @@ async function traceFailure(label: string) {
   }
   const idle = await app.idleStatus();
   console.log(
-    `WHEELTRACE ${label} offsets=${series.join(' ')} log=${await text('wheel-log')} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}`,
+    `WHEELTRACE ${label} history=${JSON.stringify(history)} offsets=${series.join(' ')} log=${await text('wheel-log')} idle=${idle.idle} busy=${JSON.stringify(idle.busySources)}`,
   );
 }
 
@@ -112,13 +120,22 @@ test('an unhandled wheel still scrolls the parent ScrollView, and preventDefault
   await wheel('wheel-target', 0, -30);
   await expectOffset('target', offset => expect(offset).toBeGreaterThan(0));
   const moved = Number(await text('wheel-offset'));
-  await app.getByTestId('wheel-prevent-toggle').click();
-  await app.waitForIdle();
-  expect(await text('wheel-prevent')).toBe('prevent');
-  await wheel('wheel-target', 0, -30);
-  await expectOffset('prevented', offset => expect(offset).toBe(moved));
-  await app.getByTestId('wheel-prevent-toggle').click();
-  await app.waitForIdle();
+  try {
+    await note('moved');
+    await app.getByTestId('wheel-prevent-toggle').click();
+    await note('toggled');
+    await app.waitForIdle();
+    await note('idle after toggle');
+    expect(await text('wheel-prevent')).toBe('prevent');
+    await wheel('wheel-target', 0, -30);
+    await note('after prevented wheel');
+    await expectOffset('prevented', offset => expect(offset).toBe(moved));
+  } finally {
+    if ((await text('wheel-prevent')) === 'prevent') {
+      await app.getByTestId('wheel-prevent-toggle').click();
+      await app.waitForIdle();
+    }
+  }
 });
 
 test('a view with no wheel handler on its path scrolls the ScrollView without waiting for JS', async () => {
