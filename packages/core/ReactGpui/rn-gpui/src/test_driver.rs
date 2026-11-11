@@ -2012,6 +2012,11 @@ fn idle_status(
     {
         busy.push(json!({"source": "slots", "detail": "a native slot is waiting for its content to get its width"}));
     }
+    if store.has_pending_resize() && !ignore.iter().any(|item| item == "resize") {
+        busy.push(
+            json!({"source": "resize", "detail": "a surface has a window size React has not been given yet"}),
+        );
+    }
     if crate::wheel::pending() && !ignore.iter().any(|item| item == "wheel") {
         busy.push(
             json!({"source": "wheel", "detail": "a wheel event is waiting for its JS handlers"}),
@@ -2075,7 +2080,7 @@ fn idle_status(
         "idle": busy.is_empty(),
         "stableFrames": stable_count,
         "busySources": busy,
-        "trackedSources": ["frames", "animations", "gestures", "mount", "timers", "network", "images", "js", "slots"],
+        "trackedSources": ["frames", "animations", "gestures", "mount", "timers", "network", "images", "js", "slots", "resize"],
         "untrackedSources": []
     })
 }

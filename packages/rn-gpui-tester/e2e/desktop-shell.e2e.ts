@@ -97,6 +97,7 @@ test.skipIf(process.platform !== 'linux')(
     await launch('WindowControlFixture');
     await app.waitForIdle();
     await app.setWindowSize(700, 500);
+    await app.waitForIdle();
 
     // Show first so the following hide is a real mapped -> unmapped transition
     // (offscreen test windows start hidden). The window manager reports the new

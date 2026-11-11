@@ -387,6 +387,12 @@ impl ViewStore {
         }
     }
 
+    /// Whether a surface still has a size held back from React: the resize
+    /// interval has not ended, so its layout has not been asked for yet.
+    pub fn has_pending_resize(&self) -> bool {
+        !self.pending_resizes.is_empty()
+    }
+
     fn send_surface_size(&mut self, surface_id: i32, width: f32, height: f32, scale: f32) {
         log::info!(
             "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
