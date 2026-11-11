@@ -11,7 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `b015e2b` (2026-11-11: `9087620` plus windows reporting themselves active on Linux while the
+- Commit: `11fd570` (2026-11-11: `b015e2b` plus Windows honouring the test scale factor
+  (`RN_GPUI_TEST_SCALE_FACTOR`) and letting a window outgrow the display for it. `b015e2b` is `9087620` plus windows reporting themselves active on Linux while the
   test driver runs the app, as macOS already did, so focus and blur reach elements of a test window
   that is never mapped or focused. `9087620` is `d5041b0` plus two commits for react-native-gpui. `d5041b0` is Longbridge's
   gpui-fast `main` merged into `rn-gpui-linux`, with upstream's public API kept for `ContentMask`,
