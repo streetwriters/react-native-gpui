@@ -46,17 +46,17 @@ test('idleStatus names the pending timers with their delays', async () => {
   };
   await app.mouseDown(at);
   await app.mouseUp(at);
-  let status = await app.idleStatus();
-  for (
-    let tries = 0;
-    tries < 20 && !status.busySources.some(s => s.source === 'timers');
-    tries++
-  ) {
+  const pending = /timer \d+: set for 1400 ms, due in \d+ ms/;
+  let detail: string | undefined;
+  for (let tries = 0; tries < 100; tries++) {
+    const status = await app.idleStatus();
+    detail = status.busySources.find(
+      source => source.source === 'timers',
+    )?.detail;
+    if (detail && pending.test(detail)) break;
     await new Promise(resolve => setTimeout(resolve, 20));
-    status = await app.idleStatus();
   }
-  const timers = status.busySources.find(source => source.source === 'timers');
-  expect(timers?.detail).toMatch(/timer \d+: set for 1400 ms, due in \d+ ms/);
+  expect(detail).toMatch(pending);
 });
 
 test('launchArgs gives the arguments the app was started with', async () => {
