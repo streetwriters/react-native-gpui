@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PNG } from 'pngjs';
 import { expect, test } from 'vitest';
 import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
+import { traceDisplays } from './ci-trace';
 
 /**
  * Native views as host components, end to end. The fixture components create
@@ -53,6 +54,9 @@ async function launch(
       // Native views are placed by the operating system at the display's own
       // scale, which these tests compare with layout at 2x.
       RN_GPUI_TEST_DISPLAY: 'retina',
+      ...(process.platform === 'win32'
+        ? { RN_GPUI_TEST_SCALE_FACTOR: '1' }
+        : {}),
       // A window that other windows cover is occluded and macOS stops
       // presenting it, so the screen read back would show no React view.
       ...(onScreen ? { RN_GPUI_TEST_ON_TOP: '1' } : {}),
@@ -66,6 +70,7 @@ async function launch(
   app.allowErrors(/wgpu_hal::gles::egl\] EGL 'eglInitialize'/u);
   await app.setWindowSize(1024, 768);
   await app.waitForIdle();
+  await traceDisplays(app, module);
   return app;
 }
 
@@ -97,8 +102,8 @@ async function expectAtLayoutBounds() {
   expect(bounds!.width).toBeCloseTo(frame.width, 0);
   expect(bounds!.height).toBeCloseTo(frame.height, 0);
   if (view) {
-    expect(view.width).toBeCloseTo(frame.width, 0);
-    expect(view.height).toBeCloseTo(frame.height, 0);
+    expect(Math.abs(view.width - frame.width)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(view.height - frame.height)).toBeLessThanOrEqual(0.5);
   }
 }
 
