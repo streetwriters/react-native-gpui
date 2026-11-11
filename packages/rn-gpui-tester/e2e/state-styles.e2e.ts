@@ -23,7 +23,7 @@ beforeAll(async () => {
     idleOptions: { ignore: ['animations'] },
     offscreen: true,
   });
-  await app.setWindowSize(1024, 1400);
+  await app.setWindowSize(1024, 1000);
   await desktopExpect(
     app.getByTestId('tester-screen-state-styles'),
   ).toBeVisible();
@@ -63,7 +63,12 @@ async function centre(testID: string) {
 }
 
 async function away() {
-  await app.mouseMove({ x: 1010, y: 1390 });
+  const [screen] = await app.query('testID', 'tester-screen-state-styles', true);
+  const top = (await app.menuBarState()).inset;
+  await app.mouseMove({
+    x: screen.frame.width - 6,
+    y: screen.frame.height + top - 6,
+  });
   await app.waitForIdle();
 }
 

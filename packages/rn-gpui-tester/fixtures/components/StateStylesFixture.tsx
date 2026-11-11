@@ -33,7 +33,16 @@ export default function StateStylesFixture() {
   const [late, setLate] = useState(false);
 
   return (
-    <View style={{ padding: 16, gap: 12, flex: 1 }}>
+    <View
+      style={{
+        padding: 16,
+        gap: 12,
+        flex: 1,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignContent: 'flex-start',
+        alignItems: 'flex-start',
+      }}>
       <Text testID="state-render-count">{`renders:${rendered.current}`}</Text>
 
       <View
@@ -88,7 +97,12 @@ export default function StateStylesFixture() {
 
       <View
         testID="state-transform"
-        style={{ width: 100, height: 40, backgroundColor: '#3b82f6' }}
+        style={{
+          width: 100,
+          height: 40,
+          margin: 60,
+          backgroundColor: '#3b82f6',
+        }}
         hoverStyle={{ transform: [{ scale: 2 }] }}
       />
 
