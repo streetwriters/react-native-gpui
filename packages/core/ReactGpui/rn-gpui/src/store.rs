@@ -415,13 +415,15 @@ impl ViewStore {
     fn flush_resize_later(&mut self, surface_id: i32, cx: &mut Context<Self>) {
         cx.spawn(async move |store, cx| {
             cx.background_executor().timer(RESIZE_INTERVAL).await;
-            let _ = store.update(cx, |store, _cx| {
+            let _ = store.update(cx, |store, cx| {
                 let expired = store
                     .resizes_in_flight
                     .get(&surface_id)
                     .is_none_or(|sent| sent.elapsed() >= RESIZE_INTERVAL);
                 if expired {
                     store.flush_resize(surface_id);
+                } else if store.pending_resizes.contains_key(&surface_id) {
+                    store.flush_resize_later(surface_id, cx);
                 }
             });
         })

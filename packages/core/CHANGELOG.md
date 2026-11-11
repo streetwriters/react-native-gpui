@@ -11,6 +11,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - On Linux a window's `isMaximized` reads the window manager's state, which it always reported as false.
 - A mount update that changes nothing the runtime draws (no props, frame, text or host component change) no longer notifies its view. Fabric sends such updates for every ancestor of a node whose content overflows its parent, and each one rebuilt the whole screen under it on every commit.
 - On Windows, showing a window that was minimized and then hidden restores it, as on macOS, instead of leaving it minimized.
+- A window size held back during the resize interval is no longer stranded when the interval timer fires slightly early, as the coarse Windows clock does: the flush runs again until the interval is over.
 - The test driver's idle check waits for a window size that has not reached React yet, so a test that resizes a window and waits for idle sees the new layout.
 
 - The runtime builds on Linux and Windows again: the header the Rust bridge compiles no longer includes curl, whose headers only the C++ build has.
