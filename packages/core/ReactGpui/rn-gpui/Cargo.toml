@@ -16,6 +16,9 @@ visual-capture = ["gpui_platform/test-support"]
 test-driver = ["visual-capture", "dep:tungstenite"]
 # Enables Window's draw/present histograms for the 10k-node benchmark.
 perf-timing = ["gpui/profiler"]
+# Compiles the Metal shaders when the app starts instead of at build time, so a
+# macOS build needs no Metal compiler (which only ships with full Xcode).
+runtime-shaders = ["gpui_platform/runtime_shaders"]
 
 [build-dependencies]
 rn-gpui-module-build = { path = "../rn-gpui-module-build" }

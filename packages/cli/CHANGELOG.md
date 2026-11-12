@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- On macOS, the Xcode command line tools are enough to build an app. `autolink` declares a `runtime-shaders` feature in the app manifest, and `run-desktop` and `package-desktop` turn it on when there is no Metal shader compiler (it ships only with full Xcode), so the shaders are compiled when the app starts. With full Xcode and its Metal toolchain, the shaders are still compiled at build time. `doctor` no longer requires Xcode or the Metal compiler; it checks for the command line tools, and for the Xcode license only when full Xcode is selected.
+
 ## 0.87.0-alpha.2 - 2026-11-12
 
 - `autolink` writes the GPUI Kit compat patches itself: when a linked module crate depends on `gpui-base`, `gpui-component`, a `gpui-kit*` or a `gpui-pre*` crate, the managed `[patch.crates-io]` block also has `gpui-pre`, `gpui-pre-macros` and `gpui-pre-sum-tree` (and `gpui-pre-platform`, `gpui-pre-web` and `gpui-pre-reqwest-client` when a module or the app's `Cargo.lock` names them), each at the gpui-fast git and rev of core's pin. Apps without such a module get none of them. A hand-written line for a managed crate in `[patch.crates-io]` is refused even when it sits beside an existing managed block; remove those lines.

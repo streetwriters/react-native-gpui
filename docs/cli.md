@@ -17,7 +17,7 @@ The app name must start with a letter and contain letters, digits, `_` or `-`. `
 
 ## doctor-desktop
 
-Checks that the tools needed to build a desktop app are installed: Node.js, Rust, CMake, and the platform's own toolchain (Xcode and the Metal shader compiler on macOS; the MSVC compiler, Strawberry Perl, NASM and long paths on Windows; a C++ compiler, `pkg-config`, Perl and the X keyboard and XCB libraries on Linux). Each problem is printed with its fix, and the command exits with status 1 when there is one.
+Checks that the tools needed to build a desktop app are installed: Node.js, Rust, CMake, and the platform's own toolchain (the Xcode command line tools, and the Xcode license when full Xcode is selected, on macOS; the MSVC compiler, Strawberry Perl, NASM and long paths on Windows; a C++ compiler, `pkg-config`, Perl and the X keyboard and XCB libraries on Linux). Each problem is printed with its fix, and the command exits with status 1 when there is one.
 
 ```shell
 npx react-native doctor-desktop

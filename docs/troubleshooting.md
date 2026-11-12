@@ -58,7 +58,7 @@ Run `npx react-native doctor-desktop` first. It checks every tool the build need
 <Tabs groupId="os" queryString defaultValue={constants.defaultOs} values={constants.oses}>
 <TabItem value="macos">
 
-- **`unable to find utility "metal"`**: the Metal shader compiler is missing. The command line tools alone do not have it. Install Xcode, and on Xcode 26 and newer run `xcodebuild -downloadComponent MetalToolchain`. Make sure `xcode-select -p` points into `Xcode.app`.
+- **`unable to find utility "metal"`** from a plain `cargo build`: the Metal shader compiler only ships with full Xcode. Build with `npx react-native run-desktop`, which compiles the shaders at startup when the compiler is missing, or pass `--features runtime-shaders` to Cargo.
 - **`cmake: command not found`**: install it with `brew install cmake`.
 - **`cargo: command not found`**: restart the terminal after installing Rust, or run `source "$HOME/.cargo/env"`.
 

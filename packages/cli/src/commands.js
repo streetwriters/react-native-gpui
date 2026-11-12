@@ -106,6 +106,14 @@ const run = (bin, args, options = {}) =>
  * terminal: Cargo hides a build script's output until the script finishes. A
  * failure is left to the build script, which falls back to building from source.
  */
+function hasMetalCompiler() {
+  return (
+    spawnSync('xcrun', ['-sdk', 'macosx', 'metal', '--version'], {
+      stdio: 'ignore',
+    }).status === 0
+  );
+}
+
 function fetchPrebuiltRuntime(projectRoot, autolinkManifest) {
   if (
     process.env.RN_GPUI_BUILD_FROM_SOURCE ||
@@ -624,6 +632,17 @@ export async function runDesktop({
     throw new Error(
       '--features must be a comma-separated list of Cargo features',
     );
+  }
+  if (
+    process.platform === 'darwin' &&
+    !cargoFeatures.includes('runtime-shaders') &&
+    /^runtime-shaders\s*=/mu.test(fs.readFileSync(appCargoManifest, 'utf8')) &&
+    !hasMetalCompiler()
+  ) {
+    console.log(
+      'No Metal shader compiler (it ships with Xcode): the shaders are compiled when the app starts.',
+    );
+    cargoFeatures.push('runtime-shaders');
   }
   if (cargoFeatures.length > 0)
     cargoArgs.push('--features', cargoFeatures.join(','));

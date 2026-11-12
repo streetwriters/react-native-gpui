@@ -123,26 +123,21 @@ const cmakeFix = {
   win32: 'winget install -e --id Kitware.CMake',
 };
 
+const CLT_PATH = '/Library/Developer/CommandLineTools';
+
 const macosChecks = [
   {
-    label: 'Xcode',
+    label: 'Xcode command line tools',
     check(probe) {
       const result = probe.run('xcode-select', ['-p']);
       if (!result.ok) {
         return {
           ok: false,
-          message: 'Xcode is not installed',
-          fix: 'Install Xcode from the Mac App Store',
+          message: 'the Xcode command line tools are not installed',
+          fix: 'xcode-select --install',
         };
       }
-      if (result.stdout.startsWith('/Library/Developer/CommandLineTools')) {
-        return {
-          ok: false,
-          message:
-            'the command line tools point to CommandLineTools, not to Xcode',
-          fix: 'sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer',
-        };
-      }
+      if (result.stdout.startsWith(CLT_PATH)) return { ok: true };
       const version = probe.run('xcodebuild', ['-version']);
       return { ok: true, version: versionIn(firstLine(version.stdout)) };
     },
@@ -150,30 +145,15 @@ const macosChecks = [
   {
     label: 'Xcode license',
     check(probe) {
+      const selected = probe.run('xcode-select', ['-p']);
+      if (!selected.ok || selected.stdout.startsWith(CLT_PATH))
+        return { ok: true };
       if (probe.run('xcodebuild', ['-license', 'check']).ok)
         return { ok: true };
       return {
         ok: false,
         message: 'the Xcode license has not been accepted',
         fix: 'sudo xcodebuild -license accept',
-      };
-    },
-  },
-  {
-    label: 'Metal shader compiler',
-    check(probe) {
-      const result = probe.run('xcrun', [
-        '-sdk',
-        'macosx',
-        'metal',
-        '--version',
-      ]);
-      if (result.ok)
-        return { ok: true, version: versionIn(firstLine(result.stdout)) };
-      return {
-        ok: false,
-        message: 'the Metal toolchain is not installed',
-        fix: 'xcodebuild -downloadComponent MetalToolchain',
       };
     },
   },

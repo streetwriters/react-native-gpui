@@ -33,8 +33,6 @@ const macos = {
   'xcode-select -p': '/Applications/Xcode.app/Contents/Developer',
   'xcodebuild -version': 'Xcode 26.6\nBuild version 17A100',
   'xcodebuild -license check': '',
-  'xcrun -sdk macosx metal --version':
-    'Apple metal version 32023.883 (metalfe-32023.883)',
 };
 
 const failures = results =>
@@ -47,9 +45,10 @@ describe('runDoctor on macOS', () => {
     expect(results.find(result => result.label === 'CMake').version).toBe(
       '3.31.4',
     );
-    expect(results.find(result => result.label === 'Xcode').version).toBe(
-      '26.6',
-    );
+    expect(
+      results.find(result => result.label === 'Xcode command line tools')
+        .version,
+    ).toBe('26.6');
   });
 
   test('flags an old Node.js', () => {
@@ -57,27 +56,26 @@ describe('runDoctor on macOS', () => {
     expect(failures(results)).toEqual(['Node.js']);
   });
 
-  test('flags command line tools that do not point to Xcode', () => {
+  test('accepts the command line tools without Xcode', () => {
+    const { 'xcodebuild -license check': _license, ...rest } = macos;
     const probe = fakeProbe({
-      ...macos,
+      ...rest,
       'xcode-select -p': '/Library/Developer/CommandLineTools',
     });
-    const xcode = runDoctor('darwin', probe).find(
-      result => result.label === 'Xcode',
-    );
-    expect(xcode.ok).toBe(false);
-    expect(xcode.fix).toBe(
-      'sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer',
-    );
+    expect(failures(runDoctor('darwin', probe))).toEqual([]);
   });
 
-  test('flags a missing Metal toolchain and a missing CMake', () => {
-    const { 'xcrun -sdk macosx metal --version': _metal, ...rest } = macos;
+  test('flags missing command line tools, an unaccepted license and a missing CMake', () => {
+    const missingTools = fakeProbe({ ...macos, 'xcode-select -p': null });
+    expect(failures(runDoctor('darwin', missingTools))).toEqual([
+      'Xcode command line tools',
+    ]);
+    const { 'xcodebuild -license check': _license, ...rest } = macos;
     const results = runDoctor(
       'darwin',
       fakeProbe({ ...rest, 'cmake --version': null }),
     );
-    expect(failures(results)).toEqual(['CMake', 'Metal shader compiler']);
+    expect(failures(results)).toEqual(['CMake', 'Xcode license']);
   });
 });
 

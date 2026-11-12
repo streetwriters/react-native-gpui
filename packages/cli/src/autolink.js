@@ -1510,7 +1510,7 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   if (!/^\[features\]\s*$/mu.test(appCargo)) {
     appCargo = appCargo.replace(
       /^\[dependencies\]\s*$/mu,
-      '[features]\nvisual-capture = ["react-native-gpui/visual-capture"]\ntest-driver = ["react-native-gpui/test-driver"]\n\n[dependencies]',
+      '[features]\nruntime-shaders = ["react-native-gpui/runtime-shaders"]\nvisual-capture = ["react-native-gpui/visual-capture"]\ntest-driver = ["react-native-gpui/test-driver"]\n\n[dependencies]',
     );
   } else {
     const tableStart = appCargo.indexOf('[features]');
@@ -1519,15 +1519,24 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
       tableStart + '[features]'.length,
     );
     const tableEnd = suffixStart < 0 ? appCargo.length : suffixStart;
-    let featureLines = appCargo.slice(
-      tableStart + '[features]'.length,
-      tableEnd,
-    );
-    if (!/^visual-capture\s*=/mu.test(featureLines))
-      featureLines += '\nvisual-capture = ["react-native-gpui/visual-capture"]';
-    if (!/^test-driver\s*=/mu.test(featureLines))
-      featureLines += '\ntest-driver = ["react-native-gpui/test-driver"]';
-    appCargo = `${appCargo.slice(0, tableStart)}[features]${featureLines}${appCargo.slice(tableEnd)}`;
+    const featureLines = appCargo
+      .slice(tableStart + '[features]'.length, tableEnd)
+      .split('\n');
+    const declares = name =>
+      featureLines.some(line => new RegExp(`^${name}\\s*=`, 'u').test(line));
+    const added = [];
+    if (!declares('visual-capture'))
+      added.push('visual-capture = ["react-native-gpui/visual-capture"]');
+    if (!declares('test-driver'))
+      added.push('test-driver = ["react-native-gpui/test-driver"]');
+    if (!declares('runtime-shaders'))
+      added.push('runtime-shaders = ["react-native-gpui/runtime-shaders"]');
+    let lastEntry = 0;
+    featureLines.forEach((line, index) => {
+      if (/^[\w-]+\s*=/u.test(line)) lastEntry = index;
+    });
+    featureLines.splice(lastEntry + 1, 0, ...added);
+    appCargo = `${appCargo.slice(0, tableStart)}[features]${featureLines.join('\n')}${appCargo.slice(tableEnd)}`;
   }
   // `[patch]` is only honoured in the root manifest, so the redirection lives in
   // the app's rather than in each module crate.
