@@ -1011,7 +1011,8 @@ pub fn retarget_hover(window: &mut Window, cx: &mut App) {
             store.active_touch_target.is_some(),
         )
     };
-    if !inside || pressed {
+    // A drag in progress (a scrollbar thumb, say) owns the pointer.
+    if !inside || pressed || cx.has_active_drag() {
         return;
     }
     if window.last_input_was_keyboard() {

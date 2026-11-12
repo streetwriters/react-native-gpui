@@ -64,12 +64,29 @@ test('a nested scroll view takes the drag of its own thumb', async () => {
   expect(await offsetOf('drag-outer')).toBe(outer);
 });
 
-test.each(['drag-plain', 'drag-flat', 'drag-outer'])(
+test.each(['drag-plain', 'drag-flat', 'drag-faded', 'drag-outer'])(
   'dragging the thumb of %s moves its offset and raises no error',
   async testID => {
     expect(await offsetOf(testID)).toBe(0);
     await dragThumb(testID);
     expect(await offsetOf(testID)).toBeGreaterThan(50);
+  },
+);
+
+test.each(['drag-plain', 'drag-faded'])(
+  'a press on the track of %s moves a page towards the pointer',
+  async testID => {
+    const [view] = await app.query('testID', testID, true);
+    const top = (await app.menuBarState()).inset;
+    const x = view.frame.x + view.frame.width - 5;
+    const y = view.frame.y + top + view.frame.height - 12;
+    const before = await offsetOf(testID);
+    await app.mouseMove({ x, y });
+    await app.waitForIdle();
+    await app.mouseDown({ x, y });
+    await app.mouseUp({ x, y });
+    await app.waitForIdle();
+    expect(await offsetOf(testID)).toBeCloseTo(before + 240 * 0.875, 0);
   },
 );
 

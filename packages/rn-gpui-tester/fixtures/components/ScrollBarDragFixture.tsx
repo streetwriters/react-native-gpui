@@ -55,6 +55,13 @@ export default function ScrollBarDragFixture() {
         keyExtractor={index => String(index)}
         renderItem={({ item }) => <Row index={item} />}
       />
+      <ScrollView testID="drag-faded" style={{ width: 200, height: 240 }}>
+        {ROWS.map(index => (
+          <View key={index} style={{ opacity: 0.9 }}>
+            <Row index={index} />
+          </View>
+        ))}
+      </ScrollView>
       <ScrollView testID="drag-outer" style={{ width: 200, height: 240 }}>
         <Text>Outer header</Text>
         <ScrollView

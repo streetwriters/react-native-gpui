@@ -4,7 +4,7 @@
 use crate::pointer_area::{pointer_area, PointerHandlers};
 use crate::style;
 use gpui::{
-    div, point, prelude::*, px, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
+    div, point, prelude::*, px, size, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
     IntoElement, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Position, Refineable, Role, StyleRefinement, Subscription, Task,
     WeakEntity, Window,
@@ -4131,6 +4131,18 @@ impl Render for RNNodeView {
                 self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
             );
             let mut thumb_apply: Option<crate::scroll_indicator::ApplyOffset> = None;
+            // A manual-offset container's handle is not tracked by an element, so
+            // its viewport and furthest offset come from the layout instead.
+            let manual = matches!(strategy, crate::scroll_layers::ScrollStrategy::ManualOffset);
+            let manual_extents = manual.then(|| {
+                (
+                    size(px(frame.w * scale_x), px(frame.h * scale_y)),
+                    point(
+                        px((content_width - frame.w).max(0.0) * scale_x),
+                        px((content_height - frame.h).max(0.0) * scale_y),
+                    ),
+                )
+            });
             if scroll.enabled {
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
@@ -4150,9 +4162,9 @@ impl Render for RNNodeView {
                     snap: scroll.snap.clone(),
                     gesture: self.scroll_gesture.clone(),
                     deceleration: scroll.deceleration,
+                    max_offset: manual_extents.map(|(_, max)| max),
                 });
                 // A manual-offset container only follows its node's own render.
-                let manual = matches!(strategy, crate::scroll_layers::ScrollStrategy::ManualOffset);
                 let view = cx.entity();
                 let dragged = scroller.clone();
                 thumb_apply = Some(Rc::new(move |offset, window, cx| {
@@ -4280,7 +4292,9 @@ impl Render for RNNodeView {
                         }
                     });
                     let spec = self.scrollbar.clone();
-                    indicator.update(cx, |indicator, _| indicator.configure(spec, apply, emit));
+                    indicator.update(cx, |indicator, _| {
+                        indicator.configure(spec, apply, emit, manual_extents)
+                    });
                 }
                 element = element.children(self.scroll_indicator.clone());
             } else {
@@ -6230,6 +6244,8 @@ struct Scroller {
     snap: Option<crate::scroll_snap::SnapSpec>,
     gesture: Rc<std::cell::RefCell<ScrollGesture>>,
     deceleration: f32,
+    /// Set when no element tracks `handle`, whose own maximum is then unmeasured.
+    max_offset: Option<Point<Pixels>>,
 }
 
 impl Scroller {
@@ -6501,7 +6517,7 @@ impl Scroller {
     fn sync(&self, window: &mut Window, cx: &mut App) {
         // The handle only clamps while painting, so a wheel event past the end
         // leaves an offset beyond the content until the next frame.
-        let max = self.handle.max_offset();
+        let max = self.max_offset.unwrap_or_else(|| self.handle.max_offset());
         let scrolled = self.handle.offset();
         let scrolled = point(
             scrolled.x.clamp(-max.x, px(0.0)),

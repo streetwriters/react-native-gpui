@@ -2,6 +2,12 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- Dragging a scroll bar thumb holds the content where the pointer is. While the button was held still, the hover check that follows each React commit was taken for a drag back to where the thumb was pressed, so the content jumped to the start and back.
+- The thumb of a scroll view whose content is translucent or blurred follows the drag and is sized to the content. It read the viewport and the furthest offset from a scroll handle that such a scroll view never measures.
+- A press on the scroll bar track outside the thumb scrolls a page towards the pointer, as in a browser.
+
 ## 0.87.0-alpha.3 - 2026-11-12
 
 - A `runtime-shaders` feature on the runtime crate compiles the Metal shaders when the app starts instead of at build time, so a macOS build needs no Metal compiler.

@@ -3,15 +3,20 @@
 //! every scroll.
 
 use gpui::{
-    div, prelude::*, px, App, Context, DragMoveEvent, MouseButton, MouseDownEvent, MouseUpEvent,
-    Pixels, Point, ScrollHandle, Task, Window,
+    canvas, div, prelude::*, px, App, Context, DragMoveEvent, MouseButton, MouseDownEvent,
+    MouseUpEvent, Pixels, Point, ScrollHandle, Size, Task, Window,
 };
 use serde_json::Value;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 /// Moves the scroll view to an offset, in the handle's own units, and reports it.
 pub(crate) type ApplyOffset = Rc<dyn Fn(Point<Pixels>, &mut Window, &mut App)>;
+
+/// The viewport and the furthest offset, for a scroll view whose handle is not
+/// tracked by an element and so never measures them.
+pub(crate) type Extents = (Size<Pixels>, Point<Pixels>);
 
 /// Sends a scrollbar event to React with the scroll view's current offset.
 pub(crate) type EmitEvent = Rc<dyn Fn(&str, &App)>;
@@ -144,6 +149,9 @@ pub(crate) struct ScrollIndicator {
     drag: Option<DragStart>,
     apply: Option<ApplyOffset>,
     emit: Option<EmitEvent>,
+    extents: Option<Extents>,
+    /// The overlay's window position, recorded while painting.
+    origin: Rc<Cell<Point<Pixels>>>,
     hide_task: Task<()>,
     /// Set by a scroll that the app asked for (`scrollTo`, `scrollToEnd`), which
     /// moves the content without showing the thumb, as a script's scroll does
@@ -168,6 +176,8 @@ impl ScrollIndicator {
             drag: None,
             apply: None,
             emit: None,
+            extents: None,
+            origin: Rc::default(),
             hide_task: Task::ready(()),
         }
     }
@@ -176,10 +186,17 @@ impl ScrollIndicator {
         self.horizontal
     }
 
-    pub(crate) fn configure(&mut self, spec: ScrollbarSpec, apply: ApplyOffset, emit: EmitEvent) {
+    pub(crate) fn configure(
+        &mut self,
+        spec: ScrollbarSpec,
+        apply: ApplyOffset,
+        emit: EmitEvent,
+        extents: Option<Extents>,
+    ) {
         self.spec = spec;
         self.apply = Some(apply);
         self.emit = Some(emit);
+        self.extents = extents;
     }
 
     fn spec(&self) -> ScrollbarSpec {
@@ -236,8 +253,9 @@ impl ScrollIndicator {
     }
 
     fn main_extents(&self) -> (f32, f32) {
-        let viewport = self.handle.bounds().size;
-        let max_offset = self.handle.max_offset();
+        let (viewport, max_offset) = self
+            .extents
+            .unwrap_or_else(|| (self.handle.bounds().size, self.handle.max_offset()));
         if self.horizontal {
             (f32::from(viewport.width), f32::from(max_offset.x))
         } else {
@@ -266,6 +284,10 @@ impl ScrollIndicator {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A move without the button held is a hover retarget, not the drag.
+        if event.event.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
         let Some(mut start) = self.drag else {
             return;
         };
@@ -283,7 +305,20 @@ impl ScrollIndicator {
             self.emit("topScrollBarDragStart", cx);
         }
         let delta = self.axis(event.event.position) - start.pointer;
-        let next = (start.offset + delta * max_offset / (track - length)).clamp(0.0, max_offset);
+        self.scroll_to(
+            start.offset + delta * max_offset / (track - length),
+            window,
+            cx,
+        );
+        self.emit("topScrollBarDrag", cx);
+        self.reveal(cx);
+        cx.notify();
+    }
+
+    /// Moves the content to `next`, a distance from the start along the axis.
+    fn scroll_to(&self, next: f32, window: &mut Window, cx: &mut Context<Self>) {
+        let (_, max_offset) = self.main_extents();
+        let next = next.clamp(0.0, max_offset);
         let current = self.handle.offset();
         let offset = if self.horizontal {
             Point::new(px(-next), current.y)
@@ -294,7 +329,27 @@ impl ScrollIndicator {
             Some(apply) => apply(offset, window, cx),
             None => self.handle.set_offset(offset),
         }
-        self.emit("topScrollBarDrag", cx);
+    }
+
+    /// A press on the track outside the thumb moves a page towards the
+    /// pointer, as a browser's scrollbar does.
+    fn page(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let (viewport, max_offset) = self.main_extents();
+        let offset = self.main_offset();
+        let Some((start, length)) = thumb(&self.spec(), viewport, max_offset, offset) else {
+            return;
+        };
+        let pointer = self.axis(event.position) - self.axis(self.origin.get());
+        let step = (viewport * PAGE_FRACTION).max(1.0);
+        let next = if pointer < start {
+            offset - step
+        } else if pointer > start + length {
+            offset + step
+        } else {
+            return;
+        };
+        cx.stop_propagation();
+        self.scroll_to(next, window, cx);
         self.reveal(cx);
         cx.notify();
     }
@@ -309,6 +364,9 @@ impl ScrollIndicator {
         }
     }
 }
+
+/// The part of the viewport a track press scrolls by, as in Chromium.
+const PAGE_FRACTION: f32 = 0.875;
 
 fn thumb(spec: &ScrollbarSpec, viewport: f32, max_offset: f32, offset: f32) -> Option<(f32, f32)> {
     if viewport <= 0.0 || max_offset <= 0.5 {
@@ -333,7 +391,15 @@ impl Render for ScrollIndicator {
                 self.reveal(cx);
             }
         }
-        let overlay = div().absolute().top_0().left_0().size_full();
+        let origin = self.origin.clone();
+        let overlay = div().absolute().top_0().left_0().size_full().child(
+            canvas(
+                move |bounds, _, _| origin.set(bounds.origin),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        );
         let (viewport, max_offset) = self.main_extents();
         let spec = self.spec();
         let Some((start, length)) = thumb(&spec, viewport, max_offset, self.main_offset()) else {
@@ -355,6 +421,16 @@ impl Render for ScrollIndicator {
                     }
                     cx.notify();
                 }));
+            let strip = if shown {
+                strip.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                        this.page(event, window, cx);
+                    }),
+                )
+            } else {
+                strip
+            };
             let reach = spec.thickness + 2.0 * spec.margin + 6.0;
             overlay.child(if self.horizontal {
                 strip.left_0().bottom_0().w_full().h(px(reach))
