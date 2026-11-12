@@ -140,6 +140,18 @@ export default function CoreComponentsFixture() {
           <Text>delayed</Text>
         </Pressable>
         <Pressable
+          testID="hover-pointer"
+          onPress={() => {}}
+          onPointerEnter={() =>
+            setHoverLog(previous => previous + 'pointer-in,')
+          }
+          onPointerLeave={() =>
+            setHoverLog(previous => previous + 'pointer-out,')
+          }
+        >
+          <Text>pointer</Text>
+        </Pressable>
+        <Pressable
           testID="press-key"
           onPress={() => setKeyPresses(count => count + 1)}
         >

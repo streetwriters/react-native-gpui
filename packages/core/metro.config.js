@@ -231,6 +231,8 @@ function makeMetroConfig({ projectRoot = process.cwd() } = {}) {
       }
     }
     const override = key && overrides.get(key);
+    // An override that imports the module it replaces gets the upstream one.
+    if (override === context.originModulePath) return resolution;
     return override ? withFilePath(resolution, override) : resolution;
   };
 

@@ -964,6 +964,13 @@ describe('Pressable', () => {
     await poll(async () => (await text('hover-log')).includes('delayed-in,'));
   });
 
+  test('pointer enter and leave reach a Pressable without hover handlers', async () => {
+    await app.getByTestId('hover-pointer').hover();
+    await poll(async () => (await text('hover-log')).includes('pointer-in,'));
+    await app.getByTestId('hover-target').hover();
+    await poll(async () => (await text('hover-log')).includes('pointer-out,'));
+  });
+
   test('Space and Enter activate a focused Pressable', async () => {
     await app.getByTestId('press-key').press('enter');
     await poll(async () => (await text('key-presses')) === '1');
