@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.3 - 2026-11-12
 
 - A `runtime-shaders` feature on the runtime crate compiles the Metal shaders when the app starts instead of at build time, so a macOS build needs no Metal compiler.
 

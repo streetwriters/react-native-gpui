@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/core",
-  "version": "0.87.0-alpha.2",
+  "version": "0.87.0-alpha.3",
   "description": "React Native platform powered by GPUI. Desktop React Native for macOS, Windows and Linux with one GPU-accelerated renderer.",
   "license": "MIT",
   "repository": {
