@@ -8,7 +8,7 @@ use std::process::Command;
 
 /// Bumped whenever the shape of `.configure-inputs` changes, so an upgrade
 /// forces exactly one reconfigure instead of leaving a stale build.
-const STAMP_VERSION: &str = "3";
+const STAMP_VERSION: &str = "4";
 
 /// Environment variables the `cmake` and `cc` crates read while generating the
 /// build system, and which they resolve through a target-prefixed name first.
@@ -70,7 +70,7 @@ fn main() {
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
-    watch_cpp_tree(&manifest_dir.join("cpp"));
+    watch_cpp_tree(&manifest_dir.join("cpp"), &[]);
     let react_gpui_dir = manifest_dir.parent().expect("ReactGpui dir").to_path_buf();
     let package_dir = react_gpui_dir
         .parent()
@@ -114,7 +114,11 @@ fn main() {
                 .display()
         );
     }
-    watch_cpp_tree(&react_cxx_platform_dir);
+    // Tests and the Android/iOS/JNI platform code here are never compiled.
+    watch_cpp_tree(
+        &react_cxx_platform_dir,
+        &["tests", "__tests__", "android", "ios", "jni"],
+    );
     let overrides_dir = package_dir.join("ReactCommonOverrides");
     println!("cargo:rerun-if-changed={}", overrides_dir.display());
 
@@ -174,8 +178,6 @@ fn main() {
         "cargo:rerun-if-changed={}",
         react_native_dir.join("package.json").display()
     );
-    watch_tree(&react_native_dir.join("src"));
-    watch_tree(&react_native_dir.join("scripts/codegen"));
     // Usually a sibling of react-native; a hoisting package manager can put it
     // higher, which the lookup covers.
     let codegen_package = find_node_module(&package_dir, "@react-native/codegen")
@@ -184,20 +186,39 @@ fn main() {
         "cargo:rerun-if-changed={}",
         codegen_package.join("package.json").display()
     );
-    watch_tree(&codegen_package.join("lib"));
-    // Codegen recreates its output directory, so generate into a scratch dir
-    // and sync. Rewriting unchanged headers would recompile most of RN.
-    let status = Command::new("node")
-        .arg(&fb_spec_codegen)
-        .arg(&react_native_dir)
-        .arg(&generated_rncore_scratch)
-        .status()
-        .expect("run React Native core Codegen; Node.js must be installed");
-    assert!(
-        status.success(),
-        "React Native FBReactNativeSpec Codegen failed"
+    let codegen_inputs = fb_spec_codegen_inputs(
+        &fb_spec_codegen,
+        &package_dir,
+        &react_native_dir,
+        &codegen_package,
     );
-    sync_tree(&generated_rncore_scratch, &generated_rncore);
+    for (_, file) in &codegen_inputs {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    // The codegen takes seconds and its inputs only change with a React Native
+    // or codegen upgrade, so it runs when their contents changed. The digest
+    // names files relative to their package, so a copied target dir in another
+    // checkout still matches.
+    let codegen_stamp = generated_dir.join(".fbreactnativespec-inputs");
+    let codegen_inputs_digest = files_digest(&codegen_inputs);
+    if !generated_rncore.is_dir()
+        || !fs::read_to_string(&codegen_stamp).is_ok_and(|stamp| stamp == codegen_inputs_digest)
+    {
+        // Codegen recreates its output directory, so generate into a scratch
+        // dir and sync. Rewriting unchanged headers would recompile most of RN.
+        let status = Command::new("node")
+            .arg(&fb_spec_codegen)
+            .arg(&react_native_dir)
+            .arg(&generated_rncore_scratch)
+            .status()
+            .expect("run React Native core Codegen; Node.js must be installed");
+        assert!(
+            status.success(),
+            "React Native FBReactNativeSpec Codegen failed"
+        );
+        sync_tree(&generated_rncore_scratch, &generated_rncore);
+        fs::write(&codegen_stamp, &codegen_inputs_digest).expect("write codegen inputs stamp");
+    }
 
     // The app root: the directory that holds `node_modules`. When autolink ran
     // it named the manifest, whose location is the app's `desktop/autolink/`;
@@ -213,7 +234,7 @@ fn main() {
         .to_path_buf();
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_MANIFEST");
     println!("cargo:rerun-if-env-changed=RN_GPUI_AUTOLINK_CMAKE");
-    println!("cargo:rerun-if-changed={}", autolink_cmake.display());
+    watch_generated_file(&autolink_cmake);
     // Autolinked CMake projects live outside this crate, so Cargo does not see
     // edits to them unless each directory is named here.
     for line in fs::read_to_string(&autolink_cmake)
@@ -243,7 +264,7 @@ fn main() {
             if sources {
                 println!("cargo:rerun-if-changed={}", path.display());
             } else {
-                watch_cpp_tree(&path);
+                watch_cpp_tree(&path, &[]);
             }
         }
     }
@@ -251,8 +272,8 @@ fn main() {
         .parent()
         .unwrap_or(&autolink_cmake)
         .join("CppTurboModules.generated.cpp");
-    println!("cargo:rerun-if-changed={}", cpp_provider.display());
-    println!("cargo:rerun-if-changed={}", autolink_manifest.display());
+    watch_generated_file(&cpp_provider);
+    watch_generated_file(&autolink_manifest);
     if let Ok(manifest) = fs::read_to_string(&autolink_manifest) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest) {
             if let Some(modules) = manifest
@@ -294,10 +315,54 @@ fn main() {
             emit_node_api_exports(&manifest);
         }
     }
-    cxx_build::bridge("src/lib.rs")
-        .std("c++20")
-        .include("cpp")
-        .compile("rn_gpui_cxx_bridge");
+    // ccache for the C++ this build compiles. React Native's own
+    // `ReactNative-application.cmake` sets the launcher for the app build, but
+    // this crate configures CMake itself and never includes that file, so
+    // without this the object cache is unused — CI measured 0 cacheable calls.
+    let use_ccache = env::var_os("RN_GPUI_DISABLE_CCACHE").is_none() && ccache_available();
+    let mut prefix_map_flags = Vec::new();
+    if use_ccache {
+        // ccache only hits across checkouts when neither the command line nor
+        // the object names the checkout's path.
+        let source_roots = [&package_dir, &app_root, &project_root].map(PathBuf::as_path);
+        if !msvc_target() {
+            prefix_map_flags =
+                prefix_map_flags_for(common_ancestor(&source_roots).as_deref(), &cmake_out_dir);
+        }
+        configure_ccache_env(
+            canonical_common_ancestor(&source_roots).as_deref(),
+            &cmake_out_dir,
+        );
+    }
+
+    let mut cxx_bridge = cxx_build::bridge("src/lib.rs");
+    cxx_bridge.std("c++20").include("cpp");
+    // The bridge compiles on every run of this script, so it goes through
+    // ccache too, with its sources in OUT_DIR mapped like the CMake build's.
+    let bridge_ccache_var = if use_ccache && !msvc_target() {
+        for flag in &prefix_map_flags {
+            cxx_bridge.flag(flag);
+        }
+        // Last, as OUT_DIR can sit inside the checkout.
+        let out_dir_path = cmake_path(&out_dir);
+        if !prefix_map_flags.is_empty() && !out_dir_path.contains(char::is_whitespace) {
+            cxx_bridge.flag(format!("-ffile-prefix-map={out_dir_path}=/rn-gpui/out"));
+        }
+        cxx_bridge.try_get_compiler().ok().and_then(|compiler| {
+            // A wrapper already in place (sccache through RUSTC_WRAPPER) stays.
+            let wrapped = compiler.to_command().get_program() != compiler.path().as_os_str();
+            (!wrapped)
+                .then(|| launch_bridge_through_ccache(compiler.path(), &target_triple))
+                .flatten()
+        })
+    } else {
+        None
+    };
+    cxx_bridge.compile("rn_gpui_cxx_bridge");
+    if let Some(variable) = bridge_ccache_var {
+        // The `cmake` crate reads the same variable to pick its compiler.
+        env::remove_var(variable);
+    }
 
     let cxxbridge_generated = out_dir.join("cxxbridge").join("include");
     assert!(
@@ -352,15 +417,22 @@ fn main() {
             }
         }
     }
-    // ccache for the C++ this build compiles. React Native's own
-    // `ReactNative-application.cmake` sets the launcher for the app build, but
-    // this crate configures CMake itself and never includes that file, so
-    // without this the object cache is unused — CI measured 0 cacheable calls.
-    if env::var_os("RN_GPUI_DISABLE_CCACHE").is_none() && ccache_available() {
+    if use_ccache {
         for variable in ["CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER"] {
             defines.push((variable, "ccache".to_string()));
         }
+        // The `cmake` crate hands C and C++ flags over, but not Objective-C++
+        // ones (the `.mm` sources on macOS).
+        if target_triple.contains("apple") && !prefix_map_flags.is_empty() {
+            let mut objcxx_flags = env::var("OBJCXXFLAGS").unwrap_or_default();
+            for flag in &prefix_map_flags {
+                objcxx_flags.push(' ');
+                objcxx_flags.push_str(flag);
+            }
+            defines.push(("CMAKE_OBJCXX_FLAGS", objcxx_flags.trim().to_string()));
+        }
     }
+    let generator = cmake_generator();
     if msvc_target() {
         // Rust always links the release CRT (msvcrt). CMake's Debug config
         // would compile with /MDd and the final link then fails on
@@ -387,7 +459,14 @@ fn main() {
     // `RN_GPUI_FORCE_CMAKE_CONFIGURE=1` is the escape hatch when the stamp
     // misses an input a future toolchain adds.
     let build_dir = cmake_out_dir.join("build");
-    let stamp = configure_stamp(&defines, cmake_build_type, &target_triple, &codegen_digest);
+    let stamp = configure_stamp(
+        &defines,
+        cmake_build_type,
+        &target_triple,
+        &codegen_digest,
+        generator.unwrap_or_default(),
+        &prefix_map_flags,
+    );
     let stamp_path = cmake_out_dir.join(".configure-inputs");
     let generator_output_exists =
         build_dir.join("Makefile").is_file() || build_dir.join("build.ninja").is_file();
@@ -397,10 +476,18 @@ fn main() {
         || !generator_output_exists;
 
     let dst = if configure {
-        let mut cmake_config = cmake::Config::new("cpp");
+        let source_dir = manifest_dir.join("cpp");
+        reuse_build_dir(&build_dir, &source_dir, generator);
+        let mut cmake_config = cmake::Config::new(&source_dir);
         cmake_config
             .out_dir(&cmake_out_dir)
             .profile(cmake_build_type);
+        if let Some(generator) = generator {
+            cmake_config.generator(generator);
+        }
+        for flag in &prefix_map_flags {
+            cmake_config.cflag(flag).cxxflag(flag);
+        }
         for (name, value) in &defines {
             cmake_config.define(name, value);
         }
@@ -421,21 +508,35 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=static:-bundle=rn_gpui_core");
 
-    emit_link_libs(
-        &cmake_manifest(&cmake_build_dir, "link_libs", cmake_build_type),
-        &out_dir,
-    );
+    let link_libs = cmake_manifest(&cmake_build_dir, "link_libs", cmake_build_type);
+    emit_link_libs(&link_libs, &out_dir);
 
     // Libraries with an `@rpath/...` install name cannot be found from
     // `rustc-link-search` alone, and `cargo:rustc-link-arg` from this package
     // would not reach the dependent binary. The directories are therefore
     // exported as `links` metadata (DEP_RN_GPUI_CORE_RPATHS) for the rn-gpui
     // package's build script, which turns them into linker rpath flags.
-    emit_rpaths(&cmake_manifest(
-        &cmake_build_dir,
-        "rpath_dirs",
-        cmake_build_type,
-    ));
+    let rpath_dirs = cmake_manifest(&cmake_build_dir, "rpath_dirs", cmake_build_type);
+    emit_rpaths(&rpath_dirs);
+    // The CMake build above rewrites these when they change, which made Cargo
+    // re-run this script on the next build. Dated back to when Cargo started
+    // this run, the write is not taken for a change, and a later one still is.
+    if let Some(invoked) = out_dir
+        .parent()
+        .and_then(|dir| fs::metadata(dir.join("invoked.timestamp")).ok())
+        .and_then(|metadata| metadata.modified().ok())
+    {
+        for manifest in [&link_libs, &rpath_dirs] {
+            if fs::metadata(manifest)
+                .and_then(|metadata| metadata.modified())
+                .is_ok_and(|modified| modified > invoked)
+            {
+                if let Ok(file) = OpenOptions::new().write(true).open(manifest) {
+                    let _ = file.set_modified(invoked);
+                }
+            }
+        }
+    }
 
     match (
         env::var("CARGO_CFG_TARGET_OS").as_deref(),
@@ -518,41 +619,130 @@ fn sync_tree(src: &Path, dst: &Path) {
     }
 }
 
-fn watch_tree(root: &Path) {
-    if !root.is_dir() {
-        return;
+/// The files FBReactNativeSpec codegen reads, each with a name relative to its
+/// package: the generator script and the pins it checks, the spec files in
+/// react-native's `src` (codegen's own filter, `filterJSFile` in
+/// `@react-native/codegen/lib/cli/combine/combine-utils.js`, widened to every
+/// platform suffix), and the JavaScript of react-native's codegen scripts and
+/// of `@react-native/codegen`.
+fn fb_spec_codegen_inputs(
+    script: &Path,
+    package_dir: &Path,
+    react_native_dir: &Path,
+    codegen_package: &Path,
+) -> Vec<(String, PathBuf)> {
+    let mut inputs = vec![
+        ("script".to_string(), script.to_path_buf()),
+        (
+            "core/package.json".to_string(),
+            package_dir.join("package.json"),
+        ),
+        (
+            "react-native/package.json".to_string(),
+            react_native_dir.join("package.json"),
+        ),
+        (
+            "codegen/package.json".to_string(),
+            codegen_package.join("package.json"),
+        ),
+    ];
+    let is_js = |path: &Path| {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        !name.ends_with(".d.ts")
+            && matches!(
+                path.extension().and_then(|ext| ext.to_str()),
+                Some("js" | "ts" | "tsx")
+            )
+    };
+    let is_spec = |path: &Path| {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        is_js(path) && (name.starts_with("Native") || name.contains("NativeComponent"))
+    };
+    for (label, root, filter) in [
+        (
+            "react-native",
+            react_native_dir.join("src"),
+            &is_spec as &dyn Fn(&Path) -> bool,
+        ),
+        (
+            "react-native",
+            react_native_dir.join("scripts/codegen"),
+            &is_js,
+        ),
+        ("codegen", codegen_package.join("lib"), &is_js),
+    ] {
+        let mut files = Vec::new();
+        collect_files(&root, filter, &mut files);
+        files.sort();
+        let base = root.parent().unwrap_or(&root);
+        for file in files {
+            let relative = file.strip_prefix(base).unwrap_or(&file);
+            inputs.push((
+                format!("{label}/{}", relative.to_string_lossy().replace('\\', "/")),
+                file,
+            ));
+        }
     }
-    println!("cargo:rerun-if-changed={}", root.display());
-    for entry in fs::read_dir(root).expect("read codegen input directory") {
-        let path = entry.expect("read codegen input entry").path();
+    inputs
+}
+
+fn collect_files(root: &Path, filter: &dyn Fn(&Path) -> bool, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
         if path.is_dir() {
-            watch_tree(&path);
-        } else {
-            println!("cargo:rerun-if-changed={}", path.display());
+            if !matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("__tests__" | "__mocks__" | "__fixtures__")
+            ) {
+                collect_files(&path, filter, files);
+            }
+        } else if filter(&path) {
+            files.push(path);
         }
     }
 }
 
-fn watch_cpp_tree(root: &Path) {
+/// A digest of the files' names and contents. A missing file hashes as empty.
+fn files_digest(files: &[(String, PathBuf)]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    STAMP_VERSION.hash(&mut hasher);
+    for (name, file) in files {
+        name.hash(&mut hasher);
+        fs::read(file).unwrap_or_default().hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn watch_cpp_tree(root: &Path, skip_dirs: &[&str]) {
     if !root.is_dir() {
         return;
     }
     for entry in fs::read_dir(root).expect("read C++ source directory") {
         let path = entry.expect("read C++ source entry").path();
         if path.is_dir() {
-            if matches!(
-                path.file_name().and_then(|name| name.to_str()),
-                Some("build" | "target")
-            ) {
+            let name = path.file_name().and_then(|name| name.to_str());
+            if matches!(name, Some("build" | "target"))
+                || name.is_some_and(|name| skip_dirs.contains(&name))
+            {
                 continue;
             }
-            watch_cpp_tree(&path);
+            watch_cpp_tree(&path, skip_dirs);
             continue;
         }
 
         let is_source = matches!(
             path.extension().and_then(|ext| ext.to_str()),
-            Some("c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" | "cmake")
+            Some("c" | "cc" | "cpp" | "cxx" | "m" | "mm" | "h" | "hh" | "hpp" | "hxx" | "cmake")
         ) || path
             .file_name()
             .is_some_and(|name| name == "CMakeLists.txt");
@@ -575,6 +765,8 @@ fn configure_stamp(
     profile: &str,
     target: &str,
     autolink_codegen: &str,
+    generator: &str,
+    compiler_flags: &[String],
 ) -> String {
     let mut stamp = String::new();
     stamp.push_str("STAMP_VERSION=");
@@ -604,7 +796,169 @@ fn configure_stamp(
     stamp.push_str("cmake_version=");
     stamp.push_str(&cmake_version());
     stamp.push('\n');
+    stamp.push_str("generator=");
+    stamp.push_str(generator);
+    stamp.push('\n');
+    stamp.push_str("compiler_flags=");
+    stamp.push_str(&compiler_flags.join(" "));
+    stamp.push('\n');
     stamp
+}
+
+/// The generator to hand CMake: Ninja when it is on `PATH`, unless the user
+/// chose one through `CMAKE_GENERATOR` (in any form the `cmake` crate reads).
+/// MSVC keeps the Visual Studio generator: Ninja there needs a developer
+/// prompt's environment for every `cmake --build`, and the unity build and
+/// `/MP` in `cpp/CMakeLists.txt` are tuned for MSBuild.
+fn cmake_generator() -> Option<&'static str> {
+    let target = env::var("TARGET").unwrap_or_default();
+    let user_chose = configure_env_names(&target)
+        .iter()
+        .filter(|name| name.ends_with("CMAKE_GENERATOR") || name.starts_with("CMAKE_GENERATOR_"))
+        .any(|name| env::var_os(name).is_some_and(|value| !value.is_empty()));
+    if user_chose || msvc_target() {
+        return None;
+    }
+    program_on_path("ninja").then_some("Ninja")
+}
+
+/// Keeps a build directory whose source or build path moved (another checkout,
+/// or a target dir copied from one) instead of letting the `cmake` crate wipe
+/// it: its `maybe_clear` deletes the whole directory when the cache names
+/// another source dir, and CMake refuses a cache made in another build dir.
+/// Only the cache goes, so the configure that follows starts clean while the
+/// objects and downloaded dependencies stay for the build to reuse. A changed
+/// generator also drops `CMakeFiles`, whose layout is generator-specific.
+fn reuse_build_dir(build_dir: &Path, source_dir: &Path, generator: Option<&str>) {
+    let cache = build_dir.join("CMakeCache.txt");
+    let Ok(contents) = fs::read_to_string(&cache) else {
+        return;
+    };
+    let entry = |name: &str| {
+        contents.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.split(':').next() == Some(name)).then(|| value.to_string())
+        })
+    };
+    let same_dir = |cached: Option<String>, current: &Path| {
+        let current = current
+            .canonicalize()
+            .unwrap_or_else(|_| current.to_path_buf());
+        cached
+            .and_then(|cached| Path::new(&cached).canonicalize().ok())
+            .is_some_and(|cached| cached == current)
+    };
+    let generator_changed =
+        generator.is_some_and(|generator| entry("CMAKE_GENERATOR").as_deref() != Some(generator));
+    let moved = !same_dir(entry("CMAKE_HOME_DIRECTORY"), source_dir)
+        || !same_dir(entry("CMAKE_CACHEFILE_DIR"), build_dir);
+    if !moved && !generator_changed {
+        return;
+    }
+    println!(
+        "rn-gpui-sys: {} changed; reconfiguring {} in place",
+        if generator_changed {
+            "CMake generator"
+        } else {
+            "source or build path"
+        },
+        build_dir.display()
+    );
+    fs::remove_file(&cache).expect("remove stale CMakeCache.txt");
+    if generator_changed {
+        let _ = fs::remove_dir_all(build_dir.join("CMakeFiles"));
+    }
+}
+
+/// The deepest directory that holds every one of `paths` (as given, and with
+/// symlinks resolved), or `None` when that is the filesystem root.
+fn common_ancestor(paths: &[&Path]) -> Option<PathBuf> {
+    common_ancestor_of(paths.iter().map(|path| path.to_path_buf()).collect())
+}
+
+fn canonical_common_ancestor(paths: &[&Path]) -> Option<PathBuf> {
+    common_ancestor_of(
+        paths
+            .iter()
+            .map(|path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
+            .collect(),
+    )
+}
+
+fn common_ancestor_of(paths: Vec<PathBuf>) -> Option<PathBuf> {
+    let first = paths.first()?;
+    let ancestor = first
+        .ancestors()
+        .find(|ancestor| paths.iter().all(|path| path.starts_with(ancestor)))?;
+    (ancestor.parent().is_some()).then(|| ancestor.to_path_buf())
+}
+
+/// `-ffile-prefix-map` flags (GCC 8+, Clang 10+) for the checkout (the
+/// directory holding the package and the app's `node_modules`, spelled as the
+/// build names it and with symlinks resolved) and the CMake output dir, mapped
+/// to fixed names so objects and their debug info do not depend on where the
+/// checkout lives. The build dir comes last because it can sit inside the
+/// checkout, and the last matching map wins. They travel in CMake's
+/// space-separated flag strings, so a path with whitespace is left unmapped.
+/// The flags are not in `cpp/`, whose contents key the prebuilt runtime.
+fn prefix_map_flags_for(source_root: Option<&Path>, cmake_out_dir: &Path) -> Vec<String> {
+    let mut maps: Vec<String> = Vec::new();
+    let mut add = |path: &Path, name: &str| {
+        let path = cmake_path(path);
+        if path.contains(char::is_whitespace) {
+            return;
+        }
+        let map = format!("-ffile-prefix-map={path}={name}");
+        if !maps.contains(&map) {
+            maps.push(map);
+        }
+    };
+    if let Some(root) = source_root {
+        add(root, "/rn-gpui/src");
+        if let Ok(canonical) = root.canonicalize() {
+            add(&canonical, "/rn-gpui/src");
+        }
+    }
+    add(cmake_out_dir, "/rn-gpui/build");
+    if let Ok(canonical) = cmake_out_dir.canonicalize() {
+        add(&canonical, "/rn-gpui/build");
+    }
+    maps
+}
+
+/// Points ccache at the paths the build uses, unless the user configured it:
+/// `base_dir` makes it hash the checkout's paths relative to the build dir, and
+/// `hash_dir` off stops it hashing the working directory, which the prefix maps
+/// already keep out of the objects.
+fn configure_ccache_env(source_root: Option<&Path>, cmake_out_dir: &Path) {
+    let ccache_config = |key: &str| {
+        Command::new("ccache")
+            .args(["-k", key])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default()
+    };
+    let mut vars = Vec::new();
+    if env::var_os("CCACHE_BASEDIR").is_none() && ccache_config("base_dir").is_empty() {
+        if let Some(base) =
+            source_root.and_then(|root| canonical_common_ancestor(&[root, cmake_out_dir]))
+        {
+            vars.push(("CCACHE_BASEDIR", base.into_os_string()));
+        }
+    }
+    if !msvc_target()
+        && env::var_os("CCACHE_NOHASHDIR").is_none()
+        && env::var_os("CCACHE_HASHDIR").is_none()
+    {
+        vars.push(("CCACHE_NOHASHDIR", "1".into()));
+    }
+    for (name, value) in vars {
+        // The build script is single-threaded here; every CMake and compiler
+        // process it starts from now on inherits these.
+        env::set_var(name, value);
+    }
 }
 
 /// A digest of the headers React Native's codegen made for the app's specs. The
@@ -1069,22 +1423,63 @@ fn emit_node_api_exports(manifest: &serde_json::Value) {
     println!("cargo:node_api_library={library}");
 }
 
+/// Watches a file autolink writes. Cargo reruns a build script on every build
+/// while a watched path is missing, so a missing file is watched through its
+/// directory, and not at all without one (a build without autolink): the CLI
+/// names the files through `RN_GPUI_AUTOLINK_*`, which are watched themselves.
+fn watch_generated_file(path: &Path) {
+    if path.exists() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    } else if let Some(dir) = path.parent().filter(|dir| dir.is_dir()) {
+        println!("cargo:rerun-if-changed={}", dir.display());
+    }
+}
+
+/// Has `cc` compile the cxx bridge through ccache: `cc` takes `ccache <compiler>`
+/// in `CXX_<target>` as a wrapper, and has no other way to be given one. Returns
+/// the variable to clear afterwards, or `None` when the user named a C++
+/// compiler, which is left alone.
+fn launch_bridge_through_ccache(compiler: &Path, target: &str) -> Option<String> {
+    let target_underscored = target.replace(['-', '.'], "_");
+    let user_set = [
+        format!("CXX_{target}"),
+        format!("CXX_{target_underscored}"),
+        "HOST_CXX".to_string(),
+        "TARGET_CXX".to_string(),
+        "CXX".to_string(),
+    ]
+    .iter()
+    .any(|name| env::var_os(name).is_some());
+    let compiler = compiler.to_str()?;
+    if user_set || compiler.contains(char::is_whitespace) {
+        return None;
+    }
+    let variable = format!("CXX_{target}");
+    // The build script is single-threaded here.
+    env::set_var(&variable, format!("ccache {compiler}"));
+    Some(variable)
+}
+
 /// Whether a `ccache` binary is on `PATH`.
 ///
 /// Only used to decide whether to hand CMake the compiler launcher: setting it
 /// to a binary that is not there fails the configure, and a machine without
 /// ccache has to build without it.
 fn ccache_available() -> bool {
+    program_on_path("ccache")
+}
+
+fn program_on_path(name: &str) -> bool {
     let path = match env::var_os("PATH") {
         Some(path) => path,
         None => return false,
     };
     let exe = if cfg!(windows) {
-        "ccache.exe"
+        format!("{name}.exe")
     } else {
-        "ccache"
+        name.to_string()
     };
-    env::split_paths(&path).any(|dir| dir.join(exe).is_file())
+    env::split_paths(&path).any(|dir| dir.join(&exe).is_file())
 }
 
 fn msvc_target() -> bool {

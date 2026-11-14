@@ -60,6 +60,19 @@ Run the app with `run-desktop`, and attach the native debugger of your platform 
 
 The process is named after your app. Set breakpoints in the Rust or C++ sources of your module, and trigger the code from JavaScript.
 
+### C++ source paths with ccache
+
+When [ccache](build-speed#use-ccache) is installed (and outside MSVC), the C++ build maps your project folder to `/rn-gpui/src` and the CMake build folder to `/rn-gpui/build` in the debug information, so another checkout of the project reuses the cache. Tell the debugger where those are to set breakpoints in C++ files and to see their source:
+
+```shell
+# LLDB
+settings set target.source-map /rn-gpui/src /path/to/your/app
+# GDB
+set substitute-path /rn-gpui/src /path/to/your/app
+```
+
+To keep the real paths, build with `RN_GPUI_DISABLE_CCACHE=1`.
+
 ### Panics
 
 A panic in a Rust module method does not stop the app. It is caught and turned into a rejected promise or a thrown error, and the panic message is logged. To stop in the debugger at the panic, set a breakpoint on `rust_panic`.

@@ -11,6 +11,12 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - The thumb of a scroll view whose content is translucent or blurred follows the drag and is sized to the content. It read the viewport and the furthest offset from a scroll handle that such a scroll view never measures.
 - A press on the scroll bar track outside the thumb scrolls a page towards the pointer, as in a browser.
 - `onPointerEnter` and `onPointerLeave` reach a `Pressable` (and `TextInput` and the touchables) that has no `onHoverIn` or `onHoverOut`. Pressability returned those keys as `undefined`, and the component spread them over its own props.
+- A Cargo target folder copied to another checkout (or a checkout that moved) keeps its C++ build: the build reconfigures it in place instead of deleting it ("detected home dir change, cleaning out entire build directory"), so the downloaded native dependencies stay and, with ccache, the C++ comes from the cache.
+- The C++ build uses Ninja when `ninja` is on `PATH` and `CMAKE_GENERATOR` is not set, except with MSVC, which keeps the Visual Studio generator. The first build after the switch compiles the C++ again.
+- With ccache, the C++ build passes `-ffile-prefix-map` for the checkout and the build folder (outside MSVC) and sets `CCACHE_BASEDIR` and `CCACHE_NOHASHDIR` unless they are configured, so the same sources hit the cache from another checkout. Debug information then names `/rn-gpui/src` and `/rn-gpui/build`; the native debugging docs show the debugger source map to set.
+- React Native's FBReactNativeSpec codegen only runs when its inputs (the react-native and codegen packages, the spec files, the generator script) changed, and the build script only re-runs for files that feed the build.
+- With ccache, the cxx bridge C++ (compiled on every run of the build script) also goes through ccache, unless `CXX` or a target-specific `CXX_<target>` names a compiler or a wrapper is already set through `RUSTC_WRAPPER`.
+- A build without autolink files (`desktop/autolink/autolink.json` and the rest) no longer re-runs the build script on every `cargo build`, and the build after one that compiled C++ no longer re-runs it either.
 
 ## 0.87.0-alpha.3 - 2026-11-12
 
