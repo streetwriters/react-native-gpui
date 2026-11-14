@@ -2,6 +2,14 @@
 
 All notable changes to `@react-native-gpui/testing` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- The tester's e2e runner runs its offscreen specs in parallel (`RN_GPUI_E2E_WORKERS`, default half the cores, at most 8) while the specs that need a visible window or machine-wide state run serially at the same time. `--headed` or `RN_GPUI_E2E_SEQUENTIAL=1` runs the passes one after the other, one spec at a time.
+
+- The tester's e2e runner compiles its test bundle to Hermes bytecode, so each test app starts faster (set `RN_GPUI_E2E_JS_BUNDLE=1` to keep plain JavaScript).
+
+- `launchApp` prints how long the spawn, driver handshake and first idle took when `RN_GPUI_TEST_TIMING=1`, to find slow launch phases on a CI runner.
+
 ## 0.87.0-alpha.1 - 2026-11-12
 
 - `launchApp` sets `RN_GPUI_DEV_PORT=1` when it is given a bundle and the environment does not set it, so the app loads the bundle at once instead of trying a dev server first.

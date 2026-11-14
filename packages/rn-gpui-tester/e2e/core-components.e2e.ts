@@ -40,6 +40,9 @@ async function start(offscreen: boolean) {
       RN_GPUI_TEST_FAKE_NATIVE_UI: '1',
     },
     disableAnimations: true,
+    // Pressable holds a press for 130 ms with a timer; waiting it out after
+    // every click only costs time.
+    idleOptions: { ignore: ['timers'] },
     offscreen,
   });
   if (!offscreen) {

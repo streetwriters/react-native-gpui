@@ -28,20 +28,33 @@ beforeAll(async () => {
 
 afterAll(() => app?.close());
 
-async function ink(id: string) {
-  const image = PNG.sync.read(await app.getByTestId(id).screenshot());
-  let right = -1;
-  for (let y = 0; y < image.height; y += 1) {
-    for (let x = 0; x < image.width; x += 1) {
-      const o = (y * image.width + x) * 4;
-      if (image.data[o] < 128 && x > right) right = x;
+type Frame = { x: number; y: number; width: number; height: number };
+
+// One window screenshot serves every element: a screenshot per element is a
+// full render and PNG round trip each, which took minutes on Windows. Returns
+// the right-most dark pixel of a frame, in pixels from its left edge.
+function ink(shot: PNG, frame: Frame) {
+  const scale = shot.width / 1024;
+  const left = Math.max(0, Math.floor(frame.x * scale));
+  const top = Math.max(0, Math.floor(frame.y * scale));
+  const right = Math.min(shot.width, Math.ceil((frame.x + frame.width) * scale));
+  const bottom = Math.min(
+    shot.height,
+    Math.ceil((frame.y + frame.height) * scale),
+  );
+  let edge = -1;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      if (shot.data[(y * shot.width + x) * 4] < 128 && x - left > edge)
+        edge = x - left;
     }
   }
-  return right / (image.width / 1);
+  return edge / (right - left);
 }
 
 test('a one-line text that fits its measured box is not cut short', async () => {
   const titles = 6;
+  const shot = PNG.sync.read(await app.screenshot());
   for (let row = 0; row < titles; row += 1) {
     for (const weight of ['400', '600', '800']) {
       for (const size of [13, 14, 15, 16, 17.5]) {
@@ -52,8 +65,8 @@ test('a one-line text that fits its measured box is not cut short', async () => 
           Math.abs(cut.frame.width - full.frame.width),
           `frame ${id}`,
         ).toBeLessThanOrEqual(0.5);
-        const a = await ink(`cut-${id}`);
-        const b = await ink(`full-${id}`);
+        const a = ink(shot, cut.frame);
+        const b = ink(shot, full.frame);
         expect(a, `ink ${id}`).toBeCloseTo(b, 2);
       }
     }

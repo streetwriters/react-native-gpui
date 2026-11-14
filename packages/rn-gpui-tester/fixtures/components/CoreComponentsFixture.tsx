@@ -2,7 +2,6 @@ import React, { useRef, useState } from 'react';
 import {
   unstable_VirtualView as VirtualView,
   ActivityIndicator,
-  Appearance,
   DynamicColorIOS,
   PlatformColor,
   RefreshControl,
@@ -15,6 +14,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useColorScheme,
   View,
   type ScrollViewInstance,
 } from 'react-native';
@@ -25,6 +25,10 @@ const IMAGE_BASE = 'http://127.0.0.1:18765';
 const PROGRESS_URL = 'http://127.0.0.1:18765/noise.png';
 
 export default function CoreComponentsFixture() {
+  // Colours are resolved when a style is processed, and an unchanged colour
+  // object is not processed again, so the swatches are keyed by the scheme: they
+  // are rebuilt when the window reports its appearance after the first frame.
+  const colorScheme = useColorScheme();
   const commandScroll = useRef<ScrollViewInstance>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rotatedPresses, setRotatedPresses] = useState(0);
@@ -781,8 +785,9 @@ export default function CoreComponentsFixture() {
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Platform colors</Text>
-        <Text testID="color-scheme">{String(Appearance.getColorScheme())}</Text>
+        <Text testID="color-scheme">{String(colorScheme)}</Text>
         <View
+          key={`platform-${colorScheme}`}
           testID="color-platform"
           style={[
             styles.swatch,
@@ -790,6 +795,7 @@ export default function CoreComponentsFixture() {
           ]}
         />
         <View
+          key={`fallback-${colorScheme}`}
           testID="color-fallback"
           style={[
             styles.swatch,
@@ -797,6 +803,7 @@ export default function CoreComponentsFixture() {
           ]}
         />
         <View
+          key={`dynamic-${colorScheme}`}
           testID="color-dynamic"
           style={[
             styles.swatch,

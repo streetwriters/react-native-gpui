@@ -1,5 +1,7 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -296,6 +298,33 @@ run(
   process.env,
   npxShell,
 );
+
+// Every test app start otherwise parses and compiles the plain-JS bundle; the
+// bytecode loads without that, which is most of the gap on a slow runner.
+// RN_GPUI_E2E_JS_BUNDLE=1 keeps plain JS, for readable stack traces.
+if (process.env.RN_GPUI_E2E_JS_BUNDLE !== '1') {
+  const bundlePath = path.join(projectRoot, 'desktop/build/test-e2e.bundle');
+  try {
+    const require = createRequire(import.meta.url);
+    const engine = require(
+      path.join(repoRoot, 'packages/hermes/desktop/bundle.js'),
+    );
+    const compiled = `${bundlePath}.hbc`;
+    // The relocation check reads the plain text for the addon paths it embeds.
+    fs.copyFileSync(bundlePath, `${bundlePath}.js`);
+    engine.compile({ input: bundlePath, output: compiled, dev: false });
+    fs.renameSync(compiled, bundlePath);
+    console.log('[e2e] test bundle compiled to Hermes bytecode');
+  } catch (error) {
+    console.warn(
+      `[e2e] keeping the plain-JS test bundle: ${error.message.split('\n')[0]}`,
+    );
+  }
+} else {
+  fs.rmSync(path.join(projectRoot, 'desktop/build/test-e2e.bundle.js'), {
+    force: true,
+  });
+}
 assertScreenIsUnlocked();
 preventSleep();
 
@@ -435,21 +464,75 @@ try {
         ? '1'
         : process.env.RN_GPUI_UPDATE_SNAPSHOTS,
   };
-  run(
-    process.execPath,
-    [
-      path.join(repoRoot, 'node_modules/vitest/vitest.mjs'),
-      'run',
-      '--config',
-      path.join(repoRoot, 'vitest.e2e.config.ts'),
-      ...(headed && !passthrough.some(arg => arg.startsWith('--maxWorkers'))
-        ? ['--maxWorkers=1']
-        : []),
-      ...passthrough,
-    ],
-    repoRoot,
-    env,
-  );
+  // Two passes (see vitest.e2e.config.ts): the specs that need a visible window
+  // or touch machine-wide state run one at a time, the offscreen rest in
+  // parallel. Both always run, so one failing pass hides nothing of the other.
+  // The offscreen specs share no window, focus or machine state with the
+  // serial ones, so the two passes run at the same time; the run takes as long
+  // as the slower one. `--headed` and RN_GPUI_E2E_SEQUENTIAL=1 run them one
+  // after the other.
+  const workers =
+    process.env.RN_GPUI_E2E_WORKERS ??
+    String(Math.max(1, Math.min(8, Math.floor(os.availableParallelism() / 2))));
+  const sequential = headed || process.env.RN_GPUI_E2E_SEQUENTIAL === '1';
+  const passArgs = pass => [
+    path.join(repoRoot, 'node_modules/vitest/vitest.mjs'),
+    'run',
+    '--config',
+    path.join(repoRoot, 'vitest.e2e.config.ts'),
+    '--passWithNoTests',
+    ...(!passthrough.some(arg => arg.startsWith('--maxWorkers'))
+      ? [`--maxWorkers=${headed || pass === 'serial' ? 1 : workers}`]
+      : []),
+    ...passthrough,
+  ];
+  // Prefixes each line of a pass's output, so two passes can share a terminal.
+  const prefixed = (stream, target, label) => {
+    let pending = '';
+    stream.on('data', chunk => {
+      pending += chunk;
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines) target.write(`${label} ${line}\n`);
+    });
+    stream.on('end', () => {
+      if (pending) target.write(`${label} ${pending}\n`);
+    });
+  };
+  const runPass = pass =>
+    new Promise(resolve => {
+      const child = spawn(process.execPath, passArgs(pass), {
+        cwd: repoRoot,
+        env: { ...env, RN_GPUI_E2E_PASS: pass },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      prefixed(child.stdout, process.stdout, `[${pass}]`);
+      prefixed(child.stderr, process.stderr, `[${pass}]`);
+      child.on('error', error => resolve(`${pass} pass: ${error.message}`));
+      child.on('close', status =>
+        resolve(status === 0 ? null : `${pass} pass failed with ${status}`),
+      );
+    });
+  const failures = [];
+  if (sequential) {
+    for (const pass of ['serial', 'parallel']) {
+      try {
+        run(process.execPath, passArgs(pass), repoRoot, {
+          ...env,
+          RN_GPUI_E2E_PASS: pass,
+        });
+      } catch (error) {
+        failures.push(`${pass} pass: ${error.message}`);
+      }
+    }
+  } else {
+    failures.push(
+      ...(await Promise.all([runPass('serial'), runPass('parallel')])).filter(
+        Boolean,
+      ),
+    );
+  }
+  if (failures.length) throw new Error(failures.join('\n'));
   // The relocation proof for `collect-node-addons` runs as its own step rather
   // than as a vitest file: it renames the fixture addon's `build/` directory,
   // which the node-api screen tests in this same run also load. Doing that

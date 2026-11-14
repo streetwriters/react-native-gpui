@@ -42,7 +42,12 @@ const projectRoot = path.resolve(
   '..',
 );
 const repoRoot = path.resolve(projectRoot, '..', '..');
-const bundlePath = path.join(projectRoot, 'desktop/build/test-e2e.bundle');
+// The e2e runner compiles the bundle to bytecode, which hides the addon paths,
+// and keeps the plain JavaScript next to it.
+const plainBundle = path.join(projectRoot, 'desktop/build/test-e2e.bundle.js');
+const bundlePath = fs.existsSync(plainBundle)
+  ? plainBundle
+  : path.join(projectRoot, 'desktop/build/test-e2e.bundle');
 
 /** Prints a failure and exits non-zero, always restoring the fixture first. */
 let restore = () => {};

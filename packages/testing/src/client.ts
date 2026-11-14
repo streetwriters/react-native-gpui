@@ -331,6 +331,12 @@ export class DesktopApp {
       options.env?.RN_GPUI_BUNDLE ??
       process.env.RN_GPUI_BUNDLE;
     const frontmostBefore = frontmostApplicationPid();
+    // RN_GPUI_TEST_TIMING=1 prints where each launch spends its time, to find
+    // slow phases on a CI runner without a profiler.
+    const phases: [string, number][] = [];
+    const launchStart = performance.now();
+    const mark = (phase: string) =>
+      phases.push([phase, Math.round(performance.now() - launchStart)]);
     const child = spawn(executable, options.args ?? [], {
       env: {
         ...process.env,
@@ -388,6 +394,7 @@ export class DesktopApp {
       child.kill('SIGTERM');
       throw error;
     }
+    mark('port');
     let socket: WebSocket;
     try {
       socket = await connect(port, timeout);
@@ -414,6 +421,7 @@ export class DesktopApp {
         `GPUI test-driver protocol mismatch (received ${hello.protocol ?? 'none'}); rebuild the app with --features test-driver`,
       );
     }
+    mark('hello');
     app.scale =
       typeof hello.scale === 'number' && hello.scale > 0 ? hello.scale : 1;
     if (typeof hello.capture === 'boolean') app.capture = hello.capture;
@@ -425,6 +433,11 @@ export class DesktopApp {
       await app.close();
       throw error;
     }
+    mark('idle');
+    if (process.env.RN_GPUI_TEST_TIMING === '1')
+      console.log(
+        `[launch timing] ${phases.map(([name, ms]) => `${name}=${ms}ms`).join(' ')}`,
+      );
     if (backgroundExpected() && child.pid !== undefined) {
       const frontmost = frontmostApplicationPid();
       if (frontmost !== undefined && frontmost === child.pid) {

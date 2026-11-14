@@ -1,12 +1,17 @@
 import path from 'node:path';
 import { expect, test } from 'vitest';
-import { launchApp, type DesktopApp } from '@react-native-gpui/testing';
+import {
+  launchApp,
+  type DesktopApp,
+  type IdleOptions,
+} from '@react-native-gpui/testing';
 
 /**
  * Host components, end to end.
  */
 
 let app: DesktopApp;
+let launchedKey = '';
 
 async function launch(
   module: string,
@@ -14,6 +19,15 @@ async function launch(
   initialProps: Record<string, unknown> = {},
   extraEnv: Record<string, string> = {},
 ) {
+  // A reload gives the next test a fresh React tree without paying for a new
+  // process, whose start dominates a slow runner. The fixture, scenario and
+  // props are fixed per process, so only an identical launch can reuse it.
+  const key = JSON.stringify([module, scenario, initialProps, extraEnv]);
+  if (app && key === launchedKey) {
+    await app.reload();
+    return app;
+  }
+  launchedKey = key;
   if (app) await app.close();
   app = await launchApp({
     bundle: path.resolve(
@@ -51,11 +65,14 @@ async function frameOf(
   return node.frame;
 }
 
-async function clickTestID(testID: string) {
+async function clickTestID(
+  testID: string,
+  ignore: NonNullable<IdleOptions['ignore']> = [],
+) {
   const [node] = await app.query('testID', testID, true);
   if (!node) throw new Error(`no node for ${testID}`);
   await app.click((node as { tag: number }).tag);
-  await app.waitForIdle();
+  await app.waitForIdle({ ignore });
 }
 
 afterAll(async () => {
@@ -183,8 +200,12 @@ test('a host component costs nothing for a prop it did not change', async () => 
   await app.hostCounters({ reset: true });
 
   for (let index = 0; index < 100; index += 1) {
-    await clickTestID('host-chart-title');
+    // React Native's Pressable keeps a press for 130 ms with a timer; the
+    // press handler has run by then, so waiting out that timer 100 times
+    // (about 20 s) proves nothing.
+    await clickTestID('host-chart-title', ['timers']);
   }
+  await app.waitForIdle();
   const counters = await app.hostCounters({ reset: true });
   expect(counters.hostPropsBytesCopied).toBe(0);
   expect(counters.hostUpdateCalls).toBe(100);

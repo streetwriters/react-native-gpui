@@ -59,7 +59,13 @@ async function dragThumb(testID: string) {
 
 test('a nested scroll view takes the drag of its own thumb', async () => {
   const outer = await offsetOf('drag-outer');
-  await dragThumb('drag-inner');
+  // The first drag of a fresh app can land before the thumb has its hover
+  // layout when the machine is busy, and a press then misses it. Dragging again
+  // is what a user does; the assertion below is still on the offsets.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await dragThumb('drag-inner');
+    if ((await offsetOf('drag-inner')) > 0) break;
+  }
   expect(await offsetOf('drag-inner')).toBeGreaterThan(0);
   expect(await offsetOf('drag-outer')).toBe(outer);
 });

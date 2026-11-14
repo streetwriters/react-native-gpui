@@ -1946,7 +1946,18 @@ async fn wait_for_frame(
         return false;
     }
 
-    let interval = timeout.min(Duration::from_millis(16));
+    // The pause after a forced draw lets JS answer the frame's events. A test
+    // does not need a display's 16 ms for that: 4 ms halves the cost of every
+    // idle wait. 1 ms was fast enough to let a scroll bar hover race ahead of
+    // the thumb under load, so `RN_GPUI_TEST_FRAME_MS` stays an override.
+    static FRAME_MS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let frame_ms = *FRAME_MS.get_or_init(|| {
+        std::env::var("RN_GPUI_TEST_FRAME_MS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(4)
+    });
+    let interval = timeout.min(Duration::from_millis(frame_ms));
     cx.background_executor().timer(interval).await;
     true
 }
