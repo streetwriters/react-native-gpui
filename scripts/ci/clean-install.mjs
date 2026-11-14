@@ -242,6 +242,14 @@ function main() {
   // 4. Build the release binary. RN_GPUI_BUILD_FROM_SOURCE is set by the
   //    workflow when the C++ inputs changed, because under node_modules the
   //    hash is not checked and a stale pin would otherwise be used.
+  //
+  //    The URL scheme the installers register (checked in step 6) goes into
+  //    `desktop.json` first: it changes the generated `main.rs`, so adding it
+  //    after this build made package-desktop redo the full-LTO release build.
+  const configPath = path.join(projectRoot, 'desktop', 'desktop.json');
+  const desktopConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  desktopConfig.urlSchemes = [URL_SCHEME];
+  fs.writeFileSync(configPath, `${JSON.stringify(desktopConfig, null, 2)}\n`);
   run('npx', ['react-native', 'run-desktop', '--release', '--no-launch'], {
     cwd: projectRoot,
     shell: process.platform === 'win32',
@@ -305,11 +313,8 @@ function main() {
 const URL_SCHEME = 'rngpuismoke';
 
 function packageAndSmoke({ projectRoot, manifest, appDir, binary }) {
-  // The installers register the scheme; the checks below read it back.
-  const configPath = path.join(projectRoot, 'desktop', 'desktop.json');
-  const desktopConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  desktopConfig.urlSchemes = [URL_SCHEME];
-  fs.writeFileSync(configPath, `${JSON.stringify(desktopConfig, null, 2)}\n`);
+  // The installers register the scheme set in step 4; the checks below read it
+  // back.
   run('npx', ['react-native', 'package-desktop'], {
     cwd: projectRoot,
     shell: process.platform === 'win32',
