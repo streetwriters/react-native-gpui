@@ -85,23 +85,8 @@ pub(crate) fn locale_is_rtl(locale: &str) -> bool {
 
 fn settings_path() -> PathBuf {
     let app_id = crate::desktop::snapshot_app_id();
-    let safe_id = app_id.replace(
-        |c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_',
-        "_",
-    );
-    #[cfg(target_os = "macos")]
-    let base = std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join("Library/Application Support"));
-    #[cfg(target_os = "windows")]
-    let base = std::env::var_os("APPDATA").map(PathBuf::from);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
-    let path = base
-        .unwrap_or_else(std::env::temp_dir)
-        .join("rn-gpui")
-        .join(format!("{safe_id}-i18n.json"));
+    let safe_id = crate::desktop::app_dir::safe_id(&app_id);
+    let path = crate::desktop::app_dir::app_dir().join(format!("{safe_id}-i18n.json"));
     #[cfg(feature = "visual-capture")]
     if let Some(window_state) = std::env::var_os("RN_GPUI_WINDOW_STATE") {
         return PathBuf::from(window_state).with_extension("i18n.json");

@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `RN_GPUI_APP_DATA_DIR` set to a folder replaces the per-user base folder (`~/Library/Application Support`, `%APPDATA%`, `$XDG_CONFIG_HOME` or `~/.config`) for everything the runtime keeps for the app: window state, `I18nManager` and settings files, the single-instance lock (so copies with different folders each open) and, on Linux, the window frame cache (under `cache/`). It lets several copies of an app run side by side with separate state.
+
 - Dragging a scroll bar thumb holds the content where the pointer is. While the button was held still, the hover check that follows each React commit was taken for a drag back to where the thumb was pressed, so the content jumped to the start and back.
 - The thumb of a scroll view whose content is translucent or blurred follows the drag and is sized to the content. It read the viewport and the furthest offset from a scroll handle that such a scroll view never measures.
 - A press on the scroll bar track outside the thumb scrolls a page towards the pointer, as in a browser.

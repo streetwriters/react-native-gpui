@@ -26,6 +26,12 @@ With [`singleInstance`](desktop-json#singleinstance) set, starting the app again
 
 A URL among the arguments also arrives as a `url` event of `Linking`.
 
+## Running copies side by side
+
+The runtime keeps a few files per user: the window state, the `I18nManager` and settings files and the single-instance lock, in `<base>/rn-gpui`, where `<base>` is `~/Library/Application Support` (macOS), `%APPDATA%` (Windows) or `$XDG_CONFIG_HOME` (`~/.config`, Linux). Set `RN_GPUI_APP_DATA_DIR` to a folder to use it as `<base>` instead (an empty value is ignored). Copies started with different folders keep separate state and are not [single-instance](desktop-json#singleinstance) of each other, so several can run at once, for example one per development branch. On Linux the window frame measurement is cached in `$RN_GPUI_APP_DATA_DIR/cache`.
+
+This is better than overriding `HOME`, which breaks the toolchains and, on macOS, the keychain. `@react-native-gpui/fs` follows the same variable: `appData` is `$RN_GPUI_APP_DATA_DIR/<id>`, `appCache` is `$RN_GPUI_APP_DATA_DIR/cache/<id>` and `appLogs` is `$RN_GPUI_APP_DATA_DIR/logs/<id>`.
+
 ## Quitting
 
 | Method           | Does                                                                      |

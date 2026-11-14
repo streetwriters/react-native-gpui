@@ -318,24 +318,8 @@ fn window_state_path(app_id: &str) -> std::path::PathBuf {
     if let Some(path) = std::env::var_os("RN_GPUI_WINDOW_STATE") {
         return path.into();
     }
-    let safe_id = app_id.replace(
-        |c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_',
-        "_",
-    );
-    #[cfg(target_os = "macos")]
-    let base = std::env::var_os("HOME")
-        .map(|home| std::path::PathBuf::from(home).join("Library/Application Support"));
-    #[cfg(target_os = "windows")]
-    let base = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-        });
-    base.unwrap_or_else(std::env::temp_dir)
-        .join("rn-gpui")
-        .join(format!("{safe_id}-window.json"))
+    let safe_id = crate::desktop::app_dir::safe_id(app_id);
+    crate::desktop::app_dir::app_dir().join(format!("{safe_id}-window.json"))
 }
 
 fn load_window_bounds(path: &std::path::Path) -> Option<(f32, f32, f32, f32)> {

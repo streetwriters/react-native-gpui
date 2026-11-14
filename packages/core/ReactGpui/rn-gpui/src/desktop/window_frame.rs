@@ -164,8 +164,9 @@ mod cache {
     }
 
     fn path() -> Option<PathBuf> {
-        let base = std::env::var_os("XDG_CACHE_HOME")
-            .map(PathBuf::from)
+        let base = super::app_dir::data_dir_override()
+            .map(|dir| dir.join("cache"))
+            .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
         let directory = APP_DIRECTORY
             .get()
