@@ -1239,7 +1239,11 @@ if(MSVC)
         continue()
       endif()
       get_target_property(_source_dir "${_target}" SOURCE_DIR)
-      if(_source_dir AND (_source_dir MATCHES "native-deps"
+      # curl builds from the shared cache, which RN_GPUI_NATIVE_DEPS_CACHE may
+      # place anywhere; the prepared sources are under this build's native-deps.
+      string(FIND "${_source_dir}" "${RN_GPUI_NATIVE_DEPS_CACHE}/" _in_native_deps_cache)
+      if(_source_dir AND (_in_native_deps_cache EQUAL 0
+                          OR _source_dir MATCHES "native-deps"
                           OR _source_dir MATCHES "/ReactCommon/yoga/"))
         set_target_properties("${_target}" PROPERTIES UNITY_BUILD OFF)
       endif()

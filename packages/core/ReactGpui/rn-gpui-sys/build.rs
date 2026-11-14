@@ -56,6 +56,9 @@ fn main() {
         "RN_GPUI_PREBUILT_DIR",
         "RN_GPUI_BUILD_FROM_SOURCE",
         "RN_GPUI_PREBUILT_CACHE",
+        "RN_GPUI_NATIVE_DEPS_CACHE",
+        "XDG_CACHE_HOME",
+        "LOCALAPPDATA",
         "RN_GPUI_PREBUILT_OFFLINE",
         "CARGO_NET_OFFLINE",
         "GITHUB_TOKEN",
@@ -323,6 +326,10 @@ fn main() {
         ),
         ("RN_GPUI_PROJECT_ROOT", cmake_path(&project_root)),
         ("RN_GPUI_AUTOLINK_CMAKE", cmake_path(autolink_cmake.clone())),
+        (
+            "RN_GPUI_NATIVE_DEPS_CACHE",
+            cmake_path(native_deps_cache_dir(&cargo_target_dir)),
+        ),
     ];
     let codegen_digest = autolink_codegen_digest(
         &autolink_cmake
@@ -904,6 +911,51 @@ fn fallback_or_panic(require: bool, reason: &str) {
         );
     }
     println!("cargo:warning=rn-gpui-sys: no prebuilt runtime ({reason}); building from source");
+}
+
+/// The folder the C++ build keeps the downloaded, extracted and built native
+/// dependencies (Boost, folly, OpenSSL, curl...) in. It is shared by every build
+/// of every checkout, so a new target folder or worktree does not fetch and
+/// compile them again. Order: `RN_GPUI_NATIVE_DEPS_CACHE`; `native-deps` in
+/// `RN_GPUI_PREBUILT_CACHE` when that is set; `native-deps` in the per-user
+/// `react-native-gpui` cache folder the prebuilt runtime uses
+/// (`scripts/prebuilt-binaries.mjs`); and, where the machine has no user cache
+/// folder, a folder in the Cargo target dir.
+fn native_deps_cache_dir(cargo_target_dir: &Path) -> PathBuf {
+    let set = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
+    let absolute = |path: PathBuf| {
+        if path.is_absolute() {
+            path
+        } else {
+            env::current_dir()
+                .expect("read build-script working directory")
+                .join(path)
+        }
+    };
+    if let Some(dir) = set("RN_GPUI_NATIVE_DEPS_CACHE") {
+        return absolute(PathBuf::from(dir));
+    }
+    if let Some(dir) = set("RN_GPUI_PREBUILT_CACHE") {
+        return absolute(PathBuf::from(dir)).join("native-deps");
+    }
+    let home = env::home_dir().filter(|dir| !dir.as_os_str().is_empty());
+    // The build script runs on the host, so these are the host's cache folders.
+    let user_cache = if cfg!(target_os = "macos") {
+        home.map(|home| home.join("Library").join("Caches"))
+    } else if cfg!(windows) {
+        set("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| home.map(|home| home.join("AppData").join("Local")))
+    } else {
+        set("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .or_else(|| home.map(|home| home.join(".cache")))
+    };
+    match user_cache {
+        Some(dir) => dir.join("react-native-gpui").join("native-deps"),
+        None => cargo_target_dir.join("rn-gpui-native-deps"),
+    }
 }
 
 fn env_flag(name: &str) -> bool {

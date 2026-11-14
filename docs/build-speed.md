@@ -18,6 +18,7 @@ React Native's C++ runtime is the largest part of a build. By default (`prebuilt
 - A build that compiles the runtime means no prebuilt matched. Update to a version of `@react-native-gpui/core` that has one for your platform.
 - Set `prebuilt: 'always'` in `react-native.config.js` so that the build fails when the prebuilt cannot be used, instead of silently compiling the runtime.
 - On a CI machine, cache the download folder between runs. See [Prebuilt runtime](cli#prebuilt-runtime) for its location and for `RN_GPUI_PREBUILT_CACHE`.
+- The sources of the C++ libraries (Boost, folly, curl...) and the OpenSSL a source build compiles are kept in one [native dependency cache](cli#native-dependency-cache) shared by all your projects and checkouts, so only the first build on a machine downloads them. Cache that folder on CI too.
 
 ## Keep the Cargo target folder
 

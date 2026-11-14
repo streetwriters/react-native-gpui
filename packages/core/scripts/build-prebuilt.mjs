@@ -399,16 +399,18 @@ run('cmake', [
 
 // Native-deps archives the build downloaded (DownloadNativeDeps.cmake), with
 // their sha256, so consumers and CI can see exactly which sources a build used.
+// The downloads live in a cache shared with other builds, so the list comes from
+// the `name sha256` lines CMake writes for the archives it pinned and verified.
 function nativeDepsArchives(dir) {
-  const downloads = path.join(dir, 'native-deps', 'downloads');
-  if (!existsSync(downloads)) return [];
-  return readdirSync(downloads)
-    .filter(name => !name.endsWith('.part'))
-    .sort()
-    .map(name => ({
-      name,
-      sha256: sha256File(path.join(downloads, name)),
-    }));
+  const list = path.join(dir, 'native-deps', 'archives.txt');
+  if (!existsSync(list)) return [];
+  return readFileSync(list, 'utf8')
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => {
+      const [name, sha256] = line.trim().split(' ');
+      return { name, sha256 };
+    });
 }
 
 const inputs = inputHash();

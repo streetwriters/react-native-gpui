@@ -131,15 +131,29 @@ module.exports = {
 
 Downloads are cached in `~/Library/Caches/react-native-gpui` on macOS, `%LOCALAPPDATA%\react-native-gpui` on Windows and `~/.cache/react-native-gpui` on Linux.
 
+## Native dependency cache
+
+Both the prebuilt and the source build need the sources of a few C++ libraries: Boost, folly, fmt, glog, double-conversion, fast_float, nlohmann/json and curl, and a source build also needs OpenSSL, which it compiles. They are kept in a folder shared by every build of every project on the machine, so a new checkout, worktree or `desktop/build` folder does not download them or compile OpenSSL again. The folder is `native-deps` in the cache folder above: `~/Library/Caches/react-native-gpui/native-deps` on macOS, `%LOCALAPPDATA%\react-native-gpui\native-deps` on Windows and `~/.cache/react-native-gpui/native-deps` on Linux (`$XDG_CACHE_HOME` replaces `~/.cache`).
+
+| Folder                     | Content                                                                                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `downloads/<sha256>/`      | The source archives. Each is checked against its pinned SHA-256 and downloaded again if it differs.                                                                                                         |
+| `sources/<name>-<sha256>/` | The extracted archives. Builds only read them.                                                                                                                                                              |
+| `openssl/<key>/`           | The static OpenSSL a source build compiled. The key holds the target, the build type, the compiler and the compiler flags in the environment, so builds that differ in any of them each get their own copy. |
+| `locks/`                   | Lock files. Builds running at the same time wait for each other instead of fetching or compiling twice.                                                                                                     |
+
+It is safe to delete the folder, or any part of it: the next build fetches and compiles what is missing. Nothing in it is ever written into your project. A build that finds no user cache folder (no home folder, for example) keeps it under `rn-gpui-native-deps` in the Cargo target folder.
+
 ## Environment variables
 
 For a one-off build, these variables take precedence over `react-native.config.js`:
 
-| Variable                       | Description                                  |
-| ------------------------------ | -------------------------------------------- |
-| `RN_GPUI_BUILD_FROM_SOURCE=1`  | Builds the runtime from source.              |
-| `RN_GPUI_PREBUILT_DIR=<dir>`   | Uses an already extracted prebuilt runtime.  |
-| `RN_GPUI_PREBUILT_CACHE=<dir>` | Changes the cache location.                  |
-| `RN_GPUI_PREBUILT_OFFLINE=1`   | Uses the cache only, with no network access. |
+| Variable                          | Description                                                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `RN_GPUI_BUILD_FROM_SOURCE=1`     | Builds the runtime from source.                                                                                   |
+| `RN_GPUI_PREBUILT_DIR=<dir>`      | Uses an already extracted prebuilt runtime.                                                                       |
+| `RN_GPUI_PREBUILT_CACHE=<dir>`    | Changes the cache location. The [native dependency cache](#native-dependency-cache) moves to `<dir>/native-deps`. |
+| `RN_GPUI_NATIVE_DEPS_CACHE=<dir>` | Changes the location of the native dependency cache only, for example to a folder a CI job restores.              |
+| `RN_GPUI_PREBUILT_OFFLINE=1`      | Uses the cache only, with no network access.                                                                      |
 
 The signing variables used by `package-desktop` are listed in [Publishing your app](publishing-desktop#signing).
