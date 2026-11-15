@@ -99,22 +99,26 @@ test.skipIf(process.platform !== 'linux')(
     await app.waitForIdle();
 
     // Show first so the following hide is a real mapped -> unmapped transition
-    // (offscreen test windows start hidden). The window manager reports the new
-    // map state asynchronously, hence the idle waits.
+    // (offscreen test windows start hidden). The X server reports the new map
+    // state with a MapNotify/UnmapNotify that arrives whenever it arrives: the
+    // app is idle before it does, so an idle wait is not enough when the
+    // machine is busy. Wait for the state itself.
+    const hidden = () =>
+      expect.poll(async () => (await app.getWindowBounds()).hidden, {
+        timeout: 5000,
+      });
+
     await app.getByTestId('desktop-show-window').click();
-    await app.waitForIdle();
-    expect((await app.getWindowBounds()).hidden).toBe(false);
+    await hidden().toBe(false);
 
     await app.getByTestId('desktop-hide-window').click();
-    await app.waitForIdle();
-    expect((await app.getWindowBounds()).hidden).toBe(true);
+    await hidden().toBe(true);
 
     await app.setWindowSize(500, 400);
     expect(await app.getWindowSize()).toEqual({ width: 500, height: 400 });
 
     await app.getByTestId('desktop-show-window').click();
-    await app.waitForIdle();
-    expect((await app.getWindowBounds()).hidden).toBe(false);
+    await hidden().toBe(false);
     expect(await app.getWindowSize()).toEqual({ width: 500, height: 400 });
   },
 );

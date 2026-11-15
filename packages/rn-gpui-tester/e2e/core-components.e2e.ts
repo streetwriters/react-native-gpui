@@ -1079,8 +1079,18 @@ describe('scrollEventThrottle', () => {
     // Forty deltas of 5 points, 15 ms apart: 600 ms of scrolling, 200 points.
     // Driven as a mouse wheel would, so no momentum follows.
     const started = Date.now();
+    // A wheel that stops for SCROLL_REST_REPORT_DELAY (150 ms) sends the offset
+    // once more when it comes to rest, past the throttle, as it should. Each
+    // delta here is a driver round trip, and on a busy runner some of them take
+    // that long, so every such pause is one more event the throttle did not
+    // send. Count them (with margin, since this measures from the test side).
+    let pauses = 0;
+    let previous = started;
     for (let step = 0; step < 40; step += 1) {
       await app.scroll(node.tag, 0, -5);
+      const now = Date.now();
+      if (step > 0 && now - previous >= 100) pauses += 1;
+      previous = now;
       await new Promise(resolve => setTimeout(resolve, 15));
     }
     let last = '';
@@ -1092,11 +1102,14 @@ describe('scrollEventThrottle', () => {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     const [count, offset] = (await text('throttled-state')).split('|');
-    // One event per 300 ms of scrolling, and the last carries where the scroll
-    // ended. A slow runner stretches the 600 ms the deltas take.
+    // One event per 300 ms of scrolling, plus one per pause above, and the last
+    // carries where the scroll ended. A slow runner stretches the 600 ms the
+    // deltas take.
     const scrolling = Date.now() - started;
     expect(Number(count)).toBeGreaterThanOrEqual(2);
-    expect(Number(count)).toBeLessThanOrEqual(Math.ceil(scrolling / 300) + 3);
+    expect(Number(count)).toBeLessThanOrEqual(
+      Math.ceil(scrolling / 300) + 3 + pauses,
+    );
     expect(Number(offset)).toBe(200);
   });
 });

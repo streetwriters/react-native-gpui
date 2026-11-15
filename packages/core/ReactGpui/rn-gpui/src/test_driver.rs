@@ -566,7 +566,7 @@ async fn serve_commands(
                             // never-mapped window has it immediately.
                             let deadline =
                                 std::time::Instant::now() + std::time::Duration::from_secs(2);
-                            loop {
+                            let reply = loop {
                                 let size = cx
                                     .update_window(window, |_, window, app| {
                                         window.bounds_changed(app);
@@ -584,7 +584,29 @@ async fn serve_commands(
                                 }
                                 wait_for_frame(window, cx, std::time::Duration::from_millis(16))
                                     .await;
+                            };
+                            // React lays the surface out at the new size later: a
+                            // resize soon after another is held back for the
+                            // store's resize interval, and the layout is a JS
+                            // commit. Frames, hit tests and screenshots taken
+                            // before it lands see the old layout, so wait
+                            // (bounded) until the surface's top views fill it.
+                            let deadline =
+                                std::time::Instant::now() + std::time::Duration::from_secs(5);
+                            let mut laid_out = false;
+                            while std::time::Instant::now() < deadline {
+                                laid_out = cx.update_entity(&store, |store, cx| {
+                                    store.window_layout_matches_size(window, cx)
+                                });
+                                if laid_out {
+                                    break;
+                                }
+                                wait_for_frame(window, cx, std::time::Duration::from_millis(16))
+                                    .await;
                             }
+                            let mut reply = reply;
+                            reply["laidOut"] = json!(laid_out);
+                            reply
                         }
                     }
                 }
@@ -1926,11 +1948,8 @@ async fn wait_for_frame(
     cx: &mut gpui::AsyncApp,
     timeout: Duration,
 ) -> bool {
-    let Some(window) = drawable_window(window, cx) else {
-        return false;
-    };
-    if cx
-        .update_window(window, move |_root, window, app| {
+    let drawn = drawable_window(window, cx).is_some_and(|window| {
+        cx.update_window(window, move |_root, window, app| {
             draw_frame(window, app);
             // A forced draw does not run the compositor's frame callbacks.
             // Deliver Fabric's EventBeat too, so buffered native events reach JS.
@@ -1941,8 +1960,16 @@ async fn wait_for_frame(
                 host.on_render();
             }
         })
-        .is_err()
-    {
+        .is_ok()
+    });
+    if !drawn {
+        // No window could be drawn: none is open yet, or it is in the middle of
+        // an update. Callers retry in a loop, and returning at once never
+        // yields the main thread, so the window could not open or finish its
+        // update until their timeout ran out. Give the app a frame first.
+        cx.background_executor()
+            .timer(timeout.min(Duration::from_millis(16)))
+            .await;
         return false;
     }
 

@@ -111,6 +111,8 @@ pub struct ViewStore {
     resizes_in_flight: HashMap<i32, std::time::Instant>,
     /// The latest size of each surface held back until then.
     pending_resizes: HashMap<i32, (f32, f32, f32)>,
+    /// The latest size each surface was given, in React's points.
+    sent_sizes: HashMap<i32, (f32, f32)>,
 }
 
 impl ViewStore {
@@ -154,6 +156,7 @@ impl ViewStore {
             host_reports: std::rc::Rc::new(crate::host_component::HostReports::default()),
             resizes_in_flight: HashMap::new(),
             pending_resizes: HashMap::new(),
+            sent_sizes: HashMap::new(),
         }
     }
 
@@ -393,11 +396,37 @@ impl ViewStore {
         !self.pending_resizes.is_empty()
     }
 
+    /// Whether React has laid `window`'s surfaces out at the size they were
+    /// last given: none has a size held back, and the top views of each fill
+    /// it. A surface given no size since it started has nothing to wait for.
+    pub fn window_layout_matches_size(&self, window: AnyWindowHandle, cx: &gpui::App) -> bool {
+        self.surfaces_in_window(window)
+            .into_iter()
+            .all(|surface_id| {
+                if self.pending_resizes.contains_key(&surface_id) {
+                    return false;
+                }
+                let (Some(&(width, height)), Some(root)) = (
+                    self.sent_sizes.get(&surface_id),
+                    self.roots.get(&surface_id),
+                ) else {
+                    return true;
+                };
+                let children = &root.read(cx).children;
+                children.is_empty()
+                    || children.iter().any(|(_, node)| {
+                        let frame = node.read(cx).frame;
+                        (frame.w - width).abs() <= 0.5 && (frame.h - height).abs() <= 0.5
+                    })
+            })
+    }
+
     fn send_surface_size(&mut self, surface_id: i32, width: f32, height: f32, scale: f32) {
         log::info!(
             "[store] surface {surface_id} resized to {width}x{height}@{scale}x (window-scoped)"
         );
         self.pending_resizes.remove(&surface_id);
+        self.sent_sizes.insert(surface_id, (width, height));
         self.resizes_in_flight
             .insert(surface_id, std::time::Instant::now());
         self.host.set_surface_size(surface_id, width, height, scale);

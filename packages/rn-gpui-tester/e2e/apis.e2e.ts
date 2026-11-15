@@ -243,14 +243,22 @@ describe('Settings', () => {
   }
 
   test('values persist, and watchKeys fires for changes until cleared', async () => {
-    fs.rmSync(path.resolve('.local/e2e-apis-state.settings.json'), {
-      force: true,
-    });
+    const file = path.resolve('.local/e2e-apis-state.settings.json');
+    fs.rmSync(file, { force: true });
     await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
     await pressBottom('settings-save');
     await poll(async () => (await text('settings-result')) !== 'none');
     // The repeated `dark` is no change; the cleared watch hears nothing more.
     expect(await text('settings-result')).toBe('watched:1');
+    // Settings.set is a void native call that runs after the press returns;
+    // closing the app before the last one is written would lose it.
+    await poll(async () => {
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8')).theme === 'light';
+      } catch {
+        return false;
+      }
+    });
     await launch({ height: FITS_SMALL_DISPLAY ?? 768 });
     await pressBottom('settings-read');
     await poll(async () => (await text('settings-result')) !== 'none');

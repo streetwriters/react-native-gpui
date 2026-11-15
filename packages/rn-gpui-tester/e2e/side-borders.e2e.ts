@@ -100,6 +100,23 @@ test('a one pixel bottom edge paints in a row with a transparent left edge', asy
   expect(at(50, node.frame.height - 3)).not.toBe(RED);
 });
 
+test('frames read right after a resize have the new layout', async () => {
+  // The second size arrives within the store's resize interval, so it is held
+  // back before React lays it out: setWindowSize waits for that layout.
+  try {
+    await app.setWindowSize(700, 400);
+    await app.setWindowSize(1024, 600);
+    const [screen] = await app.query(
+      'testID',
+      'tester-screen-side-borders',
+      true,
+    );
+    expect(screen.frame.y + screen.frame.height).toBe(600);
+  } finally {
+    await app.setWindowSize(1024, 768);
+  }
+});
+
 test('edges paint inside a scroll view and a list', async () => {
   expect((await shot('border-in-scroll')).at(50, 48)).toBe(RED);
   expect((await shot('border-in-list-1')).at(50, 48)).toBe(RED);

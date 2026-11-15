@@ -37,7 +37,10 @@ function ink(shot: PNG, frame: Frame) {
   const scale = shot.width / 1024;
   const left = Math.max(0, Math.floor(frame.x * scale));
   const top = Math.max(0, Math.floor(frame.y * scale));
-  const right = Math.min(shot.width, Math.ceil((frame.x + frame.width) * scale));
+  const right = Math.min(
+    shot.width,
+    Math.ceil((frame.x + frame.width) * scale),
+  );
   const bottom = Math.min(
     shot.height,
     Math.ceil((frame.y + frame.height) * scale),
