@@ -1076,15 +1076,25 @@ describe('scrollEventThrottle', () => {
   test('events more than a frame apart carry the offset they had when they went out', async () => {
     await reveal('throttled-scroll');
     const [node] = await app.query('testID', 'throttled-scroll', true);
-    // Forty deltas of 5 points, 15 ms apart: about 600 ms of scrolling, 200
-    // points. Driven as a mouse wheel would, so no momentum follows. The driver
-    // sends all forty in one call without letting the app's timers run in
-    // between, so the wheel never comes to rest mid-scroll: what reaches the
-    // page depends only on how long the scroll took in the app, not on the
-    // round trips between this test and the app.
+    // Forty deltas of 5 points, 15 ms apart: 600 ms of scrolling, 200 points.
+    // Driven as a mouse wheel would, so no momentum follows.
     const started = Date.now();
-    await app.scroll(node.tag, 0, -5, 40, undefined, 15);
-    // An upper bound on how long the deltas took in the app.
+    // A wheel that stops for SCROLL_REST_REPORT_DELAY (150 ms) sends the offset
+    // once more when it comes to rest, past the throttle, as it should. Each
+    // delta is a driver round trip, and on a busy runner some of them take that
+    // long. The app handled delta k after its call went out and delta k + 1
+    // before that call came back, so the gap between the two in the app is at
+    // most the time from the first's send to the second's return: count every
+    // such span of 150 ms or more as a pause that may have added an event.
+    let pauses = 0;
+    let previousSent = 0;
+    for (let step = 0; step < 40; step += 1) {
+      const sent = Date.now();
+      await app.scroll(node.tag, 0, -5);
+      if (step > 0 && Date.now() - previousSent >= 150) pauses += 1;
+      previousSent = sent;
+      await new Promise(resolve => setTimeout(resolve, 15));
+    }
     const scrolling = Date.now() - started;
     let last = '';
     for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -1095,11 +1105,14 @@ describe('scrollEventThrottle', () => {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     const [count, offset] = (await text('throttled-state')).split('|');
-    // While the deltas arrive: the first, then one per 300 ms. After them: at
-    // most one throttled event that was waiting for its slot, and one more when
-    // the wheel comes to rest, which carries where the scroll ended.
+    // While the deltas arrive: the first, then one per 300 ms, plus one per
+    // pause above. After them: at most one throttled event that was waiting
+    // for its slot, and one more when the wheel comes to rest, which carries
+    // where the scroll ended.
     expect(Number(count)).toBeGreaterThanOrEqual(2);
-    expect(Number(count)).toBeLessThanOrEqual(Math.floor(scrolling / 300) + 3);
+    expect(Number(count)).toBeLessThanOrEqual(
+      Math.floor(scrolling / 300) + 3 + pauses,
+    );
     expect(Number(offset)).toBe(200);
   });
 });
