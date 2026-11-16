@@ -160,6 +160,16 @@ export class DesktopWindow {
     return request(native => native.windowFocus(this.id));
   }
 
+  /** Moves keyboard focus to the next focusable view in tab order, as Tab does. */
+  focusNext(): Promise<void> {
+    return request(native => native.windowMoveFocus(this.id, false));
+  }
+
+  /** Moves keyboard focus to the previous focusable view in tab order, as Shift+Tab does. */
+  focusPrevious(): Promise<void> {
+    return request(native => native.windowMoveFocus(this.id, true));
+  }
+
   setTitle(title: string): Promise<void> {
     return request(native => native.windowSetTitle(this.id, title));
   }

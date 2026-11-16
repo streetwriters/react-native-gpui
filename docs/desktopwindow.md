@@ -294,6 +294,17 @@ Brings the window to the front.
 
 ---
 
+### `focusNext()` / `focusPrevious()`
+
+```tsx
+focusNext(): Promise<void>;
+focusPrevious(): Promise<void>;
+```
+
+Moves keyboard focus to the next or previous focusable view of the window in tab order, as Tab and Shift+Tab do.
+
+---
+
 ### `startDragging()`
 
 ```tsx

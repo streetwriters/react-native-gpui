@@ -972,6 +972,23 @@ pub fn minimize(cx: &mut App, key: u32) -> DesktopResult {
     result
 }
 
+pub fn move_focus(cx: &mut App, key: u32, backwards: bool) -> DesktopResult {
+    let Some(entry) = cx.global::<DesktopWindowsGlobal>().0.get(key) else {
+        return Err(DesktopError::not_found(format!("window {key} is not open")));
+    };
+    entry
+        .handle
+        .update(cx, |_root, window, cx| {
+            if backwards {
+                window.focus_prev(cx);
+            } else {
+                window.focus_next(cx);
+            }
+        })
+        .map_err(|error| DesktopError::failed(format!("window {key} is gone: {error}")))?;
+    Ok(json!({"windowId": key}))
+}
+
 pub fn maximize(cx: &mut App, key: u32) -> DesktopResult {
     with_window(cx, key, |window| {
         if !platform_window::is_maximized(window) {

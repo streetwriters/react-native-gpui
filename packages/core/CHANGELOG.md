@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `DesktopWindow.focusNext()` and `focusPrevious()` move keyboard focus through the window's tab order, as Tab and Shift+Tab do.
 - `hostComponents` entries take `maskChildren: true`: the component's first child masks the others, which are visible only where the mask paints, scaled by its alpha. It needs a codegen spec but no Rust code. Needs a gpui-fast with the `DestinationIn` blend mode.
 - A host component can be implemented in C++. `hostComponents` entries take `cpp: true`, and a module registers a Fabric component descriptor provider and a `CppHostView` through `GpuiCppHostComponent.h`; core drives the view's props, native surface and unmount without Rust code or a codegen spec. Modules list the `extern "C"` init functions that register them in the `RN_GPUI_APP_CPP_INIT_FUNCTIONS` CMake property.
 - `ViewProps` takes the `filterObjectKeys` argument of upstream React Native, so a props class that derives from it and keeps non-View props out of the View's own parsing (a Nitro View's) compiles.

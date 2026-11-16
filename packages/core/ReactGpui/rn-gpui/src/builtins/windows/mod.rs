@@ -274,6 +274,13 @@ impl NativeGpuiWindowsSpec for WindowsModule {
             .map_err(module_error)
     }
 
+    async fn window_move_focus(&self, window_id: i32, backwards: bool) -> Result<(), ModuleError> {
+        on_main(move |cx| windows::move_focus(cx, window_key(window_id), backwards))
+            .await?
+            .map(|_| ())
+            .map_err(module_error)
+    }
+
     async fn window_maximize(&self, window_id: i32) -> Result<(), ModuleError> {
         on_main(move |cx| windows::maximize(cx, window_key(window_id)))
             .await?

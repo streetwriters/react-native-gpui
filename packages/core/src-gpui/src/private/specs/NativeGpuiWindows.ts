@@ -103,6 +103,10 @@ export interface Spec extends TurboModule {
     visible: boolean,
   ): Promise<void>;
   windowMinimize(windowId: CodegenTypes.Int32): Promise<void>;
+  windowMoveFocus(
+    windowId: CodegenTypes.Int32,
+    backwards: boolean,
+  ): Promise<void>;
   windowMaximize(windowId: CodegenTypes.Int32): Promise<void>;
   windowUnmaximize(windowId: CodegenTypes.Int32): Promise<void>;
   windowToggleMaximize(windowId: CodegenTypes.Int32): Promise<void>;
