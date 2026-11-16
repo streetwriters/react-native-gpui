@@ -1299,8 +1299,10 @@ export class DesktopApp {
    * scroll took to draw, `renderedViews` how many node views it rebuilt and
    * `renderedViewsTotal` how many it rebuilt over every one of the `repeat`
    * frames. `repeat` scrolls that many times on consecutive frames; the single
-   * frame numbers are the last frame's. `intervalMs` waits that long between
-   * the repeats, as a touchpad's events are apart.
+   * frame numbers are the last frame's. `intervalMs` spaces the repeats that far
+   * apart, as a touchpad's events are: repeat k goes out `k * intervalMs` after
+   * the first, however long the frames in between take to draw (at most 200).
+   * The app's timers do not run until the last repeat has gone out.
    */
   async scroll(
     tag: number,
