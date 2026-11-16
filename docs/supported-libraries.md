@@ -5,17 +5,19 @@ title: Supported libraries
 
 These libraries work on desktop with their own JavaScript API unchanged. Install the original library, and the desktop package next to it; autolinking builds the native side.
 
-| Library                          | Desktop package                        | Targets                                                |
-| -------------------------------- | -------------------------------------- | ------------------------------------------------------ |
-| `react-native-safe-area-context` | `@react-native-gpui/safe-area-context` | `5.10.x`                                               |
-| `react-native-gesture-handler`   | `@react-native-gpui/gesture-handler`   | `3.3.x`, with Reanimated `4.7.x` and Worklets `0.13.x` |
-| `react-native-screens`           | `@react-native-gpui/screens`           | `4.28.x`                                               |
-| `react-native-reanimated`        | `@react-native-gpui/reanimated`        | `4.7.x`, with Worklets `0.13.x`                        |
-| `react-native-worklets`          | `@react-native-gpui/worklets`          | `0.13.x`                                               |
-| `react-native-svg`               | `@react-native-gpui/svg`               | `15.15.x`                                              |
-| `@react-native-vector-icons/*`   | `@react-native-gpui/vector-icons`      | Icon fonts rasterized by the desktop shell             |
-| `react-native-nitro-modules`     | `@react-native-gpui/nitro-modules`     | `0.37.x`, Nitro Modules and Nitro Views written in C++ |
-| `react-native-unistyles`         | `@react-native-gpui/unistyles`         | `3.8.x`, needs the Nitro adapter above                 |
+| Library                                     | Desktop package                        | Targets                                                |
+| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------ |
+| `react-native-safe-area-context`            | `@react-native-gpui/safe-area-context` | `5.10.x`                                               |
+| `react-native-gesture-handler`              | `@react-native-gpui/gesture-handler`   | `3.3.x`, with Reanimated `4.7.x` and Worklets `0.13.x` |
+| `react-native-screens`                      | `@react-native-gpui/screens`           | `4.28.x`                                               |
+| `react-native-reanimated`                   | `@react-native-gpui/reanimated`        | `4.7.x`, with Worklets `0.13.x`                        |
+| `react-native-worklets`                     | `@react-native-gpui/worklets`          | `0.13.x`                                               |
+| `react-native-svg`                          | `@react-native-gpui/svg`               | `15.15.x`                                              |
+| `@react-native-vector-icons/*`              | `@react-native-gpui/vector-icons`      | Icon fonts rasterized by the desktop shell             |
+| `react-native-nitro-modules`                | `@react-native-gpui/nitro-modules`     | `0.37.x`, Nitro Modules and Nitro Views written in C++ |
+| `react-native-unistyles`                    | `@react-native-gpui/unistyles`         | `3.8.x`, needs the Nitro adapter above                 |
+| `react-native-mmkv`                         | `@react-native-gpui/mmkv`              | `4.3.x`, needs the Nitro adapter above                 |
+| `@react-native-async-storage/async-storage` | `@react-native-gpui/async-storage`     | `3.1.x`                                                |
 
 The desktop packages, and the desktop-only modules that have no upstream library (a Node-shaped file system API, custom font loading, notifications, a PDF viewer and others), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 
