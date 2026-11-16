@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.4 - 2026-11-16
 
 - `DesktopWindow.focusNext()` and `focusPrevious()` move keyboard focus through the window's tab order, as Tab and Shift+Tab do.
 - `hostComponents` entries take `maskChildren: true`: the component's first child masks the others, which are visible only where the mask paints, scaled by its alpha. It needs a codegen spec but no Rust code. Needs a gpui-fast with the `DestinationIn` blend mode.

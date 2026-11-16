@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/testing` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.2 - 2026-11-16
 
 - The tester's e2e runner runs its offscreen specs in parallel (`RN_GPUI_E2E_WORKERS`, default half the cores, at most 8) while the specs that need a visible window or machine-wide state run serially at the same time. `--headed` or `RN_GPUI_E2E_SEQUENTIAL=1` runs the passes one after the other, one spec at a time.
 
