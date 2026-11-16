@@ -11,7 +11,9 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `3ad00a0` (2026-11-11: `355baeb` plus macOS windows keeping the frame they were given
+- Commit: `af2bd3a` (2026-11-16: `3ad00a0` plus a destination-in blend mode and effect groups that
+  cover their bounds, used to mask children by another element's alpha, and scroll containers exposed
+  as scroll areas to accessibility. `3ad00a0` (2026-11-11) is `355baeb` plus macOS windows keeping the frame they were given
   while a test driver runs the app in the background, so a test window larger than a small CI display
   is not shrunk to it. `355baeb` is Abdullah Atta's accessibility commits on `rn-gpui-linux` (unlabelled
   buttons, links and tabs named by their painted text, clickable elements without a role as buttons,
