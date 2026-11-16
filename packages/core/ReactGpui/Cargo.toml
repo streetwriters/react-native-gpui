@@ -21,7 +21,12 @@ split-debuginfo = "packed"
 debug = false
 opt-level = 3
 
+# Here rn-gpui-sys is a workspace member, which `"*"` does not cover; in the
+# tester and in apps it is a dependency, which it does. Its build script hands
+# `DEBUG` to CMake, so without `debug = false` the C++ build of `test:rust` and
+# the tester's would differ and each would reconfigure and recompile all of it.
 [profile.dev.package.rn-gpui-sys]
+debug = false
 opt-level = 0
 
 [profile.release]

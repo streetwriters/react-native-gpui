@@ -915,11 +915,21 @@ async fn serve_commands(
                                         app,
                                     );
                                     a11y_active = window.is_a11y_active();
+                                    // Delta k goes out `k * interval_ms` after the
+                                    // first, whatever the frames in between cost, so
+                                    // a gesture's speed does not depend on how
+                                    // loaded the machine is.
+                                    let first_sent = std::time::Instant::now();
                                     for step in 0..repeat {
                                         if step > 0 && interval_ms > 0 {
-                                            std::thread::sleep(std::time::Duration::from_millis(
-                                                interval_ms,
-                                            ));
+                                            let due = first_sent
+                                                + std::time::Duration::from_millis(
+                                                    interval_ms * step,
+                                                );
+                                            let now = std::time::Instant::now();
+                                            if due > now {
+                                                std::thread::sleep(due - now);
+                                            }
                                         }
                                         if step > 0 {
                                             window.dispatch_event(

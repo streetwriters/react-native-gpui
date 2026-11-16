@@ -1081,18 +1081,21 @@ describe('scrollEventThrottle', () => {
     const started = Date.now();
     // A wheel that stops for SCROLL_REST_REPORT_DELAY (150 ms) sends the offset
     // once more when it comes to rest, past the throttle, as it should. Each
-    // delta here is a driver round trip, and on a busy runner some of them take
-    // that long, so every such pause is one more event the throttle did not
-    // send. Count them (with margin, since this measures from the test side).
+    // delta is a driver round trip, and on a busy runner some of them take that
+    // long. The app handled delta k after its call went out and delta k + 1
+    // before that call came back, so the gap between the two in the app is at
+    // most the time from the first's send to the second's return: count every
+    // such span of 150 ms or more as a pause that may have added an event.
     let pauses = 0;
-    let previous = started;
+    let previousSent = 0;
     for (let step = 0; step < 40; step += 1) {
+      const sent = Date.now();
       await app.scroll(node.tag, 0, -5);
-      const now = Date.now();
-      if (step > 0 && now - previous >= 100) pauses += 1;
-      previous = now;
+      if (step > 0 && Date.now() - previousSent >= 150) pauses += 1;
+      previousSent = sent;
       await new Promise(resolve => setTimeout(resolve, 15));
     }
+    const scrolling = Date.now() - started;
     let last = '';
     for (let attempt = 0; attempt < 30; attempt += 1) {
       await app.waitForIdle();
@@ -1102,13 +1105,13 @@ describe('scrollEventThrottle', () => {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     const [count, offset] = (await text('throttled-state')).split('|');
-    // One event per 300 ms of scrolling, plus one per pause above, and the last
-    // carries where the scroll ended. A slow runner stretches the 600 ms the
-    // deltas take.
-    const scrolling = Date.now() - started;
+    // While the deltas arrive: the first, then one per 300 ms, plus one per
+    // pause above. After them: at most one throttled event that was waiting
+    // for its slot, and one more when the wheel comes to rest, which carries
+    // where the scroll ended.
     expect(Number(count)).toBeGreaterThanOrEqual(2);
     expect(Number(count)).toBeLessThanOrEqual(
-      Math.ceil(scrolling / 300) + 3 + pauses,
+      Math.floor(scrolling / 300) + 3 + pauses,
     );
     expect(Number(offset)).toBe(200);
   });

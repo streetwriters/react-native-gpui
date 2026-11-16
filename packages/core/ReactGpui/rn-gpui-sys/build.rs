@@ -468,8 +468,12 @@ fn main() {
         &prefix_map_flags,
     );
     let stamp_path = cmake_out_dir.join(".configure-inputs");
-    let generator_output_exists =
-        build_dir.join("Makefile").is_file() || build_dir.join("build.ninja").is_file();
+    // The Visual Studio generators (MSVC's default) write `ALL_BUILD.vcxproj`
+    // rather than a Makefile; without it here every MSVC build reconfigured, and
+    // a configure that hands CMake other `cc` flags rebuilt all of the C++.
+    let generator_output_exists = build_dir.join("Makefile").is_file()
+        || build_dir.join("build.ninja").is_file()
+        || build_dir.join("ALL_BUILD.vcxproj").is_file();
     let configure = env_flag("RN_GPUI_FORCE_CMAKE_CONFIGURE")
         || !fs::read_to_string(&stamp_path).is_ok_and(|previous| previous == stamp)
         || !build_dir.join("CMakeCache.txt").is_file()

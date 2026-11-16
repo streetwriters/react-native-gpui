@@ -84,7 +84,7 @@ A test run does not disturb whoever is using the machine. While the test driver 
 
 ### Wheel and pinch
 
-`app.scroll(tag, dx, dy, repeat, phase, intervalMs, options)` sends a platform scroll event to the node's centre, the event a trackpad or wheel sends, so it goes through [`onWheel`](desktop-input#wheel-events) handlers before it scrolls anything. `options.lines` sends a mouse wheel notch in lines instead of trackpad pixels, and `options.modifiers` holds keys (`shift`, `control`, `alt`, `platform`). `phase` is `started`, `moved` or `ended`. A negative `dy` scrolls down. `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch, where `delta` is the magnification change. `waitForIdle` waits for a wheel event that is still waiting for its handlers.
+`app.scroll(tag, dx, dy, repeat, phase, intervalMs, options)` sends a platform scroll event to the node's centre, the event a trackpad or wheel sends, so it goes through [`onWheel`](desktop-input#wheel-events) handlers before it scrolls anything. `options.lines` sends a mouse wheel notch in lines instead of trackpad pixels, and `options.modifiers` holds keys (`shift`, `control`, `alt`, `platform`). `phase` is `started`, `moved` or `ended`. A negative `dy` scrolls down. `repeat` sends the event that many times, one frame each, and `intervalMs` (at most 200) spaces them: repeat k goes out `k * intervalMs` after the first however long the frames take to draw, so a flick has the same speed on a slow machine. The app's timers wait until the last repeat. `app.pinch(tag, delta, phase, modifiers)` sends a trackpad pinch, where `delta` is the magnification change. `waitForIdle` waits for a wheel event that is still waiting for its handlers.
 
 ### Layout and paint work
 
