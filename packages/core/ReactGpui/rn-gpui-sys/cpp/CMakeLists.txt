@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.18)
+# ccache cannot cache MSVC's default /Zi (a PDB written by the compiler), so
+# embed the debug info in the objects (/Z7). The policy must be set before
+# project(), which seeds the compiler flags; it needs CMake 3.25. build.rs also
+# sets the policy default and the format for the subprojects.
+if(NOT CMAKE_VERSION VERSION_LESS 3.25)
+  cmake_policy(SET CMP0141 NEW)
+  if(NOT DEFINED CMAKE_MSVC_DEBUG_INFORMATION_FORMAT)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT
+        "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
+  endif()
+endif()
 project(rn_gpui_core CXX C)
 if(APPLE)
   enable_language(OBJCXX)
@@ -22,9 +33,14 @@ if(MSVC)
   # them one at a time unless /MP is given; project dependencies leave only
   # one or two projects building at once. Half the cores per cl.exe keeps the
   # machine busy without exhausting memory (each compiler can use ~1 GB).
-  cmake_host_system_information(RESULT _rn_gpui_cores QUERY NUMBER_OF_LOGICAL_CORES)
-  math(EXPR _rn_gpui_mp "(${_rn_gpui_cores} + 1) / 2")
-  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/MP${_rn_gpui_mp}>")
+  # Ninja starts one cl.exe per source and already runs one per core, and
+  # ccache does not take a multi-file /MP command line, so /MP is for the
+  # Visual Studio generator only.
+  if(NOT CMAKE_GENERATOR MATCHES "Ninja")
+    cmake_host_system_information(RESULT _rn_gpui_cores QUERY NUMBER_OF_LOGICAL_CORES)
+    math(EXPR _rn_gpui_mp "(${_rn_gpui_cores} + 1) / 2")
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/MP${_rn_gpui_mp}>")
+  endif()
   # ReactCommon headers do `#ifndef RN_EXPORT / #define RN_EXPORT
   # __attribute__((visibility("default")))`, which cl.exe cannot parse. The
   # guard means defining it empty here is enough.

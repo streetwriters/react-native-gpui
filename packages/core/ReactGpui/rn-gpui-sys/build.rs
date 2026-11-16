@@ -432,7 +432,7 @@ fn main() {
             defines.push(("CMAKE_OBJCXX_FLAGS", objcxx_flags.trim().to_string()));
         }
     }
-    let generator = cmake_generator();
+    let generator = cmake_generator(use_ccache);
     if msvc_target() {
         // Rust always links the release CRT (msvcrt). CMake's Debug config
         // would compile with /MDd and the final link then fails on
@@ -440,6 +440,13 @@ fn main() {
         // subprojects that declare an older cmake_minimum_required, to /MD.
         defines.push(("CMAKE_POLICY_DEFAULT_CMP0091", "NEW".to_string()));
         defines.push(("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL".to_string()));
+        // ccache cannot cache /Zi (the compiler writes a shared PDB), so embed
+        // the debug info in each object (/Z7), in every subproject too.
+        defines.push(("CMAKE_POLICY_DEFAULT_CMP0141", "NEW".to_string()));
+        defines.push((
+            "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT",
+            "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>".to_string(),
+        ));
     }
     if let Some(dir) = &prebuilt_dir {
         defines.push(("RN_GPUI_PREBUILT_DIR", cmake_path(dir)));
@@ -814,13 +821,19 @@ fn configure_stamp(
 /// MSVC keeps the Visual Studio generator: Ninja there needs a developer
 /// prompt's environment for every `cmake --build`, and the unity build and
 /// `/MP` in `cpp/CMakeLists.txt` are tuned for MSBuild.
-fn cmake_generator() -> Option<&'static str> {
+fn cmake_generator(use_ccache: bool) -> Option<&'static str> {
     let target = env::var("TARGET").unwrap_or_default();
     let user_chose = configure_env_names(&target)
         .iter()
         .filter(|name| name.ends_with("CMAKE_GENERATOR") || name.starts_with("CMAKE_GENERATOR_"))
         .any(|name| env::var_os(name).is_some_and(|value| !value.is_empty()));
-    if user_chose || msvc_target() {
+    if user_chose {
+        return None;
+    }
+    // MSVC keeps the Visual Studio generator, which ignores the compiler
+    // launcher, unless ccache can actually be used: then Ninja, which needs the
+    // compiler environment (vcvars) of the shell, so `cl.exe` must be on PATH.
+    if msvc_target() && !(use_ccache && program_on_path("cl")) {
         return None;
     }
     program_on_path("ninja").then_some("Ninja")

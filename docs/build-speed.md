@@ -35,7 +35,7 @@ The clean-up never runs when the `CI` variable is set.
 
 ## Install Ninja
 
-The C++ part of the build uses [Ninja](https://ninja-build.org) when `ninja` is on your `PATH`, and Make otherwise. Ninja starts faster and checks what to rebuild faster. Install it with `brew install ninja`, `apt install ninja-build` or `winget install Ninja-build.Ninja`. To pick a generator yourself, set `CMAKE_GENERATOR` (for example `CMAKE_GENERATOR="Unix Makefiles"`). With MSVC, the build keeps the Visual Studio generator unless you set `CMAKE_GENERATOR`.
+The C++ part of the build uses [Ninja](https://ninja-build.org) when `ninja` is on your `PATH`, and Make otherwise. Ninja starts faster and checks what to rebuild faster. Install it with `brew install ninja`, `apt install ninja-build` or `winget install Ninja-build.Ninja`. To pick a generator yourself, set `CMAKE_GENERATOR` (for example `CMAKE_GENERATOR="Unix Makefiles"`). With MSVC, the build keeps the Visual Studio generator, unless ccache is installed and `cl.exe` is on `PATH` (a developer prompt): then it uses Ninja and embeds debug info in the objects (`/Z7`) so ccache can cache them. Set `CMAKE_GENERATOR` to choose yourself.
 
 ## Use ccache
 

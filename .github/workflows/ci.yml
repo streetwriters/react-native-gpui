@@ -391,11 +391,10 @@ jobs:
       # entry is a hit, not a risk. Keyed by the C++ inputs and saved (below)
       # only when they were compiled from source; with the prebuilt runtime a
       # new entry per commit only filled the cache budget. Windows builds with
-      # the Visual Studio generator, which ignores the compiler launcher, so its
-      # entry was always empty.
+      # Ninja (the build script picks it with ccache and cl.exe on PATH) and
+      # embedded debug info (/Z7), which is what lets ccache cache MSVC output.
       - name: Restore the ccache directory
         id: ccache-restore
-        if: runner.os != 'Windows'
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -500,7 +499,7 @@ jobs:
 
       - name: Save the ccache directory
         if: >-
-          !cancelled() && runner.os != 'Windows'
+          !cancelled()
           && needs.plan.outputs.cpp_changed == 'true'
           && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

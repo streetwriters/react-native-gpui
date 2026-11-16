@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Windows with ccache and `cl.exe` on `PATH`, the C++ build uses Ninja and embeds debug info in the objects (`/Z7`, CMake policy CMP0141), so ccache can cache the MSVC build; `/MP` is only passed with the Visual Studio generator. CI restores and saves the ccache directory on Windows too. The MSVC unity batches (8 sources) stay, each batch is one cached compile under Ninja.
 - `ReactGpui/Cargo.lock` and the tester's `Cargo.lock` now resolve every shared crate to the same version (both were refreshed with `cargo update`), so the Rust tests and the tester compile each dependency once. The lockfile is a prebuilt input, so the next release has a new prebuilt runtime.
 
 - The test driver pauses 4 ms (not 16 ms) after each frame it draws while it waits for the app to be idle, so every `waitForIdle` and click in an e2e suite is cheaper. `RN_GPUI_TEST_FRAME_MS` sets another pause.
