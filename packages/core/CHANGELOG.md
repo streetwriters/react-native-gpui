@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- `ReactGpui/Cargo.lock` and the tester's `Cargo.lock` now resolve every shared crate to the same version (both were refreshed with `cargo update`), so the Rust tests and the tester compile each dependency once. The lockfile is a prebuilt input, so the next release has a new prebuilt runtime.
+
 - The test driver pauses 4 ms (not 16 ms) after each frame it draws while it waits for the app to be idle, so every `waitForIdle` and click in an e2e suite is cheaper. `RN_GPUI_TEST_FRAME_MS` sets another pause.
 - While no window can be drawn (none open yet, or one in the middle of an update), the test driver's idle and resize waits pause a frame between tries instead of retrying at once. The tight retry held the main thread, so the window could not open or finish its update and `waitForIdle` ran into its timeout.
 - The test driver's repeated `scroll` sends delta k `k * intervalMs` after the first, whatever the frames in between take. It slept `intervalMs` after each frame, so on a slow machine the deltas came further apart and a flick lost speed.
