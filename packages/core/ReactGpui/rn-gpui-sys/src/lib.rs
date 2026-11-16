@@ -420,6 +420,30 @@ pub mod ffi {
         fn reportHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);
     }
 
+    // SAFETY: the signatures match the declarations in `GpuiCppHostBridge.h`.
+    unsafe extern "C++" {
+        include!("GpuiCppHostBridge.h");
+
+        /// Creates the C++ view of a `cpp` host component node and gives it its
+        /// first props. Zero when no C++ implementation is registered.
+        fn rn_gpui_cpp_host_create(index: u32, tag: i32, props: usize) -> u64;
+        fn rn_gpui_cpp_host_update(id: u64, props: usize);
+        /// Creates the node's native view. `kind` is 0 for a composited view,
+        /// 1 for an NSView and 2 for an X11 window; the result is the view.
+        #[allow(clippy::too_many_arguments)]
+        fn rn_gpui_cpp_host_create_view(
+            id: u64,
+            windows_visual: usize,
+            wayland: bool,
+            x11_window: u32,
+            xcb_connection: usize,
+            wayland_display: usize,
+            wayland_surface: usize,
+            kind: &mut u8,
+        ) -> u64;
+        fn rn_gpui_cpp_host_destroy(id: u64);
+    }
+
     // SAFETY: the signatures match the declarations in `GpuiDynamic.h`.
     unsafe extern "C++" {
         include!("GpuiDynamic.h");

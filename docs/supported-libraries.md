@@ -14,6 +14,8 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 | `react-native-worklets`          | `@react-native-gpui/worklets`          | `0.13.x`                                               |
 | `react-native-svg`               | `@react-native-gpui/svg`               | `15.15.x`                                              |
 | `@react-native-vector-icons/*`   | `@react-native-gpui/vector-icons`      | Icon fonts rasterized by the desktop shell             |
+| `react-native-nitro-modules`     | `@react-native-gpui/nitro-modules`     | `0.37.x`, Nitro Modules and Nitro Views written in C++ |
+| `react-native-unistyles`         | `@react-native-gpui/unistyles`         | `3.8.x`, needs the Nitro adapter above                 |
 
 The desktop packages, and the desktop-only modules that have no upstream library (a Node-shaped file system API, custom font loading, notifications, a PDF viewer and others), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 

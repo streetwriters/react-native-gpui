@@ -14,6 +14,15 @@
 // registerMountObserver(observer): per-view mount callbacks. The observer owns
 //   its state; core hands it the view and nothing else.
 // registerWindowInsetsObserver(fn): the window's insets, on change.
+// currentWindowInsets(...): the insets last reported to those observers.
+// currentColorScheme(): the effective colour scheme, "light" or "dark":
+//   Appearance.setColorScheme's override when set, else the system's.
+// registerColorSchemeObserver(fn): the new effective scheme, on change, from
+//   the system or from Appearance.setColorScheme. Register before the first
+//   surface starts.
+// registerWindowMetricsObserver(fn): after the main window's size or scale, or
+//   the font scale, changed.
+// windowScale(): the main window's backing scale factor.
 // registerFrameCallback(fn): called once per frame. A list, not one slot.
 // requestFrames(owner, needsFrames): asks core to keep delivering frames while
 //   that owner needs them. Core stops when no owner asks. A request is not
@@ -116,6 +125,8 @@ struct GpuiExtensionHooks {
   std::unordered_map<std::string, extension::ComponentPropsFn> componentProps;
   std::vector<extension::MountObserver> mountObservers;
   std::vector<extension::WindowInsetsFn> windowInsetsObservers;
+  std::vector<std::function<void(const std::string&)>> colorSchemeObservers;
+  std::vector<std::function<void()>> windowMetricsObservers;
   std::vector<GpuiFrameFn> frameCallbacks;
   std::vector<extension::PointerObserverFn> pointerObservers;
   std::unordered_map<std::string, bool> frameRequests;
@@ -144,6 +155,14 @@ void registerComponentProps(
 void registerMountObserver(extension::MountObserver observer);
 
 void registerWindowInsetsObserver(extension::WindowInsetsFn fn);
+// Any thread.
+void currentWindowInsets(float& top, float& right, float& bottom, float& left);
+
+// Any thread.
+std::string currentColorScheme();
+void registerColorSchemeObserver(std::function<void(const std::string&)> fn);
+void registerWindowMetricsObserver(std::function<void()> fn);
+double windowScale();
 
 void registerFrameCallback(GpuiFrameFn fn);
 

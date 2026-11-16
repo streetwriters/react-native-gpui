@@ -607,7 +607,24 @@ void GpuiMountingManager::setWindowSize(float width, float height) {
   }
 }
 
+namespace {
+std::mutex windowInsetsMutex;
+std::array<float, 4> lastWindowInsets{};
+} // namespace
+
+void currentWindowInsets(float& top, float& right, float& bottom, float& left) {
+  std::lock_guard<std::mutex> lock(windowInsetsMutex);
+  top = lastWindowInsets[0];
+  right = lastWindowInsets[1];
+  bottom = lastWindowInsets[2];
+  left = lastWindowInsets[3];
+}
+
 void GpuiMountingManager::setWindowTopInset(float top) {
+  {
+    std::lock_guard<std::mutex> lock(windowInsetsMutex);
+    lastWindowInsets = {top, 0.0f, 0.0f, 0.0f};
+  }
   for (const auto& observer : gpuiExtensionHooks().windowInsetsObservers) {
     observer(top, 0.0f, 0.0f, 0.0f);
   }

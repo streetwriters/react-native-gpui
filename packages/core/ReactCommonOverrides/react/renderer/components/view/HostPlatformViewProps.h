@@ -3,6 +3,7 @@
 #include <react/renderer/components/view/BaseViewProps.h>
 #include <react/renderer/core/PropsMacros.h>
 #include <react/renderer/core/propsConversions.h>
+#include <functional>
 #include <string>
 
 namespace facebook::react {
@@ -12,8 +13,9 @@ class HostPlatformViewProps : public BaseViewProps {
   HostPlatformViewProps(
       const PropsParserContext& context,
       const HostPlatformViewProps& sourceProps,
-      const RawProps& rawProps)
-      : BaseViewProps(context, sourceProps, rawProps),
+      const RawProps& rawProps,
+      const std::function<bool(const std::string&)>& filterObjectKeys = nullptr)
+      : BaseViewProps(context, sourceProps, rawProps, filterObjectKeys),
         focusable(convertRawProp(
             context,
             rawProps,

@@ -158,6 +158,69 @@ Views painted before the native view stay below it. A menu, popover or other def
 
 A view with `opacity` below 1 and children paints its content as one picture and fades that. A native view inside it is not part of the picture: the platform composites it unfaded and unfiltered.
 
+## C++ host components
+
+A component whose view is written in C++ needs no Rust and no codegen spec. The module supplies a Fabric `ComponentDescriptorProvider` (a generated one, for example) and a C++ view object, and core drives it through the same pipeline as a Rust host component: props, the native surface, and unmounting. This is how the Nitro adapter, `@react-native-gpui/nitro-modules`, hosts Nitro views.
+
+Declare the component with `cpp: true`. A `cpp` component cannot also be `measured` or a `container`:
+
+```js
+// react-native.config.js
+module.exports = {
+  dependency: {
+    platforms: {
+      desktop: {
+        cmake: 'desktop',
+        hostComponents: [{ name: 'ChartView', nativeSurface: true, cpp: true }],
+      },
+    },
+  },
+};
+```
+
+Implement `rngpui::extension::CppHostView` from `GpuiCppHostComponent.h`, which sits next to `GpuiModules.h`, and register it from an init function:
+
+```cpp
+#include "GpuiCppHostComponent.h"
+
+using namespace rngpui::extension;
+
+class ChartHostView final : public CppHostView {
+ public:
+  void update(const std::shared_ptr<const facebook::react::Props>& props,
+              const std::shared_ptr<const facebook::react::Props>& oldProps) override {
+    // oldProps is null on the first call
+  }
+  NativeView createNativeView(const NativeViewParent& parent) override {
+    NativeView view;
+    view.kind = NativeView::Kind::NSView;
+    view.nsView = makeRetainedNSView();  // +1 retained, core takes ownership
+    return view;
+  }
+  void unmount() override {}
+};
+
+extern "C" void chart_view_init() {
+  registerCppHostComponent({
+      "ChartView",
+      facebook::react::ChartViewShadowNode::Handle(),
+      &facebook::react::concreteComponentDescriptorProvider<facebook::react::ChartViewComponentDescriptor>,
+      [](int32_t tag) { return std::make_unique<ChartHostView>(); },
+  });
+}
+```
+
+`NativeViewParent` carries what the view needs to attach itself: the node's `IDCompositionVisual` on Windows, the xcb window and connection or the Wayland display and `wl_surface` on Linux, and nothing on macOS, where the view is returned as a retained `NSView`. On X11 a view can instead return a child window it keeps owning (`Kind::X11Window`). A view that draws into the parent itself returns `Kind::Composited`. Every method runs on the main thread.
+
+The module's CMake appends the init function's name to the global property `RN_GPUI_APP_CPP_INIT_FUNCTIONS`, next to the sources it adds with `RN_GPUI_APP_CPP_SOURCES`:
+
+```cmake
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_SOURCES "${CMAKE_CURRENT_LIST_DIR}/cpp/ChartView.cpp")
+set_property(GLOBAL APPEND PROPERTY RN_GPUI_APP_CPP_INIT_FUNCTIONS chart_view_init)
+```
+
+Autolink declares each `cpp` component by name, then calls the init functions in the order they were added. A component that is registered under a name `hostComponents` does not declare, or after the registry froze, is logged and ignored.
+
 ## When to use a plain host component
 
 If the content can be drawn with GPUI elements, a host component without `nativeSurface` is simpler and works the same on every platform.

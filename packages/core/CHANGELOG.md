@@ -4,6 +4,9 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- A host component can be implemented in C++. `hostComponents` entries take `cpp: true`, and a module registers a Fabric component descriptor provider and a `CppHostView` through `GpuiCppHostComponent.h`; core drives the view's props, native surface and unmount without Rust code or a codegen spec. Modules list the `extern "C"` init functions that register them in the `RN_GPUI_APP_CPP_INIT_FUNCTIONS` CMake property.
+- `ViewProps` takes the `filterObjectKeys` argument of upstream React Native, so a props class that derives from it and keeps non-View props out of the View's own parsing (a Nitro View's) compiles.
+- C++ modules can read and observe the window and appearance: `currentColorScheme` and `registerColorSchemeObserver` (the system's scheme or the `Appearance.setColorScheme` override), `registerWindowMetricsObserver` and `windowScale`, and `currentWindowInsets` beside `registerWindowInsetsObserver`, all declared in `GpuiModules.h`.
 - On Windows with ccache and `cl.exe` on `PATH`, the C++ build uses Ninja and embeds debug info in the objects (`/Z7`, CMake policy CMP0141), so ccache can cache the MSVC build; `/MP` is only passed with the Visual Studio generator. CI restores and saves the ccache directory on Windows too. The MSVC unity batches (8 sources) stay, each batch is one cached compile under Ninja.
 - `ReactGpui/Cargo.lock` and the tester's `Cargo.lock` now resolve every shared crate to the same version (both were refreshed with `cargo update`), so the Rust tests and the tester compile each dependency once. The lockfile is a prebuilt input, so the next release has a new prebuilt runtime.
 

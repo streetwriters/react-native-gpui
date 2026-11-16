@@ -139,11 +139,23 @@ class GpuiAppearanceModule final
   }
 
   void setColorScheme(facebook::jsi::Runtime&, std::string scheme) {
-    std::lock_guard<std::mutex> lock(appearanceMutex);
-    if (scheme == "light" || scheme == "dark") {
-      appearanceOverride = std::move(scheme);
-    } else {
-      appearanceOverride.reset();
+    std::string before;
+    std::string after;
+    {
+      std::lock_guard<std::mutex> lock(appearanceMutex);
+      before = appearanceOverride.value_or(systemAppearance);
+      if (scheme == "light" || scheme == "dark") {
+        appearanceOverride = std::move(scheme);
+      } else {
+        appearanceOverride.reset();
+      }
+      after = appearanceOverride.value_or(systemAppearance);
+    }
+    if (before != after) {
+      for (const auto& observer :
+           rngpui::gpuiExtensionHooks().colorSchemeObservers) {
+        observer(after);
+      }
     }
   }
 
@@ -795,7 +807,13 @@ void GpuiHost::set_window_top_inset(float top) {
 }
 
 void GpuiHost::set_window_metrics(float w, float h, float scale) {
-  if (!DeviceInfoModule::setWindowMetrics(w, h, scale) || !scriptLoaded_) {
+  if (!DeviceInfoModule::setWindowMetrics(w, h, scale)) {
+    return;
+  }
+  for (const auto& observer : gpuiExtensionHooks().windowMetricsObservers) {
+    observer();
+  }
+  if (!scriptLoaded_) {
     return;
   }
   emitDimensions();
@@ -824,8 +842,13 @@ void GpuiHost::set_display_metrics(
     float fontScale) {
   const bool fontScaleChanged = DeviceInfoModule::fontScale() != fontScale;
   if (!DeviceInfoModule::setDisplayMetrics(
-          screenWidth, screenHeight, fontScale) ||
-      !scriptLoaded_) {
+          screenWidth, screenHeight, fontScale)) {
+    return;
+  }
+  for (const auto& observer : gpuiExtensionHooks().windowMetricsObservers) {
+    observer();
+  }
+  if (!scriptLoaded_) {
     return;
   }
   if (fontScaleChanged && surfaceWidth_ > 0.f) {
@@ -917,6 +940,7 @@ extern "C" void rn_gpui_accessibility_setting_changed(
 
 void GpuiHost::set_system_appearance(rust::Str appearance) {
   bool shouldNotify = false;
+  bool effectiveChanged = false;
   std::string nextAppearance;
   {
     std::lock_guard<std::mutex> lock(appearanceMutex);
@@ -924,7 +948,13 @@ void GpuiHost::set_system_appearance(rust::Str appearance) {
     if (systemAppearance == nextAppearance)
       return;
     systemAppearance = nextAppearance;
-    shouldNotify = !appearanceOverride.has_value() && scriptLoaded_;
+    effectiveChanged = !appearanceOverride.has_value();
+    shouldNotify = effectiveChanged && scriptLoaded_;
+  }
+  if (effectiveChanged) {
+    for (const auto& observer : gpuiExtensionHooks().colorSchemeObservers) {
+      observer(nextAppearance);
+    }
   }
   if (shouldNotify) {
     folly::dynamic preferences =
@@ -1198,6 +1228,19 @@ std::shared_ptr<facebook::react::TurboModule> createTurboModule(
     }
   }
   return nullptr;
+}
+
+} // namespace rngpui
+
+namespace rngpui {
+
+std::string currentColorScheme() {
+  std::lock_guard<std::mutex> lock(appearanceMutex);
+  return appearanceOverride.value_or(systemAppearance);
+}
+
+double windowScale() {
+  return DeviceInfoModule::scale();
 }
 
 } // namespace rngpui

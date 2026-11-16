@@ -49,6 +49,10 @@ Size DeviceInfoModule::screenSize() {
   return Size{.width = static_cast<Float>(width), .height = static_cast<Float>(height)};
 }
 
+double DeviceInfoModule::scale() {
+  return displayScale.load(std::memory_order_relaxed);
+}
+
 Size DeviceInfoModule::windowSize() {
   return Size{
       .width = static_cast<Float>(windowWidth.load(std::memory_order_relaxed)),

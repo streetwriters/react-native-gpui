@@ -697,6 +697,9 @@ pub struct HostComponentOptions {
     /// The component is a container that draws chrome around React children.
     /// Core paints the children; the component paints only its chrome.
     pub container: bool,
+    /// The component is implemented in C++ (`GpuiCppHostComponent.h`): core
+    /// drives its C++ view and needs no Rust code or codegen spec.
+    pub cpp: bool,
 }
 
 /// How a host component object is driven. Generated code implements it for each
@@ -811,6 +814,7 @@ type MeasureFn = fn(*const core::ffi::c_void, &MeasureConstraint) -> Option<Meas
 pub struct HostEntry {
     pub name: String,
     pub options: HostComponentOptions,
+    index: u32,
     create: Option<CreateFn>,
     measure: Option<MeasureFn>,
 }
@@ -818,7 +822,7 @@ pub struct HostEntry {
 impl HostEntry {
     /// Whether a package registered code for this declaration.
     pub fn is_registered(&self) -> bool {
-        self.create.is_some()
+        self.create.is_some() || self.options.cpp
     }
 
     /// Creates the component's object, or `None` when the package never
@@ -829,6 +833,10 @@ impl HostEntry {
         emitter: EmitterHandle,
         cx: HostContext,
     ) -> Option<Box<dyn HostObject>> {
+        if self.options.cpp {
+            let object = crate::cpp_host::CppHostObject::create(self.index, cx.tag, props)?;
+            return Some(Box::new(object));
+        }
         self.create.map(|create| create(props, emitter, cx))
     }
 }
@@ -849,7 +857,7 @@ impl std::fmt::Debug for HostEntry {
         f.debug_struct("HostEntry")
             .field("name", &self.name)
             .field("options", &self.options)
-            .field("registered", &self.create.is_some())
+            .field("registered", &self.is_registered())
             .finish()
     }
 }
@@ -898,6 +906,7 @@ pub fn declare_host_component(index: u32, name: &str, options: HostComponentOpti
     slots[index] = Some(HostEntry {
         name: name.to_string(),
         options,
+        index: index as u32,
         create: None,
         measure: None,
     });
@@ -946,7 +955,7 @@ pub fn freeze() {
     frozen().get_or_init(|| {
         let slots = std::mem::take(&mut *pending().lock().expect("host component registry poisoned"));
         for entry in slots.iter().flatten() {
-            if entry.create.is_none() {
+            if !entry.is_registered() {
                 log::error!(
                     "[host-component] {} is declared in hostComponents but no package registered it",
                     entry.name

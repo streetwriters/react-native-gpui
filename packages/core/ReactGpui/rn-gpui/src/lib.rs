@@ -3,6 +3,7 @@ pub(crate) mod animation_policy;
 pub mod app_hooks;
 pub mod builtins;
 pub(crate) mod counters;
+mod cpp_host;
 pub(crate) mod desktop;
 pub(crate) mod drag_drop;
 pub(crate) mod events;

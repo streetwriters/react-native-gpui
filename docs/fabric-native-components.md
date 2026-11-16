@@ -89,6 +89,8 @@ Each entry of `hostComponents` has a `name`, and optional flags that decide how 
 
 A component cannot be both `measured` and a `container`: a measured component is a leaf and cannot hold children.
 
+A component implemented entirely in C++ is declared with `cpp: true` and has no Rust crate or spec, see [C++ host components](native-views#c-host-components).
+
 ## 3. Implement the component
 
 Codegen writes a trait named after the component, `BadgeSpec`, with the props as a typed view, and a `BadgeChanged` mask that says which props changed. Implement it for your type:
