@@ -6561,9 +6561,16 @@ impl Scroller {
                         );
                         let (content, viewport) = (self.content_size, self.viewport);
                         let wait = self.event_throttle - since;
+                        let sent_before = self.emit.last.get();
                         cx.spawn(async move |cx| {
                             cx.background_executor().timer(wait).await;
                             emit.waiting.set(false);
+                            // A scroll that came once the throttle had passed
+                            // but before this ran has already sent the offset
+                            // in this slot: a second would break the throttle.
+                            if emit.last.get() != sent_before {
+                                return;
+                            }
                             emit.last.set(Some(std::time::Instant::now()));
                             let offset = position.get();
                             host.dispatch_event(
