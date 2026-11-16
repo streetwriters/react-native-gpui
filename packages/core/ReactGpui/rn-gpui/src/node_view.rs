@@ -6204,6 +6204,7 @@ pub(crate) struct ScrollGesture {
     dragging: bool,
     after_drag: bool,
     momentum: bool,
+    carrying: bool,
     wheel: bool,
     generation: u64,
     drag_start: Option<f32>,
@@ -6309,6 +6310,7 @@ impl Scroller {
         let generation = {
             let mut gesture = self.gesture.borrow_mut();
             gesture.generation += 1;
+            gesture.carrying = false;
             match event.touch_phase {
                 gpui::TouchPhase::Started => {
                     if gesture.momentum {
@@ -6387,6 +6389,7 @@ impl Scroller {
                 return;
             };
             gesture.momentum = true;
+            gesture.carrying = true;
             speed
         };
         self.emit("topMomentumScrollBegin", cx);
@@ -6420,7 +6423,10 @@ impl Scroller {
                 }
             }
             let _ = cx.update_window(handle, |_, window, cx| {
-                scroller.settle(generation, window, cx)
+                if scroller.gesture.borrow().generation == generation {
+                    scroller.gesture.borrow_mut().carrying = false;
+                    scroller.settle(generation, window, cx);
+                }
             });
         })
         .detach();
@@ -6450,6 +6456,9 @@ impl Scroller {
         let (moved_by_wheel, drag_start) = {
             let mut gesture = self.gesture.borrow_mut();
             if gesture.generation != generation || gesture.dragging {
+                return;
+            }
+            if gesture.carrying {
                 return;
             }
             if gesture.momentum {

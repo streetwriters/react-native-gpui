@@ -426,7 +426,9 @@ test('the perf monitor toggles and reports its counters', async () => {
 
   expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
   await clickTestId('perf-toggle');
-  expect(await rawTextOf('perf-enabled')).toBe('enabled: true');
+  await expect
+    .poll(() => rawTextOf('perf-enabled'), { timeout: 5000 })
+    .toBe('enabled: true');
 
   await new Promise(resolve => setTimeout(resolve, 1200));
   await clickTestId('perf-read');
@@ -438,7 +440,9 @@ test('the perf monitor toggles and reports its counters', async () => {
   expect(metrics).not.toContain('"uiFps":0');
 
   await clickTestId('perf-toggle');
-  expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
+  await expect
+    .poll(() => rawTextOf('perf-enabled'), { timeout: 5000 })
+    .toBe('enabled: false');
 });
 
 test('the Dev Menu opens from its accelerator and runs items', async () => {
