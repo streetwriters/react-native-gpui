@@ -47,6 +47,22 @@ async function rawTextOf(testID: string): Promise<string> {
   return String(node?.text ?? '');
 }
 
+// Polls `read` until `done` accepts its value and returns that value; after
+// `timeout` ms returns the last one read, so the caller's expect shows it.
+async function until<T>(
+  read: () => Promise<T>,
+  done: (value: T) => boolean,
+  timeout = 10_000,
+): Promise<T> {
+  const deadline = Date.now() + timeout;
+  let value = await read();
+  while (!done(value) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    value = await read();
+  }
+  return value;
+}
+
 afterAll(async () => {
   app?.disconnect();
 });
@@ -411,26 +427,32 @@ test('the perf monitor toggles and reports its counters', async () => {
   await launch('PerfMonitorFixture');
   await app.waitForIdle();
 
-  // The overlay keeps the app drawing, so it is never "idle" while it is on:
-  // every step here uses the raw driver, which does not wait for idle.
+  // While the overlay is on it posts a JS task every frame, so the app is never
+  // idle: every step here uses the raw driver and then waits for the text the
+  // step should produce, not for idle.
   const clickTestId = async (testID: string) => {
     const [node] = await app.query('testID', testID);
     if (!node) {
       throw new Error(`no node with testID ${testID}`);
     }
     await app.click(node.tag);
-    await app
-      .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
-      .catch(() => {});
   };
+  const enabledText = (expected: string) =>
+    until(
+      () => rawTextOf('perf-enabled'),
+      text => text === expected,
+    );
 
   expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
   await clickTestId('perf-toggle');
-  expect(await rawTextOf('perf-enabled')).toBe('enabled: true');
+  expect(await enabledText('enabled: true')).toBe('enabled: true');
 
   await new Promise(resolve => setTimeout(resolve, 1200));
   await clickTestId('perf-read');
-  const metrics = await rawTextOf('perf-metrics');
+  const metrics = await until(
+    () => rawTextOf('perf-metrics'),
+    text => text.includes('"uiFps"'),
+  );
   expect(metrics).toContain('"enabled":true');
   expect(metrics).toContain('"uiFps"');
   expect(metrics).toContain('"mountedViews"');
@@ -438,7 +460,7 @@ test('the perf monitor toggles and reports its counters', async () => {
   expect(metrics).not.toContain('"uiFps":0');
 
   await clickTestId('perf-toggle');
-  expect(await rawTextOf('perf-enabled')).toBe('enabled: false');
+  expect(await enabledText('enabled: false')).toBe('enabled: false');
 });
 
 test('the Dev Menu opens from its accelerator and runs items', async () => {
@@ -500,19 +522,23 @@ test('DevSettings toggles reach the perf monitor', async () => {
   await launch('PerfMonitorFixture');
   await app.waitForIdle();
 
+  // The press reaches the monitor through JS, and while the monitor is on the
+  // app is never idle, so wait for the monitor's state instead.
+  const enabled = async (expected: boolean) =>
+    (
+      await until(
+        () => app.getPerfMonitor(),
+        state => state.enabled === expected,
+      )
+    ).enabled;
+
   const [enable] = await app.query('testID', 'perf-devdettings-on');
   await app.click(enable.tag);
-  await app
-    .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
-    .catch(() => {});
-  expect((await app.getPerfMonitor()).enabled).toBe(true);
+  expect(await enabled(true)).toBe(true);
 
   const [disable] = await app.query('testID', 'perf-devdettings-off');
   await app.click(disable.tag);
-  await app
-    .waitForIdle({ ignore: ['timers', 'frames'], timeout: 1500 })
-    .catch(() => {});
-  expect((await app.getPerfMonitor()).enabled).toBe(false);
+  expect(await enabled(false)).toBe(false);
 });
 
 test('a tray icon opens its popover surface and closes it again', async () => {
