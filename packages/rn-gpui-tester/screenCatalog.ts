@@ -246,6 +246,12 @@ export const screens = [
     fixture: 'OutlineRadiusFixture',
   },
   {
+    id: 'masked-view',
+    title: 'Masked view',
+    group: 'Views',
+    fixture: 'MaskedViewFixture',
+  },
+  {
     id: 'file-drop',
     title: 'File drop',
     group: 'Input',

@@ -700,6 +700,10 @@ pub struct HostComponentOptions {
     /// The component is implemented in C++ (`GpuiCppHostComponent.h`): core
     /// drives its C++ view and needs no Rust code or codegen spec.
     pub cpp: bool,
+    /// The component's first React child is a mask: the other children show only
+    /// where it paints, scaled by its alpha. Core draws it; the component needs
+    /// no Rust code.
+    pub mask_children: bool,
 }
 
 /// How a host component object is driven. Generated code implements it for each
@@ -822,7 +826,7 @@ pub struct HostEntry {
 impl HostEntry {
     /// Whether a package registered code for this declaration.
     pub fn is_registered(&self) -> bool {
-        self.create.is_some() || self.options.cpp
+        self.create.is_some() || self.options.cpp || self.options.mask_children
     }
 
     /// Creates the component's object, or `None` when the package never

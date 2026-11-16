@@ -324,6 +324,11 @@ export const renderScreen: Record<
       require('./components/OutlineRadiusFixture').default,
       props,
     ),
+  'masked-view': props =>
+    React.createElement(
+      require('./components/MaskedViewFixture').default,
+      props,
+    ),
   'flex-basis': props =>
     React.createElement(
       require('./components/FlexBasisFixture').default,

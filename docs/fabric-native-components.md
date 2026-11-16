@@ -81,13 +81,20 @@ module.exports = {
 
 Each entry of `hostComponents` has a `name`, and optional flags that decide how the component takes part in layout. They are declared here because Fabric needs them before any Rust code runs:
 
-| Flag            | Meaning                                                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `measured`      | The component measures itself and reports its size. Its shadow node is a leaf with a Yoga measure function.                |
-| `container`     | The component draws chrome around React children. Core paints the children, and the component paints only its chrome.      |
-| `nativeSurface` | The component hosts an operating system view. Implement `create_view` and `update_view`, see [Native views](native-views). |
+| Flag            | Meaning                                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `measured`      | The component measures itself and reports its size. Its shadow node is a leaf with a Yoga measure function.                               |
+| `maskChildren`  | The first React child is a mask that the other children are shown through. Needs no Rust code, see [Masking children](#masking-children). |
+| `container`     | The component draws chrome around React children. Core paints the children, and the component paints only its chrome.                     |
+| `nativeSurface` | The component hosts an operating system view. Implement `create_view` and `update_view`, see [Native views](native-views).                |
 
 A component cannot be both `measured` and a `container`: a measured component is a leaf and cannot hold children.
+
+### Masking children
+
+A component declared `maskChildren: true` shows its content only where its first child, the mask, paints. The mask is not shown, its alpha scales the content, takes no pointer events and is hidden from the accessibility tree. The remaining children are the content, painted into a picture of their own, so the mask also cuts anything of the content that lies outside it. The view's own background and border are not masked.
+
+The component is a plain codegen spec (`codegenNativeComponent` with `interfaceOnly: true`) with no Rust: core does the drawing, and no `register_component` call is needed. It cannot be `measured` or `cpp`.
 
 A component implemented entirely in C++ is declared with `cpp: true` and has no Rust crate or spec, see [C++ host components](native-views#c-host-components).
 

@@ -18,6 +18,7 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 | `react-native-unistyles`                    | `@react-native-gpui/unistyles`         | `3.8.x`, needs the Nitro adapter above                 |
 | `react-native-mmkv`                         | `@react-native-gpui/mmkv`              | `4.3.x`, needs the Nitro adapter above                 |
 | `@react-native-async-storage/async-storage` | `@react-native-gpui/async-storage`     | `3.1.x`                                                |
+| `@react-native-masked-view/masked-view`     | `@react-native-gpui/masked-view`       | `0.3.x`                                                |
 
 The desktop packages, and the desktop-only modules that have no upstream library (a Node-shaped file system API, custom font loading, notifications, a PDF viewer and others), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 

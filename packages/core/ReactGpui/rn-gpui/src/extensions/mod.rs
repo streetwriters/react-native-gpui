@@ -362,6 +362,7 @@ pub(crate) struct NodeSnapshot {
     pub(crate) props: Arc<Value>,
     pub(crate) parent: Option<i32>,
     pub(crate) children: Vec<i32>,
+    pub(crate) mask_children: bool,
     pub(crate) surface_id: i32,
     pub(crate) transition: Option<TransitionState>,
 }
@@ -413,6 +414,7 @@ impl<'a> TreeView<'a> {
                     props: Arc::new(node.props),
                     parent,
                     children,
+                    mask_children: false,
                     surface_id: 1,
                     transition: None,
                 },

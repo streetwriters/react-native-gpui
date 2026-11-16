@@ -91,6 +91,8 @@ pub struct RNNodeView {
     /// Whether the host component is a container: core paints its React children
     /// between its chrome and its overlay.
     host_container: bool,
+    /// Whether the first child masks the others (`maskChildren`).
+    mask_children: bool,
     /// The intrinsic size this node's host component last reported. Exposed to
     /// the test driver and to diagnostics; Yoga has the authoritative copy, in
     /// the shadow node's state.
@@ -1105,7 +1107,7 @@ impl RNNodeView {
         )
         .map(|scroll| scroll.offset)
         .unwrap_or((0.0, 0.0));
-        let (host_component, host_container) =
+        let (host_component, host_container, mask_children) =
             Self::create_host_component(op, &host_reports, surface_id, app);
         let mut view = Self {
             tag: op.tag,
@@ -1134,6 +1136,7 @@ impl RNNodeView {
             host_component,
             host_index: op.host_index,
             host_container,
+            mask_children,
             intrinsic_size: None,
             host_reports,
             surface_origin: crate::surface::SurfaceOrigin::default(),
@@ -1388,20 +1391,25 @@ impl RNNodeView {
     }
 
     /// Creates the host component an op names by registry index, if it names
-    /// one. Returns it with whether it is a container.
+    /// one. Returns it with whether it is a container and whether it masks its
+    /// children.
     fn create_host_component(
         op: &MountOp,
         host_reports: &crate::store::HostReportQueue,
         surface_id: i32,
         app: Option<&mut gpui::App>,
-    ) -> (Option<Box<dyn crate::host_component::HostObject>>, bool) {
+    ) -> (
+        Option<Box<dyn crate::host_component::HostObject>>,
+        bool,
+        bool,
+    ) {
         // SAFETY: C++ made these handles for this op and gave them to Rust; this
         let (props, emitter) = unsafe { Self::claim_host_handles(op) };
         let Some(entry) = (op.host_index >= 0)
             .then(|| crate::host_component::entry(op.host_index as u32))
             .flatten()
         else {
-            return (None, false);
+            return (None, false, false);
         };
         let (Some(props), Some(emitter)) = (props, emitter) else {
             if entry.is_registered() {
@@ -1411,19 +1419,19 @@ impl RNNodeView {
                     op.tag
                 );
             }
-            return (None, entry.options.container);
+            return (None, entry.options.container, entry.options.mask_children);
         };
         let cx = crate::host_component::HostContext::queued(op.tag, host_reports.clone())
             .on_surface(surface_id);
         let (cx, _scope) = cx.enter_with(app);
         let object = entry.create(props, emitter, cx);
-        if object.is_none() {
+        if object.is_none() && !entry.options.mask_children {
             log::error!(
                 "[host-component] {} is declared but no package registered it; the node renders nothing",
                 entry.name
             );
         }
-        (object, entry.options.container)
+        (object, entry.options.container, entry.options.mask_children)
     }
 
     /// Takes ownership of the handles an op carried, so they are released when
@@ -1611,6 +1619,7 @@ impl RNNodeView {
         self.view.opacity < 1.0
             || self.view.mix_blend_mode != 0
             || self.view.isolate
+            || self.mask_children
             || self.view.filter_json.contains("\"blur\"")
             || self.view.filter_json.contains("\"dropShadow\"")
     }
@@ -1865,6 +1874,30 @@ impl RNNodeView {
             .unwrap_or(self.frame)
     }
 
+    /// Whether this node is the first child of a masked view, which only
+    /// shapes what its siblings show.
+    fn is_mask(&self, cx: &App) -> bool {
+        self.parent
+            .as_ref()
+            .and_then(|parent| parent.upgrade())
+            .is_some_and(|parent| {
+                let parent = parent.read(cx);
+                parent.mask_children
+                    && parent
+                        .children
+                        .first()
+                        .is_some_and(|(tag, _)| *tag == self.tag)
+            })
+    }
+
+    fn is_mask_in(&self, tree: &crate::extensions::TreeView) -> bool {
+        self.parent_tag_cache.get().is_some_and(|parent| {
+            tree.nodes.get(&parent).is_some_and(|parent| {
+                parent.mask_children && parent.children.first() == Some(&self.tag)
+            })
+        })
+    }
+
     pub(crate) fn hides_subtree(&self, tree: &crate::extensions::TreeView) -> bool {
         crate::extensions::component_renderer(&self.component)
             .is_some_and(|renderer| renderer.hides_subtree(&self.component_node_shallow(), tree))
@@ -1884,7 +1917,8 @@ impl RNNodeView {
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
                 || self.view.accessibility_important == 3
-                || self.view.display_none,
+                || self.view.display_none
+                || self.is_mask_in(tree),
             hides_subtree: self.hides_subtree(tree),
             other_modal_child: false,
             focusable_or_accessible: self.focusable || self.view.accessible,
@@ -3355,7 +3389,7 @@ impl Render for RNNodeView {
         let hidden_by_modal_sibling = self.inherited.hidden_by_modal_sibling;
         let hidden_by_active_modal = crate::accessibility::hidden_by_active_modal(self.tag, cx);
         let hidden_by_hiding_ancestor = self.inherited.hidden_by_hiding_ancestor;
-        let hidden_by_decoration = decoration.a11y_hidden;
+        let hidden_by_decoration = decoration.a11y_hidden || self.is_mask(cx);
         let hidden_display_none = self.view.display_none;
         let accessibility = self.view.clone();
         #[cfg(feature = "visual-capture")]
@@ -4341,7 +4375,13 @@ impl Render for RNNodeView {
                 Some((renderer, node)) => renderer.children(node, painted, window, cx),
                 None => painted,
             };
-            element = element.children(painted);
+            if self.mask_children && !painted.is_empty() {
+                let mut painted = painted.into_iter();
+                let mask = painted.next().expect("a mask child");
+                element = element.child(crate::filter::Masked::new(mask, painted.collect()));
+            } else {
+                element = element.children(painted);
+            }
             if self.component == "TextInput" && self.input_multiline {
                 element = element.on_scroll(cx.listener(
                     |this, event: &gpui::ScrollEvent, _window, cx| {
@@ -6144,6 +6184,7 @@ impl RNNodeView {
             props: self.extension_props.clone(),
             parent: self.parent_tag_cached(),
             children: self.child_tags(),
+            mask_children: self.mask_children,
             surface_id: self.surface_id,
             transition: self.transition_state(),
         }

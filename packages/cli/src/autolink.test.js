@@ -640,13 +640,13 @@ test('declares each host component with its index and layout flags', () => {
   });
   const lib = generatedLib(project.projectRoot);
   expect(lib).toContain(
-    'declare_host_component(0, "FakeChart", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: false, container: false, cpp: false });',
+    'declare_host_component(0, "FakeChart", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: false, container: false, cpp: false, mask_children: false });',
   );
   expect(lib).toContain(
-    'declare_host_component(1, "FakeLabel", react_native_gpui::host_component::HostComponentOptions { measured: true, native_surface: false, container: false, cpp: false });',
+    'declare_host_component(1, "FakeLabel", react_native_gpui::host_component::HostComponentOptions { measured: true, native_surface: false, container: false, cpp: false, mask_children: false });',
   );
   expect(lib).toContain(
-    'declare_host_component(2, "FakeCard", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: true, container: true, cpp: false });',
+    'declare_host_component(2, "FakeCard", react_native_gpui::host_component::HostComponentOptions { measured: false, native_surface: true, container: true, cpp: false, mask_children: false });',
   );
   // Declared before any package registers, then checked for code afterwards.
   expect(lib.indexOf('declare_host_components();')).toBeLessThan(

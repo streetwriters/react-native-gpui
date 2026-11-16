@@ -10,6 +10,7 @@ module.exports = {
           { name: 'FixtureSurfaceHost' },
           { name: 'FixtureNativeProbe', nativeSurface: true },
           { name: 'FixtureWebView', nativeSurface: true },
+          { name: 'TestMaskView', maskChildren: true },
         ],
       },
     },

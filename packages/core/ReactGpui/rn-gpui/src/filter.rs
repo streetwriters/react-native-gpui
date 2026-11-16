@@ -280,6 +280,103 @@ impl Element for Filtered {
     }
 }
 
+/// The children of a component declared `maskChildren`: `content` painted into an isolated group,
+/// then `mask` over it as a group that keeps only what its alpha covers. The
+/// mask is laid out and painted like any child but takes no pointer input.
+pub(crate) struct Masked {
+    mask: AnyElement,
+    content: Vec<AnyElement>,
+}
+
+impl Masked {
+    pub(crate) fn new(mask: AnyElement, content: Vec<AnyElement>) -> Self {
+        Self { mask, content }
+    }
+}
+
+impl IntoElement for Masked {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for Masked {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let children: Vec<LayoutId> = std::iter::once(&mut self.mask)
+            .chain(self.content.iter_mut())
+            .map(|child| child.request_layout(window, cx))
+            .collect();
+        let mut style = gpui::Style::default();
+        style.position = gpui::Position::Absolute;
+        style.inset = gpui::Edges::all(gpui::px(0.0).into());
+        (window.request_layout(style, children, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        let mask = &mut self.mask;
+        window.without_hitboxes(|window| mask.prepaint(window, cx));
+        for child in &mut self.content {
+            child.prepaint(window, cx);
+        }
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let (mask, content) = (&mut self.mask, &mut self.content);
+        let mut paint_content = |window: &mut Window, cx: &mut App| {
+            for child in content.iter_mut() {
+                child.paint(window, cx);
+            }
+        };
+        if !window.paints_effect_groups() {
+            paint_content(window, cx);
+            return;
+        }
+        window.with_group_effect(1.0, GroupEffect::Isolate, |window| {
+            paint_content(window, cx);
+            window.with_blended_group(1.0, GroupEffect::None, BlendMode::DestinationIn, |window| {
+                window.cover_effect_group(bounds);
+                mask.paint(window, cx);
+            });
+        });
+    }
+}
+
 /// `child` painted into an effect group of its own and composited at `opacity`.
 pub(crate) struct Grouped {
     child: AnyElement,

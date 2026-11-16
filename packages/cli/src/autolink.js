@@ -765,6 +765,14 @@ function hostComponentsFor(dependencyName, gpui) {
         `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "container"`,
       );
     }
+    if (
+      entry.maskChildren !== undefined &&
+      typeof entry.maskChildren !== 'boolean'
+    ) {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "maskChildren"`,
+      );
+    }
     if (entry.cpp !== undefined && typeof entry.cpp !== 'boolean') {
       throw new Error(
         `${dependencyName}: hostComponents "${entry.name}" has a non-boolean "cpp"`,
@@ -778,6 +786,14 @@ function hostComponentsFor(dependencyName, gpui) {
         `${dependencyName}: hostComponents "${entry.name}" cannot be "cpp" and also "measured" or a "container"; a C++ host component implements neither`,
       );
     }
+    if (
+      entry.maskChildren === true &&
+      (entry.measured === true || entry.cpp === true)
+    ) {
+      throw new Error(
+        `${dependencyName}: hostComponents "${entry.name}" cannot be "maskChildren" and also "measured" or "cpp"; a masking component is a view that holds children`,
+      );
+    }
     if (entry.measured === true && entry.container === true) {
       throw new Error(
         `${dependencyName}: hostComponents "${entry.name}" cannot be both "measured" and a "container"; a measured component is a leaf, and a leaf cannot hold children`,
@@ -789,6 +805,7 @@ function hostComponentsFor(dependencyName, gpui) {
       nativeSurface: entry.nativeSurface === true,
       container: entry.container === true,
       cpp: entry.cpp === true,
+      maskChildren: entry.maskChildren === true,
     };
   });
 }
@@ -921,7 +938,10 @@ function generateComponentCodegen({
       ),
     );
     const components = Object.fromEntries(
-      hostComponents.map(component => [component.name, component]),
+      hostComponents.map(component => [
+        component.name,
+        component.maskChildren ? { ...component, container: true } : component,
+      ]),
     );
     const { generateHostComponentCpp } = appRequire(
       '@react-native-gpui/codegen/generate-host-component-cpp',
@@ -1422,12 +1442,20 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   ].join('\n');
   const hostComponentDeclarations = hostComponents
     .map(
-      ({ index, name, measured, nativeSurface, container, cpp }) =>
-        `    react_native_gpui::host_component::declare_host_component(${index}, ${JSON.stringify(name)}, react_native_gpui::host_component::HostComponentOptions { measured: ${measured}, native_surface: ${nativeSurface}, container: ${container}, cpp: ${cpp} });`,
+      ({
+        index,
+        name,
+        measured,
+        nativeSurface,
+        container,
+        cpp,
+        maskChildren,
+      }) =>
+        `    react_native_gpui::host_component::declare_host_component(${index}, ${JSON.stringify(name)}, react_native_gpui::host_component::HostComponentOptions { measured: ${measured}, native_surface: ${nativeSurface}, container: ${container}, cpp: ${cpp}, mask_children: ${maskChildren} });`,
     )
     .join('\n');
   const hostComponentChecks = hostComponents
-    .filter(({ cpp }) => !cpp)
+    .filter(({ cpp, maskChildren }) => !cpp && !maskChildren)
     .map(
       ({ index, name }) =>
         `    expect_host_component(${index}, ${JSON.stringify(name)});`,

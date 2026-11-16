@@ -23,3 +23,5 @@ export { default as FixtureCard } from './FixtureCardNativeComponent';
 export type { NativeProps as FixtureCardProps } from './FixtureCardNativeComponent';
 export { default as FixtureSurfaceHost } from './FixtureSurfaceHostNativeComponent';
 export type { NativeProps as FixtureSurfaceHostProps } from './FixtureSurfaceHostNativeComponent';
+export { default as TestMaskView } from './TestMaskViewNativeComponent';
+export type { NativeProps as TestMaskViewProps } from './TestMaskViewNativeComponent';
