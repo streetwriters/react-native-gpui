@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- `doctor` requires Rust and Cargo 1.98 or newer instead of only checking that they are installed, so an older toolchain, such as a Homebrew Rust ahead of rustup on `PATH`, is reported before the build fails.
+
 ## 0.87.0-alpha.4 - 2026-11-16
 
 - `platforms.desktop.hostComponents` entries take `maskChildren: true` for a component whose first child masks the others. It cannot also be `measured` or `cpp`, and needs no Rust registration.

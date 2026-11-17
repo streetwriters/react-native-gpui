@@ -3,6 +3,10 @@
 const { spawnSync } = require('node:child_process');
 
 const MIN_NODE = [22, 13, 0];
+const MIN_RUST = {
+  version: [1, 98, 0],
+  fix: 'rustup update stable; if this still reports an older version, another Rust installation comes first on PATH',
+};
 
 /** The libraries the app links on Linux, with each distribution's package. */
 const LINUX_LIBRARIES = [
@@ -81,18 +85,26 @@ function atLeast(version, minimum) {
   return true;
 }
 
-/** A check that passes when `command` runs, reporting the version it prints. */
-function tool(label, command, args, fix) {
+/**
+ * A check that passes when `command` runs, reporting the version it prints,
+ * and, with `minimum`, when that version is at least `minimum.version`.
+ */
+function tool(label, command, args, fix, minimum) {
   return {
     label,
     check(probe) {
       const result = probe.run(command, args);
       if (!result.ok)
         return { ok: false, message: `${command} was not found`, fix };
-      return {
-        ok: true,
-        version: versionIn(firstLine(result.stdout || result.stderr)),
-      };
+      const version = versionIn(firstLine(result.stdout || result.stderr));
+      if (minimum && !(version && atLeast(version, minimum.version)))
+        return {
+          ok: false,
+          version,
+          message: `${label} ${minimum.version.join('.')} or newer is required`,
+          fix: minimum.fix,
+        };
+      return { ok: true, version };
     },
   };
 }
@@ -262,12 +274,14 @@ function desktopChecks(platform) {
       'rustc',
       ['--version'],
       rustupFix[platform] ?? rustupFix.linux,
+      MIN_RUST,
     ),
     tool(
       'Cargo',
       'cargo',
       ['--version'],
       rustupFix[platform] ?? rustupFix.linux,
+      MIN_RUST,
     ),
     tool('CMake', 'cmake', ['--version'], cmakeFix[platform] ?? cmakeFix.linux),
     ...(platform === 'darwin'
