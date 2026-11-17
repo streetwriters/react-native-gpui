@@ -1346,7 +1346,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         }
     }
     startup_trace("active display detected");
-    let application = Application::with_platform(platform);
+    let application =
+        crate::app_hooks::with_registered_assets(Application::with_platform(platform));
     // An accessory app takes no Dock icon or menu bar, and the policy has to
     // be set before the run loop starts or the Dock bounces at launch.
     #[cfg(target_os = "macos")]

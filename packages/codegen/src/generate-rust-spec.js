@@ -1504,7 +1504,12 @@ export class ComponentGenerator {
   /// shim for it carries.
   shape(annotation, { typePath, propName }) {
     const scalar = scalarType(annotation);
-    if (scalar) return { kind: 'scalar', rustType: scalar };
+    if (scalar) {
+      const fallback = annotation.default;
+      return typeof fallback === 'boolean' || typeof fallback === 'number'
+        ? { kind: 'scalar', rustType: scalar, fallback }
+        : { kind: 'scalar', rustType: scalar };
+    }
     switch (annotation.type) {
       case 'StringTypeAnnotation':
         return { kind: 'string' };
@@ -2761,14 +2766,21 @@ function renderSlice(slice, view, atShim) {
 }
 
 /// A scalar read from an optional JSON value, as `rustType`.
-function jsonScalar(value, rustType) {
+function jsonScalar(value, rustType, fallback) {
+  const has = fallback !== undefined;
   if (rustType === 'bool') {
-    return `${value}.and_then(Value::as_bool).unwrap_or_default()`;
+    return has
+      ? `${value}.and_then(Value::as_bool).unwrap_or(${fallback})`
+      : `${value}.and_then(Value::as_bool).unwrap_or_default()`;
   }
   if (rustType === 'f32' || rustType === 'f64') {
-    return `${value}.and_then(Value::as_f64).unwrap_or_default() as ${rustType}`;
+    return has
+      ? `${value}.and_then(Value::as_f64).unwrap_or(${Number(fallback)}_f64) as ${rustType}`
+      : `${value}.and_then(Value::as_f64).unwrap_or_default() as ${rustType}`;
   }
-  return `${value}.and_then(Value::as_i64).unwrap_or_default() as ${rustType}`;
+  return has
+    ? `${value}.and_then(Value::as_i64).unwrap_or(${Math.trunc(Number(fallback))}_i64) as ${rustType}`
+    : `${value}.and_then(Value::as_i64).unwrap_or_default() as ${rustType}`;
 }
 
 /// Every spec is a component of a native tree: each prop shape has a reading
@@ -2804,7 +2816,7 @@ function nativeAccessorLines(prop) {
   switch (shape.kind) {
     case 'scalar':
       lines.push(
-        `            return ${jsonScalar(`json.get(${key})`, shape.rustType)};`,
+        `            return ${jsonScalar(`json.get(${key})`, shape.rustType, shape.fallback)};`,
       );
       break;
     case 'string':

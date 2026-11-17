@@ -65,6 +65,8 @@ export type NativeRootHandle = {
   readonly rootId: number;
   render(element: React.ReactNode): void;
   dispatch(event: { id: number; name: string; payload?: unknown }): void;
+  /** Size the box to the height of the tree's content. */
+  setAutoHeight(): void;
   unmount(): void;
 };
 
@@ -374,6 +376,9 @@ export function createNativeRoot(
     dispatch(event) {
       const instance = byId.get(event.id);
       instance?.handlers[event.name]?.(event.payload);
+    },
+    setAutoHeight() {
+      apply?.(rootId, 'auto-height');
     },
     unmount() {
       reconciler.updateContainerSync(null, fiberRoot, null, null);

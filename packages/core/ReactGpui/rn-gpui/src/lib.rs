@@ -45,7 +45,8 @@ mod wheel;
 mod bootstrap;
 mod http_client;
 mod resources;
-pub use app_hooks::{register_app_init, register_root_wrapper};
+pub use animation_policy::animations_disabled;
+pub use app_hooks::{register_app_init, register_asset_source, register_root_wrapper};
 pub use bootstrap::{
     run, run_with, set_desktop_defaults, DesktopAppConfig, WindowBackground, WindowTitleBar,
 };

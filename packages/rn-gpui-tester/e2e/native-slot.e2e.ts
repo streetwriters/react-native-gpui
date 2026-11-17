@@ -70,6 +70,12 @@ test('layout: the content takes the width of the native layout and pushes what f
   expect(below.y).toBeGreaterThan(root.y);
 });
 
+test('layout: a slot whose parent is as wide as its content takes the width of the content', async () => {
+  const frame = await frameOf('slot-fit');
+  expect(frame.width).toBeGreaterThan(40);
+  await desktopExpect(app.getByTestId('slot-fit')).toBeVisible();
+});
+
 test('painting: the content is painted where the slot is', async () => {
   const image = PNG.sync.read(await app.getByTestId('slot-root').screenshot());
   const scale = image.width / 240;

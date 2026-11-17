@@ -192,6 +192,18 @@ export const screens = [
     fixture: 'NativeRootFixture',
   },
   {
+    id: 'native-root-auto-height',
+    title: 'A native tree sized by its content',
+    group: 'Views',
+    fixture: 'NativeRootAutoHeightFixture',
+  },
+  {
+    id: 'popup',
+    title: 'A popup from a host component',
+    group: 'Views',
+    fixture: 'PopupFixture',
+  },
+  {
     id: 'mixed-views',
     title: 'React content inside host components',
     group: 'Views',

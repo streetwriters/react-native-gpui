@@ -551,13 +551,13 @@ describe('a component spec is also a component of a native tree', () => {
       'return json.get("title").and_then(Value::as_str).unwrap_or_default();',
     );
     expect(generated).toContain(
-      'return json.get("size").and_then(Value::as_f64).unwrap_or_default() as f64;',
+      'return json.get("size").and_then(Value::as_f64).unwrap_or(0_f64) as f64;',
     );
     expect(generated).toContain(
-      'return json.get("count").and_then(Value::as_i64).unwrap_or_default() as i32;',
+      'return json.get("count").and_then(Value::as_i64).unwrap_or(0_i64) as i32;',
     );
     expect(generated).toContain(
-      'return json.get("active").and_then(Value::as_bool).unwrap_or_default();',
+      'return json.get("active").and_then(Value::as_bool).unwrap_or(false);',
     );
     expect(generated).toContain('return NativeFixtureMode::from_json(');
     expect(generated).toContain('return self.native_values.get_or_init(|| {');
@@ -723,5 +723,20 @@ export default codegenNativeComponent<NativeProps>('MixedCrate', {
     expect(componentOnly).toContain('PropsHandle, Value, empty_map,');
     expect(componentOnly).toContain('pub fn extra(&self) -> &Value {');
     expect(componentOnly).not.toContain('HostValue');
+  });
+});
+
+describe('a native tree reads a prop that is not set as its default', () => {
+  test('scalar props fall back to the default of the spec', () => {
+    const out = generateFrom(
+      withProps(`  open?: CodegenTypes.WithDefault<boolean, true>;
+  count?: CodegenTypes.WithDefault<CodegenTypes.Int32, 7>;
+  ratio?: CodegenTypes.WithDefault<CodegenTypes.Double, 0.5>;
+  plain?: boolean;`),
+    );
+    expect(out).toContain('.and_then(Value::as_bool).unwrap_or(true)');
+    expect(out).toContain('.and_then(Value::as_i64).unwrap_or(7_i64)');
+    expect(out).toContain('.and_then(Value::as_f64).unwrap_or(0.5_f64)');
+    expect(out).toContain('.and_then(Value::as_bool).unwrap_or(false)');
   });
 });
