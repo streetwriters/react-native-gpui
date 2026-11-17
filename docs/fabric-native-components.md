@@ -193,6 +193,8 @@ pub fn rn_gpui_register() {
 
 `register_root_wrapper<V: Render>(impl Fn(AnyView, &mut Window, &mut App) -> Entity<V> + Send + Sync)` receives the root view that takes the React tree and returns the view that becomes the window's root, which usually holds the given view as a child. Its type `V` is the window's root type, so `window.root::<V>()` finds it. It applies to the main window, to windows opened with `DesktopWindow.open` and to tray popovers, and a second registration replaces the first.
 
+`register_asset_source(impl gpui::AssetSource)` adds a source of assets, such as a component library's icons. A path is loaded from the first registered source that has it. Register it from `rn_gpui_register()`; assets are read when the application starts.
+
 ### Native trees
 
 A host component made of other host components of its family, such as a dialog of buttons or a tab bar of tabs, can build the whole subtree as one GPUI element tree instead of paying a Fabric node, a Yoga node and a mount operation for each nested component. The nested components are instances of a native tree, made and changed by batches of operations and identified by the id the reconciler gave them.
@@ -213,7 +215,7 @@ A batch is an array of `["create", id, type, props]`, `["append", parent, child]
 </NativeRoot>
 ```
 
-In tests, the instances appear in `app.tree()` under the node that shows them and `getByTestId`, `getByText` and `getByRole` find them; give a native component the props `testID`, `accessibilityRole` and `accessibilityLabel` for that and for the accessibility tree. Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
+In tests, the instances appear in `app.tree()` under the node that shows them and `getByTestId`, `getByText` and `getByRole` find them; give a native component the props `testID`, `accessibilityRole` and `accessibilityLabel` for that and for the accessibility tree. Hooks, state and effects work inside the tree, and so does context: the contexts the `NativeRoot` is rendered under are visible inside it, without a prop to pass them. A render error inside the tree is thrown again in the outer tree, so it is reported like any other. Text cannot be a direct child of a native component; wrap it in a component that takes it as a prop. The box is sized by layout like a `View`, and the tree is built inside it by GPUI. Without a `height` in its `style` the box is as high as the tree's content, and as wide as layout makes it. One commit of the tree makes one call to the runtime, whatever the number of components it touched.
 
 #### One component for both
 

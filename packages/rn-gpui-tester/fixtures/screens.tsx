@@ -285,6 +285,13 @@ export const renderScreen: Record<
       require('./components/NativeRootFixture').default,
       props,
     ),
+  'native-root-auto-height': props =>
+    React.createElement(
+      require('./components/NativeRootAutoHeightFixture').default,
+      props,
+    ),
+  popup: props =>
+    React.createElement(require('./components/PopupFixture').default, props),
   'mixed-views': props =>
     React.createElement(
       require('./components/MixedViewsFixture').default,

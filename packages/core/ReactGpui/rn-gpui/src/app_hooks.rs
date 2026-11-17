@@ -21,6 +21,7 @@ type RootOpener = Arc<
 
 static APP_INITS: Mutex<Vec<AppInit>> = Mutex::new(Vec::new());
 static APP_INIT_DONE: AtomicBool = AtomicBool::new(false);
+static ASSET_SOURCES: Mutex<Vec<Arc<dyn gpui::AssetSource>>> = Mutex::new(Vec::new());
 static ROOT_OPENER: Mutex<Option<RootOpener>> = Mutex::new(None);
 
 /// Registers `init` to run once, with the `App`, before the first window opens.
@@ -33,6 +34,53 @@ pub fn register_app_init(init: Arc<dyn Fn(&mut App) + Send + Sync>) {
         .lock()
         .expect("app init registry poisoned")
         .push(init);
+}
+
+/// Registers a source of assets (icons, images by path) that the app loads
+/// from, beside the ones registered before it: a path is loaded from the first
+/// source that has it.
+///
+/// Called from a module's `rn_gpui_register()`. Assets are read when the
+/// application starts, so a source registered later is not used.
+pub fn register_asset_source(source: impl gpui::AssetSource + 'static) {
+    ASSET_SOURCES
+        .lock()
+        .expect("asset source registry poisoned")
+        .push(Arc::new(source));
+}
+
+struct CombinedAssets(Vec<Arc<dyn gpui::AssetSource>>);
+
+impl gpui::AssetSource for CombinedAssets {
+    fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        for source in &self.0 {
+            if let Some(asset) = source.load(path)? {
+                return Ok(Some(asset));
+            }
+        }
+        Ok(None)
+    }
+
+    fn list(&self, path: &str) -> anyhow::Result<Vec<gpui::SharedString>> {
+        let mut all = Vec::new();
+        for source in &self.0 {
+            all.extend(source.list(path)?);
+        }
+        Ok(all)
+    }
+}
+
+/// The application with the registered asset sources, when there are any.
+pub(crate) fn with_registered_assets(application: gpui::Application) -> gpui::Application {
+    let sources = ASSET_SOURCES
+        .lock()
+        .expect("asset source registry poisoned")
+        .clone();
+    if sources.is_empty() {
+        application
+    } else {
+        application.with_assets(CombinedAssets(sources))
+    }
 }
 
 /// Runs the registered app init hooks the first time it is called.

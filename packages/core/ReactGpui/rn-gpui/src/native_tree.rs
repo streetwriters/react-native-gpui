@@ -428,6 +428,26 @@ pub struct NativeTree {
     sink: Rc<dyn Fn(NativeEvent)>,
     /// Components of removed instances that said they can be reused, by type.
     pool: HashMap<String, Vec<Box<dyn ErasedComponent>>>,
+    renderer: Option<InstanceRenderer>,
+}
+
+/// Renders one child instance again, on demand: for a component whose content
+/// is built by a closure that GPUI calls on every frame (a dialog, a popover, a
+/// table cell), where a child's element, which can be used once, is not enough.
+pub type ChildRenderer = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+
+/// Renders an instance of a tree by id, for the tree's owner to provide.
+pub type InstanceRenderer = Rc<dyn Fn(NativeId, &mut Window, &mut App) -> AnyElement>;
+
+thread_local! {
+    static CHILD_RENDERERS: RefCell<Vec<ChildRenderer>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A renderer for each child of the instance that is rendering, in order. Valid
+/// during `NativeComponent::render` (and the render of a generated `Spec`) in a
+/// native tree, and empty anywhere else.
+pub fn child_renderers() -> Vec<ChildRenderer> {
+    CHILD_RENDERERS.with(|renderers| renderers.borrow().clone())
 }
 
 /// The most removed components kept per type.
@@ -441,7 +461,14 @@ impl NativeTree {
             roots: Vec::new(),
             sink: Rc::new(sink),
             pool: HashMap::new(),
+            renderer: None,
         }
+    }
+
+    /// How the tree's owner renders one of its instances by id, which makes
+    /// [`child_renderers`] available to components.
+    pub fn set_instance_renderer(&mut self, renderer: InstanceRenderer) {
+        self.renderer = Some(renderer);
     }
 
     /// The top-level instances, in order.
@@ -700,15 +727,29 @@ impl NativeTree {
     pub fn render(&mut self, id: NativeId, window: &mut Window, app: &mut App) -> AnyElement {
         let children: Vec<NativeId> = self.children(id).to_vec();
         let elements: Vec<AnyElement> = children
+            .clone()
             .into_iter()
             .map(|child| self.render(child, window, app))
             .collect();
         let bounds = self.bounds.clone();
+        let renderers: Vec<ChildRenderer> = match &self.renderer {
+            Some(renderer) => children
+                .iter()
+                .map(|&child| {
+                    let renderer = renderer.clone();
+                    Rc::new(move |window: &mut Window, app: &mut App| renderer(child, window, app))
+                        as ChildRenderer
+                })
+                .collect(),
+            None => Vec::new(),
+        };
         match self.instances.get_mut(&id) {
             Some(instance) => {
+                CHILD_RENDERERS.with(|current| *current.borrow_mut() = renderers);
                 let inner = instance
                     .component
                     .render(&instance.props, elements, window, app);
+                CHILD_RENDERERS.with(|current| current.borrow_mut().clear());
                 let text = |name: &str| {
                     instance
                         .props

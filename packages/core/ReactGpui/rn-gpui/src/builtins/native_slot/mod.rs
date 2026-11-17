@@ -93,6 +93,9 @@ struct Placeholder {
     emitter: NativeEmitter,
     reported: Rc<Cell<(f32, f32)>>,
     shown: Rc<Cell<bool>>,
+    /// The tree's layout gave the slot no width (its parent is as wide as its
+    /// content), so the slot takes the width of its content instead.
+    fit: Rc<Cell<bool>>,
     key: u64,
 }
 
@@ -113,6 +116,7 @@ impl NativeComponent for Placeholder {
             emitter: cx.emitter(),
             reported: Rc::new(Cell::new((-1.0, -1.0))),
             shown: Rc::new(Cell::new(false)),
+            fit: Rc::new(Cell::new(false)),
             key: NEXT_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
@@ -147,6 +151,12 @@ impl NativeComponent for Placeholder {
         } else {
             element.flex_shrink(1.0).h(px(height))
         };
+        let fit = self.fit.clone();
+        if fit.get() {
+            if let Some(host) = &host {
+                element = element.w(px(host.read(cx).frame.w)).flex_none();
+            }
+        }
         let has_frame = host.as_ref().is_some_and(|host| {
             let (width, _) = reported.get();
             width >= 0.0 && (host.read(cx).frame.w - width).abs() < 0.5
@@ -169,9 +179,17 @@ impl NativeComponent for Placeholder {
         element
             .child(
                 canvas(
-                    move |bounds, _window, cx| {
+                    move |bounds, window, cx| {
                         let width = f32::from(bounds.size.width);
                         let height = f32::from(bounds.size.height);
+                        if !fit.get()
+                            && width < 0.5
+                            && measured.as_ref().is_some_and(|host| host.read(cx).frame.w > 0.5)
+                        {
+                            fit.set(true);
+                            window.refresh();
+                            return;
+                        }
                         if let Some(host) = &measured {
                             let shift = host.read(cx).slot_shift.clone();
                             if let Some(shift) = shift {

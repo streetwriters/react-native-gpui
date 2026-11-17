@@ -124,6 +124,17 @@ export default function NativeSlotFixture() {
             </NativeSlot>
           </Box>
         </NativeRoot>
+        <NativeRoot testID="slot-fit-root" style={{ width: 240, height: 40 }}>
+          <Box direction="row" gap={4}>
+            <Box>
+              <NativeSlot>
+                <Text testID="slot-fit" style={{ color: '#ff0000' }}>
+                  fits its content
+                </Text>
+              </NativeSlot>
+            </Box>
+          </Box>
+        </NativeRoot>
         <NativeRoot testID="slot-clip-root" style={{ width: 240, height: 80 }}>
           <Box direction="column" height={60}>
             <NativeSlot>

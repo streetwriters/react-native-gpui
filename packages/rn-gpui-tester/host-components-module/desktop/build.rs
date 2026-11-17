@@ -8,6 +8,7 @@ fn main() {
         "../src/FixtureSurfaceHostNativeComponent.ts",
         "../src/FixtureNativeProbeNativeComponent.ts",
         "../src/FixtureWebViewNativeComponent.ts",
+        "../src/FixturePopupNativeComponent.ts",
     ]);
 
     println!("cargo:rerun-if-env-changed=DEP_RN_GPUI_RUNTIME_RPATHS");

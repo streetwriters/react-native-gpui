@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, App, Window};
+use gpui::{canvas, div, prelude::*, AnyElement, App, Window};
 use serde_json::{json, Map, Value};
 
 use crate::extensions::{register_component_renderer, ComponentNode, ComponentRenderer};
@@ -22,6 +22,9 @@ use crate::host::Host;
 use crate::native_tree::{
     register_native_component, NativeComponent, NativeContext, NativeOp, NativeTree,
 };
+
+/// The name of the event that reports the height of an auto-height tree.
+pub const CONTENT_SIZE: &str = "__contentSize";
 
 pub const COMPONENT: &str = "DesktopNativeRoot";
 
@@ -32,6 +35,10 @@ struct RootState {
     tree: NativeTree,
     /// The tag of the node that shows this tree, once it has rendered.
     tag: Rc<Cell<Option<i32>>>,
+    /// The box has no height of its own: the tree is laid out at its natural
+    /// height and that height is reported to JavaScript.
+    auto_height: Rc<Cell<bool>>,
+    reported_height: Rc<Cell<f32>>,
 }
 
 thread_local! {
@@ -59,6 +66,14 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
         });
         return;
     }
+    if payload == "auto-height" {
+        TREES.with(|trees| {
+            let mut trees = trees.borrow_mut();
+            let state = trees.entry(root).or_insert_with(|| new_state(root, cx));
+            state.auto_height.set(true);
+        });
+        return;
+    }
     let ops = match serde_json::from_str::<Value>(payload)
         .map_err(|error| error.to_string())
         .and_then(|batch| NativeOp::parse_batch(&batch))
@@ -72,30 +87,10 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     let Some(store) = crate::store::store_from(cx) else {
         return;
     };
-    let host: Host = store.read(cx).host.clone();
     drop_stale_trees(cx, root);
     let tag = TREES.with(|trees| {
         let mut trees = trees.borrow_mut();
-        let state = trees.entry(root).or_insert_with(|| {
-            let tag = Rc::new(Cell::new(None));
-            let sink_tag = tag.clone();
-            RootState {
-                tree: NativeTree::new(move |event| {
-                    if let Some(tag) = sink_tag.get() {
-                        host.dispatch_event(
-                            tag,
-                            "topNativeEvent",
-                            &json!({
-                                "id": event.id,
-                                "name": event.name,
-                                "payload": event.payload,
-                            }),
-                        );
-                    }
-                }),
-                tag,
-            }
-        });
+        let state = trees.entry(root).or_insert_with(|| new_state(root, cx));
         let started = std::time::Instant::now();
         let count = ops.len() as u64;
         state.tree.apply(ops, cx);
@@ -108,6 +103,41 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     });
     if let Some(node) = tag.and_then(|tag| store.read(cx).nodes.get(&tag).cloned()) {
         node.update(cx, |_, cx| cx.notify());
+    }
+}
+
+fn new_state(root: u32, cx: &App) -> RootState {
+    let host: Host = crate::store::store_from(cx)
+        .map(|store| store.read(cx).host.clone())
+        .expect("the store exists while a tree is applied to");
+    let tag = Rc::new(Cell::new(None));
+    let sink_tag = tag.clone();
+    let mut tree = NativeTree::new(move |event| {
+        if let Some(tag) = sink_tag.get() {
+            host.dispatch_event(
+                tag,
+                "topNativeEvent",
+                &json!({
+                    "id": event.id,
+                    "name": event.name,
+                    "payload": event.payload,
+                }),
+            );
+        }
+    });
+    tree.set_instance_renderer(Rc::new(move |id, window, cx| {
+        CURRENT_ROOT.with(|current| current.set(root));
+        collect_slot_hosts(root, cx);
+        TREES.with(|trees| match trees.borrow_mut().get_mut(&root) {
+            Some(state) => state.tree.render(id, window, cx),
+            None => div().into_any_element(),
+        })
+    }));
+    RootState {
+        tree,
+        tag,
+        auto_height: Rc::new(Cell::new(false)),
+        reported_height: Rc::new(Cell::new(-1.0)),
     }
 }
 
@@ -202,10 +232,31 @@ impl ComponentRenderer for NativeRootRenderer {
                 crate::counters::Counter::NativeRenderMicros,
                 started.elapsed().as_micros() as u64,
             );
+            let auto = state.auto_height.get();
+            let reported = state.reported_height.clone();
+            let tag = node.tag;
+            let measure = canvas(
+                move |bounds, _window, cx| {
+                    let height = f32::from(bounds.size.height);
+                    if (reported.get() - height).abs() > 0.01 {
+                        reported.set(height);
+                        if let Some(store) = crate::store::store_from(cx) {
+                            store.read(cx).host.dispatch_event(
+                                tag,
+                                "topNativeEvent",
+                                &json!({ "id": 0, "name": CONTENT_SIZE, "payload": { "height": height } }),
+                            );
+                        }
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full();
+            let frame = div().absolute().w_full();
+            let frame = if auto { frame } else { frame.h_full() };
             Some(
-                div()
-                    .absolute()
-                    .size_full()
+                frame
                     .flex()
                     .flex_col()
                     .tab_group()
@@ -221,6 +272,7 @@ impl ComponentRenderer for NativeRootRenderer {
                         }
                     })
                     .children(elements)
+                    .when(auto, |this| this.child(measure))
                     .into_any_element(),
             )
         })

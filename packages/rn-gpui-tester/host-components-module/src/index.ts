@@ -25,3 +25,5 @@ export { default as FixtureSurfaceHost } from './FixtureSurfaceHostNativeCompone
 export type { NativeProps as FixtureSurfaceHostProps } from './FixtureSurfaceHostNativeComponent';
 export { default as TestMaskView } from './TestMaskViewNativeComponent';
 export type { NativeProps as TestMaskViewProps } from './TestMaskViewNativeComponent';
+export { default as FixturePopup } from './FixturePopupNativeComponent';
+export type { NativeProps as FixturePopupProps } from './FixturePopupNativeComponent';

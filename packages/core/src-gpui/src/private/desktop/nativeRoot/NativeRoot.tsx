@@ -21,7 +21,7 @@
 
 import * as React from 'react';
 import { FiberProvider, useContextBridge } from 'its-fine';
-import type { ViewProps } from 'react-native';
+import { StyleSheet, type ViewProps } from 'react-native';
 import DesktopNativeRootNativeComponent from '../../specs/DesktopNativeRootNativeComponent';
 import DesktopNativeSlotNativeComponent from '../../specs/DesktopNativeSlotNativeComponent';
 import { createNativeRoot, type NativeRootHandle } from './reconciler';
@@ -43,13 +43,19 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
     throw failure.error;
   }
 
+  const autoHeight = StyleSheet.flatten(viewProps.style)?.height == null;
+  const [contentHeight, setContentHeight] = React.useState<number | null>(null);
+
   React.useLayoutEffect(() => {
     handle.current = createNativeRoot(rootId, error => setFailure({ error }));
+    if (autoHeight) {
+      handle.current.setAutoHeight();
+    }
     return () => {
       handle.current?.unmount();
       handle.current = null;
     };
-  }, [rootId]);
+  }, [rootId, autoHeight]);
 
   const [slots, setSlots] = React.useState<ReadonlyMap<number, SlotContent>>(
     () => new Map(),
@@ -104,6 +110,11 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
     (event: {
       nativeEvent: { id: number; name: string; payload?: unknown };
     }) => {
+      const { id, name, payload } = event.nativeEvent;
+      if (id === 0 && name === '__contentSize') {
+        setContentHeight((payload as { height: number }).height);
+        return;
+      }
       handle.current?.dispatch(event.nativeEvent);
     },
     [],
@@ -112,6 +123,11 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
   return (
     <DesktopNativeRootNativeComponent
       {...viewProps}
+      style={
+        autoHeight && contentHeight != null
+          ? [viewProps.style, { height: contentHeight }]
+          : viewProps.style
+      }
       rootId={rootId}
       onNativeEvent={onNativeEvent}
     >

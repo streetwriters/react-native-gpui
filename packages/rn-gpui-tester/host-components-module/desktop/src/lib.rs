@@ -179,6 +179,43 @@ impl MeasuredLabel {
     }
 }
 
+/// A host component that puts a red box in an anchored, deferred popup, which
+/// is painted above the React Native tree and takes input there.
+struct Popup;
+
+impl FixturePopupSpec for Popup {
+    fn create(_props: &FixturePopupProps, _cx: &mut FixturePopupContext) -> Self {
+        Self
+    }
+
+    fn update(
+        &mut self,
+        _props: &FixturePopupProps,
+        _changed: FixturePopupChanged,
+        _cx: &mut FixturePopupContext,
+    ) {
+    }
+
+    fn render(
+        &mut self,
+        props: &FixturePopupProps,
+        _window: &mut Window,
+        _cx: &mut FixturePopupContext,
+    ) -> AnyElement {
+        let element = div().size_full().bg(rgb(0x00ff00));
+        if !props.open() {
+            return element.into_any_element();
+        }
+        element
+            .child(gpui::deferred(
+                gpui::anchored()
+                    .position(point(px(300.0), px(props.top() as f32)))
+                    .child(div().w(px(120.0)).h(px(60.0)).bg(rgb(0xff0000))),
+            ))
+            .into_any_element()
+    }
+}
+
 impl FixtureMeasuredLabelSpec for MeasuredLabel {
     fn measure(
         props: &FixtureMeasuredLabelProps,
@@ -826,6 +863,8 @@ pub fn rn_gpui_register() {
     );
     register_component(fixture_chart_component::<Chart>());
     register_component(fixture_measured_label_component::<MeasuredLabel>());
+    register_component(fixture_popup_component::<Popup>());
+    FixturePopupComponent::<Popup>::register_native_tree();
     register_component(fixture_card_component::<Card>());
     FixtureCardComponent::<Card>::register_native_tree();
     register_component(fixture_surface_host_component::<SurfaceHost>());
