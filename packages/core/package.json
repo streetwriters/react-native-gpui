@@ -16,6 +16,7 @@
   "files": [
     "index.desktop.js",
     "js-engine.js",
+    "renderer.js",
     "navigation.ts",
     "desktop.ts",
     "diagnostics.ts",
@@ -29,10 +30,13 @@
     "src-gpui",
     "bin",
     "ReactCommonOverrides",
+    "ReactCommonOverrides.loom",
     "ReactCxxPlatform",
     "ReactGpui/Cargo.lock",
     "ReactGpui/Cargo.toml",
     "ReactGpui/GPUI_PIN.md",
+    "ReactGpui/loom-pin.json",
+    "ReactGpui/LOOM_PIN.md",
     "ReactGpui/rn-gpui/Cargo.toml",
     "ReactGpui/rn-gpui/build.rs",
     "ReactGpui/rn-gpui/src",
@@ -51,6 +55,7 @@
     "scripts/generate-prebuilt-inputs.mjs",
     "scripts/check-standalone-cmake.mjs",
     "scripts/check-prebuilt-pin.mjs",
+    "scripts/check-loom-overrides.mjs",
     "ReactGpui/rn-gpui-module/Cargo.toml",
     "ReactGpui/rn-gpui-module/src",
     "ReactGpui/rn-gpui-module/tests",
@@ -63,7 +68,8 @@
     "!**/*.test.cjs"
   ],
   "scripts": {
-    "prepublishOnly": "node scripts/check-prebuilt-pin.mjs"
+    "prepublishOnly": "node scripts/check-prebuilt-pin.mjs",
+    "check:loom-overrides": "node scripts/check-loom-overrides.mjs"
   },
   "peerDependencies": {
     "react": "19.2.3",

@@ -17,6 +17,7 @@ const rust = /\.rs$/;
 const excluded = [
   'packages/core/ReactCxxPlatform/',
   'packages/core/ReactCommonOverrides/',
+  'packages/core/ReactCommonOverrides.loom/',
   'packages/core/ReactGpui/rn-gpui-sys/cpp/third_party/',
   // Vendored facebook/hermes sources, kept byte-identical to the pinned commit
   // (the hermes-engine workflow diffs them against upstream).

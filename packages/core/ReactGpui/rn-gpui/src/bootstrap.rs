@@ -1045,6 +1045,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
     let source_url = env_string("RN_GPUI_SOURCE_URL", "index");
     let app_id = config.app_id.clone();
     let js_engine = env_string("RN_GPUI_JS_ENGINE", &config.js_engine);
+    let js_thread = env_string("RN_GPUI_JS_THREAD", rn_gpui_sys::DEFAULT_JS_THREAD);
     let dev_host = env_string("RN_GPUI_DEV_HOST", "localhost");
     let dev_port = env_u32("RN_GPUI_DEV_PORT", 8081);
     let launch_args: Vec<String> = std::env::args().skip(1).collect();
@@ -1488,7 +1489,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // no space at all. The window's own size is authoritative once it opens.
         let surface_width = width.max(320.0);
         let surface_height = height.max(240.0);
-        let host = Host::new(&app_id, &dev_host, dev_port, &js_engine, dev_mode());
+        let host = Host::new(
+            &app_id,
+            &dev_host,
+            dev_port,
+            &js_engine,
+            &js_thread,
+            dev_mode(),
+        );
         startup_trace("host created");
         host.set_window_metrics(surface_width, surface_height, estimated_scale);
         let screen = cx

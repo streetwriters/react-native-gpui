@@ -161,7 +161,19 @@ set(RN_GPUI_REACT_CXX_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../ReactCx
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/NodeModules.cmake)
 
-rn_gpui_find_node_module(react-native _rn_gpui_react_native_dir)
+# The renderer picks the React Native tree: the installed package for Fabric,
+# Loom's materialized copy of it for Loom (build.rs passes its path). Every
+# header and source below, and the autolinked modules, read from that one tree.
+if(RN_GPUI_REACT_NATIVE_DIR)
+  set(_rn_gpui_react_native_dir "${RN_GPUI_REACT_NATIVE_DIR}")
+else()
+  rn_gpui_find_node_module(react-native _rn_gpui_react_native_dir)
+endif()
+if(LOOM_RENDERER)
+  # Loom's headers change the layout of React Native classes, so every target
+  # of this build, modules included, compiles with the same switches.
+  add_compile_definitions(LOOM_RENDERER=1)
+endif()
 set(REACT_COMMON_DIR "${_rn_gpui_react_native_dir}/ReactCommon")
 if(NOT RN_GPUI_GENERATED_RNCORE_DIR)
   message(FATAL_ERROR
@@ -341,12 +353,23 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # platform header that RN finds through the platform include directory), and
 # directory-level include dirs are emitted ahead of a target's own ones.
 include_directories(${RN_GPUI_OVERRIDES_DIR})
+if(LOOM_RENDERER)
+  # Files both this platform and Loom replace have a Loom variant that wins.
+  set(RN_GPUI_LOOM_OVERRIDES_DIR "${RN_GPUI_OVERRIDES_DIR}.loom")
+  include_directories(BEFORE ${RN_GPUI_LOOM_OVERRIDES_DIR})
+endif()
 
 # Adding a replacement header changes include resolution without changing the
 # upstream header already recorded in compiler dependencies. Recompile every
 # target when the override inventory changes to keep RN prop classes ABI-safe.
 file(GLOB_RECURSE RN_GPUI_OVERRIDE_HEADERS CONFIGURE_DEPENDS
   RELATIVE "${RN_GPUI_OVERRIDES_DIR}" "${RN_GPUI_OVERRIDES_DIR}/*.h")
+if(LOOM_RENDERER)
+  file(GLOB_RECURSE _rn_gpui_loom_override_headers CONFIGURE_DEPENDS
+    RELATIVE "${RN_GPUI_LOOM_OVERRIDES_DIR}" "${RN_GPUI_LOOM_OVERRIDES_DIR}/*.h")
+  list(TRANSFORM _rn_gpui_loom_override_headers PREPEND "loom/")
+  list(APPEND RN_GPUI_OVERRIDE_HEADERS ${_rn_gpui_loom_override_headers})
+endif()
 list(SORT RN_GPUI_OVERRIDE_HEADERS)
 string(SHA256 RN_GPUI_OVERRIDE_HEADER_SET "${RN_GPUI_OVERRIDE_HEADERS}")
 add_compile_definitions("RN_GPUI_HEADER_OVERRIDES_${RN_GPUI_OVERRIDE_HEADER_SET}=1")
@@ -414,6 +437,9 @@ add_react_common_subdir(react/renderer/mounting)
 add_react_common_subdir(react/renderer/scheduler)
 add_react_common_subdir(react/renderer/telemetry)
 add_react_common_subdir(react/renderer/viewtransition)
+if(LOOM_RENDERER)
+  add_react_common_subdir(react/renderer/loom)
+endif()
 add_react_common_subdir(react/renderer/uimanager)
 add_react_common_subdir(react/renderer/bridging)
 add_react_common_subdir(react/renderer/core)
@@ -573,6 +599,10 @@ endif()
 # them with C2018) and includes the header through the override include path.
 set(RN_GPUI_NATIVE_DOM_OVERRIDE
     "${RN_GPUI_OVERRIDES_DIR}/react/nativemodule/dom/NativeDOM.cpp")
+if(LOOM_RENDERER)
+  set(RN_GPUI_NATIVE_DOM_OVERRIDE
+      "${RN_GPUI_LOOM_OVERRIDES_DIR}/react/nativemodule/dom/NativeDOM.cpp")
+endif()
 if(TARGET react_nativemodule_dom)
   get_target_property(_rn_gpui_dom_sources react_nativemodule_dom SOURCES)
   list(FILTER _rn_gpui_dom_sources EXCLUDE REGEX "dom/NativeDOM\\.cpp$")
@@ -710,6 +740,9 @@ target_sources(rn_gpui_core PRIVATE
 if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
+if(LOOM_RENDERER)
+  target_sources(rn_gpui_core PRIVATE GpuiLoomHost.cpp)
+endif()
 
 # The cxx-generated bridge header is located above,
 # before the ReactCommon subdirectories. rn_gpui_core consumes it directly.
@@ -813,6 +846,9 @@ set(RN_GPUI_CORE_DEPS
   react_cxx_platform_react_runtime
   react_cxx_platform_react_threading
   react_cxx_platform_react_utils)
+if(LOOM_RENDERER)
+  list(APPEND RN_GPUI_CORE_DEPS react_renderer_loom)
+endif()
 foreach(dep IN LISTS RN_GPUI_CORE_DEPS)
   if(TARGET ${dep})
     target_link_libraries(rn_gpui_core PUBLIC ${dep})

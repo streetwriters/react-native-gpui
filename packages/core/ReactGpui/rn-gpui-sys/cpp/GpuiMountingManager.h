@@ -29,6 +29,10 @@ namespace rngpui {
 extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept;
 extern "C" void rn_gpui_mount_batch_applied() noexcept;
 
+/// Counts what is on its way to the mount batch counter the test driver reads:
+/// a renderer that computes commits off the mounting path reports them here.
+void setMountPendingProbe(uint64_t (*probe)());
+
 void rn_gpui_register_app_components(
     facebook::react::ComponentDescriptorProviderRegistry& registry);
 
@@ -70,6 +74,19 @@ class GpuiMountingManager : public IMountingManager {
         contentSize_(std::move(contentSize)) {}
 
   void executeMount(SurfaceId surfaceId, MountingTransaction&& tx) override;
+  /// What `executeMount` does with a transaction's mutations. The Loom host
+  /// describes its batches as mutations and applies them through this.
+  void applyMutations(
+      SurfaceId surfaceId,
+      const ShadowViewMutationList& mutations);
+  /// Records the emitter of a node whose event target was registered after the
+  /// node was mounted.
+  void setEventEmitter(Tag tag, SharedEventEmitter emitter);
+  /// Called with true when a React instance comes up and with false when it is
+  /// torn down, before a reload.
+  void setInstanceHook(std::function<void(bool)> hook) {
+    instanceHook_ = std::move(hook);
+  }
   void synchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props)
       override;
   void dispatchCommand(
@@ -137,6 +154,7 @@ class GpuiMountingManager : public IMountingManager {
 
  private:
   std::function<void(SurfaceId)> onAfterMount_;
+  std::function<void(bool)> instanceHook_;
   std::function<std::optional<facebook::react::Size>(SurfaceId)> contentSize_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();

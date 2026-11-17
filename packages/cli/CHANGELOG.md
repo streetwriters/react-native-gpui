@@ -9,6 +9,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## 0.87.0-alpha.4 - 2026-11-16
 
+- `desktop.json` takes `renderer` (`fabric` or `loom`) and `jsThread` (`background` or `main`, Loom only), documented in `desktop.schema.json`, and `run-desktop` takes `--renderer` and `--js-thread` for one run. `autolink` records the choice and the React Native tree it selects in `autolink.json`, and the app's build follows it.
 - `platforms.desktop.hostComponents` entries take `maskChildren: true` for a component whose first child masks the others. It cannot also be `measured` or `cpp`, and needs no Rust registration.
 - `platforms.desktop.hostComponents` entries take `cpp: true` for a component implemented in C++. Such an entry needs no Rust crate or codegen spec, cannot also be `measured` or a `container`, and is declared in the generated `CppTurboModules.generated.cpp`, which then runs the init functions modules add to `RN_GPUI_APP_CPP_INIT_FUNCTIONS`.
 

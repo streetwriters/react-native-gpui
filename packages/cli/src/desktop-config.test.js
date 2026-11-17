@@ -267,6 +267,45 @@ describe('secrets', () => {
   });
 });
 
+describe('renderer', () => {
+  test('defaults to fabric with no JS thread choice', () => {
+    const config = loadDesktopConfig(createProject(), 'macos');
+    expect(config.renderer).toBe('fabric');
+    expect(config.jsThread).toBeUndefined();
+  });
+
+  test('loom runs JavaScript in the background unless told otherwise', () => {
+    const root = createProject({
+      files: { 'desktop/desktop.json': { renderer: 'loom' } },
+    });
+    expect(loadDesktopConfig(root, 'macos').jsThread).toBe('background');
+    const main = createProject({
+      files: {
+        'desktop/desktop.json': { renderer: 'loom', jsThread: 'main' },
+      },
+    });
+    expect(loadDesktopConfig(main, 'macos').jsThread).toBe('main');
+  });
+
+  test('a JS thread needs the loom renderer', () => {
+    const root = createProject({
+      files: { 'desktop/desktop.json': { jsThread: 'main' } },
+    });
+    expect(() => loadDesktopConfig(root, 'macos')).toThrow(
+      /jsThread: only available with "renderer": "loom"/,
+    );
+  });
+
+  test('an unknown renderer lists the choices', () => {
+    const root = createProject({
+      files: { 'desktop/desktop.json': { renderer: 'skia' } },
+    });
+    expect(() => loadDesktopConfig(root, 'macos')).toThrow(
+      /\$\.renderer: expected one of "fabric", "loom"/,
+    );
+  });
+});
+
 describe('targetsFor', () => {
   const config = targets => ({ bundle: { targets } });
 

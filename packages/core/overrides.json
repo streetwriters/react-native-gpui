@@ -2,6 +2,7 @@
   "includePatterns": [
     "ReactCxxPlatform/**",
     "ReactCommonOverrides/**",
+    "ReactCommonOverrides.loom/**",
     "index.desktop.js",
     "src-gpui/**"
   ],
@@ -208,6 +209,24 @@
       "file": "ReactCommonOverrides/react/renderer/components/textinput/BaseTextInputShadowNode.h",
       "baseFile": "packages/react-native/ReactCommon/react/renderer/components/textinput/BaseTextInputShadowNode.h",
       "baseHash": "a94e72f4836e257f6cd1fe9cb21ede410169e267",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides.loom/react/nativemodule/dom/NativeDOM.cpp",
+      "baseFile": "packages/react-native/ReactCommon/react/nativemodule/dom/NativeDOM.cpp",
+      "baseHash": "190c251544809795faf1be36043d2684d49d8627",
+      "loomBaseFile": "ReactCommon/react/nativemodule/dom/NativeDOM.cpp",
+      "loomBaseHash": "c5d01a411c1e006f42ae68366a4b718825637fafb45fcc6d203a15d8dc2bac07",
+      "issue": 0
+    },
+    {
+      "type": "patch",
+      "file": "ReactCommonOverrides.loom/react/nativemodule/dom/NativeDOM.h",
+      "baseFile": "packages/react-native/ReactCommon/react/nativemodule/dom/NativeDOM.h",
+      "baseHash": "d6acbe5683b2cc276509305f9cafc721ad92a88c",
+      "loomBaseFile": "ReactCommon/react/nativemodule/dom/NativeDOM.h",
+      "loomBaseHash": "a96b02643dbb508ffaba7e0a01e4490009c846e3ee156be2b1cab809465e7935",
       "issue": 0
     },
     {

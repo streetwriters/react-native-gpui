@@ -22,6 +22,8 @@ module.exports = {
       description: 'Run the desktop app with Metro or as a release build',
       func: async (_argv, _config, options) => {
         const { runDesktop } = await import('./src/commands.js');
+        if (options.renderer) process.env.RN_GPUI_RENDERER = options.renderer;
+        if (options.jsThread) process.env.RN_GPUI_JS_THREAD = options.jsThread;
         await runDesktop({
           projectRoot: options.projectRoot,
           entryFile: options.entryFile,
@@ -82,6 +84,16 @@ module.exports = {
           description:
             'Run Metro in the background, logging to desktop/build/metro.log',
         },
+        {
+          name: '--renderer <renderer>',
+          description:
+            'fabric or loom, overriding "renderer" in desktop/desktop.json. loom builds the native runtime from source',
+        },
+        {
+          name: '--js-thread <thread>',
+          description:
+            'background or main, overriding "jsThread" in desktop/desktop.json. Only with the loom renderer. Needs no native rebuild',
+        },
       ],
       examples: [
         {
@@ -91,6 +103,10 @@ module.exports = {
         {
           desc: 'Build a bundled release',
           cmd: 'npx react-native run-desktop --release',
+        },
+        {
+          desc: 'Run with the Loom renderer and JavaScript on the main thread',
+          cmd: 'npx react-native run-desktop --renderer loom --js-thread main',
         },
       ],
     },

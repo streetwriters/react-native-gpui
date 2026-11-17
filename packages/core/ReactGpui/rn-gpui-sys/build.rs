@@ -86,7 +86,6 @@ fn main() {
             package_dir.display()
         )
     });
-    let react_common_dir = react_native_dir.join("ReactCommon");
     let react_cxx_platform_dir = package_dir.join("ReactCxxPlatform");
     // The app root: the directory that holds `node_modules`. Found from where
     // react-native was installed, which is the only anchor that holds in a
@@ -134,19 +133,59 @@ fn main() {
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
         .map(PathBuf::from)
         .unwrap_or_else(|| app_root.join("desktop/autolink/autolink.json"));
+    // The renderer is chosen in desktop/desktop.json and recorded by autolink,
+    // together with the React Native tree its C++ and codegen read.
+    let renderer = RendererSelection::read(&autolink_manifest);
+    // Read at startup, so a different value rebuilds Rust only; the C++ is the
+    // same for both.
+    println!(
+        "cargo:rustc-env=RN_GPUI_DEFAULT_JS_THREAD={}",
+        if renderer.js_thread.is_empty() {
+            "background"
+        } else {
+            &renderer.js_thread
+        }
+    );
+    let react_native_dir = match &renderer.react_native_dir {
+        Some(dir) if renderer.loom => {
+            assert!(
+                dir.join("package.json").is_file(),
+                "the loom renderer's React Native tree {} does not exist; run `npx react-native-gpui autolink`",
+                dir.display()
+            );
+            println!(
+                "cargo:rerun-if-changed={}",
+                dir.join(".loom-stamp.json").display()
+            );
+            dir.clone()
+        }
+        _ => react_native_dir,
+    };
+    let react_common_dir = react_native_dir.join("ReactCommon");
     // Generated sources live beside the CMake build tree instead of Cargo's
     // OUT_DIR. The OUT_DIR hash changes with the workspace and feature set, and
     // a changed include path would make CMake rebuild every C++ file.
-    let prebuilt_dir = select_prebuilt_dir(
-        &package_dir,
-        &target_triple,
-        &prebuilt_mode(&autolink_manifest),
-    );
+    let prebuilt_dir = if renderer.loom {
+        println!(
+            "cargo:warning=rn-gpui-sys: the loom renderer has no prebuilt runtime; building from source"
+        );
+        None
+    } else {
+        select_prebuilt_dir(
+            &package_dir,
+            &target_triple,
+            &prebuilt_mode(&autolink_manifest),
+        )
+    };
     // A prebuilt build keeps its own CMake directory. Sharing one with source
     // builds leaves their librn_gpui_core.a on the linker search path, where it
     // shadows the prebuilt archive and mixes two React Native ABIs.
     let cmake_out_dir = if prebuilt_dir.is_some() {
         cmake_out_dir.with_file_name(format!("{cmake_build_type}-prebuilt"))
+    } else if renderer.loom {
+        // Loom's headers change the layout of React Native's classes, so a
+        // Loom build and a Fabric build must not share objects.
+        cmake_out_dir.with_file_name(format!("{cmake_build_type}-loom"))
     } else {
         cmake_out_dir
     };
@@ -396,6 +435,10 @@ fn main() {
             cmake_path(native_deps_cache_dir(&cargo_target_dir)),
         ),
     ];
+    if renderer.loom {
+        defines.push(("RN_GPUI_REACT_NATIVE_DIR", cmake_path(&react_native_dir)));
+        defines.push(("LOOM_RENDERER", "1".to_string()));
+    }
     let codegen_digest = autolink_codegen_digest(
         &autolink_cmake
             .parent()
@@ -591,6 +634,34 @@ fn main() {
             "SystemConfiguration",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
+}
+
+/// What `renderer` in `desktop/desktop.json` selected, as autolink recorded it.
+struct RendererSelection {
+    loom: bool,
+    js_thread: String,
+    react_native_dir: Option<PathBuf>,
+}
+
+impl RendererSelection {
+    fn read(autolink_manifest: &Path) -> Self {
+        let renderer = fs::read_to_string(autolink_manifest)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|manifest| manifest.get("renderer").cloned());
+        let text = |key: &str| {
+            renderer
+                .as_ref()
+                .and_then(|renderer| renderer.get(key))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        Self {
+            loom: text("name").as_deref() == Some("loom"),
+            js_thread: text("jsThread").unwrap_or_default(),
+            react_native_dir: text("reactNativeDir").map(PathBuf::from),
         }
     }
 }

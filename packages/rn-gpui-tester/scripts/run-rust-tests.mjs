@@ -56,7 +56,7 @@ function findLibraryDirectories(root, extensions) {
  * builds the test binaries, so a scan finds nothing and the loader never gets
  * the directory. These candidates cover every name `build.rs` can choose —
  * `Debug`/`Release` from the Cargo profile, each suffixed `-prebuilt` when the
- * pinned runtime is in use — plus the versioned directory the runtime is
+ * pinned runtime is in use, or or `-loom` for the Loom renderer — plus the versioned directory the runtime is
  * downloaded into. A loader ignores a candidate that does not exist, so naming
  * them all is safe and does not depend on build order.
  */
@@ -69,12 +69,17 @@ function cmakeLibraryCandidates(targetTriple) {
   // The Visual Studio generator adds a directory per configuration under the
   // library's own, so Windows has `jsi/Debug/jsi.dll`.
   const configurations = ['Debug', 'Release', 'RelWithDebInfo'];
-  return ['Debug', 'Release', 'Debug-prebuilt', 'Release-prebuilt'].flatMap(
-    configuration => {
-      const jsi = path.join(root, configuration, 'build', 'ReactCommon', 'jsi');
-      return [jsi, ...configurations.map(name => path.join(jsi, name))];
-    },
-  );
+  return [
+    'Debug',
+    'Release',
+    'Debug-prebuilt',
+    'Release-prebuilt',
+    'Debug-loom',
+    'Release-loom',
+  ].flatMap(configuration => {
+    const jsi = path.join(root, configuration, 'build', 'ReactCommon', 'jsi');
+    return [jsi, ...configurations.map(name => path.join(jsi, name))];
+  });
 }
 
 /**

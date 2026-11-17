@@ -123,7 +123,9 @@ function fetchPrebuiltRuntime(projectRoot, autolinkManifest) {
   }
   try {
     const manifest = JSON.parse(fs.readFileSync(autolinkManifest, 'utf8'));
-    if (manifest.prebuilt === 'never') return;
+    if (manifest.prebuilt === 'never' || manifest.renderer?.name === 'loom') {
+      return;
+    }
     const appRequire = createRequire(path.join(projectRoot, 'package.json'));
     const script = path.join(
       path.dirname(appRequire.resolve('@react-native-gpui/core/package.json')),

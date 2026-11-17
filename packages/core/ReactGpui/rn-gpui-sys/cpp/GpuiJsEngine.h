@@ -51,6 +51,12 @@ class GpuiFeatureFlagsOverrides
   bool enableImperativeFocus() override {
     return true;
   }
+
+  // The shared animation backend needs a platform frame source that this
+  // platform does not provide; Loom's defaults turn it on.
+  bool useSharedAnimatedBackend() override {
+    return false;
+  }
 };
 
 struct GpuiJsEngineInfo {

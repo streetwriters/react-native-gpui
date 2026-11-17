@@ -20,3 +20,7 @@ With the errata set, which is the default (`YGErrataAll`) and what `classic` con
 `yoga/algorithm/CalculateLayout.cpp` and `yoga/YGEnums.cpp` replace the upstream sources of the `yogacore` target in `ReactGpui/rn-gpui-sys/cpp/CMakeLists.txt`. The headers shadow the upstream ones on the include path.
 
 `ReactGpui/rn-gpui-sys/cpp/GpuiMountingManager.cpp` registers `LayoutConformanceComponentDescriptor`, so `experimental_LayoutConformance` creates a node on desktop.
+
+## Loom variants
+
+`../ReactCommonOverrides.loom` holds the replacements of files that Loom also replaces. A Loom build compiles those and puts that directory first on the include path. `NativeDOM.cpp` and `NativeDOM.h` are Loom's files with the same two changes as the copies above (no backticks in `#pragma mark`, the header included through the override include path). Each entry in `../overrides.json` names the Loom file it came from and its hash (`loomBaseHash`); see `../ReactGpui/LOOM_PIN.md`.
