@@ -958,7 +958,12 @@ fn configure_ccache_env(source_root: Option<&Path>, cmake_out_dir: &Path) {
             .unwrap_or_default()
     };
     let mut vars = Vec::new();
-    if env::var_os("CCACHE_BASEDIR").is_none() && ccache_config("base_dir").is_empty() {
+    // MSVC is left without `base_dir`: the relative include paths it makes ccache
+    // write exceed `MAX_PATH` from the build dir.
+    if !msvc_target()
+        && env::var_os("CCACHE_BASEDIR").is_none()
+        && ccache_config("base_dir").is_empty()
+    {
         if let Some(base) =
             source_root.and_then(|root| canonical_common_ancestor(&[root, cmake_out_dir]))
         {
