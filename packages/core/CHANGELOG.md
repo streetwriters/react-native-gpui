@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Windows, a Debug build that compiles glog from source no longer fails with `D8016: '/RTC1' and '/O2' command-line options are incompatible`: the `-g -O2` React Native's glog build adds are dropped for MSVC, where the build type sets debug info and optimization.
 - On Windows, a build with ccache installed no longer fails: the build no longer sets `CCACHE_BASEDIR` for MSVC, which ccache rejected in the verbatim form (`\\?\D:\...`) `canonicalize` returns, and which, once accepted, made include paths longer than `MAX_PATH`. ccache still caches MSVC builds, but not across checkouts.
 - `open_window` no longer warns about an unused `mut` when built for macOS or Windows.
 - A faded view (`opacity` below 1) whose nested views change no longer shows its content unfaded for a frame: gpui-fast `3bd25f1` builds a view that paints an effect group again instead of splicing it around the changed views.
