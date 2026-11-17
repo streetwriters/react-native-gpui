@@ -238,6 +238,9 @@ if (process.platform === 'darwin') {
   if (!targetTriple)
     throw new Error('Could not determine the Rust target triple');
 
+  // build.rs names the Windows trees by architecture to keep object paths
+  // under MAX_PATH.
+  const cmakeTripleDir = targetTriple.startsWith('aarch64') ? 'arm64' : 'x64';
   const hermesArch = process.arch === 'arm64' ? 'win32-arm64' : 'win32-x64';
   // Windows has no loader search path variable: a DLL is found through PATH, or
   // next to the executable, and the test binaries live in `<target>/debug/deps`.
@@ -247,10 +250,10 @@ if (process.platform === 'darwin') {
   // cargo creates it.
   const runtimeDirs = [
     path.join(repoRoot, 'packages/hermes/bin', hermesArch),
-    ...cmakeLibraryCandidates(targetTriple),
+    ...cmakeLibraryCandidates(cmakeTripleDir),
     ...prebuiltLibraryCandidates(),
     ...findLibraryDirectories(
-      path.join(metadata.target_directory, 'rn-gpui-cmake', targetTriple),
+      path.join(metadata.target_directory, 'rn-gpui-cmake', cmakeTripleDir),
       ['.dll'],
     ),
     // Prebuilt mode keeps the shared engine and JSI DLLs in the downloaded

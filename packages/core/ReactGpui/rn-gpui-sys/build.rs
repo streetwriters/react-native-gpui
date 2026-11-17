@@ -128,7 +128,7 @@ fn main() {
     let cmake_build_type = cmake_build_type();
     let cmake_out_dir = cargo_target_dir
         .join("rn-gpui-cmake")
-        .join(&target_triple)
+        .join(cmake_triple_dir(&target_triple))
         .join(cmake_build_type);
 
     let autolink_manifest = env::var_os("RN_GPUI_AUTOLINK_MANIFEST")
@@ -1502,6 +1502,18 @@ fn program_on_path(name: &str) -> bool {
         name.to_string()
     };
     env::split_paths(&path).any(|dir| dir.join(&exe).is_file())
+}
+
+/// The directory a target's CMake tree is named after. cl.exe cannot write an
+/// object file whose absolute path reaches MAX_PATH (260), and the longest
+/// ReactCommon objects sit about 170 characters below the tree, so the Windows
+/// directories are short.
+fn cmake_triple_dir(triple: &str) -> &str {
+    match triple {
+        "x86_64-pc-windows-msvc" => "x64",
+        "aarch64-pc-windows-msvc" => "arm64",
+        other => other,
+    }
 }
 
 fn msvc_target() -> bool {
