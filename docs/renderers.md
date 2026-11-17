@@ -37,7 +37,7 @@ React Native's own files stay untouched. Loom is not on npm, so core pins it by 
 
 ## JavaScript on the main thread
 
-With `"jsThread": "background"`, JavaScript runs on its own thread, as it does with Fabric, and Loom's worker prepares commits off it. With `"main"`, JavaScript runs on the UI thread. A commit then applies without a thread hop, and React Native's timers and animation callbacks run in step with the frame. A long task in JavaScript blocks painting and input, which it cannot do in background mode.
+With `"jsThread": "background"`, JavaScript runs on its own thread, as it does with Fabric, and Loom's worker prepares commits off it. With `"main"`, JavaScript runs on the UI thread. A commit then applies without a thread hop, and React Native's timers and animation callbacks run in step with the frame. A long task in JavaScript blocks painting and input, which it cannot do in background mode. The setting is read when the app starts, so switching between the two needs no native rebuild.
 
 ## Which modules work
 

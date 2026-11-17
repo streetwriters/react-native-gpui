@@ -5,9 +5,9 @@ The [Loom](https://github.com/ammarahm-ed/Loom) renderer is not on npm, so we pi
 ## Pinned
 
 - Repository: https://github.com/ammarahm-ed/Loom
-- Branch: `feat/runtime-js-thread-0.87`
-- Commit: `4ca8d49435e9aec510dc5c7546656f988d7b870a`, `packages/react-native-loom` 0.87.0, for React Native 0.87.1
-- Archive: `https://codeload.github.com/ammarahm-ed/Loom/tar.gz/<commit>`, SHA-256 `3637447cd65d47f1ec819659cd6f4d2d489a37fb0bcea70b7b2a605648c0eff5`
+- Branch: `0.87-stable`
+- Commit: `f92e729282dcdced89504529f73518cb1d1fea38`, `packages/react-native-loom` 0.87.0, for React Native 0.87.1
+- Archive: `https://codeload.github.com/ammarahm-ed/Loom/tar.gz/<commit>`, SHA-256 `d6c143496c6b22e9848dcf84d0012c934762891141f186c91dc2e04af696b70e`
 
 ## How it is used
 
