@@ -897,9 +897,26 @@ fn canonical_common_ancestor(paths: &[&Path]) -> Option<PathBuf> {
     common_ancestor_of(
         paths
             .iter()
-            .map(|path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
+            .map(|path| {
+                path.canonicalize()
+                    .map(|canonical| without_verbatim_prefix(&canonical))
+                    .unwrap_or_else(|_| path.to_path_buf())
+            })
             .collect(),
     )
+}
+
+/// `path` without the `\\?\` prefix `canonicalize` adds on Windows, which
+/// ccache does not take as an absolute path.
+fn without_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
 }
 
 fn common_ancestor_of(paths: Vec<PathBuf>) -> Option<PathBuf> {

@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- On Windows, a build with ccache installed no longer fails because ccache rejected `CCACHE_BASEDIR` in the `\\?\D:\...` form `canonicalize` returns; the build passes the plain path.
+
 ## 0.87.0-alpha.4 - 2026-11-16
 
 - `DesktopWindow.focusNext()` and `focusPrevious()` move keyboard focus through the window's tab order, as Tab and Shift+Tab do.
