@@ -380,6 +380,7 @@ pub fn open_window(cx: &mut App, mut options: OpenWindowOptions) -> Result<u32, 
 
     let (w, h, scale, gave_back) = handle
         .update(cx, |_root, window, _cx| {
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
             let mut gave_back = false;
             // A compositor can refuse the decorations request for one window and
             // grant it for another, so the capability follows the newest window.
