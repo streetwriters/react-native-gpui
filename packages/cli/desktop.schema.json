@@ -26,6 +26,14 @@
       "type": "string",
       "minLength": 1
     },
+    "renderer": {
+      "description": "The renderer that mounts React's output. 'fabric' is React Native's renderer and the default. 'loom' is Loom, an alternative renderer pinned by @react-native-gpui/core; it builds the native runtime from source and does not support Reanimated. The RN_GPUI_RENDERER environment variable overrides this.",
+      "enum": ["fabric", "loom"]
+    },
+    "jsThread": {
+      "description": "Where JavaScript runs with the 'loom' renderer. 'background' runs it on its own thread and is the default. 'main' runs it on the UI thread, so commits apply without a thread hop and a long task blocks painting. Only valid with \"renderer\": \"loom\". The app reads it at startup, so changing it needs no native rebuild. The RN_GPUI_JS_THREAD environment variable overrides this.",
+      "enum": ["background", "main"]
+    },
     "icon": {
       "description": "One square PNG, recommended 1024x1024, relative to desktop/. Per-OS icon formats are generated from it. When this is unset the CLI uses its own placeholder, so every packaging format can be built.",
       "type": "string",

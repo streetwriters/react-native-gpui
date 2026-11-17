@@ -245,6 +245,19 @@ std::string describeOp(const MountOp& op) {
 void GpuiMountingManager::executeMount(
     SurfaceId surfaceId,
     MountingTransaction&& transaction) {
+  applyMutations(surfaceId, transaction.getMutations());
+}
+
+void GpuiMountingManager::setEventEmitter(Tag tag, SharedEventEmitter emitter) {
+  std::lock_guard<std::mutex> lock(emittersMutex_);
+  if (emitters_.find(tag) != emitters_.end()) {
+    emitters_[tag] = std::move(emitter);
+  }
+}
+
+void GpuiMountingManager::applyMutations(
+    SurfaceId surfaceId,
+    const ShadowViewMutationList& mutations) {
   MountBatch batch;
   batch.surface_id = surfaceId;
   if (contentSize_) {
@@ -258,7 +271,7 @@ void GpuiMountingManager::executeMount(
   }
   {
     std::lock_guard<std::mutex> lock(emittersMutex_);
-    for (const auto& mutation : transaction.getMutations()) {
+    for (const auto& mutation : mutations) {
       batch.ops.push_back(buildMountOp(mutation));
       if (mutation.type == ShadowViewMutation::Insert ||
           (mutation.type == ShadowViewMutation::Update &&
@@ -419,8 +432,18 @@ void GpuiMountingManager::executeMount(
   }
 }
 
+namespace {
+std::atomic<uint64_t (*)()> mountPendingProbe{nullptr};
+} // namespace
+
+void setMountPendingProbe(uint64_t (*probe)()) {
+  mountPendingProbe.store(probe, std::memory_order_release);
+}
+
 extern "C" uint64_t rn_gpui_mount_batches_in_flight() noexcept {
-  return mountBatchesInFlight.load(std::memory_order_relaxed);
+  const auto probe = mountPendingProbe.load(std::memory_order_acquire);
+  return mountBatchesInFlight.load(std::memory_order_relaxed) +
+      (probe != nullptr ? probe() : 0);
 }
 
 extern "C" void rn_gpui_mount_batch_applied() noexcept {
@@ -867,7 +890,12 @@ void GpuiMountingManager::setSchedulerTaskExecutor(
       nativeRootStates_.clear();
       nativeSlotStates_.clear();
     }
+    if (instanceHook_) {
+      instanceHook_(false);
+    }
     rn_gpui_on_surface_stopped(kAllSurfacesStopped);
+  } else if (instanceHook_) {
+    instanceHook_(true);
   }
 }
 

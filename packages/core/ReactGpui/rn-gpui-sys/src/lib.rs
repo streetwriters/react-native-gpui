@@ -573,6 +573,7 @@ pub mod ffi {
             dev_server_host: &str,
             dev_server_port: u32,
             js_engine: &str,
+            js_thread: &str,
             dev_mode: bool,
         ) -> UniquePtr<GpuiHost>;
         fn load_script(self: Pin<&mut GpuiHost>, bundle_path: &str, source_url: &str) -> bool;
@@ -682,6 +683,10 @@ pub use ffi::{
     CornersF, EdgesF, LineFlat, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat,
     RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
 };
+
+/// Where JavaScript runs with the Loom renderer when `RN_GPUI_JS_THREAD` is not
+/// set: the `jsThread` autolink recorded.
+pub const DEFAULT_JS_THREAD: &str = env!("RN_GPUI_DEFAULT_JS_THREAD");
 
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
 pub type MeasureHandler =

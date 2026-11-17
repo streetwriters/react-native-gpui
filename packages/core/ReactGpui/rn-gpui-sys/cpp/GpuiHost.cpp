@@ -7,6 +7,8 @@
 #include "GpuiHttpClient.h"
 #include "GpuiJsEngine.h"
 #include "GpuiLogBoxSurfaceDelegate.h"
+#include "GpuiLoomHost.h"
+#include "GpuiMainMessageQueue.h"
 #include "GpuiModules.h"
 #include "GpuiMountingManager.h"
 #include "GpuiNodeAddons.h"
@@ -28,6 +30,10 @@
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/runtime/PlatformTimerRegistryImpl.h>
 #include <react/runtime/ReactHost.h>
+#if LOOM_RENDERER
+#include <react/renderer/loom/binding/LoomBinding.h>
+#include <react/threading/MessageQueueThreadImpl.h>
+#endif
 #include <react/utils/ContextContainer.h>
 #include <react/utils/RunLoopObserverManager.h>
 
@@ -42,6 +48,30 @@
 #include <optional>
 #include <unordered_map>
 #include <utility>
+
+namespace rngpui {
+#if LOOM_RENDERER
+// Loom takes a surface's constraints and the text scale from the host, next to
+// the Fabric surface handler that still carries the surface's lifecycle.
+void setLoomSurfaceConstraints(
+    GpuiLoomHost& host,
+    int32_t surfaceId,
+    const facebook::react::LayoutConstraints& constraints,
+    float scale) {
+  host.setPointScaleFactor(scale);
+  facebook::react::LoomBinding::setSurfaceConstraints(
+      surfaceId,
+      constraints.minimumSize.width,
+      constraints.minimumSize.height,
+      constraints.maximumSize.width,
+      constraints.maximumSize.height,
+      constraints.layoutDirection ==
+          facebook::react::LayoutDirection::RightToLeft,
+      0.f,
+      0.f);
+}
+#endif
+} // namespace rngpui
 
 namespace {
 facebook::react::LayoutDirection surfaceLayoutDirection() {
@@ -412,8 +442,10 @@ std::unique_ptr<GpuiHost> new_gpui_host(
     rust::Str devHost,
     uint32_t devPort,
     rust::Str jsEngine,
+    rust::Str jsThread,
     bool devMode) {
-  return std::make_unique<GpuiHost>(appId, devHost, devPort, jsEngine, devMode);
+  return std::make_unique<GpuiHost>(
+      appId, devHost, devPort, jsEngine, jsThread, devMode);
 }
 
 GpuiHost::GpuiHost(
@@ -421,6 +453,7 @@ GpuiHost::GpuiHost(
     rust::Str devHost,
     uint32_t devPort,
     rust::Str jsEngine,
+    rust::Str jsThread,
     bool devMode) {
   // Engine packages register themselves here (the generated
   // rn_gpui_install_modules()), so the registry is populated before the
@@ -455,6 +488,14 @@ GpuiHost::GpuiHost(
   };
   config.jsRuntimeFactory = rngpui::activeJsEngine().makeRuntimeFactory();
 
+#if LOOM_RENDERER
+  // Loom keeps the surface tree itself: nothing mounts through the shadow tree,
+  // so there is no mount to report and the root's size is Loom's to answer.
+  mountingManager_ = std::make_shared<GpuiMountingManager>(
+      nullptr, [this](SurfaceId surfaceId) {
+        return loomHost_->surfaceContentSize(surfaceId);
+      });
+#else
   mountingManager_ = std::make_shared<GpuiMountingManager>(
       [this](SurfaceId surfaceId) {
         reactHost_->runOnScheduler([surfaceId](Scheduler& scheduler) {
@@ -464,6 +505,7 @@ GpuiHost::GpuiHost(
       [this](SurfaceId surfaceId) {
         return reactHost_->surfaceContentSize(surfaceId);
       });
+#endif
 
   rngpui::setHostComponentStateManager(mountingManager_);
 
@@ -476,6 +518,42 @@ GpuiHost::GpuiHost(
   contextContainer->insert(
       "RCTImageLoader",
       std::static_pointer_cast<void>(mountingManager_->getImageLoader()));
+
+#if LOOM_RENDERER
+  // Fixed before the runtime scheduler or any binding reads it; unset, Loom
+  // runs JavaScript on the UI thread.
+  const bool jsOnMain = std::string(jsThread) == "main";
+  LoomHost::setJavaScriptOnUIThread(jsOnMain);
+  // Registered before the JS runtime installs its binding, which reads it.
+  loomHost_ = std::make_shared<GpuiLoomHost>(
+      mountingManager_,
+      contextContainer,
+      [this](std::function<void(Scheduler&)>&& task) {
+        if (reactHost_) {
+          reactHost_->runOnScheduler(std::move(task));
+        }
+      },
+      [this](std::function<void()>&& task) {
+        if (reactHost_) {
+          reactHost_->runOnRuntimeScheduler(
+              [task = std::move(task)](facebook::jsi::Runtime&) { task(); });
+        }
+      });
+  LoomHost::registerIn(*contextContainer, loomHost_);
+  mountingManager_->setInstanceHook([this](bool up) {
+    if (up) {
+      loomHost_->begin();
+    } else {
+      loomHost_->reset();
+    }
+  });
+  if (jsOnMain) {
+    contextContainer->insert(
+        MessageQueueThreadFactoryKey, MessageQueueThreadFactory([] {
+          return std::make_shared<GpuiMainMessageQueue>();
+        }));
+  }
+#endif
 
   runLoopObserverManager_ = std::make_shared<RunLoopObserverManager>();
 
@@ -722,6 +800,9 @@ void GpuiHost::start_surface_with_props(
         throw std::invalid_argument("Test initialProps must be an object");
     }
   }
+#if LOOM_RENDERER
+  setLoomSurfaceConstraints(*loomHost_, id, constraints, scale);
+#endif
   reactHost_->startSurface(
       id, std::string(module), initialProps, constraints, context);
 }
@@ -755,6 +836,9 @@ void GpuiHost::start_surface_with_constraints(
       throw std::invalid_argument("Surface initialProps must be an object");
     initialProps = std::move(parsed);
   }
+#if LOOM_RENDERER
+  setLoomSurfaceConstraints(*loomHost_, id, constraints, scale);
+#endif
   reactHost_->startSurface(
       id, std::string(module), initialProps, constraints, context);
 }
@@ -778,6 +862,9 @@ void GpuiHost::set_surface_constraints(
     surfaceScale_ = scale;
     mountingManager_->setWindowSize(maxWidth, maxHeight);
   }
+#if LOOM_RENDERER
+  setLoomSurfaceConstraints(*loomHost_, id, constraints, scale);
+#endif
   reactHost_->setSurfaceConstraints(id, constraints, context);
 }
 
@@ -796,6 +883,9 @@ void GpuiHost::set_surface_size(int32_t id, float w, float h, float scale) {
     surfaceScale_ = scale;
     mountingManager_->setWindowSize(w, h);
   }
+#if LOOM_RENDERER
+  setLoomSurfaceConstraints(*loomHost_, id, constraints, scale);
+#endif
   reactHost_->setSurfaceConstraints(id, constraints, context);
   if (id == kAppSurfaceId) {
     set_window_metrics(w, h, scale);
@@ -1021,6 +1111,9 @@ uint64_t GpuiHost::js_heap_bytes() const {
 }
 
 void GpuiHost::stop_surface(int32_t id) {
+#if LOOM_RENDERER
+  LoomBinding::releaseSurface(id);
+#endif
   reactHost_->stopSurface(id);
   // Fabric emits no Delete mutations for a surface that is torn down, so the
   // store has to drop it explicitly.
@@ -1066,6 +1159,10 @@ void GpuiHost::start_log_box_surface() {
   context.pointScaleFactor = surfaceScale_;
   context.fontSizeMultiplier = DeviceInfoModule::fontScale();
   context.swapLeftAndRightInRTL = rngpui::rn_gpui_swap_left_and_right_in_rtl();
+#if LOOM_RENDERER
+  setLoomSurfaceConstraints(
+      *loomHost_, kLogBoxSurfaceId, constraints, surfaceScale_);
+#endif
   reactHost_->startSurface(
       kLogBoxSurfaceId,
       "LogBox",
@@ -1077,6 +1174,9 @@ void GpuiHost::start_log_box_surface() {
 /// Stop the LogBox surface again: `hide()` is what keeps a closed
 /// LogBox from covering the app surface with an empty full-size overlay.
 void GpuiHost::stop_log_box_surface() {
+#if LOOM_RENDERER
+  LoomBinding::releaseSurface(kLogBoxSurfaceId);
+#endif
   reactHost_->stopSurface(kLogBoxSurfaceId);
   rn_gpui_on_surface_stopped(kLogBoxSurfaceId);
 }
@@ -1124,6 +1224,10 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
   if (reactHost_->isReloading())
     return;
   dispatchPointerTick(*mountingManager_, eventTimestampMs);
+#if LOOM_RENDERER
+  // Animation props collected since the last frame reach the screen with it.
+  LoomBinding::flushAnimationFrames();
+#endif
   on_render();
   if (const auto& frame = rngpui::gpuiModuleHooks().frame) {
     const auto frameTimestampMs =
@@ -1212,6 +1316,10 @@ void GpuiHost::dispatch_pointer_event(
 }
 
 void GpuiHost::set_scroll_offset(int32_t tag, float x, float y) const {
+#if LOOM_RENDERER
+  loomHost_->setScrollOffset(tag, x, y);
+  return;
+#endif
   mountingManager_->setScrollOffset(tag, x, y);
 }
 } // namespace rngpui

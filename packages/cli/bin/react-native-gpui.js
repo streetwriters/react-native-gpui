@@ -26,7 +26,7 @@ const run = (bin, args) =>
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.log(
-    'usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release] [--features feature,...] [--no-launch] [--sign-identity identity]',
+    'usage: npx react-native run-desktop [--project-root path] [--port 8082] [--release] [--features feature,...] [--no-launch] [--sign-identity identity] [--renderer fabric|loom] [--js-thread background|main]',
   );
   process.exit(0);
 }
@@ -91,6 +91,10 @@ if (command === 'collect-node-addons') {
   });
   process.exit(0);
 }
+
+if (option('--renderer')) process.env.RN_GPUI_RENDERER = option('--renderer');
+if (option('--js-thread'))
+  process.env.RN_GPUI_JS_THREAD = option('--js-thread');
 
 if (command === 'run') {
   await runDesktop({

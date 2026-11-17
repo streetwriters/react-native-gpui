@@ -1097,6 +1097,14 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   // The spec generator ships with the platform package, so resolve it from
   // there rather than from the app.
   const platformRequire = createRequire(platformPackageJson);
+  // The renderer decides which React Native tree the C++ and the codegen read.
+  const rendererSelection =
+    platformRequire('./renderer.js').resolveRenderer(projectRoot);
+  if (rendererSelection.renderer === 'loom' && prebuilt === 'always') {
+    throw new Error(
+      "project.desktop.prebuilt 'always' cannot be used with the loom renderer, which builds the native runtime from source",
+    );
+  }
   const { TypeScriptParser } = appRequire(
     '@react-native/codegen/lib/parsers/typescript/parser',
   );
@@ -1385,6 +1393,13 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   fs.mkdirSync(generatedDir, { recursive: true });
   const manifest = {
     prebuilt,
+    renderer: {
+      name: rendererSelection.renderer,
+      ...(rendererSelection.jsThread === undefined
+        ? {}
+        : { jsThread: rendererSelection.jsThread }),
+      reactNativeDir: rendererSelection.reactNativeDir,
+    },
     rustCrates,
     turboModuleSpecs,
     cppTurboModules,

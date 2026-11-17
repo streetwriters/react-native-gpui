@@ -110,6 +110,26 @@ Whether the [development menu](debugging) is available. Defaults to `true` in de
 
 ---
 
+### `renderer`
+
+The renderer that mounts React's output: `"fabric"` is React Native's and the default, `"loom"` is [Loom](renderers). Loom builds the native runtime from source. `RN_GPUI_RENDERER` overrides it.
+
+| Type                   |
+| ---------------------- |
+| `"fabric"` \| `"loom"` |
+
+---
+
+### `jsThread`
+
+Where JavaScript runs with the Loom renderer: `"background"` on its own thread (the default), or `"main"` on the UI thread. It is an error with Fabric. The app reads it at startup, so changing it needs no native rebuild. `RN_GPUI_JS_THREAD` overrides it, at build and at launch.
+
+| Type                       |
+| -------------------------- |
+| `"background"` \| `"main"` |
+
+---
+
 ### `accessory`
 
 Whether the app runs with no Dock icon (macOS), as a launcher does. Only an accessory app's windows can show over another app's full-screen Space. Defaults to `false`.

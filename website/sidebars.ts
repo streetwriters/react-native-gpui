@@ -168,6 +168,7 @@ export default {
       'performance',
       'memory',
       'build-speed',
+      'renderers',
       {
         type: 'link',
         label: 'Optimizing FlatList Configuration',

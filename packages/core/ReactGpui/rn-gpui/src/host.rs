@@ -24,17 +24,24 @@ pub(crate) fn live_host() -> Option<&'static Host> {
 pub struct Host(Arc<Mutex<cxx::UniquePtr<ffi::GpuiHost>>>);
 
 impl Host {
-    pub fn new(app_id: &str, dev_host: &str, port: u32, js_engine: &str, dev_mode: bool) -> Self {
+    pub fn new(
+        app_id: &str,
+        dev_host: &str,
+        port: u32,
+        js_engine: &str,
+        js_thread: &str,
+        dev_mode: bool,
+    ) -> Self {
         #[cfg(test)]
         {
-            let _ = (app_id, dev_host, port, js_engine, dev_mode);
+            let _ = (app_id, dev_host, port, js_engine, js_thread, dev_mode);
             return Self::test_stub();
         }
         #[cfg(not(test))]
         {
             crate::host_component::freeze();
             let host = Self(Arc::new(Mutex::new(ffi::new_gpui_host(
-                app_id, dev_host, port, js_engine, dev_mode,
+                app_id, dev_host, port, js_engine, js_thread, dev_mode,
             ))));
             let _ = LIVE_HOST.set(host.clone());
             host
