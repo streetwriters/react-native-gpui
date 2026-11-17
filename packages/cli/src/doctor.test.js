@@ -56,6 +56,15 @@ describe('runDoctor on macOS', () => {
     expect(failures(results)).toEqual(['Node.js']);
   });
 
+  test('flags an old Rust toolchain', () => {
+    const probe = fakeProbe({
+      ...macos,
+      'rustc --version': 'rustc 1.90.0 (1159e78c4 2025-09-14) (Homebrew)',
+      'cargo --version': 'cargo 1.90.0 (Homebrew)',
+    });
+    expect(failures(runDoctor('darwin', probe))).toEqual(['Rust', 'Cargo']);
+  });
+
   test('accepts the command line tools without Xcode', () => {
     const { 'xcodebuild -license check': _license, ...rest } = macos;
     const probe = fakeProbe({
