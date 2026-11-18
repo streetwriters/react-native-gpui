@@ -72,8 +72,13 @@ impl ComponentRenderer for NativeSlotRenderer {
 }
 
 thread_local! {
-    static WAITING: RefCell<HashMap<u64, std::time::Instant>> = RefCell::new(HashMap::new());
+    /// The placeholders whose content has not got the width the tree gave it,
+    /// with their tree and since when.
+    static WAITING: RefCell<HashMap<u64, (u32, std::time::Instant)>> = RefCell::new(HashMap::new());
 }
+
+/// How long a placeholder waits for its content before it is shown as it is.
+const WAIT_LIMIT: std::time::Duration = std::time::Duration::from_millis(750);
 
 static NEXT_KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
@@ -85,7 +90,17 @@ pub(crate) fn layouts_pending() -> bool {
         waiting
             .borrow()
             .values()
-            .any(|since| since.elapsed() < std::time::Duration::from_millis(750))
+            .any(|(_, since)| since.elapsed() < WAIT_LIMIT)
+    })
+}
+
+/// Whether a slot of tree `root` is still waiting for its content.
+pub(crate) fn waiting_in(root: u32) -> bool {
+    WAITING.with(|waiting| {
+        waiting
+            .borrow()
+            .values()
+            .any(|(tree, since)| *tree == root && since.elapsed() < WAIT_LIMIT)
     })
 }
 
@@ -177,14 +192,10 @@ impl NativeComponent for Placeholder {
             self.shown.set(true);
         }
         let key = self.key;
-        WAITING.with(|waiting| {
-            let mut waiting = waiting.borrow_mut();
-            if host.is_some() && !has_frame {
-                waiting.entry(key).or_insert_with(std::time::Instant::now);
-            } else {
-                waiting.remove(&key);
-            }
-        });
+        let root = super::native_root::current_root();
+        if has_frame {
+            WAITING.with(|waiting| waiting.borrow_mut().remove(&key));
+        }
         if let Some(host) = host.filter(|_| self.shown.get()) {
             element = element.child(host);
         }
@@ -192,6 +203,17 @@ impl NativeComponent for Placeholder {
             .child(
                 canvas(
                     move |bounds, window, cx| {
+                        // Only a slot that is painted waits for its content, and
+                        // one whose node has not arrived yet waits for it too:
+                        // its content comes a commit after the tree.
+                        if !has_frame {
+                            WAITING.with(|waiting| {
+                                waiting
+                                    .borrow_mut()
+                                    .entry(key)
+                                    .or_insert_with(|| (root, std::time::Instant::now()));
+                            });
+                        }
                         let width = f32::from(bounds.size.width);
                         let height = f32::from(bounds.size.height);
                         if !fit.get()
