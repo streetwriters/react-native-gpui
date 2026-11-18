@@ -47,6 +47,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - The test driver reports a Rust module promise call made in the last second and not yet settled as busy (`modules`), so `waitForIdle` after a press that opens a window waits for the window and the promise.
 - `RN_GPUI_MOUNT_TRACE=1` logs, for every app-surface mount batch, when it was applied on the main thread and when the frame that shows it was presented, in wall-clock milliseconds that line up with JavaScript's `Date.now()`. The renderer benchmark reports them from the press as `appliedMs` and `presentedMs` for mount and unmount.
 - `RN_GPUI_MOUNT_TRACE=1` also logs when the test driver dispatches a click or a keystroke, to measure input latency from the event.
+- gpui-fast is pinned to `9125f46`.
 
 ## 0.87.0-alpha.4 - 2026-11-16
 
