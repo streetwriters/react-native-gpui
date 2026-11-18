@@ -11,7 +11,9 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `af2bd3a` (2026-11-16: `3ad00a0` plus a destination-in blend mode and effect groups that
+- Commit: `3bd25f1` (2026-11-17: `af2bd3a` plus views that paint an effect group rebuilt instead of
+  spliced, so their content keeps its opacity, and text in an effect group drawn without subpixel
+  rendering, which left no alpha in the group on Windows. `af2bd3a` (2026-11-16) is `3ad00a0` plus a destination-in blend mode and effect groups that
   cover their bounds, used to mask children by another element's alpha, and scroll containers exposed
   as scroll areas to accessibility. `3ad00a0` (2026-11-11) is `355baeb` plus macOS windows keeping the frame they were given
   while a test driver runs the app in the background, so a test window larger than a small CI display

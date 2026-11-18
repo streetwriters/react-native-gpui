@@ -1187,6 +1187,9 @@ if(MSVC)
           if(_option MATCHES "^-W[a-zA-Z]" OR _option MATCHES "^-f"
              OR _option MATCHES "^-std=" OR _option MATCHES "^-m[a-z]"
              OR _option MATCHES "^-pthread"
+             # RN's glog CMakeLists hardcodes -g -O2, and cl rejects /O2 next
+             # to the /RTC1 of a Debug build; the build type sets both.
+             OR _option STREQUAL "-g" OR _option MATCHES "^-O[0-3sz]?$"
              # RN's glog CMakeLists hardcodes -DHAVE_PREAD=1 for Android.
              OR _option MATCHES "^-DHAVE_PREAD")
             set(_stripped TRUE)
