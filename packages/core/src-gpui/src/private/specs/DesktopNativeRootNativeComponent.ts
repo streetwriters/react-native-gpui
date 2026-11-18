@@ -27,6 +27,13 @@ export type NativeRootEvent = Readonly<{
 export interface NativeProps extends ViewProps {
   /** The tree this node shows. */
   rootId: CodegenTypes.Int32;
+  /**
+   * A size remembered from an earlier tree like this one, which the box takes
+   * until the runtime reports the real one. Negative for none.
+   */
+  hintHeight?: CodegenTypes.WithDefault<CodegenTypes.Float, -1>;
+  hintWidth?: CodegenTypes.WithDefault<CodegenTypes.Float, -1>;
+  hintMinWidth?: CodegenTypes.WithDefault<CodegenTypes.Float, -1>;
   onNativeEvent?: CodegenTypes.DirectEventHandler<NativeRootEvent>;
 }
 

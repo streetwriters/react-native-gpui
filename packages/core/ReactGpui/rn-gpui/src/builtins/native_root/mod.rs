@@ -26,7 +26,9 @@ use crate::native_tree::{
     register_native_component, NativeComponent, NativeContext, NativeOp, NativeTree,
 };
 
-/// The name of the event that reports the height of an auto-height tree.
+/// The name of the event that tells JavaScript the size a tree was laid out at,
+/// for it to remember. The box itself takes the size from the shadow node's
+/// state.
 pub const CONTENT_SIZE: &str = "__contentSize";
 
 pub const COMPONENT: &str = "DesktopNativeRoot";
@@ -39,7 +41,7 @@ struct RootState {
     /// The tag of the node that shows this tree, once it has rendered.
     tag: Rc<Cell<Option<i32>>>,
     /// The box has no height of its own: the tree is laid out at its natural
-    /// height and that height is reported to JavaScript.
+    /// height and that height is reported to the box's shadow node.
     auto_height: Rc<Cell<bool>>,
     /// The box has no width of its own: the tree's max-content and min-content
     /// widths are reported with the height, and the box fits between them.
@@ -66,6 +68,8 @@ thread_local! {
     /// The nodes that rendered before their tree arrived, so the tree's first
     /// batch repaints them.
     static EARLY_TAGS: RefCell<HashMap<u32, i32>> = RefCell::new(HashMap::new());
+    /// The hinted trees whose first content has been checked against their box.
+    static CHECKED: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
     static HOLD: Rc<dyn Fn() -> bool> = Rc::new(holding);
     /// When the window began holding its last frame, while it does.
     static HELD_SINCE: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
@@ -180,6 +184,7 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
         });
         UNSETTLED.with(|unsettled| unsettled.borrow_mut().remove(&root));
         EARLY_TAGS.with(|tags| tags.borrow_mut().remove(&root));
+        CHECKED.with(|checked| checked.borrow_mut().remove(&root));
         return;
     }
     if payload == "auto-height" || payload == "auto-width" {
@@ -376,12 +381,15 @@ impl ComponentRenderer for NativeRootRenderer {
         cx: &mut App,
     ) -> Option<AnyElement> {
         let root = root_id(node);
+        // A box that started at a remembered size is probably right already:
+        // it holds the window only if its first content shows it was not.
+        let hinted = node.props.get("hinted").and_then(Value::as_bool) == Some(true);
         // A box whose tree has not arrived yet holds the window too: the frame
         // would show the page around it at sizes about to change.
         if root != 0 && TREES.with(|trees| !trees.borrow().contains_key(&root)) {
             if first_seen(root) {
                 EARLY_TAGS.with(|tags| tags.borrow_mut().insert(root, node.tag));
-                if begin_settling(root) {
+                if !hinted && begin_settling(root) {
                     window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
                 }
             }
@@ -493,20 +501,29 @@ impl ComponentRenderer for NativeRootRenderer {
                             (old_max - max).abs() > 0.01 || (old_min - min).abs() > 0.01
                         });
                     if changed {
-                        reported.set(height);
-                        let payload = match widths {
-                            Some((max, min)) => {
-                                reported_width.set((max, min));
-                                json!({ "width": max, "minWidth": min, "height": height })
+                        let (max, min) = widths.unwrap_or_default();
+                        if rn_gpui_sys::ffi::reportNativeRootSize(
+                            tag,
+                            height,
+                            widths.is_some(),
+                            max,
+                            min,
+                        ) {
+                            reported.set(height);
+                            let payload = match widths {
+                                Some((max, min)) => {
+                                    reported_width.set((max, min));
+                                    json!({ "width": max, "minWidth": min, "height": height })
+                                }
+                                None => json!({ "height": height }),
+                            };
+                            if let Some(store) = crate::store::store_from(cx) {
+                                store.read(cx).host.dispatch_event(
+                                    tag,
+                                    "topNativeEvent",
+                                    &json!({ "id": 0, "name": CONTENT_SIZE, "payload": payload }),
+                                );
                             }
-                            None => json!({ "height": height }),
-                        };
-                        if let Some(store) = crate::store::store_from(cx) {
-                            store.read(cx).host.dispatch_event(
-                                tag,
-                                "topNativeEvent",
-                                &json!({ "id": 0, "name": CONTENT_SIZE, "payload": payload }),
-                            );
                         }
                     }
                 },
@@ -523,7 +540,11 @@ impl ComponentRenderer for NativeRootRenderer {
                 .first()
                 .is_some_and(|&container| !state.tree.children(container).is_empty());
             let settled_width = state.reported_width.clone();
-            let settle = settling.then(|| {
+            let late = hinted
+                && !settling
+                && has_content
+                && CHECKED.with(|checked| checked.borrow_mut().insert(root));
+            let settle = (settling || late).then(|| {
                 canvas(
                     move |bounds, window, _| {
                         let (width, height) = frame_size;
@@ -535,14 +556,17 @@ impl ComponentRenderer for NativeRootRenderer {
                             || (height - f32::from(bounds.size.height)).abs() <= slack)
                             && (!auto_width
                                 || (max >= 0.0 && width >= min - slack && width <= max + slack));
-                        let settled =
-                            has_content && sized && !crate::builtins::native_slot::waiting_in(root);
+                        let settled = has_content && sized;
                         // A settled tree stays watched until its time is up: a
                         // component that renders its real content in a later
                         // batch grows the tree after it first matched its box.
                         if !settled {
+                            if late && begin_settling(root) {
+                                window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
+                            }
                             UNSETTLED.with(|unsettled| {
                                 if let Some(settling) = unsettled.borrow_mut().get_mut(&root) {
+                                    settling.rendered = Some(next_sequence());
                                     settling.painted = Some(next_sequence());
                                 }
                             });

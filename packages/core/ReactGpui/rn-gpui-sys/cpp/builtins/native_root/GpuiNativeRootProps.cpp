@@ -21,6 +21,7 @@ std::string nativeRootPropsJson(
           view.props);
   folly::dynamic object = folly::dynamic::object;
   object["rootId"] = props.rootId;
+  object["hinted"] = props.hintHeight >= 0;
   return folly::toJson(object);
 }
 

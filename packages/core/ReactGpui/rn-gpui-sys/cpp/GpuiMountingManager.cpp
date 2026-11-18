@@ -333,6 +333,20 @@ void GpuiMountingManager::executeMount(
           if (state) {
             hostStates_[mutation.newChildShadowView.tag] = std::move(state);
           }
+        } else if (componentName == "DesktopNativeRoot") {
+          auto state =
+              std::dynamic_pointer_cast<const ConcreteState<NativeRootState>>(
+                  mutation.newChildShadowView.state);
+          if (state)
+            nativeRootStates_[mutation.newChildShadowView.tag] =
+                std::move(state);
+        } else if (componentName == "DesktopNativeSlot") {
+          auto state =
+              std::dynamic_pointer_cast<const ConcreteState<NativeSlotState>>(
+                  mutation.newChildShadowView.state);
+          if (state)
+            nativeSlotStates_[mutation.newChildShadowView.tag] =
+                std::move(state);
         } else if (componentName == "ModalHostView") {
           auto state = std::dynamic_pointer_cast<
               const ConcreteState<ModalHostViewState>>(
@@ -373,6 +387,8 @@ void GpuiMountingManager::executeMount(
         scrollStates_.erase(mutation.oldChildShadowView.tag);
         modalStates_.erase(mutation.oldChildShadowView.tag);
         hostStates_.erase(mutation.oldChildShadowView.tag);
+        nativeRootStates_.erase(mutation.oldChildShadowView.tag);
+        nativeSlotStates_.erase(mutation.oldChildShadowView.tag);
         if (auto found = imageObservations_.find(tag);
             found != imageObservations_.end()) {
           if (found->second.coordinator && found->second.observer)
@@ -516,6 +532,30 @@ void reportHostComponentSize(int32_t tag, float width, float height) {
   }
 }
 
+bool reportNativeRootSize(
+    int32_t tag,
+    float height,
+    bool hasWidth,
+    float width,
+    float minWidth) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    return manager->setNativeRootSize(tag, height, hasWidth, width, minWidth);
+  }
+  return false;
+}
+
+bool reportNativeSlotSize(
+    int32_t tag,
+    bool hasWidth,
+    float width,
+    bool hasHeight,
+    float height) {
+  if (auto manager = hostComponentStateManager().lock()) {
+    return manager->setNativeSlotSize(tag, hasWidth, width, hasHeight, height);
+  }
+  return false;
+}
+
 void reportHostComponentInsets(
     int32_t tag,
     float top,
@@ -549,6 +589,57 @@ void GpuiMountingManager::setHostComponentSize(
   next.height = height;
   next.measured = true;
   state->updateState(std::move(next));
+}
+
+bool GpuiMountingManager::setNativeRootSize(
+    Tag tag,
+    float height,
+    bool hasWidth,
+    float width,
+    float minWidth) {
+  std::shared_ptr<const ConcreteState<NativeRootState>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = nativeRootStates_.find(tag);
+    if (it == nativeRootStates_.end()) {
+      return false;
+    }
+    state = it->second;
+  }
+  NativeRootState next{height, true, width, minWidth, hasWidth};
+  const auto& data = state->getData();
+  if (data.hasHeight == next.hasHeight && data.height == next.height &&
+      data.hasWidth == next.hasWidth && data.width == next.width &&
+      data.minWidth == next.minWidth) {
+    return true;
+  }
+  state->updateState(std::move(next));
+  return true;
+}
+
+bool GpuiMountingManager::setNativeSlotSize(
+    Tag tag,
+    bool hasWidth,
+    float width,
+    bool hasHeight,
+    float height) {
+  std::shared_ptr<const ConcreteState<NativeSlotState>> state;
+  {
+    std::lock_guard<std::mutex> lock(emittersMutex_);
+    auto it = nativeSlotStates_.find(tag);
+    if (it == nativeSlotStates_.end()) {
+      return false;
+    }
+    state = it->second;
+  }
+  NativeSlotState next{width, hasWidth, height, hasHeight};
+  const auto& data = state->getData();
+  if (data.hasWidth == next.hasWidth && data.width == next.width &&
+      data.hasHeight == next.hasHeight && data.height == next.height) {
+    return true;
+  }
+  state->updateState(std::move(next));
+  return true;
 }
 
 void GpuiMountingManager::setHostComponentInsets(
@@ -773,6 +864,8 @@ void GpuiMountingManager::setSchedulerTaskExecutor(
       std::lock_guard<std::mutex> lock(emittersMutex_);
       animatedViews_.clear();
       modalStates_.clear();
+      nativeRootStates_.clear();
+      nativeSlotStates_.clear();
     }
     rn_gpui_on_surface_stopped(kAllSurfacesStopped);
   }
