@@ -55,8 +55,9 @@ thread_local! {
     static SLOT_HOSTS: RefCell<HashMap<i64, gpui::Entity<crate::node_view::RNNodeView>>> =
         RefCell::new(HashMap::new());
     static TREES: RefCell<HashMap<u32, RootState>> = RefCell::new(HashMap::new());
-    /// New trees that have not settled yet: their box does not have the
-    /// tree's size, or a slot waits for its content.
+    /// The trees that appeared less than `SETTLE_LIMIT` ago, which the window
+    /// holds its last frame for while their box does not have the tree's size
+    /// or a slot waits for its content.
     static UNSETTLED: RefCell<HashMap<u32, Settling>> = RefCell::new(HashMap::new());
     static SEQUENCE: Cell<u64> = const { Cell::new(0) };
     /// Every tree seen, gone ones too: a box rendered once more as its tree is
@@ -462,14 +463,16 @@ impl ComponentRenderer for NativeRootRenderer {
                                 || (max >= 0.0 && width >= min - slack && width <= max + slack));
                         let settled =
                             has_content && sized && !crate::builtins::native_slot::waiting_in(root);
-                        UNSETTLED.with(|unsettled| {
-                            let mut unsettled = unsettled.borrow_mut();
-                            if settled {
-                                unsettled.remove(&root);
-                            } else if let Some(settling) = unsettled.get_mut(&root) {
-                                settling.painted = Some(next_sequence());
-                            }
-                        });
+                        // A settled tree stays watched until its time is up: a
+                        // component that renders its real content in a later
+                        // batch grows the tree after it first matched its box.
+                        if !settled {
+                            UNSETTLED.with(|unsettled| {
+                                if let Some(settling) = unsettled.borrow_mut().get_mut(&root) {
+                                    settling.painted = Some(next_sequence());
+                                }
+                            });
+                        }
                     },
                     |_, _, _, _| {},
                 )
