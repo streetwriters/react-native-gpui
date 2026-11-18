@@ -166,6 +166,7 @@ export default {
     ],
     Performance: [
       'performance',
+      'memory',
       'build-speed',
       {
         type: 'link',

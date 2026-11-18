@@ -13,7 +13,7 @@ pub(crate) fn handle_key(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) -> bool {
-    if !this.input_editable && !matches!(key, "left" | "right" | "home" | "end") {
+    if !this.input().editable && !matches!(key, "left" | "right" | "home" | "end") {
         return false;
     }
     match key {
@@ -21,13 +21,13 @@ pub(crate) fn handle_key(
             let mut range = selected_range(this);
             if range.is_empty() {
                 if key == "backspace" {
-                    range.start = this.input_text[..range.start]
+                    range.start = this.input().text[..range.start]
                         .char_indices()
                         .next_back()
                         .map(|(index, _)| index)
                         .unwrap_or(0);
-                } else if range.end < this.input_text.len() {
-                    range.end += this.input_text[range.end..]
+                } else if range.end < this.input().text.len() {
+                    range.end += this.input().text[range.end..]
                         .chars()
                         .next()
                         .map(char::len_utf8)
@@ -35,10 +35,10 @@ pub(crate) fn handle_key(
                 }
             }
             if !range.is_empty() {
-                this.input_text.replace_range(range.clone(), "");
-                this.input_selection = range.start..range.start;
-                this.input_selection_anchor = None;
-                this.input_marked = None;
+                this.input_mut().text.replace_range(range.clone(), "");
+                this.input_mut().selection = range.start..range.start;
+                this.input_mut().selection_anchor = None;
+                this.input_mut().marked = None;
                 this.sync_input_paragraph();
                 emit_change(this, window, cx);
             }
@@ -46,16 +46,19 @@ pub(crate) fn handle_key(
         }
         "enter" => {
             if this
-                .input_submit_behavior
-                .inserts_newline(this.input_multiline)
+                .input()
+                .submit_behavior
+                .inserts_newline(this.input().multiline)
             {
+                let max_length = this.input().max_length;
+                let input = this.input_mut();
                 replace_plain_text(
-                    &mut this.input_text,
-                    &mut this.input_selection,
-                    &mut this.input_marked,
+                    &mut input.text,
+                    &mut input.selection,
+                    &mut input.marked,
                     None,
                     "\n",
-                    this.input_max_length,
+                    max_length,
                 );
                 this.sync_input_paragraph();
                 emit_change(this, window, cx);
@@ -64,20 +67,23 @@ pub(crate) fn handle_key(
                     this.tag,
                     "topSubmitEditing",
                     &serde_json::json!({
-                        "text": this.input_text, "eventCount": this.input_event_count,
+                        "text": this.input().text, "eventCount": this.input().event_count,
                     }),
                 );
-                if this.input_submit_behavior.blurs(this.input_multiline) {
+                if this.input().submit_behavior.blurs(this.input().multiline) {
                     window.blur(cx);
                 }
             }
             true
         }
         "left" | "right" | "home" | "end" => {
-            let text = this.input_text.as_str();
+            let text = this.input().text.clone();
             let selection = selected_range(this);
             let (anchor, focus) = if extend_selection {
-                let anchor = *this.input_selection_anchor.get_or_insert(selection.start);
+                let anchor = *this
+                    .input_mut()
+                    .selection_anchor
+                    .get_or_insert(selection.start);
                 let active = if selection.is_empty() {
                     selection.end
                 } else if anchor == selection.start {
@@ -108,7 +114,7 @@ pub(crate) fn handle_key(
                 };
                 (anchor, next)
             } else if !selection.is_empty() {
-                this.input_selection_anchor = None;
+                this.input_mut().selection_anchor = None;
                 let cursor = if key == "left" || key == "home" {
                     selection.start
                 } else {
@@ -116,7 +122,7 @@ pub(crate) fn handle_key(
                 };
                 (cursor, cursor)
             } else {
-                this.input_selection_anchor = None;
+                this.input_mut().selection_anchor = None;
                 let cursor = selection.end;
                 let next = match key {
                     "left" => text[..cursor]
@@ -141,8 +147,8 @@ pub(crate) fn handle_key(
                 };
                 (next, next)
             };
-            this.input_selection = anchor.min(focus)..anchor.max(focus);
-            this.input_marked = None;
+            this.input_mut().selection = anchor.min(focus)..anchor.max(focus);
+            this.input_mut().marked = None;
             emit_selection(this, window, cx);
             true
         }
@@ -158,7 +164,7 @@ const MENU_SELECT_ALL: &str = "selectAll";
 fn text_menu_model(this: &RNNodeView, can_paste: bool) -> crate::desktop::menu_model::MenuModel {
     use crate::desktop::menu_model::{MenuItemDef, MenuModel, MenuNode};
     let has_selection = !selected_range(this).is_empty();
-    let editable = this.input_editable;
+    let editable = this.input().editable;
     let item = |id: &str, label: &str, enabled: bool| {
         MenuNode::Item(MenuItemDef {
             id: id.to_string(),
@@ -182,7 +188,7 @@ fn text_menu_model(this: &RNNodeView, can_paste: bool) -> crate::desktop::menu_m
     items.push(item(
         MENU_SELECT_ALL,
         "Select All",
-        !this.input_text.is_empty(),
+        !this.input().text.is_empty(),
     ));
     MenuModel { items }
 }
@@ -199,7 +205,7 @@ pub(crate) fn show_text_menu(
         .read_from_clipboard()
         .is_some_and(|item| item.text().is_some_and(|text| !text.is_empty()));
     let this = entity.read(cx);
-    if this.component != "TextInput" || this.input_context_menu_hidden {
+    if this.component != "TextInput" || this.input().context_menu_hidden {
         return false;
     }
     let model = text_menu_model(this, can_paste);
@@ -258,24 +264,26 @@ pub(crate) fn select_at_point(
     }
     let index = this
         .character_index_for_point(point, window, cx)
-        .map(|index| byte_at_utf16(&this.input_text, index))
-        .unwrap_or(this.input_text.len());
+        .map(|index| byte_at_utf16(&this.input().text, index))
+        .unwrap_or(this.input().text.len());
     let anchor = if extend {
-        this.input_selection_anchor
-            .unwrap_or(this.input_selection.start)
+        this.input()
+            .selection_anchor
+            .unwrap_or(this.input().selection.start)
     } else {
         index
     };
-    this.input_selection_anchor = Some(anchor);
-    this.input_selection = anchor.min(index)..anchor.max(index);
+    this.input_mut().selection_anchor = Some(anchor);
+    this.input_mut().selection = anchor.min(index)..anchor.max(index);
     // The press that focused the input selects everything, not a caret.
     if !extend
         && this
-            .input_select_all_until
+            .input()
+            .select_all_until
             .is_some_and(|until| std::time::Instant::now() < until)
     {
-        this.input_selection = 0..this.input_text.len();
-        this.input_selection_anchor = None;
+        this.input_mut().selection = 0..this.input().text.len();
+        this.input_mut().selection_anchor = None;
     }
     emit_selection(this, window, cx);
 }
@@ -284,8 +292,8 @@ pub(crate) fn select_all(this: &mut RNNodeView, window: &mut Window, cx: &mut Co
     if this.component != "TextInput" {
         return;
     }
-    this.input_selection = 0..this.input_text.len();
-    this.input_selection_anchor = None;
+    this.input_mut().selection = 0..this.input().text.len();
+    this.input_mut().selection_anchor = None;
     emit_selection(this, window, cx);
 }
 
@@ -297,7 +305,7 @@ pub(crate) fn copy_selection(this: &RNNodeView, cx: &mut gpui::App) -> bool {
     if range.is_empty() {
         return false;
     }
-    let text = this.input_text[range].to_string();
+    let text = this.input().text[range].to_string();
     cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
     true
 }
@@ -307,14 +315,14 @@ pub(crate) fn cut_selection(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) -> bool {
-    if !this.input_editable || !copy_selection(this, cx) {
+    if !this.input().editable || !copy_selection(this, cx) {
         return false;
     }
     let range = selected_range(this);
-    this.input_text.replace_range(range.clone(), "");
-    this.input_selection = range.start..range.start;
-    this.input_selection_anchor = None;
-    this.input_marked = None;
+    this.input_mut().text.replace_range(range.clone(), "");
+    this.input_mut().selection = range.start..range.start;
+    this.input_mut().selection_anchor = None;
+    this.input_mut().marked = None;
     this.sync_input_paragraph();
     emit_change(this, window, cx);
     true
@@ -325,7 +333,7 @@ pub(crate) fn paste_clipboard(
     window: &mut Window,
     cx: &mut Context<RNNodeView>,
 ) -> bool {
-    if !this.input_editable {
+    if !this.input().editable {
         return false;
     }
     let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
@@ -334,13 +342,15 @@ pub(crate) fn paste_clipboard(
     if text.is_empty() {
         return false;
     }
+    let max_length = this.input().max_length;
+    let input = this.input_mut();
     replace_plain_text(
-        &mut this.input_text,
-        &mut this.input_selection,
-        &mut this.input_marked,
+        &mut input.text,
+        &mut input.selection,
+        &mut input.marked,
         None,
         &text,
-        this.input_max_length,
+        max_length,
     );
     this.sync_input_paragraph();
     emit_change(this, window, cx);
@@ -400,8 +410,8 @@ fn utf16_range(text: &str, range: Range<usize>) -> Range<usize> {
 }
 
 fn selected_range(this: &RNNodeView) -> Range<usize> {
-    this.input_selection.start.min(this.input_text.len())
-        ..this.input_selection.end.min(this.input_text.len())
+    this.input().selection.start.min(this.input().text.len())
+        ..this.input().selection.end.min(this.input().text.len())
 }
 
 fn replacement_range(
@@ -492,11 +502,11 @@ fn clear_text_state(
 }
 
 fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
-    this.input_event_count += 1;
-    this.input_selection_anchor = None;
-    let scrolled_from = this.input_scroll_y;
+    this.input_mut().event_count += 1;
+    this.input_mut().selection_anchor = None;
+    let scrolled_from = this.input().scroll_y;
     keep_caret_visible(this, window);
-    let text = this.input_text.clone();
+    let text = this.input().text.clone();
     let selection = utf16_range(&text, selected_range(this));
     if let Some(store) = store_from(cx) {
         let host = store.read(cx).host.clone();
@@ -505,7 +515,7 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
             "topChange",
             &serde_json::json!({
                 "text": text,
-                "eventCount": this.input_event_count,
+                "eventCount": this.input().event_count,
             }),
         );
         host.dispatch_event(
@@ -513,7 +523,7 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
-        if this.input_scroll_y != scrolled_from {
+        if this.input().scroll_y != scrolled_from {
             host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
         }
         store.read(cx).frame_hook.arm(window);
@@ -524,9 +534,9 @@ fn emit_change(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNo
 }
 
 fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
-    let scrolled_from = this.input_scroll_y;
+    let scrolled_from = this.input().scroll_y;
     keep_caret_visible(this, window);
-    let selection = utf16_range(&this.input_text, selected_range(this));
+    let selection = utf16_range(&this.input().text, selected_range(this));
     if let Some(store) = store_from(cx) {
         let host = store.read(cx).host.clone();
         host.dispatch_event(
@@ -534,7 +544,7 @@ fn emit_selection(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<R
             "topSelectionChange",
             &serde_json::json!({"selection": {"start": selection.start, "end": selection.end}}),
         );
-        if this.input_scroll_y != scrolled_from {
+        if this.input().scroll_y != scrolled_from {
             host.dispatch_event(this.tag, "topScroll", &scroll_payload(this));
         }
         store.read(cx).frame_hook.arm(window);
@@ -562,7 +572,7 @@ fn viewport_height(this: &RNNodeView) -> f32 {
 }
 
 fn multiline_content_height(this: &RNNodeView) -> f32 {
-    this.input_text.split('\n').count().max(1) as f32 * input_line_height(this)
+    this.input().text.split('\n').count().max(1) as f32 * input_line_height(this)
 }
 
 pub(crate) fn max_scroll_y(this: &RNNodeView) -> f32 {
@@ -573,7 +583,7 @@ fn scroll_payload(this: &RNNodeView) -> serde_json::Value {
     let width =
         (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0);
     serde_json::json!({
-        "contentOffset": {"x": this.input_scroll_x, "y": this.input_scroll_y},
+        "contentOffset": {"x": this.input().scroll_x, "y": this.input().scroll_y},
         "contentSize": {"width": width, "height": multiline_content_height(this)},
         "layoutMeasurement": {"width": width, "height": viewport_height(this)},
     })
@@ -583,10 +593,10 @@ fn scroll_payload(this: &RNNodeView) -> serde_json::Value {
 /// when it moved.
 pub(crate) fn scroll_input_to(this: &mut RNNodeView, y: f32, cx: &mut Context<RNNodeView>) {
     let next = y.clamp(0.0, max_scroll_y(this));
-    if (next - this.input_scroll_y).abs() <= f32::EPSILON {
+    if (next - this.input().scroll_y).abs() <= f32::EPSILON {
         return;
     }
-    this.input_scroll_y = next;
+    this.input_mut().scroll_y = next;
     if let Some(store) = store_from(cx) {
         store
             .read(cx)
@@ -599,23 +609,23 @@ pub(crate) fn scroll_input_to(this: &mut RNNodeView, y: f32, cx: &mut Context<RN
 /// Reports the content size to `onContentSizeChange` when it differs from the
 /// last report.
 fn emit_content_size(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
-    let width = if this.input_multiline {
+    let width = if this.input().multiline {
         (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0)
     } else {
         this.paragraph.as_ref().map_or(0.0, |paragraph| {
-            let line = this.input_text.split('\n').next().unwrap_or_default();
+            let line = this.input().text.split('\n').next().unwrap_or_default();
             crate::text::input_caret_x(window.text_system(), paragraph, line, line.len())
         })
     };
-    let height = if this.input_multiline {
+    let height = if this.input().multiline {
         multiline_content_height(this)
     } else {
         input_line_height(this)
     };
-    if this.input_content_size == (width, height) {
+    if this.input().content_size == (width, height) {
         return;
     }
-    this.input_content_size = (width, height);
+    this.input_mut().content_size = (width, height);
     if let Some(store) = store_from(cx) {
         store.read(cx).host.dispatch_event(
             this.tag,
@@ -626,39 +636,39 @@ fn emit_content_size(this: &mut RNNodeView, window: &mut Window, cx: &mut Contex
 }
 
 pub(crate) fn keep_caret_visible(this: &mut RNNodeView, window: &mut Window) {
-    if this.input_multiline {
-        this.input_scroll_x = 0.0;
+    if this.input().multiline {
+        this.input_mut().scroll_x = 0.0;
         let line_height = input_line_height(this);
-        let end = this.input_selection.end.min(this.input_text.len());
-        let line = this.input_text[..end].matches('\n').count() as f32;
+        let end = this.input().selection.end.min(this.input().text.len());
+        let line = this.input().text[..end].matches('\n').count() as f32;
         let (top, bottom) = (line * line_height, (line + 1.0) * line_height);
         let height = viewport_height(this);
-        let mut offset = this.input_scroll_y;
+        let mut offset = this.input().scroll_y;
         if top < offset {
             offset = top;
         } else if bottom > offset + height {
             offset = bottom - height;
         }
-        this.input_scroll_y = offset.clamp(0.0, max_scroll_y(this));
+        this.input_mut().scroll_y = offset.clamp(0.0, max_scroll_y(this));
         return;
     }
     let Some(paragraph) = this.paragraph.as_ref() else {
-        this.input_scroll_x = 0.0;
+        this.input_mut().scroll_x = 0.0;
         return;
     };
     if paragraph.fragments.is_empty() {
-        this.input_scroll_x = 0.0;
+        this.input_mut().scroll_x = 0.0;
         return;
     }
-    let end = this.input_selection.end.min(this.input_text.len());
-    let line_start = this.input_text[..end]
+    let end = this.input().selection.end.min(this.input().text.len());
+    let line_start = this.input().text[..end]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let line = &this.input_text[line_start..end];
+    let line = &this.input().text[line_start..end];
     let caret_x = crate::text::input_caret_x(window.text_system(), paragraph, line, line.len());
     let viewport =
         (this.frame.w - this.view.content_insets.left - this.view.content_insets.right).max(0.0);
-    this.input_scroll_x = input_scroll_offset(this.input_scroll_x, caret_x, viewport);
+    this.input_mut().scroll_x = input_scroll_offset(this.input().scroll_x, caret_x, viewport);
 }
 
 fn input_scroll_offset(current: f32, caret_x: f32, viewport: f32) -> f32 {
@@ -675,11 +685,10 @@ fn input_scroll_offset(current: f32, caret_x: f32, viewport: f32) -> f32 {
 
 pub fn clear_text_input(this: &mut RNNodeView, window: &mut Window, cx: &mut Context<RNNodeView>) {
     if this.component != "TextInput"
-        || !clear_text_state(
-            &mut this.input_text,
-            &mut this.input_selection,
-            &mut this.input_marked,
-        )
+        || !{
+            let input = this.input_mut();
+            clear_text_state(&mut input.text, &mut input.selection, &mut input.marked)
+        }
     {
         return;
     }
@@ -695,9 +704,9 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let range = byte_range(&self.input_text, range_utf16);
-        *actual_range = Some(utf16_range(&self.input_text, range.clone()));
-        Some(self.input_text[range].to_owned())
+        let range = byte_range(&self.input().text, range_utf16);
+        *actual_range = Some(utf16_range(&self.input().text, range.clone()));
+        Some(self.input().text[range].to_owned())
     }
 
     fn selected_text_range(
@@ -707,7 +716,7 @@ impl EntityInputHandler for RNNodeView {
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
         Some(UTF16Selection {
-            range: utf16_range(&self.input_text, selected_range(self)),
+            range: utf16_range(&self.input().text, selected_range(self)),
             reversed: false,
         })
     }
@@ -717,13 +726,14 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.input_marked
+        self.input()
+            .marked
             .as_ref()
-            .map(|range| utf16_range(&self.input_text, range.clone()))
+            .map(|range| utf16_range(&self.input().text, range.clone()))
     }
 
     fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.input_marked = None;
+        self.input_mut().marked = None;
         cx.notify();
     }
 
@@ -734,30 +744,32 @@ impl EntityInputHandler for RNNodeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.input_editable {
+        if !self.input().editable {
             return;
         }
-        if !self.input_multiline && (text.contains('\n') || text.contains('\r')) {
+        if !self.input().multiline && (text.contains('\n') || text.contains('\r')) {
             if let Some(store) = store_from(cx) {
                 let host = store.read(cx).host.clone();
                 host.dispatch_event(
                     self.tag,
                     "topSubmitEditing",
                     &serde_json::json!({
-                        "text": self.input_text,
-                        "eventCount": self.input_event_count,
+                        "text": self.input().text,
+                        "eventCount": self.input().event_count,
                     }),
                 );
             }
             return;
         }
+        let max_length = self.input().max_length;
+        let input = self.input_mut();
         replace_plain_text(
-            &mut self.input_text,
-            &mut self.input_selection,
-            &mut self.input_marked,
+            &mut input.text,
+            &mut input.selection,
+            &mut input.marked,
             range_utf16,
             text,
-            self.input_max_length,
+            max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -771,17 +783,19 @@ impl EntityInputHandler for RNNodeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.input_editable {
+        if !self.input().editable {
             return;
         }
+        let max_length = self.input().max_length;
+        let input = self.input_mut();
         replace_marked_text(
-            &mut self.input_text,
-            &mut self.input_selection,
-            &mut self.input_marked,
+            &mut input.text,
+            &mut input.selection,
+            &mut input.marked,
             range_utf16,
             new_text,
             new_selected_range_utf16,
-            self.input_max_length,
+            max_length,
         );
         self.sync_input_paragraph();
         emit_change(self, window, cx);
@@ -827,28 +841,28 @@ impl EntityInputHandler for RNNodeView {
         let local_x = (f32::from(point.x - origin.x) / scale_x.max(0.0001)
             - self.view.content_insets.left)
             .max(0.0);
-        let local_x = if self.input_multiline {
+        let local_x = if self.input().multiline {
             local_x
         } else {
-            local_x + self.input_scroll_x
+            local_x + self.input().scroll_x
         };
         let local_y = (f32::from(point.y - origin.y) / scale_y.max(0.0001)
             - self.view.content_insets.top)
             .max(0.0);
-        let local_y = if self.input_multiline {
-            local_y + self.input_scroll_y
+        let local_y = if self.input().multiline {
+            local_y + self.input().scroll_y
         } else {
             local_y
         };
-        let target_line = if self.input_multiline {
+        let target_line = if self.input().multiline {
             (local_y / line_height.max(1.0)).floor() as usize
         } else {
             0
         };
         let mut byte_start = 0;
-        let mut line_text = self.input_text.as_str();
-        if self.input_multiline {
-            for (index, line) in self.input_text.split_inclusive('\n').enumerate() {
+        let mut line_text = self.input().text.as_str();
+        if self.input().multiline {
+            for (index, line) in self.input().text.split_inclusive('\n').enumerate() {
                 if index == target_line {
                     line_text = line.trim_end_matches('\n');
                     break;
@@ -864,7 +878,7 @@ impl EntityInputHandler for RNNodeView {
                 crate::text::input_index_for_x(window.text_system(), paragraph, line_text, local_x)
             })
             .unwrap_or(line_text.len());
-        Some(utf16_at_byte(&self.input_text, byte_start + byte_in_line))
+        Some(utf16_at_byte(&self.input().text, byte_start + byte_in_line))
     }
 
     fn set_selected_text_range(
@@ -873,8 +887,8 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.input_selection = byte_range(&self.input_text, range_utf16);
-        self.input_selection_anchor = None;
+        self.input_mut().selection = byte_range(&self.input().text, range_utf16);
+        self.input_mut().selection_anchor = None;
         emit_selection(self, _window, cx);
     }
 
@@ -883,11 +897,11 @@ impl EntityInputHandler for RNNodeView {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
-        Some(self.input_text.encode_utf16().count())
+        Some(self.input().text.encode_utf16().count())
     }
 
     fn accepts_text_input(&self, _window: &mut Window, _cx: &mut Context<Self>) -> bool {
-        self.input_editable
+        self.input().editable
     }
 
     fn text_input_configuration(
@@ -1056,6 +1070,64 @@ pub(crate) fn desktop_navigation_event(stroke: &gpui::Keystroke) -> Option<&'sta
     }
 }
 
+/// What a `TextInput` node holds besides what every node does.
+#[derive(Clone, Debug)]
+pub(crate) struct TextInputState {
+    pub(crate) text: String,
+    pub(crate) placeholder: String,
+    pub(crate) placeholder_mode: bool,
+    pub(crate) text_color: u32,
+    pub(crate) selection_color: u32,
+    pub(crate) multiline: bool,
+    pub(crate) editable: bool,
+    pub(crate) placeholder_color: u32,
+    pub(crate) caret_hidden: bool,
+    pub(crate) select_on_focus: bool,
+    pub(crate) submit_behavior: SubmitBehavior,
+    pub(crate) max_length: usize,
+    pub(crate) context_menu_hidden: bool,
+    /// Until when a click selects all, because it is the one that focused the input.
+    pub(crate) select_all_until: Option<std::time::Instant>,
+    pub(crate) secure_text: bool,
+    pub(crate) selection: std::ops::Range<usize>,
+    pub(crate) scroll_x: f32,
+    pub(crate) scroll_y: f32,
+    pub(crate) content_size: (f32, f32),
+    pub(crate) selection_anchor: Option<usize>,
+    pub(crate) marked: Option<std::ops::Range<usize>>,
+    pub(crate) event_count: i32,
+    pub(crate) caret_visible: bool,
+}
+
+impl TextInputState {
+    /// What a node that is not a `TextInput` reads.
+    pub(crate) const EMPTY: Self = Self {
+        text: String::new(),
+        placeholder: String::new(),
+        placeholder_mode: true,
+        text_color: 0xff000000,
+        selection_color: 0,
+        multiline: false,
+        editable: true,
+        placeholder_color: 0xff8e8e93,
+        caret_hidden: false,
+        select_on_focus: false,
+        submit_behavior: SubmitBehavior::Default,
+        max_length: usize::MAX,
+        context_menu_hidden: false,
+        select_all_until: None,
+        secure_text: false,
+        selection: 0..0,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
+        content_size: (0.0, 0.0),
+        selection_anchor: None,
+        marked: None,
+        event_count: 0,
+        caret_visible: false,
+    };
+}
+
 /// `core-private:` this reads and writes `RNNodeView`'s input fields directly.
 /// What Enter does, from `submitBehavior`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1109,25 +1181,25 @@ pub(crate) fn placeholder_color(requested: u32) -> u32 {
 
 pub(crate) fn apply_update(this: &mut RNNodeView, op: &rn_gpui_sys::ffi::MountOp) {
     let next = TextInputProps::from_json(&op.extension_props_json);
-    if should_apply_text_update(this.input_event_count, next.event_count)
-        && next.text != this.input_text
+    if should_apply_text_update(this.input().event_count, next.event_count)
+        && next.text != this.input().text
     {
-        this.input_text.clone_from(&next.text);
-        this.input_marked = None;
+        this.input_mut().text.clone_from(&next.text);
+        this.input_mut().marked = None;
     }
-    this.input_placeholder = next.placeholder;
-    this.input_selection_color = next.selection_color;
-    this.input_multiline = next.multiline;
-    this.input_editable = next.editable;
-    this.input_placeholder_color = placeholder_color(next.placeholder_color);
-    this.input_caret_hidden = next.caret_hidden;
-    this.input_select_on_focus = next.select_on_focus;
-    this.input_submit_behavior = next.submit_behavior;
-    this.input_max_length = next.max_length;
-    this.input_context_menu_hidden = next.context_menu_hidden;
-    this.input_selection = reconcile_selection(
-        &this.input_text,
-        this.input_selection.clone(),
+    this.input_mut().placeholder = next.placeholder;
+    this.input_mut().selection_color = next.selection_color;
+    this.input_mut().multiline = next.multiline;
+    this.input_mut().editable = next.editable;
+    this.input_mut().placeholder_color = placeholder_color(next.placeholder_color);
+    this.input_mut().caret_hidden = next.caret_hidden;
+    this.input_mut().select_on_focus = next.select_on_focus;
+    this.input_mut().submit_behavior = next.submit_behavior;
+    this.input_mut().max_length = next.max_length;
+    this.input_mut().context_menu_hidden = next.context_menu_hidden;
+    this.input_mut().selection = reconcile_selection(
+        &this.input().text,
+        this.input().selection.clone(),
         next.selection,
         false,
     );

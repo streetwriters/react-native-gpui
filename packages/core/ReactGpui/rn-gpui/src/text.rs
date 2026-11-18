@@ -6,7 +6,7 @@
 
 use gpui::{
     canvas, font, point, prelude::*, px, App, ContentMask, Font, FontStyle, FontWeight,
-    IntoElement, SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, WrappedLine,
+    SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, WrappedLine,
 };
 use rn_gpui_sys::ffi::{LineFlat, MeasureResult, ParagraphFlat, TextFragmentFlat};
 use std::{
@@ -908,62 +908,193 @@ fn measure_lines(service: &TextService, paragraph: &ParagraphFlat, width: f32) -
     rows
 }
 
-pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> impl IntoElement {
-    let shaped = TEXT_SERVICE
-        .get()
-        .map(|service| service.shape(paragraph, width))
-        .unwrap_or_else(|| {
-            Arc::new(ShapedParagraph {
-                lines: Vec::new(),
-                line_heights: Vec::new(),
-                line_metrics: Vec::new(),
-                visual_lines: 0,
-                width,
-                height,
-                text_align: text_align(resolve_alignment(paragraph.text_align)),
-            })
+/// A paragraph shaped for a width, ready to paint into a box.
+pub(crate) struct ParagraphPainter {
+    shaped: Arc<ShapedParagraph>,
+    shadow: Option<Vec<ShadowLayer>>,
+    reach: f32,
+}
+
+impl ParagraphPainter {
+    pub(crate) fn new(paragraph: &ParagraphFlat, width: f32, height: f32) -> Self {
+        let shaped = TEXT_SERVICE
+            .get()
+            .map(|service| service.shape(paragraph, width))
+            .unwrap_or_else(|| {
+                Arc::new(ShapedParagraph {
+                    lines: Vec::new(),
+                    line_heights: Vec::new(),
+                    line_metrics: Vec::new(),
+                    visual_lines: 0,
+                    width,
+                    height,
+                    text_align: text_align(resolve_alignment(paragraph.text_align)),
+                })
+            });
+        log::debug!(
+            "[text] cached shape: {:.1}x{:.1} at width {:.1}; mounted {:.1}x{:.1}; {} hard lines",
+            shaped.width,
+            shaped.height,
+            width,
+            width,
+            height,
+            shaped.lines.len()
+        );
+        let shadow = (paragraph.shadow_color >> 24 != 0).then(|| shadow_layers(paragraph, width));
+        let reach = paragraph.shadow_radius.max(0.0)
+            + paragraph.shadow_dx.abs().max(paragraph.shadow_dy.abs());
+        Self {
+            shaped,
+            shadow,
+            reach,
+        }
+    }
+
+    /// Paints the text and its shadow, clipped to `bounds` (the shadow to
+    /// `bounds` grown by its reach).
+    pub(crate) fn paint(
+        &self,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        window: &mut gpui::Window,
+        cx: &mut App,
+    ) {
+        let reach = self.reach;
+        if let Some(layers) = self.shadow.as_ref() {
+            let wide = gpui::Bounds {
+                origin: bounds.origin - point(px(reach), px(reach)),
+                size: gpui::size(
+                    bounds.size.width + px(reach * 2.0),
+                    bounds.size.height + px(reach * 2.0),
+                ),
+            };
+            window.with_content_mask(Some(ContentMask { bounds: wide }), |window| {
+                for layer in layers {
+                    for (dx, dy) in &layer.offsets {
+                        let origin = bounds.origin
+                            + point(px(paragraph_dx(layer, *dx)), px(paragraph_dy(layer, *dy)));
+                        paint_lines(&layer.shaped, origin, wide, window, cx);
+                    }
+                }
+            });
+        }
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            paint_lines(&self.shaped, bounds.origin, bounds, window, cx);
         });
-    let align = shaped.text_align;
-    log::debug!(
-        "[text] cached shape: {:.1}x{:.1} at width {:.1}; mounted {:.1}x{:.1}; {} hard lines",
-        shaped.width,
-        shaped.height,
-        width,
-        width,
-        height,
-        shaped.lines.len()
-    );
-    let shadow = (paragraph.shadow_color >> 24 != 0).then(|| shadow_layers(paragraph, width));
-    let reach =
-        paragraph.shadow_radius.max(0.0) + paragraph.shadow_dx.abs().max(paragraph.shadow_dy.abs());
+    }
+}
+
+pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> gpui::Canvas<()> {
+    let painter = ParagraphPainter::new(paragraph, width, height);
     canvas(
         |_, _, _| (),
-        move |bounds, (), window, cx| {
-            if let Some(layers) = shadow.as_ref() {
-                let wide = gpui::Bounds {
-                    origin: bounds.origin - point(px(reach), px(reach)),
-                    size: gpui::size(
-                        bounds.size.width + px(reach * 2.0),
-                        bounds.size.height + px(reach * 2.0),
-                    ),
-                };
-                window.with_content_mask(Some(ContentMask { bounds: wide }), |window| {
-                    for layer in layers {
-                        for (dx, dy) in &layer.offsets {
-                            let origin = bounds.origin
-                                + point(px(paragraph_dx(layer, *dx)), px(paragraph_dy(layer, *dy)));
-                            paint_lines(&layer.shaped, origin, wide, window, cx);
-                        }
-                    }
-                });
-            }
-            window.with_content_mask(Some(ContentMask { bounds: bounds }), |window| {
-                paint_lines(&shaped, bounds.origin, bounds, window, cx);
-            });
-        },
+        move |bounds, (), window, cx| painter.paint(bounds, window, cx),
     )
     .w(px(width.max(0.0)))
     .h(px(height.max(0.0)))
+}
+
+/// A painter with where its box sits in the node and how big it is.
+pub(crate) type ParagraphOverlayParts = (
+    ParagraphPainter,
+    gpui::Point<gpui::Pixels>,
+    gpui::Size<gpui::Pixels>,
+);
+
+/// `child` with a paragraph painted over it at `offset` from its top-left
+/// corner, the way a text child would be painted last, without a layout node.
+pub(crate) struct ParagraphOverlay {
+    child: gpui::AnyElement,
+    painter: ParagraphPainter,
+    offset: gpui::Point<gpui::Pixels>,
+    size: gpui::Size<gpui::Pixels>,
+    /// Whether the text is clipped to the child's box, as the child's own
+    /// `overflow: hidden` would clip a text child.
+    clip: bool,
+}
+
+impl ParagraphOverlay {
+    pub(crate) fn new(
+        child: impl IntoElement,
+        painter: ParagraphPainter,
+        offset: gpui::Point<gpui::Pixels>,
+        size: gpui::Size<gpui::Pixels>,
+        clip: bool,
+    ) -> Self {
+        Self {
+            child: child.into_any_element(),
+            painter,
+            offset,
+            size,
+            clip,
+        }
+    }
+}
+
+impl IntoElement for ParagraphOverlay {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for ParagraphOverlay {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        window: &mut gpui::Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        _bounds: gpui::Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut gpui::Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut gpui::Window,
+        cx: &mut App,
+    ) {
+        self.child.paint(window, cx);
+        let text = gpui::Bounds {
+            origin: bounds.origin + self.offset,
+            size: self.size,
+        };
+        if self.clip {
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                self.painter.paint(text, window, cx)
+            });
+        } else {
+            self.painter.paint(text, window, cx);
+        }
+    }
 }
 
 /// The paragraph's text as the shaper sees it, fragments joined.

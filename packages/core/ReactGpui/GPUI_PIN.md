@@ -11,9 +11,17 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `3bd25f1` (2026-11-17: `af2bd3a` plus views that paint an effect group rebuilt instead of
-  spliced, so their content keeps its opacity, and text in an effect group drawn without subpixel
-  rendering, which left no alpha in the group on Windows. `af2bd3a` (2026-11-16) is `3ad00a0` plus a destination-in blend mode and effect groups that
+- Commit: `3efc3d0` (2026-11-18: `93193d4` plus nested views sharing their retained layouts
+  instead of copying them, so a view's cost does not grow with its depth, and a retained record's
+  frame indices kept in 32 bits. `93193d4` is `74dcd1f` plus memory cuts: the element arena frees the chunks the
+  last two frames did not use and keeps at most eight; global element ids are interned as a parent
+  link and the last id instead of a copy of the whole path; retained records share what they
+  inherit, their text styles and their rebuild text style stack, and keep a cached style boxed; a
+  drawn frame's lists are fitted to it; a window idle for a second frees its spare frame's lists
+  and the arena's chunks; the windows an entity invalidates are a short list rather than a map.
+  `74dcd1f` is `3bd25f1` plus a change of focus building only the views that read it; `3bd25f1` is
+  `af2bd3a` plus text in an effect group drawn without subpixel rendering and a view that paints an
+  effect group rebuilt rather than spliced. `af2bd3a` (2026-11-16) is `3ad00a0` plus a destination-in blend mode and effect groups that
   cover their bounds, used to mask children by another element's alpha, and scroll containers exposed
   as scroll areas to accessibility. `3ad00a0` (2026-11-11) is `355baeb` plus macOS windows keeping the frame they were given
   while a test driver runs the app in the background, so a test window larger than a small CI display
@@ -266,6 +274,11 @@ views; that is out of scope for now.
   the same per-frame table as transforms (the wgpu storage buffer holds both; DirectX reads
   the matrices at `t3`; Metal binds them at fragment buffer 9). Each primitive is filtered on its
   own, so overlapping content is not filtered as a group. Paths and surfaces are not filtered.
+
+## API changes at `93193d4`
+
+- `GlobalElementId` no longer dereferences to `[ElementId]`: it is the last id and a link to the
+  id of the path above it. `Display` and `Debug` still print the whole path.
 
 ## API changes at `807f4e5`
 

@@ -1475,7 +1475,7 @@ fn perform_edit(cx: &mut App, kind: &str, handle: Option<gpui::AnyWindowHandle>)
                 log::info!(
                     "[desktop][menu] edit {kind} on {} selection={:?}",
                     node.component,
-                    node.input_selection
+                    node.input().selection
                 );
             }
         });

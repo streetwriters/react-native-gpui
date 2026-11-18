@@ -1643,10 +1643,8 @@ pub(crate) fn request_modal_close(window: &mut gpui::Window, cx: &mut gpui::App)
             .iter()
             .filter_map(|(tag, node)| {
                 let node = node.read(cx);
-                let portal = crate::extensions::component_portal(
-                    &node.component,
-                    &crate::extensions::parse_extension_props(&node.extension_props_json()),
-                )?;
+                let portal =
+                    crate::extensions::component_portal(&node.component, node.extension_props())?;
                 portal
                     .visible
                     .then_some(portal.close_request_event)

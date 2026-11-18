@@ -38,6 +38,7 @@ mod test_driver;
 pub(crate) mod text;
 pub(crate) mod tooltip;
 mod transform;
+pub(crate) mod view_props;
 pub(crate) mod virtual_view;
 mod wheel;
 
