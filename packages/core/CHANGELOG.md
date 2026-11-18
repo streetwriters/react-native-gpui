@@ -16,6 +16,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - The test driver's `layoutStats` reports `views`, the number of React Native views mounted.
 - A change between mouse and keyboard input builds only the views that read which one was last used, instead of every view in the window: gpui-fast `841adea`. Only the focused view reads it, to draw its keyboard focus ring. With 5,000 views mounted, typing in a text input right after a click reaches its `onChangeText` handler in 4.5 ms, from 35 ms, and the frame that shows the character in 22 ms, from 53 ms. The same holds while a screen reader is running: gpui-fast `c291ac4` replays the ancestors of a view built again with their role, so a view built again inside a scroll view drawn from the last frame is still known to be inside it. Needs gpui-fast `3f7a51a`.
 - A button or other control with an accessibility label of its own keeps it when it is drawn again from the last frame while a screen reader is running, instead of being named by the text inside it or left without a name: gpui-fast `bcfa3e3`. This fixes `3f7a51a`.
+- A `WebSocketClient` no longer crashes with `Assertion 'id_ != T::id' failed` when two messages are sent at once, such as while DevTools is attached: the write slot is claimed and the next message taken under the output lock, so only one write is in flight at a time.
 
 ## 0.87.0-alpha.4 - 2026-11-16
 
