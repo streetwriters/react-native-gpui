@@ -1,5 +1,12 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
-import { AppRegistry, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  AppRegistry,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import {
   nextFrame,
   report,
@@ -177,6 +184,7 @@ function MountUnmount({ n = 5000, depth = 0 }: Props) {
     pressed.current = 0;
   }, [mounted]);
   const toggle = (next: boolean) => () => {
+    report({ event: 'press', target: next ? 'mount' : 'unmount' });
     pressed.current = performance.now();
     setMounted(next);
   };
@@ -416,6 +424,50 @@ function TextHeavy({ n = 1500, iterations = 60 }: Props) {
   );
 }
 
+const StaticGrid = React.memo(Grid);
+
+/** A button and a text input over `n` cells; the runner taps and types and reads the marks reported here. */
+function Input({ n = 0 }: Props) {
+  const [taps, setTaps] = useState(0);
+  const [text, setText] = useState('');
+  useLayoutEffect(() => {
+    if (taps) report({ event: 'tapCommitted', taps });
+  }, [taps]);
+  useLayoutEffect(() => {
+    if (text) report({ event: 'typeCommitted', length: text.length });
+  }, [text]);
+  return (
+    <View style={{ flex: 1, backgroundColor: 'white' }}>
+      <Pressable
+        testID="bench-press"
+        onPress={() => {
+          report({ event: 'tapHandled', taps: taps + 1 });
+          setTaps(count => count + 1);
+        }}
+        style={{
+          height: 28,
+          justifyContent: 'center',
+          backgroundColor: '#ddd',
+        }}
+      >
+        <Text testID="bench-presses">Pressed {taps}</Text>
+      </Pressable>
+      <TextInput
+        testID="bench-input"
+        value={text}
+        onChangeText={value => {
+          report({ event: 'typeHandled', length: value.length });
+          setText(value);
+        }}
+        style={{ height: 28, borderWidth: 1 }}
+      />
+      <View style={{ flex: 1, overflow: 'hidden' }}>
+        <StaticGrid n={n} />
+      </View>
+    </View>
+  );
+}
+
 export const scenarios: Record<string, React.ComponentType<Props>> = {
   'cold-start': ColdStart,
   mount: MountUnmount,
@@ -423,6 +475,7 @@ export const scenarios: Record<string, React.ComponentType<Props>> = {
   list: ListChurn,
   layout: LayoutHeavy,
   text: TextHeavy,
+  input: Input,
 };
 
 export function registerBenchScenarios() {
