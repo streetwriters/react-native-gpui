@@ -11,7 +11,8 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `3f7a51a` (2026-11-18: `3efc3d0` plus a change of input modality (mouse, keyboard or
+- Commit: `bcfa3e3` (2026-11-18: `3f7a51a` plus a button drawn again from the last frame keeping its
+  own accessibility label instead of the text inside it. `3f7a51a` is `3efc3d0` plus a change of input modality (mouse, keyboard or
   touch) building only the views that read it, and accessibility nodes replayed for a retained
   stretch pushed with the role they had, so a view built again inside a scroll view drawn from
   the last frame is still known to be inside it. `3efc3d0` is `93193d4` plus nested views sharing their retained layouts
