@@ -29,11 +29,21 @@ import { SlotContext, type SlotApi, type SlotContent } from './slots';
 
 export type NativeRootProps = ViewProps & {
   children?: React.ReactNode;
+  /**
+   * Without a width in its style, the box is as wide as its content: its
+   * max-content width, shrinking to no less than its min-content width when
+   * its parent has less room, as a flex item in GPUI would.
+   */
+  fitWidth?: boolean;
 };
 
 let nextRootId = 1 + Math.floor(Math.random() * 0x3fffff) * 256;
 
-function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
+function NativeRootInner({
+  children,
+  fitWidth,
+  ...viewProps
+}: NativeRootProps) {
   const Bridge = useContextBridge();
   const [rootId] = React.useState(() => nextRootId++);
   const [failure, setFailure] = React.useState<{ error: unknown } | null>(null);
@@ -43,19 +53,28 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
     throw failure.error;
   }
 
-  const autoHeight = StyleSheet.flatten(viewProps.style)?.height == null;
+  const flat = StyleSheet.flatten(viewProps.style);
+  const autoHeight = flat?.height == null;
+  const autoWidth = fitWidth === true && flat?.width == null;
   const [contentHeight, setContentHeight] = React.useState<number | null>(null);
+  const [contentWidth, setContentWidth] = React.useState<{
+    width: number;
+    minWidth: number;
+  } | null>(null);
 
   React.useLayoutEffect(() => {
     handle.current = createNativeRoot(rootId, error => setFailure({ error }));
     if (autoHeight) {
       handle.current.setAutoHeight();
     }
+    if (autoWidth) {
+      handle.current.setAutoWidth();
+    }
     return () => {
       handle.current?.unmount();
       handle.current = null;
     };
-  }, [rootId, autoHeight]);
+  }, [rootId, autoHeight, autoWidth]);
 
   const [slots, setSlots] = React.useState<ReadonlyMap<number, SlotContent>>(
     () => new Map(),
@@ -112,7 +131,18 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
     }) => {
       const { id, name, payload } = event.nativeEvent;
       if (id === 0 && name === '__contentSize') {
-        setContentHeight((payload as { height: number }).height);
+        const size = payload as {
+          width?: number;
+          minWidth?: number;
+          height: number;
+        };
+        setContentHeight(size.height);
+        if (size.width != null) {
+          setContentWidth({
+            width: size.width,
+            minWidth: size.minWidth ?? size.width,
+          });
+        }
         return;
       }
       handle.current?.dispatch(event.nativeEvent);
@@ -123,11 +153,20 @@ function NativeRootInner({ children, ...viewProps }: NativeRootProps) {
   return (
     <DesktopNativeRootNativeComponent
       {...viewProps}
-      style={
-        autoHeight && contentHeight != null
-          ? [viewProps.style, { height: contentHeight }]
-          : viewProps.style
-      }
+      style={[
+        autoWidth && contentWidth != null
+          ? {
+              flexShrink: 1,
+              maxWidth: '100%',
+              minWidth: contentWidth.minWidth,
+            }
+          : null,
+        viewProps.style,
+        autoHeight && contentHeight != null ? { height: contentHeight } : null,
+        autoWidth && contentWidth != null
+          ? { width: contentWidth.width }
+          : null,
+      ]}
       rootId={rootId}
       onNativeEvent={onNativeEvent}
     >

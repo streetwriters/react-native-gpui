@@ -76,6 +76,16 @@ test('layout: a slot whose parent is as wide as its content takes the width of t
   await desktopExpect(app.getByTestId('slot-fit')).toBeVisible();
 });
 
+test('layout: a fit slot is as wide as its content, so a centring native parent centres it', async () => {
+  const root = await frameOf('slot-center-root');
+  await expect
+    .poll(async () => {
+      const frame = await frameOf('slot-center');
+      return Math.round(frame.x - root.x);
+    })
+    .toBe(90);
+});
+
 test('painting: the content is painted where the slot is', async () => {
   const image = PNG.sync.read(await app.getByTestId('slot-root').screenshot());
   const scale = image.width / 240;
@@ -161,6 +171,17 @@ test('a slot taller than the height its native parent allows is clipped there', 
   };
   expect(at(30)).toBe(true);
   expect(at(70)).toBe(false);
+});
+
+test('a slot that does not clip shows its content past the height its native parent allows', async () => {
+  const image = PNG.sync.read(
+    await app.getByTestId('slot-unclipped-root').screenshot(),
+  );
+  const scale = image.width / 240;
+  const index =
+    (Math.round(70 * scale) * image.width + Math.round(10 * scale)) * 4;
+  expect(image.data[index + 2]).toBeGreaterThan(200);
+  expect(image.data[index]).toBeLessThan(60);
 });
 
 test('keyboard: typing goes to the React Native input in a slot, and a key it does not handle reaches the native component that owns the slot', async () => {

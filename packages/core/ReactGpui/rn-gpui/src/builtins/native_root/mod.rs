@@ -14,7 +14,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{canvas, div, prelude::*, AnyElement, App, Window};
+use gpui::{
+    canvas, div, prelude::*, px, size, AnyElement, App, AvailableSpace, Element, GlobalElementId,
+    InspectorElementId, LayoutId, Window,
+};
 use serde_json::{json, Map, Value};
 
 use crate::extensions::{register_component_renderer, ComponentNode, ComponentRenderer};
@@ -38,7 +41,11 @@ struct RootState {
     /// The box has no height of its own: the tree is laid out at its natural
     /// height and that height is reported to JavaScript.
     auto_height: Rc<Cell<bool>>,
+    /// The box has no width of its own: the tree's max-content and min-content
+    /// widths are reported with the height, and the box fits between them.
+    auto_width: Rc<Cell<bool>>,
     reported_height: Rc<Cell<f32>>,
+    reported_width: Rc<Cell<(f32, f32)>>,
 }
 
 thread_local! {
@@ -66,11 +73,15 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
         });
         return;
     }
-    if payload == "auto-height" {
+    if payload == "auto-height" || payload == "auto-width" {
         TREES.with(|trees| {
             let mut trees = trees.borrow_mut();
             let state = trees.entry(root).or_insert_with(|| new_state(root, cx));
-            state.auto_height.set(true);
+            if payload == "auto-height" {
+                state.auto_height.set(true);
+            } else {
+                state.auto_width.set(true);
+            }
         });
         return;
     }
@@ -91,6 +102,14 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     let tag = TREES.with(|trees| {
         let mut trees = trees.borrow_mut();
         let state = trees.entry(root).or_insert_with(|| new_state(root, cx));
+        let window = state
+            .tag
+            .get()
+            .and_then(|tag| store.read(cx).nodes.get(&tag).cloned())
+            .and_then(|node| crate::store::window_of_surface(node.read(cx).surface_id));
+        if window.is_some() {
+            state.tree.set_window(window);
+        }
         let started = std::time::Instant::now();
         let count = ops.len() as u64;
         state.tree.apply(ops, cx);
@@ -137,7 +156,9 @@ fn new_state(root: u32, cx: &App) -> RootState {
         tree,
         tag,
         auto_height: Rc::new(Cell::new(false)),
+        auto_width: Rc::new(Cell::new(false)),
         reported_height: Rc::new(Cell::new(-1.0)),
+        reported_width: Rc::new(Cell::new((-1.0, -1.0))),
     }
 }
 
@@ -223,28 +244,108 @@ impl ComponentRenderer for NativeRootRenderer {
             let started = std::time::Instant::now();
             CURRENT_ROOT.with(|current| current.set(root));
             collect_slot_hosts(root, cx);
-            let ids: Vec<_> = state.tree.roots().to_vec();
-            let elements: Vec<AnyElement> = ids
-                .into_iter()
-                .map(|id| state.tree.render(id, window, cx))
+            let auto = state.auto_height.get();
+            let auto_width = state.auto_width.get();
+            let roots: Vec<_> = state.tree.roots().to_vec();
+            // A tree of one component without a width of its own is laid out
+            // as the item of a row, as a GPUI flex item of a row would be: it
+            // shrinks with the box down to its automatic minimum width.
+            let single = match roots.as_slice() {
+                [root] if auto_width => match state.tree.children(*root) {
+                    [child] => Some(*child),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let shown = single.map_or_else(|| roots.clone(), |child| vec![child]);
+            let elements: Vec<AnyElement> = shown
+                .iter()
+                .map(|&id| state.tree.render(id, window, cx))
                 .collect();
+            // Copies that are only laid out, as items of a row: one in a row
+            // of no width, where they shrink as far as GPUI lets them, and one
+            // at max-content. Their extents are the tree's min-content and
+            // max-content widths.
+            let probes = auto_width.then(|| {
+                [single.is_some(), false].map(|shrunk| {
+                    let measured: Vec<Measured> = shown
+                        .iter()
+                        .map(|&id| Measured::new(state.tree.render(id, window, cx)))
+                        .collect();
+                    let ids = measured
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect::<Vec<_>>();
+                    let probe = div().flex().flex_row().children(measured);
+                    let probe = if shrunk { probe.w(px(0.)) } else { probe };
+                    (probe.into_any_element(), ids)
+                })
+            });
             crate::counters::add(
                 crate::counters::Counter::NativeRenderMicros,
                 started.elapsed().as_micros() as u64,
             );
-            let auto = state.auto_height.get();
             let reported = state.reported_height.clone();
+            let reported_width = state.reported_width.clone();
             let tag = node.tag;
             let measure = canvas(
-                move |bounds, _window, cx| {
+                move |bounds, window, cx| {
                     let height = f32::from(bounds.size.height);
-                    if (reported.get() - height).abs() > 0.01 {
+                    let widths = probes.map(|[min, max]| {
+                        let extent = |(mut probe, ids): (
+                            AnyElement,
+                            Vec<Rc<Cell<Option<gpui::LayoutId>>>>,
+                        ),
+                                      width: AvailableSpace,
+                                      window: &mut Window,
+                                      cx: &mut App| {
+                            probe.layout_as_root(
+                                size(width, AvailableSpace::MaxContent),
+                                window,
+                                cx,
+                            );
+                            let bounds: Vec<_> = ids
+                                .iter()
+                                .filter_map(|id| id.get())
+                                .map(|id| window.layout_bounds(id))
+                                .collect();
+                            let left = bounds
+                                .iter()
+                                .map(|b| f32::from(b.left()))
+                                .fold(f32::INFINITY, f32::min);
+                            let right = bounds
+                                .iter()
+                                .map(|b| f32::from(b.right()))
+                                .fold(f32::NEG_INFINITY, f32::max);
+                            if bounds.is_empty() {
+                                0.0
+                            } else {
+                                right - left
+                            }
+                        };
+                        let min = extent(min, AvailableSpace::Definite(px(0.)), window, cx);
+                        let max = extent(max, AvailableSpace::MaxContent, window, cx);
+                        (max, min.min(max))
+                    });
+                    let changed = (reported.get() - height).abs() > 0.01
+                        || widths.is_some_and(|(max, min)| {
+                            let (old_max, old_min) = reported_width.get();
+                            (old_max - max).abs() > 0.01 || (old_min - min).abs() > 0.01
+                        });
+                    if changed {
                         reported.set(height);
+                        let payload = match widths {
+                            Some((max, min)) => {
+                                reported_width.set((max, min));
+                                json!({ "width": max, "minWidth": min, "height": height })
+                            }
+                            None => json!({ "height": height }),
+                        };
                         if let Some(store) = crate::store::store_from(cx) {
                             store.read(cx).host.dispatch_event(
                                 tag,
                                 "topNativeEvent",
-                                &json!({ "id": 0, "name": CONTENT_SIZE, "payload": { "height": height } }),
+                                &json!({ "id": 0, "name": CONTENT_SIZE, "payload": payload }),
                             );
                         }
                     }
@@ -255,10 +356,12 @@ impl ComponentRenderer for NativeRootRenderer {
             .size_full();
             let frame = div().absolute().w_full();
             let frame = if auto { frame } else { frame.h_full() };
+            let auto = auto || auto_width;
             Some(
                 frame
                     .flex()
-                    .flex_col()
+                    .when(single.is_some(), |this| this.flex_row())
+                    .when(single.is_none(), |this| this.flex_col())
                     .tab_group()
                     .tab_index(node.tag as isize)
                     .on_key_down(|event, window, cx| {
@@ -402,4 +505,76 @@ pub(crate) fn pointer_target(tag: i32) -> Option<(gpui::Point<gpui::Pixels>, i32
         let bounds = state.tree.bounds_of(id)?;
         Some((bounds.center(), state.tag.get()?))
     })
+}
+
+/// Lays out its child as itself and keeps the child's layout id, so the size
+/// the child was given can be read after a probe layout.
+struct Measured {
+    child: AnyElement,
+    id: Rc<Cell<Option<LayoutId>>>,
+}
+
+impl Measured {
+    fn new(child: AnyElement) -> Self {
+        Self {
+            child,
+            id: Rc::new(Cell::new(None)),
+        }
+    }
+}
+
+impl IntoElement for Measured {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Measured {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let id = self.child.request_layout(window, cx);
+        self.id.set(Some(id));
+        (id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: gpui::Bounds<gpui::Pixels>,
+        _request_layout: &mut (),
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: gpui::Bounds<gpui::Pixels>,
+        _request_layout: &mut (),
+        _prepaint: &mut (),
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
+    }
 }

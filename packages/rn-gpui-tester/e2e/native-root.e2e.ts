@@ -164,3 +164,25 @@ test('removing a component from the tree removes its instances', async () => {
   await app.waitForIdle();
   expect(await swatches()).toEqual(['none', 'none', 'none']);
 });
+
+test('a command to a component in a native tree runs in the window the tree is shown in', async () => {
+  await app.getByTestId('native-ping-window').click();
+  await desktopExpect(app.getByTestId('native-last')).toHaveText(
+    'last:window:tree',
+  );
+});
+
+test('a drag that starts on native content keeps moving it and ends with the release', async () => {
+  const [root] = await app.query('testID', 'native-card-root', true);
+  const top = (await app.menuBarState()).inset;
+  const at = (x: number) => ({
+    x: root.frame.x + x,
+    y: root.frame.y + 40 + top,
+  });
+  await app.mouseDown(at(20));
+  await app.mouseMove(at(60), { button: 'left' });
+  await app.mouseMove(at(100), { button: 'left' });
+  await desktopExpect(app.getByTestId('native-last')).toHaveText('last:drag');
+  await app.mouseUp(at(100));
+  await app.waitForIdle();
+});

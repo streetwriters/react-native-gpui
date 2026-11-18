@@ -2544,7 +2544,17 @@ function renderContext(generator) {
   lines.push(
     '    pub fn with_window<R>(&mut self, f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R) -> Option<R> {',
   );
-  lines.push('        self.host.as_mut().and_then(|host| host.with_window(f))');
+  lines.push('        match (&mut self.host, &mut self.native) {');
+  lines.push('            (Some(host), _) => host.with_window(f),');
+  lines.push('            (None, Some(call)) => {');
+  lines.push('                let window = call.window?;');
+  lines.push('                let app = unsafe { &mut *call.app };');
+  lines.push(
+    '                window.update(app, |_, window, app| f(window, app)).ok()',
+  );
+  lines.push('            }');
+  lines.push('            (None, None) => None,');
+  lines.push('        }');
   lines.push('    }');
   lines.push('');
   lines.push(
@@ -3498,6 +3508,7 @@ function renderNativeTree(generator) {
   lines.push('            id: cx.id,');
   lines.push('            emitter: cx.emitter(),');
   lines.push('            app,');
+  lines.push('            window: cx.window(),');
   lines.push('            children,');
   lines.push('        })');
   lines.push('    }');
@@ -3562,6 +3573,7 @@ function renderNativeTree(generator) {
   lines.push('            id: self.id,');
   lines.push('            emitter: self.emitter.clone(),');
   lines.push('            app,');
+  lines.push('            window: None,');
   lines.push('            children,');
   lines.push('        });');
   lines.push('        self.component.render(&view, window, &mut call)');

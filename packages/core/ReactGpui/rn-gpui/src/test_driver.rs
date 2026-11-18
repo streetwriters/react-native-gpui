@@ -1028,6 +1028,11 @@ async fn serve_commands(
                                 position,
                                 button,
                                 modifiers,
+                                click_count: params
+                                    .get("clickCount")
+                                    .and_then(Value::as_u64)
+                                    .unwrap_or(1)
+                                    .clamp(1, 3) as usize,
                                 ..Default::default()
                             }),
                             "mouseUp" => gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
@@ -1373,6 +1378,7 @@ async fn serve_commands(
                                         gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                             button: gpui::MouseButton::Left,
                                             position: start,
+                                            click_count: 1,
                                             ..Default::default()
                                         }),
                                         app,

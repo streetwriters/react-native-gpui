@@ -124,6 +124,16 @@ export default function NativeSlotFixture() {
             </NativeSlot>
           </Box>
         </NativeRoot>
+        <NativeRoot
+          testID="slot-center-root"
+          style={{ width: 240, height: 40 }}
+        >
+          <Box align="center">
+            <NativeSlot fit>
+              <View testID="slot-center" style={{ width: 60, height: 20 }} />
+            </NativeSlot>
+          </Box>
+        </NativeRoot>
         <NativeRoot testID="slot-fit-root" style={{ width: 240, height: 40 }}>
           <Box direction="row" gap={4}>
             <Box>
@@ -142,6 +152,16 @@ export default function NativeSlotFixture() {
                 testID="slot-tall"
                 style={{ height: 200, backgroundColor: '#0000ff' }}
               />
+            </NativeSlot>
+          </Box>
+        </NativeRoot>
+        <NativeRoot
+          testID="slot-unclipped-root"
+          style={{ width: 240, height: 80 }}
+        >
+          <Box direction="column" height={60}>
+            <NativeSlot clip={false}>
+              <View style={{ height: 200, backgroundColor: '#0000ff' }} />
             </NativeSlot>
           </Box>
         </NativeRoot>

@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { NativeRoot } from '@react-native-gpui/core/desktop';
+import { FixtureCard } from '@react-native-gpui/host-components-fixture';
+import { Commands as FixtureCardCommands } from '@react-native-gpui/host-components-fixture/src/FixtureCardNativeComponent';
 
 type NativeElement = React.ComponentType<Record<string, unknown>>;
 const Box = 'FixtureNativeBox' as unknown as NativeElement;
@@ -51,6 +53,7 @@ export default function NativeRootFixture() {
   const [order, setOrder] = useState(['red', 'green', 'blue']);
   const [last, setLast] = useState('none');
   const [mounted, setMounted] = useState(true);
+  const card = useRef(null);
   return (
     <Theme.Provider value="blue">
       <View style={{ padding: 8, gap: 8 }}>
@@ -79,6 +82,29 @@ export default function NativeRootFixture() {
         </Pressable>
         <Pressable testID="native-unmount" onPress={() => setMounted(false)}>
           <Text>unmount</Text>
+        </Pressable>
+        <NativeRoot
+          testID="native-card-root"
+          style={{ width: 240, height: 60 }}
+        >
+          <FixtureCard
+            ref={card}
+            title="Card"
+            chromeHeight={20}
+            chromeWidth={4}
+            onChromeEvent={(event: { nativeEvent: { kind: string } }) =>
+              setLast(event.nativeEvent.kind)
+            }
+          />
+        </NativeRoot>
+        <Pressable
+          testID="native-ping-window"
+          onPress={() =>
+            card.current &&
+            FixtureCardCommands.pingWindow(card.current as never, 'tree')
+          }
+        >
+          <Text>ping window</Text>
         </Pressable>
       </View>
     </Theme.Provider>

@@ -37,6 +37,18 @@ export type NativeSlotProps = {
    * makes it shorter.
    */
   fill?: boolean;
+  /**
+   * Be as wide as the content instead of as wide as the native layout makes
+   * the slot, so a native parent that centres or aligns its children can place
+   * the content. The content is laid out against the width of the root.
+   */
+  fit?: boolean;
+  /**
+   * Clip the content to the slot's box. By default a slot clips unless it is
+   * `fit`; `false` lets content drawn outside its box (a badge or a button
+   * hanging over an edge) show, clipped only by the native parents.
+   */
+  clip?: boolean;
 };
 
 export function NativeSlot({
@@ -44,6 +56,8 @@ export function NativeSlot({
   style,
   testID,
   fill = false,
+  fit = false,
+  clip = !fit,
 }: NativeSlotProps) {
   const api = React.useContext(SlotContext);
   if (api == null) {
@@ -56,7 +70,7 @@ export function NativeSlot({
   React.useLayoutEffect(() => {
     api.set(slotId, {
       children: <Bridge>{children}</Bridge>,
-      width: size.width,
+      width: fit ? 0 : size.width,
       height: size.height,
       fill,
       style,
@@ -80,6 +94,8 @@ export function NativeSlot({
   return React.createElement('NativeSlot', {
     slotId,
     fill,
+    fit,
+    clip,
     testID,
     onSlotLayout,
   });

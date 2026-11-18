@@ -246,6 +246,9 @@ fn dispatch_right_press(
     let Some(entity) = node.upgrade() else {
         return;
     };
+    if right_press_seen(event) {
+        return;
+    }
     let (owner, target) = {
         let this = entity.read(cx);
         (
@@ -266,6 +269,7 @@ fn dispatch_right_press(
         );
     }
     let modifiers = modifier_state(event.modifiers);
+    let claimed = owner.is_some();
     if crate::events::mouse_context_menu_trigger(
         crate::events::Button::Right,
         modifiers,
@@ -298,7 +302,46 @@ fn dispatch_right_press(
             }
         }
     }
+    if !claimed && inside_extension_component(&entity, cx) {
+        // Nothing in the React tree claims the press, so the extension
+        // component around this node may handle it natively.
+        return;
+    }
     cx.stop_propagation();
+}
+
+thread_local! {
+    static LAST_RIGHT_PRESS: std::cell::Cell<Option<(gpui::Point<gpui::Pixels>, std::time::Instant)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Whether an enclosing node already dispatched this press. One press reaches
+/// every node it bubbles through within a few microseconds.
+fn right_press_seen(event: &MouseDownEvent) -> bool {
+    let now = std::time::Instant::now();
+    LAST_RIGHT_PRESS.with(|last| {
+        let seen = last.get().is_some_and(|(position, at)| {
+            position == event.position
+                && now.duration_since(at) < std::time::Duration::from_millis(5)
+        });
+        if !seen {
+            last.set(Some((event.position, now)));
+        }
+        seen
+    })
+}
+
+fn inside_extension_component(entity: &gpui::Entity<RNNodeView>, cx: &gpui::App) -> bool {
+    let mut parent = entity.read(cx).parent.clone();
+    while let Some(node) = parent.and_then(|weak| weak.upgrade()) {
+        let node = node.read(cx);
+        if node.host_index >= 0 || crate::extensions::component_renderer(&node.component).is_some()
+        {
+            return true;
+        }
+        parent = node.parent.clone();
+    }
+    false
 }
 
 /// Runs a component's `on_context_menu` hook, if the owner is a component.
@@ -1774,6 +1817,12 @@ impl RNNodeView {
 
     /// Whether a host component that holds React children, such as a container
     /// with its own GPUI chrome, is among this node's ancestors.
+    /// Whether native content (a `NativeRoot`'s tree, or a host component's)
+    /// lies under this node's pointer area.
+    pub(crate) fn shares_pointer_with_native(&self, cx: &App) -> bool {
+        self.component == crate::builtins::native_root::COMPONENT || self.in_host_container(cx)
+    }
+
     pub(crate) fn in_host_container(&self, cx: &App) -> bool {
         let mut parent = self.parent.clone();
         while let Some(weak) = parent {
@@ -5557,7 +5606,7 @@ impl RNNodeView {
                         modifier_state(event.modifiers),
                     );
                     crate::drag_drop::press(cx, &target, event.position);
-                    if node.read(cx).in_host_container(cx) {
+                    if node.read(cx).shares_pointer_with_native(cx) {
                         crate::events::claim_press();
                     } else {
                         cx.stop_propagation();
@@ -5681,7 +5730,17 @@ impl RNNodeView {
                             modifier_state(event.modifiers),
                         );
                     }
-                    if hit_target.is_some() || crate::events::active_touch_target(cx).is_some() {
+                    let active_target = crate::events::active_touch_target(cx);
+                    // A press that began over native content keeps its moves
+                    // reaching the native elements (a text selection drag).
+                    let native_press = active_target.as_ref().is_some_and(|target| {
+                        crate::store::store_from(cx)
+                            .and_then(|store| store.read(cx).nodes.get(&target.tag).cloned())
+                            .is_some_and(|node| node.read(cx).shares_pointer_with_native(cx))
+                    });
+                    if (hit_target.is_some() || active_target.is_some())
+                        && !(native_press && event.pressed_button.is_some())
+                    {
                         cx.stop_propagation();
                     }
                 },
