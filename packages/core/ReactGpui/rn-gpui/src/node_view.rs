@@ -1,15 +1,16 @@
 //! One GPUI view per Fabric node. No flex property is ever set: every frame
 //! comes from RN's Yoga pass.
 
-use crate::pointer_area::{pointer_area, PointerHandlers};
+use crate::pointer_area::{Node, PointerArea, PointerHandlers};
 use crate::style;
+use crate::view_props::ViewProps;
 use gpui::{
     div, point, prelude::*, px, size, AnyElement, App, Context, Display, Entity, Fill, FocusHandle,
     IntoElement, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Position, Refineable, Role, StyleRefinement, Subscription, Task,
-    WeakEntity, Window,
+    MouseUpEvent, Pixels, Point, Position, Refineable, Role, Subscription, Task, WeakEntity,
+    Window,
 };
-use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF, ViewPropsFlat};
+use rn_gpui_sys::ffi::{MountOp, ParagraphFlat, RectF};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -56,7 +57,7 @@ pub struct RNNodeView {
     /// from. See [`RNNodeView::pointer_handlers`].
     pointer_handlers: Option<(PointerHandlersKey, Rc<PointerHandlers>)>,
     pub surface_id: i32,
-    pub component: String,
+    pub component: gpui::SharedString,
     /// Whether this node's own content is composited by the OS rather than
     /// painted by GPUI. Decided once, when the node is created, from its
     /// registry entry.
@@ -72,8 +73,9 @@ pub struct RNNodeView {
     pub(crate) effect_group_descendants: u32,
     /// Whether this node counts itself in `effect_group_descendants`.
     forms_effect_group: bool,
-    extension_props_json: String,
     pub(crate) extension_props: std::sync::Arc<serde_json::Value>,
+    /// The hash of the JSON `extension_props` was parsed from.
+    extension_props_hash: u64,
     /// A native slot's content is painted where its placeholder is, not where
     /// layout put it; this is the difference, kept up to date by the placeholder.
     pub(crate) slot_shift: Option<Rc<Cell<Point<f32>>>>,
@@ -105,10 +107,10 @@ pub struct RNNodeView {
     surface_origin: crate::surface::SurfaceOrigin,
     pub frame: RectF,
     pub(crate) parent_tag_cache: std::rc::Rc<std::cell::Cell<Option<i32>>>,
-    pub view: ViewPropsFlat,
-    animated_transform: Option<[f32; 16]>,
+    pub view: ViewProps,
+    animated_transform: Option<Box<[f32; 16]>>,
     animated_background_color: Option<u32>,
-    gradient_cache: Option<GradientCache>,
+    gradient_cache: Option<Box<GradientCache>>,
     animated_text_color: Option<u32>,
     animated_opacity: bool,
     focused: Cell<bool>,
@@ -119,64 +121,24 @@ pub struct RNNodeView {
     own_state_color: Option<u32>,
     state_styles: Option<Rc<style::StateStyles>>,
     pub paragraph: Option<ParagraphFlat>,
-    pub input_text: String,
-    pub input_placeholder: String,
-    pub(crate) input_placeholder_mode: bool,
-    pub(crate) input_text_color: u32,
-    pub(crate) input_selection_color: u32,
-    pub input_multiline: bool,
-    pub input_editable: bool,
-    pub(crate) input_placeholder_color: u32,
-    pub(crate) input_caret_hidden: bool,
-    pub(crate) input_select_on_focus: bool,
-    pub(crate) input_submit_behavior: crate::builtins::textinput::input::SubmitBehavior,
-    pub(crate) input_max_length: usize,
-    pub(crate) input_context_menu_hidden: bool,
-    /// Until when a click selects all, because it is the one that focused the input.
-    pub(crate) input_select_all_until: Option<std::time::Instant>,
-    pub(crate) input_secure_text: bool,
-    pub input_selection: std::ops::Range<usize>,
-    pub(crate) input_scroll_x: f32,
-    pub(crate) input_scroll_y: f32,
+    /// A `TextInput`'s own state; other nodes have none.
+    text_input: Option<Box<crate::builtins::textinput::input::TextInputState>>,
     pub(crate) text_selection: std::ops::Range<usize>,
-    pub(crate) scroll_gesture: Rc<std::cell::RefCell<ScrollGesture>>,
     pub(crate) text_selection_anchor: Option<usize>,
-    pub(crate) input_content_size: (f32, f32),
-    pub(crate) input_selection_anchor: Option<usize>,
-    pub input_marked: Option<std::ops::Range<usize>>,
-    pub input_event_count: i32,
-    pub(crate) caret_visible: bool,
     pub(crate) caret_blink_task: Task<()>,
     pub(crate) transition: Option<(crate::extensions::Transition, Instant)>,
     pub(crate) transition_forward: bool,
     transition_progress_sent: Option<(Instant, f32)>,
     transition_end_refreshed: Option<Instant>,
-    /// Outside the entity so a scroll can move it without updating this view:
-    /// gpui-fast rebuilds every view that read an updated entity.
-    scroll_position: Rc<Cell<Point<f32>>>,
-    pub(crate) scroll: Option<crate::extensions::ScrollSpec>,
-    scroll_indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
-    scroll_programmatic: Rc<Cell<bool>>,
-    /// The settings of the `ScrollBar` inside this scroll view and the tag its
-    /// events go out on, handed over by that node when it renders.
-    scrollbar: crate::scroll_indicator::ScrollbarSpec,
-    scrollbar_tag: Option<i32>,
-    scrollbar_release: Option<(gpui::EntityId, Subscription)>,
-    scroll_sync_generation: Rc<Cell<u64>>,
-    /// Whether Fabric's copy of the offset is behind the node's own.
-    scroll_sync_pending: Rc<Cell<bool>>,
+    pub(crate) scroll: Option<Box<crate::extensions::ScrollSpec>>,
+    /// The state of a scroll view, which other nodes go without.
+    scroll_parts: Option<Box<ScrollParts>>,
     /// The mode `onModeChange` last reported, for a `VirtualView`.
     pub(crate) virtual_view_mode: Cell<Option<i32>>,
-    /// When the last scroll event went out, and whether one is waiting for the
-    /// throttle to pass.
-    scroll_emit: Rc<ScrollEmit>,
-    scroll_handle: gpui::ScrollHandle,
-    scroll_handle_stale: bool,
     pub focusable: bool,
     pub(crate) pending_text_input_focus: Option<bool>,
     pub children: Vec<(i32, Entity<RNNodeView>)>,
     pub parent: Option<WeakEntity<RNNodeView>>,
-    cached_style: StyleRefinement,
     pub(crate) renderer_frame: Option<RectF>,
     pub(crate) renderer_decoration: Option<crate::extensions::Decoration>,
     pub(crate) inherited: Inherited,
@@ -397,6 +359,53 @@ fn run_component_context_menu(
 ///
 /// Shared by the middle and right listeners so the two cannot diverge; the
 /// button's mask is the only thing that differs.
+/// Opens the context menu a Ctrl + left press asks for, as a right press would,
+/// returning whether it did (and stopped the press there).
+fn ctrl_click_context_menu(
+    node: &WeakEntity<RNNodeView>,
+    event: &MouseDownEvent,
+    os_owns_press: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
+    if os_owns_press || crate::events::press_belongs_to_window() {
+        return false;
+    }
+    let modifiers = modifier_state(event.modifiers);
+    if crate::events::mouse_context_menu_trigger(
+        crate::events::Button::Left,
+        modifiers,
+        std::env::consts::OS,
+    )
+    .is_none()
+    {
+        return false;
+    }
+    let Some(entity) = node.upgrade() else {
+        return false;
+    };
+    let owner = {
+        let this = entity.read(cx);
+        crate::events::context_menu_owner(cx, this)
+    };
+    let Some(owner) = owner else {
+        return false;
+    };
+    if !run_component_context_menu(&owner, event.position, false, modifiers, window, cx) {
+        dispatch_context_menu(
+            owner.tag,
+            event.position,
+            crate::events::Button::Left,
+            modifiers,
+            "mouse",
+            window,
+            cx,
+        );
+    }
+    cx.stop_propagation();
+    true
+}
+
 fn dispatch_pointer_button(
     node: &gpui::WeakEntity<RNNodeView>,
     event: &MouseDownEvent,
@@ -519,7 +528,23 @@ fn renders_native_surface_for_op(op: &MountOp) -> bool {
         && crate::extensions::component_renders_native_surface(&op.component)
 }
 
+static NO_TEXT_INPUT: crate::builtins::textinput::input::TextInputState =
+    crate::builtins::textinput::input::TextInputState::EMPTY;
+
 impl RNNodeView {
+    /// The node's text input state: its own for a `TextInput`, an empty one
+    /// for every other node.
+    pub(crate) fn input(&self) -> &crate::builtins::textinput::input::TextInputState {
+        self.text_input.as_deref().unwrap_or(&NO_TEXT_INPUT)
+    }
+
+    /// The node's text input state, made for a node that has none.
+    pub(crate) fn input_mut(&mut self) -> &mut crate::builtins::textinput::input::TextInputState {
+        self.text_input.get_or_insert_with(|| {
+            Box::new(crate::builtins::textinput::input::TextInputState::EMPTY)
+        })
+    }
+
     pub(crate) fn accessibility_focus_handle(&self) -> Option<FocusHandle> {
         self.focus_handle.clone()
     }
@@ -579,7 +604,6 @@ impl RNNodeView {
     pub fn set_animated_opacity(&mut self, opacity: f32) {
         self.animated_opacity = true;
         self.view.opacity = opacity.clamp(0.0, 1.0);
-        self.cached_style = style::to_refinement(&self.view);
     }
 
     /// What this view's state styles amount to right now, the later layer
@@ -654,8 +678,8 @@ impl RNNodeView {
 
     /// The matrix a state style asks for, unless an animation owns it.
     fn effective_transform(&self) -> Option<[f32; 16]> {
-        if let Some(animated) = self.animated_transform {
-            return Some(animated);
+        if let Some(animated) = self.animated_transform.as_deref() {
+            return Some(*animated);
         }
         if let Some(state) = self.resolved_state().and_then(|state| state.transform()) {
             return Some(state);
@@ -758,7 +782,7 @@ impl RNNodeView {
     }
 
     pub fn set_animated_transform(&mut self, transform: Option<[f32; 16]>) {
-        self.animated_transform = transform;
+        self.animated_transform = transform.map(Box::new);
     }
 
     pub fn set_animated_background_color(&mut self, color: u32) {
@@ -773,14 +797,14 @@ impl RNNodeView {
         if self.component != "TextInput" {
             return;
         }
-        self.caret_visible = true;
+        self.input_mut().caret_visible = true;
         self.caret_blink_task = cx.spawn(async move |this, cx| loop {
             cx.background_executor()
                 .timer(Duration::from_millis(530))
                 .await;
             if this
                 .update(cx, |view, cx| {
-                    view.caret_visible = !view.caret_visible;
+                    view.input_mut().caret_visible = !view.input().caret_visible;
                     cx.notify();
                 })
                 .is_err()
@@ -791,7 +815,9 @@ impl RNNodeView {
     }
 
     fn stop_caret_blink(&mut self) {
-        self.caret_visible = false;
+        if let Some(input) = self.text_input.as_deref_mut() {
+            input.caret_visible = false;
+        }
         self.caret_blink_task = Task::ready(());
     }
 
@@ -1013,9 +1039,9 @@ impl RNNodeView {
             };
         }
         if self.component == "TextInput" && self.view.accessibility_role.is_empty() {
-            return Some(if self.input_secure_text {
+            return Some(if self.input().secure_text {
                 Role::PasswordInput
-            } else if self.input_multiline {
+            } else if self.input().multiline {
                 Role::MultilineTextInput
             } else {
                 Role::TextInput
@@ -1056,6 +1082,123 @@ impl RNNodeView {
     #[cfg(feature = "test-driver")]
     pub(crate) fn test_render_count(&self) -> u64 {
         self.render_count
+    }
+
+    /// The node's focus handle, created with its focus and blur subscriptions
+    /// the first time it is needed.
+    pub(crate) fn ensure_focus_handle(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> FocusHandle {
+        if let Some(handle) = &self.focus_handle {
+            return handle.clone();
+        }
+        let handle = cx
+            .focus_handle()
+            .tab_stop(self.focusable || self.view.accessibility_has_escape_listener)
+            .tab_index(if self.inherited.in_native_slot {
+                0
+            } else {
+                self.tag as isize
+            });
+        if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+            let host = store.0.read(cx).host.clone();
+            let tag = self.tag;
+            let is_text_input = self.component == "TextInput";
+            let focused_host = host.clone();
+            self.focus_subscriptions
+                .push(cx.on_focus(&handle, window, move |this, window, cx| {
+                    if is_text_input {
+                        this.start_caret_blink(cx);
+                        if this.input().select_on_focus {
+                            this.input_mut().select_all_until = Some(
+                                std::time::Instant::now() + std::time::Duration::from_millis(300),
+                            );
+                            cx.defer_in(window, |this, window, cx| {
+                                crate::builtins::textinput::input::select_all(this, window, cx);
+                            });
+                        }
+                    }
+                    focused_host.dispatch_event(
+                        tag,
+                        if is_text_input { "topFocus" } else { "focus" },
+                        &serde_json::json!({
+                            "focusVisible": window.last_input_was_keyboard(),
+                        }),
+                    );
+                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                        store.0.read(cx).frame_hook.arm(window);
+                    }
+                }));
+            self.focus_subscriptions
+                .push(cx.on_blur(&handle, window, move |this, window, cx| {
+                    if is_text_input {
+                        this.stop_caret_blink();
+                        cx.notify();
+                    }
+                    if is_text_input {
+                        host.dispatch_event(
+                            tag,
+                            "topEndEditing",
+                            &serde_json::json!({
+                                "text": this.input().text,
+                                "eventCount": this.input().event_count,
+                            }),
+                        );
+                    }
+                    host.dispatch_event(
+                        tag,
+                        if is_text_input { "topBlur" } else { "blur" },
+                        &serde_json::json!({}),
+                    );
+                    if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
+                        store.0.read(cx).frame_hook.arm(window);
+                    }
+                }));
+        }
+        self.focus_handle = Some(handle.clone());
+        handle
+    }
+
+    /// Whether this node's handle exists only for accessibility and can wait
+    /// until something focuses it: a leaf such as a `Text` that takes no
+    /// focus of its own. It is never on the focus path to another node.
+    fn defers_focus_handle(&self) -> bool {
+        !self.takes_focus() && self.children.is_empty()
+    }
+
+    /// The handle a press on `node` focuses, creating the node's own deferred
+    /// accessibility handle when no focusable node is around it.
+    pub(crate) fn press_focus_handle(
+        node: &Entity<Self>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<FocusHandle> {
+        let (focusable, defers) = {
+            let this = node.read(cx);
+            (
+                this.nearest_focus_handle_where(cx, true),
+                this.focus_handle.is_none()
+                    && this.defers_focus_handle()
+                    && this.has_accessibility_focus_target(),
+            )
+        };
+        if focusable.is_some() {
+            return focusable;
+        }
+        if defers {
+            return Some(node.update(cx, |this, cx| {
+                let handle = this.ensure_focus_handle(window, cx);
+                cx.notify();
+                handle
+            }));
+        }
+        node.read(cx).nearest_focus_handle(cx)
+    }
+
+    fn has_accessibility_focus_target(&self) -> bool {
+        self.view.accessible || self.accessibility_role().is_some()
     }
 
     fn takes_focus(&self) -> bool {
@@ -1100,13 +1243,13 @@ impl RNNodeView {
         // `core-private:` TextInput reads its own props out of the module JSON.
         let text_input =
             crate::builtins::textinput::input::TextInputProps::from_json(&op.extension_props_json);
+        let extension_props = crate::extensions::parse_extension_props(&op.extension_props_json);
         // `core-private:` a scrolling component's starting offset comes from the
-        let scroll_initial = crate::extensions::component_scroll(
-            &op.component,
-            &crate::extensions::parse_extension_props(&op.extension_props_json),
-        )
-        .map(|scroll| scroll.offset)
-        .unwrap_or((0.0, 0.0));
+        // module JSON as well.
+        let scroll = crate::extensions::component_scroll(&op.component, &extension_props);
+        let scroll_parts = scroll
+            .as_ref()
+            .map(|scroll| Box::new(ScrollParts::at(point(scroll.offset.0, scroll.offset.1))));
         let (host_component, host_container, mask_children) =
             Self::create_host_component(op, &host_reports, surface_id, app);
         let mut view = Self {
@@ -1115,18 +1258,12 @@ impl RNNodeView {
             hovered: false,
             pointer_handlers: None,
             surface_id,
-            component: op.component.clone(),
-            extension_props_json: op.extension_props_json.clone(),
+            component: intern_component(&op.component),
             slot_shift: (op.component == crate::builtins::native_slot::COMPONENT).then(|| {
-                crate::builtins::native_slot::register_host(
-                    &crate::extensions::parse_extension_props(&op.extension_props_json),
-                    op.tag,
-                );
+                crate::builtins::native_slot::register_host(&extension_props, op.tag);
                 Rc::new(Cell::new(point(0.0, 0.0)))
             }),
-            extension_props: std::sync::Arc::new(crate::extensions::parse_extension_props(
-                &op.extension_props_json,
-            )),
+            extension_props_hash: json_hash(&op.extension_props_json),
             native_surface: None,
             renders_native_surface,
             native_surface_descendants: u32::from(renders_native_surface),
@@ -1140,11 +1277,7 @@ impl RNNodeView {
             intrinsic_size: None,
             host_reports,
             surface_origin: crate::surface::SurfaceOrigin::default(),
-            frame: if crate::extensions::component_portal(
-                &op.component,
-                &crate::extensions::parse_extension_props(&op.extension_props_json),
-            )
-            .is_some()
+            frame: if crate::extensions::component_portal(&op.component, &extension_props).is_some()
             {
                 rn_gpui_sys::ffi::RectF {
                     x: 0.0,
@@ -1155,7 +1288,7 @@ impl RNNodeView {
                 op.frame
             },
             parent_tag_cache: std::rc::Rc::new(std::cell::Cell::new(None)),
-            view: op.view.clone(),
+            view: ViewProps::from(&op.view),
             animated_transform: None,
             animated_background_color: None,
             gradient_cache: None,
@@ -1168,76 +1301,58 @@ impl RNNodeView {
             state_styles: None,
             paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
             // `core-private:` the text-input fields come from the module's own
-            input_text: text_input.text.clone(),
-            input_placeholder: text_input.placeholder.clone(),
-            input_placeholder_mode: text_input.text.is_empty(),
-            input_selection_color: text_input.selection_color,
-            input_text_color: op
-                .paragraph
-                .fragments
-                .first()
-                .map(|fragment| fragment.color)
-                .filter(|color| *color != 0)
-                .unwrap_or(0xff000000),
-            input_multiline: text_input.multiline,
-            input_editable: text_input.editable,
-            input_placeholder_color: crate::builtins::textinput::input::placeholder_color(
-                text_input.placeholder_color,
-            ),
-            input_caret_hidden: text_input.caret_hidden,
-            input_select_on_focus: text_input.select_on_focus,
-            input_submit_behavior: text_input.submit_behavior,
-            input_max_length: text_input.max_length,
-            input_context_menu_hidden: text_input.context_menu_hidden,
-            input_select_all_until: None,
-            input_secure_text: text_input.secure,
-            input_selection: 0..0,
-            input_scroll_x: 0.0,
-            input_scroll_y: 0.0,
+            text_input: (op.component == "TextInput").then(|| {
+                Box::new(crate::builtins::textinput::input::TextInputState {
+                    text: text_input.text.clone(),
+                    placeholder: text_input.placeholder.clone(),
+                    placeholder_mode: text_input.text.is_empty(),
+                    selection_color: text_input.selection_color,
+                    text_color: op
+                        .paragraph
+                        .fragments
+                        .first()
+                        .map(|fragment| fragment.color)
+                        .filter(|color| *color != 0)
+                        .unwrap_or(0xff000000),
+                    multiline: text_input.multiline,
+                    editable: text_input.editable,
+                    placeholder_color: crate::builtins::textinput::input::placeholder_color(
+                        text_input.placeholder_color,
+                    ),
+                    caret_hidden: text_input.caret_hidden,
+                    select_on_focus: text_input.select_on_focus,
+                    submit_behavior: text_input.submit_behavior,
+                    max_length: text_input.max_length,
+                    context_menu_hidden: text_input.context_menu_hidden,
+                    secure_text: text_input.secure,
+                    ..crate::builtins::textinput::input::TextInputState::EMPTY
+                })
+            }),
             text_selection: 0..0,
-            scroll_gesture: Rc::default(),
             text_selection_anchor: None,
-            input_content_size: (0.0, 0.0),
-            input_selection_anchor: None,
-            input_marked: None,
-            input_event_count: 0,
-            caret_visible: false,
             caret_blink_task: Task::ready(()),
             transition: None,
             transition_forward: false,
             transition_progress_sent: None,
             transition_end_refreshed: None,
             // `core-private:` a scroll view starts at the offset the module's
-            scroll_position: Rc::new(Cell::new(point(scroll_initial.0, scroll_initial.1))),
-            scroll: crate::extensions::component_scroll(
-                &op.component,
-                &crate::extensions::parse_extension_props(&op.extension_props_json),
-            ),
-            scroll_indicator: None,
-            scroll_programmatic: Rc::new(Cell::new(false)),
-            scrollbar: crate::scroll_indicator::ScrollbarSpec::default(),
-            scrollbar_tag: None,
-            scrollbar_release: None,
-            scroll_sync_generation: Rc::new(Cell::new(0)),
-            scroll_sync_pending: Rc::new(Cell::new(false)),
+            scroll: scroll.map(Box::new),
             virtual_view_mode: Cell::new(None),
-            scroll_emit: Rc::default(),
-            scroll_handle: gpui::ScrollHandle::new(),
-            scroll_handle_stale: true,
+            scroll_parts,
             focusable: op.view.focusable || op.component == "TextInput",
             pending_text_input_focus: None,
             children: Vec::new(),
             parent: None,
-            cached_style: StyleRefinement::default(),
             renderer_frame: None,
             renderer_decoration: None,
             inherited: Inherited::default(),
             focus_handle: None,
             focus_subscriptions: Vec::new(),
+            extension_props: shared_extension_props(extension_props),
         };
         if view.component == "TextInput" {
-            view.input_selection = crate::builtins::textinput::input::reconcile_selection(
-                &view.input_text,
+            view.input_mut().selection = crate::builtins::textinput::input::reconcile_selection(
+                &view.input().text,
                 0..0,
                 text_input.selection,
                 true,
@@ -1245,7 +1360,6 @@ impl RNNodeView {
             view.sync_input_paragraph();
         }
         view.apply_switch_state();
-        view.cached_style = style::to_refinement(&view.view);
         view.state_styles = style::StateStyles::from_flat(&view.view);
         view.sync_effect_group();
         view
@@ -1278,11 +1392,11 @@ impl RNNodeView {
                     std::sync::Arc::new(gpui::RenderImage::new(vec![image::Frame::new(buffer)]))
                 })
             });
-            self.gradient_cache = Some(GradientCache {
+            self.gradient_cache = Some(Box::new(GradientCache {
                 json: json.clone(),
                 size,
                 image: image.flatten(),
-            });
+            }));
         }
         let image = self.gradient_cache.as_ref()?.image.clone()?;
         let radii = self.view.border_radii;
@@ -1322,22 +1436,19 @@ impl RNNodeView {
     }
 
     pub fn update_from_op(&mut self, op: &MountOp, app: Option<&mut gpui::App>) {
-        self.frame = if crate::extensions::component_portal(
-            &op.component,
-            &crate::extensions::parse_extension_props(&op.extension_props_json),
-        )
-        .is_some()
-        {
-            rn_gpui_sys::ffi::RectF {
-                x: 0.0,
-                y: 0.0,
-                ..op.frame
-            }
-        } else {
-            op.frame
-        };
+        let extension_props = crate::extensions::parse_extension_props(&op.extension_props_json);
+        self.frame =
+            if crate::extensions::component_portal(&op.component, &extension_props).is_some() {
+                rn_gpui_sys::ffi::RectF {
+                    x: 0.0,
+                    y: 0.0,
+                    ..op.frame
+                }
+            } else {
+                op.frame
+            };
         if op.props_changed {
-            self.view = op.view.clone();
+            self.view = ViewProps::from(&op.view);
             self.focusable = op.view.focusable
                 || self.component == "TextInput"
                 || crate::extensions::component_renderer(&self.component)
@@ -1346,7 +1457,6 @@ impl RNNodeView {
                 self.focus_handle = None;
                 self.focus_subscriptions.clear();
             }
-            self.cached_style = style::to_refinement(&self.view);
             self.state_styles = style::StateStyles::from_flat(&self.view);
             self.animated_opacity = false;
             if self.component == "TextInput" {
@@ -1355,19 +1465,19 @@ impl RNNodeView {
         }
         if op.has_paragraph {
             self.paragraph = Some(op.paragraph.clone());
-            if let Some(fragment) = op.paragraph.fragments.first() {
-                if fragment.color != 0 && !self.input_placeholder_mode {
-                    self.input_text_color = fragment.color;
+            if let (Some(fragment), Some(input)) = (
+                op.paragraph.fragments.first(),
+                self.text_input.as_deref_mut(),
+            ) {
+                if fragment.color != 0 && !input.placeholder_mode {
+                    input.text_color = fragment.color;
                 }
             }
         }
         if self.component == "TextInput" {
             self.sync_input_paragraph();
         }
-        if let Some(next) = crate::extensions::component_scroll(
-            &op.component,
-            &crate::extensions::parse_extension_props(&op.extension_props_json),
-        ) {
+        if let Some(next) = crate::extensions::component_scroll(&op.component, &extension_props) {
             if let Some(previous) = &mut self.scroll {
                 previous.content_size = next.content_size;
                 previous.horizontal = next.horizontal;
@@ -1375,17 +1485,14 @@ impl RNNodeView {
                 previous.indicator = next.indicator;
                 previous.snap = next.snap;
             } else {
-                self.scroll = Some(next);
+                self.scroll = Some(Box::new(next));
             }
-            self.scroll_handle_stale = true;
+            self.parts_mut().handle_stale = true;
         }
         self.update_host_component(op, app);
         if op.props_changed {
-            self.extension_props_json
-                .clone_from(&op.extension_props_json);
-            self.extension_props = std::sync::Arc::new(crate::extensions::parse_extension_props(
-                &self.extension_props_json,
-            ));
+            self.extension_props = shared_extension_props(extension_props);
+            self.extension_props_hash = json_hash(&op.extension_props_json);
         }
         self.apply_switch_state();
     }
@@ -1656,8 +1763,11 @@ impl RNNodeView {
     /// Hands Fabric the scroll offset it has not been given yet, so that a
     /// measurement taken now is in the window's coordinates.
     pub(crate) fn flush_scroll_state(&self, host: &crate::host::Host) {
-        if self.scroll_sync_pending.replace(false) {
-            let offset = self.scroll_position.get();
+        let Some(parts) = &self.scroll_parts else {
+            return;
+        };
+        if parts.sync_pending.replace(false) {
+            let offset = parts.position.get();
             host.set_scroll_offset(self.tag, offset.x, offset.y);
         }
     }
@@ -1691,7 +1801,7 @@ impl RNNodeView {
             let node = weak.upgrade()?;
             let node = node.read(cx);
             if let Some(scroll) = &node.scroll {
-                let offset = node.scroll_position.get();
+                let offset = node.scroll_offset();
                 let (x, y) = (
                     self.inherited.origin_unscrolled.0 - node.inherited.origin_unscrolled.0,
                     self.inherited.origin_unscrolled.1 - node.inherited.origin_unscrolled.1,
@@ -1912,7 +2022,11 @@ impl RNNodeView {
         InheritInput {
             origin_frame: self.origin_frame_with_tree(tree),
             transform: self.local_transform(),
-            scroll: self.scroll.is_some().then(|| self.scroll_position.clone()),
+            scroll: self
+                .scroll
+                .as_ref()
+                .and(self.scroll_parts.as_ref())
+                .map(|parts| parts.position.clone()),
             slot_shift: self.slot_shift.clone(),
             accessible: self.view.accessible,
             hides_descendants: self.view.accessibility_hidden
@@ -2389,6 +2503,47 @@ mod accessibility_role_tests {
 pub(crate) struct ScrollLink {
     pub(crate) position: Rc<Cell<Point<f32>>>,
     pub(crate) scale: (f32, f32),
+}
+
+fn json_hash(json: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The component name `name`, shared with every node of that component.
+fn intern_component(name: &str) -> gpui::SharedString {
+    thread_local! {
+        static NAMES: std::cell::RefCell<std::collections::HashSet<gpui::SharedString>> =
+            std::cell::RefCell::default();
+    }
+    NAMES.with_borrow_mut(|names| {
+        if let Some(name) = names.get(name) {
+            return name.clone();
+        }
+        let name = gpui::SharedString::from(name.to_string());
+        names.insert(name.clone());
+        name
+    })
+}
+
+/// A node's parsed extension props, every node without any sharing one `null`.
+fn shared_extension_props(props: serde_json::Value) -> std::sync::Arc<serde_json::Value> {
+    static NULL: std::sync::LazyLock<std::sync::Arc<serde_json::Value>> =
+        std::sync::LazyLock::new(|| std::sync::Arc::new(serde_json::Value::Null));
+    if props.is_null() {
+        NULL.clone()
+    } else {
+        std::sync::Arc::new(props)
+    }
+}
+
+thread_local! {
+    /// The listeners of nodes without a component renderer, one set for each
+    /// key: they take the node they run for, so nodes alike share them.
+    static SHARED_POINTER_HANDLERS: std::cell::RefCell<Vec<(PointerHandlersKey, Rc<PointerHandlers>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// What a node's pointer listeners are built from, besides the node itself.
@@ -2893,11 +3048,14 @@ mod inherited_tests {
 
 impl RNNodeView {
     pub(crate) fn sync_input_paragraph(&mut self) {
-        let show_placeholder = self.input_text.is_empty();
+        let Some(input) = self.text_input.as_deref_mut() else {
+            return;
+        };
+        let show_placeholder = input.text.is_empty();
         let visible = if show_placeholder {
-            &self.input_placeholder
+            &input.placeholder
         } else {
-            &self.input_text
+            &input.text
         };
         let Some(paragraph) = self.paragraph.as_mut() else {
             return;
@@ -2915,9 +3073,9 @@ impl RNNodeView {
                     font_weight: 400,
                     italic: false,
                     color: if show_placeholder {
-                        self.input_placeholder_color
+                        input.placeholder_color
                     } else {
-                        self.input_text_color
+                        input.text_color
                     },
                     line_height: 0.0,
                     letter_spacing: 0.0,
@@ -2929,19 +3087,19 @@ impl RNNodeView {
                 });
         } else {
             paragraph.fragments[0].text.clone_from(visible);
-            if show_placeholder && !self.input_placeholder_mode {
-                self.input_text_color = paragraph.fragments[0].color;
+            if show_placeholder && !input.placeholder_mode {
+                input.text_color = paragraph.fragments[0].color;
             }
             paragraph.fragments[0].color = if show_placeholder {
-                self.input_placeholder_color
-            } else if self.input_placeholder_mode {
-                self.input_text_color
+                input.placeholder_color
+            } else if input.placeholder_mode {
+                input.text_color
             } else {
                 paragraph.fragments[0].color
             };
             paragraph.fragments.truncate(1);
         }
-        self.input_placeholder_mode = show_placeholder;
+        input.placeholder_mode = show_placeholder;
     }
 }
 
@@ -3032,18 +3190,24 @@ impl RNNodeView {
         tag: i32,
         cx: &mut Context<Self>,
     ) {
-        if self.scrollbar_release.as_ref().map(|(id, _)| *id) != Some(bar.entity_id()) {
+        if self
+            .parts_mut()
+            .scrollbar_release
+            .as_ref()
+            .map(|(id, _)| *id)
+            != Some(bar.entity_id())
+        {
             let release = cx.observe_release(bar, |scroll_view, _, cx| {
-                scroll_view.scrollbar = Default::default();
-                scroll_view.scrollbar_tag = None;
-                scroll_view.scrollbar_release = None;
+                scroll_view.parts_mut().scrollbar = Default::default();
+                scroll_view.parts_mut().scrollbar_tag = None;
+                scroll_view.parts_mut().scrollbar_release = None;
                 cx.notify();
             });
-            self.scrollbar_release = Some((bar.entity_id(), release));
+            self.parts_mut().scrollbar_release = Some((bar.entity_id(), release));
         }
-        if self.scrollbar != spec || self.scrollbar_tag != Some(tag) {
-            self.scrollbar = spec;
-            self.scrollbar_tag = Some(tag);
+        if self.parts_mut().scrollbar != spec || self.parts_mut().scrollbar_tag != Some(tag) {
+            self.parts_mut().scrollbar = spec;
+            self.parts_mut().scrollbar_tag = Some(tag);
             cx.notify();
         }
     }
@@ -3113,11 +3277,9 @@ impl Render for RNNodeView {
                 self.render_count
             );
         }
-        let hidden_portal = crate::extensions::component_portal(
-            &self.component,
-            &crate::extensions::parse_extension_props(&self.extension_props_json),
-        )
-        .is_some_and(|portal| !portal.visible);
+        let hidden_portal =
+            crate::extensions::component_portal(&self.component, &self.extension_props)
+                .is_some_and(|portal| !portal.visible);
         let hidden = self.view.display_none || hidden_portal || self.backface_hidden();
         self.show_native_surface(!hidden, window, cx);
         if hidden {
@@ -3195,7 +3357,7 @@ impl Render for RNNodeView {
                 // image fills the parent instead of the node's frame.
                 let mut placed = div().id(self.tag);
                 *placed.style() = {
-                    let mut style = self.cached_style.clone();
+                    let mut style = style::to_refinement(&self.view);
                     style.position = Some(Position::Absolute);
                     style.inset.left = Some(px(base_left).into());
                     style.inset.top = Some(px(base_top).into());
@@ -3345,11 +3507,11 @@ impl Render for RNNodeView {
             element = element.aria_numeric_value(f64::from(self.view.accessibility_value_now));
         }
         if self.component == "TextInput" {
-            if !self.input_placeholder.is_empty() {
-                element = element.aria_placeholder(self.input_placeholder.clone());
+            if !self.input().placeholder.is_empty() {
+                element = element.aria_placeholder(self.input().placeholder.clone());
             }
-            if !self.input_secure_text && !self.input_text.is_empty() {
-                element = element.aria_value(self.input_text.clone());
+            if !self.input().secure_text && !self.input().text.is_empty() {
+                element = element.aria_value(self.input().text.clone());
             }
         }
         if let Some(role) = self.accessibility_role() {
@@ -3394,11 +3556,11 @@ impl Render for RNNodeView {
         let accessibility = self.view.clone();
         #[cfg(feature = "visual-capture")]
         let accessibility_tag = self.tag;
-        let input_editable = self.input_editable;
-        let input_secure_text = self.input_secure_text;
+        let input_editable = self.input().editable;
+        let input_secure_text = self.input().secure_text;
         let is_text_input = self.component == "TextInput";
-        let input_text = self.input_text.clone();
-        let input_placeholder = self.input_placeholder.clone();
+        let input_text = self.input().text.clone();
+        let input_placeholder = self.input().placeholder.clone();
         element = element.a11y_synthetic_children(move |builder| {
             let node = builder.parent_node();
             if accessibility.accessibility_important == 3
@@ -3522,88 +3684,16 @@ impl Render for RNNodeView {
                 }
             }
         });
-        let has_accessibility_focus_target =
-            self.view.accessible || self.accessibility_role().is_some();
+        let has_accessibility_focus_target = self.has_accessibility_focus_target();
+        let deferred_focus =
+            self.focus_handle.is_none() && !accessibility_active && self.defers_focus_handle();
         let mut focus_child = None;
-        if self.focusable
+        if (self.focusable
             || self.view.accessibility_has_escape_listener
-            || has_accessibility_focus_target
+            || has_accessibility_focus_target)
+            && !deferred_focus
         {
-            if self.focus_handle.is_none() {
-                let handle = cx
-                    .focus_handle()
-                    .tab_stop(self.focusable || self.view.accessibility_has_escape_listener)
-                    .tab_index(if self.inherited.in_native_slot {
-                        0
-                    } else {
-                        self.tag as isize
-                    });
-                if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                    let host = store.0.read(cx).host.clone();
-                    let tag = self.tag;
-                    let is_text_input = self.component == "TextInput";
-                    let focused_host = host.clone();
-                    self.focus_subscriptions.push(cx.on_focus(
-                        &handle,
-                        window,
-                        move |this, window, cx| {
-                            if is_text_input {
-                                this.start_caret_blink(cx);
-                                if this.input_select_on_focus {
-                                    this.input_select_all_until = Some(
-                                        std::time::Instant::now()
-                                            + std::time::Duration::from_millis(300),
-                                    );
-                                    cx.defer_in(window, |this, window, cx| {
-                                        crate::builtins::textinput::input::select_all(
-                                            this, window, cx,
-                                        );
-                                    });
-                                }
-                            }
-                            focused_host.dispatch_event(
-                                tag,
-                                if is_text_input { "topFocus" } else { "focus" },
-                                &serde_json::json!({
-                                    "focusVisible": window.last_input_was_keyboard(),
-                                }),
-                            );
-                            if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                                store.0.read(cx).frame_hook.arm(window);
-                            }
-                        },
-                    ));
-                    self.focus_subscriptions.push(cx.on_blur(
-                        &handle,
-                        window,
-                        move |this, window, cx| {
-                            if is_text_input {
-                                this.stop_caret_blink();
-                                cx.notify();
-                            }
-                            if is_text_input {
-                                host.dispatch_event(
-                                    tag,
-                                    "topEndEditing",
-                                    &serde_json::json!({
-                                        "text": this.input_text,
-                                        "eventCount": this.input_event_count,
-                                    }),
-                                );
-                            }
-                            host.dispatch_event(
-                                tag,
-                                if is_text_input { "topBlur" } else { "blur" },
-                                &serde_json::json!({}),
-                            );
-                            if let Some(store) = cx.try_global::<crate::store::StoreGlobal>() {
-                                store.0.read(cx).frame_hook.arm(window);
-                            }
-                        },
-                    ));
-                }
-                self.focus_handle = Some(handle);
-            }
+            self.ensure_focus_handle(window, cx);
             self.set_accessibility_tab_stop_allowed(
                 !hidden_by_active_modal
                     && !hidden_by_modal_sibling
@@ -3872,12 +3962,10 @@ impl Render for RNNodeView {
                 );
             }
         }
-        if let Some(close_event) = crate::extensions::component_portal(
-            &self.component,
-            &crate::extensions::parse_extension_props(&self.extension_props_json),
-        )
-        .filter(|portal| portal.visible)
-        .and_then(|portal| portal.close_request_event)
+        if let Some(close_event) =
+            crate::extensions::component_portal(&self.component, &self.extension_props)
+                .filter(|portal| portal.visible)
+                .and_then(|portal| portal.close_request_event)
         {
             element =
                 element.on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
@@ -3956,7 +4044,7 @@ impl Render for RNNodeView {
         let mut blend = gpui::BlendMode::Normal;
         let mut isolated = false;
         *element.style() = {
-            let mut style = self.cached_style.clone();
+            let mut style = style::to_refinement(&self.view);
             if let Some(color) = self.animated_background_color {
                 style.background = Some(Fill::from(style::color(color)));
             }
@@ -4019,10 +4107,10 @@ impl Render for RNNodeView {
                 .style()
                 .refine(&state.refinement((scale_x, scale_y), animating));
         }
-        // The listeners live on a `pointer_area` child, not on the node's own div: a
-        // div with a hitbox records a hover read while painting, which makes a scroll
-        // under a still pointer rebuild every row. It is the first child so its
-        // hitbox and handlers keep the order the node's own div would give them.
+        // The listeners live on a `PointerArea` around the node's div, not on the div
+        // itself: a div with a hitbox records a hover read while painting, which makes
+        // a scroll under a still pointer rebuild every row. It shares the div's layout
+        // node and inserts its hitbox before the div's children insert theirs.
         // The window-control area a press here lands in: the bar of a title bar,
         // or one of its caption buttons. On Windows a left press there belongs to
         // the OS: the hit-test answered `HTCAPTION` (or a caption button), and
@@ -4033,6 +4121,7 @@ impl Render for RNNodeView {
         let os_owns_press = cfg!(target_os = "windows") && control_area.is_some();
         let handlers = self.pointer_handlers(control_area, os_owns_press, cx);
         let claims_area = control_area.is_some();
+        let node = cx.entity().downgrade();
         if is_scroll || claims_area {
             // The direct-listener path needs one registration per button, and
             // the middle and side buttons go through it too, so a scroll
@@ -4055,38 +4144,37 @@ impl Render for RNNodeView {
                 ),
             ] {
                 for handler in down {
-                    element = element
-                        .on_mouse_down(button, move |event, window, cx| handler(event, window, cx));
+                    let node = node.clone();
+                    element = element.on_mouse_down(button, move |event, window, cx| {
+                        handler(&node, event, window, cx)
+                    });
                 }
                 for handler in up {
-                    element = element
-                        .on_mouse_up(button, move |event, window, cx| handler(event, window, cx));
+                    let node = node.clone();
+                    element = element.on_mouse_up(button, move |event, window, cx| {
+                        handler(&node, event, window, cx)
+                    });
                 }
             }
             for handler in handlers.mouse_move.iter().cloned() {
-                element =
-                    element.on_mouse_move(move |event, window, cx| handler(event, window, cx));
+                let node = node.clone();
+                element = element
+                    .on_mouse_move(move |event, window, cx| handler(&node, event, window, cx));
             }
             // GPUI's own `on_hover` reports an edge by tracking the hovered state
             // itself, so this path needs no bookkeeping of its own — and it takes
             // only one listener, so the handlers are chained rather than added.
             if !handlers.hover.is_empty() {
                 let chained = handlers.hover.clone();
+                let node = node.clone();
                 element = element.on_hover(move |hovered: &bool, window, cx| {
                     for handler in &chained {
-                        handler(*hovered, window, cx);
+                        handler(&node, *hovered, window, cx);
                     }
                 });
             }
-        } else {
-            if !handlers.is_empty() {
-                element = element.child(pointer_area(
-                    handlers,
-                    self.view.hit_slop,
-                    crate::style::cursor_style(self.view.cursor),
-                ));
-            }
         }
+        let pointer_area = (!is_scroll && !claims_area && !handlers.is_empty()).then_some(handlers);
         // Not for a scroll container, which never had one: its content is
         // re-parented into the scrolling child and a focus handle here would sit
         // outside it.
@@ -4103,6 +4191,7 @@ impl Render for RNNodeView {
         if let Some(gradient) = self.gradient_element(frame, (scale_x, scale_y)) {
             element = element.child(gradient);
         }
+        let mut text_overlay = None;
         if let Some(paragraph) = &self.paragraph {
             let mut scaled_paragraph = paragraph.clone();
             scaled_paragraph.shadow_dx *= scale_x;
@@ -4127,13 +4216,25 @@ impl Render for RNNodeView {
                     window,
                 );
             } else {
-                element = crate::builtins::textinput::render::plain_paragraph(
+                // Painted by a wrapper rather than a child canvas, so the text costs
+                // no layout node, unless the div does more to its children than the
+                // wrapper can: hide them, fade them, or clip them to rounded corners.
+                let radii = self.view.border_radii;
+                let clip = decoration.clip || self.view.overflow_hidden;
+                let overlay = (!clip
+                    || (radii.tl <= 0.0 && radii.tr <= 0.0 && radii.br <= 0.0 && radii.bl <= 0.0))
+                    && element.style().display != Some(Display::None)
+                    && element.style().opacity.is_none_or(|opacity| opacity >= 1.0);
+                let (with_text, overlay) = crate::builtins::textinput::render::plain_paragraph(
                     self,
                     element,
                     &scaled_paragraph,
                     (scale_x, scale_y),
                     frame,
+                    overlay,
                 );
+                element = with_text;
+                text_overlay = overlay.map(|parts| (parts, clip));
             }
         }
         // `core-private:` the caret and the selection are drawn from the
@@ -4155,11 +4256,11 @@ impl Render for RNNodeView {
             content = content.children(Self::child_elements(&ordered_children, has_native, cx));
             // The handle is only written when React or a layout change moved
             // the offset. Writing it on every render would count as a scroll.
-            if std::mem::take(&mut self.scroll_handle_stale) {
-                self.scroll_handle.set_offset(point(
-                    px(-self.scroll_offset().x * scale_x),
-                    px(-self.scroll_offset().y * scale_y),
-                ));
+            if std::mem::take(&mut self.parts_mut().handle_stale) {
+                let offset = self.scroll_offset();
+                self.parts_mut()
+                    .handle
+                    .set_offset(point(px(-offset.x * scale_x), px(-offset.y * scale_y)));
             }
             let strategy = crate::scroll_layers::scroll_strategy(
                 self.subtree_renders_native_surface() || self.subtree_forms_effect_group(),
@@ -4180,11 +4281,11 @@ impl Render for RNNodeView {
             if scroll.enabled {
                 let scroller = Rc::new(Scroller {
                     tag: self.tag,
-                    position: self.scroll_position.clone(),
-                    handle: self.scroll_handle.clone(),
-                    sync_generation: self.scroll_sync_generation.clone(),
-                    sync_pending: self.scroll_sync_pending.clone(),
-                    emit: self.scroll_emit.clone(),
+                    position: self.parts_mut().position.clone(),
+                    handle: self.parts_mut().handle.clone(),
+                    sync_generation: self.parts_mut().sync_generation.clone(),
+                    sync_pending: self.parts_mut().sync_pending.clone(),
+                    emit: self.parts_mut().emit.clone(),
                     event_throttle: std::time::Duration::from_secs_f32(
                         scroll.event_throttle_ms.max(0.0) / 1000.0,
                     ),
@@ -4194,7 +4295,7 @@ impl Render for RNNodeView {
                     event: scroll.event.clone(),
                     horizontal: scroll.horizontal,
                     snap: scroll.snap.clone(),
-                    gesture: self.scroll_gesture.clone(),
+                    gesture: self.parts_mut().gesture.clone(),
                     deceleration: scroll.deceleration,
                     max_offset: manual_extents.map(|(_, max)| max),
                 });
@@ -4228,10 +4329,11 @@ impl Render for RNNodeView {
                         scroller.overflow_y_scroll().overflow_x_hidden()
                     };
                     scroller = scroller.restrict_scroll_to_axis();
-                    element = element
-                        .overflow_hidden()
-                        .overflow_clips_corners()
-                        .child(scroller.track_scroll(&self.scroll_handle).child(content));
+                    element = element.overflow_hidden().overflow_clips_corners().child(
+                        scroller
+                            .track_scroll(&self.parts_mut().handle)
+                            .child(content),
+                    );
                 }
                 crate::scroll_layers::ScrollStrategy::ManualOffset => {
                     let (offset_x, offset_y) = (self.scroll_offset().x, self.scroll_offset().y);
@@ -4249,8 +4351,8 @@ impl Render for RNNodeView {
                             (scroll.content_size.0 - frame.w).max(0.0),
                             (scroll.content_size.1 - frame.h).max(0.0),
                         );
-                        let position = self.scroll_position.clone();
-                        let handle = self.scroll_handle.clone();
+                        let position = self.parts_mut().position.clone();
+                        let handle = self.parts_mut().handle.clone();
                         let scale = (scale_x, scale_y);
                         let view = cx.entity();
                         scroller =
@@ -4291,13 +4393,14 @@ impl Render for RNNodeView {
             if scroll.indicator && scroll.enabled {
                 let horizontal = scroll.horizontal;
                 if self
-                    .scroll_indicator
+                    .parts_mut()
+                    .indicator
                     .as_ref()
                     .is_none_or(|indicator| indicator.read(cx).horizontal() != horizontal)
                 {
-                    let handle = self.scroll_handle.clone();
-                    let programmatic = self.scroll_programmatic.clone();
-                    self.scroll_indicator = Some(cx.new(|_| {
+                    let handle = self.parts_mut().handle.clone();
+                    let programmatic = self.parts_mut().programmatic.clone();
+                    self.parts_mut().indicator = Some(cx.new(|_| {
                         crate::scroll_indicator::ScrollIndicator::new(
                             handle,
                             horizontal,
@@ -4305,9 +4408,10 @@ impl Render for RNNodeView {
                         )
                     }));
                 }
-                if let (Some(indicator), Some(apply)) = (&self.scroll_indicator, thumb_apply) {
-                    let (tag, bar_tag, position) =
-                        (self.tag, self.scrollbar_tag, self.scroll_position.clone());
+                let tag = self.tag;
+                let parts = self.parts_mut();
+                if let (Some(indicator), Some(apply)) = (parts.indicator.clone(), thumb_apply) {
+                    let (bar_tag, position) = (parts.scrollbar_tag, parts.position.clone());
                     let emit: crate::scroll_indicator::EmitEvent = Rc::new(move |event, cx| {
                         let Some(store) = cx.try_global::<crate::store::StoreGlobal>() else {
                             return;
@@ -4325,14 +4429,14 @@ impl Render for RNNodeView {
                             host.dispatch_event(bar_tag, &thumb, &payload);
                         }
                     });
-                    let spec = self.scrollbar.clone();
+                    let spec = parts.scrollbar.clone();
                     indicator.update(cx, |indicator, _| {
                         indicator.configure(spec, apply, emit, manual_extents)
                     });
                 }
-                element = element.children(self.scroll_indicator.clone());
+                element = element.children(self.parts_mut().indicator.clone());
             } else {
-                self.scroll_indicator = None;
+                self.parts_mut().indicator = None;
             }
         } else if self.host_component.is_some() {
             let chrome_cx = self.host_context();
@@ -4382,26 +4486,26 @@ impl Render for RNNodeView {
             } else {
                 element = element.children(painted);
             }
-            if self.component == "TextInput" && self.input_multiline {
+            if self.component == "TextInput" && self.input().multiline {
                 element = element.on_scroll(cx.listener(
                     |this, event: &gpui::ScrollEvent, _window, cx| {
                         let delta = match &event.delta {
                             gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y),
                             gpui::ScrollDelta::Lines(lines) => lines.y * 40.0,
                         };
-                        let before = this.input_scroll_y;
+                        let before = this.input().scroll_y;
                         crate::builtins::textinput::input::scroll_input_to(
                             this,
                             before - delta,
                             cx,
                         );
-                        if this.input_scroll_y != before {
+                        if this.input().scroll_y != before {
                             cx.stop_propagation();
                         }
                     },
                 ));
             }
-            if self.component == "TextInput" && !self.input_multiline {
+            if self.component == "TextInput" && !self.input().multiline {
                 element = element.on_scroll(cx.listener(
                     |this, event: &gpui::ScrollEvent, window, cx| {
                         let delta = match &event.delta {
@@ -4429,7 +4533,7 @@ impl Render for RNNodeView {
                             .paragraph
                             .as_ref()
                             .map(|paragraph| {
-                                let line = this.input_text.split('\n').next().unwrap_or_default();
+                                let line = this.input().text.split('\n').next().unwrap_or_default();
                                 crate::text::input_caret_x(
                                     window.text_system(),
                                     paragraph,
@@ -4439,9 +4543,9 @@ impl Render for RNNodeView {
                             })
                             .unwrap_or(0.0);
                         let max_offset = (natural_width - viewport).max(0.0);
-                        let next = (this.input_scroll_x - delta).clamp(0.0, max_offset);
-                        if (next - this.input_scroll_x).abs() > f32::EPSILON {
-                            this.input_scroll_x = next;
+                        let next = (this.input().scroll_x - delta).clamp(0.0, max_offset);
+                        if (next - this.input().scroll_x).abs() > f32::EPSILON {
+                            this.input_mut().scroll_x = next;
                             cx.notify();
                             cx.stop_propagation();
                         }
@@ -4698,7 +4802,25 @@ impl Render for RNNodeView {
                 ));
             }
         }
-        let element = element.children(outline_rules).into_any_element();
+        let element = element.children(outline_rules);
+        let element = match text_overlay {
+            Some(((painter, offset, size), clip)) => {
+                crate::text::ParagraphOverlay::new(element, painter, offset, size, clip)
+                    .into_any_element()
+            }
+            None => element.into_any_element(),
+        };
+        let element = match pointer_area {
+            Some(handlers) => PointerArea::new(
+                element,
+                node,
+                handlers,
+                self.view.hit_slop,
+                crate::style::cursor_style(self.view.cursor),
+            )
+            .into_any_element(),
+            None => element.into_any_element(),
+        };
         let element = match self.gpui_transform((scale_x, scale_y)) {
             Some(matrix) => crate::transform::Transformed::new(element, matrix).into_any_element(),
             None => element,
@@ -4893,7 +5015,7 @@ mod host_component_node_tests {
                 h: 10.0,
             },
             props_changed: true,
-            view: ViewPropsFlat::default(),
+            view: rn_gpui_sys::ffi::ViewPropsFlat::default(),
             extension_props_json: String::new(),
             host_index: index,
             host_props_handle: 0,
@@ -5215,6 +5337,18 @@ impl RNNodeView {
                 return handlers.clone();
             }
         }
+        if cacheable {
+            let shared = SHARED_POINTER_HANDLERS.with_borrow(|shared| {
+                shared
+                    .iter()
+                    .find(|(shared_key, _)| *shared_key == key)
+                    .map(|(_, handlers)| handlers.clone())
+            });
+            if let Some(handlers) = shared {
+                self.pointer_handlers = Some((key, handlers.clone()));
+                return handlers;
+            }
+        }
         let mut handlers = PointerHandlers::default();
         // A component renderer that asked for input gets it through the same
         // handlers the View props use, so ordering with RN's touch handling and
@@ -5247,7 +5381,7 @@ impl RNNodeView {
                 let down_node = cx.entity().downgrade();
                 let down_component = node.clone();
                 let handler: crate::pointer_area::PointerHandler<MouseDownEvent> =
-                    Rc::new(move |event: &MouseDownEvent, window, cx| {
+                    Rc::new(move |_: &Node, event: &MouseDownEvent, window, cx| {
                         run_component_hook(
                             &down_node,
                             &down_component,
@@ -5271,7 +5405,7 @@ impl RNNodeView {
                 let up_node = cx.entity().downgrade();
                 let up_component = node.clone();
                 let handler: crate::pointer_area::PointerHandler<MouseUpEvent> =
-                    Rc::new(move |event: &MouseUpEvent, window, cx| {
+                    Rc::new(move |_: &Node, event: &MouseUpEvent, window, cx| {
                         run_component_hook(
                             &up_node,
                             &up_component,
@@ -5300,7 +5434,7 @@ impl RNNodeView {
                 let hover_component = node;
                 handlers
                     .hover
-                    .push(Rc::new(move |hovered: bool, window, cx| {
+                    .push(Rc::new(move |_: &Node, hovered: bool, window, cx| {
                         let Some(entity) = hover_node.upgrade() else {
                             return;
                         };
@@ -5351,11 +5485,14 @@ impl RNNodeView {
                 crate::events::POINTER_EVENTS_NONE | crate::events::POINTER_EVENTS_BOX_NONE
             )
         {
-            let node = cx.entity().downgrade();
-            let down_node = node.clone();
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+            handlers.left_down.push(Rc::new(
+                move |down_node: &Node, event: &MouseDownEvent, window, cx| {
+                    // Ctrl + click is the macOS equivalent of a right click. It is a
+                    // left press, so it must not also start a touch, or a `Pressable`
+                    // would fire; the check happens before any touch dispatch.
+                    if ctrl_click_context_menu(down_node, event, os_owns_press, window, cx) {
+                        return;
+                    }
                     // No touch either: the release never comes back once the OS
                     // has taken the press into its move loop. The ancestors this
                     // press bubbles to are told, so none of them starts one.
@@ -5369,11 +5506,10 @@ impl RNNodeView {
                     let Some(node) = down_node.upgrade() else {
                         return;
                     };
-                    let (target, focus_handle, is_text_input, selectable_text) = {
+                    let (target, is_text_input, selectable_text) = {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
-                            this.nearest_focus_handle(cx),
                             this.component == "TextInput",
                             crate::builtins::text_select::is_selectable(this),
                         )
@@ -5393,7 +5529,7 @@ impl RNNodeView {
                     let Some(target) = target else {
                         return;
                     };
-                    if let Some(handle) = focus_handle {
+                    if let Some(handle) = RNNodeView::press_focus_handle(&node, window, cx) {
                         window.focus(&handle, cx);
                     }
                     if is_text_input {
@@ -5426,16 +5562,15 @@ impl RNNodeView {
                     } else {
                         cx.stop_propagation();
                     }
-                }));
+                },
+            ));
             // Every other button reports the DOM pointer events only, with no
             // touch or responder involvement, so `Pressable` never fires for a
             // middle or right click. The right button is only wired here when the
             // view has no `onContextMenu`, since that handler owns the press
             // otherwise and stopping there would hide the pointer event too.
-            let middle_node = node.clone();
-            handlers
-                .middle_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+            handlers.middle_down.push(Rc::new(
+                move |middle_node: &Node, event: &MouseDownEvent, window, cx| {
                     dispatch_pointer_button(
                         &middle_node,
                         event,
@@ -5443,11 +5578,10 @@ impl RNNodeView {
                         window,
                         cx,
                     );
-                }));
-            let middle_up_node = node.clone();
-            handlers
-                .middle_up
-                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                },
+            ));
+            handlers.middle_up.push(Rc::new(
+                move |middle_up_node: &Node, event: &MouseUpEvent, window, cx| {
                     dispatch_pointer_release(
                         &middle_up_node,
                         event,
@@ -5455,11 +5589,10 @@ impl RNNodeView {
                         window,
                         cx,
                     );
-                }));
-            let right_up_node = node.clone();
-            handlers
-                .right_up
-                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                },
+            ));
+            handlers.right_up.push(Rc::new(
+                move |right_up_node: &Node, event: &MouseUpEvent, window, cx| {
                     dispatch_pointer_release(
                         &right_up_node,
                         event,
@@ -5467,75 +5600,23 @@ impl RNNodeView {
                         window,
                         cx,
                     );
-                }));
+                },
+            ));
             // Every node that takes pointer input handles the right button, whether
             // or not it owns a context menu. One press must do both jobs: report
             // `topPointerDown` for the innermost node, and open the nearest
             // ancestor's menu. Splitting them across two nodes is what broke a
             // right click on a `Text` inside a view with `onContextMenu` — the
             // text's listener stopped the press before the parent's ran.
-            let right_node = node.clone();
-            handlers
-                .right_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+            handlers.right_down.push(Rc::new(
+                move |right_node: &Node, event: &MouseDownEvent, window, cx| {
                     dispatch_right_press(&right_node, event, window, cx);
-                }));
-            // Ctrl + click is the macOS equivalent of a right click. It is a left
-            // press, so it must not also start a touch, or a `Pressable` would
-            // fire; the check happens before any touch dispatch.
-            let ctrl_node = node.clone();
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
-                    if os_owns_press || crate::events::press_belongs_to_window() {
-                        return;
-                    }
-                    let modifiers = modifier_state(event.modifiers);
-                    if crate::events::mouse_context_menu_trigger(
-                        crate::events::Button::Left,
-                        modifiers,
-                        std::env::consts::OS,
-                    )
-                    .is_none()
-                    {
-                        return;
-                    }
-                    let Some(entity) = ctrl_node.upgrade() else {
-                        return;
-                    };
-                    let owner = {
-                        let this = entity.read(cx);
-                        crate::events::context_menu_owner(cx, this)
-                    };
-                    let Some(owner) = owner else {
-                        return;
-                    };
-                    if !run_component_context_menu(
-                        &owner,
-                        event.position,
-                        false,
-                        modifiers,
-                        window,
-                        cx,
-                    ) {
-                        dispatch_context_menu(
-                            owner.tag,
-                            event.position,
-                            crate::events::Button::Left,
-                            modifiers,
-                            "mouse",
-                            window,
-                            cx,
-                        );
-                    }
-                    cx.stop_propagation();
-                }));
+                },
+            ));
             // Not `cx.listener`: a listener updates its entity every time it runs, and
             // gpui-fast rebuilds any view that read an updated entity.
-            let move_node = node.clone();
-            handlers
-                .mouse_move
-                .push(Rc::new(move |event: &MouseMoveEvent, window, cx| {
+            handlers.mouse_move.push(Rc::new(
+                move |move_node: &Node, event: &MouseMoveEvent, window, cx| {
                     let Some(node) = move_node.upgrade() else {
                         return;
                     };
@@ -5543,7 +5624,8 @@ impl RNNodeView {
                         let this = node.read(cx);
                         (
                             crate::events::target(cx, this),
-                            this.component == "TextInput" && this.input_selection_anchor.is_some(),
+                            this.component == "TextInput"
+                                && this.input().selection_anchor.is_some(),
                             this.text_selection_anchor.is_some(),
                         )
                     };
@@ -5602,10 +5684,10 @@ impl RNNodeView {
                     if hit_target.is_some() || crate::events::active_touch_target(cx).is_some() {
                         cx.stop_propagation();
                     }
-                }));
-            handlers
-                .left_up
-                .push(Rc::new(move |event: &MouseUpEvent, window, cx| {
+                },
+            ));
+            handlers.left_up.push(Rc::new(
+                move |node: &Node, event: &MouseUpEvent, window, cx| {
                     // The release of a caption button is what the OS acts on.
                     if os_owns_press {
                         crate::events::hand_press_to_window();
@@ -5651,7 +5733,8 @@ impl RNNodeView {
                             cx.stop_propagation();
                         }
                     }
-                }));
+                },
+            ));
         }
         // Registered after every other press handler, which GPUI runs in reverse
         // order: this one has to see the press before a touch or a context menu
@@ -5661,16 +5744,16 @@ impl RNNodeView {
         // macOS and Linux do not consult the hit-test, so the move starts here.
         // Windows moves the window itself from the `HTCAPTION` press.
         if control_area == Some(gpui::WindowControlArea::Drag) && !os_owns_press {
-            handlers
-                .left_down
-                .push(Rc::new(move |event: &MouseDownEvent, window, cx| {
+            handlers.left_down.push(Rc::new(
+                move |_: &Node, event: &MouseDownEvent, window, cx| {
                     if event.click_count >= 2 {
                         window.titlebar_double_click();
                     } else {
                         window.start_window_move();
                     }
                     cx.stop_propagation();
-                }));
+                },
+            ));
         }
         handlers.left_down.extend(late_left_down);
         handlers.left_up.extend(late_left_up);
@@ -5689,8 +5772,8 @@ impl RNNodeView {
                 .into_iter()
                 .map(
                     |handler| -> crate::pointer_area::PointerHandler<MouseDownEvent> {
-                        Rc::new(move |event: &MouseDownEvent, window, cx| {
-                            handler(event, window, cx);
+                        Rc::new(move |node: &Node, event: &MouseDownEvent, window, cx| {
+                            handler(node, event, window, cx);
                             cx.propagate();
                         })
                     },
@@ -5701,8 +5784,8 @@ impl RNNodeView {
                 .into_iter()
                 .map(
                     |handler| -> crate::pointer_area::PointerHandler<MouseUpEvent> {
-                        Rc::new(move |event: &MouseUpEvent, window, cx| {
-                            handler(event, window, cx);
+                        Rc::new(move |node: &Node, event: &MouseUpEvent, window, cx| {
+                            handler(node, event, window, cx);
                             cx.propagate();
                         })
                     },
@@ -5710,7 +5793,10 @@ impl RNNodeView {
                 .collect();
         }
         let handlers = Rc::new(handlers);
-        self.pointer_handlers = cacheable.then(|| (key, handlers.clone()));
+        if cacheable {
+            SHARED_POINTER_HANDLERS.with_borrow_mut(|shared| shared.push((key, handlers.clone())));
+            self.pointer_handlers = Some((key, handlers.clone()));
+        }
         handlers
     }
 
@@ -5749,7 +5835,9 @@ impl RNNodeView {
     }
 
     pub fn scroll_offset(&self) -> Point<f32> {
-        self.scroll_position.get()
+        self.scroll_parts
+            .as_ref()
+            .map_or_else(Point::default, |parts| parts.position.get())
     }
 
     /// `maintainVisibleContentPosition`: the first index kept in place, and the
@@ -5769,7 +5857,7 @@ impl RNNodeView {
     /// viewport, with its start along the scroll axis.
     pub(crate) fn visible_anchor(&self, min_index: usize, cx: &App) -> Option<(i32, f32)> {
         let horizontal = self.scroll.as_ref()?.horizontal;
-        let offset = self.scroll_position.get();
+        let offset = self.scroll_offset();
         let start = if horizontal { offset.x } else { offset.y };
         let (_, content) = self.children.first()?;
         let content = content.read(cx);
@@ -5815,7 +5903,7 @@ impl RNNodeView {
             return;
         }
         let horizontal = self.scroll.as_ref().is_some_and(|scroll| scroll.horizontal);
-        let current = self.scroll_position.get();
+        let current = self.scroll_offset();
         let along = if horizontal { current.x } else { current.y };
         let max = self.max_scroll();
         let max = if horizontal { max.0 } else { max.1 };
@@ -5843,8 +5931,9 @@ impl RNNodeView {
 
     /// Whether this scroll view's thumb is shown right now, for the test driver.
     pub(crate) fn scroll_indicator_shown(&self, cx: &App) -> bool {
-        self.scroll_indicator
+        self.scroll_parts
             .as_ref()
+            .and_then(|parts| parts.indicator.as_ref())
             .is_some_and(|indicator| indicator.read(cx).shown())
     }
 
@@ -5864,7 +5953,7 @@ impl RNNodeView {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(true)
         };
-        let current = self.scroll_position.get();
+        let current = self.scroll_offset();
         let max = self.max_scroll();
         let (target, animated) = match name {
             "scrollTo" => (
@@ -5883,7 +5972,7 @@ impl RNNodeView {
                 flag(0),
             ),
             "flashScrollIndicators" => {
-                if let Some(indicator) = self.scroll_indicator.clone() {
+                if let Some(indicator) = self.parts_mut().indicator.clone() {
                     indicator.update(cx, |indicator, cx| indicator.flash(cx));
                 }
                 return true;
@@ -5910,18 +5999,18 @@ impl RNNodeView {
     ) {
         const STEPS: u32 = 10;
         let generation = {
-            let mut gesture = self.scroll_gesture.borrow_mut();
+            let mut gesture = self.parts_mut().gesture.borrow_mut();
             gesture.generation += 1;
             gesture.generation
         };
-        let from = self.scroll_position.get();
+        let from = self.parts_mut().position.get();
         if !animated || (from.x - target.x).abs() + (from.y - target.y).abs() < 0.5 {
-            self.scroll_programmatic.set(true);
+            self.parts_mut().programmatic.set(true);
             self.set_scroll_offset(target, &host, cx);
             return;
         }
-        let programmatic = self.scroll_programmatic.clone();
-        let gesture = self.scroll_gesture.clone();
+        let programmatic = self.parts_mut().programmatic.clone();
+        let gesture = self.parts_mut().gesture.clone();
         cx.spawn(async move |this, cx| {
             for step in 1..=STEPS {
                 cx.background_executor()
@@ -5954,8 +6043,8 @@ impl RNNodeView {
         host: &crate::host::Host,
         cx: &mut Context<Self>,
     ) {
-        self.scroll_position.set(offset);
-        self.scroll_handle_stale = true;
+        self.parts_mut().position.set(offset);
+        self.parts_mut().handle_stale = true;
         cx.notify();
         let host = host.clone();
         let content = self.scroll.as_ref().map_or((0.0, 0.0), |s| s.content_size);
@@ -5971,15 +6060,15 @@ impl RNNodeView {
                 }),
             );
         }
-        let generation = self.scroll_sync_generation.get() + 1;
-        self.scroll_sync_generation.set(generation);
-        self.scroll_sync_pending.set(true);
+        let generation = self.parts_mut().sync_generation.get() + 1;
+        self.parts_mut().sync_generation.set(generation);
+        self.parts_mut().sync_pending.set(true);
         if let Some(event) = self.scroll.as_ref().and_then(|s| s.event.clone()) {
             let (host, tag, viewport) = (host.clone(), self.tag, (self.frame.w, self.frame.h));
             report_rest(
                 cx,
-                self.scroll_sync_generation.clone(),
-                self.scroll_position.clone(),
+                self.parts_mut().sync_generation.clone(),
+                self.parts_mut().position.clone(),
                 move |offset| {
                     host.dispatch_event(tag, &event, &scroll_payload(offset, content, viewport))
                 },
@@ -5987,9 +6076,9 @@ impl RNNodeView {
         }
         let (tag, position, sync_generation, pending) = (
             self.tag,
-            self.scroll_position.clone(),
-            self.scroll_sync_generation.clone(),
-            self.scroll_sync_pending.clone(),
+            self.parts_mut().position.clone(),
+            self.parts_mut().sync_generation.clone(),
+            self.parts_mut().sync_pending.clone(),
         );
         cx.spawn(async move |_, cx| {
             cx.background_executor()
@@ -6057,8 +6146,13 @@ impl RNNodeView {
         )
     }
 
-    pub(crate) fn extension_props_json(&self) -> &str {
-        &self.extension_props_json
+    pub(crate) fn extension_props(&self) -> &serde_json::Value {
+        &self.extension_props
+    }
+
+    /// Whether `json` is the extension props this node was last given.
+    pub(crate) fn has_extension_props_json(&self, json: &str) -> bool {
+        self.extension_props_hash == json_hash(json)
     }
 
     /// The window-control area a press on this node lands in, if any.
@@ -6153,7 +6247,7 @@ impl RNNodeView {
 
     pub(crate) fn component_node_shallow(&self) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
-            component: self.component.clone(),
+            component: self.component.to_string(),
             tag: self.tag,
             frame: self.frame,
             scale: (self.inherited.scale.0.abs(), self.inherited.scale.1.abs()),
@@ -6206,7 +6300,7 @@ impl RNNodeView {
 
     pub(crate) fn component_node(&self, cx: &App) -> crate::extensions::ComponentNode {
         crate::extensions::ComponentNode {
-            component: self.component.clone(),
+            component: self.component.to_string(),
             tag: self.tag,
             frame: self.frame,
             scale: (self.inherited.scale.0.abs(), self.inherited.scale.1.abs()),
@@ -6235,6 +6329,57 @@ struct GradientCache {
 /// The longest side, in pixels, a gradient is drawn at before the renderer
 /// scales it up to the box.
 const GRADIENT_RASTER_LIMIT: u32 = 512;
+
+/// What a scroll view keeps besides its spec.
+struct ScrollParts {
+    /// Outside the entity so a scroll can move it without updating this view:
+    /// gpui-fast rebuilds every view that read an updated entity.
+    position: Rc<Cell<Point<f32>>>,
+    indicator: Option<Entity<crate::scroll_indicator::ScrollIndicator>>,
+    programmatic: Rc<Cell<bool>>,
+    /// The settings of the `ScrollBar` inside this scroll view and the tag its
+    /// events go out on, handed over by that node when it renders.
+    scrollbar: crate::scroll_indicator::ScrollbarSpec,
+    scrollbar_tag: Option<i32>,
+    scrollbar_release: Option<(gpui::EntityId, Subscription)>,
+    sync_generation: Rc<Cell<u64>>,
+    /// Whether Fabric's copy of the offset is behind the node's own.
+    sync_pending: Rc<Cell<bool>>,
+    /// When the last scroll event went out, and whether one is waiting for the
+    /// throttle to pass.
+    emit: Rc<ScrollEmit>,
+    handle: gpui::ScrollHandle,
+    handle_stale: bool,
+    gesture: Rc<std::cell::RefCell<ScrollGesture>>,
+}
+
+impl ScrollParts {
+    fn at(position: Point<f32>) -> Self {
+        Self {
+            position: Rc::new(Cell::new(position)),
+            indicator: None,
+            programmatic: Rc::new(Cell::new(false)),
+            scrollbar: crate::scroll_indicator::ScrollbarSpec::default(),
+            scrollbar_tag: None,
+            scrollbar_release: None,
+            sync_generation: Rc::new(Cell::new(0)),
+            sync_pending: Rc::new(Cell::new(false)),
+            emit: Rc::default(),
+            handle: gpui::ScrollHandle::new(),
+            handle_stale: true,
+            gesture: Rc::default(),
+        }
+    }
+}
+
+impl RNNodeView {
+    /// This node's scroll state, made at offset zero the first time a node
+    /// that was not a scroll view needs it.
+    fn parts_mut(&mut self) -> &mut ScrollParts {
+        self.scroll_parts
+            .get_or_insert_with(|| Box::new(ScrollParts::at(Point::default())))
+    }
+}
 
 /// What the pointer is doing to a scroll view, so drag and momentum can be
 /// reported. A trackpad sends `Started`, `Moved` and `Ended` while the fingers

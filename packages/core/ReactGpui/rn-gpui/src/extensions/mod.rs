@@ -355,7 +355,7 @@ pub struct TreeView<'a> {
 /// node, and removes the aliasing entirely.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeSnapshot {
-    pub(crate) component: String,
+    pub(crate) component: gpui::SharedString,
     pub(crate) tag: i32,
     pub(crate) frame: RectF,
     pub(crate) scale: (f32, f32),
@@ -407,7 +407,7 @@ impl<'a> TreeView<'a> {
             map.insert(
                 node.tag,
                 NodeSnapshot {
-                    component: node.component,
+                    component: node.component.into(),
                     tag: node.tag,
                     frame: node.frame,
                     scale: node.scale,
@@ -434,7 +434,7 @@ impl<'a> TreeView<'a> {
 impl NodeSnapshot {
     fn to_component_node(&self) -> ComponentNode {
         ComponentNode {
-            component: self.component.clone(),
+            component: self.component.to_string(),
             tag: self.tag,
             frame: self.frame,
             scale: self.scale,

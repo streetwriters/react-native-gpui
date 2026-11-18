@@ -921,7 +921,7 @@ impl ViewStore {
                                 && op.host_changed_more.iter().all(|word| *word == 0)
                                 && op.host_props_handle == 0
                                 && node.frame == op.frame
-                                && node.extension_props_json() == op.extension_props_json
+                                && node.has_extension_props_json(&op.extension_props_json)
                         };
                         if !unchanged {
                             node.update(cx, |node, cx| {

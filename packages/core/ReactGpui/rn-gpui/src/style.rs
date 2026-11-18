@@ -1,7 +1,7 @@
+use crate::view_props::ViewProps;
 use gpui::{
     point, px, rgba, BoxShadow, CursorStyle, Fill, Hsla, Overflow, SharedString, StyleRefinement,
 };
-use rn_gpui_sys::ffi::ViewPropsFlat;
 use serde_json::Value;
 
 /// RN colors are 0xAARRGGBB; GPUI's `rgba()` takes 0xRRGGBBAA.
@@ -58,7 +58,7 @@ pub(crate) fn cursor_style(ordinal: u8) -> Option<CursorStyle> {
     Some(style)
 }
 
-pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
+pub fn to_refinement(v: &ViewProps) -> StyleRefinement {
     let mut s = StyleRefinement::default();
     if v.background_color != 0 {
         s.background = Some(Fill::from(color(v.background_color)));
@@ -76,7 +76,7 @@ pub fn to_refinement(v: &ViewPropsFlat) -> StyleRefinement {
         s.overflow_clips_corners = Some(true);
     }
     if let Some(cursor) = cursor_style(v.cursor) {
-        log::info!("[style] cursor ordinal {} -> {cursor:?}", v.cursor);
+        log::debug!("[style] cursor ordinal {} -> {cursor:?}", v.cursor);
         s.mouse_cursor = Some(cursor);
     }
     if v.opacity < 1.0 {
@@ -331,7 +331,7 @@ impl StateStyles {
     }
 
     /// `None` when the view declares nothing, which is the case for almost every view.
-    pub fn from_flat(v: &ViewPropsFlat) -> Option<std::rc::Rc<Self>> {
+    pub fn from_flat(v: &ViewProps) -> Option<std::rc::Rc<Self>> {
         let styles = Self {
             group: (!v.group.is_empty()).then(|| v.group.clone().into()),
             hover: parse_state("hoverStyle", &v.hover_style),
@@ -405,12 +405,12 @@ mod state_style_tests {
 
     #[test]
     fn a_view_with_no_state_props_has_no_state_styles() {
-        assert!(StateStyles::from_flat(&ViewPropsFlat::default()).is_none());
+        assert!(StateStyles::from_flat(&ViewProps::default()).is_none());
     }
 
     #[test]
     fn a_group_style_needs_a_group_name() {
-        let mut view = ViewPropsFlat::default();
+        let mut view = ViewProps::default();
         view.group_hover_style = r#"{"group":"","style":{"opacity":1}}"#.to_string();
         assert!(StateStyles::from_flat(&view).is_none());
         view.group_hover_style = r#"{"group":"row","style":{"opacity":1}}"#.to_string();
@@ -420,14 +420,14 @@ mod state_style_tests {
 
     #[test]
     fn invalid_json_is_ignored() {
-        let mut view = ViewPropsFlat::default();
+        let mut view = ViewProps::default();
         view.hover_style = "{".to_string();
         assert!(StateStyles::from_flat(&view).is_none());
     }
 
     #[test]
     fn any_state_can_set_the_text_color() {
-        let mut view = ViewPropsFlat::default();
+        let mut view = ViewProps::default();
         view.active_style = r#"{"color":4294901760}"#.to_string();
         assert!(StateStyles::from_flat(&view).unwrap().sets_color());
     }

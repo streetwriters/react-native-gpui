@@ -3,7 +3,7 @@ id: performance
 title: Performance Overview
 ---
 
-React Native's [performance guide](https://reactnative.dev/docs/0.87/performance) applies to desktop apps. This page lists what is different on desktop. To measure, see [Profiling](profiling) and the [Perf Monitor](perfmonitor).
+React Native's [performance guide](https://reactnative.dev/docs/0.87/performance) applies to desktop apps. This page lists what is different on desktop. To measure, see [Profiling](profiling) and the [Perf Monitor](perfmonitor); for memory, see [Memory](memory).
 
 ## Threads
 

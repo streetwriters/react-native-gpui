@@ -14,7 +14,7 @@ pub(crate) fn single_line_offset(
     viewport_height: f32,
     fallback_height: f32,
 ) -> f32 {
-    if node.input_multiline {
+    if node.input().multiline {
         return 0.0;
     }
     let measured = crate::text::single_line_height(paragraph);
@@ -41,11 +41,11 @@ pub(crate) fn paragraph_content(
     let bottom = node.view.content_insets.bottom * scale_y;
     let viewport_width = (frame.w * scale_x - left - right).max(0.0);
     let viewport_height = (frame.h * scale_y - top - bottom).max(0.0);
-    if !node.input_multiline {
+    if !node.input().multiline {
         let mut paragraph = paragraph.clone();
         paragraph.max_lines = 0;
         paragraph.ellipsize = 0;
-        let line = node.input_text.split('\n').next().unwrap_or_default();
+        let line = node.input().text.split('\n').next().unwrap_or_default();
         let natural_width =
             crate::text::input_caret_x(window.text_system(), &paragraph, line, line.len());
         let text_width = viewport_width.max(natural_width + 2.0);
@@ -62,7 +62,7 @@ pub(crate) fn paragraph_content(
                 .child(
                     div()
                         .absolute()
-                        .left(px(-node.input_scroll_x * scale_x))
+                        .left(px(-node.input().scroll_x * scale_x))
                         .top(px(offset))
                         .w(px(text_width))
                         .h(px(viewport_height))
@@ -77,7 +77,7 @@ pub(crate) fn paragraph_content(
         let content_height = viewport_height
             .max(crate::builtins::textinput::input::input_line_height(node) * scale_y)
             .max(
-                node.input_text.split('\n').count() as f32
+                node.input().text.split('\n').count() as f32
                     * crate::builtins::textinput::input::input_line_height(node)
                     * scale_y,
             );
@@ -93,7 +93,7 @@ pub(crate) fn paragraph_content(
                     div()
                         .absolute()
                         .left_0()
-                        .top(px(-node.input_scroll_y * scale_y))
+                        .top(px(-node.input().scroll_y * scale_y))
                         .w(px(viewport_width))
                         .h(px(content_height))
                         .child(crate::text::paragraph_element(
@@ -109,13 +109,16 @@ pub(crate) fn paragraph_content(
 
 /// Fabric measured the text inside the padding and border, so it is laid out
 /// and painted in that content box, not across the whole frame.
+/// With `overlay`, the text is not a child of `element` but returned for the
+/// caller to paint over it with [`crate::text::ParagraphOverlay`].
 pub(crate) fn plain_paragraph(
     node: &RNNodeView,
     element: Stateful<Div>,
     paragraph: &ParagraphFlat,
     scale: (f32, f32),
     frame: RectF,
-) -> Stateful<Div> {
+    overlay: bool,
+) -> (Stateful<Div>, Option<crate::text::ParagraphOverlayParts>) {
     let (scale_x, scale_y) = scale;
     let insets = node.view.content_insets;
     let left = insets.left * scale_x;
@@ -135,25 +138,33 @@ pub(crate) fn plain_paragraph(
         } else {
             Vec::new()
         };
-    element
-        .children(highlights.into_iter().map(|(x, y, w, h)| {
-            div()
-                .absolute()
-                .left(px(left + x * scale_x))
-                .top(px(top + y * scale_y))
-                .w(px(w * scale_x))
-                .h(px(h * scale_y))
-                .bg(gpui::rgba(0x3875d788))
-        }))
-        .child(
-            div()
+    let element = element.children(highlights.into_iter().map(|(x, y, w, h)| {
+        div()
+            .absolute()
+            .left(px(left + x * scale_x))
+            .top(px(top + y * scale_y))
+            .w(px(w * scale_x))
+            .h(px(h * scale_y))
+            .bg(gpui::rgba(0x3875d788))
+    }));
+    if overlay {
+        let painter = crate::text::ParagraphPainter::new(paragraph, width, height);
+        let parts = (
+            painter,
+            gpui::point(px(left), px(top)),
+            gpui::size(px(width), px(height)),
+        );
+        return (element, Some(parts));
+    }
+    (
+        element.child(
+            crate::text::paragraph_element(paragraph, width, height)
                 .absolute()
                 .left(px(left))
-                .top(px(top))
-                .w(px(width))
-                .h(px(height))
-                .child(crate::text::paragraph_element(paragraph, width, height)),
-        )
+                .top(px(top)),
+        ),
+        None,
+    )
 }
 
 pub(crate) fn caret_canvas(
@@ -162,28 +173,28 @@ pub(crate) fn caret_canvas(
     input: Entity<RNNodeView>,
     scale: (f32, f32),
 ) -> Stateful<Div> {
-    if node.input_caret_hidden || !node.input_editable {
+    if node.input().caret_hidden || !node.input().editable {
         return element;
     }
     let (scale_x, scale_y) = scale;
     let focus = node.focus_handle.clone();
-    let caret_text = node.input_text.clone();
-    let caret_offset = node.input_selection.end.min(node.input_text.len());
+    let caret_text = node.input().text.clone();
+    let caret_offset = node.input().selection.end.min(node.input().text.len());
     let mut caret_paragraph = node.paragraph.clone().unwrap_or_default();
     for fragment in &mut caret_paragraph.fragments {
         fragment.font_size *= scale_y;
         fragment.letter_spacing *= scale_x;
     }
-    let input_selection = node.input_selection.clone();
+    let input_selection = node.input().selection.clone();
     let content_insets = node.view.content_insets;
-    let input_text_color = node.input_text_color;
-    let input_selection_color = node.input_selection_color;
-    let input_multiline = node.input_multiline;
-    let input_scroll_x = node.input_scroll_x * scale_x;
-    let input_scroll_y = node.input_scroll_y * scale_y;
-    let caret_visible = node.caret_visible;
+    let input_text_color = node.input().text_color;
+    let input_selection_color = node.input().selection_color;
+    let input_multiline = node.input().multiline;
+    let input_scroll_x = node.input().scroll_x * scale_x;
+    let input_scroll_y = node.input().scroll_y * scale_y;
+    let caret_visible = node.input().caret_visible;
     let single_line_paragraph = caret_paragraph.clone();
-    let multiline_input = node.input_multiline;
+    let multiline_input = node.input().multiline;
     let fallback_line = crate::builtins::textinput::input::input_line_height(node) * scale_y;
     let caret_height = node
         .paragraph

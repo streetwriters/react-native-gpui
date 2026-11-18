@@ -275,7 +275,9 @@ async fn serve_commands(
             "dockMenu" | "dockMenuPress" => dock_menu(method, &params),
             "layoutStats" => {
                 let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
-                cx.update_window(window, |_, window, _| {
+                cx.update_window(window, |_, window, cx| {
+                    let views = crate::store::store_from(cx)
+                        .map_or(0, |store| store.read(cx).nodes.len());
                     let stats = window.layout_stats();
                     let target_at = crate::wheel::target_at_stats(reset);
                     let scroll_deltas = crate::wheel::scroll_delta_stats(reset);
@@ -308,6 +310,7 @@ async fn serve_commands(
                         "layerRebuildsForInput": stats.layer_rebuilds_for_input,
                         "layersDemoted": stats.layers_demoted,
                         "layoutNodes": window.layout_node_count(),
+                        "views": views,
                         "targetAtCalls": target_at.0,
                         "targetAtMs": target_at.1,
                         "scrollEvents": scroll_deltas.0,
@@ -1102,14 +1105,21 @@ async fn serve_commands(
                 .unwrap_or_else(|error| json!({"error": error.to_string()}))
             }
             "focus" => {
-                let handle = cx.update_entity(&store, |store,cx| {
-                    let tag = params.get("tag").and_then(Value::as_i64)? as i32;
-                    store.nodes.get(&tag)?.read(cx).nearest_focus_handle(cx)
-                });
-                if let Some(handle) = handle {
-                    cx.update_window(window, move |_,window,app| { window.focus(&handle,app); draw_frame(window, app); json!({"focused":true}) })
-                        .unwrap_or_else(|error|json!({"error":error.to_string()}))
-                } else {json!({"error":"Target has no focusable ancestor"})}
+                let node = params
+                    .get("tag")
+                    .and_then(Value::as_i64)
+                    .and_then(|tag| store.read_with(cx, |store, _| store.nodes.get(&(tag as i32)).cloned()));
+                cx.update_window(window, move |_, window, app| {
+                    match node.and_then(|node| crate::node_view::RNNodeView::press_focus_handle(&node, window, app)) {
+                        Some(handle) => {
+                            window.focus(&handle, app);
+                            draw_frame(window, app);
+                            json!({"focused": true})
+                        }
+                        None => json!({"error": "Target has no focusable ancestor"}),
+                    }
+                })
+                .unwrap_or_else(|error| json!({"error": error.to_string()}))
             },
             "press" => {
                 let key = params.get("key").and_then(Value::as_str).unwrap_or("");
@@ -1158,7 +1168,7 @@ async fn serve_commands(
                         return Some(position);
                     }
                     let node = store.nodes.get(&tag)?.read(cx);
-                    if node.component != "TextInput" || !node.input_editable {
+                    if node.component != "TextInput" || !node.input().editable {
                         return None;
                     }
                     node_frame(store, tag, cx)
@@ -1224,7 +1234,7 @@ async fn serve_commands(
                     }
                     let entity = store.nodes.get(&tag)?;
                     let node = entity.read(cx);
-                    if node.component != "TextInput" || !node.input_editable {
+                    if node.component != "TextInput" || !node.input().editable {
                         return None;
                     }
                     node_frame(store, tag, cx).map(|frame| {
@@ -2188,15 +2198,15 @@ fn serve_socket(listener: TcpListener, token: String, tx: Sender<Request>) {
 }
 
 fn extension_props(node: &RNNodeView) -> Value {
-    if node.extension_props_json().is_empty() {
-        return Value::Object(serde_json::Map::new());
+    match node.extension_props() {
+        Value::Null => Value::Object(serde_json::Map::new()),
+        props => props.clone(),
     }
-    serde_json::from_str(node.extension_props_json()).unwrap_or(Value::Null)
 }
 
 fn paragraph_text(node: &RNNodeView) -> String {
     if node.component == "TextInput" {
-        return node.input_text.clone();
+        return node.input().text.clone();
     }
     node.paragraph
         .as_ref()
@@ -2701,10 +2711,10 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "opacity":effective_opacity(node),"backgroundColor":effective_background(node),"baseBackgroundColor":node.view.background_color,"baseOpacity":node.view.opacity,"states":node.active_state_names(),"transform":node.view.transform,"renderCount":node.test_render_count(),
         "scrollStrategy": node.scroll_strategy_name(),
         "selection": if node.component == "TextInput" { json!({
-            "start": node.input_text[..node.input_selection.start].encode_utf16().count(),
-            "end": node.input_text[..node.input_selection.end].encode_utf16().count()
+            "start": node.input().text[..node.input().selection.start].encode_utf16().count(),
+            "end": node.input().text[..node.input().selection.end].encode_utf16().count()
         }) } else { Value::Null },
-        "inputScrollX": if node.component == "TextInput" { json!(node.input_scroll_x) } else { Value::Null },
+        "inputScrollX": if node.component == "TextInput" { json!(node.input().scroll_x) } else { Value::Null },
         "frame": node_frame(store, tag, cx).map(|frame| json!({"x":frame.x,"y":frame.y,"width":frame.w,"height":frame.h}))})
 }
 
