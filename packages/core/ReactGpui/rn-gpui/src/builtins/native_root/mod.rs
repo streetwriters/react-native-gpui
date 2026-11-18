@@ -67,6 +67,68 @@ thread_local! {
     /// batch repaints them.
     static EARLY_TAGS: RefCell<HashMap<u32, i32>> = RefCell::new(HashMap::new());
     static HOLD: Rc<dyn Fn() -> bool> = Rc::new(holding);
+    /// When the window began holding its last frame, while it does.
+    static HELD_SINCE: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
+    /// When the windows' recent holds ended and how long each took.
+    static RECENT_HOLDS: RefCell<std::collections::VecDeque<(std::time::Instant, std::time::Duration)>> =
+        RefCell::new(std::collections::VecDeque::new());
+}
+
+/// How much holding a window may do within `HOLD_BUDGET_WINDOW` before new
+/// roots stop holding it: a stream of roots that mount one after another
+/// would otherwise keep the window on its last frame.
+const HOLD_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
+const HOLD_BUDGET_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How recent a scroll event is that keeps a new root from holding the window:
+/// a row that mounts while the list is scrolled shifts nothing in view, and a
+/// frozen frame would stop the scroll.
+const SCROLL_QUIET: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Records when the window starts and stops holding.
+fn note_hold(held: bool) {
+    let now = std::time::Instant::now();
+    HELD_SINCE.with(|since| match (since.get(), held) {
+        (None, true) => since.set(Some(now)),
+        (Some(started), false) => {
+            since.set(None);
+            let took = now.duration_since(started);
+            RECENT_HOLDS.with(|recent| recent.borrow_mut().push_back((now, took)));
+            crate::counters::add(crate::counters::Counter::NativeRootHolds, 1);
+            crate::counters::add(
+                crate::counters::Counter::NativeRootHeldMicros,
+                took.as_micros() as u64,
+            );
+        }
+        _ => {}
+    });
+}
+
+/// Whether a new root may hold the window: not while it is scrolling, and not
+/// once it has held for `HOLD_BUDGET` within the last `HOLD_BUDGET_WINDOW`.
+fn hold_allowed() -> bool {
+    let spent = RECENT_HOLDS.with(|recent| {
+        let mut recent = recent.borrow_mut();
+        while recent
+            .front()
+            .is_some_and(|(ended, _)| ended.elapsed() > HOLD_BUDGET_WINDOW)
+        {
+            recent.pop_front();
+        }
+        recent
+            .iter()
+            .map(|(_, took)| *took)
+            .sum::<std::time::Duration>()
+    }) + HELD_SINCE.with(|since| {
+        since
+            .get()
+            .map_or(std::time::Duration::ZERO, |at| at.elapsed())
+    });
+    let allowed = !crate::wheel::scrolled_within(SCROLL_QUIET) && spent <= HOLD_BUDGET;
+    if !allowed {
+        crate::counters::add(crate::counters::Counter::NativeRootHoldsSkipped, 1);
+    }
+    allowed
 }
 
 /// How long a window holds its last frame for new trees to settle.
@@ -90,14 +152,16 @@ fn next_sequence() -> u64 {
 /// settling, so the frame would show it, and what is laid out around it, at
 /// sizes about to change. A tree rendered but not painted is out of view.
 fn holding() -> bool {
-    UNSETTLED.with(|unsettled| {
+    let held = UNSETTLED.with(|unsettled| {
         let mut unsettled = unsettled.borrow_mut();
         unsettled.retain(|_, settling| settling.since.elapsed() < SETTLE_LIMIT);
         unsettled.values().any(|settling| match settling.rendered {
             None => true,
             Some(rendered) => settling.painted.is_some_and(|painted| painted > rendered),
         })
-    })
+    });
+    note_hold(held);
+    held
 }
 
 fn root_id(node: &ComponentNode) -> u32 {
@@ -170,27 +234,35 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     }
 }
 
-/// Notes a tree that has just appeared, the first time its box renders or its
-/// first batch arrives, whichever comes first.
-fn start_settling(root: u32) -> bool {
-    let first = STARTED.with(|started| started.borrow_mut().insert(root));
-    if first {
-        UNSETTLED.with(|unsettled| {
-            unsettled.borrow_mut().insert(
-                root,
-                Settling {
-                    since: std::time::Instant::now(),
-                    rendered: None,
-                    painted: None,
-                },
-            );
-        });
+/// Whether this is the first time the tree `root` is seen, by its box rendering
+/// or its first batch arriving, whichever comes first.
+fn first_seen(root: u32) -> bool {
+    STARTED.with(|started| started.borrow_mut().insert(root))
+}
+
+/// Starts holding the window's last frame for the tree `root` to settle, unless
+/// the window is scrolling or has held enough lately. Whether it did.
+fn begin_settling(root: u32) -> bool {
+    if !hold_allowed() {
+        return false;
     }
-    first
+    UNSETTLED.with(|unsettled| {
+        unsettled.borrow_mut().insert(
+            root,
+            Settling {
+                since: std::time::Instant::now(),
+                rendered: None,
+                painted: None,
+            },
+        );
+    });
+    true
 }
 
 fn new_state(root: u32, cx: &App) -> RootState {
-    start_settling(root);
+    if first_seen(root) {
+        begin_settling(root);
+    }
     let host: Host = crate::store::store_from(cx)
         .map(|store| store.read(cx).host.clone())
         .expect("the store exists while a tree is applied to");
@@ -307,9 +379,11 @@ impl ComponentRenderer for NativeRootRenderer {
         // A box whose tree has not arrived yet holds the window too: the frame
         // would show the page around it at sizes about to change.
         if root != 0 && TREES.with(|trees| !trees.borrow().contains_key(&root)) {
-            if start_settling(root) {
+            if first_seen(root) {
                 EARLY_TAGS.with(|tags| tags.borrow_mut().insert(root, node.tag));
-                window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
+                if begin_settling(root) {
+                    window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
+                }
             }
             return None;
         }

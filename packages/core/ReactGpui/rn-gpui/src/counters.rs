@@ -26,6 +26,13 @@ pub(crate) enum Counter {
     NativeInstancesCreated,
     /// Native components taken from the pool of removed ones instead.
     NativeInstancesRecycled,
+    /// Times a window held its last frame for new native roots to settle.
+    NativeRootHolds,
+    /// Microseconds the windows spent holding their last frame.
+    NativeRootHeldMicros,
+    /// New native roots that did not hold the window: it was scrolling, or had
+    /// held for too long lately.
+    NativeRootHoldsSkipped,
 }
 
 #[cfg(feature = "test-driver")]

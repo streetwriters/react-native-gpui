@@ -236,6 +236,9 @@ async fn serve_commands(
                     "nativeRenderMicros": read(Counter::NativeRenderMicros),
                     "nativeInstancesCreated": read(Counter::NativeInstancesCreated),
                     "nativeInstancesRecycled": read(Counter::NativeInstancesRecycled),
+                    "nativeRootHolds": read(Counter::NativeRootHolds),
+                    "nativeRootHeldMs": read(Counter::NativeRootHeldMicros) as f64 / 1000.0,
+                    "nativeRootHoldsSkipped": read(Counter::NativeRootHoldsSkipped),
                 });
                 if params.get("reset").and_then(Value::as_bool).unwrap_or(false) {
                     reset();

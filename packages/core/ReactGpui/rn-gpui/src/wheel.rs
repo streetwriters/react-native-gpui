@@ -67,9 +67,19 @@ pub(crate) fn pending() -> bool {
 }
 
 /// Listens, before the views below it scroll, for the wheel and the pinch.
+static LAST_SCROLL_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Whether a scroll event arrived within `within`, so a window is being
+/// scrolled, momentum included.
+pub(crate) fn scrolled_within(within: Duration) -> bool {
+    let last = LAST_SCROLL_MS.load(std::sync::atomic::Ordering::Relaxed);
+    last != 0 && epoch_ms() - (last as f64) < within.as_secs_f64() * 1000.0
+}
+
 pub(crate) fn install(window: &mut Window) {
     window.on_mouse_event(|event: &ScrollEvent, phase, window, cx| {
         if phase == DispatchPhase::Capture {
+            LAST_SCROLL_MS.store(epoch_ms() as u64, std::sync::atomic::Ordering::Relaxed);
             note_scroll_delta(event, window.scale_factor());
         }
         if phase == DispatchPhase::Capture && intercept(Wheel::Scroll(event.clone()), window, cx) {
