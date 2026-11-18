@@ -14,6 +14,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - Moving focus, such as clicking a focusable view, no longer builds every view in the window again: gpui-fast `74dcd1f` marks only the views that read the focus state of the elements that gained and lost it, and draws the rest from the last frame. Unmounting 5,000 cells built 10,514 views before and builds 7 now.
 - After a large tree is unmounted, or a window draws nothing for a second, the renderer gives back what its frames needed beyond what is on screen: element arena chunks, the spare frame's lists and the slack of the drawn frame's.
 - The test driver's `layoutStats` reports `views`, the number of React Native views mounted.
+- A change between mouse and keyboard input builds only the views that read which one was last used, instead of every view in the window: gpui-fast `841adea`. Only the focused view reads it, to draw its keyboard focus ring. With 5,000 views mounted, typing in a text input right after a click reaches its `onChangeText` handler in 4.5 ms, from 35 ms, and the frame that shows the character in 22 ms, from 53 ms. The same holds while a screen reader is running: gpui-fast `c291ac4` replays the ancestors of a view built again with their role, so a view built again inside a scroll view drawn from the last frame is still known to be inside it. Needs gpui-fast `3f7a51a`.
 
 ## 0.87.0-alpha.4 - 2026-11-16
 

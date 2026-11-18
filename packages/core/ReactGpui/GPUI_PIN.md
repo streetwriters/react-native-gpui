@@ -11,7 +11,10 @@ so we pin by commit SHA and bump on purpose.
 - Repository: https://github.com/streetwriters/gpui-fast
 - Branch: `rn-gpui-linux` (tracks upstream `main` with Linux fixes on top so each one can become an
   upstream pull request, plus fixes for content drawn under a transform and allocation cuts)
-- Commit: `3efc3d0` (2026-11-18: `93193d4` plus nested views sharing their retained layouts
+- Commit: `3f7a51a` (2026-11-18: `3efc3d0` plus a change of input modality (mouse, keyboard or
+  touch) building only the views that read it, and accessibility nodes replayed for a retained
+  stretch pushed with the role they had, so a view built again inside a scroll view drawn from
+  the last frame is still known to be inside it. `3efc3d0` is `93193d4` plus nested views sharing their retained layouts
   instead of copying them, so a view's cost does not grow with its depth, and a retained record's
   frame indices kept in 32 bits. `93193d4` is `74dcd1f` plus memory cuts: the element arena frees the chunks the
   last two frames did not use and keeps at most eight; global element ids are interned as a parent
